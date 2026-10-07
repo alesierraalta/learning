@@ -53,6 +53,9 @@ func TestSignalReleasesWorkspaceLock(t *testing.T) {
 						return
 					}
 				}
+				if err := sc.Err(); err != nil {
+					t.Errorf("read helper stdout: %v", err)
+				}
 				locked <- false
 			}()
 			select {
@@ -99,6 +102,9 @@ func TestSignalReleasesEveryHeldLock(t *testing.T) {
 	}
 	sc := bufio.NewScanner(stdout)
 	for sc.Scan() && strings.TrimSpace(sc.Text()) != "locked" {
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatalf("read helper stdout: %v", err)
 	}
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)

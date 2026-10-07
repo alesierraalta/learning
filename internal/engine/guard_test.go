@@ -185,7 +185,7 @@ func TestConcurrentAdvancesNeverCorruptState(t *testing.T) {
 
 	start := make(chan struct{})
 	results := make(chan int, 2)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		go func() {
 			<-start
 			_, code := Run(f.opts("advance", "preparation"))

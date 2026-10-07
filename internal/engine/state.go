@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -176,7 +177,7 @@ func acquireLock(ws string) (func(), error) {
 	}
 	watchSignal.Do(releaseLocksOnSignal)
 	p := lockPath(ws)
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		commitMu.Lock()
 		f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err == nil {
@@ -222,7 +223,9 @@ func releaseLocksOnSignal() {
 	signal.Notify(sigs, syscall.SIGTERM, os.Interrupt)
 	go func() {
 		sig := <-sigs
-		commitMu.Lock()
+		// commitMu stays held until os.Exit on purpose: once the locks are
+		// removed no further state commit may start.
+		commitMu.Lock() // nosemgrep: trailofbits.go.missing-unlock-before-return.missing-unlock-before-return
 		for p := range ownedLocks {
 			_ = os.Remove(p)
 		}
@@ -230,7 +233,7 @@ func releaseLocksOnSignal() {
 		if sig == syscall.SIGTERM {
 			code = 143
 		}
-		os.Exit(code)
+		os.Exit(code) // nosemgrep: trailofbits.go.missing-unlock-before-return.missing-unlock-before-return
 	}()
 }
 
@@ -332,23 +335,12 @@ func formatStale(refs []staleRef) string {
 		}
 		parts = append(parts, fmt.Sprintf("%s(%s)", name, joinLimited(ref.Files, 3)))
 	}
-	return joinLimitedStrs(parts, ", ")
+	return strings.Join(parts, ", ")
 }
 
 func joinLimited(items []string, max int) string {
 	if len(items) > max {
-		return joinLimitedStrs(items[:max], ",") + fmt.Sprintf("+%d", len(items)-max)
+		return strings.Join(items[:max], ",") + fmt.Sprintf("+%d", len(items)-max)
 	}
-	return joinLimitedStrs(items, ",")
-}
-
-func joinLimitedStrs(items []string, sep string) string {
-	out := ""
-	for i, s := range items {
-		if i > 0 {
-			out += sep
-		}
-		out += s
-	}
-	return out
+	return strings.Join(items, ",")
 }

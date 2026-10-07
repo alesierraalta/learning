@@ -263,7 +263,7 @@ func runStatus(ws string, r *rules.Rules) (Report, int) {
 
 	if checked, problems := semanticFreshness(r, st, ws); checked > 0 {
 		if len(problems) > 0 {
-			checks = append(checks, failCheck("semantic-receipts", "stale or missing judgments: "+joinLimitedStrs(problems, "; ")))
+			checks = append(checks, failCheck("semantic-receipts", "stale or missing judgments: "+strings.Join(problems, "; ")))
 		} else {
 			checks = append(checks, passCheck("semantic-receipts", fmt.Sprintf("%d semantic judgment(s) are fresh", checked)))
 		}
