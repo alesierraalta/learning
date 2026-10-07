@@ -1,0 +1,104 @@
+package engine
+
+import (
+	"bufio"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// A command interrupted while it holds the workspace lock (the Pi adapter's
+// execFile timeout sends SIGTERM; Ctrl-C sends SIGINT) must release the lock
+// and leave state.json intact, so the next command is not blocked for
+// lockStaleAfter.
+func TestSignalReleasesWorkspaceLock(t *testing.T) {
+	cases := []struct {
+		name string
+		sig  syscall.Signal
+		code int
+	}{
+		{"SIGTERM", syscall.SIGTERM, 143},
+		{"SIGINT", syscall.SIGINT, 130},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := readyForExplanation(t)
+			f.reviewPending(t, "explanation")
+			before := f.tryReadState(t)
+
+			cmd := exec.Command(os.Args[0], "-test.run=^TestSignalHelperProcess$")
+			cmd.Env = append(os.Environ(),
+				"LEARNING_SIGNAL_HELPER=1",
+				"LEARNING_HELPER_ROOT="+f.root,
+				"LEARNING_HELPER_WS="+f.ws)
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			locked := make(chan bool, 1)
+			go func() {
+				sc := bufio.NewScanner(stdout)
+				for sc.Scan() {
+					if strings.TrimSpace(sc.Text()) == "locked" {
+						locked <- true
+						return
+					}
+				}
+				locked <- false
+			}()
+			select {
+			case ok := <-locked:
+				if !ok {
+					t.Fatal("helper exited before acquiring the lock")
+				}
+			case <-time.After(20 * time.Second):
+				_ = cmd.Process.Kill()
+				t.Fatal("helper never acquired the lock")
+			}
+			if err := cmd.Process.Signal(tc.sig); err != nil {
+				t.Fatal(err)
+			}
+			err = cmd.Wait()
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) || exit.ExitCode() != tc.code {
+				t.Fatalf("interrupted command: wait err = %v, want exit code %d", err, tc.code)
+			}
+			if _, err := os.Stat(filepath.Join(f.ws, ".learning", "lock")); !os.IsNotExist(err) {
+				t.Fatalf("lock must be released after %s, stat err = %v", tc.name, err)
+			}
+			if string(f.tryReadState(t)) != string(before) {
+				t.Fatal("interrupted command changed state")
+			}
+			f.advanceOK(t, "explanation")
+		})
+	}
+}
+
+// TestSignalHelperProcess is the child process of TestSignalReleasesWorkspaceLock:
+// it runs advance and parks while holding the lock until it is signaled.
+func TestSignalHelperProcess(t *testing.T) {
+	if os.Getenv("LEARNING_SIGNAL_HELPER") != "1" {
+		t.Skip("helper process only")
+	}
+	lockAcquiredHook = func() {
+		fmt.Println("locked")
+		time.Sleep(time.Minute)
+	}
+	Run(Options{
+		Command:   "advance",
+		Root:      os.Getenv("LEARNING_HELPER_ROOT"),
+		Workspace: os.Getenv("LEARNING_HELPER_WS"),
+		RulesPath: repoRulesPath,
+		Mode:      "deep",
+		Stage:     "explanation",
+	})
+}

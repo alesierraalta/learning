@@ -8,7 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"sync"
+	"syscall"
 	"time"
 
 	"learning/internal/rules"
@@ -130,8 +133,14 @@ func loadState(ws string) (*State, error) {
 	return &st, nil
 }
 
+// commitMu orders a signal-driven exit after any in-flight state commit, so
+// the lock is never released while state.json is still being replaced.
+var commitMu sync.Mutex
+
 // saveState writes atomically so concurrent readers never see a torn file.
 func saveState(ws string, st *State) error {
+	commitMu.Lock()
+	defer commitMu.Unlock()
 	if err := os.MkdirAll(stateDir(ws), 0o755); err != nil {
 		return fmt.Errorf("cannot create state directory: %w", err)
 	}
@@ -149,30 +158,95 @@ func saveState(ws string, st *State) error {
 	return nil
 }
 
+// lockAcquiredHook is a test seam called while the workspace lock is held.
+var lockAcquiredHook func()
+
 // acquireLock serializes mutating commands. A concurrent holder is rejected;
 // a stale lock (crashed process) is taken over instead of bricking the run.
+// Signal handling starts before the lock exists, so no SIGTERM or SIGINT can
+// land between creating the lock and being able to remove it.
 func acquireLock(ws string) (func(), error) {
 	if err := os.MkdirAll(stateDir(ws), 0o755); err != nil {
 		return nil, fmt.Errorf("cannot create state directory: %w", err)
 	}
 	p := lockPath(ws)
+	g := newLockGuard()
 	for attempt := 0; attempt < 2; attempt++ {
+		commitMu.Lock()
 		f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			g.path = p
+		}
+		commitMu.Unlock()
 		if err == nil {
 			_, _ = f.Write([]byte(newRunID()))
 			_ = f.Close()
-			return func() { _ = os.Remove(p) }, nil
+			if lockAcquiredHook != nil {
+				lockAcquiredHook()
+			}
+			return g.release, nil
 		}
 		if !os.IsExist(err) {
+			g.stop()
 			return nil, fmt.Errorf("lock creation failed: %w", err)
 		}
 		if fi, statErr := os.Stat(p); statErr == nil && time.Since(fi.ModTime()) > lockStaleAfter {
 			_ = os.Remove(p)
 			continue
 		}
+		g.stop()
 		return nil, errLockHeld
 	}
+	g.stop()
 	return nil, errLockHeld
+}
+
+// lockGuard removes the owned lock when SIGTERM or SIGINT ends the process
+// (the Pi adapter's execFile timeout sends SIGTERM), so an interrupted
+// command does not block the workspace for lockStaleAfter. path and released
+// are guarded by commitMu, which also makes the exit wait for any in-flight
+// state commit.
+type lockGuard struct {
+	sigs     chan os.Signal
+	done     chan struct{}
+	path     string
+	released bool
+}
+
+func newLockGuard() *lockGuard {
+	g := &lockGuard{sigs: make(chan os.Signal, 1), done: make(chan struct{})}
+	signal.Notify(g.sigs, syscall.SIGTERM, os.Interrupt)
+	go func() {
+		select {
+		case sig := <-g.sigs:
+			commitMu.Lock()
+			if g.path != "" && !g.released {
+				_ = os.Remove(g.path)
+			}
+			code := 130
+			if sig == syscall.SIGTERM {
+				code = 143
+			}
+			os.Exit(code)
+		case <-g.done:
+		}
+	}()
+	return g
+}
+
+// stop ends signal handling without touching any lock.
+func (g *lockGuard) stop() {
+	signal.Stop(g.sigs)
+	close(g.done)
+}
+
+// release removes the owned lock, then restores default signal handling.
+func (g *lockGuard) release() {
+	commitMu.Lock()
+	defer commitMu.Unlock()
+	g.released = true
+	_ = os.Remove(g.path)
+	g.stop()
 }
 
 func hashBytes(b []byte) string {

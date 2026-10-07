@@ -36,6 +36,11 @@ learning help
   Errors are JSON too when `--json` is present.
 - Exit codes: `0` accepted/completed/waiting/skipped, `1` failed mandatory
   validation, `2` invalid arguments/configuration/operational failure.
+- Interrupted mutating commands: `SIGTERM` (the adapter's execFile timeout)
+  exits `143` and `SIGINT` exits `130`, with no report. Either one waits for an
+  in-flight state commit, then removes the workspace lock, so `state.json` holds
+  the old or the new state and the next command is not blocked. Only `SIGKILL`
+  or a crash leaves the lock, which is taken over after five minutes.
 - Unknown flags, duplicate flags, missing values, missing required flags, an
   unknown command, an invalid mode, `advance` without `--stage`, and `--stage`
   on `init`/`status` are strict operational errors (exit 2, `status:"error"`).
