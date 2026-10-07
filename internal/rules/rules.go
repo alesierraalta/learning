@@ -174,6 +174,10 @@ type Thresholds struct {
 	// the vault (native mermaid and installed Obsidian plugins). Embeds
 	// (![...]) always count as visuals.
 	VisualBlocks []string `json:"visualBlocks"`
+	// VisualElements are inline HTML elements that Obsidian renders as a
+	// visual (for example svg); they count outside code blocks, closed and
+	// with at least one child element.
+	VisualElements []string `json:"visualElements"`
 }
 
 // Rules is the parsed, validated source of truth.
@@ -371,6 +375,11 @@ func (r *Rules) validateThresholds() error {
 	for _, b := range t.VisualBlocks {
 		if strings.TrimSpace(b) == "" || strings.ContainsAny(b, " `") {
 			return fmt.Errorf("visualBlocks entries must be single code-block language names, got %q", b)
+		}
+	}
+	for _, e := range t.VisualElements {
+		if e == "" || strings.Trim(e, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" {
+			return fmt.Errorf("visualElements entries must be lowercase HTML element names, got %q", e)
 		}
 	}
 	return nil

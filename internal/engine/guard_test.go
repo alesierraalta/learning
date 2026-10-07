@@ -241,11 +241,12 @@ func TestAdvanceLocking(t *testing.T) {
 func TestMalformedRulesFailClosed(t *testing.T) {
 	f := newFixture(t)
 	cases := map[string]string{
-		"not json":         `{broken`,
-		"unknown kind":     strings.Replace(mustRules(t), `"kind": "plan_valid"`, `"kind": "telepathy_check"`, 1),
-		"unknown cond":     strings.Replace(mustRules(t), `"changed_after"`, `"vibes_changed"`, 1),
-		"missing version":  strings.Replace(mustRules(t), `"version": 1`, `"version": 99`, 1),
-		"bad visual block": strings.Replace(mustRules(t), `"visualBlocks": ["mermaid"`, `"visualBlocks": ["mer maid"`, 1),
+		"not json":           `{broken`,
+		"unknown kind":       strings.Replace(mustRules(t), `"kind": "plan_valid"`, `"kind": "telepathy_check"`, 1),
+		"unknown cond":       strings.Replace(mustRules(t), `"changed_after"`, `"vibes_changed"`, 1),
+		"missing version":    strings.Replace(mustRules(t), `"version": 1`, `"version": 99`, 1),
+		"bad visual block":   strings.Replace(mustRules(t), `"visualBlocks": ["mermaid"`, `"visualBlocks": ["mer maid"`, 1),
+		"bad visual element": strings.Replace(mustRules(t), `"visualElements": ["svg"]`, `"visualElements": ["<svg>"]`, 1),
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {

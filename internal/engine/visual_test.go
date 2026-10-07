@@ -15,9 +15,11 @@ func (f *fixture) writeExplanationWithVisual(t *testing.T, part, visual string) 
 	f.write(t, f.canonicalPartFile(t, part), body)
 }
 
-// A planned visual is satisfied by an embed or by a code block of a visual
-// format declared in the rules (installed Obsidian plugins and native mermaid);
-// empty blocks and undeclared formats are not visuals.
+// A planned visual is satisfied by an embed, by a code block of a visual
+// format declared in the rules (installed Obsidian plugins and native mermaid)
+// or by a declared inline element such as <svg> that Obsidian renders; empty
+// blocks or elements, inline elements inside code, and undeclared formats are
+// not visuals.
 func TestPlannedVisualAcceptsDeclaredFormats(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -31,6 +33,11 @@ func TestPlannedVisualAcceptsDeclaredFormats(t *testing.T) {
 		{"geogebra block", "```geogebra\nA = (1, 2)\n```", true},
 		{"ggb block", "```ggb\nf(x) = 2x\n```", true},
 		{"datachart block", "```datachart\ntype: bar\n```", true},
+		{"inline svg", `<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>`, true},
+		{"multiline inline svg", "<svg viewBox=\"0 0 10 10\">\n  <rect width=\"4\" height=\"4\"/>\n</svg>", true},
+		{"empty svg", "<svg viewBox=\"0 0 10 10\"></svg>", false},
+		{"unclosed svg", "<svg viewBox=\"0 0 10 10\"><rect/>", false},
+		{"svg inside a code block is code", "```html\n<svg><rect/></svg>\n```", false},
 		{"empty mermaid block", "```mermaid\n```", false},
 		{"undeclared format", "```markmap\n# Tema\n```", false},
 		{"plain code is not a visual", "```go\nfmt.Println(1)\n```", false},

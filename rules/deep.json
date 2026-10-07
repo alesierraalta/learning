@@ -38,6 +38,7 @@
     "misPalabrasHeader": "Vuelca aquí, con tus palabras",
     "planVisualHeading": "plan visual",
     "visualBlocks": ["mermaid", "desmos-graph", "geogebra", "ggb", "datachart"],
+    "visualElements": ["svg"],
     "planSections": [
       "pre-preguntas",
       "resultado",

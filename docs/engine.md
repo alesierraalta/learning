@@ -126,7 +126,7 @@ is the source of truth for paths and checks; this table summarizes it.
 | preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned` |
 | diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | 6 prerequisite + 6 topic questions (2/2/2 by level), enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
 | planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index links to parts, one learner area per part |
-| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present (an embed `![...]` such as an image or an Excalidraw drawing, or a nonempty block in a `thresholds.visualBlocks` format), revised after a failed mini-quiz |
+| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), revised after a failed mini-quiz |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
 | quiz | `mini-quiz/{part}.json`, `mini-quiz/{part}.answers.json` | part note has a mini-quiz section, 5 questions with enunciados present in it, complete answers, derived score ≥ 4/5 with no central miss |
 | feedback | `feedback/{part}.json` | matches the part, nonempty notes, `difficultyDetected=false` cannot contradict recorded wrong answers |
@@ -139,7 +139,11 @@ Visual formats: `thresholds.visualBlocks` in `rules/deep.json` lists the fenced
 code-block languages that render a visual in the vault — `mermaid` (native
 Obsidian), `desmos-graph` (Desmos plugin), `geogebra`/`ggb` (GeoGebra plugin)
 and `datachart` (Datacharts plugin), each confirmed from the plugin's registered
-code-block processor. Add or remove a format by editing that list. The check
+code-block processor. Add or remove a format by editing that list.
+`thresholds.visualElements` lists inline HTML elements Obsidian renders as a
+visual — `svg` today. One counts only outside code blocks, closed
+(`<svg ...>...</svg>`) and with at least one child element; an empty or
+unclosed element, or one inside a fenced block, is not a visual. The check
 proves a visual is present, not that it helps; that is the `visual-value`
 rubric's judgment.
 

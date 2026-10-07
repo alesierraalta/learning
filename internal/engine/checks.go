@@ -517,10 +517,11 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 	if p.ExamplesPlanned != nil && *p.ExamplesPlanned && !strings.Contains(lower, "ejemplo") && !strings.Contains(lower, "example") {
 		return failCheck(decl.ID, fmt.Sprintf("part %s planned an example but %s contains none", c.part, rel))
 	}
-	if p.VisualsPlanned != nil && *p.VisualsPlanned && !hasVisual(text, c.r.Thresholds.VisualBlocks) {
+	th := c.r.Thresholds
+	if p.VisualsPlanned != nil && *p.VisualsPlanned && !hasVisual(text, th.VisualBlocks, th.VisualElements) {
 		return failCheck(decl.ID, fmt.Sprintf(
-			"part %s planned a visual but %s has no embed (![...]) and no nonempty visual block (%s)",
-			c.part, rel, strings.Join(c.r.Thresholds.VisualBlocks, ", ")))
+			"part %s planned a visual but %s has no embed (![...]), no nonempty visual block (%s) and no inline visual element (%s)",
+			c.part, rel, strings.Join(th.VisualBlocks, ", "), strings.Join(th.VisualElements, ", ")))
 	}
 	return passCheck(decl.ID, fmt.Sprintf(
 		"%s: frontmatter joined to %s, Fuente traceability, heading, example %s, visual %s", rel, p.Subtema,
@@ -528,18 +529,23 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 		obligationLabel(p.VisualsPlanned, "verified", "not planned")))
 }
 
-// hasVisual reports an embed or a nonempty fenced block whose language is a
-// declared visual format. It proves a visual is present, not that it helps:
-// that is the visual-value rubric's judgment.
-func hasVisual(text string, blocks []string) bool {
+// hasVisual reports an embed, a nonempty fenced block whose language is a
+// declared visual format, or a declared inline element outside code blocks.
+// It proves a visual is present, not that it helps: that is the visual-value
+// rubric's judgment.
+func hasVisual(text string, blocks, elements []string) bool {
 	if strings.Contains(text, "![") {
 		return true
 	}
 	open, visual, body := false, false, 0
+	var prose strings.Builder
 	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "```") {
-			if open && visual && trimmed != "" {
+			if !open {
+				prose.WriteString(line)
+				prose.WriteByte('\n')
+			} else if visual && trimmed != "" {
 				body++
 			}
 			continue
@@ -554,6 +560,35 @@ func hasVisual(text string, blocks []string) bool {
 		open, body = true, 0
 		if fields := strings.Fields(strings.TrimPrefix(trimmed, "```")); len(fields) > 0 {
 			visual = slices.Contains(blocks, strings.ToLower(fields[0]))
+		}
+	}
+	return hasInlineElement(prose.String(), elements)
+}
+
+// hasInlineElement reports a closed element from elements, such as
+// <svg ...><circle/></svg>, that contains at least one child element.
+func hasInlineElement(text string, elements []string) bool {
+	lower := strings.ToLower(text)
+	for _, el := range elements {
+		rest := lower
+		for {
+			i := strings.Index(rest, "<"+el)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+1+len(el):]
+			if rest == "" || !strings.ContainsRune("> \t\n", rune(rest[0])) {
+				continue
+			}
+			gt := strings.IndexByte(rest, '>')
+			end := strings.Index(rest, "</"+el+">")
+			if gt < 0 || end < gt {
+				break
+			}
+			if strings.Contains(rest[gt+1:end], "<") {
+				return true
+			}
+			rest = rest[end:]
 		}
 	}
 	return false
