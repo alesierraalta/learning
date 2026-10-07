@@ -61,7 +61,7 @@ func (c cliRunner) cmd(command, stage string) (Report, int) {
 }
 
 // reviewPending records every pending review through the CLI, as the chat
-// would after judging the artifact.
+// would after judging the artifact: requirement met, no central gap.
 func (c cliRunner) reviewPending(stage string) {
 	c.t.Helper()
 	rep, code := c.cmd("validate", stage)
@@ -72,7 +72,7 @@ func (c cliRunner) reviewPending(stage string) {
 		rule, _ := p["rule"].(string)
 		rrep, rcode := c.run("review",
 			"--root", c.f.root, "--workspace", c.f.ws, "--rules", repoRulesPath, "--mode", "deep",
-			"--stage", stage, "--rule", rule, "--verdict", "PASS",
+			"--stage", stage, "--rule", rule, "--verdict", benignVerdict(p),
 			"--reason", "chat review of the artifact against the rubric",
 			"--reviewer", "chat", "--json")
 		if rcode != 0 || rrep.Status != "accepted" {

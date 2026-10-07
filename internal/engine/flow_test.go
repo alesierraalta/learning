@@ -473,3 +473,85 @@ func TestOutOfOrderAdvanceRejected(t *testing.T) {
 		t.Fatalf("unknown stage exit code = %d, want 2", code)
 	}
 }
+
+// throughPassingQuiz prepares a one-part run whose p1 mini-quiz passes 5/5.
+func throughPassingQuiz(t *testing.T) *fixture {
+	t.Helper()
+	f := newFixture(t)
+	f.initOK(t)
+	part := partCfg{id: "p1", ex: true, vis: true, title: "Parte"}
+	f.writePlan(t, part)
+	f.advanceOK(t, "preparation")
+	f.writeDiagQuestions(t, buildDiagQuestions(6, 6))
+	f.writeDiagAnswers(t, 2, 6)
+	f.advanceOK(t, "diagnosis")
+	f.writePlanWith(t, "Dificultades detectadas.", []string{"d3"}, part)
+	f.advanceOK(t, "planning")
+	f.writeExplanation(t, "p1", true, "v1")
+	f.advanceOK(t, "explanation")
+	f.writeOwnWords(t, "p1")
+	f.advanceOK(t, "own_words")
+	f.writeQuizQuestions(t, "p1")
+	f.writeQuizAnswers(t, "p1", 5)
+	f.advanceOK(t, "quiz")
+	return f
+}
+
+// relearnPart rewrites p1 and passes explanation, own_words and quiz again.
+func (f *fixture) relearnPart(t *testing.T, marker string) {
+	t.Helper()
+	f.writeExplanation(t, "p1", true, marker)
+	f.advanceOK(t, "explanation")
+	f.writeOwnWords(t, "p1")
+	f.advanceOK(t, "own_words")
+	f.writeQuizAnswers(t, "p1", 5)
+	f.advanceOK(t, "quiz")
+}
+
+// A central gap in the learner's own words re-teaches the part: feedback
+// reopens explanation/own_words/quiz, the explanation must really change, and
+// the rounds share the bounded re-teach budget with failed mini-quizzes.
+func TestCentralGapReteachesThePart(t *testing.T) {
+	f := throughPassingQuiz(t)
+	f.writeFeedback(t, "p1", true)
+	f.recordReview(t, "feedback", "central-gap", "PASS", "confunde la idea central de la parte")
+
+	rep := f.advanceOK(t, "feedback")
+	if rep.NextStage != "explanation" || rep.Part != "p1" {
+		t.Fatalf("central gap: nextStage=%q part=%q, want explanation/p1", rep.NextStage, rep.Part)
+	}
+	p1 := f.state(t)["parts"].(map[string]any)["p1"].(map[string]any)
+	if r := p1["reteachRounds"].(float64); r != 1 {
+		t.Fatalf("reteachRounds = %v, want 1", r)
+	}
+	stages := p1["stages"].(map[string]any)
+	for _, s := range []string{"explanation", "own_words", "quiz", "feedback"} {
+		if _, ok := stages[s]; ok {
+			t.Fatalf("stage %s must be reopened after a central gap", s)
+		}
+	}
+
+	f.advanceExpectBlocked(t, "explanation", "explanation-revised", "byte-identical")
+
+	// Second round: the gap persists once more.
+	f.relearnPart(t, "v2 reexplicada")
+	f.writeFeedback(t, "p1", true)
+	f.recordReview(t, "feedback", "central-gap", "PASS", "la laguna central sigue")
+	f.advanceOK(t, "feedback")
+
+	// Budget exhausted: a third gap blocks without touching state.
+	f.relearnPart(t, "v3 reexplicada")
+	f.writeFeedback(t, "p1", true)
+	f.recordReview(t, "feedback", "central-gap", "PASS", "la laguna central sigue")
+	before := f.tryReadState(t)
+	f.advanceExpectBlocked(t, "feedback", "reteach-bound", "re-teach")
+	if string(f.tryReadState(t)) != string(before) {
+		t.Fatal("exhausted re-teach must not mutate state")
+	}
+
+	// Without a gap the part closes normally.
+	f.recordReview(t, "feedback", "central-gap", "FAIL", "explica bien la idea central")
+	if rep := f.advanceOK(t, "feedback"); rep.NextStage == "explanation" {
+		t.Fatal("feedback without a central gap must not reopen the part")
+	}
+}

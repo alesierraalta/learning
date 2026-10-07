@@ -447,9 +447,16 @@ func runFrontierStage(record bool, requested, fStage, fPart string, stale []stal
 		return blocked(checks, requested, fStage, fPart, ExitFailedCheck)
 	}
 
-	// Bounded re-teaching: a failing mini-quiz routes back to explanation.
+	// Bounded re-teaching: a failing mini-quiz, or a central gap in the
+	// learner's own words, routes the part back to explanation.
 	if requested == "quiz" && !evidenceBool(res.evidence, "quizPassed") {
 		return recordFailedQuiz(r, st, ws, requested, part, res, checks, fStage, fPart)
+	}
+	if requested == "feedback" {
+		// The recorded central-gap review is mandatory before advance.
+		if gap, _ := assessmentGap(r, st, requested, part); gap {
+			return reopenPart(r, st, ws, requested, part, "a central gap persists", res, checks, fStage, fPart, nil)
+		}
 	}
 
 	// Planning enrolls the declared parts, reusing records for parts that
@@ -492,21 +499,31 @@ func runFrontierStage(record bool, requested, fStage, fPart string, stale []stal
 		Checks: checks, Evidence: res.evidence}, ExitOK
 }
 
-// recordFailedQuiz stores the failed attempt, spends one re-teach round and
-// reopens explanation/own_words. Exhausting the budget blocks without writes.
+// recordFailedQuiz stores the failed attempt and re-teaches the part.
 func recordFailedQuiz(r *rules.Rules, st *State, ws, stage, part string, res evalResult, checks []Check, fStage, fPart string) (Report, int) {
+	return reopenPart(r, st, ws, stage, part, "quiz failed again", res, checks, fStage, fPart, func(ps *PartState) {
+		ps.QuizAttempts = append(ps.QuizAttempts, QuizAttempt{
+			Score: evidenceInt(res.evidence, "quizScore"), Passed: false, At: time.Now().UTC(),
+			WrongIDs: evidenceStrings(res.evidence, "quizWrongIds"),
+		})
+	})
+}
+
+// reopenPart spends one bounded re-teach round: it snapshots the explanation,
+// which must then change, and reopens explanation, own_words and quiz for
+// the part. Exhausting the budget blocks without writes.
+func reopenPart(r *rules.Rules, st *State, ws, stage, part, failure string, res evalResult, checks []Check, fStage, fPart string, record func(*PartState)) (Report, int) {
 	ps := ensurePart(st, part)
 	max := r.Thresholds.Quiz.MaxReteachRounds
 	if ps.ReteachRounds >= max {
 		checks = append(checks, failCheck("reteach-bound",
-			fmt.Sprintf("quiz failed again after %d re-teach rounds (max %d); bounded re-teaching is exhausted for part %s",
-				ps.ReteachRounds, max, part)))
+			fmt.Sprintf("%s after %d re-teach rounds (max %d); bounded re-teaching is exhausted for part %s",
+				failure, ps.ReteachRounds, max, part)))
 		return blocked(checks, stage, fStage, fPart, ExitFailedCheck)
 	}
-	ps.QuizAttempts = append(ps.QuizAttempts, QuizAttempt{
-		Score: evidenceInt(res.evidence, "quizScore"), Passed: false, At: time.Now().UTC(),
-		WrongIDs: evidenceStrings(res.evidence, "quizWrongIds"),
-	})
+	if record != nil {
+		record(ps)
+	}
 	if rel, err := partRelFromWorkspace(r, ws, part); err == nil {
 		if h, err := hashFile(absPath(ws, rel)); err == nil {
 			ps.FailedExplanationHash = h

@@ -231,7 +231,9 @@ from that snapshot, so an edit made **before** the trigger never satisfies it.
 
 - The feedback obligation is triggered by the declared field, by any recorded
   wrong mini-quiz answer, or by a central-gap assessment; a missing assessment
-  counts as triggered. `adaptation` proves it and receipts `plan.json`. When
+  counts as triggered. A central gap first re-teaches the part (see Bounded
+  re-teaching), so it only reaches `adaptation` together with the other
+  sources. `adaptation` proves it and receipts `plan.json`. When
   nothing triggers it, the check is `SKIP` and reports the observed values.
 - The map re-score is always required after the final quiz and is proven by
   `final`. Once `final_quiz` is recorded, earlier receipts of `planificador.md`
@@ -268,9 +270,13 @@ fabricated as complete.
 A mini-quiz below `minPassingScore`, or any missed `central` question, records
 the attempt (with its wrong question ids), spends one round from
 `thresholds.quiz.maxReteachRounds` (2), reopens `explanation`/`own_words`/`quiz`
-for that part and returns `accepted` with `nextStage: "explanation"`. The
+for that part and returns `accepted` with `nextStage: "explanation"`. A
+`feedback` advance whose recorded `central-gap` assessment is `PASS` (a central
+gap in the learner's own words) re-teaches the part the same way, from the same
+budget, without recording `feedback`. The
 explanation must change against the failed-attempt snapshot before it can be
-re-reviewed (its stale reviews reappear in `pendingReviews`). A third failing attempt is `blocked` (`reteach-bound` FAIL) with
+re-reviewed (its stale reviews reappear in `pendingReviews`). A failing attempt
+or central gap once the budget is spent is `blocked` (`reteach-bound` FAIL) with
 **no** state change. `feedback` is unreachable until a passing attempt.
 
 ## Concurrency
