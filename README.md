@@ -57,7 +57,8 @@ any skill pointer are operator tasks.
 - `/learning init [workspace]` — enrollment + engine `init` for a new run.
 - `/learning stop` — persist deactivation (survives reload).
 - `/learning status` — engine `status` for the active session.
-- `learning_stage` tool — `validate` / `advance` / `status` / `review` transport; `advance`
+- `learning_stage` tool — `init` / `start` (the chat enrolls a topic by folder name, so the
+  learner never types a command) and `validate` / `advance` / `status` / `review` transport; `advance`
   requires an explicit stage and blocks while any applicable review is missing, stale or a
   gate `FAIL`.
 

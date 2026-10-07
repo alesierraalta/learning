@@ -594,3 +594,98 @@ test(
     }
   },
 );
+
+// Organic enrollment: the chat enrolls through the tool, the learner never
+// types a command. init creates the topic folder inside the Learnings root and
+// records a new run; start resumes an existing topic.
+const okEngine = async () => ({ code: 0, stdout: reportJson("accepted"), stderr: "" });
+
+function installAtRoot(env, script = okEngine) {
+  const host = makeHost({ cwd: env.root });
+  const engine = makeEngine(script);
+  extension(host.api, { root: env.root, enginePath: env.engine, execFile: engine.execFile });
+  return { host, engine };
+}
+
+test("stage tool init creates the topic, records a new run and activates the session", async () => {
+  const env = tempEnv();
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+
+  const result = await executeTool(host, { action: "init", topic: "nuevo-tema" });
+
+  const created = join(env.root, "nuevo-tema");
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent));
+  assert.ok(existsSync(created), "topic folder created inside the Learnings root");
+  assert.equal(engine.calls.length, 1);
+  assert.deepEqual(engine.calls[0].args.slice(0, 5), ["init", "--root", realpathSync(env.root), "--workspace", realpathSync(created)]);
+  const enrollment = host.entries.at(-1);
+  assert.equal(enrollment.customType, ENTRY_TYPE);
+  assert.equal(enrollment.data.active, true);
+  assert.equal(enrollment.data.workspace, realpathSync(created));
+
+  await executeTool(host, { action: "validate", stage: "preparation" });
+  assert.equal(engine.calls.length, 2, "session is active after init");
+  assert.equal(engine.calls[1].args[0], "validate");
+});
+
+test("stage tool start resumes an existing topic with a status read", async () => {
+  const env = tempEnv();
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+
+  const result = await executeTool(host, { action: "start", topic: "demo-topic" });
+
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent));
+  assert.equal(engine.calls.length, 1);
+  assert.deepEqual(engine.calls[0].args.slice(0, 5), ["status", "--root", realpathSync(env.root), "--workspace", realpathSync(env.topic)]);
+  assert.equal(host.entries.at(-1).data.workspace, realpathSync(env.topic));
+});
+
+test("stage tool start refuses a topic that does not exist and creates nothing", async () => {
+  const env = tempEnv();
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+
+  const result = await executeTool(host, { action: "start", topic: "no-existe" });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.reason, "not-found");
+  assert.match(result.structuredContent.detail, /no-existe/);
+  assert.equal(existsSync(join(env.root, "no-existe")), false);
+  assert.equal(engine.calls.length, 0);
+  assert.equal(host.entries.length, 0);
+});
+
+test("stage tool enrollment rejects unsafe topic names before touching disk or engine", async () => {
+  for (const topic of ["", ".", "..", "../fuera", "a/b", "a\\b"]) {
+    const env = tempEnv();
+    const { host, engine } = installAtRoot(env);
+    await enroll(host);
+
+    const result = await executeTool(host, { action: "init", topic });
+
+    assert.equal(result.isError, true, `topic ${JSON.stringify(topic)} rejected`);
+    assert.equal(result.structuredContent.reason, "invalid-arguments");
+    assert.equal(existsSync(join(env.base, "fuera")), false);
+    assert.equal(engine.calls.length, 0);
+    assert.equal(host.entries.length, 0);
+  }
+});
+
+test("stage tool enrollment is refused outside the Learnings root", async () => {
+  const env = tempEnv();
+  const outside = join(env.base, "unrelated-project");
+  mkdirSync(outside);
+  const host = makeHost({ cwd: outside });
+  const engine = makeEngine(okEngine);
+  extension(host.api, { root: env.root, enginePath: env.engine, execFile: engine.execFile });
+  await enroll(host);
+
+  const result = await executeTool(host, { action: "init", topic: "nuevo-tema" });
+
+  assert.equal(result.isError, true);
+  assert.equal(existsSync(join(env.root, "nuevo-tema")), false);
+  assert.equal(engine.calls.length, 0);
+  assert.equal(host.entries.length, 0);
+});

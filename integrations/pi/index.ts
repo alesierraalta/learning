@@ -3,13 +3,15 @@
  *
  * Transport and local activation only. The engine owns learning rules,
  * validation, recorded reviews and completion; this adapter never decides a PASS.
- * Activation requires an explicit deep command inside the configured
- * Learnings root — no global prompt injection, no conceptual-mode gate.
+ * Activation happens inside the configured Learnings root only: the chat
+ * enrolls a topic through the learning_stage tool (init/start) once the
+ * learner chooses deep mode, or the learner uses /learning — no global prompt
+ * injection, no conceptual-mode gate.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { execFile as execFileCb } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -224,6 +226,11 @@ interface AdapterState {
   corrections: number;
 }
 
+/** A topic is one folder directly under the Learnings root. */
+function safeTopic(topic: unknown): topic is string {
+  return typeof topic === "string" && topic !== "" && topic !== "." && topic !== ".." && !/[\\/\0]/.test(topic);
+}
+
 const inactiveState = (): AdapterState => ({ phase: "inactive", corrections: 0 });
 
 function failCheckIds(report: EngineReport): string[] {
@@ -262,17 +269,14 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
 
   const engineTarget = () => ({ root: state.root!, workspace: state.workspace! });
 
-  const activate = (workspaceArg: string, ctx: { cwd: string; ui: { notify: (m: string, l?: string) => void } }): boolean => {
-    const sessionScope = resolveContained(deps.root, ctx.cwd);
+  const enrollWorkspace = (target: string, cwd: string): { ok: true } | { ok: false; reason: string } => {
+    const sessionScope = resolveContained(deps.root, cwd);
     if (!sessionScope.ok) {
-      ctx.ui.notify(`Learning start rejected: session cwd is outside Learnings or unavailable — ${sessionScope.reason}`, "warning");
-      return false;
+      return { ok: false, reason: `session cwd is outside Learnings or unavailable — ${sessionScope.reason}` };
     }
-    const target = workspaceArg || ctx.cwd;
     const contained = resolveContained(deps.root, target);
     if (!contained.ok) {
-      ctx.ui.notify(`Learning start rejected: ${contained.reason}`, "warning");
-      return false;
+      return { ok: false, reason: contained.reason };
     }
     state = { phase: "active", root: contained.rootReal, workspace: contained.targetReal, corrections: 0 };
     pi.appendEntry(ENTRY_TYPE, {
@@ -282,7 +286,15 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       workspace: contained.targetReal,
       enrolledAt: new Date().toISOString(),
     });
-    return true;
+    return { ok: true };
+  };
+
+  const activate = (workspaceArg: string, ctx: { cwd: string; ui: { notify: (m: string, l?: string) => void } }): boolean => {
+    const enrolled = enrollWorkspace(workspaceArg || ctx.cwd, ctx.cwd);
+    if (!enrolled.ok) {
+      ctx.ui.notify(`Learning start rejected: ${enrolled.reason}`, "warning");
+    }
+    return enrolled.ok;
   };
 
   const restore = (branch: unknown[]): void => {
@@ -460,12 +472,13 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     name: "learning_stage",
     label: "Learning engine stage",
     description:
-      "Transport one stage operation (validate, advance, status, review) to the Go learning engine via its CLI and return the single-JSON report. " +
-      "Requires an active deep session (/learning start). validate lists pendingReviews (rules whose recorded review is missing or stale); the chat (possibly via subagents) evaluates the rubric on the artifact and context, then records the verdict with action review (stage, rule, verdict, reason, optional reviewer). advance needs an explicit stage and blocks while any required review is missing, stale or a gate verdict is FAIL. " +
+      "Transport one stage operation (init, start, validate, advance, status, review) to the Go learning engine via its CLI and return the single-JSON report. " +
+      "init enrolls a new topic (creates its folder under the Learnings root and records a new run); start resumes an existing topic; both take topic = the folder name and activate the deep session, so the learner never types a command. The other actions require an active deep session. validate lists pendingReviews (rules whose recorded review is missing or stale); the chat (possibly via subagents) evaluates the rubric on the artifact and context, then records the verdict with action review (stage, rule, verdict, reason, optional reviewer). advance needs an explicit stage and blocks while any required review is missing, stale or a gate verdict is FAIL. " +
       "The engine report is the authority on completion; a FAIL check means the work is not finished.",
     promptSnippet: "Run a learning-engine stage operation and read its JSON verdict",
     promptGuidelines: [
-      "Only meaningful inside an active deep learning session; inactive sessions return an error.",
+      "Once the learner chooses the deep (university) mode, enroll the topic yourself: init for a new topic, start to resume one; never ask the learner to type a command.",
+      "Stage actions are only meaningful inside an active deep learning session; inactive sessions return an error.",
       "Never claim a stage or the topic is complete while the engine report shows FAIL, blocked or error.",
       "When validate returns pendingReviews, evaluate each rubric against the listed artifact and context (delegate to a subagent if useful) and record one review per rule before advancing.",
     ],
@@ -474,9 +487,9 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       properties: {
         action: {
           type: "string",
-          enum: ["validate", "advance", "status", "review"],
+          enum: ["init", "start", "validate", "advance", "status", "review"],
           description:
-            "validate: check a stage without recording (returns pendingReviews); advance: validate + require recorded reviews + record; status: re-read engine state; review: record one chat verdict for one rubric.",
+            "init: create and enroll a new topic folder, record a new run; start: enroll an existing topic and read its status; validate: check a stage without recording (returns pendingReviews); advance: validate + require recorded reviews + record; status: re-read engine state; review: record one chat verdict for one rubric.",
         },
         stage: {
           type: "string",
@@ -490,16 +503,54 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
         },
         reason: { type: "string", description: "Non-empty evaluation reason; required for review." },
         reviewer: { type: "string", description: "Optional reviewer identity for review (defaults to chat)." },
+        topic: {
+          type: "string",
+          description: "Topic folder name directly under the Learnings root (no path separators); required for init and start.",
+        },
       },
       required: ["action"],
       additionalProperties: false,
     } as unknown as TSchema,
     outputSchema: { type: "object", additionalProperties: true } as unknown as TSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const { action: requested, topic } = params as { action?: string; topic?: unknown };
+      if (requested === "init" || requested === "start") {
+        if (!safeTopic(topic)) {
+          return adapterError(
+            "invalid-arguments",
+            `${requested} requires topic: one folder name under the Learnings root, got ${JSON.stringify(topic ?? "")}`,
+          );
+        }
+        const session = resolveContained(deps.root, ctx.cwd);
+        if (!session.ok) {
+          return adapterError("out-of-scope", `session cwd is outside Learnings or unavailable — ${session.reason}`);
+        }
+        const target = join(session.rootReal, topic);
+        if (requested === "start" && !existsSync(target)) {
+          return adapterError("not-found", `topic ${topic} does not exist under the Learnings root; use init for a new topic`);
+        }
+        if (requested === "init") {
+          mkdirSync(target, { recursive: true });
+        }
+        const enrolled = enrollWorkspace(target, ctx.cwd);
+        if (!enrolled.ok) {
+          return adapterError("out-of-scope", enrolled.reason);
+        }
+        const enrollOutcome = await callEngine(deps, requested === "init" ? "init" : "status", engineTarget());
+        if (!enrollOutcome.ok) {
+          return adapterError(enrollOutcome.reason, enrollOutcome.detail);
+        }
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(enrollOutcome.report, null, 2) }],
+          details: { command: requested, exitCode: enrollOutcome.code },
+          structuredContent: enrollOutcome.report as unknown as Record<string, unknown>,
+          isError: enrollOutcome.code !== 0,
+        };
+      }
       if (state.phase !== "active" || !resolveContained(deps.root, ctx.cwd).ok) {
         return adapterError(
           "inactive",
-          "no active deep session; run /learning start inside the Learnings root first",
+          "no active deep session; enroll the topic first with action init or start inside the Learnings root",
         );
       }
       const {

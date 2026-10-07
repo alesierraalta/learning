@@ -6,8 +6,9 @@ engine and are defined by [protocol.md](protocol.md) — this document never red
 
 ## What the adapter does
 
-- Registers one command (`/learning`) and one tool (`learning_stage`) for explicit deep-mode
-  operations, and one `agent_before_settle` gate that rechecks engine state.
+- Registers one tool (`learning_stage`) that the chat uses for every deep-mode operation,
+  enrollment included, one manual fallback command (`/learning`), and one
+  `agent_before_settle` gate that rechecks engine state.
 - Spawns the engine with `execFile` using an argv array (never a concatenated shell command)
   and consumes exactly one JSON object from stdout.
 - Persists enrollment as a session custom entry (`gentle-learning/enrollment`) and rebuilds
@@ -42,8 +43,17 @@ package aliases, and both imports are type-only.
 Installed on this machine at
 `/mnt/c/Users/ismar/Documents/obsidian/ale/notes/04-RECURSOS/Learnings/.pi/settings.json`,
 which only lists this adapter path. Pi reads project `.pi` from the working directory,
-not from parent directories, so start Pi from the `Learnings` folder and select a topic
-with `/learning start <topic>`. The first run asks for project trust.
+not from parent directories, so the study chat starts in the `Learnings` folder. On this
+machine the shell function `aprender` in `~/.bashrc` does that from any directory: it
+changes to the `Learnings` folder and runs `pi` with any arguments it receives. The first
+run asks for project trust. `Learnings/AGENTS.md` (a Pi context file, additive to the
+user's global instructions) declares the session a study session: every message goes
+through the `explicacion-interactiva` skill and the learner never types a command — the
+chat enrolls the topic itself with `learning_stage` `init` (new topic) or `start` (resume).
+A project `.pi/APPEND_SYSTEM.md` is deliberately not used: it would replace the user's
+global `~/.pi/agent/APPEND_SYSTEM.md`. Do not start the study chat from this repository:
+the adapter is not loaded there, and builder subagents can only write inside the Git
+repository of the session (the vault's `notes/` repository).
 
 Verified with the installed Pi (`get_commands` over RPC, `--offline --approve`, no model
 call): started in `Learnings`, `/learning` is listed with scope `project` from
@@ -79,6 +89,8 @@ will proceed. Tests configure nothing and never call a provider.
 
 | Host action | Engine command | Notes |
 |---|---|---|
+| tool `learning_stage {action:"init", topic}` | `init` | creates `<root>/<topic>` (one folder name, no separators), enrolls it, records a new run; engine refuses to overwrite an existing run |
+| tool `learning_stage {action:"start", topic}` | `status` | enrolls an existing topic (`not-found` if absent), then status report |
 | `/learning start [ws]` | `status` | enrollment first (realpath containment), then status report |
 | `/learning init [ws]` | `init` | engine refuses to overwrite an existing run |
 | `/learning stop` | — | persists `active: false`; survives reload |
