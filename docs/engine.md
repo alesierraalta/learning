@@ -147,6 +147,65 @@ unclosed element, or one inside a fenced block, is not a visual. The check
 proves a visual is present, not that it helps; that is the `visual-value`
 rubric's judgment.
 
+### JSON sidecar shapes
+
+The producer writes these next to the notes; `thresholds` in `rules/deep.json`
+fix every count and vocabulary, and a violation names itself in the failing
+check's reason. Option keys are `A`–`D` plus `E` = `No sé`; answer keys
+(`answer`) are `A`–`D`; learner answers may be `A`–`E`.
+
+`plan.json` (preparation; `diagnosisSummary` and `focusAreas` are added at
+planning, focus areas naming the diagnosis' wrong answers):
+
+```json
+{"topic": "Factor de descuento",
+ "parts": [{"id": "p1", "title": "El retorno", "slug": "El retorno",
+            "subtema": "1.2.2", "examplesPlanned": true, "visualsPlanned": true}],
+ "diagnosisSummary": "...", "focusAreas": ["..."]}
+```
+
+`id` and `slug` must not contain `/`, `\` or be `.`/`..`; the part note is
+`explicaciones/Parte {index} - {slug}.md`.
+
+`quiz.json` (diagnosis): exactly 6 `prerequisite` questions with subtema
+`P0.x` and niveles never decreasing, then 6 `topic` questions on plan subtemas
+with `level` 1,1,2,2,3,3 mapped to `básico`/`medio`/`avanzado`. `pieza.tipo`
+is one of `thresholds.piezaTipos`. Every `enunciado` also appears in `quiz.md`.
+
+```json
+{"questions": [{"id": "d1", "type": "prerequisite", "level": 1, "subtema": "P0.1",
+  "nivel": "básico", "enunciado": "¿Qué resultado produce este caso?",
+  "pieza": {"tipo": "caso", "contenido": "Caso concreto con datos."},
+  "options": {"A": "...", "B": "...", "C": "...", "D": "...", "E": "No sé"},
+  "answer": "B"}]}
+```
+
+`quiz.answers.json`, `mini-quiz/{part}.answers.json` and
+`cuestionario-final.answers.json` record the learner, one entry per question:
+`{"answers": {"d1": "B", "d2": "E"}}`.
+
+`mini-quiz/{part}.json`: 5 questions, `central` marks the questions whose miss
+forces re-teaching; every `enunciado` appears in the part note's mini-quiz
+section.
+
+```json
+{"questions": [{"id": "q1", "central": true, "subtema": "1.2.2", "nivel": "medio",
+  "enunciado": "...", "options": {"A": "...", "B": "...", "C": "...", "D": "...", "E": "No sé"},
+  "answer": "A"}]}
+```
+
+`feedback/{part}.json`:
+`{"partId": "p1", "difficultyDetected": false, "notes": "..."}`.
+
+`cuestionario-final.json`: `formato` is `opción múltiple` (or `mcq`/`multiple
+choice`), whose `respuesta` is the correct letter, or an open format such as
+`respuesta corta`, whose `respuesta` may be empty.
+
+```json
+{"questions": [{"id": "f1", "subtema": "1.2.2", "nivel": "medio",
+  "formato": "opción múltiple", "enunciado": "...", "respuesta": "C"}]}
+```
+
 Final-quiz scoring: choice items (`formato` mcq / multiple choice / opción
 múltiple) are scored against `respuesta` and produce `puntaje` as
 `correct/choice-count`. Open items are required free text and are **not**
