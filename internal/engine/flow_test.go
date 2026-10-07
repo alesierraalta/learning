@@ -555,3 +555,33 @@ func TestCentralGapReteachesThePart(t *testing.T) {
 		t.Fatal("feedback without a central gap must not reopen the part")
 	}
 }
+
+// The diagnosis piece a learner reads must be the one the engine binds: every
+// pieza.contenido in quiz.json appears in quiz.md, where only whitespace may
+// differ, and a missing piece blocks with an actionable reason.
+func TestDiagnosisPieceMustAppearInTheNote(t *testing.T) {
+	f := newFixture(t)
+	f.initOK(t)
+	f.writePlan(t, defaultParts()...)
+	f.advanceOK(t, "preparation")
+	qs := buildDiagQuestions(6, 6, defaultParts()...)
+	f.writeDiagQuestions(t, qs)
+
+	spaced := append([]diagQuestionWire(nil), qs...)
+	spaced[0].Pieza = map[string]string{"tipo": "caso", "contenido": "Caso  concreto con\ndatos de ejemplo."}
+	f.writeJSON(t, "quiz.json", map[string]any{"questions": spaced})
+	rep, _ := f.run(t, f.opts("validate", "diagnosis"))
+	if c, ok := hasCheck(rep, "quiz-structure"); !ok || c.Status != "PASS" {
+		t.Fatalf("whitespace-only difference must still bind the piece: %+v", c)
+	}
+
+	f.writeDiagAnswers(t, 2, 6) // rewrites quiz.json and quiz.md from the default questions
+	missing := append([]diagQuestionWire(nil), qs...)
+	missing[0].Pieza = map[string]string{"tipo": "caso", "contenido": "Un caso que la nota no muestra."}
+	f.writeJSON(t, "quiz.json", map[string]any{"questions": missing})
+	before := f.tryReadState(t)
+	f.advanceExpectBlocked(t, "diagnosis", "quiz-structure", "copy pieza.contenido into the note")
+	if string(f.tryReadState(t)) != string(before) {
+		t.Fatal("blocked diagnosis mutated state")
+	}
+}

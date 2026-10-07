@@ -307,7 +307,9 @@ func evalDiagnosticQuestions(c *evalCtx, decl rules.CheckDecl) Check {
 			return failCheck(decl.ID, fmt.Sprintf("question %s enunciado is not present in %s", q.ID, decl.Note))
 		}
 		if !containsNorm(note, q.Pieza.Contenido) {
-			return failCheck(decl.ID, fmt.Sprintf("question %s working piece is not present in %s", q.ID, decl.Note))
+			return failCheck(decl.ID, fmt.Sprintf(
+				"question %s working piece is not present in %s: copy pieza.contenido into the note verbatim (only whitespace may differ)",
+				q.ID, decl.Note))
 		}
 		if !strings.Contains(note, q.Subtema) {
 			return failCheck(decl.ID, fmt.Sprintf("question %s subtema tag %q is not visible in %s", q.ID, q.Subtema, decl.Note))

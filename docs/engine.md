@@ -171,7 +171,9 @@ planning, focus areas naming the diagnosis' wrong answers):
 `quiz.json` (diagnosis): exactly 6 `prerequisite` questions with subtema
 `P0.x` and niveles never decreasing, then 6 `topic` questions on plan subtemas
 with `level` 1,1,2,2,3,3 mapped to `básico`/`medio`/`avanzado`. `pieza.tipo`
-is one of `thresholds.piezaTipos`. Every `enunciado` also appears in `quiz.md`.
+is one of `thresholds.piezaTipos`. Every `enunciado` and every `pieza.contenido`
+also appear verbatim in `quiz.md` (only whitespace may differ): write the note
+first and copy the question text and its piece from it.
 
 ```json
 {"questions": [{"id": "d1", "type": "prerequisite", "level": 1, "subtema": "P0.1",
