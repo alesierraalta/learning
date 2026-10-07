@@ -271,3 +271,35 @@ func mustRules(t *testing.T) string {
 	}
 	return string(b)
 }
+
+// Part ids and slugs become path segments ({part}, {slug}); a plan whose id
+// or slug could traverse out of the workspace is rejected before any stage
+// records it, and the rejection leaves state unchanged.
+func TestUnsafePlanPathSegmentsBlockPreparation(t *testing.T) {
+	cases := []struct {
+		name, id, slug, reason string
+	}{
+		{"slug parent traversal", "p1", "../escape", "unsafe slug"},
+		{"slug separator", "p1", "a/b", "unsafe slug"},
+		{"slug backslash", "p1", `a\b`, "unsafe slug"},
+		{"id parent traversal", "..", "p1", "unsafe id"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.initOK(t)
+			f.writePlan(t, defaultParts()...)
+			var doc planWire
+			if err := json.Unmarshal(f.read(t, "plan.json"), &doc); err != nil {
+				t.Fatal(err)
+			}
+			doc.Parts[0].ID, doc.Parts[0].Slug = tc.id, tc.slug
+			f.writeJSON(t, "plan.json", doc)
+			before := f.tryReadState(t)
+			f.advanceExpectBlocked(t, "preparation", "plan-structure", tc.reason)
+			if string(f.tryReadState(t)) != string(before) {
+				t.Fatal("rejected plan mutated state")
+			}
+		})
+	}
+}
