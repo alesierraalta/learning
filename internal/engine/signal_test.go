@@ -83,10 +83,56 @@ func TestSignalReleasesWorkspaceLock(t *testing.T) {
 	}
 }
 
+// Every lock the process holds is released on a signal, not only the one
+// whose guard happens to run first.
+func TestSignalReleasesEveryHeldLock(t *testing.T) {
+	a, b := newFixture(t), newFixture(t)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestSignalTwoLocksHelper$")
+	cmd.Env = append(os.Environ(), "LEARNING_SIGNAL_HELPER=1",
+		"LEARNING_HELPER_WS_A="+a.ws, "LEARNING_HELPER_WS_B="+b.ws)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	sc := bufio.NewScanner(stdout)
+	for sc.Scan() && strings.TrimSpace(sc.Text()) != "locked" {
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	err = cmd.Wait()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 143 {
+		t.Fatalf("wait err = %v, want exit code 143", err)
+	}
+	for _, ws := range []string{a.ws, b.ws} {
+		if _, err := os.Stat(filepath.Join(ws, ".learning", "lock")); !os.IsNotExist(err) {
+			t.Fatalf("lock in %s must be released, stat err = %v", ws, err)
+		}
+	}
+}
+
+// TestSignalTwoLocksHelper holds locks in two workspaces until signaled.
+func TestSignalTwoLocksHelper(t *testing.T) {
+	if os.Getenv("LEARNING_SIGNAL_HELPER") != "1" || os.Getenv("LEARNING_HELPER_WS_A") == "" {
+		t.Skip("helper process only")
+	}
+	for _, ws := range []string{os.Getenv("LEARNING_HELPER_WS_A"), os.Getenv("LEARNING_HELPER_WS_B")} {
+		if _, err := acquireLock(ws); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fmt.Println("locked")
+	time.Sleep(time.Minute)
+}
+
 // TestSignalHelperProcess is the child process of TestSignalReleasesWorkspaceLock:
 // it runs advance and parks while holding the lock until it is signaled.
 func TestSignalHelperProcess(t *testing.T) {
-	if os.Getenv("LEARNING_SIGNAL_HELPER") != "1" {
+	if os.Getenv("LEARNING_SIGNAL_HELPER") != "1" || os.Getenv("LEARNING_HELPER_WS") == "" {
 		t.Skip("helper process only")
 	}
 	lockAcquiredHook = func() {

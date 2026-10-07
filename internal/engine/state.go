@@ -134,8 +134,13 @@ func loadState(ws string) (*State, error) {
 }
 
 // commitMu orders a signal-driven exit after any in-flight state commit, so
-// the lock is never released while state.json is still being replaced.
-var commitMu sync.Mutex
+// a lock is never released while state.json is still being replaced. It also
+// guards ownedLocks.
+var (
+	commitMu    sync.Mutex
+	ownedLocks  = map[string]bool{}
+	watchSignal sync.Once
+)
 
 // saveState writes atomically so concurrent readers never see a torn file.
 func saveState(ws string, st *State) error {
@@ -163,19 +168,19 @@ var lockAcquiredHook func()
 
 // acquireLock serializes mutating commands. A concurrent holder is rejected;
 // a stale lock (crashed process) is taken over instead of bricking the run.
-// Signal handling starts before the lock exists, so no SIGTERM or SIGINT can
-// land between creating the lock and being able to remove it.
+// Signal handling starts before the lock exists, and the lock is created and
+// registered under commitMu, so no SIGTERM or SIGINT can strand it.
 func acquireLock(ws string) (func(), error) {
 	if err := os.MkdirAll(stateDir(ws), 0o755); err != nil {
 		return nil, fmt.Errorf("cannot create state directory: %w", err)
 	}
+	watchSignal.Do(releaseLocksOnSignal)
 	p := lockPath(ws)
-	g := newLockGuard()
 	for attempt := 0; attempt < 2; attempt++ {
 		commitMu.Lock()
 		f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err == nil {
-			g.path = p
+			ownedLocks[p] = true
 		}
 		commitMu.Unlock()
 		if err == nil {
@@ -184,69 +189,49 @@ func acquireLock(ws string) (func(), error) {
 			if lockAcquiredHook != nil {
 				lockAcquiredHook()
 			}
-			return g.release, nil
+			return func() { releaseLock(p) }, nil
 		}
 		if !os.IsExist(err) {
-			g.stop()
 			return nil, fmt.Errorf("lock creation failed: %w", err)
 		}
 		if fi, statErr := os.Stat(p); statErr == nil && time.Since(fi.ModTime()) > lockStaleAfter {
 			_ = os.Remove(p)
 			continue
 		}
-		g.stop()
 		return nil, errLockHeld
 	}
-	g.stop()
 	return nil, errLockHeld
 }
 
-// lockGuard removes the owned lock when SIGTERM or SIGINT ends the process
-// (the Pi adapter's execFile timeout sends SIGTERM), so an interrupted
-// command does not block the workspace for lockStaleAfter. path and released
-// are guarded by commitMu, which also makes the exit wait for any in-flight
-// state commit.
-type lockGuard struct {
-	sigs     chan os.Signal
-	done     chan struct{}
-	path     string
-	released bool
-}
-
-func newLockGuard() *lockGuard {
-	g := &lockGuard{sigs: make(chan os.Signal, 1), done: make(chan struct{})}
-	signal.Notify(g.sigs, syscall.SIGTERM, os.Interrupt)
-	go func() {
-		select {
-		case sig := <-g.sigs:
-			commitMu.Lock()
-			if g.path != "" && !g.released {
-				_ = os.Remove(g.path)
-			}
-			code := 130
-			if sig == syscall.SIGTERM {
-				code = 143
-			}
-			os.Exit(code)
-		case <-g.done:
-		}
-	}()
-	return g
-}
-
-// stop ends signal handling without touching any lock.
-func (g *lockGuard) stop() {
-	signal.Stop(g.sigs)
-	close(g.done)
-}
-
-// release removes the owned lock, then restores default signal handling.
-func (g *lockGuard) release() {
+// releaseLock removes a lock this process owns; it is safe to call twice.
+func releaseLock(p string) {
 	commitMu.Lock()
 	defer commitMu.Unlock()
-	g.released = true
-	_ = os.Remove(g.path)
-	g.stop()
+	if ownedLocks[p] {
+		delete(ownedLocks, p)
+		_ = os.Remove(p)
+	}
+}
+
+// releaseLocksOnSignal installs one process-wide handler: SIGTERM (the Pi
+// adapter's execFile timeout) or SIGINT waits for any in-flight state commit,
+// removes every lock the process still owns and exits 143 or 130, so an
+// interrupted command does not block its workspace for lockStaleAfter.
+func releaseLocksOnSignal() {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, os.Interrupt)
+	go func() {
+		sig := <-sigs
+		commitMu.Lock()
+		for p := range ownedLocks {
+			_ = os.Remove(p)
+		}
+		code := 130
+		if sig == syscall.SIGTERM {
+			code = 143
+		}
+		os.Exit(code)
+	}()
 }
 
 func hashBytes(b []byte) string {
