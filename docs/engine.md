@@ -25,7 +25,8 @@ rtk go build -o bin/learning ./cmd/learning
 ## CLI contract
 
 ```text
-learning <init|validate|advance|status> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--stage STAGE] [--json]
+learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--stage STAGE] [--json]
+learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
 learning help
 ```
 
