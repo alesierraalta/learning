@@ -191,6 +191,8 @@ type Rules struct {
 	Conditions []Condition            `json:"conditions"`
 	Rubrics    []Rubric               `json:"rubrics"`
 	Hash       string                 `json:"-"`
+	// Raw is the exact file content Hash was computed from.
+	Raw []byte `json:"-"`
 }
 
 // Load reads, strictly parses and validates the rules file.
@@ -210,6 +212,7 @@ func Load(path string) (*Rules, error) {
 		return nil, err
 	}
 	r.Hash = "sha256:" + hex.EncodeToString(sum[:])
+	r.Raw = raw
 	return &r, nil
 }
 

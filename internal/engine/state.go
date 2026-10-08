@@ -87,6 +87,9 @@ func stateDir(ws string) string  { return filepath.Join(ws, ".learning") }
 func statePath(ws string) string { return filepath.Join(stateDir(ws), "state.json") }
 func lockPath(ws string) string  { return filepath.Join(stateDir(ws), "lock") }
 
+// rulesSnapshotPath holds the rules a run started with (written by init).
+func rulesSnapshotPath(ws string) string { return filepath.Join(stateDir(ws), "rules.json") }
+
 func newState(workspace, rulesHash string) *State {
 	return &State{
 		Version:   stateVersion,

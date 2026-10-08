@@ -258,7 +258,8 @@ invalidates a recorded one.
 
 - mismatch or missing file → `FAIL receipts-fresh` (`blocked`, exit 1) naming the
   stale stages;
-- rules file hash differs from the hash recorded at `init` → `FAIL rules-current`;
+- the run's rules (its `.learning/rules.json` snapshot, or `--rules` for runs
+  without one) hash differently from the hash recorded at `init` → `FAIL rules-current`;
 - stale or missing semantic judgment → `FAIL semantic-receipts`.
 
 Repair is always frontier-ordered: re-advance the earliest stale or incomplete
@@ -368,8 +369,14 @@ semantic rubrics. `rules.Load` strictly rejects unknown fields, unknown check
 kinds, unknown condition kinds, path traversal or absolute artifact paths,
 missing part placeholders in part-scoped paths, inconsistent stage orders and
 invalid thresholds — malformed rules fail closed (exit 2) before any stage is
-evaluated. The SHA-256 of the rules file is recorded at `init`; any later
-change invalidates the run.
+evaluated. `init` records the SHA-256 of the rules file and snapshots the exact
+file into `.learning/rules.json`; every later command of that run loads the
+snapshot, so editing `rules/deep.json` changes new runs only and never blocks a
+run in progress. A snapshot that no longer matches the recorded hash (edited by
+hand) fails `rules-current`. Runs initialized before snapshots existed have no
+`.learning/rules.json`: they keep using `--rules`, and a rules edit blocks them
+with `rules-current`; copying the rules file they started with into
+`.learning/rules.json` (same hash) moves them to the snapshot behavior.
 
 ## Verification evidence
 

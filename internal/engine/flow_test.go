@@ -424,13 +424,9 @@ func (f *fixture) completeSinglePartRun(t *testing.T) {
 	assertGatePassing(t, rep, code, "completed")
 }
 
-// Rules are the source of truth: changing them invalidates recorded runs.
-func TestRulesChangeInvalidatesState(t *testing.T) {
-	f := newFixture(t)
-	f.initOK(t)
-	f.writePlan(t, defaultParts()...)
-
-	alt := filepath.Join(t.TempDir(), "deep-alt.json")
+// altRules writes a copy of the repository rules with one threshold changed.
+func altRules(t *testing.T) string {
+	t.Helper()
 	raw, err := os.ReadFile(repoRulesPath)
 	if err != nil {
 		t.Fatal(err)
@@ -439,17 +435,63 @@ func TestRulesChangeInvalidatesState(t *testing.T) {
 	if modified == string(raw) {
 		t.Fatal("rules fixture did not change")
 	}
+	alt := filepath.Join(t.TempDir(), "deep-alt.json")
 	if err := os.WriteFile(alt, []byte(modified), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return alt
+}
 
-	opts := f.opts("status", "")
+// A run keeps the rules it started with: init snapshots them into
+// .learning/rules.json, later rule edits do not block the run, a tampered
+// snapshot is detected, runs without a snapshot keep the old drift check, and
+// new runs start from the current rules.
+func TestRunKeepsTheRulesItStartedWith(t *testing.T) {
+	alt := altRules(t)
+	repoRaw, _ := os.ReadFile(repoRulesPath)
+
+	f := newFixture(t)
+	f.initOK(t)
+	f.writePlan(t, defaultParts()...)
+	if snap := f.read(t, ".learning/rules.json"); string(snap) != string(repoRaw) {
+		t.Fatal("init must snapshot the exact rules file into .learning/rules.json")
+	}
+	opts := f.opts("validate", "preparation")
 	opts.RulesPath = alt
 	rep, code := f.run(t, opts)
+	if c, ok := hasCheck(rep, "rules-current"); !ok || c.Status != "PASS" || code != 0 {
+		t.Fatalf("edited rules must not block a run with a snapshot: code=%d check=%+v", code, c)
+	}
+
+	f.write(t, ".learning/rules.json", strings.Replace(string(repoRaw), `"minPassingScore": 4`, `"minPassingScore": 1`, 1))
+	rep, code = f.run(t, f.opts("status", ""))
 	assertBlocked(t, rep, code)
-	c, ok := hasCheck(rep, "rules-current")
-	if !ok || !strings.Contains(c.Reason, "changed since init") {
-		t.Fatalf("rules-current check = %+v, want drift failure", c)
+	if c, ok := hasCheck(rep, "rules-current"); !ok || !strings.Contains(c.Reason, "changed since init") {
+		t.Fatalf("tampered snapshot: rules-current = %+v, want drift failure", c)
+	}
+
+	legacy := newFixture(t)
+	legacy.initOK(t)
+	if err := os.Remove(filepath.Join(legacy.ws, ".learning", "rules.json")); err != nil {
+		t.Fatal(err)
+	}
+	opts = legacy.opts("status", "")
+	opts.RulesPath = alt
+	rep, code = legacy.run(t, opts)
+	assertBlocked(t, rep, code)
+	if c, ok := hasCheck(rep, "rules-current"); !ok || !strings.Contains(c.Reason, "changed since init") {
+		t.Fatalf("run without snapshot: rules-current = %+v, want drift failure", c)
+	}
+
+	fresh := newFixture(t)
+	opts = fresh.opts("init", "")
+	opts.RulesPath = alt
+	if rep, code := fresh.run(t, opts); code != 0 || rep.Status != "accepted" {
+		t.Fatalf("init with edited rules: status=%q code=%d", rep.Status, code)
+	}
+	altRaw, _ := os.ReadFile(alt)
+	if string(fresh.read(t, ".learning/rules.json")) != string(altRaw) {
+		t.Fatal("a new run must snapshot the current rules")
 	}
 }
 

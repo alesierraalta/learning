@@ -119,14 +119,6 @@ func Run(opts Options) (Report, int) {
 		}, ExitOK
 	}
 
-	r, err := rules.Load(opts.RulesPath)
-	if err != nil {
-		return errorReport("rules invalid: " + err.Error()), ExitOperational
-	}
-	if opts.Stage != "" && !containsStr(r.StageOrder, opts.Stage) {
-		return errorReport("unknown stage " + opts.Stage + ": not declared in the rules file"), ExitOperational
-	}
-
 	rootReal, err := filepath.EvalSymlinks(opts.Root)
 	if err != nil {
 		return errorReport("root unavailable: " + opts.Root), ExitOperational
@@ -141,6 +133,22 @@ func Run(opts Options) (Report, int) {
 	}
 	if fi, err := os.Stat(wsReal); err != nil || !fi.IsDir() {
 		return errorReport("workspace is not a directory: " + wsReal), ExitOperational
+	}
+
+	// A run keeps the rules it started with: once init has snapshotted them,
+	// later edits of the rules file apply to new runs only.
+	rulesPath := opts.RulesPath
+	if opts.Command != "init" {
+		if _, err := os.Stat(rulesSnapshotPath(wsReal)); err == nil {
+			rulesPath = rulesSnapshotPath(wsReal)
+		}
+	}
+	r, err := rules.Load(rulesPath)
+	if err != nil {
+		return errorReport("rules invalid: " + err.Error()), ExitOperational
+	}
+	if opts.Stage != "" && !containsStr(r.StageOrder, opts.Stage) {
+		return errorReport("unknown stage " + opts.Stage + ": not declared in the rules file"), ExitOperational
 	}
 
 	switch opts.Command {
@@ -220,6 +228,9 @@ func runInit(ws string, r *rules.Rules) (Report, int) {
 	defer release()
 	if _, err := os.Stat(statePath(ws)); err == nil {
 		return errorReport("run already initialized: .learning/state.json exists; refusing to overwrite the existing run"), ExitOperational
+	}
+	if err := os.WriteFile(rulesSnapshotPath(ws), r.Raw, 0o644); err != nil {
+		return errorReport("cannot snapshot the run rules: " + err.Error()), ExitOperational
 	}
 	st := newState(ws, r.Hash)
 	if err := saveState(ws, st); err != nil {
