@@ -45,7 +45,10 @@ Installed on this machine at
 which only lists this adapter path. Pi reads project `.pi` from the working directory,
 not from parent directories, so the study chat starts in the `Learnings` folder. On this
 machine the shell function `aprender` in `~/.bashrc` does that from any directory: it
-changes to the `Learnings` folder and runs `pi` with any arguments it receives. The first
+changes to the `Learnings` folder and runs `pi` with any arguments it receives.
+Before that it rebuilds `bin/learning` when any file under `cmd/`, `internal/` or
+`go.mod` is newer than the binary (or the binary is missing); a failed build prints
+one warning and the chat still opens with the previous binary. The first
 run asks for project trust. `Learnings/AGENTS.md` (a Pi context file, additive to the
 user's global instructions) declares the session a study session: every message goes
 through the `explicacion-interactiva` skill and the learner never types a command — the
