@@ -50,7 +50,11 @@ run asks for project trust. `Learnings/AGENTS.md` (a Pi context file, additive t
 user's global instructions) declares the session a study session: every message goes
 through the `explicacion-interactiva` skill and the learner never types a command — the
 chat enrolls the topic itself with `learning_stage` `init` (new topic) or `start` (resume).
-A project `.pi/APPEND_SYSTEM.md` is deliberately not used: it would replace the user's
+The same `.pi/settings.json` replaces the user's `npm:pi-lens` package entry with
+empty `extensions`, `skills`, `prompts` and `themes`: pi-lens is code tooling (LSP,
+lint, typo checks against English) and stays active everywhere else; verified with
+`get_commands` (Learnings: no `lens-*` commands, `/learning` and the skill present). An
+`autoload: false` filtering delta did not remove it. A project `.pi/APPEND_SYSTEM.md` is deliberately not used: it would replace the user's
 global `~/.pi/agent/APPEND_SYSTEM.md`. Do not start the study chat from this repository:
 the adapter is not loaded there, and builder subagents can only write inside the Git
 repository of the session (the vault's `notes/` repository).
