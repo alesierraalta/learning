@@ -398,7 +398,7 @@ func evalPlanificador(c *evalCtx, decl rules.CheckDecl) Check {
 		return failCheck(decl.ID, "dependency map section has no mermaid graph")
 	}
 	biblio, _ := findSection(text, "bibliografía")
-	if !strings.Contains(biblio, "✅ verificado") {
+	if !strings.Contains(strings.ToLower(biblio), "✅ verificado") {
 		return failCheck(decl.ID, "bibliography has no verified (✅ verificado) claim row")
 	}
 	exBody, _ := findSection(text, "ejercicios")

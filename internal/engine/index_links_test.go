@@ -53,3 +53,31 @@ func TestIndexLinksPointAtCanonicalPartNotes(t *testing.T) {
 		})
 	}
 }
+
+// A verified bibliography row counts regardless of the capitalisation the
+// writer used; a row only marked as pending verification does not.
+func TestBibliographyVerifiedMarkIgnoresCase(t *testing.T) {
+	for _, tc := range []struct {
+		mark string
+		ok   bool
+	}{{"✅ Verificado en fuente oficial", true}, {"✅ VERIFICADO", true}, {"⚠️ por sección", false}} {
+		t.Run(tc.mark, func(t *testing.T) {
+			parts := defaultParts()
+			f := newFixture(t)
+			f.initOK(t)
+			f.writePlan(t, parts...)
+			f.advanceOK(t, "preparation")
+			f.writeDiagQuestions(t, buildDiagQuestions(6, 6, parts...))
+			f.writeDiagAnswersFor(t, parts, 2, 6)
+			f.advanceOK(t, "diagnosis")
+			f.writePlanWith(t, "Dificultades detectadas.", []string{"d3"}, parts...)
+			note := strings.ReplaceAll(string(f.read(t, "planificador.md")), "✅ verificado", tc.mark)
+			f.write(t, "planificador.md", note)
+			rep, _ := f.run(t, f.opts("validate", "planning"))
+			c, _ := hasCheck(rep, "planificador-sections")
+			if tc.ok != (c.Status == "PASS") {
+				t.Fatalf("mark %q: planificador-sections = %+v", tc.mark, c)
+			}
+		})
+	}
+}
