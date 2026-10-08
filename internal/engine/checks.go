@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -433,10 +434,79 @@ func evalIndexNote(c *evalCtx, decl rules.CheckDecl) Check {
 	if strings.TrimSpace(string(raw)) == "" {
 		return failCheck(decl.ID, "index note is empty: "+decl.Path)
 	}
-	if !strings.Contains(string(raw), "[[explicaciones/") {
-		return failCheck(decl.ID, "index has no resolving links to explicaciones/")
+	prefix := vaultLinkPrefix(c.ws)
+	parts := c.planParts()
+	want := map[string]bool{}
+	for i, p := range parts {
+		target := prefix + "explicaciones/Parte " + itoa(i+1) + " - " + p.Slug
+		want[target] = true
+		if !linksTo(string(raw), target) {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"index does not link part %s as [[%s|...]]: part links use the plan slug and the vault-relative path, or Obsidian opens an empty note elsewhere",
+				p.ID, target))
+		}
 	}
-	return passCheck(decl.ID, decl.Path+" is a nonempty index linking the parts")
+	for _, target := range partLinkTargets(string(raw)) {
+		if !want[target] {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"index links [[%s]], which is not a part of the plan: link only %s\"explicaciones/Parte N - <slug>\" for the plan parts",
+				target, prefix))
+		}
+	}
+	return passCheck(decl.ID, fmt.Sprintf("%s links all %d plan parts by their canonical notes", decl.Path, len(parts)))
+}
+
+// vaultLinkPrefix returns the workspace path relative to the enclosing
+// Obsidian vault (the nearest ancestor holding .obsidian), with a trailing
+// slash, or "" outside a vault.
+func vaultLinkPrefix(ws string) string {
+	for dir := filepath.Dir(ws); ; dir = filepath.Dir(dir) {
+		if fi, err := os.Stat(filepath.Join(dir, ".obsidian")); err == nil && fi.IsDir() {
+			rel, err := filepath.Rel(dir, ws)
+			if err != nil {
+				return ""
+			}
+			return filepath.ToSlash(rel) + "/"
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			return ""
+		}
+	}
+}
+
+// linksTo reports a wikilink to target, with or without .md and alias.
+func linksTo(text, target string) bool {
+	for _, t := range partLinkTargets(text) {
+		if t == target {
+			return true
+		}
+	}
+	return false
+}
+
+// partLinkTargets lists the targets of wikilinks into an explicaciones/ folder.
+func partLinkTargets(text string) []string {
+	var out []string
+	for rest := text; ; {
+		i := strings.Index(rest, "[[")
+		if i < 0 {
+			return out
+		}
+		rest = rest[i+2:]
+		j := strings.Index(rest, "]]")
+		if j < 0 {
+			return out
+		}
+		target := rest[:j]
+		if k := strings.IndexAny(target, "|#"); k >= 0 {
+			target = target[:k]
+		}
+		target = strings.TrimSuffix(strings.TrimSpace(target), ".md")
+		if strings.Contains(target, "explicaciones/") {
+			out = append(out, target)
+		}
+		rest = rest[j+2:]
+	}
 }
 
 func evalMisPalabrasStructure(c *evalCtx, decl rules.CheckDecl) Check {

@@ -126,7 +126,7 @@ is the source of truth for paths and checks; this table summarizes it.
 |---|---|---|
 | preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned` |
 | diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | 6 prerequisite + 6 topic questions (2/2/2 by level), enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
-| planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index links to parts, one learner area per part |
+| planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index links every plan part as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault) and no other part, one learner area per part |
 | explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), revised after a failed mini-quiz |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
 | quiz | `mini-quiz/{part}.json`, `mini-quiz/{part}.answers.json` | part note has a mini-quiz section, 5 questions with enunciados present in it, complete answers, derived score ≥ 4/5 with no central miss |
@@ -260,7 +260,14 @@ invalidates a recorded one.
   stale stages;
 - the run's rules (its `.learning/rules.json` snapshot, or `--rules` for runs
   without one) hash differently from the hash recorded at `init` → `FAIL rules-current`;
-- stale or missing semantic judgment → `FAIL semantic-receipts`.
+- stale or missing semantic judgment → `FAIL semantic-receipts`;
+- a started but failing frontier stage → that stage's failing checks
+  (`blocked`, exit 1). A stage counts as started once one of its own files
+  exists, a file it declares that no earlier stage declares (planning starts
+  with `planificador.md`, `mapa.mmd`, `explicacion.md` or `mis-palabras.md`, not
+  with `plan.json` or the diagnosis files). Checks that only wait for the
+  learner (`waiting for learner input`) do not count. This is what lets the
+  chat's settle gate catch a half-written stage instead of ending the turn.
 
 Repair is always frontier-ordered: re-advance the earliest stale or incomplete
 stage, then the next. A `completed` run returns to `blocked` on any relevant
