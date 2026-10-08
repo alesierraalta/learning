@@ -103,6 +103,8 @@ func TestFinalQuizRejectsEmptyOpenAnswer(t *testing.T) {
 	f.completeThroughAdaptation(t)
 	f.writeClosingArtifacts(t, "B", "   ", "1/1")
 	f.advanceOK(t, "exercises")
+	// Waiting only for the learner's answer is a pause, not a chat failure.
+	f.statusExpect(t, "accepted")
 	before := f.tryReadState(t)
 	f.advanceExpectBlocked(t, "final_quiz", "final-quiz-note", "f2")
 	if string(f.tryReadState(t)) != string(before) {

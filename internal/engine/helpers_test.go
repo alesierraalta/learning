@@ -201,9 +201,6 @@ func (f *fixture) writePlan(t *testing.T, parts ...partCfg) {
 	f.writeJSON(t, "cuestionario-final.answers.json", map[string]any{"answers": map[string]string{"f1": ""}})
 	f.write(t, "explicacion.md", indexNote(parts))
 	f.write(t, "mis-palabras.md", fixtureMisPalabras(parts))
-	for i, p := range parts {
-		f.write(t, fmt.Sprintf("explicaciones/Parte %d - %s.md", i+1, slugForTest(p.id)), "---\ntipo: explicacion\n---\n# "+p.title+"\n")
-	}
 }
 
 func slugForTest(id string) string { return strings.ReplaceAll(id, "_", "-") }

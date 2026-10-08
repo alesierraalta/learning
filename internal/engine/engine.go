@@ -299,7 +299,67 @@ func runStatus(ws string, r *rules.Rules) (Report, int) {
 			fmt.Sprintf("waiting for learner answers before %s can advance", fStage)))
 		return Report{Status: "waiting", Stage: fStage, NextStage: fStage, Part: fPart, Checks: checks}, ExitOK
 	}
+	if fails := startedFrontierFailures(r, st, ws, fStage, fPart); len(fails) > 0 {
+		checks = append(checks, fails...)
+		return blocked(checks, fStage, fStage, fPart, ExitFailedCheck)
+	}
 	return Report{Status: "accepted", Stage: fStage, NextStage: fStage, Part: fPart, Checks: checks}, ExitOK
+}
+
+// startedFrontierFailures evaluates the frontier stage read-only once the chat
+// has started writing it, so the settle gate sees a half-written stage. A
+// stage counts as started when one of its own files exists: a file it
+// declares that no earlier stage declares (plan.json or the diagnosis files
+// read by planning do not start planning). Checks that only wait for the
+// learner are not failures of the chat.
+func startedFrontierFailures(r *rules.Rules, st *State, ws, stage, part string) []Check {
+	if !frontierStarted(r, ws, stage, part) {
+		return nil
+	}
+	var fails []Check
+	for _, c := range evalStage(r, st, ws, stage, part).checks {
+		if c.Status == "FAIL" && !strings.Contains(c.Reason, "(waiting for learner input)") {
+			fails = append(fails, c)
+		}
+	}
+	return fails
+}
+
+func frontierStarted(r *rules.Rules, ws, stage, part string) bool {
+	earlier := map[string]bool{}
+	for _, s := range r.StageOrder {
+		if s == stage {
+			break
+		}
+		for _, decl := range r.ChecksFor(s) {
+			for _, tpl := range decl.Files() {
+				earlier[tpl] = true
+			}
+		}
+	}
+	planRel := declPathByKind(r, "preparation", "file_exists")
+	plan, _ := loadPlan(ws, planRel)
+	for _, decl := range r.ChecksFor(stage) {
+		for _, tpl := range decl.Files() {
+			if earlier[tpl] {
+				continue
+			}
+			rel := substPart(tpl, part)
+			if part != "" && (strings.Contains(tpl, "{index}") || strings.Contains(tpl, "{slug}")) {
+				var err error
+				if rel, err = partRel(&plan, tpl, part); err != nil {
+					continue
+				}
+			}
+			if strings.Contains(rel, "{") {
+				continue
+			}
+			if _, err := os.Stat(absPath(ws, rel)); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // --- validate / advance ----------------------------------------------------
