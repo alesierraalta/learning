@@ -124,7 +124,10 @@ const settleEvent = (canContinue) => ({
   context: { canContinue, entries: [], contextEntries: [], llmMessages: [], pendingMessages: [] },
 });
 
-async function settle(host, canContinue = true) {
+// Real Pi computes context.canContinue BEFORE the gate's own entries: with a
+// final assistant message and nothing queued it is false, and it becomes true
+// once the gate appends its custom message. Tests use that realistic value.
+async function settle(host, canContinue = false) {
   const handler = host.handlers.get("agent_before_settle")?.[0];
   assert.ok(handler, "agent_before_settle handler registered");
   return handler(settleEvent(canContinue), host.ctx);
@@ -328,7 +331,7 @@ test("settle gate is absent without enrollment and no global prompt handlers exi
   const env = tempEnv();
   const { host, engine } = install(env, async () => ({ code: 0, stdout: reportJson("accepted"), stderr: "" }), { enrolled: false });
 
-  const result = await settle(host, true);
+  const result = await settle(host);
 
   assert.equal(result, undefined, "no gate without explicit deep enrollment");
   assert.equal(engine.calls.length, 0, "no engine call without enrollment");
@@ -346,10 +349,10 @@ test("settle requests bounded correction on failure, status command only", async
   }));
   await enroll(host);
 
-  const r1 = await settle(host, true);
-  const r2 = await settle(host, true);
-  const r3 = await settle(host, true);
-  const r4 = await settle(host, true);
+  const r1 = await settle(host);
+  const r2 = await settle(host);
+  const r3 = await settle(host);
+  const r4 = await settle(host);
 
   assert.equal(r1.continue, true, "first failure requests one correction");
   assert.equal(r2.continue, true);
@@ -376,7 +379,7 @@ test("settle treats a waiting status as a legitimate pause, not a gate", async (
   }));
   await enroll(host);
 
-  const result = await settle(host, true);
+  const result = await settle(host);
 
   assert.equal(result, undefined, "waiting for user input neither blocks nor completes");
 });
@@ -390,7 +393,7 @@ test("settle gates on a FAIL check even when the status reads completed", async 
   }));
   await enroll(host);
 
-  const result = await settle(host, true);
+  const result = await settle(host);
 
   assert.equal(result.continue, true, "a FAIL check always blocks the settle");
   assert.match(result.entries[0].content, /plan-updated/);
@@ -401,7 +404,7 @@ test("settle fails closed on malformed engine output without requesting continua
   const { host, engine } = install(env, async () => ({ code: 0, stdout: "<html>oops</html>", stderr: "" }));
   await enroll(host);
 
-  const result = await settle(host, true);
+  const result = await settle(host);
 
   assert.equal(engine.calls.length, 1);
   assert.notEqual(result.continue, true, "unavailable engine output never continues");
@@ -468,7 +471,7 @@ test("reload detects a workspace escape and blocks without calling the engine", 
   extension(host.api, { root: env.root, enginePath: env.engine, execFile: engine.execFile });
   await enroll(host);
 
-  const result = await settle(host, true);
+  const result = await settle(host);
   assert.notEqual(result.continue, true);
   assert.equal(result.entries.length, 1, "compromised enrollment is visible, not silently dropped");
   assert.equal(engine.calls.length, 0, "engine is not invoked with an escaped workspace");
@@ -497,7 +500,7 @@ test("command start rejects a symlinked workspace outside the Learnings root", a
   assert.equal(host.entries.length, 0, "no enrollment record for an escaped workspace");
   assert.equal(host.notifications.at(-1).level, "warning");
   assert.equal(engine.calls.length, 0, "engine not called before activation is accepted");
-  const gate = await settle(host, true);
+  const gate = await settle(host);
   assert.equal(gate, undefined, "rejected activation leaves conceptual mode untouched");
 });
 
@@ -525,16 +528,16 @@ test("correction budget resets when the user sends a new input", async () => {
   const { host } = install(env, async () => ({ code: 1, stdout: reportJson("blocked", [failCheck]), stderr: "" }));
   await enroll(host);
 
-  await settle(host, true);
-  await settle(host, true);
-  const blocked = await settle(host, true);
+  await settle(host);
+  await settle(host);
+  const blocked = await settle(host);
   assert.notEqual(blocked.continue, true, "budget exhausted within one user input");
 
   const inputHandler = host.handlers.get("input")?.[0];
   assert.ok(inputHandler, "input handler registered");
   await inputHandler({ type: "input", text: "fixed the plan" }, host.ctx);
 
-  const afterInput = await settle(host, true);
+  const afterInput = await settle(host);
   assert.equal(afterInput.continue, true, "a new user input restores the correction budget");
 });
 
@@ -702,20 +705,13 @@ test("settle continues when the next stage is an unwritten explanation", async (
   }));
   await enroll(host);
 
-  const first = await settle(host, true);
+  const first = await settle(host);
   assert.equal(first?.continue, true, "the chat must write the part before ending the turn");
   assert.match(first.entries[0].content, /p2/);
-  await settle(host, true);
-  const third = await settle(host, true);
+  await settle(host);
+  const third = await settle(host);
   assert.notEqual(third?.continue, true, "bounded: no endless continuation");
 
-  const cannot = install(env, async () => ({
-    code: 0,
-    stdout: JSON.stringify({ status: "accepted", stage: "explanation", checks: [passCheck], nextStage: "explanation", part: "p2" }),
-    stderr: "",
-  }));
-  await enroll(cannot.host);
-  assert.notEqual((await settle(cannot.host, false))?.continue, true, "never continue when the host cannot");
 });
 
 test("settle does not push the chat when the next stage waits on the learner", async () => {
@@ -726,5 +722,5 @@ test("settle does not push the chat when the next stage waits on the learner", a
     stderr: "",
   }));
   await enroll(host);
-  assert.equal(await settle(host, true), undefined);
+  assert.equal(await settle(host), undefined);
 });

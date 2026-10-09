@@ -367,7 +367,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     state.corrections = 0;
   });
 
-  pi.on("agent_before_settle", async (event, ctx) => {
+  pi.on("agent_before_settle", async (_event, ctx) => {
     if (!resolveContained(deps.root, ctx.cwd).ok) return undefined;
     if (state.phase === "inactive") {
       return undefined;
@@ -390,11 +390,13 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     }
     const fails = failCheckIds(outcome.report);
     const passing = PASS_STATUSES.has(outcome.report.status) && fails.length === 0;
-    const canContinue = Boolean(event.context?.canContinue);
+    // event.context.canContinue is computed before this handler adds its own
+    // message, so it is false at a normal end of turn; Pi re-evaluates it after
+    // the gate's custom message. Only the correction budget bounds the gate.
     // Parts without pauses: an unwritten explanation is owed by the chat, not
     // by the learner, so the turn does not end before the part exists.
     if (passing && outcome.report.nextStage === "explanation" && outcome.report.status !== "waiting") {
-      if (canContinue && state.corrections < MAX_CORRECTIONS) {
+      if (state.corrections < MAX_CORRECTIONS) {
         state.corrections += 1;
         return {
           entries: [
@@ -404,8 +406,8 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
               display: true,
               content:
                 `Learning engine: part ${outcome.report.part ?? ""} is the next stage and is not written yet. ` +
-                "Write its explanation note now, link it in the index, validate and advance explanation, " +
-                "then present it to the learner. Do not end the turn before the part exists.",
+                "Write its explanation note now (run the builder in the foreground and wait for it), link it in the index, " +
+                "validate and advance explanation, then present it to the learner. Do not end the turn before the part exists.",
             },
           ],
           continue: true,
@@ -417,7 +419,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       state.corrections = 0;
       return undefined;
     }
-    if (canContinue && state.corrections < MAX_CORRECTIONS) {
+    if (state.corrections < MAX_CORRECTIONS) {
       state.corrections += 1;
       return {
         entries: [{ type: "custom_message", customType: GATE_TYPE, display: true, content: failureContent(outcome.report) }],
@@ -432,7 +434,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
           display: true,
           content:
             failureContent(outcome.report) +
-            "\nBlocked: correction budget exhausted or the host cannot continue this turn.",
+            "\nBlocked: correction budget exhausted.",
         },
       ],
     };
