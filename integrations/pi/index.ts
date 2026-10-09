@@ -390,11 +390,33 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     }
     const fails = failCheckIds(outcome.report);
     const passing = PASS_STATUSES.has(outcome.report.status) && fails.length === 0;
+    const canContinue = Boolean(event.context?.canContinue);
+    // Parts without pauses: an unwritten explanation is owed by the chat, not
+    // by the learner, so the turn does not end before the part exists.
+    if (passing && outcome.report.nextStage === "explanation" && outcome.report.status !== "waiting") {
+      if (canContinue && state.corrections < MAX_CORRECTIONS) {
+        state.corrections += 1;
+        return {
+          entries: [
+            {
+              type: "custom_message",
+              customType: GATE_TYPE,
+              display: true,
+              content:
+                `Learning engine: part ${outcome.report.part ?? ""} is the next stage and is not written yet. ` +
+                "Write its explanation note now, link it in the index, validate and advance explanation, " +
+                "then present it to the learner. Do not end the turn before the part exists.",
+            },
+          ],
+          continue: true,
+        };
+      }
+      return undefined;
+    }
     if (passing) {
       state.corrections = 0;
       return undefined;
     }
-    const canContinue = Boolean(event.context?.canContinue);
     if (canContinue && state.corrections < MAX_CORRECTIONS) {
       state.corrections += 1;
       return {
@@ -482,6 +504,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       "Never claim a stage or the topic is complete while the engine report shows FAIL, blocked or error.",
       "When validate returns pendingReviews, evaluate each rubric against the listed artifact and context (delegate to a subagent if useful) and record one review per rule before advancing.",
     ],
+    // SAFETY: plain JSON Schema object; the host only reads it as a TypeBox-compatible schema.
     parameters: {
       type: "object",
       properties: {
@@ -511,6 +534,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       required: ["action"],
       additionalProperties: false,
     } as unknown as TSchema,
+    // SAFETY: open JSON Schema object, read by the host as a TypeBox-compatible schema.
     outputSchema: { type: "object", additionalProperties: true } as unknown as TSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const { action: requested, topic } = params as { action?: string; topic?: unknown };
@@ -543,6 +567,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
         return {
           content: [{ type: "text" as const, text: JSON.stringify(enrollOutcome.report, null, 2) }],
           details: { command: requested, exitCode: enrollOutcome.code },
+          // SAFETY: parseReport only admits a single JSON object, so the report is a plain record.
           structuredContent: enrollOutcome.report as unknown as Record<string, unknown>,
           isError: enrollOutcome.code !== 0,
         };
@@ -592,6 +617,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       return {
         content: [{ type: "text" as const, text: JSON.stringify(outcome.report, null, 2) }],
         details: { command: action, exitCode: outcome.code },
+        // SAFETY: parseReport only admits a single JSON object, so the report is a plain record.
         structuredContent: outcome.report as unknown as Record<string, unknown>,
         isError: outcome.code !== 0,
       };

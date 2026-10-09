@@ -689,3 +689,42 @@ test("stage tool enrollment is refused outside the Learnings root", async () => 
   assert.equal(engine.calls.length, 0);
   assert.equal(host.entries.length, 0);
 });
+
+// "Parts without pauses": when the engine's next stage is writing an
+// explanation, the chat owes the part; ending the turn there would leave the
+// learner with an index and no part. Bounded like any correction.
+test("settle continues when the next stage is an unwritten explanation", async () => {
+  const env = tempEnv();
+  const { host } = install(env, async () => ({
+    code: 0,
+    stdout: JSON.stringify({ status: "accepted", stage: "explanation", checks: [passCheck], nextStage: "explanation", part: "p2" }),
+    stderr: "",
+  }));
+  await enroll(host);
+
+  const first = await settle(host, true);
+  assert.equal(first?.continue, true, "the chat must write the part before ending the turn");
+  assert.match(first.entries[0].content, /p2/);
+  await settle(host, true);
+  const third = await settle(host, true);
+  assert.notEqual(third?.continue, true, "bounded: no endless continuation");
+
+  const cannot = install(env, async () => ({
+    code: 0,
+    stdout: JSON.stringify({ status: "accepted", stage: "explanation", checks: [passCheck], nextStage: "explanation", part: "p2" }),
+    stderr: "",
+  }));
+  await enroll(cannot.host);
+  assert.notEqual((await settle(cannot.host, false))?.continue, true, "never continue when the host cannot");
+});
+
+test("settle does not push the chat when the next stage waits on the learner", async () => {
+  const env = tempEnv();
+  const { host } = install(env, async () => ({
+    code: 0,
+    stdout: JSON.stringify({ status: "accepted", stage: "own_words", checks: [passCheck], nextStage: "own_words", part: "p1" }),
+    stderr: "",
+  }));
+  await enroll(host);
+  assert.equal(await settle(host, true), undefined);
+});
