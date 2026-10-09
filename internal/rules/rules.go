@@ -141,11 +141,20 @@ type Rubric struct {
 // IsGate reports whether a verdict FAIL blocks progression.
 func (r Rubric) IsGate() bool { return r.Kind != "assessment" }
 
+// DiagnosticThresholds declares either the fixed diagnosis (prerequisite and
+// topic counts) or, with Mode "adaptive", short rounds that move each area up
+// a level on a right answer and down to a foundation on a wrong one.
 type DiagnosticThresholds struct {
-	PrerequisiteCount int            `json:"prerequisiteCount"`
-	TopicCount        int            `json:"topicCount"`
-	TopicLevelCounts  map[string]int `json:"topicLevelCounts"`
+	Mode              string         `json:"mode,omitempty"`
+	RoundSize         int            `json:"roundSize,omitempty"`
+	MaxRounds         int            `json:"maxRounds,omitempty"`
+	PrerequisiteCount int            `json:"prerequisiteCount,omitempty"`
+	TopicCount        int            `json:"topicCount,omitempty"`
+	TopicLevelCounts  map[string]int `json:"topicLevelCounts,omitempty"`
 }
+
+// Adaptive reports the round-based diagnosis.
+func (d DiagnosticThresholds) Adaptive() bool { return d.Mode == "adaptive" }
 
 type QuizThresholds struct {
 	QuestionCount    int `json:"questionCount"`
@@ -327,16 +336,28 @@ func (r *Rules) validateRubrics() error {
 
 func (r *Rules) validateThresholds() error {
 	d := r.Thresholds.Diagnostic
-	if d.PrerequisiteCount < 1 || d.TopicCount < 1 {
-		return fmt.Errorf("diagnostic counts must be positive")
-	}
-	if len(d.TopicLevelCounts) == 0 {
-		return fmt.Errorf("topicLevelCounts must not be empty")
-	}
-	for level, count := range d.TopicLevelCounts {
-		if count < 1 || level == "" {
-			return fmt.Errorf("topicLevelCounts entries must be positive")
+	switch d.Mode {
+	case "adaptive":
+		if d.RoundSize < 1 || d.MaxRounds < 1 {
+			return fmt.Errorf("adaptive diagnostic roundSize and maxRounds must be positive")
 		}
+		if d.PrerequisiteCount != 0 || d.TopicCount != 0 || len(d.TopicLevelCounts) != 0 {
+			return fmt.Errorf("adaptive diagnostic does not take fixed counts")
+		}
+	case "":
+		if d.PrerequisiteCount < 1 || d.TopicCount < 1 {
+			return fmt.Errorf("diagnostic counts must be positive")
+		}
+		if len(d.TopicLevelCounts) == 0 {
+			return fmt.Errorf("topicLevelCounts must not be empty")
+		}
+		for level, count := range d.TopicLevelCounts {
+			if count < 1 || level == "" {
+				return fmt.Errorf("topicLevelCounts entries must be positive")
+			}
+		}
+	default:
+		return fmt.Errorf("unknown diagnostic mode %q", d.Mode)
 	}
 	q := r.Thresholds.Quiz
 	if q.QuestionCount < 1 {

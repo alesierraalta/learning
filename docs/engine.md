@@ -125,7 +125,7 @@ is the source of truth for paths and checks; this table summarizes it.
 | Stage | Artifacts | Objective checks (summary) |
 |---|---|---|
 | preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned` |
-| diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | 6 prerequisite + 6 topic questions (2/2/2 by level), enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
+| diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | adaptive rounds (`thresholds.diagnostic.mode: adaptive`, see "Adaptive diagnosis") or, for runs whose rules snapshot has fixed counts, 6 prerequisite + 6 topic questions (2/2/2 by level); enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
 | planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part |
 | explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), revised after a failed mini-quiz |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
@@ -148,6 +148,29 @@ unclosed element, or one inside a fenced block, is not a visual. The check
 proves a visual is present, not that it helps; that is the `visual-value`
 rubric's judgment.
 
+### Adaptive diagnosis
+
+`thresholds.diagnostic` = `{"mode": "adaptive", "roundSize": 3, "maxRounds": 3}`.
+The learner answers one short round at a time in the chat; the note shows
+only the rounds written so far.
+
+- Round 1: `min(roundSize, plan areas)` basic (`level` 1) `topic` questions,
+  one per plan subtema, following nothing.
+- Every later question has `round` = previous round + 1 and `follows` = one
+  question of the previous round, each answered question followed at most
+  once. A round is written only after the previous round is fully answered.
+- The rule, checked against the recorded answer of the followed question:
+  right below `avanzado` → `topic`, same subtema, one level up; wrong at
+  `básico` (or `E` = No sé) → a `prerequisite` (`P0.x`) foundation question;
+  right at `avanzado`, wrong above `básico`, or any foundation answer resolve
+  the area and nothing follows them.
+- Owed rounds: while an answered question needs a follow-up and its round is
+  below `maxRounds`, `quiz-answers` fails with "round N is owed" (a chat
+  failure, so the settle gate makes the chat write it); unanswered questions
+  are a learner wait (`status` = `waiting`).
+- Complete when nothing is owed and every question is answered; the score is
+  `correct/asked`, bound to `quiz.md` `puntaje`.
+
 ### JSON sidecar shapes
 
 The producer writes these next to the notes; `thresholds` in `rules/deep.json`
@@ -168,7 +191,13 @@ planning, focus areas naming the diagnosis' wrong answers):
 `id` and `slug` must not contain `/`, `\` or be `.`/`..`; the part note is
 `explicaciones/Parte {index} - {slug}.md`.
 
-`quiz.json` (diagnosis): exactly 6 `prerequisite` questions with subtema
+`quiz.json` (diagnosis, adaptive): see "Adaptive diagnosis" below; each
+question adds `round` and, from round 2, `follows` (the id it follows up).
+A skipped diagnosis is `{"skipped": true, "questions": []}` with
+`{"answers": {}}` and `quiz.md` `estado: completado`, `puntaje: 0/0`; planning
+then declares no focus areas.
+
+`quiz.json` (diagnosis, fixed format): exactly 6 `prerequisite` questions with subtema
 `P0.x` and niveles never decreasing, then 6 `topic` questions on plan subtemas
 with `level` 1,1,2,2,3,3 mapped to `básico`/`medio`/`avanzado`. `pieza.tipo`
 is one of `thresholds.piezaTipos`. Every `enunciado` and every `pieza.contenido`

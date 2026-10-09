@@ -147,7 +147,11 @@ type pieza struct {
 }
 
 type diagQuestion struct {
-	ID        string            `json:"id"`
+	ID string `json:"id"`
+	// Round and Follows place a question in the adaptive diagnosis: the round
+	// it belongs to and the earlier question whose answer it follows up.
+	Round     int               `json:"round,omitempty"`
+	Follows   string            `json:"follows,omitempty"`
 	Type      string            `json:"type"`
 	Level     int               `json:"level"`
 	Subtema   string            `json:"subtema"`
@@ -262,7 +266,22 @@ func validateNivel(nivel string, th rules.Thresholds) error {
 // validateDiagnostic enforces 6 prerequisite + 6 topic questions with the
 // declared level distribution, stable join keys, real enunciados and a
 // declared working piece per question.
+// diagSkipped reports an explicitly skipped adaptive diagnosis: the learner
+// said they know nothing of the topic, so no question is asked.
+func diagSkipped(ws, rel string, qs []diagQuestion, th rules.Thresholds) bool {
+	if !th.Diagnostic.Adaptive() || len(qs) != 0 {
+		return false
+	}
+	var doc struct {
+		Skipped bool `json:"skipped"`
+	}
+	return readJSON(absPath(ws, rel), &doc) == nil && doc.Skipped
+}
+
 func validateDiagnostic(qs []diagQuestion, plan *planDoc, th rules.Thresholds) error {
+	if th.Diagnostic.Adaptive() {
+		return validateAdaptiveDiagnostic(qs, plan, th)
+	}
 	var prereq, topic int
 	levels := map[int]int{}
 	seen := map[string]bool{}
@@ -677,4 +696,194 @@ func slicesContains(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// validateDiagQuestion checks what every diagnostic question needs: a safe
+// unique id, real enunciado, join key, nivel, working piece and choices.
+func validateDiagQuestion(q diagQuestion, seen map[string]bool, planSubs map[string]bool, th rules.Thresholds) error {
+	if !safeID(q.ID) {
+		return fmt.Errorf("question has an unsafe id %q", q.ID)
+	}
+	if seen[q.ID] {
+		return fmt.Errorf("question id %q is repeated", q.ID)
+	}
+	seen[q.ID] = true
+	if strings.TrimSpace(q.Enunciado) == "" {
+		return fmt.Errorf("question %s has an empty enunciado", q.ID)
+	}
+	if err := validateNivel(q.Nivel, th); err != nil {
+		return fmt.Errorf("question %s: %w", q.ID, err)
+	}
+	if q.Pieza.Tipo == "" || !slicesContains(th.PiezaTipos, q.Pieza.Tipo) {
+		return fmt.Errorf("question %s declares pieza tipo %q outside %v", q.ID, q.Pieza.Tipo, th.PiezaTipos)
+	}
+	if strings.TrimSpace(q.Pieza.Contenido) == "" {
+		return fmt.Errorf("question %s has an empty pieza contenido", q.ID)
+	}
+	switch q.Type {
+	case "prerequisite":
+		if !strings.HasPrefix(q.Subtema, "P0.") {
+			return fmt.Errorf("prerequisite question %s must join on a P0.x subtema, got %q", q.ID, q.Subtema)
+		}
+	case "topic":
+		if !planSubs[q.Subtema] {
+			return fmt.Errorf("topic question %s references subtema %q that is not in the plan", q.ID, q.Subtema)
+		}
+		want, ok := th.NivelByLevel[itoa(q.Level)]
+		if !ok {
+			return fmt.Errorf("topic question %s has undeclared level %d", q.ID, q.Level)
+		}
+		if q.Nivel != want {
+			return fmt.Errorf("topic question %s level %d must map to nivel %q, got %q", q.ID, q.Level, want, q.Nivel)
+		}
+	default:
+		return fmt.Errorf("question %s has unknown type %q", q.ID, q.Type)
+	}
+	if err := validateOptions(q.Options, th.Options); err != nil {
+		return fmt.Errorf("question %s: %w", q.ID, err)
+	}
+	if err := validateAnswerKey(q.Answer, th.Options); err != nil {
+		return fmt.Errorf("question %s: %w", q.ID, err)
+	}
+	return nil
+}
+
+// validateAdaptiveDiagnostic checks the round layout, which needs no answers:
+// round 1 asks one basic topic question per area, up to roundSize; every
+// later question follows exactly one question of the previous round; no
+// round exceeds roundSize and none goes past maxRounds.
+func validateAdaptiveDiagnostic(qs []diagQuestion, plan *planDoc, th rules.Thresholds) error {
+	d := th.Diagnostic
+	planSubs := map[string]bool{}
+	if plan != nil {
+		planSubs = planSubtemas(*plan)
+	}
+	want := d.RoundSize
+	if len(planSubs) < want {
+		want = len(planSubs)
+	}
+	seen := map[string]bool{}
+	byID := map[string]diagQuestion{}
+	followed := map[string]string{}
+	perRound := map[int]int{}
+	areas := map[string]bool{}
+	last := 1
+	for _, q := range qs {
+		if err := validateDiagQuestion(q, seen, planSubs, th); err != nil {
+			return err
+		}
+		if q.Round < 1 || q.Round > d.MaxRounds {
+			return fmt.Errorf("question %s is in round %d: rounds run from 1 to %d", q.ID, q.Round, d.MaxRounds)
+		}
+		if q.Round < last {
+			return fmt.Errorf("question %s (round %d) comes after a round %d question: list rounds in order", q.ID, q.Round, last)
+		}
+		last = q.Round
+		perRound[q.Round]++
+		if perRound[q.Round] > d.RoundSize {
+			return fmt.Errorf("round %d has more than %d questions", q.Round, d.RoundSize)
+		}
+		if q.Round == 1 {
+			if q.Type != "topic" || q.Level != 1 || q.Follows != "" {
+				return fmt.Errorf("round 1 question %s must be a basic (level 1) topic question that follows nothing", q.ID)
+			}
+			if areas[q.Subtema] {
+				return fmt.Errorf("round 1 asks twice about %s: one question per area", q.Subtema)
+			}
+			areas[q.Subtema] = true
+		} else {
+			prev, ok := byID[q.Follows]
+			if !ok || prev.Round != q.Round-1 {
+				return fmt.Errorf("round %d question %s must follow a round %d question, got %q", q.Round, q.ID, q.Round-1, q.Follows)
+			}
+			if other, dup := followed[q.Follows]; dup {
+				return fmt.Errorf("questions %s and %s both follow %s: one follow-up per answer", other, q.ID, q.Follows)
+			}
+			followed[q.Follows] = q.ID
+		}
+		byID[q.ID] = q
+	}
+	if perRound[1] != want {
+		return fmt.Errorf("round 1 must ask %d basic topic questions, one per area (got %d)", want, perRound[1])
+	}
+	return nil
+}
+
+// adaptiveFlow checks every follow-up against the answer it follows and lists
+// the follow-ups the chat still owes. A right answer below avanzado moves the
+// area up one level; a wrong basic answer moves it down to a foundation; a
+// wrong answer above basic, a right avanzado answer or a foundation answer
+// resolve the area. Follow-ups after maxRounds are never owed.
+func adaptiveFlow(qs []diagQuestion, answers map[string]string, th rules.Thresholds) (owed []string, err error) {
+	byID := map[string]diagQuestion{}
+	followers := map[string]bool{}
+	for _, q := range qs {
+		byID[q.ID] = q
+		if q.Follows != "" {
+			followers[q.Follows] = true
+		}
+	}
+	maxLevel := len(th.NivelByLevel)
+	for _, q := range qs {
+		if q.Round <= 1 {
+			continue
+		}
+		for _, p := range qs {
+			if p.Round == q.Round-1 && strings.TrimSpace(answers[p.ID]) == "" {
+				return nil, fmt.Errorf("round %d question %s was written before round %d was fully answered (%s is unanswered)", q.Round, q.ID, p.Round, p.ID)
+			}
+		}
+	}
+	for _, q := range qs {
+		if q.Follows == "" {
+			continue
+		}
+		prev := byID[q.Follows]
+		got, answered := answers[prev.ID]
+		if !answered || strings.TrimSpace(got) == "" {
+			return nil, fmt.Errorf("question %s follows %s, which is not answered yet: write a round after its answers", q.ID, prev.ID)
+		}
+		right := got == prev.Answer
+		switch {
+		case prev.Type == "prerequisite":
+			return nil, fmt.Errorf("question %s follows the foundation question %s, which resolves its area", q.ID, prev.ID)
+		case right && prev.Level >= maxLevel:
+			return nil, fmt.Errorf("question %s follows %s, a right avanzado answer that resolves its area", q.ID, prev.ID)
+		case right:
+			if q.Type != "topic" || q.Subtema != prev.Subtema || q.Level != prev.Level+1 {
+				return nil, fmt.Errorf("question %s must move %s up: a level %d topic question on %s", q.ID, prev.Subtema, prev.Level+1, prev.Subtema)
+			}
+		case prev.Level == 1:
+			if q.Type != "prerequisite" {
+				return nil, fmt.Errorf("question %s must move %s down to a foundation (prerequisite) question", q.ID, prev.Subtema)
+			}
+		default:
+			return nil, fmt.Errorf("question %s follows %s, a wrong answer above basic that resolves its area", q.ID, prev.ID)
+		}
+	}
+	for _, q := range qs {
+		if followers[q.ID] || q.Round >= th.Diagnostic.MaxRounds || q.Type != "topic" {
+			continue
+		}
+		got, answered := answers[q.ID]
+		if !answered || strings.TrimSpace(got) == "" {
+			continue
+		}
+		right := got == q.Answer
+		if (right && q.Level < maxLevel) || (!right && q.Level == 1) {
+			owed = append(owed, q.ID)
+		}
+	}
+	return owed, nil
+}
+
+// unansweredDiag lists questions the learner has not answered yet.
+func unansweredDiag(qs []diagQuestion, answers map[string]string) []string {
+	var out []string
+	for _, q := range qs {
+		if strings.TrimSpace(answers[q.ID]) == "" {
+			out = append(out, q.ID)
+		}
+	}
+	return out
 }

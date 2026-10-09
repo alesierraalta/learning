@@ -9,7 +9,14 @@ import (
 	"testing"
 )
 
-const repoRulesPath = "../../rules/deep.json"
+// repoRulesPath is the fixed-format rules (6 + 6 diagnostic questions) that
+// runs started before adaptive diagnosis keep through their rules snapshot;
+// it differs from rules/deep.json only in thresholds.diagnostic
+// (TestFixedRulesFixtureMatchesProductionRules).
+const repoRulesPath = "testdata/rules-fixed-diagnosis.json"
+
+// adaptiveRulesPath is the production rules file: adaptive diagnosis.
+const adaptiveRulesPath = "../../rules/deep.json"
 
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
@@ -378,6 +385,8 @@ func (f *fixture) writePreparationBundle(t *testing.T, parts []partCfg) {
 
 type diagQuestionWire struct {
 	ID        string            `json:"id"`
+	Round     int               `json:"round,omitempty"`
+	Follows   string            `json:"follows,omitempty"`
 	Type      string            `json:"type"`
 	Level     int               `json:"level"`
 	Subtema   string            `json:"subtema"`

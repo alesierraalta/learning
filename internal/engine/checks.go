@@ -217,6 +217,12 @@ func evalPlanningLink(c *evalCtx, decl rules.CheckDecl) Check {
 	if err != nil {
 		return failCheck(decl.ID, "diagnostic questions unavailable: "+err.Error())
 	}
+	if diagSkipped(c.ws, decl.Questions, qs, c.r.Thresholds) {
+		if len(c.plan.FocusAreas) > 0 {
+			return failCheck(decl.ID, "focusAreas declared but the diagnosis was skipped: there are no answers to focus on")
+		}
+		return passCheck(decl.ID, "diagnosis skipped by the learner: the plan starts from zero")
+	}
 	if err := validateDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
 		return failCheck(decl.ID, "diagnostic questions invalid: "+err.Error())
 	}
@@ -291,8 +297,11 @@ func evalDiagnosticQuestions(c *evalCtx, decl rules.CheckDecl) Check {
 	if err != nil {
 		return failCheck(decl.ID, err.Error())
 	}
-	if err := validateDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
-		return failCheck(decl.ID, "diagnostic questions invalid: "+err.Error())
+	skipped := diagSkipped(c.ws, decl.Path, qs, c.r.Thresholds)
+	if !skipped {
+		if err := validateDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
+			return failCheck(decl.ID, "diagnostic questions invalid: "+err.Error())
+		}
 	}
 	noteBytes, err := os.ReadFile(absPath(c.ws, decl.Note))
 	if err != nil {
@@ -324,6 +333,9 @@ func evalDiagnosticQuestions(c *evalCtx, decl rules.CheckDecl) Check {
 			}
 		}
 	}
+	if skipped {
+		return passCheck(decl.ID, "diagnosis skipped by the learner: no questions asked")
+	}
 	return passCheck(decl.ID, fmt.Sprintf(
 		"%d questions with enunciado, A-%s choices, subtema/nivel tags and working pieces bound to %s",
 		len(qs), c.r.Thresholds.Options.AnswerKeys[len(c.r.Thresholds.Options.AnswerKeys)-1], decl.Note))
@@ -336,16 +348,43 @@ func evalDiagnosticAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 	if err != nil {
 		return skipCheck(decl.ID, "questions invalid; answers cannot be checked: "+err.Error())
 	}
-	if err := validateDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
-		return skipCheck(decl.ID, "questions invalid; answers cannot be checked: "+err.Error())
+	skipped := diagSkipped(c.ws, decl.Questions, qs, c.r.Thresholds)
+	if !skipped {
+		if err := validateDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
+			return skipCheck(decl.ID, "questions invalid; answers cannot be checked: "+err.Error())
+		}
 	}
-	if answerFileMissing(c.ws, decl.Answers) {
+	adaptive := c.r.Thresholds.Diagnostic.Adaptive()
+	if answerFileMissing(c.ws, decl.Answers) && !adaptive {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"learner answers not yet recorded in %s (waiting for learner input)", decl.Answers))
 	}
-	answers, err := loadAnswers(c.ws, decl.Answers)
-	if err != nil {
-		return failCheck(decl.ID, "answers invalid: "+err.Error())
+	answers := map[string]string{}
+	if !answerFileMissing(c.ws, decl.Answers) {
+		if answers, err = loadAnswers(c.ws, decl.Answers); err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
+	}
+	if adaptive && !skipped {
+		owed, err := adaptiveFlow(qs, answers, c.r.Thresholds)
+		if err != nil {
+			return failCheck(decl.ID, "diagnosis round invalid: "+err.Error())
+		}
+		if pending := unansweredDiag(qs, answers); len(pending) > 0 {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"learner answers not yet recorded for %s in %s (waiting for learner input)", strings.Join(pending, ", "), decl.Answers))
+		}
+		if len(owed) > 0 {
+			next := 0
+			for _, q := range qs {
+				if q.Round > next {
+					next = q.Round
+				}
+			}
+			return failCheck(decl.ID, fmt.Sprintf(
+				"round %d is owed: write one follow-up question for each of %s (up a level after a right answer, down to a foundation after a wrong basic one), then show the learner the round %d result",
+				next+1, strings.Join(owed, ", "), next))
+		}
 	}
 	var ids []string
 	for _, q := range qs {

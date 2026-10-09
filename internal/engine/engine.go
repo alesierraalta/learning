@@ -742,8 +742,20 @@ func detectWait(r *rules.Rules, ws, stage, part string) bool {
 		qs, err := loadDiagQuestions(ws, qRel)
 		planRel := declPathByKind(r, "preparation", "file_exists")
 		plan, planErr := loadPlan(ws, planRel)
-		if err != nil || planErr != nil || validateDiagnostic(qs, &plan, r.Thresholds) != nil {
+		if err != nil || planErr != nil || diagSkipped(ws, qRel, qs, r.Thresholds) || validateDiagnostic(qs, &plan, r.Thresholds) != nil {
 			return false
+		}
+		if r.Thresholds.Diagnostic.Adaptive() {
+			answers := map[string]string{}
+			if !answerFileMissing(ws, aRel) {
+				if answers, err = loadAnswers(ws, aRel); err != nil {
+					return false
+				}
+			}
+			if _, err := adaptiveFlow(qs, answers, r.Thresholds); err != nil {
+				return false
+			}
+			return len(unansweredDiag(qs, answers)) > 0
 		}
 	case "quiz":
 		qs, err := loadQuizQuestions(ws, substPart(qRel, part))

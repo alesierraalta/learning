@@ -17,9 +17,9 @@
   "partStages": ["explanation", "own_words", "quiz", "feedback", "adaptation"],
   "thresholds": {
     "diagnostic": {
-      "mode": "adaptive",
-      "roundSize": 3,
-      "maxRounds": 3
+      "prerequisiteCount": 6,
+      "topicCount": 6,
+      "topicLevelCounts": { "1": 2, "2": 2, "3": 2 }
     },
     "quiz": {
       "questionCount": 5,
