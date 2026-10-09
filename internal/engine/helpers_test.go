@@ -293,13 +293,37 @@ func fixtureMisPalabras(parts []partCfg) string {
 	return b.String()
 }
 
+// indexNote lists every part as plain text: no part is written yet, and a
+// link to a missing note makes Obsidian create it empty.
 func indexNote(parts []partCfg) string {
 	var b strings.Builder
 	b.WriteString("---\ntipo: indice\n---\n# Índice\n")
 	for i, p := range parts {
-		b.WriteString("\n- [[explicaciones/Parte " + itoa(i+1) + " - " + slugForTest(p.id) + "|" + p.title + "]] — 🔓 abierta\n")
+		b.WriteString("\n- Parte " + itoa(i+1) + " — " + p.title + " — ⬜ pendiente\n")
 	}
 	return b.String()
+}
+
+// linkPartInIndex replaces a pending part line with its canonical link, as the
+// chat does once the part note is written.
+func (f *fixture) linkPartInIndex(t *testing.T, rel string) {
+	t.Helper()
+	target := strings.TrimSuffix(rel, ".md")
+	name := strings.TrimPrefix(target, "explicaciones/")
+	n := strings.SplitN(strings.TrimPrefix(name, "Parte "), " ", 2)[0]
+	text := string(f.read(t, "explicacion.md"))
+	if strings.Contains(text, "[["+target+"|") {
+		return
+	}
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "- Parte "+n+" — ") {
+			title := strings.TrimSuffix(strings.TrimPrefix(line, "- Parte "+n+" — "), " — ⬜ pendiente")
+			line = "- [[" + target + "|Parte " + n + " — " + title + "]] — 🔓 abierta"
+		}
+		out = append(out, line)
+	}
+	f.write(t, "explicacion.md", strings.Join(out, "\n"))
 }
 
 func (f *fixture) writePreparationBundle(t *testing.T, parts []partCfg) {
@@ -537,7 +561,9 @@ func (f *fixture) writeExplanation(t *testing.T, part string, vis bool, marker s
 	for _, q := range buildQuizQuestions(part) {
 		body += "\n" + q.Enunciado + "\n"
 	}
-	f.write(t, f.canonicalPartFile(t, part), body)
+	rel := f.canonicalPartFile(t, part)
+	f.write(t, rel, body)
+	f.linkPartInIndex(t, rel)
 }
 
 func (f *fixture) writeOwnWords(t *testing.T, part string) {
@@ -726,4 +752,9 @@ func (f *fixture) recordReview(t *testing.T, stage, rule, verdict, reason string
 		t.Fatalf("record review %s: status=%q exit=%d detail=%q",
 			rule, rep.Status, code, rep.Detail)
 	}
+}
+
+func hasFailID(rep Report, id string) bool {
+	c, ok := hasCheck(rep, id)
+	return ok && c.Status == "FAIL"
 }

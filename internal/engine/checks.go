@@ -431,29 +431,47 @@ func evalIndexNote(c *evalCtx, decl rules.CheckDecl) Check {
 	if err != nil {
 		return failCheck(decl.ID, "missing artifact: "+decl.Path)
 	}
-	if strings.TrimSpace(string(raw)) == "" {
+	text := string(raw)
+	if strings.TrimSpace(text) == "" {
 		return failCheck(decl.ID, "index note is empty: "+decl.Path)
 	}
 	prefix := vaultLinkPrefix(c.ws)
 	parts := c.planParts()
-	want := map[string]bool{}
+	defined := map[string]bool{}
 	for i, p := range parts {
 		target := prefix + "explicaciones/Parte " + itoa(i+1) + " - " + p.Slug
-		want[target] = true
-		if !linksTo(string(raw), target) {
+		defined[target] = true
+		if partWritten(c.ws, i, p) {
+			if !linksTo(text, target) {
+				return failCheck(decl.ID, fmt.Sprintf(
+					"index does not link written part %s as [[%s|...]]: written parts are linked by the plan slug and the vault-relative path",
+					p.ID, target))
+			}
+			continue
+		}
+		if linksTo(text, target) {
 			return failCheck(decl.ID, fmt.Sprintf(
-				"index does not link part %s as [[%s|...]]: part links use the plan slug and the vault-relative path, or Obsidian opens an empty note elsewhere",
-				p.ID, target))
+				"index links part %s, which is not written yet: list pending parts as plain text, a link to a missing note makes Obsidian create it empty",
+				p.ID))
+		}
+		if !strings.Contains(text, p.Title) {
+			return failCheck(decl.ID, fmt.Sprintf("index does not list pending part %s by its title %q", p.ID, p.Title))
 		}
 	}
-	for _, target := range partLinkTargets(string(raw)) {
-		if !want[target] {
+	for _, target := range partLinkTargets(text) {
+		if !defined[target] {
 			return failCheck(decl.ID, fmt.Sprintf(
-				"index links [[%s]], which is not a part of the plan: link only %s\"explicaciones/Parte N - <slug>\" for the plan parts",
+				"index links [[%s]], which is not a part of the plan: link only %s\"explicaciones/Parte N - <slug>\" for written plan parts",
 				target, prefix))
 		}
 	}
-	return passCheck(decl.ID, fmt.Sprintf("%s links all %d plan parts by their canonical notes", decl.Path, len(parts)))
+	return passCheck(decl.ID, fmt.Sprintf("%s lists all %d plan parts and links exactly the written ones", decl.Path, len(parts)))
+}
+
+// partWritten reports a nonempty canonical note for the i-th plan part.
+func partWritten(ws string, i int, p planPartDoc) bool {
+	fi, err := os.Stat(absPath(ws, "explicaciones/Parte "+itoa(i+1)+" - "+p.Slug+".md"))
+	return err == nil && fi.Size() > 0
 }
 
 // vaultLinkPrefix returns the workspace path relative to the enclosing
@@ -594,6 +612,13 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"part %s planned a visual but %s has no embed (![...]), no nonempty visual block (%s) and no inline visual element (%s)",
 			c.part, rel, strings.Join(th.VisualBlocks, ", "), strings.Join(th.VisualElements, ", ")))
+	}
+	if index := declPathByKind(c.r, "planning", "index_note"); index != "" {
+		raw, err := os.ReadFile(absPath(c.ws, index))
+		target := vaultLinkPrefix(c.ws) + strings.TrimSuffix(rel, ".md")
+		if err != nil || !linksTo(string(raw), target) {
+			return failCheck(decl.ID, fmt.Sprintf("%s does not link this part as [[%s|...]]: link each part in the index once it is written", index, target))
+		}
 	}
 	return passCheck(decl.ID, fmt.Sprintf(
 		"%s: frontmatter joined to %s, Fuente traceability, heading, example %s, visual %s", rel, p.Subtema,

@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"learning/internal/rules"
@@ -11,6 +12,13 @@ import (
 // A shared learner note has independently mutable areas. Bind planning to
 // its skeleton and each submission to its own area, not to other responses.
 func receiptHash(r *rules.Rules, ws, rel, stage, part string) (string, error) {
+	if stage == "planning" && rel == declPathByKind(r, "planning", "index_note") {
+		raw, err := os.ReadFile(absPath(ws, rel))
+		if err != nil {
+			return "", err
+		}
+		return hashBytes([]byte(indexSkeleton(string(raw)))), nil
+	}
 	if rel != "mis-palabras.md" || (stage != "planning" && stage != "own_words") {
 		return hashFile(absPath(ws, rel))
 	}
@@ -63,4 +71,29 @@ func ownWordsSubmission(r *rules.Rules, ws, part string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("own-words part %s is absent from plan", part)
+}
+
+var (
+	indexLink    = regexp.MustCompile(`\[\[[^\]|]*\|([^\]]*)\]\]|\[\[([^\]]*)\]\]`)
+	indexMarkers = strings.NewReplacer("✅", "", "🔓", "", "⬜", "")
+)
+
+// indexSkeleton binds planning to the index content, not to its progress:
+// linking a part once it is written, its status icon and the progreso line
+// change as the topic advances.
+func indexSkeleton(text string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "progreso:") {
+			continue
+		}
+		line = indexLink.ReplaceAllString(line, "$1$2")
+		line = strings.Join(strings.Fields(indexMarkers.Replace(line)), " ")
+		for _, w := range []string{"pendiente", "abierta", "cerrada"} {
+			line = strings.TrimSuffix(line, " — "+w)
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }

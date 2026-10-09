@@ -12,7 +12,9 @@ func (f *fixture) writeExplanationWithVisual(t *testing.T, part, visual string) 
 	for _, q := range buildQuizQuestions(part) {
 		body += "\n" + q.Enunciado + "\n"
 	}
-	f.write(t, f.canonicalPartFile(t, part), body)
+	rel := f.canonicalPartFile(t, part)
+	f.write(t, rel, body)
+	f.linkPartInIndex(t, rel)
 }
 
 // A planned visual is satisfied by an embed, by a code block of a visual
