@@ -296,8 +296,10 @@
     }
     app.append(panel);
   }
-  if (data.topicBase) app.append(link(`← ${data.topicTitle || data.title}`, data.topicBase));
-  else if (data.kind !== "index") app.append(link("← Temas", data.home));
+  // Inside the studio the studio itself navigates; the view's own back link would move the frame.
+  const embedded = window.self !== window.top;
+  if (!embedded && data.topicBase) app.append(link(`← ${data.topicTitle || data.title}`, data.topicBase));
+  else if (!embedded && data.kind !== "index") app.append(link("← Temas", data.home));
   // A part note carries its own title.
   if (data.kind !== "part") app.append(element("h1", data.title || "Learnings"));
   if (data.kind === "index" || data.kind === "topic") {

@@ -27,6 +27,13 @@ const CANONICAL_ROOT = "/mnt/c/Users/ismar/Documents/obsidian/ale/notes/04-RECUR
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_PROMPT_CHARS = 20000;
 const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
+/** The studio's typefaces (Fraunces for display, Atkinson Hyperlegible for text), pinned with SRI. */
+const FONT_STYLESHEETS = [
+  ["https://cdn.jsdelivr.net/npm/@fontsource/fraunces@5.3.0/latin-600.css", "sha384-WwRRPVTQFpryJxMu3zVrO1cUtBavT4al3loMO8xxBiHy0DLycWtPJmUwUEboHwo0"],
+  ["https://cdn.jsdelivr.net/npm/@fontsource/fraunces@5.3.0/latin-400-italic.css", "sha384-65zmLBvi0Udlf1Pmu15dC/TzI+dCEZcle4EDx6jVOVALu8h5j0v6cpOLpG28qixU"],
+  ["https://cdn.jsdelivr.net/npm/@fontsource/atkinson-hyperlegible@5.3.0/latin-400.css", "sha384-Ei2x8tgKthFzCuN8L3IlV60Sot/I55256hmDF4VLg1tCx0l13Y/AAV4Rw8SMZ4av"],
+  ["https://cdn.jsdelivr.net/npm/@fontsource/atkinson-hyperlegible@5.3.0/latin-700.css", "sha384-jeMLFIxf7YL3VO4aXH3CaHS51s9yrvdeZxu6LfiQjCxEDOggWDDYWgFzeg17Wdd4"],
+];
 
 export interface StudioOptions {
   root?: string;
@@ -343,6 +350,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Estudio — Learnings</title>
+${FONT_STYLESHEETS.map(([href, sri]) => `<link rel="stylesheet" href="${href}" integrity="${sri}" crossorigin="anonymous">`).join("\n")}
 <link rel="stylesheet" href="/${token}/studio.css">
 ${scripts}
 </head>
@@ -358,7 +366,8 @@ ${scripts}
     [
       "default-src 'none'",
       "script-src 'self' https://cdn.jsdelivr.net",
-      "style-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+      "font-src https://cdn.jsdelivr.net",
       "img-src 'self' data:",
       "connect-src 'self'",
       `frame-src ${bridgeOrigin}`,

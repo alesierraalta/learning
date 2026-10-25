@@ -1,240 +1,667 @@
 (() => {
-  'use strict';
-  const base = JSON.parse(document.getElementById('studio-data').textContent).base;
-  const root = document.getElementById('studio');
-  const el = (tag, cls, text) => {
+  const root = document.getElementById("studio");
+  let base;
+  try {
+    base = JSON.parse(document.getElementById("studio-data").textContent).base;
+  } catch {
+    root.textContent = "No se pudo iniciar el estudio: falta su configuración. Vuelve a abrirlo con el comando estudio.";
+    return;
+  }
+
+  // ---------- small DOM kit ----------
+  const ICONS = {
+    back: '<path d="M15 18l-6-6 6-6"/>',
+    next: '<path d="M9 18l6-6-6-6"/>',
+    book: '<path d="M4 5a2 2 0 012-2h12v16H6a2 2 0 00-2 2z"/><path d="M4 19V5"/>',
+    play: '<path d="M7 5l12 7-12 7z"/>',
+    app: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+    chat: '<path d="M5 5h14v10H9l-4 4z"/>',
+    send: '<path d="M4 12l16-8-6 16-2-7z"/>',
+    check: '<path d="M5 12l4 4 10-10"/>',
+    x: '<path d="M6 6l12 12M18 6L6 18"/>',
+    more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+    stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+    fresh: '<path d="M12 5v14M5 12h14"/>',
+    restart: '<path d="M4 12a8 8 0 1 0 3-6.3"/><path d="M4 4v4h4"/>',
+    quiz: '<circle cx="12" cy="12" r="8"/><path d="M9.5 9.5a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01"/>',
+    spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/>',
+  };
+  const svgParser = new DOMParser();
+  const icon = (name) =>
+    document.importNode(
+      svgParser.parseFromString(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`,
+        "image/svg+xml",
+      ).documentElement,
+      true,
+    );
+  const h = (tag, props, ...children) => {
     const node = document.createElement(tag);
-    if (cls) node.className = cls;
-    if (text !== undefined) node.textContent = text;
-    return node;
-  };
-  const button = (text, action, cls = '') => {
-    const node = el('button', cls, text);
-    node.type = 'button';
-    node.addEventListener('click', () => Promise.resolve().then(action).catch(report));
-    return node;
-  };
-  const sidebar = el('aside', 'library');
-  sidebar.setAttribute('aria-label', 'Biblioteca');
-  const viewer = el('section', 'viewer');
-  viewer.setAttribute('aria-label', 'Contenido');
-  const tutor = el('details', 'tutor');
-  tutor.open = !window.matchMedia('(max-width: 800px)').matches;
-  tutor.append(el('summary', 'panel-title', 'Tutor'));
-  const connection = el('div', 'connection muted', 'Conectando…');
-  connection.setAttribute('role', 'status');
-  const stateLine = el('div', 'state muted');
-  const transcript = el('div', 'transcript');
-  transcript.setAttribute('aria-label', 'Conversación');
-  const composer = el('form', 'composer');
-  const input = el('textarea');
-  input.placeholder = 'Escribe al tutor…';
-  input.setAttribute('aria-label', 'Mensaje al tutor');
-  input.rows = 3;
-  const send = el('button', 'primary', 'Enviar');
-  send.type = 'submit';
-  composer.append(input, send);
-  composer.addEventListener('submit', async event => {
-    event.preventDefault();
-    const text = input.value.trim();
-    if (!text) return;
-    try {
-      await post('prompt', { text });
-      if (input.value.trim() === text) input.value = '';
-    } catch (error) { report(error); }
-  });
-  input.addEventListener('keydown', event => {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      composer.requestSubmit();
+    for (const [key, value] of Object.entries(props || {})) {
+      if (value === undefined || value === null || value === false) continue;
+      if (key === "class") node.className = value;
+      else if (key === "style") node.style.cssText = value;
+      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+      else node.setAttribute(key, value === true ? "" : value);
     }
-  });
-  const controls = el('div', 'controls');
-  controls.append(button('Detener', () => post('abort', {})), button('Nueva conversación', () => {
-    if (window.confirm('¿Iniciar una nueva conversación?')) return post('new-session', {});
-  }));
-  const tutorBody = el('div', 'tutor-body');
-  tutorBody.append(connection, stateLine, transcript, composer, controls);
-  tutor.append(tutorBody);
-  root.append(sidebar, viewer, tutor);
-  function line(text, cls = 'muted') {
-    const node = el('div', `message ${cls}`, text);
-    transcript.append(node);
-    transcript.scrollTop = transcript.scrollHeight;
+    for (const child of children.flat()) {
+      if (child === undefined || child === null || child === false) continue;
+      node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
     return node;
-  }
-  function report(error) { line(error.message || String(error), 'error'); }
-  async function request(path, options) {
+  };
+  const btn = (label, onclick, cls = "btn", iconName) => h("button", { class: cls, type: "button", onclick }, iconName && icon(iconName), label);
+  const markdown = (text) => {
+    const node = h("div");
+    if (window.DOMPurify && window.marked) node.append(DOMPurify.sanitize(marked.parse(text), { RETURN_DOM_FRAGMENT: true }));
+    else node.textContent = text;
+    return node;
+  };
+  let toastTimer;
+  const toast = (text) => {
+    document.querySelector(".toast")?.remove();
+    const node = h("div", { class: "toast", role: "status" }, text);
+    document.body.append(node);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => node.remove(), 4200);
+  };
+
+  // ---------- server ----------
+  const request = async (path, options) => {
     const response = await fetch(base + path, options);
-    const data = await response.json();
-    if (!response.ok || data.error) throw new Error(data.error || `Error HTTP ${response.status}`);
-    return data;
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Error ${response.status}`);
+    return body;
+  };
+  const post = (path, body = {}) =>
+    request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  // ---------- what the engine state means for the learner ----------
+  /** The same stages with their article, for sentences ("en la explicación"). */
+  const STAGE_IN = {
+    preparation: "la preparación del plan",
+    diagnosis: "el diagnóstico inicial",
+    planning: "la planificación",
+    explanation: "la explicación",
+    own_words: "tu vuelco",
+    quiz: "el mini-quiz",
+    feedback: "la corrección",
+    adaptation: "el ajuste del plan",
+    exercises: "los ejercicios",
+    final_quiz: "el cuestionario final",
+    final: "el cierre",
+  };
+  const STAGE = {
+    preparation: "preparando el plan",
+    diagnosis: "diagnóstico inicial",
+    planning: "planificando la ruta",
+    explanation: "explicación",
+    own_words: "tu vuelco con tus palabras",
+    quiz: "mini-quiz",
+    feedback: "corrección",
+    adaptation: "ajuste del plan",
+    exercises: "ejercicios",
+    final_quiz: "cuestionario final",
+    final: "cierre",
+  };
+  const TONE = { you: "var(--you)", tutor: "var(--accent)", alert: "var(--alert)", done: "var(--done)", test: "var(--muted)" };
+  const partIndex = (topic, id) => topic.parts.findIndex((p) => p.id === id);
+  const partName = (topic, id) => (partIndex(topic, id) >= 0 ? `la Parte ${partIndex(topic, id) + 1}` : "la parte actual");
+  const written = (topic) => topic.parts.filter((p) => p.written).length;
+  const prompts = {
+    resume: (t) => `Sigamos con ${t.title} (carpeta ${t.id}).`,
+    next: (t) => `Escribe la siguiente parte de ${t.title} (carpeta ${t.id}).`,
+    gaps: (t) => `Repasa mis lagunas de ${t.title} (carpeta ${t.id}).`,
+  };
+
+  /** One sentence and one button: what to do next in a topic. */
+  function nextStep(topic) {
+    const stage = topic.nextStage || topic.stage;
+    const where = STAGE_IN[stage] || stage || "";
+    const part = topic.part ? partName(topic, topic.part) : "";
+    const read = (id) => () => go(`#/leer/${topic.id}/${id}`);
+    if (topic.status === "sin inscribir") {
+      return { tone: "test", label: "Tema de prueba", text: "Este tema no lleva seguimiento del motor: puedes leer sus partes y probar sus apps.", cta: ["Ver el tema", () => go(`#/tema/${topic.id}`)] };
+    }
+    if (topic.status === "completed") {
+      return { tone: "done", label: "Terminado", text: "Completaste este tema. Puedes repasarlo cuando quieras.", cta: ["Repasar mis lagunas", () => say(prompts.gaps(topic))] };
+    }
+    if (topic.status === "waiting") {
+      if (stage === "diagnosis") return { tone: "you", label: "Te toca a ti", text: "Responde el diagnóstico inicial para que el tutor sepa qué sabes y arme tu ruta.", cta: ["Responder el diagnóstico", read("quiz")] };
+      if (stage === "quiz" && topic.part) return { tone: "you", label: "Te toca a ti", text: `Responde el mini-quiz de ${part}.`, cta: ["Ir al quiz", read(topic.part)] };
+      if (stage === "own_words") return { tone: "you", label: "Te toca a ti", text: `Escribe con tus palabras lo que entendiste de ${part}.`, cta: ["Escribírselo al tutor", () => openDrawer(`Mi vuelco de ${part} de ${topic.title}: `)] };
+      return { tone: "you", label: "Te toca a ti", text: `El tutor espera tu respuesta (${where}).`, cta: ["Abrir el tutor", () => openDrawer()] };
+    }
+    if (topic.status === "blocked") {
+      return { tone: "alert", label: "Pendiente del tutor", text: `El tutor dejó algo sin terminar en ${where}${part ? ` de ${part}` : ""}. Pídele que lo resuelva.`, cta: ["Pedir que lo termine", () => say(prompts.resume(topic))] };
+    }
+    if (stage === "explanation" && topic.part) {
+      const p = topic.parts[partIndex(topic, topic.part)];
+      if (p && p.written) return { tone: "tutor", label: "Sigue leyendo", text: `Lee ${part}: ${p.title}.`, cta: ["Leer ahora", read(p.id)] };
+      return { tone: "tutor", label: "Siguiente paso", text: `${part[0]?.toUpperCase()}${part.slice(1)} todavía no está escrita: el tutor puede prepararla.`, cta: ["Pedir esa parte", () => say(prompts.next(topic))] };
+    }
+    return { tone: "tutor", label: "Siguiente paso", text: `El tutor puede seguir con ${where || "el tema"}.`, cta: ["Seguir", () => say(prompts.resume(topic))] };
   }
-  function post(path, body) {
-    return request(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+  // ---------- routing ----------
+  let library = { topics: [], quick: [] };
+  const go = (hash) => {
+    if (location.hash === hash) render();
+    else location.hash = hash;
+  };
+  const topicById = (id) => library.topics.find((t) => t.id === id);
+  const crumbs = h("nav", { class: "crumbs", "aria-label": "Ubicación" });
+  const stage = h("main", { class: "stage", id: "stage" });
+
+  function setCrumbs(items) {
+    crumbs.replaceChildren(
+      ...items.flatMap((item, i) => [
+        ...(i ? [h("span", { class: "sep" }, "/")] : []),
+        item.href ? h("a", { href: item.href }, item.text) : h("span", {}, item.text),
+      ]),
+    );
   }
-  function markdown(node, text) {
-    node.replaceChildren(DOMPurify.sanitize(marked.parse(text), { RETURN_DOM_FRAGMENT: true }));
+
+  function render() {
+    const [, view, a, b] = location.hash.split("/").map(decodeURIComponent);
+    window.scrollTo(0, 0);
+    if (view === "tema" && a) return topicView(a);
+    if (view === "leer" && a) return readerView({ topicId: a, part: b, mode: "page" });
+    if (view === "app" && a) return readerView({ topicId: a, part: b, mode: "app" });
+    if (view === "rapido" && a) return readerView({ quickId: a });
+    return homeView();
   }
-  const assistants = new Map();
-  const tools = new Map();
-  const dialogs = new Map();
-  let selected = null;
-  let viewing = false;
-  let viewRequest = 0;
+
+  // ---------- home ----------
+  function continueCard(topic, step, compact = false) {
+    return h(
+      "article",
+      { class: "continue reveal", style: `--tone:${TONE[step.tone]};--i:1` },
+      h("span", { class: "label" }, step.label),
+      compact ? null : h("h3", {}, topic.title),
+      h("p", { class: "next" }, step.text),
+      h(
+        "div",
+        { class: "actions" },
+        btn(step.cta[0], step.cta[1], `btn ${step.tone === "you" ? "you" : "primary"}`, "play"),
+        compact ? null : btn("Ver el tema", () => go(`#/tema/${topic.id}`), "btn ghost"),
+      ),
+    );
+  }
+
   function progress(topic) {
-    const written = topic.parts.filter(part => part.written).length;
-    return `${topic.part ? `Parte ${topic.part} de ${topic.parts.length} · ` : ''}${topic.stage || topic.nextStage || topic.status || 'Sin iniciar'} · ${written} ${written === 1 ? 'parte escrita' : 'partes escritas'}`;
+    const total = topic.parts.length || 1;
+    const bar = h("span");
+    requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.width = `${Math.round((written(topic) / total) * 100)}%`)));
+    return [
+      h("div", { class: "progress", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(written(topic)) }, bar),
+      h("div", { class: "progress-label" }, h("span", {}, `${written(topic)} de ${topic.parts.length} partes escritas`), h("span", {}, STAGE[topic.nextStage || topic.stage] || "")),
+    ];
   }
-  function overview(topic) {
-    selected = topic;
-    viewing = false;
-    viewRequest++;
-    viewer.replaceChildren(el('div', 'kicker', 'Universidad'), el('h1', '', topic.title), el('p', 'muted', progress(topic)));
-    const list = el('ul', 'parts');
-    for (const part of topic.parts) {
-      const item = el('li');
-      if (part.written) {
-        item.append(button(part.title, () => openView(topic, part.id)));
-        if (part.hasApp) item.append(button('▶ Aplicación interactiva', () => openView(topic, part.id, true), 'primary'));
-      } else item.append(el('span', 'muted', `${part.title} · pendiente`));
-      list.append(item);
-    }
-    if (topic.hasDiagnosis) {
-      const item = el('li');
-      item.append(button('Diagnóstico', () => openView(topic, 'quiz')));
-      list.append(item);
-    }
-    const actions = el('div', 'topic-actions');
-    for (const [label, text] of [
-      ['Seguir donde lo dejé', `Sigamos con ${topic.title} (carpeta ${topic.id}).`],
-      ['Pedir la siguiente parte', `Escribe la siguiente parte de ${topic.title} (carpeta ${topic.id}).`],
-      ['Repasar mis lagunas', `Repasa mis lagunas de ${topic.title} (carpeta ${topic.id}).`]
-    ]) actions.append(button(label, () => post('prompt', { text })));
-    viewer.append(list, actions);
-  }
-  async function openView(topic, part, app = false) {
-    const version = ++viewRequest;
-    const query = new URLSearchParams(topic.quick ? { quick: topic.id } : { topic: topic.id });
-    if (part !== undefined) query.set('part', part);
-    const data = await request(`api/view?${query}`);
-    if (version !== viewRequest) return;
-    const url = app ? data.appUrl : data.url;
-    if (!url) throw new Error('La aplicación interactiva no está disponible.');
-    selected = topic;
-    viewing = true;
-    const frame = el('iframe', 'content-frame');
-    frame.title = app ? `Aplicación interactiva: ${topic.title}` : topic.title;
-    frame.src = url;
-    viewer.replaceChildren(button('← Volver al resumen', () => topic.parts ? overview(topic) : welcome()), frame);
-  }
-  function welcome() {
-    selected = null;
-    viewing = false;
-    viewRequest++;
-    viewer.replaceChildren(el('div', 'kicker', 'Learning Studio'), el('h1', '', 'Un espacio para aprender'), el('p', 'muted', 'Elige un contenido de la biblioteca o comienza un tema nuevo.'));
-  }
-  function newTopic() {
-    welcome();
-    const form = el('form', 'new-topic');
-    const label = el('label', '', '¿Qué quieres aprender?');
-    const field = el('input');
-    field.type = 'text';
-    field.required = true;
-    label.append(field);
-    const submit = el('button', 'primary', 'Comenzar');
-    submit.type = 'submit';
-    form.append(label, submit);
-    form.addEventListener('submit', async event => {
+
+  function homeView() {
+    setCrumbs([{ text: "Inicio" }]);
+    const order = { you: 0, tutor: 1, alert: 2, done: 4, test: 5 };
+    const ranked = library.topics.map((t) => ({ t, s: nextStep(t) })).sort((x, y) => order[x.s.tone] - order[y.s.tone]);
+    const focus = ranked.find((r) => r.s.tone !== "test" && r.s.tone !== "done") || ranked[0];
+    const input = h("input", { type: "text", name: "topic", "aria-label": "¿Qué quieres aprender?", placeholder: "Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…", autocomplete: "off" });
+    const start = (event) => {
       event.preventDefault();
-      const text = field.value.trim();
-      if (!text) return;
-      try { await post('prompt', { text: `Quiero aprender ${text}.` }); field.value = ''; }
-      catch (error) { report(error); }
+      const text = input.value.trim();
+      if (!text) return input.focus();
+      say(`Quiero aprender ${text}.`);
+      input.value = "";
+    };
+    const page = h(
+      "div",
+      { class: "page" },
+      h(
+        "section",
+        { class: "hero" },
+        h(
+          "div",
+          { class: "reveal", style: "--i:0" },
+          h("p", { class: "eyebrow" }, "Tu cuaderno de estudio"),
+          h("h1", {}, "¿Qué ", h("em", {}, "estudiamos"), " hoy?"),
+          h("p", { class: "lede" }, "Elige un tema de tu biblioteca o pide uno nuevo. El tutor trabaja de fondo: prepara el plan, escribe las explicaciones, corrige tus respuestas y te guía."),
+          h("form", { class: "ask-big", onsubmit: start }, input, h("button", { class: "btn primary", type: "submit" }, icon("spark"), "Empezar")),
+          h(
+            "div",
+            { class: "modes" },
+            h("div", { class: "mode" }, h("b", {}, "Universitario: "), "plan, diagnóstico, partes con quiz y seguimiento hasta dominarlo."),
+            h("div", { class: "mode" }, h("b", {}, "Rápido: "), "una nota breve para entender algo hoy. El tutor te pregunta cuál prefieres."),
+          ),
+        ),
+        focus ? continueCard(focus.t, focus.s) : h("div", { class: "continue reveal", style: "--i:1" }, h("span", { class: "label" }, "Para empezar"), h("p", { class: "next" }, "Todavía no tienes temas. Escribe arriba lo que quieres aprender.")),
+      ),
+      h("div", { class: "section-title" }, h("h2", {}, "Tus temas"), h("p", {}, `${library.topics.length} en tu biblioteca`)),
+      library.topics.length
+        ? h(
+            "div",
+            { class: "cards" },
+            ranked.map(({ t, s }, i) =>
+              h(
+                "button",
+                { class: "card reveal", type: "button", style: `--i:${i + 2};--tone:${TONE[s.tone]}`, onclick: () => go(`#/tema/${t.id}`) },
+                h("span", { class: `tag${s.tone === "test" ? " test" : ""}` }, s.tone === "test" ? "Prueba" : "Universitario"),
+                h("h3", {}, t.title),
+                h("span", { class: "status" }, s.label),
+                h("div", { class: "foot" }, progress(t)),
+              ),
+            ),
+          )
+        : h("p", { class: "empty" }, "Aquí aparecerán tus temas universitarios."),
+      h("div", { class: "section-title" }, h("h2", {}, "Notas rápidas"), h("p", {}, "Explicaciones breves, sin plan")),
+      library.quick.length
+        ? h(
+            "div",
+            { class: "cards" },
+            library.quick.map((q, i) =>
+              h("button", { class: "card quick-card reveal", type: "button", style: `--i:${i + 3}`, onclick: () => go(`#/rapido/${q.id}`) }, h("span", { class: "icon" }, icon("book")), h("div", {}, h("h3", {}, q.title), h("span", { class: "muted" }, "Nota rápida"))),
+            ),
+          )
+        : h("p", { class: "empty" }, "Cuando pidas algo en modo rápido, la nota aparecerá aquí."),
+      h("div", { class: "section-title" }, h("h2", {}, "Cómo funciona")),
+      h(
+        "ol",
+        { class: "how" },
+        h("li", {}, h("span", { class: "n" }, "1"), h("b", {}, "Elige o pide"), h("span", {}, "Abre un tema de tu biblioteca o escribe arriba lo que quieres aprender.")),
+        h("li", {}, h("span", { class: "n" }, "2"), h("b", {}, "Lee, prueba y responde"), h("span", {}, "Cada parte es una página con la explicación completa, demos interactivas, video y su quiz.")),
+        h("li", {}, h("span", { class: "n" }, "3"), h("b", {}, "El tutor te guía"), h("span", {}, "Corrige tu razonamiento concepto por concepto y prepara lo siguiente. Lo ves en el panel «Tutor».")),
+      ),
+    );
+    stage.replaceChildren(page);
+  }
+
+  // ---------- topic ----------
+  function topicView(id) {
+    const topic = topicById(id);
+    if (!topic) {
+      setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Tema" }]);
+      return stage.replaceChildren(h("div", { class: "page" }, h("p", { class: "empty" }, "No encuentro ese tema. Vuelve al inicio.")));
+    }
+    setCrumbs([{ text: "Inicio", href: "#/" }, { text: topic.title }]);
+    const step = nextStep(topic);
+    const firstPending = topic.parts.find((p) => !p.written);
+    const rows = [];
+    if (topic.hasDiagnosis) {
+      const current = (topic.nextStage || topic.stage) === "diagnosis";
+      rows.push(
+        h(
+          "li",
+          { class: `part-row reveal ${current ? "current" : "done"}`, style: "--i:2" },
+          h("span", { class: "node" }, current ? icon("quiz") : icon("check")),
+          h("div", {}, h("h3", {}, "Diagnóstico inicial"), h("div", { class: "meta" }, current ? "Te toca: responde sus preguntas" : "Hecho · sirvió para armar tu ruta")),
+          h("div", { class: "row-actions" }, btn(current ? "Responder" : "Ver", () => go(`#/leer/${topic.id}/quiz`), current ? "btn small you" : "btn small")),
+        ),
+      );
+    }
+    topic.parts.forEach((p, i) => {
+      const current = topic.part === p.id && topic.status !== "sin inscribir";
+      const state = p.answered && !current ? "done" : current ? "current" : p.written ? "ready" : "pending";
+      const meta = {
+        done: "Hecha · quiz respondido",
+        current: `Ahora: ${STAGE[topic.nextStage || topic.stage] || "en curso"}`,
+        ready: "Lista para leer",
+        pending: "Todavía no escrita",
+      }[state];
+      rows.push(
+        h(
+          "li",
+          { class: `part-row reveal ${state}`, style: `--i:${i + 3}` },
+          h("span", { class: "node" }, state === "done" ? icon("check") : String(i + 1)),
+          h("div", {}, h("h3", {}, p.title), h("div", { class: "meta" }, `Parte ${i + 1} · ${meta}`)),
+          h(
+            "div",
+            { class: "row-actions" },
+            p.written ? btn("Leer", () => go(`#/leer/${topic.id}/${p.id}`), state === "current" ? "btn small primary" : "btn small", "book") : null,
+            p.hasApp ? btn("App", () => go(`#/app/${topic.id}/${p.id}`), "btn small", "app") : null,
+            !p.written && p === firstPending && topic.status !== "sin inscribir" ? btn("Pedir esta parte", () => say(prompts.next(topic)), "btn small ghost", "spark") : null,
+          ),
+        ),
+      );
     });
-    viewer.replaceChildren(el('div', 'kicker', 'Nuevo tema'), el('h1', '', 'Aprender algo nuevo'), form);
-    field.focus();
+    stage.replaceChildren(
+      h(
+        "div",
+        { class: "page" },
+        h(
+          "section",
+          { class: "topic-head" },
+          h(
+            "div",
+            {},
+            h("span", { class: `tag reveal${step.tone === "test" ? " test" : ""}`, style: "--i:0" }, step.tone === "test" ? "Prueba" : "Universitario"),
+            h("h1", { class: "reveal", style: "--i:0" }, topic.title),
+            h("div", { class: "reveal", style: "--i:1;max-width:520px" }, progress(topic)),
+            h("ol", { class: "route", "aria-label": "Ruta del tema" }, rows),
+          ),
+          h(
+            "aside",
+            {},
+            continueCard(topic, step, true),
+            h(
+              "div",
+              { class: "side-actions reveal", style: "--i:2" },
+              topic.status !== "sin inscribir" ? btn("Repasar mis lagunas", () => say(prompts.gaps(topic)), "btn", "spark") : null,
+              btn("Preguntar sobre este tema", () => openDrawer(`Sobre ${topic.title}: `), "btn", "chat"),
+            ),
+          ),
+        ),
+      ),
+    );
   }
-  let libraryVersion = 0;
-  async function loadLibrary() {
-    const version = ++libraryVersion;
-    const library = await request('api/library');
-    if (version !== libraryVersion) return;
-    sidebar.replaceChildren(el('div', 'kicker', 'Learning Studio'), el('h2', '', 'Biblioteca'), button('+ Aprender algo nuevo', newTopic, 'primary'), el('h3', '', 'Universidad'));
-    for (const topic of library.topics) {
-      const entry = button('', () => overview(topic), 'library-entry');
-      entry.append(el('strong', '', topic.title), el('span', 'muted', progress(topic)));
-      sidebar.append(entry);
-    }
-    if (!library.topics.length) sidebar.append(el('p', 'muted', 'Todavía no hay temas.'));
-    sidebar.append(el('h3', '', 'Rápidos'));
-    for (const note of library.quick) sidebar.append(button(note.title, () => openView({ ...note, quick: true }), 'library-entry'));
-    if (selected && !viewing) {
-      const updated = library.topics.find(topic => topic.id === selected.id);
-      if (updated) overview(updated);
+
+  // ---------- reader ----------
+  let readSeq = 0;
+  async function readerView({ topicId, part, quickId, mode }) {
+    const seq = ++readSeq;
+    const topic = topicId ? topicById(topicId) : null;
+    const quick = quickId ? library.quick.find((q) => q.id === quickId) : null;
+    const index = topic && part !== "quiz" ? partIndex(topic, part) : -1;
+    const info = index >= 0 ? topic.parts[index] : null;
+    const title = quick ? quick.title : part === "quiz" ? "Diagnóstico inicial" : info ? info.title : "";
+    const kicker = quick ? "Nota rápida" : part === "quiz" ? "Diagnóstico" : `Parte ${index + 1}`;
+    setCrumbs(
+      quick
+        ? [{ text: "Inicio", href: "#/" }, { text: "Notas rápidas" }, { text: quick.title }]
+        : [{ text: "Inicio", href: "#/" }, { text: topic ? topic.title : topicId, href: `#/tema/${topicId}` }, { text: kicker }],
+    );
+    const frame = h("iframe", { class: "sheet", title: title || "Contenido" });
+    const neighbours = topic ? topic.parts.filter((p) => p.written) : [];
+    const at = info ? neighbours.indexOf(info) : -1;
+    const prev = at > 0 ? neighbours[at - 1] : null;
+    const next = at >= 0 && at < neighbours.length - 1 ? neighbours[at + 1] : null;
+    const bar = h(
+      "div",
+      { class: "reader-bar" },
+      btn("", () => go(quick ? "#/" : `#/tema/${topicId}`), "icon-btn", "back"),
+      h("div", { class: "title" }, h("small", {}, kicker), title),
+      info && info.hasApp
+        ? h(
+            "div",
+            { class: "switch", role: "group", "aria-label": "Formato" },
+            h("button", { type: "button", "aria-pressed": String(mode !== "app"), onclick: () => go(`#/leer/${topicId}/${part}`) }, "Explicación"),
+            h("button", { type: "button", "aria-pressed": String(mode === "app"), onclick: () => go(`#/app/${topicId}/${part}`) }, "App interactiva"),
+          )
+        : null,
+      prev ? btn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost", "back") : null,
+      next ? btn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost", "next") : null,
+      btn("Preguntar", () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `), "btn small", "chat"),
+    );
+    stage.replaceChildren(h("div", { class: "reader" }, bar, h("div", { class: "sheet-wrap" }, frame)));
+    try {
+      const query = new URLSearchParams(quick ? { quick: quickId } : { topic: topicId, ...(part ? { part } : {}) });
+      const data = await request(`api/view?${query}`);
+      if (seq !== readSeq) return;
+      const url = mode === "app" ? data.appUrl : data.url;
+      if (!url) throw new Error("Esta parte no tiene aplicación interactiva.");
+      frame.src = url;
+    } catch (error) {
+      if (seq === readSeq) frame.replaceWith(h("p", { class: "empty" }, error.message));
     }
   }
-  function showDialog(data) {
-    dialogs.get(data.id)?.remove();
-    const card = el('section', 'dialog');
-    card.append(el('h3', '', data.title || 'El tutor pregunta'));
-    if (data.message) card.append(el('p', '', data.message));
-    const answer = body => post('dialog', { id: data.id, ...body });
-    if (data.method === 'select') {
-      for (const option of data.options || []) card.append(button(option, () => answer({ value: option })));
-    } else if (data.method === 'confirm') {
-      card.append(button('Sí', () => answer({ confirmed: true })), button('No', () => answer({ confirmed: false })));
+
+  // ---------- tutor ----------
+  const tutor = { busy: false, alive: true, activity: "", unread: 0 };
+  const thread = h("div", { class: "thread", "aria-live": "polite" });
+  const composerText = h("textarea", { rows: "1", "aria-label": "Mensaje para el tutor", placeholder: "Escribe al tutor…" });
+  const stateLine = h("span", { class: "state" }, "Conectando…");
+  const pillWhat = h("span", { class: "what" }, "Tutor");
+  const pillBadge = h("span", { class: "badge", hidden: true });
+  const pill = h("button", { class: "tutor-pill", type: "button", "aria-controls": "drawer", "aria-expanded": "false", onclick: () => (document.body.classList.contains("drawer-open") ? closeDrawer() : openDrawer()) }, h("span", { class: "dot" }), pillWhat, pillBadge);
+  const menu = h(
+    "div",
+    { class: "menu", role: "menu" },
+    btn("Detener lo que está haciendo", () => { menu.classList.remove("open"); post("abort").catch((e) => toast(e.message)); }, "", "stop"),
+    btn("Nueva conversación", () => {
+      menu.classList.remove("open");
+      if (confirm("¿Empezar una conversación nueva con el tutor? La actual queda guardada en Pi.")) post("new-session").catch((e) => toast(e.message));
+    }, "", "fresh"),
+    btn("Reiniciar el tutor", () => { menu.classList.remove("open"); post("restart").catch((e) => toast(e.message)); }, "", "restart"),
+  );
+  const asks = new Map();
+  const assistant = new Map();
+  const activities = new Map();
+  let scheduled = false;
+
+  const intro = h(
+    "div",
+    { class: "intro" },
+    h("h3", {}, "Tu tutor"),
+    h("p", {}, "Trabaja de fondo con tu método de siempre. Pídele lo que necesites; cuando tenga que preguntarte algo (por ejemplo, si lo quieres universitario o rápido) verás aquí unos botones."),
+    h(
+      "div",
+      { class: "chips" },
+      ["¿Qué tengo pendiente en mis temas?", "Sigamos con mi último tema.", "Explícame de nuevo lo último que leí."].map((text) => h("button", { class: "chip", type: "button", onclick: () => say(text) }, text)),
+    ),
+  );
+
+  function updatePill() {
+    const asking = asks.size > 0;
+    pill.className = `tutor-pill${!tutor.alive ? " dead" : asking ? " asking" : tutor.busy ? " working" : ""}`;
+    const text = !tutor.alive ? "Tutor detenido" : asking ? "El tutor te pregunta algo" : tutor.busy ? `Trabajando · ${tutor.activity || "pensando"}` : "Tutor listo";
+    pillWhat.textContent = text;
+    stateLine.textContent = !tutor.alive ? "Detenido · usa ⋯ para reiniciarlo" : asking ? "Esperando tu respuesta" : tutor.busy ? `Trabajando · ${tutor.activity || "pensando"}` : "Listo";
+    pillBadge.hidden = !tutor.unread;
+    pillBadge.textContent = String(tutor.unread);
+  }
+  const atBottom = () => thread.scrollHeight - thread.scrollTop - thread.clientHeight < 80;
+  function append(node) {
+    const stick = atBottom();
+    intro.remove();
+    thread.append(node);
+    if (stick) thread.scrollTop = thread.scrollHeight;
+  }
+  const noteUnread = () => {
+    if (!document.body.classList.contains("drawer-open")) tutor.unread++;
+    updatePill();
+  };
+  function openDrawer(prefill) {
+    document.body.classList.add("drawer-open");
+    pill.setAttribute("aria-expanded", "true");
+    tutor.unread = 0;
+    updatePill();
+    if (typeof prefill === "string") {
+      composerText.value = prefill;
+      grow();
+      composerText.focus();
+      composerText.setSelectionRange(prefill.length, prefill.length);
+    }
+    thread.scrollTop = thread.scrollHeight;
+  }
+  function closeDrawer() {
+    document.body.classList.remove("drawer-open");
+    pill.setAttribute("aria-expanded", "false");
+  }
+  async function say(text) {
+    openDrawer();
+    try {
+      await post("prompt", { text });
+    } catch (error) {
+      append(h("div", { class: "notice error" }, `No se pudo enviar: ${error.message}`));
+    }
+  }
+  function grow() {
+    composerText.style.height = "auto";
+    composerText.style.height = `${Math.min(composerText.scrollHeight, 180)}px`;
+  }
+  const sendComposer = () => {
+    const text = composerText.value.trim();
+    if (!text) return;
+    composerText.value = "";
+    grow();
+    say(text);
+  };
+  composerText.addEventListener("input", grow);
+  composerText.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      sendComposer();
+    }
+  });
+
+  function renderAssistant(id) {
+    const entry = assistant.get(id);
+    entry.node.replaceChildren(...markdown(entry.text).childNodes);
+  }
+  function scheduleRender() {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      const stick = atBottom();
+      for (const [id, entry] of assistant) if (entry.dirty) { entry.dirty = false; renderAssistant(id); }
+      if (stick) thread.scrollTop = thread.scrollHeight;
+    });
+  }
+  function assistantEntry(id) {
+    if (!assistant.has(id)) {
+      const node = h("div", { class: "msg assistant" });
+      assistant.set(id, { node, text: "", dirty: false });
+      append(node);
+    }
+    return assistant.get(id);
+  }
+  function askCard(dialog) {
+    const answer = async (body) => {
+      card.querySelectorAll("button, textarea").forEach((n) => (n.disabled = true));
+      try {
+        await post("dialog", { id: dialog.id, ...body });
+      } catch (error) {
+        card.querySelectorAll("button, textarea").forEach((n) => (n.disabled = false));
+        toast(error.message);
+      }
+    };
+    const field = h("textarea", { rows: "3", placeholder: dialog.placeholder || "Tu respuesta" });
+    const card = h(
+      "section",
+      { class: "ask-card", "aria-label": "Pregunta del tutor" },
+      h("span", { class: "label" }, "El tutor te pregunta"),
+      h("h4", {}, dialog.title || "¿Cómo seguimos?"),
+      dialog.message ? h("p", {}, dialog.message) : null,
+      dialog.method === "select"
+        ? h("div", { class: "options" }, (dialog.options || []).map((option) => h("button", { type: "button", onclick: () => answer({ value: String(option) }) }, String(option))))
+        : dialog.method === "confirm"
+          ? h("div", { class: "options" }, h("button", { type: "button", onclick: () => answer({ confirmed: true }) }, "Sí"), h("button", { type: "button", onclick: () => answer({ confirmed: false }) }, "No"))
+          : h("div", { class: "options" }, field, h("button", { type: "button", onclick: () => answer({ value: field.value }) }, "Enviar respuesta")),
+      h("button", { class: "cancel", type: "button", onclick: () => answer({ cancelled: true }) }, "Ahora no"),
+    );
+    return card;
+  }
+
+  const events = new EventSource(base + "events");
+  const on = (name, fn) =>
+    events.addEventListener(name, (event) => {
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      fn(data);
+    });
+  on("history", ({ messages }) => {
+    thread.replaceChildren();
+    assistant.clear();
+    activities.clear();
+    if (!messages.length) thread.append(intro);
+    for (const m of messages) thread.append(m.role === "user" ? h("div", { class: "msg user" }, m.text) : h("div", { class: "msg assistant" }, ...markdown(m.text).childNodes));
+    thread.scrollTop = thread.scrollHeight;
+  });
+  on("state", (s) => {
+    tutor.busy = s.busy;
+    tutor.alive = s.alive;
+    if (!s.busy) tutor.activity = "";
+    updatePill();
+  });
+  on("user", ({ text }) => append(h("div", { class: "msg user" }, text)));
+  on("assistant_delta", ({ id, delta }) => {
+    const entry = assistantEntry(id);
+    entry.text += delta;
+    entry.dirty = true;
+    scheduleRender();
+  });
+  on("assistant_end", ({ id, text }) => {
+    const entry = assistantEntry(id);
+    entry.text = text;
+    renderAssistant(id);
+    noteUnread();
+  });
+  on("tool", ({ phase, id, label, ok }) => {
+    if (phase === "start") {
+      const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), label);
+      activities.set(id, row);
+      append(row);
+      tutor.activity = label;
     } else {
-      const field = el('textarea');
-      field.placeholder = data.placeholder || '';
-      field.setAttribute('aria-label', data.title || 'Respuesta al tutor');
-      card.append(field, button('Enviar', () => answer({ value: field.value })));
+      const row = activities.get(id);
+      if (row) row.replaceChildren(icon(ok ? "check" : "x"), label);
+      row?.classList.remove("running");
+      tutor.activity = "";
     }
-    card.append(button('Cancelar', () => answer({ cancelled: true }), 'cancel'));
-    dialogs.set(data.id, card);
-    transcript.append(card);
-    transcript.scrollTop = transcript.scrollHeight;
-  }
-  const events = new EventSource(base + 'events');
-  const on = (name, handler) => events.addEventListener(name, event => {
-    try { handler(JSON.parse(event.data)); } catch (error) { report(error); }
+    updatePill();
   });
-  events.onopen = () => { connection.textContent = 'Conectado'; };
-  events.onerror = () => { connection.textContent = 'Reconectando…'; };
-  on('history', data => {
-    transcript.replaceChildren();
-    assistants.clear(); tools.clear(); dialogs.clear();
-    for (const message of data.messages) {
-      const node = line('', message.role === 'user' ? 'user' : 'assistant');
-      if (message.role === 'assistant') markdown(node, message.text);
-      else node.textContent = message.text;
+  on("dialog", (dialog) => {
+    if (asks.has(dialog.id)) return;
+    const card = askCard(dialog);
+    asks.set(dialog.id, card);
+    append(card);
+    openDrawer();
+    thread.scrollTop = thread.scrollHeight;
+    updatePill();
+  });
+  on("dialog_closed", ({ id }) => {
+    asks.get(id)?.remove();
+    asks.delete(id);
+    updatePill();
+  });
+  on("notice", ({ message }) => append(h("div", { class: "notice" }, message)));
+  on("error", ({ message }) => append(h("div", { class: "notice error" }, message)));
+  on("library_changed", () => loadLibrary());
+  events.onerror = () => {
+    stateLine.textContent = "Reconectando…";
+  };
+
+  const drawer = h(
+    "aside",
+    { class: "drawer", id: "drawer", "aria-label": "Tutor" },
+    h(
+      "div",
+      { class: "drawer-head" },
+      h("h2", {}, "Tutor", stateLine),
+      h("button", { class: "icon-btn", type: "button", "aria-label": "Más opciones", onclick: () => menu.classList.toggle("open") }, icon("more")),
+      h("button", { class: "icon-btn", type: "button", "aria-label": "Cerrar el tutor", onclick: closeDrawer }, icon("x")),
+      menu,
+    ),
+    thread,
+    h(
+      "div",
+      { class: "composer" },
+      h("div", { class: "box" }, composerText, h("button", { class: "send", type: "button", "aria-label": "Enviar", onclick: sendComposer }, icon("send"))),
+      h("div", { class: "hint" }, h("span", {}, "Enter envía · Shift+Enter, nueva línea"), h("button", { class: "stop", type: "button", onclick: () => post("abort").catch((e) => toast(e.message)) }, "Detener")),
+    ),
+  );
+
+  // ---------- boot ----------
+  async function loadLibrary() {
+    try {
+      library = await request("api/library");
+    } catch (error) {
+      toast(`No se pudo leer la biblioteca: ${error.message}`);
     }
-  });
-  on('user', data => line(data.text, 'user'));
-  function assistant(data, end) {
-    let entry = assistants.get(data.id);
-    if (!entry) { entry = { node: line('', 'assistant'), text: '' }; assistants.set(data.id, entry); }
-    entry.text = end ? data.text : entry.text + data.delta;
-    markdown(entry.node, entry.text);
-    transcript.scrollTop = transcript.scrollHeight;
+    const [, view] = location.hash.split("/");
+    if (view !== "leer" && view !== "app" && view !== "rapido") render();
   }
-  on('assistant_delta', data => assistant(data, false));
-  on('assistant_end', data => assistant(data, true));
-  on('tool', data => {
-    let node = tools.get(data.id);
-    if (!node) { node = line('', 'tool muted'); tools.set(data.id, node); }
-    node.classList.toggle('running', data.phase === 'start');
-    node.textContent = `${data.phase === 'start' ? '◌' : data.ok ? '✔' : '✘'} ${data.label || data.name || 'Herramienta'}`;
+  root.replaceChildren(
+    h("header", { class: "topbar" }, h("a", { class: "brand", href: "#/" }, h("b", {}, "Estudio"), h("span", {}, "Learnings")), crumbs, pill),
+    h("div", { class: "app" }, stage),
+    drawer,
+  );
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { menu.classList.remove("open"); }
   });
-  on('notice', data => line(data.message));
-  on('error', data => report(new Error(data.message)));
-  on('state', data => {
-    stateLine.replaceChildren(el('span', '', !data.alive ? 'El tutor no está activo' : data.busy ? 'El tutor está trabajando… Puedes enviar otro mensaje.' : 'Listo para aprender'));
-    if (!data.alive) stateLine.append(button('Reiniciar', () => post('restart', {})));
-  });
-  on('dialog', showDialog);
-  on('dialog_closed', data => { dialogs.get(data.id)?.remove(); dialogs.delete(data.id); });
-  on('library_changed', () => { loadLibrary().catch(report); });
-  welcome();
-  loadLibrary().catch(report);
+  window.addEventListener("hashchange", render);
+  updatePill();
+  loadLibrary().then(() => render());
 })();
