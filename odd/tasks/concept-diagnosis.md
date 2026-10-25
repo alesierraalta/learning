@@ -1,0 +1,30 @@
+# Concept diagnosis from reasoning
+Objective: shorter quizzes of integrative questions (each needs 2-3 concepts), mandatory learner reasoning per question, and a per-concept diagnosis (claro/dudoso/laguna) derived from answer + reasoning that drives the diagnosis rounds, the plan/map and re-teaching.
+Authorized: answers to the three design questions (L2) plus L3; branch feat/concept-diagnosis on top of feat/html-study-view. Push and merge stay the user's decision.
+
+## Specs
+S1 — "para hacer el quiz un poco más corto, quiero ver si se pueden hacer preguntas que requieran que sepas de otros conceptos para razonar y llegar a la conclusión"
+S2 — "que el modelo sea capaz de entender cuáles conceptos no tengo claro en base al resultado y al razonamiento"
+S3 — "que yo pueda escribir el por qué yo llegue a esa conclusión. que entendí de la pregunta" — two reasoning fields per question: what I understood the question asks (`entendi`) and why I reached my answer (`porque`).
+S4 — "para que puedas tener una visión más clara y amplia de que estoy entendiendo y que no estoy entendiendo" — the per-concept verdicts are recorded and shown back to the learner.
+S5 — Decision "3 integradoras (Recomendado)": a mini-quiz has 3 integrative questions; pass with 2/3 and no missed central question. Only new runs (rules snapshot); topics in progress keep their 5-question rules.
+S6 — Decision "Obligatorio en todas": every answered question carries both reasoning fields; an answer without reasoning is not a complete answer.
+S7 — Decision "Bloquea si hay laguna": a `laguna` on a concept of a central question re-teaches the part (same bounded budget as today; once spent, blocked).
+S8 — "este no debe servir solamente para los quiz sino para el primer acercamiento sabes el quiz inicial que te hace para en para armar el plan el mapa de dependencias y poder saber cuánto sabes del tema" — the same integrative questions, reasoning and concept verdicts apply to the adaptive diagnosis: a question counts as right for the up/down rule only when the answer is correct and none of its concepts is a laguna; planning focus areas and the map use the concept verdicts.
+
+## Contract (shared by engine, bridge and skill)
+- `rules/deep.json` thresholds: `quiz.questionCount` 3, `quiz.minPassingScore` 2, new `concepts`: `{"required": true, "minPerQuestion": 2, "maxPerQuestion": 3, "states": ["claro", "dudoso", "laguna"], "gapState": "laguna"}`. Absent `concepts` (old snapshots) = today's behavior.
+- Questions (`quiz.json`, `mini-quiz/{part}.json`) add `"conceptos": ["1.1", "1.2.1a"]`: 2-3 distinct non-empty codes.
+- Answers files add `"razonamientos": {"q1": {"entendi": "...", "porque": "..."}}`; with `concepts.required`, an answer whose two fields are not both non-empty counts as not yet answered (learner wait).
+- Concept verdicts written by the tutor: `feedback/{part}.json` adds `"conceptos": [{"codigo": "1.1", "estado": "laguna", "pregunta": "q2", "evidencia": "<verbatim fragment of that question's reasoning>"}]`; the diagnosis uses `diagnostico-conceptos.json` with `{"conceptos": [...]}` of the same entry shape. Every concept of every answered question has at least one entry naming that question; `evidencia` appears verbatim (whitespace-normalized) in `entendi` or `porque` of `pregunta`.
+
+## Tasks
+T1 — S1,S2,S5,S6,S7,S8 — engine: rules thresholds + validation, conceptos, razonamientos, concept verdicts, laguna re-teach, adaptive up/down and planning with verdicts, back-compat fixture for current rules — worker — pending
+T2 — S3,S4,S6 — bridge + view: two required reasoning fields per question, stored as razonamientos, sent to chat; concept diagnosis shown on part and diagnosis pages — inline — pending
+T3 — S1,S2,S4,S7,S8 — skill explicacion-interactiva: integrative question design, verdict recording, map colors from verdicts — inline — pending
+T4 — S2,S8 — real run: a scratch topic through diagnosis round + mini-quiz with reasoning via the view, verdicts recorded, engine re-teaches on a central laguna — inline — pending
+
+## Log
+L1 — "Además, para hacer el quiz un poco más corto, quiero ver si se pueden hacer preguntas que requieran que sepas de otros conceptos para razonar y llegar a la conclusión, y que el modelo sea capaz de entender cuáles conceptos no tengo claro en base al resultado y al razonamiento. Porque quisiera poner una sección. en los quizes y en las preguntas. tipo un razonamiento que yo elija una de las preguntas. y un razonamiento. o sea que yo pueda escribir el por qué yo llegue a esa conclusión. que entendí de la pregunta. Sabes que tú puedas ir revisando mi forma de entender el ejercicio para que puedas tener una visión más clara y amplia de que estoy entendiendo y que no estoy entendiendo."
+L2 — Answers: "¿Cuántas preguntas integradoras quieres por mini-quiz?" → "3 integradoras (Recomendado)"; "¿Cómo quieres la sección de razonamiento?" → "Obligatorio en todas"; "¿Qué efecto debe tener el diagnóstico por concepto?" → "Bloquea si hay laguna".
+L3 — "además claro este no debe servir solamente para los quiz sino para el primer acercamiento sabes el quiz inicial que te hace para en para armar el plan el mapa de dependencias y poder saber cuánto sabes del tema"
