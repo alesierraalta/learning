@@ -143,10 +143,15 @@
         field.append(label);
         choices.push(radio);
       }
-      if (result) showResult(field, result, question);
+      if (result) {
+        if (result.entendi) field.append(element("p", `Entendiste: ${result.entendi}`, "muted"));
+        if (result.porque) field.append(element("p", `Por qué: ${result.porque}`, "muted"));
+        showResult(field, result, question);
+      }
       if (!readonly) {
-        const reasoning = textarea(field, "Tu razonamiento (opcional)");
-        pending.push({ question, field, choices, reasoning });
+        const entendi = textarea(field, "¿Qué entendiste que te pide la pregunta?");
+        const porque = textarea(field, "¿Por qué llegaste a esa opción?");
+        pending.push({ question, field, choices, entendi, porque });
       }
       container.append(field);
     }
@@ -167,10 +172,18 @@
           missing.choices[0]?.focus();
           return;
         }
+        const unexplained = pending.find((item) => !item.entendi.value.trim() || !item.porque.value.trim());
+        if (unexplained) {
+          message.className = "error";
+          message.textContent = "Explica en cada pregunta qué entendiste y por qué elegiste tu opción.";
+          (unexplained.entendi.value.trim() ? unexplained.porque : unexplained.entendi).focus();
+          return;
+        }
         const answers = Object.fromEntries(pending.map((item) => [item.question.id, item.choices.find((input) => input.checked).value]));
-        const reasoning = Object.fromEntries(pending.filter((item) => item.reasoning.value.trim()).map((item) => [item.question.id, item.reasoning.value.trim()]));
-        const payload = { kind: diagnosis ? "diagnosis" : "mini-quiz", topic: data.topic, answers };
-        if (Object.keys(reasoning).length) payload.reasoning = reasoning;
+        const reasoning = Object.fromEntries(
+          pending.map((item) => [item.question.id, { entendi: item.entendi.value.trim(), porque: item.porque.value.trim() }]),
+        );
+        const payload = { kind: diagnosis ? "diagnosis" : "mini-quiz", topic: data.topic, answers, reasoning };
         if (!diagnosis) {
           payload.part = data.part;
           if (ownWords.value.trim()) payload.ownWords = ownWords.value.trim();
@@ -197,6 +210,20 @@
     section.append(form);
     app.append(section);
     decorate(section);
+    verdicts();
+  }
+  function verdicts() {
+    if (!data.verdicts?.length) return;
+    const labels = { claro: "✔ Claro", dudoso: "◐ Dudoso", laguna: "✘ Laguna" };
+    const panel = element("section", undefined, "verdicts");
+    panel.append(element("h2", "Diagnóstico por concepto"));
+    for (const v of data.verdicts) {
+      const row = element("div", undefined, `verdict verdict-${v.estado}`);
+      row.append(element("strong", `${labels[v.estado] || v.estado} · ${v.codigo}`), element("span", ` (pregunta ${v.pregunta})`, "muted"));
+      row.append(element("p", `«${v.evidencia}»`));
+      panel.append(row);
+    }
+    app.append(panel);
   }
   if (data.topicBase) app.append(link(`← ${data.topicTitle || data.title}`, data.topicBase));
   else if (data.kind !== "index") app.append(link("← Temas", data.home));

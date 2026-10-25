@@ -84,11 +84,21 @@ interface Question {
   pieza?: unknown;
   round?: number;
 }
+interface Reasoning {
+  entendi: string;
+  porque: string;
+}
 interface Graded {
   id: string;
   chosen: string;
   correct: string;
   ok: boolean;
+  entendi?: string;
+  porque?: string;
+}
+interface AnswerFile {
+  answers: Record<string, string>;
+  razonamientos: Record<string, Reasoning>;
 }
 
 class HttpError extends Error {
@@ -132,13 +142,30 @@ function readQuestions(file: string): Question[] | undefined {
   );
 }
 
-function readAnswers(file: string): Record<string, string> | undefined {
+const isReasoning = (value: unknown): value is Reasoning =>
+  isRecord(value) && typeof value.entendi === "string" && typeof value.porque === "string";
+
+function readAnswers(file: string): AnswerFile | undefined {
   const data = readRecord(file);
   if (!data) return undefined;
   if (!isRecord(data.answers)) {
     throw new HttpError(409, `recorded answers are unreadable: ${file}`);
   }
-  return Object.fromEntries(Object.entries(data.answers).filter((e): e is [string, string] => typeof e[1] === "string"));
+  const answers = Object.fromEntries(Object.entries(data.answers).filter((e): e is [string, string] => typeof e[1] === "string"));
+  const razonamientos = isRecord(data.razonamientos)
+    ? Object.fromEntries(Object.entries(data.razonamientos).filter((e): e is [string, Reasoning] => isReasoning(e[1])))
+    : {};
+  return { answers, razonamientos };
+}
+
+/** Concept verdicts the tutor recorded (feedback/{part}.json or diagnostico-conceptos.json). */
+function readVerdicts(file: string): Record<string, unknown>[] | null {
+  const data = readRecord(file);
+  if (!data || !Array.isArray(data.conceptos)) return null;
+  return data.conceptos.filter(
+    (v): v is Record<string, unknown> =>
+      isRecord(v) && ["codigo", "estado", "pregunta", "evidencia"].every((key) => typeof v[key] === "string"),
+  );
 }
 
 /** The browser never receives answer keys before the learner answers. */
@@ -146,9 +173,11 @@ const publicQuestion = (q: Question) => ({ id: q.id, enunciado: q.enunciado, opt
 
 const grade = (q: Question, chosen: string): Graded => ({ id: q.id, chosen, correct: q.answer, ok: chosen === q.answer });
 
-function gradeRecorded(questions: Question[], answers: Record<string, string> | undefined): Graded[] | null {
-  if (!answers) return null;
-  return questions.filter((q) => q.id in answers).map((q) => grade(q, answers[q.id]));
+function gradeRecorded(questions: Question[], recorded: AnswerFile | undefined): Graded[] | null {
+  if (!recorded) return null;
+  return questions
+    .filter((q) => q.id in recorded.answers)
+    .map((q) => ({ ...grade(q, recorded.answers[q.id]), ...recorded.razonamientos[q.id] }));
 }
 
 function partNote(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string | undefined {
@@ -214,21 +243,22 @@ function partDemos(topicDir: string, partId: string): string[] {
 
 const quote = (text: string) => `"""\n${text.trim()}\n"""`;
 
-function quizMessage(header: string, saved: string, results: Graded[], reasoning: Record<string, string>): string[] {
+const indented = (text: string) => text.trim().replace(/\n/g, "\n    ");
+
+function quizMessage(header: string, saved: string, results: Graded[], reasoning: Record<string, Reasoning>): string[] {
   const score = results.filter((r) => r.ok).length;
-  const lines = [header, `Respuestas guardadas en ${saved} (resultado inmediato: ${score}/${results.length}):`];
+  const lines = [header, `Respuestas y razonamientos guardados en ${saved} (resultado inmediato: ${score}/${results.length}):`];
   for (const r of results) {
     lines.push(`- ${r.id}: ${r.chosen} ${r.ok ? "✔" : `✘ (correcta: ${r.correct})`}`);
-    const why = reasoning[r.id]?.trim();
-    if (why) lines.push(`  Razonamiento: ${why.replace(/\n/g, "\n  ")}`);
+    lines.push(`  Entendí: ${indented(reasoning[r.id].entendi)}`, `  Por qué: ${indented(reasoning[r.id].porque)}`);
   }
   return lines;
 }
 
 /** Atomic write: a reader sees either no file or the whole file. */
-function writeAnswers(file: string, answers: Record<string, string>): void {
+function writeAnswers(file: string, record: AnswerFile): void {
   const tmp = `${file}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
-  writeFileSync(tmp, `${JSON.stringify({ answers }, null, 2)}\n`);
+  writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`);
   renameSync(tmp, file);
 }
 
@@ -261,14 +291,26 @@ function checkAnswers(raw: unknown, questions: Question[], exact: boolean): Reco
   return raw as Record<string, string>;
 }
 
-function checkReasoning(raw: unknown, answers: Record<string, string>): Record<string, string> {
-  if (raw === undefined) return {};
-  if (!isRecord(raw)) throw new HttpError(400, "reasoning must be an object");
-  for (const [id, text] of Object.entries(raw)) {
-    if (!(id in answers)) throw new HttpError(400, `reasoning for an unanswered question: ${id}`);
-    if (typeof text !== "string" || text.length > MAX_TEXT_CHARS) throw new HttpError(400, `reasoning for ${id} is too long`);
+/** Every answered question carries what the learner understood and why they chose it. */
+function checkReasoning(raw: unknown, answers: Record<string, string>): Record<string, Reasoning> {
+  if (!isRecord(raw)) throw new HttpError(400, "reasoning is required for every answered question");
+  const extra = Object.keys(raw).find((id) => !(id in answers));
+  if (extra) throw new HttpError(400, `reasoning for an unanswered question: ${extra}`);
+  const out: Record<string, Reasoning> = {};
+  for (const id of Object.keys(answers)) {
+    const entry = raw[id];
+    if (!isRecord(entry) || Object.keys(entry).some((key) => key !== "entendi" && key !== "porque")) {
+      throw new HttpError(400, `reasoning for ${id} must be {entendi, porque}`);
+    }
+    for (const key of ["entendi", "porque"] as const) {
+      const text = entry[key];
+      if (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT_CHARS) {
+        throw new HttpError(400, `reasoning ${key} for ${id} must be non-empty text of at most ${MAX_TEXT_CHARS} characters`);
+      }
+    }
+    out[id] = { entendi: (entry.entendi as string).trim(), porque: (entry.porque as string).trim() };
   }
-  return raw as Record<string, string>;
+  return out;
 }
 
 /** URL path below the token for a topic and part, after checking they exist in the vault. */
@@ -397,6 +439,7 @@ ${scripts}
       quiz: questions ? { questions: questions.map(publicQuestion) } : null,
       answered: questions ? gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))) : null,
       demos: partDemos(dir, partId),
+      verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
     });
   };
 
@@ -414,6 +457,7 @@ ${scripts}
       quiz: { questions: questions.map(publicQuestion) },
       answered: gradeRecorded(questions, readAnswers(join(dir, "quiz.answers.json"))),
       demos: [],
+      verdicts: readVerdicts(join(dir, "diagnostico-conceptos.json")),
     });
   };
 
@@ -529,7 +573,7 @@ ${scripts}
       const file = join(dir, saved);
       if (existsSync(file)) throw new HttpError(409, `${saved} already exists; the quiz is answered`);
       const ordered = Object.fromEntries(questions.map((q) => [q.id, answers[q.id]]));
-      writeAnswers(file, ordered);
+      writeAnswers(file, { answers: ordered, razonamientos: Object.fromEntries(questions.map((q) => [q.id, reasoning[q.id]])) });
       const results = questions.map((q) => grade(q, ordered[q.id]));
       const lines = quizMessage(`[Vista HTML · ${topic} · ${partId} · mini-quiz]`, saved, results, reasoning);
       if (ownWords.trim()) lines.push("", "Vuelco con mis palabras:", quote(ownWords));
@@ -545,10 +589,13 @@ ${scripts}
     const reasoning = checkReasoning(payload.reasoning, answers);
     const saved = "quiz.answers.json";
     const file = join(dir, saved);
-    const recorded = readAnswers(file) ?? {};
-    const repeated = Object.keys(answers).find((id) => id in recorded);
+    const recorded = readAnswers(file) ?? { answers: {}, razonamientos: {} };
+    const repeated = Object.keys(answers).find((id) => id in recorded.answers);
     if (repeated) throw new HttpError(409, `${repeated} is already answered`);
-    writeAnswers(file, { ...recorded, ...answers });
+    writeAnswers(file, {
+      answers: { ...recorded.answers, ...answers },
+      razonamientos: { ...recorded.razonamientos, ...reasoning },
+    });
     const results = questions.filter((q) => q.id in answers).map((q) => grade(q, answers[q.id]));
     await deliver(quizMessage(`[Vista HTML · ${topic} · diagnóstico]`, saved, results, reasoning).join("\n"));
     sendJson(res, 200, { results, score: `${results.filter((r) => r.ok).length}/${results.length}`, saved });

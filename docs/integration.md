@@ -168,9 +168,14 @@ A submission is one of three fixed shapes (`mini-quiz`, `diagnosis`, `question`;
 are rejected). For a quiz the bridge validates every id and option against the quiz file,
 writes the answers file the engine already reads (`mini-quiz/<part>.answers.json`, or merges
 new ids into `quiz.answers.json`) atomically, and never overwrites recorded answers (`409`).
-Then it calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` with a message that starts
-with `[Vista HTML · <topic> · ...]` and carries the graded answers, the reasoning, the learner's
-own words and exercises. The chat treats it as answers typed by the learner; the engine is
+Every answered question must carry `reasoning: {<id>: {entendi, porque}}` — what the learner
+understood the question asks and why they chose their option, both non-empty (`400` otherwise);
+it is stored as `razonamientos` next to `answers` in the same file. Then it calls
+`pi.sendUserMessage(..., { deliverAs: "followUp" })` with a message that starts with
+`[Vista HTML · <topic> · ...]` and carries the graded answers, both reasoning fields, the
+learner's own words and exercises. Once the tutor records concept verdicts (`conceptos` in
+`feedback/<part>.json`, or `diagnostico-conceptos.json` for the diagnosis), the page shows them
+as the per-concept diagnosis (claro / dudoso / laguna with the quoted evidence). The chat treats it as answers typed by the learner; the engine is
 unchanged. A demo iframe can `postMessage({ type: "learning-demo", observation })` to add an
 observation to the question box; it is sent only when the learner presses send.
 

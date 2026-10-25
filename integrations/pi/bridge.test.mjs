@@ -102,6 +102,7 @@ function http(url, { method = "GET", headers = {}, body } = {}) {
 }
 
 const base = (result) => result.structuredContent.base;
+const why = (...ids) => Object.fromEntries(ids.map((id) => [id, { entendi: `entendí ${id}`, porque: `porque ${id}` }]));
 
 function submit(url, payload, headers = {}) {
   const origin = new URL(url).origin;
@@ -237,7 +238,7 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
     topic: TOPIC,
     part: "p1",
     answers: { q1: "B", q2: "C" },
-    reasoning: { q2: "Pensé que C porque..." },
+    reasoning: { ...why("q1"), q2: { entendi: "Pide qué error da Oracle", porque: "Pensé que C porque...\nlo vi en clase" } },
     ownWords: "Una clave identifica una fila.",
     exercises: "SELECT * FROM t;",
   });
@@ -250,13 +251,18 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
   assert.equal(body.score, "1/2");
   assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")), {
     answers: { q1: "B", q2: "C" },
+    razonamientos: {
+      ...why("q1"),
+      q2: { entendi: "Pide qué error da Oracle", porque: "Pensé que C porque...\nlo vi en clase" },
+    },
   });
   assert.equal(host.sent.length, 1);
   assert.deepEqual(host.sent[0].options, { deliverAs: "followUp" });
   const text = host.sent[0].content;
   assert.match(text, /^\[Vista HTML · sql-demo · p1 · mini-quiz\]/);
   assert.match(text, /mini-quiz\/p1\.answers\.json/);
-  assert.match(text, /- q2: C ✘ \(correcta: B\)\n  Razonamiento: Pensé que C porque\.\.\./);
+  assert.match(text, /- q1: B ✔\n  Entendí: entendí q1\n  Por qué: porque q1\n/);
+  assert.match(text, /- q2: C ✘ \(correcta: B\)\n  Entendí: Pide qué error da Oracle\n  Por qué: Pensé que C porque\.\.\.\n    lo vi en clase/);
   assert.match(text, /Vuelco con mis palabras:\n"""\nUna clave identifica una fila\.\n"""/);
   assert.match(text, /Ejercicios:\n"""\nSELECT \* FROM t;\n"""/);
   await shutdown();
@@ -267,7 +273,7 @@ test("an already answered mini-quiz is refused with 409 and leaves the file and 
   const url = base(await view({}));
   const file = join(topic, "mini-quiz", "p1.answers.json");
   writeFileSync(file, '{"answers":{"q1":"A","q2":"A"}}');
-  const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" } });
+  const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" }, reasoning: why("q1", "q2") });
   assert.equal(res.status, 409);
   assert.equal(readFileSync(file, "utf8"), '{"answers":{"q1":"A","q2":"A"}}');
   assert.equal(host.sent.length, 0);
@@ -276,13 +282,17 @@ test("an already answered mini-quiz is refused with 409 and leaves the file and 
 
 test("the part page reports recorded answers with their grading once the quiz is answered", async () => {
   const { view, topic, shutdown } = await setup();
-  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), '{"answers":{"q1":"B","q2":"A"}}');
+  writeFileSync(
+    join(topic, "mini-quiz", "p1.answers.json"),
+    JSON.stringify({ answers: { q1: "B", q2: "A" }, razonamientos: why("q2") }),
+  );
   const page = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
   const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
   assert.deepEqual(data.answered, [
     { id: "q1", chosen: "B", correct: "B", ok: true },
-    { id: "q2", chosen: "A", correct: "B", ok: false },
+    { id: "q2", chosen: "A", correct: "B", ok: false, entendi: "entendí q2", porque: "porque q2" },
   ]);
+  assert.equal(data.verdicts, null);
   await shutdown();
 });
 
@@ -293,14 +303,40 @@ test("diagnosis submit adds only new ids of the current round and keeps recorded
   const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
   assert.deepEqual(data.quiz.questions.map((q) => q.id), ["d1", "d2", "d3"]);
   assert.deepEqual(data.answered, [{ id: "d1", chosen: "B", correct: "B", ok: true }]);
-  const res = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d2: "E" } });
+  const res = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d2: "E" }, reasoning: why("d2") });
   assert.equal(res.status, 200);
-  assert.deepEqual(JSON.parse(readFileSync(join(topic, "quiz.answers.json"), "utf8")), { answers: { d1: "B", d2: "E" } });
+  assert.deepEqual(JSON.parse(readFileSync(join(topic, "quiz.answers.json"), "utf8")), {
+    answers: { d1: "B", d2: "E" },
+    razonamientos: why("d2"),
+  });
   assert.match(host.sent[0].content, /^\[Vista HTML · sql-demo · diagnóstico\]/);
-  const again = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d1: "A" } });
+  const again = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d1: "A" }, reasoning: why("d1") });
   assert.equal(again.status, 409);
-  assert.deepEqual(JSON.parse(readFileSync(join(topic, "quiz.answers.json"), "utf8")), { answers: { d1: "B", d2: "E" } });
+  const third = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d3: "A" }, reasoning: why("d3") });
+  assert.equal(third.status, 200);
+  assert.deepEqual(JSON.parse(readFileSync(join(topic, "quiz.answers.json"), "utf8")), {
+    answers: { d1: "B", d2: "E", d3: "A" },
+    razonamientos: why("d2", "d3"),
+  });
+  host.sent.pop();
   assert.equal(host.sent.length, 1);
+  await shutdown();
+});
+
+test("part and diagnosis pages show the tutor's concept verdicts once recorded", async () => {
+  const { view, topic, shutdown } = await setup();
+  const verdicts = [
+    { codigo: "1.1", estado: "claro", pregunta: "q1", evidencia: "entendí q1" },
+    { codigo: "1.2", estado: "laguna", pregunta: "q2", evidencia: "porque q2" },
+  ];
+  mkdirSync(join(topic, "feedback"));
+  writeFileSync(join(topic, "feedback", "p1.json"), JSON.stringify({ partId: "p1", difficultyDetected: true, conceptos: verdicts }));
+  writeFileSync(join(topic, "diagnostico-conceptos.json"), JSON.stringify({ conceptos: verdicts.slice(1) }));
+  const url = base(await view({}));
+  const part = await http(`${url}${TOPIC}/p1`);
+  assert.deepEqual(JSON.parse(part.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]).verdicts, verdicts);
+  const diagnosis = await http(`${url}${TOPIC}/quiz`);
+  assert.deepEqual(JSON.parse(diagnosis.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]).verdicts, verdicts.slice(1));
   await shutdown();
 });
 
@@ -320,7 +356,7 @@ test("a question to the tutor is sent with its context and writes no file", asyn
 test("submit refuses foreign origins, non-JSON, oversize, unknown fields and invalid answers without side effects", async () => {
   const { view, topic, host, shutdown } = await setup();
   const url = base(await view({}));
-  const valid = { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" } };
+  const valid = { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" }, reasoning: why("q1", "q2") };
   const cases = [
     [await submit(url, valid, { origin: "http://evil.example" }), 403],
     [await submit(url, valid, { origin: "null" }), 403],
@@ -334,6 +370,12 @@ test("submit refuses foreign origins, non-JSON, oversize, unknown fields and inv
     [await submit(url, { ...valid, topic: "../x" }), 400],
     [await submit(url, { ...valid, part: "p2" }), 400],
     [await submit(url, { ...valid, ownWords: "x".repeat(9000) }), 400],
+    [await submit(url, { ...valid, reasoning: undefined }), 400],
+    [await submit(url, { ...valid, reasoning: why("q1") }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "  " } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: "solo texto" } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1", "q2"), q2: { entendi: "x", porque: "y", extra: "z" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1", "q2", "q9") } }), 400],
     [await submit(url, { kind: "prompt", topic: TOPIC, text: "rm -rf" }), 400],
     [await submit(url, { kind: "question", topic: TOPIC, text: "" }), 400],
   ];
