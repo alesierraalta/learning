@@ -1,6 +1,6 @@
 // Study-view bridge tests: a real HTTP server on 127.0.0.1 against a temporary
 // Learnings root, driven through the public learning_view tool and HTTP routes.
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, existsSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
@@ -10,6 +10,10 @@ import { join } from "node:path";
 import { registerBridge } from "./bridge.ts";
 
 const TOPIC = "sql-demo";
+const openServers = [];
+after(async () => {
+  for (const shutdown of openServers) await shutdown();
+});
 
 function makeRoot() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "learnings-")));
@@ -80,6 +84,7 @@ async function setup() {
   const shutdown = async () => {
     for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
   };
+  openServers.push(shutdown);
   return { root, topic, host, view, shutdown };
 }
 
@@ -167,7 +172,10 @@ test("part page embeds the note with the video wired to the file route and the q
   assert.match(data.markdown, /<video controls preload="metadata" src="file\/explicaciones\/adjuntos\/Parte%201%20-%20Claves\.mp4">/);
   assert.deepEqual(data.quiz.questions.map((q) => q.id), ["q1", "q2"]);
   assert.equal(JSON.stringify(data.quiz).includes('"answer"'), false);
-  assert.deepEqual(data.demos, ["explicaciones/demos/p1-claves.html"]);
+  assert.deepEqual(data.demos, ["file/explicaciones/demos/p1-claves.html"]);
+  const demo = await http(new URL(data.demos[0], url).href);
+  assert.equal(demo.status, 200);
+  assert.equal(demo.headers["content-security-policy"], "sandbox allow-scripts");
   assert.equal(data.answered, null);
   await shutdown();
 });
@@ -180,7 +188,7 @@ test("an unwritten part is not served", async () => {
   await shutdown();
 });
 
-test("file route serves topic files with Range and refuses traversal and symlinks out of the topic", async (t) => {
+test("file route serves topic files with Range and refuses traversal and symlinks out of the topic", async () => {
   const { view, topic, root, shutdown } = await setup();
   const url = (await view({ topic: TOPIC })).structuredContent.url;
   const video = `${url}/file/explicaciones/adjuntos/Parte%201%20-%20Claves.mp4`;
@@ -197,6 +205,20 @@ test("file route serves topic files with Range and refuses traversal and symlink
   symlinkSync(join(root, "secret.txt"), join(topic, "link.txt"));
   const link = await http(`${url}/file/link.txt`);
   assert.equal(link.status, 404);
+  await shutdown();
+});
+
+test("plan.json part ids or slugs with path separators are never used as paths", async () => {
+  const { view, topic, shutdown } = await setup();
+  writeFileSync(
+    join(topic, "plan.json"),
+    JSON.stringify({ topic: "x", parts: [{ id: "../p1", title: "t", slug: "Claves" }, { id: "p3", title: "t", slug: "../../secret" }] }),
+  );
+  // Without the check, "Parte 2 - ../../secret.md" resolves to explicaciones/secret.md.
+  mkdirSync(join(topic, "explicaciones", "Parte 2 - .."));
+  writeFileSync(join(topic, "explicaciones", "secret.md"), "secret");
+  assert.equal((await view({ topic: TOPIC, part: "../p1" })).isError, true);
+  assert.equal((await view({ topic: TOPIC, part: "p3" })).isError, true);
   await shutdown();
 });
 
@@ -287,7 +309,10 @@ test("a question to the tutor is sent with its context and writes no file", asyn
   const url = base(await view({}));
   const res = await submit(url, { kind: "question", topic: TOPIC, part: "p1", text: "¿Por qué la PK no admite NULL?", demo: "p1-claves.html" });
   assert.equal(res.status, 200);
-  assert.equal(host.sent[0].content, "[Vista HTML · sql-demo · p1 · pregunta · demo p1-claves.html]\n¿Por qué la PK no admite NULL?");
+  assert.equal(
+    host.sent[0].content,
+    '[Vista HTML · sql-demo · p1 · pregunta · demo p1-claves.html]\nPregunta de la persona:\n"""\n¿Por qué la PK no admite NULL?\n"""',
+  );
   assert.equal(existsSync(join(topic, "mini-quiz", "p1.answers.json")), false);
   await shutdown();
 });

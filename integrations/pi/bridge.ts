@@ -118,9 +118,8 @@ function readRecord(file: string): Record<string, unknown> | undefined {
 function readPlan(topicDir: string): { topic: string; parts: PlanPart[] } | undefined {
   const plan = readRecord(join(topicDir, "plan.json"));
   if (!plan || !Array.isArray(plan.parts)) return undefined;
-  const parts = plan.parts.filter(
-    (p): p is PlanPart => isRecord(p) && typeof p.id === "string" && typeof p.slug === "string",
-  );
+  // id and slug become path segments: a part with a separator is not a part.
+  const parts = plan.parts.filter((p): p is PlanPart => isRecord(p) && safeTopic(p.id) && safeTopic(p.slug));
   return { topic: typeof plan.topic === "string" ? plan.topic : "", parts };
 }
 
@@ -210,7 +209,7 @@ function partDemos(topicDir: string, partId: string): string[] {
   return readdirSync(dir)
     .filter((name) => name.startsWith(`${partId}-`) && name.endsWith(".html"))
     .sort()
-    .map((name) => `explicaciones/demos/${name}`);
+    .map((name) => `file/explicaciones/demos/${name}`);
 }
 
 const quote = (text: string) => `"""\n${text.trim()}\n"""`;
@@ -513,7 +512,7 @@ ${scripts}
         throw new HttpError(400, "demo must be a demo file name");
       }
       const header = ["Vista HTML", topic, partId, "pregunta", demo && `demo ${demo}`].filter(Boolean).join(" · ");
-      await deliver(`[${header}]\n${text.trim()}`);
+      await deliver(`[${header}]\nPregunta de la persona:\n${quote(text)}`);
       sendJson(res, 200, { sent: true });
       return;
     }
