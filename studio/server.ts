@@ -27,12 +27,12 @@ const CANONICAL_ROOT = "/mnt/c/Users/ismar/Documents/obsidian/ale/notes/04-RECUR
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_PROMPT_CHARS = 20000;
 const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
-/** The studio's typefaces (Fraunces for display, Atkinson Hyperlegible for text), pinned with SRI. */
+/** The slides' serif: Tinos is metric-compatible with the Liberation Serif the decks render with. */
 const FONT_STYLESHEETS = [
-  ["https://cdn.jsdelivr.net/npm/@fontsource/fraunces@5.3.0/latin-600.css", "sha384-WwRRPVTQFpryJxMu3zVrO1cUtBavT4al3loMO8xxBiHy0DLycWtPJmUwUEboHwo0"],
-  ["https://cdn.jsdelivr.net/npm/@fontsource/fraunces@5.3.0/latin-400-italic.css", "sha384-65zmLBvi0Udlf1Pmu15dC/TzI+dCEZcle4EDx6jVOVALu8h5j0v6cpOLpG28qixU"],
-  ["https://cdn.jsdelivr.net/npm/@fontsource/atkinson-hyperlegible@5.3.0/latin-400.css", "sha384-Ei2x8tgKthFzCuN8L3IlV60Sot/I55256hmDF4VLg1tCx0l13Y/AAV4Rw8SMZ4av"],
-  ["https://cdn.jsdelivr.net/npm/@fontsource/atkinson-hyperlegible@5.3.0/latin-700.css", "sha384-jeMLFIxf7YL3VO4aXH3CaHS51s9yrvdeZxu6LfiQjCxEDOggWDDYWgFzeg17Wdd4"],
+  ["https://cdn.jsdelivr.net/npm/@fontsource/tinos@5.3.0/latin-400.css", "sha384-8zbxI8QzWEG4vEML31iP2/kJ3U7lZQKpjbhBQnsXSbyqwu2/5YmJNYnEi8S+uHyC"],
+  ["https://cdn.jsdelivr.net/npm/@fontsource/tinos@5.3.0/latin-700.css", "sha384-SUULE/FwhRJnmmtZndNoCfOi2n/ydFO6ffMg4mDxNeSCspEHHiBdowU/a+tlFOlz"],
+  ["https://cdn.jsdelivr.net/npm/@fontsource/tinos@5.3.0/latin-400-italic.css", "sha384-xtYZmcQDNPOcdvs9ioo/E0M7S86A02Sic6XambqSTnJv2cDk6aK6sIvH5RC60vOD"],
+  ["https://cdn.jsdelivr.net/npm/@fontsource/tinos@5.3.0/latin-700-italic.css", "sha384-TLhjWwWSdMcdB920UnQtGVM74H/aTHtueKc1XkRABo3RSBzHj7NFnKLJMO/TXGGJ"],
 ];
 
 export interface StudioOptions {
@@ -357,6 +357,7 @@ ${scripts}
 <body>
 <main id="studio"></main>
 <script type="application/json" id="studio-data">${data}</script>
+<script src="/${token}/tutorial.js"></script>
 <script src="/${token}/studio.js"></script>
 </body>
 </html>
@@ -484,7 +485,8 @@ ${scripts}
       case "":
         return send(res, 200, "text/html; charset=utf-8", shell(), { "content-security-policy": shellCsp() });
       case "studio.js":
-        return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(UI_DIR, "studio.js")));
+      case "tutorial.js":
+        return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(UI_DIR, path)));
       case "studio.css":
         return send(res, 200, "text/css; charset=utf-8", readFileSync(join(UI_DIR, "studio.css")));
       case "events":
@@ -513,7 +515,15 @@ ${scripts}
       else res.end();
     });
   });
-  await new Promise<void>((resolve) => server.listen(options.port ?? 0, "127.0.0.1", resolve));
+  // A fixed port keeps the browser's origin (and what it remembers, like the tutorial) across runs;
+  // if it is taken, any free port works.
+  await new Promise<void>((resolve, reject) => {
+    const listen = (wanted: number) => {
+      server.once("error", (err: NodeJS.ErrnoException) => (err.code === "EADDRINUSE" && wanted !== 0 ? listen(0) : reject(err)));
+      server.listen(wanted, "127.0.0.1", () => resolve());
+    };
+    listen(options.port ?? 0);
+  });
   port = (server.address() as { port: number }).port;
 
   registerBridge(fakePi as never, { root, frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] });
@@ -539,7 +549,7 @@ ${scripts}
 
 /** `node studio/server.ts` starts the studio and opens it in the Windows browser (WSL). */
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const studio = await startStudio({ root: process.env.LEARNING_ROOT?.trim() || undefined });
+  const studio = await startStudio({ root: process.env.LEARNING_ROOT?.trim() || undefined, port: Number(process.env.STUDIO_PORT) || 4747 });
   console.log(`Estudio: ${studio.url}`);
   if (!process.argv.includes("--no-open")) {
     spawn("cmd.exe", ["/c", "start", "", studio.url], { cwd: "/mnt/c", stdio: "ignore", detached: true }).on("error", () => {});

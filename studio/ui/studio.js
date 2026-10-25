@@ -24,6 +24,8 @@
     fresh: '<path d="M12 5v14M5 12h14"/>',
     restart: '<path d="M4 12a8 8 0 1 0 3-6.3"/><path d="M4 4v4h4"/>',
     quiz: '<circle cx="12" cy="12" r="8"/><path d="M9.5 9.5a2.5 2.5 0 015 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01"/>',
+    doc: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 11h7M9 15h7"/>',
+    deck: '<rect x="3" y="5" width="18" height="12" rx="1.5"/><path d="M8 21h8M12 17v4"/>',
     spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/>',
   };
   const svgParser = new DOMParser();
@@ -104,7 +106,7 @@
     final_quiz: "cuestionario final",
     final: "cierre",
   };
-  const TONE = { you: "var(--you)", tutor: "var(--accent)", alert: "var(--alert)", done: "var(--done)", test: "var(--muted)" };
+  const TONE = { you: "var(--amber)", tutor: "var(--blue)", alert: "var(--red)", done: "var(--green)", test: "var(--muted)" };
   const partIndex = (topic, id) => topic.parts.findIndex((p) => p.id === id);
   const partName = (topic, id) => (partIndex(topic, id) >= 0 ? `la Parte ${partIndex(topic, id) + 1}` : "la parte actual");
   const written = (topic) => topic.parts.filter((p) => p.written).length;
@@ -189,12 +191,12 @@
     );
   }
 
+  /** One chip per part, filled when the part is written (like the memory chips of the slides). */
   function progress(topic) {
     const total = topic.parts.length || 1;
-    const bar = h("span");
-    requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.width = `${Math.round((written(topic) / total) * 100)}%`)));
+    const chips = topic.parts.map((p) => h("span", { class: p.written ? "on" : "" }));
     return [
-      h("div", { class: "progress", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(written(topic)) }, bar),
+      h("div", { class: "progress", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(written(topic)) }, chips),
       h("div", { class: "progress-label" }, h("span", {}, `${written(topic)} de ${topic.parts.length} partes escritas`), h("span", {}, STAGE[topic.nextStage || topic.stage] || "")),
     ];
   }
@@ -228,8 +230,8 @@
           h(
             "div",
             { class: "modes" },
-            h("div", { class: "mode" }, h("b", {}, "Universitario: "), "plan, diagnóstico, partes con quiz y seguimiento hasta dominarlo."),
-            h("div", { class: "mode" }, h("b", {}, "Rápido: "), "una nota breve para entender algo hoy. El tutor te pregunta cuál prefieres."),
+            h("div", { class: "mode uni" }, h("b", {}, "Universitario: "), "plan, diagnóstico, partes con quiz y seguimiento hasta dominarlo."),
+            h("div", { class: "mode quick" }, h("b", {}, "Rápido: "), "una nota breve para entender algo hoy. El tutor te pregunta cuál prefieres."),
           ),
         ),
         focus ? continueCard(focus.t, focus.s) : h("div", { class: "continue reveal", style: "--i:1" }, h("span", { class: "label" }, "Para empezar"), h("p", { class: "next" }, "Todavía no tienes temas. Escribe arriba lo que quieres aprender.")),
@@ -257,20 +259,47 @@
             "div",
             { class: "cards" },
             library.quick.map((q, i) =>
-              h("button", { class: "card quick-card reveal", type: "button", style: `--i:${i + 3}`, onclick: () => go(`#/rapido/${q.id}`) }, h("span", { class: "icon" }, icon("book")), h("div", {}, h("h3", {}, q.title), h("span", { class: "muted" }, "Nota rápida"))),
+              h("button", { class: "card quick-card reveal", type: "button", style: `--i:${i + 3}`, onclick: () => go(`#/rapido/${q.id}`) }, h("span", { class: "icon" }, noteIcon()), h("div", {}, h("h3", {}, q.title), h("span", { class: "muted" }, "Nota rápida"))),
             ),
           )
         : h("p", { class: "empty" }, "Cuando pidas algo en modo rápido, la nota aparecerá aquí."),
-      h("div", { class: "section-title" }, h("h2", {}, "Cómo funciona")),
+      h("div", { class: "section-title" }, h("h2", {}, "Cómo funciona"), h("p", {}, `tutorial de ${window.StudioTutorial?.count ?? 6} diapositivas`)),
       h(
-        "ol",
+        "section",
         { class: "how" },
-        h("li", {}, h("span", { class: "n" }, "1"), h("b", {}, "Elige o pide"), h("span", {}, "Abre un tema de tu biblioteca o escribe arriba lo que quieres aprender.")),
-        h("li", {}, h("span", { class: "n" }, "2"), h("b", {}, "Lee, prueba y responde"), h("span", {}, "Cada parte es una página con la explicación completa, demos interactivas, video y su quiz.")),
-        h("li", {}, h("span", { class: "n" }, "3"), h("b", {}, "El tutor te guía"), h("span", {}, "Corrige tu razonamiento concepto por concepto y prepara lo siguiente. Lo ves en el panel «Tutor».")),
+        window.StudioTutorial
+          ? h("button", { class: "preview", type: "button", "aria-label": "Abrir el tutorial", onclick: () => openTutorial() }, window.StudioTutorial.preview(0))
+          : null,
+        h(
+          "div",
+          {},
+          h(
+            "ol",
+            {},
+            h("li", {}, h("span", { class: "n" }, "1"), h("div", {}, h("b", {}, "Elige o pide"), h("span", { class: "t" }, "Abre un tema de tu biblioteca o escribe arriba lo que quieres aprender."))),
+            h("li", {}, h("span", { class: "n" }, "2"), h("div", {}, h("b", {}, "Lee, prueba y responde"), h("span", { class: "t" }, "Cada parte es una página con la explicación completa, demos, video y su quiz."))),
+            h("li", {}, h("span", { class: "n" }, "3"), h("div", {}, h("b", {}, "El tutor te guía"), h("span", { class: "t" }, "Corrige tu razonamiento concepto por concepto y prepara lo siguiente."))),
+          ),
+          h("div", { style: "margin-top:22px" }, btn("Ver el tutorial", () => openTutorial(), "btn primary", "deck")),
+        ),
       ),
     );
     stage.replaceChildren(page);
+  }
+
+  /** The note sheet of the slides: a page with a folded corner and text lines. */
+  function noteIcon() {
+    const svg = icon("doc");
+    svg.setAttribute("stroke", "#059669");
+    return svg;
+  }
+  function openTutorial() {
+    window.StudioTutorial?.open({
+      onStart: () => {
+        go("#/");
+        setTimeout(() => document.querySelector(".ask-big input")?.focus(), 80);
+      },
+    });
   }
 
   // ---------- topic ----------
@@ -654,7 +683,13 @@
     if (view !== "leer" && view !== "app" && view !== "rapido") render();
   }
   root.replaceChildren(
-    h("header", { class: "topbar" }, h("a", { class: "brand", href: "#/" }, h("b", {}, "Estudio"), h("span", {}, "Learnings")), crumbs, pill),
+    h(
+      "header",
+      { class: "topbar" },
+      h("a", { class: "brand", href: "#/" }, h("b", {}, "Estudio"), h("span", {}, "Learnings")),
+      crumbs,
+      h("div", { class: "top-actions" }, btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
+    ),
     h("div", { class: "app" }, stage),
     drawer,
   );
@@ -663,5 +698,8 @@
   });
   window.addEventListener("hashchange", render);
   updatePill();
-  loadLibrary().then(() => render());
+  loadLibrary().then(() => {
+    render();
+    if (window.StudioTutorial && !window.StudioTutorial.seen()) openTutorial();
+  });
 })();

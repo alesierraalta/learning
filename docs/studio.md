@@ -30,6 +30,17 @@ overrides the Learnings folder. Ctrl+C stops the studio and its Pi.
   parts, quick notes), viewer, and tutor panel (streamed text, tool activity,
   dialogs, input, stop, new conversation, restart).
 
+## Design and tutorial
+
+The UI uses the visual language of the Learnings slides
+(`~/Developer/learnings-video-runs/slides`: `deck.css`, `illus.py`): white paper, the
+slides' serif (Tinos, metric-compatible with Liberation Serif, pinned with SRI), boxes
+with 2px strokes, dashed containers, illustrated objects and the deck palette.
+`studio/ui/tutorial.js` is a six-slide deck in that style (1920×1080 slides scaled to the
+window, pieces revealed step by step, keyboard ← → and Esc). It opens on the first visit
+and from the «Tutorial» button; the studio listens on port 4747 (`STUDIO_PORT`; a taken
+port falls back to a free one) so the browser remembers that it was seen.
+
 ## Contract and security
 
 The server ↔ UI API is the contract in `odd/tasks/learning-studio.md`. Every

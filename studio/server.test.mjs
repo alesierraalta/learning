@@ -125,6 +125,18 @@ test("the shell page is token-gated, loopback-only and allows framing only the h
   assert.equal((await http(studio.url, { headers: { host: "evil.example" } })).status, 403);
   await until(() => received().length > 0 || true);
   assert.equal((await http(`${studio.url}studio.js`)).status, 200);
+  assert.equal((await http(`${studio.url}tutorial.js`)).status, 200);
+  assert.match(page.body, /<script src="\/[0-9a-f]{64}\/tutorial\.js"><\/script>\n<script src="\/[0-9a-f]{64}\/studio\.js">/);
+});
+
+test("a taken port falls back to a free one", async () => {
+  const { root, engine } = makeRoot();
+  const first = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, port: 0 });
+  open.push(first);
+  const second = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, port: first.port });
+  open.push(second);
+  assert.notEqual(second.port, first.port);
+  assert.equal((await http(second.url)).status, 200);
 });
 
 test("Pi runs in the Learnings folder as an interactive RPC host and the history reaches a new client", async () => {
