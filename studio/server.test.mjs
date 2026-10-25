@@ -122,6 +122,11 @@ test("the shell page is token-gated, loopback-only and allows framing only the h
   assert.match(csp, /frame-src http:\/\/127\.0\.0\.1:\d+(;|$)/);
   assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net(;|$)/);
   assert.equal((await http(`${new URL(studio.url).origin}/${"0".repeat(64)}/`)).status, 404);
+  const entry = await http(`${new URL(studio.url).origin}/`);
+  assert.equal(entry.status, 302, "the bare origin is a stable entry point");
+  assert.equal(entry.headers.location, new URL(studio.url).pathname);
+  assert.equal((await http(`${new URL(studio.url).origin}/`, { headers: { host: "evil.example" } })).status, 403);
+  assert.equal((await http(`${new URL(studio.url).origin}/`, { method: "POST" })).status, 404);
   assert.equal((await http(studio.url, { headers: { host: "evil.example" } })).status, 403);
   await until(() => received().length > 0 || true);
   assert.equal((await http(`${studio.url}studio.js`)).status, 200);

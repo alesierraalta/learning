@@ -476,6 +476,12 @@ ${scripts}
     const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
     if (!hosts.has(String(req.headers.host ?? ""))) throw new HttpError(403, "host not allowed");
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    // http://127.0.0.1:<port>/ is a stable, bookmarkable entry; every route behind it needs the token.
+    if (url.pathname === "/" && req.method === "GET") {
+      res.writeHead(302, { location: `/${token}/`, "cache-control": "no-store", "referrer-policy": "no-referrer" });
+      res.end();
+      return;
+    }
     const [first = "", ...rest] = url.pathname.split("/").slice(1);
     if (!tokenMatches(first)) throw new HttpError(404, "not found");
     const path = rest.join("/");
@@ -550,9 +556,10 @@ ${scripts}
 /** `node studio/server.ts` starts the studio and opens it in the Windows browser (WSL). */
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const studio = await startStudio({ root: process.env.LEARNING_ROOT?.trim() || undefined, port: Number(process.env.STUDIO_PORT) || 4747 });
-  console.log(`Estudio: ${studio.url}`);
+  const entry = `http://127.0.0.1:${studio.port}/`;
+  console.log(`Estudio: ${entry}`);
   if (!process.argv.includes("--no-open")) {
-    spawn("cmd.exe", ["/c", "start", "", studio.url], { cwd: "/mnt/c", stdio: "ignore", detached: true }).on("error", () => {});
+    spawn("cmd.exe", ["/c", "start", "", entry], { cwd: "/mnt/c", stdio: "ignore", detached: true }).on("error", () => {});
   }
   const stop = async () => {
     await studio.close();
