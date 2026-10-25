@@ -1,6 +1,7 @@
 (() => {
   "use strict";
   const app = document.getElementById("app");
+  const CONFIDENCE = { seguro: "seguro", dudo: "dudo", adivine: "adiviné" };
   let data;
   try {
     data = JSON.parse(document.getElementById("view-data").textContent);
@@ -188,12 +189,26 @@
       if (result) {
         if (result.entendi) field.append(element("p", `Entendiste: ${result.entendi}`, "muted"));
         if (result.porque) field.append(element("p", `Por qué: ${result.porque}`, "muted"));
+        if (CONFIDENCE[result.confianza]) field.append(element("p", `Confianza: ${CONFIDENCE[result.confianza]}`, "muted"));
         showResult(field, result, question);
       }
       if (!readonly) {
         const entendi = textarea(field, "¿Qué entendiste que te pide la pregunta?");
         const porque = textarea(field, "¿Por qué llegaste a esa opción?");
-        pending.push({ question, field, choices, entendi, porque });
+        const confidence = element("div", undefined, "confidence");
+        confidence.append(element("span", "¿Qué tan seguro estás?"));
+        const sure = Object.entries(CONFIDENCE).map(([value, text]) => {
+          const label = element("label");
+          const radio = element("input");
+          radio.type = "radio";
+          radio.name = `confidence-${index}`;
+          radio.value = value;
+          label.append(radio, element("span", text[0].toUpperCase() + text.slice(1)));
+          confidence.append(label);
+          return radio;
+        });
+        field.append(confidence);
+        pending.push({ question, field, choices, entendi, porque, sure });
       }
       container.append(field);
     }
@@ -221,9 +236,23 @@
           (unexplained.entendi.value.trim() ? unexplained.porque : unexplained.entendi).focus();
           return;
         }
+        const unsure = pending.find((item) => !item.sure.some((input) => input.checked));
+        if (unsure) {
+          message.className = "error";
+          message.textContent = "Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.";
+          unsure.sure[0].focus();
+          return;
+        }
         const answers = Object.fromEntries(pending.map((item) => [item.question.id, item.choices.find((input) => input.checked).value]));
         const reasoning = Object.fromEntries(
-          pending.map((item) => [item.question.id, { entendi: item.entendi.value.trim(), porque: item.porque.value.trim() }]),
+          pending.map((item) => [
+            item.question.id,
+            {
+              entendi: item.entendi.value.trim(),
+              porque: item.porque.value.trim(),
+              confianza: item.sure.find((input) => input.checked).value,
+            },
+          ]),
         );
         const payload = { kind: diagnosis ? "diagnosis" : "mini-quiz", topic: data.topic, answers, reasoning };
         if (!diagnosis) {

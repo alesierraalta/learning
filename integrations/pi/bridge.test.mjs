@@ -102,7 +102,8 @@ function http(url, { method = "GET", headers = {}, body } = {}) {
 }
 
 const base = (result) => result.structuredContent.base;
-const why = (...ids) => Object.fromEntries(ids.map((id) => [id, { entendi: `entendí ${id}`, porque: `porque ${id}` }]));
+const why = (...ids) =>
+  Object.fromEntries(ids.map((id) => [id, { entendi: `entendí ${id}`, porque: `porque ${id}`, confianza: "seguro" }]));
 
 function submit(url, payload, headers = {}) {
   const origin = new URL(url).origin;
@@ -238,7 +239,10 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
     topic: TOPIC,
     part: "p1",
     answers: { q1: "B", q2: "C" },
-    reasoning: { ...why("q1"), q2: { entendi: "Pide qué error da Oracle", porque: "Pensé que C porque...\nlo vi en clase" } },
+    reasoning: {
+      ...why("q1"),
+      q2: { entendi: "Pide qué error da Oracle", porque: "Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
+    },
     ownWords: "Una clave identifica una fila.",
     exercises: "SELECT * FROM t;",
   });
@@ -253,7 +257,7 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
     answers: { q1: "B", q2: "C" },
     razonamientos: {
       ...why("q1"),
-      q2: { entendi: "Pide qué error da Oracle", porque: "Pensé que C porque...\nlo vi en clase" },
+      q2: { entendi: "Pide qué error da Oracle", porque: "Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
     },
   });
   assert.equal(host.sent.length, 1);
@@ -261,8 +265,8 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
   const text = host.sent[0].content;
   assert.match(text, /^\[Vista HTML · sql-demo · p1 · mini-quiz\]/);
   assert.match(text, /mini-quiz\/p1\.answers\.json/);
-  assert.match(text, /- q1: B ✔\n  Entendí: entendí q1\n  Por qué: porque q1\n/);
-  assert.match(text, /- q2: C ✘ \(correcta: B\)\n  Entendí: Pide qué error da Oracle\n  Por qué: Pensé que C porque\.\.\.\n    lo vi en clase/);
+  assert.match(text, /- q1: B ✔\n  Entendí: entendí q1\n  Por qué: porque q1\n  Confianza: seguro\n/);
+  assert.match(text, /- q2: C ✘ \(correcta: B\)\n  Entendí: Pide qué error da Oracle\n  Por qué: Pensé que C porque\.\.\.\n    lo vi en clase\n  Confianza: adiviné/);
   assert.match(text, /Vuelco con mis palabras:\n"""\nUna clave identifica una fila\.\n"""/);
   assert.match(text, /Ejercicios:\n"""\nSELECT \* FROM t;\n"""/);
   await shutdown();
@@ -290,7 +294,7 @@ test("the part page reports recorded answers with their grading once the quiz is
   const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
   assert.deepEqual(data.answered, [
     { id: "q1", chosen: "B", correct: "B", ok: true },
-    { id: "q2", chosen: "A", correct: "B", ok: false, entendi: "entendí q2", porque: "porque q2" },
+    { id: "q2", chosen: "A", correct: "B", ok: false, entendi: "entendí q2", porque: "porque q2", confianza: "seguro" },
   ]);
   assert.equal(data.verdicts, null);
   await shutdown();
@@ -374,7 +378,10 @@ test("submit refuses foreign origins, non-JSON, oversize, unknown fields and inv
     [await submit(url, { ...valid, reasoning: why("q1") }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "  " } } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: "solo texto" } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1", "q2"), q2: { entendi: "x", porque: "y", extra: "z" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1", "q2"), q2: { entendi: "x", porque: "y", confianza: "seguro", extra: "z" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "y" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "y", confianza: "mucho" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "y", confianza: "constructor" } } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1", "q2", "q9") } }), 400],
     [await submit(url, { kind: "prompt", topic: TOPIC, text: "rm -rf" }), 400],
     [await submit(url, { kind: "question", topic: TOPIC, text: "" }), 400],

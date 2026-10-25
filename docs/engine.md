@@ -182,8 +182,10 @@ learner's own reasoning:
   codes (`minPerQuestion`/`maxPerQuestion`), each a plan subtema or a `P0.x`
   foundation.
 - Every answer carries `razonamientos` in its answers file:
-  `{"q1": {"entendi": "...", "porque": "..."}}`. An answer without both fields
-  counts as not yet answered: a learner wait.
+  `{"q1": {"entendi": "...", "porque": "...", "confianza": "dudo"}}`. An answer
+  without both `entendi` and `porque` counts as not yet answered: a learner
+  wait. `confianza` (`seguro`/`dudo`/`adivine`, written by the study view) is
+  for the chat's verdicts; the engine does not read it.
 - Diagnosis rounds have any size, start at 1 and are contiguous; at most
   `diagnosisMaxQuestions` (15) in total. A round is written only after the
   previous one is answered with reasoning **and** has its verdicts; `roundSize`,

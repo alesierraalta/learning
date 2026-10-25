@@ -23,6 +23,8 @@ const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_TEXT_CHARS = 8000;
 const CHOICES = new Set(["A", "B", "C", "D", "E"]);
+/** How sure the learner was of each answer, as shown in the chat message. */
+const CONFIDENCE: Record<string, string> = { seguro: "seguro", dudo: "dudo", adivine: "adiviné" };
 const DIAGNOSIS = "quiz";
 const EMBED_SEARCH_DEPTH = 4;
 
@@ -87,6 +89,7 @@ interface Question {
 interface Reasoning {
   entendi: string;
   porque: string;
+  confianza?: string;
 }
 interface Graded {
   id: string;
@@ -95,6 +98,7 @@ interface Graded {
   ok: boolean;
   entendi?: string;
   porque?: string;
+  confianza?: string;
 }
 interface AnswerFile {
   answers: Record<string, string>;
@@ -250,7 +254,11 @@ function quizMessage(header: string, saved: string, results: Graded[], reasoning
   const lines = [header, `Respuestas y razonamientos guardados en ${saved} (resultado inmediato: ${score}/${results.length}):`];
   for (const r of results) {
     lines.push(`- ${r.id}: ${r.chosen} ${r.ok ? "✔" : `✘ (correcta: ${r.correct})`}`);
-    lines.push(`  Entendí: ${indented(reasoning[r.id].entendi)}`, `  Por qué: ${indented(reasoning[r.id].porque)}`);
+    lines.push(
+      `  Entendí: ${indented(reasoning[r.id].entendi)}`,
+      `  Por qué: ${indented(reasoning[r.id].porque)}`,
+      `  Confianza: ${CONFIDENCE[reasoning[r.id].confianza ?? ""] ?? "-"}`,
+    );
   }
   return lines;
 }
@@ -291,7 +299,7 @@ function checkAnswers(raw: unknown, questions: Question[], exact: boolean): Reco
   return raw as Record<string, string>;
 }
 
-/** Every answered question carries what the learner understood and why they chose it. */
+/** Every answered question carries what the learner understood, why they chose it and how sure they were. */
 function checkReasoning(raw: unknown, answers: Record<string, string>): Record<string, Reasoning> {
   if (!isRecord(raw)) throw new HttpError(400, "reasoning is required for every answered question");
   const extra = Object.keys(raw).find((id) => !(id in answers));
@@ -299,8 +307,11 @@ function checkReasoning(raw: unknown, answers: Record<string, string>): Record<s
   const out: Record<string, Reasoning> = {};
   for (const id of Object.keys(answers)) {
     const entry = raw[id];
-    if (!isRecord(entry) || Object.keys(entry).some((key) => key !== "entendi" && key !== "porque")) {
-      throw new HttpError(400, `reasoning for ${id} must be {entendi, porque}`);
+    if (!isRecord(entry) || Object.keys(entry).some((key) => !["entendi", "porque", "confianza"].includes(key))) {
+      throw new HttpError(400, `reasoning for ${id} must be {entendi, porque, confianza}`);
+    }
+    if (typeof entry.confianza !== "string" || !Object.hasOwn(CONFIDENCE, entry.confianza)) {
+      throw new HttpError(400, `reasoning confianza for ${id} must be one of ${Object.keys(CONFIDENCE).join(", ")}`);
     }
     for (const key of ["entendi", "porque"] as const) {
       const text = entry[key];
@@ -308,7 +319,7 @@ function checkReasoning(raw: unknown, answers: Record<string, string>): Record<s
         throw new HttpError(400, `reasoning ${key} for ${id} must be non-empty text of at most ${MAX_TEXT_CHARS} characters`);
       }
     }
-    out[id] = { entendi: (entry.entendi as string).trim(), porque: (entry.porque as string).trim() };
+    out[id] = { entendi: (entry.entendi as string).trim(), porque: (entry.porque as string).trim(), confianza: entry.confianza };
   }
   return out;
 }

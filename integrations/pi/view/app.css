@@ -53,6 +53,10 @@ legend { padding: 0 8px; font-weight: 600; max-width: 100%; }
 .option { display: flex; align-items: baseline; gap: 12px; padding: 10px 8px; border-radius: 4px; cursor: pointer; }
 .option:hover { background: #f8fafc; }
 .option input { flex-shrink: 0; accent-color: #2563eb; }
+.confidence { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 12px 0 4px; }
+.confidence > span { font-weight: 700; }
+.confidence label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.confidence input { accent-color: #2563eb; }
 .option:has(input:checked) { background: #eff6ff; }
 .text-field { display: block; margin: 20px 0; font-weight: 500; }
 textarea { display: block; width: 100%; resize: vertical; min-height: 90px; padding: 12px; margin-top: 8px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #0f172a; font: inherit; line-height: 1.5; }
