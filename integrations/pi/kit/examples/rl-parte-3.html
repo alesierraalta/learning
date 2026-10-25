@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parte 3 — Política, recompensa, valor y modelo</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<script src="../kit/kit.js" defer></script>
+<style>
+.lab { display:flex; flex-wrap:wrap; gap:24px; margin-top:16px; align-items:start; }
+.grid { display:grid; grid-template-columns:repeat(4,64px); gap:4px; }
+.cell { width:64px; height:64px; padding:2px; border:1px solid #e2e8f0; border-radius:5px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:12px; color:#0f172a; position:relative; }
+.cell .arrow { font-size:22px; }
+.cell.wall { background:#e2e8f0; }
+.cell.goal { border:2px solid #059669; }
+.cell.pit { border:2px solid #dc2626; }
+.cell.selected { outline:2px solid #2563eb; outline-offset:-4px; }
+.side { flex:1 1 260px; min-width:0; font-size:.8rem; }
+.pad { display:grid; grid-template-columns:repeat(3,44px); gap:4px; }
+.pad button { padding:5px; }
+.row { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.log,.formula { white-space:pre-wrap; font:12px/1.7 "DejaVu Sans Mono",monospace; border:1px solid #e2e8f0; padding:10px; background:#f8fafc; }
+.log { max-height:180px; overflow:auto; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+.card { padding:14px; border:1px solid #e2e8f0; border-radius:6px; font-size:.8rem; }
+.card button { font-size:12px; padding:4px 7px; margin:3px; }
+.card.ok { border-color:#059669; }
+.card.bad { border-color:#dc2626; }
+.chart { width:100%; height:170px; border:1px solid #e2e8f0; }
+@media(max-width:380px) { .grid { grid-template-columns:repeat(4,56px); } .cell { width:56px; height:56px; } }
+</style>
+</head>
+<body><main>
+<p class="definition">Un sistema de aprendizaje por refuerzo tiene, además del agente y del entorno, cuatro elementos: una <strong>política</strong> que decide qué hacer, una <strong>señal de recompensa</strong> que define la meta, una <strong>función de valor</strong> que estima lo que se ganará a la larga y, opcionalmente, un <strong>modelo</strong> del entorno que permite planificar.</p>
+<lk-video></lk-video>
+<div class="kicker">Parte 3 · Elementos del RL</div>
+<h1>Política, recompensa, valor y modelo</h1>
+<p><strong>Fuente</strong>: Sutton, R. S. y Barto, A. G. (2018). <em>Reinforcement Learning: An Introduction</em> (2.ª ed.), §1.3 «Elements of Reinforcement Learning» y §3.1 (frontera agente–entorno). MIT Press.</p>
+<lk-callout type="tip" title="Conexión con la Parte 2"><p>En la Parte 2 viste que en RL nadie le da al agente la respuesta correcta: solo recibe recompensas. Ahora ves <strong>qué guarda el agente por dentro</strong> para aprender a partir de ellas.</p></lk-callout>
+<lk-callout type="note" title="Ejemplo que nos acompaña toda la parte"><p>Un <strong>robot de reparto</strong> en un almacén de 4 × 3 casillas. Sale de la esquina inferior izquierda <code>(0,2)</code>. La <strong>puerta</strong> <code>(3,0)</code> paga <strong>+1</strong>, el <strong>charco</strong> <code>(3,1)</code> paga <strong>−1</strong> y la casilla <code>(1,1)</code> es una <strong>columna</strong> que no se puede pisar. Cada paso normal le cuesta <strong>−0,04</strong> (batería). Abajo tienes la demo para mover todo esto con tus manos.</p></lk-callout>
+<section><h2>1. Por qué existe</h2>
+<p>Imagina que el robot solo mirara la recompensa del paso siguiente. Todos los pasos normales pagan lo mismo (−0,04), así que <strong>le daría igual ir hacia la puerta o hacia el charco</strong> hasta el último momento. Daría vueltas sin rumbo y gastaría batería.</p>
+<p>El problema es que la recompensa es <strong>inmediata y miope</strong>: dice qué tan bueno es <em>este</em> paso, no si vas bien encaminado. Para decidir bien, el robot necesita:</p>
+<ul><li>una regla de qué hacer en cada casilla (si no, no actúa),</li><li>una forma de saber <strong>qué tan bien le irá desde cada casilla</strong> (si no, no distingue un camino corto de uno que acaba en el charco),</li><li>y, si quiere pensar antes de moverse, una idea de <strong>qué pasa cuando hace algo</strong> en el almacén.</li></ul>
+<p>Esas tres cosas, más la recompensa que fija la meta, son los cuatro elementos de esta parte.</p></section>
+<section><h2>2. Las piezas, con preguntas de todos los días</h2>
+<table><thead><tr><th>Pregunta del robot</th><th>Elemento</th><th>En el almacén</th></tr></thead><tbody>
+<tr><td>¿Qué hago aquí?</td><td><strong>Política</strong> π</td><td>Una flecha por casilla: <code>(0,2) → arriba</code></td></tr>
+<tr><td>¿Qué gano ahora mismo?</td><td><strong>Señal de recompensa</strong> r</td><td>−0,04 por paso, +1 en la puerta, −1 en el charco</td></tr>
+<tr><td>¿Qué tan bien me irá desde aquí?</td><td><strong>Función de valor</strong> V(s)</td><td>Un número por casilla: <code>V(2,0) = +1,00</code></td></tr>
+<tr><td>¿Qué pasará si hago esto?</td><td><strong>Modelo</strong> del entorno</td><td>«Si voy → desde (2,0), llego a la puerta»</td></tr></tbody></table>
+<ul><li><strong>Política</strong>: define cómo se comporta el agente en un momento dado; asigna a cada estado la acción que toma (o probabilidades de acciones).</li>
+<li><strong>Señal de recompensa</strong>: un número que el entorno entrega en cada paso. <strong>Define la meta</strong>: el único objetivo del agente es maximizar la recompensa total que recibe a la larga. Se considera parte del entorno porque el agente <strong>no puede cambiarla a su antojo</strong>.</li>
+<li><strong>Función de valor</strong>: para cada estado, la recompensa total que el agente <strong>espera acumular desde ahí</strong> en adelante. La recompensa dice qué es bueno de inmediato; el valor, qué es bueno <strong>a la larga</strong>.</li>
+<li><strong>Modelo</strong>: imita al entorno. Dado un estado y una acción, predice el siguiente estado y la recompensa. Es <strong>opcional</strong>: sirve para <strong>planificar</strong>.</li></ul>
+<lk-diagram title="La frontera del agente y el entorno"><script type="application/json">{"width":680,"height":460,"nodes":[{"id":"agent","label":"Agente: robot","sub":"política π · valor V","x":0.5,"y":0.5,"kind":"agent"},{"id":"model","label":"Modelo (opcional)","sub":"predice estado y recompensa","x":5.5,"y":0.5,"kind":"store"},{"id":"env","label":"Entorno: almacén","sub":"entrega la recompensa r","x":0.5,"y":4.5,"kind":"env"}],"edges":[{"from":"agent","to":"env","label":"acción"},{"from":"env","to":"agent","label":"estado + recompensa","dashed":true},{"from":"model","to":"agent","label":"planificación","dashed":true}]}</script></lk-diagram>
+<lk-widget title="La recompensa: conduce el robot"><p>Mueve el robot. Cada paso normal entrega −0,04, tanto si te acerca a la puerta como al charco.</p><div class="lab"><div class="grid" id="g2"></div><div class="side"><div class="pad"><span></span><button data-move="up" aria-label="Arriba">↑</button><span></span><button data-move="left" aria-label="Izquierda">←</button><button data-move="down" aria-label="Abajo">↓</button><button data-move="right" aria-label="Derecha">→</button></div><p>Último paso: <span id="r2last">—</span><br>Acumulado: <span id="r2sum">0,00</span> · Pasos: <span id="r2steps">0</span></p><button id="r2reset">Volver a empezar</button><p id="r2msg" role="status"></p></div></div></lk-widget></section>
+<section><h2>3. Paso a paso</h2>
+<p>Política inicial de la demo: en la fila de arriba todas las flechas apuntan →; en el resto, ↑. Modelo determinista, γ = 0,9 (cuánto pesa el futuro: lo verás en la Parte 6).</p>
+<lk-steps>
+<lk-step label="T0"><p>El robot está en la salida <code>(0,2)</code>. Su política dice <strong>↑</strong>. Recompensa acumulada: 0.</p></lk-step>
+<lk-step label="T1" mark="nuevo"><p>Sube a <code>(0,1)</code> y recibe −0,04. Acumulado −0,04. La recompensa llega paso a paso.</p></lk-step>
+<lk-step label="T2"><p>Sube a <code>(0,0)</code>, −0,04. Ahora la política dice <strong>→</strong>.</p></lk-step>
+<lk-step label="T3"><p>Avanza a <code>(1,0)</code> y luego a <code>(2,0)</code>, −0,04 cada paso.</p></lk-step>
+<lk-step label="T4"><p>Entra en la puerta <code>(3,0)</code> y recibe <strong>+1</strong>. Fin del episodio en 5 pasos.</p></lk-step>
+<lk-step label="Otra casilla" mark="bloqueo"><p>Ahora mira la casilla <code>(1,2)</code>, justo debajo de la columna. Su política dice <strong>↑</strong>, pero arriba está la columna: el robot choca y se queda en el sitio, paso tras paso. Nunca llega a ninguna salida y su valor es <strong>−0,40</strong>, aunque cada paso individual solo cueste −0,04.</p></lk-step>
+</lk-steps>
+<lk-callout type="warning" title="Lo que muestra el bloqueo"><p>La recompensa de cada paso de <code>(1,2)</code> y de <code>(0,2)</code> es la misma (−0,04). Lo que las distingue es el <strong>valor</strong>: <code>V(0,2) = +0,52</code> porque su política lleva a la puerta; <code>V(1,2) = −0,40</code> porque su política lo deja atascado.</p></lk-callout>
+<lk-widget title="Dibuja y ejecuta la política"><p>Pulsa una casilla para girar su flecha. Para ver el BLOQUEO, empieza debajo de la columna.</p><div class="lab"><div class="grid" id="g3"></div><div class="side"><div class="row"><button id="p3run">Ejecutar la política</button><button id="p3reset">Política inicial</button></div><label>Empezar en: <select id="p3start"><option value="0,2">la salida (0,2)</option><option value="1,2">debajo de la columna (1,2)</option><option value="3,2">esquina (3,2)</option></select></label><pre class="log" id="p3log"></pre><p id="p3msg" role="status"></p></div></div></lk-widget></section>
+<section id="value-section"><h2>4. De la intuición a la fórmula</h2>
+<p><strong>Intuición</strong>: el valor de una casilla es «lo que gano en el próximo paso, más lo que valga la casilla a la que llego (un poco descontado)».</p>
+<p><strong>Tabla de decisión</strong> desde <code>(1,0)</code> con modelo determinista:</p>
+<table><thead><tr><th>Acción</th><th>Llega a</th><th>r inmediata</th><th>V(llegada)</th><th>r + 0,9 · V(llegada)</th></tr></thead><tbody><tr><td>→</td><td>(2,0)</td><td>−0,04</td><td>+1,00</td><td><strong>+0,86</strong></td></tr><tr><td>↑</td><td>(1,0) (borde, no se mueve)</td><td>−0,04</td><td>+0,86</td><td>+0,73</td></tr><tr><td>↓</td><td>(1,0) (columna, no se mueve)</td><td>−0,04</td><td>+0,86</td><td>+0,73</td></tr><tr><td>←</td><td>(0,0)</td><td>−0,04</td><td>+0,73</td><td>+0,62</td></tr></tbody></table>
+<p>La mejor acción es la de mayor <strong>r + γ · V(llegada)</strong>, no la de mayor <strong>r</strong>: las tres pagan lo mismo de inmediato.</p>
+<p><strong>Formalismo</strong>: el valor de un estado s bajo la política π es la recompensa total descontada que se espera desde s siguiendo π:</p>
+<lk-math display>V^\pi(s) = \mathbb{E}_\pi[ R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots \mid S_t = s ]</lk-math>
+<p>Para calcularlo se usa la misma idea de la intuición, aplicada a todas las casillas a la vez hasta que los números dejan de cambiar (la demo lo hace así):</p>
+<lk-math display>V(s) = \sum_{s'} P(s' \mid s,\pi(s))\,[r(s') + \gamma V(s')]</lk-math>
+<p><code>P(s′ | s, a)</code> es justamente el <strong>modelo</strong>: la probabilidad de llegar a s′ si en s haces a.</p>
+<p><strong>Cálculo renglón a renglón</strong> de <code>V(0,2)</code> con la política inicial (determinista, γ = 0,9):</p>
+<table><thead><tr><th>Paso</th><th>Recorrido</th><th>Recompensa</th><th>Peso</th><th>Aporte</th></tr></thead><tbody>
+<tr><td>1</td><td>(0,2) → (0,1)</td><td>−0,04</td><td>γ⁰ = 1</td><td>−0,04000</td></tr>
+<tr><td>2</td><td>(0,1) → (0,0)</td><td>−0,04</td><td>γ¹ = 0,9</td><td>−0,03600</td></tr>
+<tr><td>3</td><td>(0,0) → (1,0)</td><td>−0,04</td><td>γ² = 0,81</td><td>−0,03240</td></tr>
+<tr><td>4</td><td>(1,0) → (2,0)</td><td>−0,04</td><td>γ³ = 0,729</td><td>−0,02916</td></tr>
+<tr><td>5</td><td>(2,0) → (3,0)</td><td>+1</td><td>γ⁴ = 0,6561</td><td>+0,65610</td></tr>
+<tr><td colspan="4">Total</td><td><strong>+0,51854</strong></td></tr></tbody></table>
+<p>Comprobación con la fórmula de arriba, usando <code>V(0,1) = +0,6206</code> (lo ves en la demo):</p>
+<lk-math display>\begin{aligned} V(0,2)&amp;=-0{,}04+0{,}9\cdot0{,}6206\\&amp;=-0{,}04+0{,}55854\\&amp;=+0{,}51854\approx+0{,}5185\end{aligned}</lk-math>
+<p>Y la casilla atascada <code>(1,2)</code>: −0,04 para siempre, sumado con descuento:</p>
+<lk-math display>\begin{aligned}V(1,2)&amp;=-0{,}04\,(1+0{,}9+0{,}81+\cdots)\\&amp;=-0{,}04\cdot\frac{1}{1-0{,}9}\\&amp;=-0{,}04\cdot10\\&amp;=-0{,}40\end{aligned}</lk-math>
+<figure><svg viewBox="0 0 660 190" role="img" aria-label="El valor se propaga hacia atrás desde la puerta"><defs><marker id="back" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#059669"/></marker></defs><g fill="white" stroke="#e2e8f0"><rect x="10" y="40" width="140" height="80" rx="8"/><rect x="180" y="40" width="140" height="80" rx="8"/><rect x="350" y="40" width="140" height="80" rx="8"/><rect x="520" y="40" width="130" height="80" rx="8"/></g><g stroke="#059669" marker-end="url(#back)"><path d="M520 80H493"/><path d="M350 80H323"/><path d="M180 80H153"/></g><g fill="#0f172a" font-family="DejaVu Sans" font-size="17" text-anchor="middle"><text x="80" y="70">(0,0)</text><text x="80" y="100">+0,73</text><text x="250" y="70">(1,0)</text><text x="250" y="100">+0,86</text><text x="420" y="70">(2,0)</text><text x="420" y="100">+1,00</text><text x="585" y="70">Puerta</text><text x="585" y="100">r = +1</text><text x="330" y="165">Cada barrido lleva la consecuencia un paso hacia atrás.</text></g></svg><figcaption>La puerta es terminal: V(puerta) = 0; +1 es la recompensa de entrar.</figcaption></figure>
+<lk-widget title="Evalúa el valor, barrido a barrido"><p>Pulsa una casilla para ver su fórmula. Los bordes ámbar indican valores que cambiaron.</p><div class="lab"><div class="grid" id="g4"></div><div class="side"><div class="row"><button id="v4first" aria-label="Primer barrido">⏮</button><button id="v4prev" aria-label="Barrido anterior">◀</button><button id="v4next">▶ siguiente barrido</button><button id="v4last" aria-label="Último barrido">⏭</button></div><p>Barrido <span id="v4k">0</span> · casillas que cambiaron: <span id="v4changed">0</span></p><pre class="formula" id="v4formula"></pre></div></div></lk-widget></section>
+<section><h2>5. Distinciones críticas</h2>
+<p><strong>Recompensa ≠ Valor.</strong> La recompensa es lo que el entorno paga <strong>ahora</strong>; el valor es lo que el agente <strong>estima</strong> que acumulará desde ahí. Las recompensas son lo primario; los valores son predicciones de recompensas, pero el agente <strong>elige sus acciones mirando los valores</strong>.</p>
+<p><strong>Política ≠ Modelo.</strong> La política dice <strong>qué hacer</strong>; el modelo dice <strong>qué pasará si lo haces</strong>. Un robot puede tener una política excelente sin modelo alguno.</p>
+<p><strong>Con modelo ≠ Sin modelo.</strong> Los métodos <strong>basados en modelo</strong> planifican imaginando resultados antes de vivirlos; los métodos <strong>sin modelo</strong> aprenden solo por prueba y error.</p>
+<p><strong>Señal de recompensa ≠ Algo que el agente decide.</strong> La recompensa forma parte del entorno: el agente no puede cambiarla a su antojo; lo que sí cambia es su política.</p>
+<lk-widget title="Planificar frente a vivir episodios"><p>El suelo resbaloso permite comparar una predicción exacta con un promedio de experiencias. La política es la que dibujaste arriba.</p><div class="lab"><div class="grid" id="g5"></div><div class="side"><label><input type="checkbox" id="m5slip"> Suelo resbaloso: 80 % va donde apunta, 10 % a cada lado</label><pre class="formula" id="m5model"></pre><div class="row"><button id="m5plan">Planificar con el modelo</button><button id="m5try1">Vivir 1 episodio</button><button id="m5try50">Vivir 50</button><button id="m5clear">Borrar</button></div><p>Con modelo: V(salida) = <span id="m5exact">—</span><br>Sin modelo (promedio de <span id="m5n">0</span> episodios): <span id="m5est">—</span></p></div></div><svg class="chart" id="m5chart" viewBox="0 0 600 170" role="img" aria-label="Valor exacto y promedio de episodios"></svg><p>Los episodios se cortan a los 60 pasos: el promedio tiene un pequeño error de truncamiento si el robot queda atascado.</p></lk-widget></section>
+<section><h2>6. Dónde se rompe la analogía</h2>
+<ul><li>El robot del ejemplo <strong>ve todo el almacén</strong> y la demo calcula V exactamente con el modelo. Un agente real normalmente <strong>no conoce</strong> P ni las recompensas: tiene que <strong>estimar</strong> el valor a partir de lo que vive, con error.</li>
+<li>En el almacén hay 9 casillas y cabe una tabla. En problemas grandes (un videojuego, un brazo robótico) hay demasiados estados: el valor y la política se <strong>aproximan</strong> con funciones (por ejemplo, redes neuronales).</li>
+<li>Aquí la política es una flecha fija por casilla. Muchas políticas reales son <strong>estocásticas</strong>: dan una probabilidad a cada acción.</li>
+<li>La «batería» como recompensa por paso es una decisión de diseño: si la cambias, cambia lo que el robot considera bueno (pruébalo en la demo con −0,5).</li></ul>
+<p>Las 9 casillas citadas son los estados no terminales: la cuadrícula contiene además dos terminales y una columna.</p>
+<label>Coste de batería por paso (decisión del diseñador): <select id="step-cost"><option value="-0.04">−0,04</option><option value="-0.5">−0,5</option></select></label></section>
+<section><h2>7. El mapa mental más importante</h2>
+<pre class="mermaid">flowchart TD
+  A[Un número o una regla del agente] --&gt; B{¿Lo entrega el entorno&lt;br/&gt;en cada paso?}
+  B --&gt;|Sí| R[Señal de recompensa&lt;br/&gt;define la meta]
+  B --&gt;|No| C{¿Dice qué acción tomar?}
+  C --&gt;|Sí| P[Política π]
+  C --&gt;|No| D{¿Predice qué pasa&lt;br/&gt;si hago una acción?}
+  D --&gt;|Sí| M[Modelo del entorno&lt;br/&gt;opcional, para planificar]
+  D --&gt;|No| V[Función de valor&lt;br/&gt;lo que espero ganar a la larga]</pre>
+<lk-widget title="Clasifica los elementos"><p>Clasifica cada cosa que guarda o recibe el robot. La explicación aparece al elegir.</p><div class="cards" id="sort"></div></lk-widget></section>
+<section><h2>8. Cierre</h2>
+<p><strong>Entrada ➔ Proceso ➔ Salida</strong>: el robot recibe un <strong>estado</strong> y la <strong>recompensa</strong> del paso ➔ usa su <strong>función de valor</strong> (y, si tiene, su <strong>modelo</strong>) para juzgar las opciones ➔ su <strong>política</strong> entrega la <strong>acción</strong> que maximiza lo que espera ganar a la larga.</p>
+<table><thead><tr><th>Concepto</th><th>En una línea</th></tr></thead><tbody><tr><td>Política π</td><td>Qué acción tomo en cada estado.</td></tr><tr><td>Señal de recompensa r</td><td>Lo que el entorno paga ahora; define la meta.</td></tr><tr><td>Función de valor V(s)</td><td>Lo que espero acumular desde s siguiendo π.</td></tr><tr><td>Modelo P(s′ | s, a)</td><td>Qué estado y recompensa vendrán si hago a en s; opcional.</td></tr></tbody></table>
+<lk-callout type="success" title="Resumen para guardar"><ul><li>La recompensa dice qué es bueno <strong>ya</strong>; el valor, qué es bueno <strong>a la larga</strong>, y el agente decide mirando el valor.</li><li>La política dice qué hacer; el modelo, qué pasará si lo haces; tener modelo permite planificar, pero no es obligatorio.</li><li>V(s) = Σ P(s′ | s, π(s)) · [r + γ · V(s′)]: lo inmediato más lo que vale el sitio al que llegas, descontado.</li></ul></lk-callout></section>
+<section><h2>Mini-quiz</h2><p>Responde las preguntas q1–q4 con tus dos razonamientos y tu confianza. El tutor recibe tu respuesta y revisa los conceptos.</p><lk-quiz></lk-quiz></section>
+<section><h2>Ejercicios</h2>
+<p><strong>Fácil.</strong> Con la política inicial y el modelo determinista, calcula a mano <code>V(2,2)</code> renglón a renglón, como en la sección 4 (pista: su política es ↑). Comprueba tu resultado en la demo.</p>
+<p><strong>Medio.</strong> Completa esta función de Python, que evalúa una política fija en un pasillo de 5 casillas (0 a 4) donde la casilla 4 es la meta (+1, terminal) y cada otro paso cuesta −0,04. Devuelve una lista con V(0) … V(4).</p>
+<pre><code>def evaluar(politica, gamma=0.9, paso=-0.04, iteraciones=1000):
+    # politica[s] es +1 (avanzar) o -1 (retroceder); la casilla 0 no puede retroceder.
+    V = [0.0] * 5
+    for _ in range(iteraciones):
+        for s in range(4):
+            siguiente = ...  # aplica la acción sin salirte del pasillo
+            r = ...          # +1 si llegas a la meta, si no, el coste del paso
+            V[s] = ...       # r + gamma * V(siguiente), y V de la meta es 0
+    return V</code></pre>
+<p>Escribe tu solución y tu resultado para <code>politica = [1, 1, 1, 1]</code> en el recuadro de ejercicios de la vista. Umbral práctico: 60 %.</p></section>
+<lk-ask></lk-ask>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const fmt = n => (n >= 0 ? '+' : '−') + Math.abs(n).toFixed(2).replace('.', ',');
+  const WALL='1,1', GOAL='3,0', PIT='3,1', START='0,2', TERM={ [GOAL]:1,[PIT]:-1 }, GAMMA=.9;
+  let STEP=-.04;
+  const MOVES={up:[0,-1],right:[1,0],down:[0,1],left:[-1,0]}, ORDER=Object.keys(MOVES), ARROW={up:'↑',right:'→',down:'↓',left:'←'};
+  const SIDES={up:['left','right'],down:['left','right'],left:['up','down'],right:['up','down']};
+  const CELLS=[]; for(let y=0;y<3;y++) for(let x=0;x<4;x++) CELLS.push(`${x},${y}`);
+  const STATES=CELLS.filter(s=>s!==WALL && !(s in TERM));
+  const initial=()=>Object.fromEntries(CELLS.map(s=>[s,s.endsWith(',0')?'right':'up']));
+  let policy=initial();
+  function move(s,a) { const [x,y]=s.split(',').map(Number), [dx,dy]=MOVES[a], n=`${x+dx},${y+dy}`; return x+dx<0||x+dx>=4||y+dy<0||y+dy>=3||n===WALL?s:n; }
+  const reward=s=>s in TERM?TERM[s]:STEP;
+  const model=(s,a,slip)=>slip?[[move(s,a),.8],...SIDES[a].map(a=>[move(s,a),.1])]:[[move(s,a),1]];
+  const zero=()=>Object.fromEntries(CELLS.map(s=>[s,0]));
+  const sweep=(V,slip)=>Object.fromEntries(CELLS.map(s=>[s,STATES.includes(s)?model(s,policy[s],slip).reduce((t,[n,p])=>t+p*(reward(n)+GAMMA*V[n]),0):0]));
+  function exact(slip) { let V=zero(); for(let i=0;i<500;i++) V=sweep(V,slip); return V; }
+  function grid(id,draw) {
+    $(id).replaceChildren();
+    for(const s of CELLS) {
+      const c=document.createElement(STATES.includes(s)?'button':'div'); c.className='cell';
+      if(c.tagName==='BUTTON') c.type='button';
+      c.setAttribute('aria-label',`Casilla (${s})`);
+      if(s===WALL) { c.classList.add('wall'); c.textContent='Columna'; }
+      if(s===GOAL) { c.classList.add('goal'); c.textContent='Puerta +1'; }
+      if(s===PIT) { c.classList.add('pit'); c.textContent='Charco −1'; }
+      draw(s,c); $(id).append(c);
+    }
+  }
+  let robot=START,sum=0,steps=0,over=false;
+  function draw2() { grid('g2',(s,c)=>{ if(STATES.includes(s)) c.textContent=fmt(STEP); if(s===robot) c.textContent='🤖 '+c.textContent; }); }
+  document.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>{
+    if(over)return; robot=move(robot,b.dataset.move); const r=reward(robot); sum+=r; steps++; over=robot in TERM;
+    $('r2last').textContent=fmt(r); $('r2sum').textContent=fmt(sum); $('r2steps').textContent=steps;
+    $('r2msg').textContent=over?(robot===GOAL?'Llegaste a la puerta.':'Caíste en el charco.'):'El entorno entrega la recompensa de este paso.'; draw2();
+  });
+  $('r2reset').onclick=()=>{robot=START;sum=0;steps=0;over=false;$('r2last').textContent='—';$('r2sum').textContent='0,00';$('r2steps').textContent='0';$('r2msg').textContent='';draw2();};
+  let robot3=null,timer;
+  function draw3() { grid('g3',(s,c)=>{ if(!STATES.includes(s))return; c.textContent=(robot3===s?'🤖 ':'')+ARROW[policy[s]]; c.onclick=()=>{clearInterval(timer);policy[s]=ORDER[(ORDER.indexOf(policy[s])+1)%4];draw3();refresh();}; }); }
+  $('p3run').onclick=()=>{
+    clearInterval(timer); robot3=$('p3start').value; let n=0,total=0; const visits={}; $('p3log').textContent=''; draw3();
+    timer=setInterval(()=>{const old=robot3,a=policy[old];robot3=move(old,a);total+=reward(robot3);n++;
+      $('p3log').textContent+=`T${n-1}: (${old}) ${ARROW[a]} (${robot3})  r=${fmt(reward(robot3))}  acumulado=${fmt(total)}\n`;
+      draw3(); visits[robot3]=(visits[robot3]||0)+1;
+      if(robot3 in TERM || visits[robot3]>=3 || n>=25) {clearInterval(timer);$('p3msg').textContent=robot3 in TERM?`${robot3===GOAL?'Puerta':'Charco'} en ${n} pasos.`:'◄── BLOQUEO: la política repite un estado. Cambia sus flechas.';}
+    },300);
+  };
+  $('p3reset').onclick=()=>{clearInterval(timer);policy=initial();robot3=null;draw3();refresh();};
+  let hist=[],k=0,sel4=START;
+  function build() {hist=[zero()];for(let i=0;i<100;i++)hist.push(sweep(hist.at(-1),false));}
+  function draw4() {
+    const V=hist[k],prev=hist[Math.max(0,k-1)];let changed=0;
+    grid('g4',(s,c)=>{if(!STATES.includes(s))return;c.textContent=ARROW[policy[s]]+' '+fmt(V[s]);c.style.background=V[s]>=0?`rgba(5,150,105,${Math.min(1,Math.abs(V[s]))*.25})`:`rgba(220,38,38,${Math.min(1,Math.abs(V[s]))*.25})`;
+      if(k&&Math.abs(V[s]-prev[s])>1e-6){changed++;c.style.borderColor='#d97706';}if(s===sel4)c.classList.add('selected');c.onclick=()=>{sel4=s;draw4();};});
+    $('v4k').textContent=k;$('v4changed').textContent=changed;
+    const n=move(sel4,policy[sel4]);
+    $('v4formula').textContent=`V(${sel4}) con política ${ARROW[policy[sel4]]}:\nr(${n}) + 0,9 · V(${n})\n= ${fmt(reward(n))} + 0,9 · ${fmt(prev[n])}\n= ${fmt(reward(n)+GAMMA*prev[n])}`+(k===0?'\nBarrido 0: aún no se ha aplicado.':'');
+  }
+  $('v4first').onclick=()=>{k=0;draw4();};$('v4prev').onclick=()=>{k=Math.max(0,k-1);draw4();};$('v4next').onclick=()=>{k=Math.min(hist.length-1,k+1);draw4();};$('v4last').onclick=()=>{k=hist.length-1;draw4();};
+  let sel5='2,0',returns=[],planned=false;
+  const slip=()=>$('m5slip').checked;
+  function draw5() {
+    const outs=model(sel5,policy[sel5],slip());
+    grid('g5',(s,c)=>{if(STATES.includes(s)){c.textContent=ARROW[policy[s]];c.onclick=()=>{sel5=s;draw5();};}if(s===sel5)c.classList.add('selected');const p=outs.filter(([n])=>s===n).reduce((t,[,p])=>t+p,0);if(p)c.append(document.createTextNode(` ${Math.round(p*100)} %`));});
+    $('m5model').textContent=`Modelo en (${sel5}) con ${ARROW[policy[sel5]]}:\n`+outs.map(([n,p])=>`(${n}): ${Math.round(p*100)} %, r=${fmt(reward(n))}`).join('\n');
+  }
+  function episode() {let s=START,G=0,disc=1;for(let t=0;t<60&&!(s in TERM);t++){const outs=model(s,policy[s],slip());let u=Math.random(),next=outs.at(-1)[0];for(const[n,p]of outs){u-=p;if(u<=0){next=n;break;}}G+=disc*reward(next);disc*=GAMMA;s=next;}return G;}
+  function chart() {
+    const svg=$('m5chart'),ns='http://www.w3.org/2000/svg';svg.replaceChildren();
+    const add=(tag,attrs,text)=>{const e=document.createElementNS(ns,tag);for(const[k,v]of Object.entries(attrs))e.setAttribute(k,v);if(text)e.textContent=text;svg.append(e);};
+    const exactValue=exact(slip())[START],ys=v=>Math.max(20,Math.min(140,85-v*50));
+    if(planned){add('line',{x1:10,x2:590,y1:ys(exactValue),y2:ys(exactValue),stroke:'#059669','stroke-dasharray':'5 4'});add('text',{x:12,y:18,'font-size':12,fill:'#059669'},`Con modelo: ${fmt(exactValue)}`);}
+    let acc=0;const points=returns.map((r,i)=>{acc+=r;return `${10+i/Math.max(1,returns.length-1)*580},${ys(acc/(i+1))}`;});
+    if(points.length)add('polyline',{points:points.join(' '),fill:'none',stroke:'#2563eb','stroke-width':2});
+    add('text',{x:12,y:162,'font-size':12,fill:'#2563eb'},`Sin modelo: promedio de ${returns.length} episodios`);
+    $('m5n').textContent=returns.length;$('m5est').textContent=returns.length?fmt(acc/returns.length):'—';$('m5exact').textContent=planned?fmt(exactValue):'—';
+  }
+  $('m5plan').onclick=()=>{planned=true;chart();};const live=n=>{for(let i=0;i<n;i++)returns.push(episode());chart();};
+  $('m5try1').onclick=()=>live(1);$('m5try50').onclick=()=>live(50);$('m5clear').onclick=()=>{returns=[];planned=false;chart();};$('m5slip').onchange=()=>{returns=[];planned=false;draw5();chart();};
+  function refresh(){build();k=0;draw4();returns=[];planned=false;draw5();chart();}
+  $('step-cost').onchange=()=>{STEP=Number($('step-cost').value);$('r2reset').click();refresh();};
+  const items=[['+1 al entrar por la puerta','recompensa','Lo entrega el entorno en ese paso.'],['flecha → guardada en (0,0)','política','Dice qué acción tomar en ese estado.'],['V(0,0) = +0,73','valor','Estima lo que espera acumular desde ahí.'],['Desde (2,0) con → llego a la puerta con 0,8','modelo','Predice qué pasará al hacer una acción.'],['−0,04 por cada paso normal','recompensa','El entorno lo paga ahora, paso a paso.'],['V(1,2) = −0,40 por quedarse atascado','valor','Resume lo que perderá a la larga siguiendo su política.']];
+  for(const[what,right,why]of items){const card=document.createElement('div');card.className='card';const text=document.createElement('p');text.textContent=what;card.append(text);const feedback=document.createElement('p');feedback.setAttribute('role','status');for(const option of ['política','recompensa','valor','modelo']){const b=document.createElement('button');b.textContent=option;b.onclick=()=>{const ok=option===right;card.className='card '+(ok?'ok':'bad');feedback.textContent=(ok?'✔ ':'✘ ')+why;};card.append(b);}card.append(feedback);$('sort').append(card);}
+  draw2();draw3();refresh();
+})();
+</script>
+</body></html>
