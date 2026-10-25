@@ -29,7 +29,7 @@ const CONFIDENCE: Record<string, string> = { seguro: "seguro", dudo: "dudo", adi
 const DIAGNOSIS = "quiz";
 const EMBED_SEARCH_DEPTH = 4;
 
-const CDN_SCRIPTS = [
+export const CDN_SCRIPTS = [
   ["https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js", "sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+"],
   ["https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js", "sha384-JEyTNhjM6R1ElGoJns4U2Ln4ofPcqzSsynQkmEc/KGy6336qAZl70tDLufbkla+3"],
   ["https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js", "sha384-zkWMJO4sgpPUzyuOgDx8HB/K55glbAwajEpk1Go2NWRuPkPA/wIhoEJTuSkmOYrV"],
@@ -397,6 +397,51 @@ function viewPath(rootReal: string, topic: unknown, part: unknown): string {
   return `${encodeURIComponent(topic)}/${part}`;
 }
 
+export interface PartSummary {
+  id: string;
+  title: string;
+  written: boolean;
+  rich: boolean;
+  hasApp: boolean;
+  hasQuiz: boolean;
+  answered: boolean;
+}
+export interface TopicSummary {
+  id: string;
+  title: string;
+  hasDiagnosis: boolean;
+  parts: PartSummary[];
+}
+
+/** Every topic folder with a plan.json under the Learnings root, with its parts as the vault holds them. */
+export function listTopics(rootReal: string): TopicSummary[] {
+  return readdirSync(rootReal, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.name.startsWith("_") && !e.name.startsWith(".") && e.name !== "rapidos")
+    .flatMap((e) => {
+      const dir = join(rootReal, e.name);
+      let plan;
+      try {
+        plan = readPlan(dir);
+      } catch {
+        return [];
+      }
+      if (!plan) return [];
+      const parts = plan.parts.map((p) => {
+        const rich = richPage(dir, plan, p.id) !== undefined;
+        return {
+          id: p.id,
+          title: p.title,
+          written: rich || partNote(dir, plan, p.id) !== undefined,
+          rich,
+          hasApp: partApp(dir, p.id) !== undefined,
+          hasQuiz: existsSync(join(dir, "mini-quiz", `${p.id}.json`)),
+          answered: existsSync(join(dir, "mini-quiz", `${p.id}.answers.json`)),
+        };
+      });
+      return [{ id: e.name, title: plan.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts }];
+    });
+}
+
 export interface BridgeOptions {
   root: string;
   /** 0 picks a free port. */
@@ -476,12 +521,7 @@ ${scripts}
   };
 
   const indexPage = (res: ServerResponse) => {
-    const topics = readdirSync(rootReal, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith("_") && !e.name.startsWith(".") && e.name !== "rapidos")
-      .map((e) => ({ id: e.name, plan: readPlan(join(rootReal, e.name)) }))
-      .filter((t) => t.plan)
-      .map((t) => ({ id: t.id, title: t.plan!.topic || t.id }));
-    page(res, "Learnings", { kind: "index", topics });
+    page(res, "Learnings", { kind: "index", topics: listTopics(rootReal).map(({ id, title }) => ({ id, title })) });
   };
 
   const topicPage = (res: ServerResponse, topic: string) => {
