@@ -232,6 +232,11 @@ test("the library lists topics with engine status, parts and quick notes; api/vi
   const page = await http(view.url);
   assert.match(page.headers["content-security-policy"], new RegExp(`frame-ancestors 'self' ${new URL(studio.url).origin}`));
   assert.equal((await http(`${studio.url}api/view?topic=redes&part=p2`)).status, 404);
+  const quick = JSON.parse((await http(`${studio.url}api/view?quick=hash`)).body);
+  assert.match(quick.url, /^http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{64}\/rapidos\/hash$/);
+  assert.equal((await http(quick.url)).status, 200);
+  assert.equal((await http(`${studio.url}api/view?quick=nope`)).status, 404);
+  assert.equal((await http(`${studio.url}api/view?quick=..`)).status, 404);
 });
 
 test("a submission from the hosted view becomes a prompt of the same Pi session", async () => {

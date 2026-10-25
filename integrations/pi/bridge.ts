@@ -600,6 +600,30 @@ ${scripts}
     send(res, 200, MIME[extname(name)], readFileSync(contained.targetReal));
   };
 
+  /** A quick explanation (`rapidos/<id>.md`): the same view, no engine and no quiz sidecar. */
+  const quickPage = (res: ServerResponse, id: string) => {
+    if (!safeTopic(id)) throw new HttpError(404, "not found");
+    const dir = topicDir("rapidos");
+    const contained = resolveContained(dir, join(dir, `${id}.md`));
+    if (!contained.ok) throw new HttpError(404, `no quick note ${id}`);
+    const markdown = obsidianToMarkdown(readFileSync(contained.targetReal, "utf8"), dir);
+    const title = /^#\s+(.+)$/m.exec(markdown)?.[1]?.trim() || id;
+    page(res, title, {
+      kind: "part",
+      topic: "rapidos",
+      part: "",
+      title,
+      topicTitle: "Rápidos",
+      topicBase: `/${token}/`,
+      markdown,
+      quiz: null,
+      answered: null,
+      demos: [],
+      app: null,
+      verdicts: null,
+    });
+  };
+
   const diagnosisPage = (res: ServerResponse, topic: string) => {
     const dir = topicDir(topic);
     const questions = readQuestions(join(dir, "quiz.json"));
@@ -806,6 +830,7 @@ ${scripts}
     const [topic, second, ...more] = rest;
     if (second === undefined) return topicPage(res, topic);
     if (second === "file") return serveFile(req, res, topic, more);
+    if (topic === "rapidos" && more.length === 0) return quickPage(res, second);
     if (more.length === 1 && more[0] === "app") return appPage(res, topic, second);
     if (more.length > 0) throw new HttpError(404, "not found");
     if (second === DIAGNOSIS) return diagnosisPage(res, topic);

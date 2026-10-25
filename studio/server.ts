@@ -30,7 +30,7 @@ const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
 
 export interface StudioOptions {
   root?: string;
-  /** Pi command line; the default continues the last study conversation. */
+  /** Pi command line; the default resumes the studio's own persistent conversation. */
   piCommand?: string[];
   port?: number;
   enginePath?: string;
@@ -97,7 +97,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const contained = resolveContained(options.root ?? CANONICAL_ROOT, options.root ?? CANONICAL_ROOT);
   if (!contained.ok) throw new Error(contained.reason);
   const root = contained.rootReal;
-  const piCommand = options.piCommand ?? ["pi", "--mode", "rpc", "--continue"];
+  // Its own session id: terminal sessions in the same folder are never written by two processes.
+  const piCommand = options.piCommand ?? ["pi", "--mode", "rpc", "--session-id", "estudio"];
   const enginePath = options.enginePath ?? join(REPO, "bin", "learning");
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
   const token = randomBytes(32).toString("hex");
@@ -482,6 +483,12 @@ ${scripts}
       case "api/library":
         return sendJson(res, 200, await library());
       case "api/view": {
+        const quick = url.searchParams.get("quick");
+        if (quick !== null) {
+          const file = join(root, "rapidos", `${quick}.md`);
+          if (!/^[\w-]+$/.test(quick) || !existsSync(file)) throw new HttpError(404, `no quick note ${quick}`);
+          return sendJson(res, 200, { url: `${String((await view()).base)}rapidos/${encodeURIComponent(quick)}` });
+        }
         const result = await view(url.searchParams.get("topic") ?? undefined, url.searchParams.get("part") ?? undefined);
         return sendJson(res, 200, { url: result.url, ...(result.appUrl ? { appUrl: result.appUrl } : {}) });
       }

@@ -115,7 +115,7 @@
   }
   async function openView(topic, part, app = false) {
     const version = ++viewRequest;
-    const query = new URLSearchParams({ topic: topic.id });
+    const query = new URLSearchParams(topic.quick ? { quick: topic.id } : { topic: topic.id });
     if (part !== undefined) query.set('part', part);
     const data = await request(`api/view?${query}`);
     if (version !== viewRequest) return;
@@ -168,7 +168,7 @@
     }
     if (!library.topics.length) sidebar.append(el('p', 'muted', 'Todavía no hay temas.'));
     sidebar.append(el('h3', '', 'Rápidos'));
-    for (const note of library.quick) sidebar.append(button(note.title, () => openView(note), 'library-entry'));
+    for (const note of library.quick) sidebar.append(button(note.title, () => openView({ ...note, quick: true }), 'library-entry'));
     if (selected && !viewing) {
       const updated = library.topics.find(topic => topic.id === selected.id);
       if (updated) overview(updated);

@@ -10,7 +10,7 @@ S4 — "es como lo que está haciendo el repositorio que te mandé pero enfocado
 S5 — "hacerlo también una interfaz para poder hacerlo nosotros desde aquí" — everything that today happens in the chat can be done from the app.
 
 ## Design (from the spike, L2)
-- `studio/server.ts` (Node, no dependencies, type-stripped like the adapter) listens on 127.0.0.1 behind a per-run token (Host/Origin/JSON checks as the bridge), spawns `pi --mode rpc --continue` in the Learnings folder with `GENTLE_SHELL_INTERACTIVE_HOST=1` (Gentle then asks through RPC dialogs), and hosts its own study-view bridge (`registerBridge`) whose submissions become prompts of that same Pi session.
+- `studio/server.ts` (Node, no dependencies, type-stripped like the adapter) listens on 127.0.0.1 behind a per-run token (Host/Origin/JSON checks as the bridge), spawns `pi --mode rpc --session-id estudio` (its own persistent conversation, never shared with a terminal session) in the Learnings folder with `GENTLE_SHELL_INTERACTIVE_HOST=1` (Gentle then asks through RPC dialogs), and hosts its own study-view bridge (`registerBridge`) whose submissions become prompts of that same Pi session.
 - The browser UI (`studio/ui/`) has three areas: library (topics with engine stage and parts, quick notes), center viewer (bridge pages and part apps in an iframe; `frameAncestors` lets the bridge allow the studio origin), and the tutor panel (streamed text, tool activity, dialogs as buttons, input, stop, new conversation).
 - Launcher: `estudio` shell function starts the server and opens the Windows browser.
 

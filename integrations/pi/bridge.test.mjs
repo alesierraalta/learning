@@ -340,6 +340,25 @@ test("a video request reaches the chat as a fixed message", async () => {
   await shutdown();
 });
 
+test("a quick note is served with the view design, its embeds and no quiz", async () => {
+  const { view, root, shutdown } = await setup();
+  mkdirSync(join(root, "rapidos", "adjuntos"), { recursive: true });
+  writeFileSync(join(root, "rapidos", "hash.md"), "---\ntipo: rapido\n---\n# Qué es un hash\n\n> [!video] Video\n> ![[hash.mp4]]\n");
+  writeFileSync(join(root, "rapidos", "adjuntos", "hash.mp4"), "0123");
+  const url = base(await view({}));
+  const page = await http(`${url}rapidos/hash`);
+  assert.equal(page.status, 200);
+  const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
+  assert.equal(data.kind, "part");
+  assert.equal(data.quiz, null);
+  assert.match(data.markdown, /^# Qué es un hash/);
+  assert.match(data.markdown, /<video controls preload="metadata" src="file\/adjuntos\/hash\.mp4">/);
+  assert.equal((await http(`${url}rapidos/file/adjuntos/hash.mp4`)).status, 200);
+  assert.equal((await http(`${url}rapidos/nope`)).status, 404);
+  assert.equal((await http(`${url}rapidos/..%2Fsecret`)).status, 404);
+  await shutdown();
+});
+
 test("session_shutdown closes the server", async () => {
   const { view, shutdown } = await setup();
   const url = (await view({})).structuredContent.url;
