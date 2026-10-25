@@ -200,7 +200,8 @@
   }
   if (data.topicBase) app.append(link(`← ${data.topicTitle || data.title}`, data.topicBase));
   else if (data.kind !== "index") app.append(link("← Temas", data.home));
-  app.append(element("h1", data.title || "Learnings"));
+  // A part note carries its own title.
+  if (data.kind !== "part") app.append(element("h1", data.title || "Learnings"));
   if (data.kind === "index" || data.kind === "topic") {
     const list = element("ul", undefined, "navigation");
     for (const item of data.topics || data.parts || []) {
