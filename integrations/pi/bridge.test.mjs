@@ -277,6 +277,69 @@ test("frameAncestors lets one loopback origin embed the pages and apps; anything
   }
 });
 
+test("a part's rich HTML page replaces the Markdown rendering, with the kit, the quiz API and the injected config", async () => {
+  const { root, topic } = makeRoot();
+  const kitDir = realpathSync(mkdtempSync(join(tmpdir(), "kit-")));
+  writeFileSync(join(kitDir, "kit.js"), "console.log('kit');");
+  writeFileSync(join(kitDir, "kit.css"), "body{}");
+  writeFileSync(
+    join(topic, "explicaciones", "Parte 1 - Claves.html"),
+    '<!doctype html><html lang="es"><head><link rel="stylesheet" href="../kit/kit.css"></head><body><h1>Rica</h1></body></html>',
+  );
+  const host = makeHost();
+  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"] });
+  const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
+  const url = result.structuredContent.url;
+  const prefix = new URL(result.structuredContent.base).pathname;
+  const page = await http(url);
+  assert.equal(page.status, 200);
+  const csp = page.headers["content-security-policy"];
+  assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net 'unsafe-inline'/);
+  assert.match(csp, /connect-src 'self'/);
+  assert.match(csp, /frame-ancestors 'self' http:\/\/127\.0\.0\.1:5555/);
+  const config = JSON.parse(page.body.match(/<head><script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
+  assert.deepEqual(config, {
+    submitUrl: `${prefix}submit`,
+    quizUrl: `${prefix}api/quiz?topic=${TOPIC}&part=p1`,
+    topic: TOPIC,
+    part: "p1",
+    video: "file/explicaciones/adjuntos/Parte%201%20-%20Claves.mp4",
+  });
+  assert.match(page.body, /<h1>Rica<\/h1>/);
+  const kit = await http(`${result.structuredContent.base}kit/kit.js`);
+  assert.equal(kit.status, 200);
+  assert.match(kit.headers["content-type"], /^text\/javascript/);
+  assert.equal((await http(`${result.structuredContent.base}kit/nope.js`)).status, 404);
+  assert.equal((await http(`${result.structuredContent.base}kit/..%2Fbridge.ts`)).status, 404);
+
+  const quiz = JSON.parse((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  assert.deepEqual(quiz.questions.map((q) => q.id), ["q1", "q2"]);
+  assert.equal(JSON.stringify(quiz).includes('"answer"'), false);
+  assert.equal(quiz.answered, null);
+  assert.equal(quiz.verdicts, null);
+  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), JSON.stringify({ answers: { q1: "B", q2: "A" }, razonamientos: why("q1", "q2") }));
+  const after = JSON.parse((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  assert.deepEqual(after.answered[1], { id: "q2", chosen: "A", correct: "B", ok: false, ...why("q2").q2 });
+  assert.equal((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p9`)).status, 404);
+  assert.equal((await http(`${result.structuredContent.base}api/quiz?topic=..&part=p1`)).status, 400);
+  for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
+});
+
+test("a video request reaches the chat as a fixed message", async () => {
+  const { view, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, { kind: "video", topic: TOPIC, part: "p1" });
+  assert.equal(res.status, 200);
+  assert.equal(
+    host.sent[0].content,
+    "[Vista HTML · sql-demo · p1 · video]\nLa persona pide el video de esta parte: prodúcelo con el pipeline de learnings-video (video-distill.md) y guárdalo en explicaciones/adjuntos/Parte 1 - Claves.mp4.",
+  );
+  assert.equal((await submit(url, { kind: "video", topic: TOPIC })).status, 400);
+  assert.equal((await submit(url, { kind: "video", topic: TOPIC, part: "p1", text: "x" })).status, 400);
+  assert.equal(host.sent.length, 1);
+  await shutdown();
+});
+
 test("session_shutdown closes the server", async () => {
   const { view, shutdown } = await setup();
   const url = (await view({})).structuredContent.url;

@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { resolveContained, safeTopic } from "./paths.ts";
 
 const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
+const KIT_DIR = join(dirname(fileURLToPath(import.meta.url)), "kit");
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_TEXT_CHARS = 8000;
 const CHOICES = new Set(["A", "B", "C", "D", "E"]);
@@ -60,6 +61,19 @@ const APP_CSP = [
   "media-src 'self'",
   "connect-src 'self'",
   "font-src 'self' data:",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
+/** A rich part page: page-authored demos run inline; it reaches only this server and the pinned CDN. */
+const RICH_CSP = [
+  "default-src 'none'",
+  "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'",
+  "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'",
+  "img-src 'self' data:",
+  "media-src 'self'",
+  "connect-src 'self'",
+  "font-src 'self' data: https://cdn.jsdelivr.net",
+  "frame-src 'self'",
   "base-uri 'none'",
   "form-action 'none'",
 ].join("; ");
@@ -201,6 +215,23 @@ function gradeRecorded(questions: Question[], recorded: AnswerFile | undefined):
     .map((q) => ({ ...grade(q, recorded.answers[q.id]), ...recorded.razonamientos[q.id] }));
 }
 
+/** `explicaciones/Parte N - <slug>.html`: the part's rich page, when the builder wrote one. */
+function richPage(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string | undefined {
+  const index = plan.parts.findIndex((p) => p.id === partId);
+  if (index < 0) return undefined;
+  const file = join(topicDir, "explicaciones", `Parte ${index + 1} - ${plan.parts[index].slug}.html`);
+  return existsSync(file) ? file : undefined;
+}
+
+const partVideo = (plan: { parts: PlanPart[] }, partId: string) => {
+  const index = plan.parts.findIndex((p) => p.id === partId);
+  return `explicaciones/adjuntos/Parte ${index + 1} - ${plan.parts[index].slug}.mp4`;
+};
+
+/** Writes `script` first in <head>, or at the start of a page without one. */
+const injectFirst = (html: string, script: string) =>
+  /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (head) => head + script) : script + html;
+
 function partNote(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string | undefined {
   const index = plan.parts.findIndex((p) => p.id === partId);
   if (index < 0) return undefined;
@@ -298,6 +329,7 @@ const ALLOWED_KEYS: Record<string, Set<string>> = {
   "mini-quiz": new Set(["kind", "topic", "part", "answers", "reasoning", "ownWords", "exercises"]),
   diagnosis: new Set(["kind", "topic", "answers", "reasoning"]),
   question: new Set(["kind", "topic", "part", "text", "demo"]),
+  video: new Set(["kind", "topic", "part"]),
 };
 
 function optionalText(payload: Record<string, unknown>, key: string): string {
@@ -360,7 +392,7 @@ function viewPath(rootReal: string, topic: unknown, part: unknown): string {
   const known =
     part === DIAGNOSIS
       ? existsSync(join(dir, "quiz.json"))
-      : typeof part === "string" && plan !== undefined && partNote(dir, plan, part) !== undefined;
+      : typeof part === "string" && plan !== undefined && (partNote(dir, plan, part) ?? richPage(dir, plan, part)) !== undefined;
   if (!known) throw new Error(`part ${String(part)} is not written in ${topic}`);
   return `${encodeURIComponent(topic)}/${part}`;
 }
@@ -371,6 +403,8 @@ export interface BridgeOptions {
   port?: number;
   /** Loopback origins (e.g. the learning studio) allowed to embed pages and apps. */
   frameAncestors?: string[];
+  /** Directory of kit.css / kit.js (tests). */
+  kitDir?: string;
 }
 
 export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
@@ -379,6 +413,8 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   if (invalid !== undefined) throw new Error(`frameAncestors accepts loopback http origins only, got ${JSON.stringify(invalid)}`);
   const pageCsp = `${PAGE_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
   const appCsp = `${APP_CSP}; frame-ancestors ${embedders.length ? embedders.join(" ") : "'none'"}`;
+  const richCsp = `${RICH_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
+  const kitDir = options.kitDir ?? KIT_DIR;
   let server: Server | undefined;
   let starting: Promise<void> | undefined;
   let port = 0;
@@ -463,9 +499,25 @@ ${scripts}
     });
   };
 
+  const config = (topic: string, partId: string, plan: { parts: PlanPart[] }) => {
+    const json = JSON.stringify({
+      submitUrl: `/${token}/submit`,
+      quizUrl: `/${token}/api/quiz?topic=${encodeURIComponent(topic)}&part=${encodeURIComponent(partId)}`,
+      topic,
+      part: partId,
+      video: `file/${partVideo(plan, partId).split("/").map(encodeURIComponent).join("/")}`,
+    }).replace(/</g, "\\u003c");
+    return `<script>window.LEARNING_BRIDGE = ${json};</script>`;
+  };
+
   const partPage = (res: ServerResponse, topic: string, partId: string) => {
     const dir = topicDir(topic);
     const plan = readPlan(dir);
+    const rich = plan && richPage(dir, plan, partId);
+    if (plan && rich) {
+      const html = injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan));
+      return send(res, 200, "text/html; charset=utf-8", html, { "content-security-policy": richCsp });
+    }
     const note = plan && partNote(dir, plan, partId);
     if (!plan || !note) throw new HttpError(404, `part ${partId} is not written yet`);
     const part = plan.parts.find((p) => p.id === partId)!;
@@ -484,6 +536,28 @@ ${scripts}
       app: partApp(dir, partId) ? `/${token}/${encodeURIComponent(topic)}/${partId}/app` : null,
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
     });
+  };
+
+  const quizApi = (res: ServerResponse, url: URL) => {
+    const topic = url.searchParams.get("topic");
+    const partId = url.searchParams.get("part") ?? "";
+    const dir = topicDir(topic);
+    const plan = readPlan(dir);
+    if (!plan?.parts.some((p) => p.id === partId)) throw new HttpError(404, `part ${partId} is not in plan.json`);
+    const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
+    if (!questions) throw new HttpError(404, `part ${partId} has no mini-quiz`);
+    sendJson(res, 200, {
+      questions: questions.map(publicQuestion),
+      answered: gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))),
+      verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
+    });
+  };
+
+  const kitFile = (res: ServerResponse, name: string) => {
+    if (!/^[\w-]+\.(js|css)$/.test(name)) throw new HttpError(404, "not found");
+    const contained = resolveContained(kitDir, join(kitDir, name));
+    if (!contained.ok) throw new HttpError(404, "not found");
+    send(res, 200, MIME[extname(name)], readFileSync(contained.targetReal));
   };
 
   const diagnosisPage = (res: ServerResponse, topic: string) => {
@@ -511,8 +585,7 @@ ${scripts}
     if (!file) throw new HttpError(404, `part ${partId} has no interactive app`);
     const config = JSON.stringify({ submitUrl: `/${token}/submit`, topic, part: partId }).replace(/</g, "\\u003c");
     const script = `<script>window.LEARNING_BRIDGE = ${config};</script>`;
-    const html = readFileSync(file, "utf8");
-    const injected = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (head) => head + script) : script + html;
+    const injected = injectFirst(readFileSync(file, "utf8"), script);
     send(res, 200, "text/html; charset=utf-8", injected, { "content-security-policy": appCsp });
   };
 
@@ -603,6 +676,16 @@ ${scripts}
       throw new HttpError(400, "part is not in plan.json");
     }
 
+    if (kind === "video") {
+      if (typeof partId !== "string") throw new HttpError(400, "part is required");
+      const header = ["Vista HTML", topic, partId, "video"].join(" · ");
+      await deliver(
+        `[${header}]\nLa persona pide el video de esta parte: prodúcelo con el pipeline de learnings-video (video-distill.md) y guárdalo en ${partVideo(plan!, partId)}.`,
+      );
+      sendJson(res, 200, { sent: true });
+      return;
+    }
+
     if (kind === "question") {
       const text = optionalText(payload, "text");
       if (text.trim() === "") throw new HttpError(400, "text must not be empty");
@@ -675,6 +758,8 @@ ${scripts}
     }
     if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method not allowed");
     if (rest.length === 0) return indexPage(res);
+    if (rest.length === 2 && rest[0] === "kit") return kitFile(res, rest[1]);
+    if (rest.length === 2 && rest[0] === "api" && rest[1] === "quiz") return quizApi(res, url);
     if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css")) {
       return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])));
     }
