@@ -73,13 +73,55 @@
       box.append(...quote.childNodes);
       quote.replaceWith(box);
     });
+    root.querySelectorAll("h2").forEach((heading) => {
+      const first = heading.firstChild;
+      const match = first?.nodeType === Node.TEXT_NODE && /^(\d+)\.\s+/.exec(first.textContent);
+      if (!match) return;
+      first.deleteData(0, match[0].length);
+      heading.prepend(element("span", `${match[1]}.`, "section-number"));
+    });
+    root.querySelectorAll("li").forEach((item) => {
+      if (/^T\d+\b/.test(item.textContent.trim())) item.classList.add("study-step");
+    });
+    root.querySelectorAll("p").forEach((paragraph) => {
+      if (paragraph.textContent.includes("≠")) paragraph.classList.add("distinction");
+      if (/Entrada\s*[➔→]/i.test(paragraph.textContent) && /Salida/i.test(paragraph.textContent)) paragraph.classList.add("ipo-summary");
+    });
+    root.querySelectorAll("li, h2, h3").forEach((item) => {
+      const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+      const first = walker.nextNode();
+      const match = first && /^(\s*)(T\d+)\b/.exec(first.data);
+      if (!match) return;
+      first.splitText(match[0].length);
+      first.replaceWith(document.createTextNode(match[1]), element("span", match[2], "step-label"));
+    });
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const markers = [];
+    while (walker.nextNode()) {
+      const text = walker.currentNode;
+      if (!text.parentElement.closest("pre, code") && /◄──\s*(NUEVO|BLOQUEO)/.test(text.data)) markers.push(text);
+    }
+    markers.forEach((text) => {
+      const fragment = document.createDocumentFragment();
+      let end = 0;
+      for (const match of text.data.matchAll(/◄──\s*(NUEVO|BLOQUEO)/g)) {
+        fragment.append(document.createTextNode(text.data.slice(end, match.index)), element("strong", match[0], match[1] === "NUEVO" ? "marker-new" : "marker-block"));
+        end = match.index + match[0].length;
+      }
+      fragment.append(document.createTextNode(text.data.slice(end)));
+      text.replaceWith(fragment);
+    });
     const nodes = [...root.querySelectorAll("code.language-mermaid")].map((code) => {
       const diagram = element("div", code.textContent, "mermaid");
       code.parentElement.replaceWith(diagram);
       return diagram;
     });
     if (nodes.length) {
-      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
+      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "base", themeVariables: {
+        fontFamily: '"DejaVu Sans", Arial, sans-serif', fontSize: "18px",
+        primaryColor: "#ffffff", primaryTextColor: "#0f172a", primaryBorderColor: "#0f172a",
+        lineColor: "#475569", secondaryColor: "#f8fafc", tertiaryColor: "#ffffff",
+      } });
       mermaid.run({ nodes }).catch(() => {
         root.append(element("p", "No se pudo dibujar un diagrama.", "error"));
       });
@@ -245,6 +287,14 @@
   if (data.kind === "part") {
     const article = markdown(data.markdown);
     article.className = "prose";
+    const title = article.querySelector("h1");
+    if (title) {
+      const match = /^Parte\s+(\d+)\s*[—–-]\s*(.+)$/i.exec(title.textContent.trim());
+      const number = match?.[1] || String(data.part || "").replace(/^p/i, "");
+      const subject = match?.[2] || data.title || "";
+      const shortSubject = /\(([^)]+)\)\s*$/.exec(subject)?.[1] || subject;
+      title.before(element("p", `Parte ${number} · ${shortSubject}`, "part-kicker"));
+    }
     app.append(article);
     decorate(article);
   }
