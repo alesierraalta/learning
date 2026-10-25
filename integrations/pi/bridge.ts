@@ -48,6 +48,24 @@ const PAGE_CSP = [
   "frame-ancestors 'self'",
 ].join("; ");
 
+/**
+ * A part's interactive app is a self-contained vault page (inline script and
+ * style) served top-level so it can use the injected submit channel; it may
+ * reach nothing but this server.
+ */
+const APP_CSP = [
+  "default-src 'none'",
+  "script-src 'unsafe-inline'",
+  "style-src 'unsafe-inline'",
+  "img-src 'self' data:",
+  "media-src 'self'",
+  "connect-src 'self'",
+  "font-src 'self' data:",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join("; ");
+
 const MIME: Record<string, string> = {
   ".mp4": "video/mp4",
   ".webm": "video/webm",
@@ -234,6 +252,13 @@ export function obsidianToMarkdown(markdown: string, topicDir: string): string {
       return `*${name}*`;
     })
     .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) => (alias ?? target).trim());
+}
+
+/** explicaciones/apps/<part>.html when the part has an interactive app. */
+function partApp(topicDir: string, partId: string): string | undefined {
+  if (!safeTopic(partId)) return undefined;
+  const contained = resolveContained(topicDir, join(topicDir, "explicaciones", "apps", `${partId}.html`));
+  return contained.ok && statSync(contained.targetReal).isFile() ? contained.targetReal : undefined;
 }
 
 function partDemos(topicDir: string, partId: string): string[] {
@@ -450,6 +475,7 @@ ${scripts}
       quiz: questions ? { questions: questions.map(publicQuestion) } : null,
       answered: questions ? gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))) : null,
       demos: partDemos(dir, partId),
+      app: partApp(dir, partId) ? `/${token}/${encodeURIComponent(topic)}/${partId}/app` : null,
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
     });
   };
@@ -470,6 +496,18 @@ ${scripts}
       demos: [],
       verdicts: readVerdicts(join(dir, "diagnostico-conceptos.json")),
     });
+  };
+
+  const appPage = (res: ServerResponse, topic: string, partId: string) => {
+    const dir = topicDir(topic);
+    const plan = readPlan(dir);
+    const file = plan?.parts.some((p) => p.id === partId) ? partApp(dir, partId) : undefined;
+    if (!file) throw new HttpError(404, `part ${partId} has no interactive app`);
+    const config = JSON.stringify({ submitUrl: `/${token}/submit`, topic, part: partId }).replace(/</g, "\\u003c");
+    const script = `<script>window.LEARNING_BRIDGE = ${config};</script>`;
+    const html = readFileSync(file, "utf8");
+    const injected = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (head) => head + script) : script + html;
+    send(res, 200, "text/html; charset=utf-8", injected, { "content-security-policy": APP_CSP });
   };
 
   const serveFile = (req: IncomingMessage, res: ServerResponse, topic: string, segments: string[]) => {
@@ -637,6 +675,7 @@ ${scripts}
     const [topic, second, ...more] = rest;
     if (second === undefined) return topicPage(res, topic);
     if (second === "file") return serveFile(req, res, topic, more);
+    if (more.length === 1 && more[0] === "app") return appPage(res, topic, second);
     if (more.length > 0) throw new HttpError(404, "not found");
     if (second === DIAGNOSIS) return diagnosisPage(res, topic);
     return partPage(res, topic, second);
@@ -726,10 +765,12 @@ ${scripts}
         return viewError(`could not start the view server: ${(err as Error).message}`);
       }
       const url = base() + path;
+      const hasApp = typeof topic === "string" && typeof part === "string" && partApp(join(session.rootReal, topic), part) !== undefined;
+      const appUrl = hasApp ? `${url}/app` : undefined;
       return {
-        content: [{ type: "text" as const, text: `Vista HTML: ${url}` }],
-        details: { url },
-        structuredContent: { url, base: base() } as Record<string, unknown>,
+        content: [{ type: "text" as const, text: appUrl ? `Aplicación interactiva: ${appUrl}\nVista HTML: ${url}` : `Vista HTML: ${url}` }],
+        details: { url, appUrl },
+        structuredContent: { url, base: base(), ...(appUrl ? { appUrl } : {}) } as Record<string, unknown>,
         isError: false,
       };
     },

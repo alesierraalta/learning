@@ -324,6 +324,14 @@
       const shortSubject = /\(([^)]+)\)\s*$/.exec(subject)?.[1] || subject;
       title.before(element("p", `Parte ${number} · ${shortSubject}`, "part-kicker"));
     }
+    if (data.app) {
+      const launch = element("div", undefined, "app-launch");
+      const open = link("▶ Abrir la aplicación interactiva de esta parte", data.app);
+      open.className = "app-button";
+      launch.append(open, element("p", "La explicación como experimento: predices, mueves, calculas y respondes; lo que envíes llega al chat de Pi.", "muted"));
+      if (title) title.after(launch);
+      else article.prepend(launch);
+    }
     app.append(article);
     decorate(article);
   }

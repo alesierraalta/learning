@@ -156,6 +156,7 @@ vault files on every request, so Obsidian stays the source of truth:
 | `<topic>/<part>` | `explicaciones/Parte N - <slug>.md`, `mini-quiz/<part>.json`, `explicaciones/demos/<part>-*.html` |
 | `<topic>/quiz` | `quiz.json` + `quiz.answers.json` (diagnosis rounds) |
 | `<topic>/file/<path>` | any file inside the topic folder, with HTTP Range (video seeking) |
+| `<topic>/<part>/app` | `explicaciones/apps/<part>.html`, full page, with `window.LEARNING_BRIDGE` injected |
 | `submit` (POST) | learner submission, see below |
 
 Obsidian syntax is translated: frontmatter is dropped, `![[file.mp4]]` becomes a `<video>`
@@ -193,6 +194,9 @@ observation to the question box; it is sent only when the learner presses send.
   `Referrer-Policy: no-referrer`, so the token never leaves in a `Referer`. Topic files are
   served with `Content-Security-Policy: sandbox allow-scripts`: a demo runs in an opaque
   origin and cannot call `submit` itself.
+- A part's app is vault content served top-level with its own CSP (`script-src
+  'unsafe-inline'`, `connect-src 'self'`, no remote origin, `frame-ancestors 'none'`): it
+  can only reach this server, and only through the same validated `submit`.
 - The server closes on `session_shutdown`; a new session gets a new token.
 
 ## Verification evidence

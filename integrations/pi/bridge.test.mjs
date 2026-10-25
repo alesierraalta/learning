@@ -37,6 +37,8 @@ function makeRoot() {
   );
   writeFileSync(join(topic, "explicaciones", "adjuntos", "Parte 1 - Claves.mp4"), Buffer.from("0123456789"));
   writeFileSync(join(topic, "explicaciones", "demos", "p1-claves.html"), "<p>demo</p>");
+  mkdirSync(join(topic, "explicaciones", "apps"), { recursive: true });
+  writeFileSync(join(topic, "explicaciones", "apps", "p1.html"), "<!doctype html><html><head><title>app</title></head><body>app</body></html>");
   const question = (id, extra = {}) => ({
     id,
     enunciado: `Pregunta ${id}`,
@@ -221,6 +223,42 @@ test("plan.json part ids or slugs with path separators are never used as paths",
   writeFileSync(join(topic, "explicaciones", "secret.md"), "secret");
   assert.equal((await view({ topic: TOPIC, part: "../p1" })).isError, true);
   assert.equal((await view({ topic: TOPIC, part: "p3" })).isError, true);
+  await shutdown();
+});
+
+test("a part's interactive app is served full page with the submit channel injected", async () => {
+  const { view, shutdown } = await setup();
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const appUrl = result.structuredContent.appUrl;
+  assert.equal(appUrl, `${base(result)}${TOPIC}/p1/app`);
+  assert.match(result.content[0].text, /Aplicación interactiva: http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{64}\/sql-demo\/p1\/app/);
+  const page = await http(appUrl);
+  assert.equal(page.status, 200);
+  assert.match(page.headers["content-type"], /^text\/html/);
+  const csp = page.headers["content-security-policy"];
+  assert.match(csp, /script-src 'unsafe-inline'/);
+  assert.match(csp, /connect-src 'self'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.doesNotMatch(csp, /https:/);
+  const injected = JSON.parse(page.body.match(/<head><script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
+  assert.deepEqual(injected, { submitUrl: `${new URL(base(result)).pathname}submit`, topic: TOPIC, part: "p1" });
+  assert.match(page.body, /<body>app<\/body>/);
+  const partPage = await http(result.structuredContent.url);
+  assert.equal(JSON.parse(partPage.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]).app, `${new URL(base(result)).pathname}${TOPIC}/p1/app`);
+  await shutdown();
+});
+
+test("a part without an app has no appUrl and its app route is 404", async () => {
+  const { view, topic, shutdown } = await setup();
+  writeFileSync(join(topic, "explicaciones", "Parte 2 - Joins.md"), "# Parte 2 — Joins\n");
+  const result = await view({ topic: TOPIC, part: "p2" });
+  assert.equal(result.structuredContent.appUrl, undefined);
+  assert.doesNotMatch(result.content[0].text, /Aplicación interactiva/);
+  assert.equal((await http(`${base(result)}${TOPIC}/p2/app`)).status, 404);
+  assert.equal((await http(`${base(result)}${TOPIC}/p9/app`)).status, 404);
+  assert.equal((await http(`${base(result)}${TOPIC}/..%2Fp1/app`)).status, 404);
+  const page = await http(result.structuredContent.url);
+  assert.equal(JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]).app, null);
   await shutdown();
 });
 

@@ -70,6 +70,10 @@ textarea:disabled { background: #f8fafc; }
 .reward { padding: 20px; margin: 24px 0; border: 1px solid #059669; border-left-width: 4px; border-radius: 6px; background: #ecfdf5; }
 .reward strong { font-size: 1.25rem; color: #047857; }
 .reward p { margin-bottom: 0; }
+.app-launch { margin: 18px 0 28px; padding: 18px; border: 1px solid #2563eb; border-left-width: 5px; border-radius: 8px; background: #eff6ff; }
+.app-button { display: inline-block; padding: 10px 18px; background: #2563eb; color: #fff; border-radius: 6px; font-weight: 700; text-decoration: none; }
+.app-button:hover, .app-button:focus { background: #1d4ed8; color: #fff; }
+.app-launch p { margin: 10px 0 0; }
 .tutor { border-top: 1px solid #e2e8f0; margin-top: 48px; }
 .verdict { padding: 12px 16px; margin: 10px 0; border: 1px solid #e2e8f0; border-left-width: 4px; border-radius: 6px; }
 .verdict p { margin: 6px 0 0; font-style: italic; }
