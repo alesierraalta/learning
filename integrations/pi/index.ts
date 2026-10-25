@@ -11,10 +11,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { execFile as execFileCb } from "node:child_process";
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+
+import { registerBridge } from "./bridge.ts";
+import { resolveContained, safeTopic } from "./paths.ts";
 
 const execFileP = promisify(execFileCb);
 
@@ -194,41 +197,12 @@ export async function callEngine(
   return { ok: true, report: parsed.report, code: outcome.code };
 }
 
-function resolveContained(
-  root: string,
-  target: string,
-): { ok: true; rootReal: string; targetReal: string } | { ok: false; reason: string } {
-  let rootReal: string;
-  try {
-    rootReal = realpathSync(root);
-  } catch {
-    return { ok: false, reason: `configured Learnings root unavailable: ${root}` };
-  }
-  let targetReal: string;
-  try {
-    targetReal = realpathSync(target);
-  } catch {
-    return { ok: false, reason: `workspace does not exist: ${target}` };
-  }
-  const rel = relative(rootReal, targetReal);
-  const outside = rel === ".." || rel.startsWith(`..${sep}`);
-  if (outside || isAbsolute(rel)) {
-    return { ok: false, reason: `workspace escapes the Learnings root: ${targetReal} is not inside ${rootReal}` };
-  }
-  return { ok: true, rootReal, targetReal };
-}
-
 interface AdapterState {
   phase: "inactive" | "active" | "compromised";
   root?: string;
   workspace?: string;
   compromiseReason?: string;
   corrections: number;
-}
-
-/** A topic is one folder directly under the Learnings root. */
-function safeTopic(topic: unknown): topic is string {
-  return typeof topic === "string" && topic !== "" && topic !== "." && topic !== ".." && !/[\\/\0]/.test(topic);
 }
 
 const inactiveState = (): AdapterState => ({ phase: "inactive", corrections: 0 });
@@ -266,6 +240,7 @@ function blockedContent(reason: string): string {
 export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial<AdapterDeps> = {}) {
   const deps: AdapterDeps = { ...defaultDeps(), execFile: defaultExecFile, ...overrides };
   let state: AdapterState = inactiveState();
+  registerBridge(pi, { root: deps.root });
 
   const engineTarget = () => ({ root: state.root!, workspace: state.workspace! });
 

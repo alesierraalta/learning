@@ -8,7 +8,8 @@ engine and are defined by [protocol.md](protocol.md) — this document never red
 
 - Registers one tool (`learning_stage`) that the chat uses for every deep-mode operation,
   enrollment included, one manual fallback command (`/learning`), and one
-  `agent_before_settle` gate that rechecks engine state.
+  `agent_before_settle` gate that rechecks engine state. A second tool, `learning_view`,
+  serves the HTML study view (see [Study view](#study-view-html)); it never calls the engine.
 - Spawns the engine with `execFile` using an argv array (never a concatenated shell command)
   and consumes exactly one JSON object from stdout.
 - Persists enrollment as a session custom entry (`gentle-learning/enrollment`) and rebuilds
@@ -141,6 +142,53 @@ the adapter's business.
 Pi's lifecycle limits are accepted, not hidden: no infinite retry, no claim that prose is
 suppressed, no hard prohibition of assistant messages. Engine status remains the authority.
 
+## Study view (HTML)
+
+`integrations/pi/bridge.ts` adds one tool, `learning_view`, that starts (once per session) a
+local HTTP server and returns the URL of the interactive view of the vault: the topic index,
+a topic, one written part (`p1`, `p2`, ...) or the diagnosis (`quiz`). The view renders the
+vault files on every request, so Obsidian stays the source of truth:
+
+| Route below `http://127.0.0.1:<port>/<token>/` | Source |
+|---|---|
+| `` (index) | topic folders with a `plan.json` (skips `_*`, `.*`, `rapidos`) |
+| `<topic>` | `plan.json`; a part is linked only when its note exists |
+| `<topic>/<part>` | `explicaciones/Parte N - <slug>.md`, `mini-quiz/<part>.json`, `explicaciones/demos/<part>-*.html` |
+| `<topic>/quiz` | `quiz.json` + `quiz.answers.json` (diagnosis rounds) |
+| `<topic>/file/<path>` | any file inside the topic folder, with HTTP Range (video seeking) |
+| `submit` (POST) | learner submission, see below |
+
+Obsidian syntax is translated: frontmatter is dropped, `![[file.mp4]]` becomes a `<video>`
+(images and audio likewise, found by name inside the topic), callouts and `mermaid` blocks
+render in the browser. Answer keys never reach the browser before the quiz is answered.
+
+### Submissions reach the chat
+
+A submission is one of three fixed shapes (`mini-quiz`, `diagnosis`, `question`; unknown fields
+are rejected). For a quiz the bridge validates every id and option against the quiz file,
+writes the answers file the engine already reads (`mini-quiz/<part>.answers.json`, or merges
+new ids into `quiz.answers.json`) atomically, and never overwrites recorded answers (`409`).
+Then it calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` with a message that starts
+with `[Vista HTML · <topic> · ...]` and carries the graded answers, the reasoning, the learner's
+own words and exercises. The chat treats it as answers typed by the learner; the engine is
+unchanged. A demo iframe can `postMessage({ type: "learning-demo", observation })` to add an
+observation to the question box; it is sent only when the learner presses send.
+
+### Security boundary
+
+- Listens on `127.0.0.1` only, on a random free port.
+- Every route requires the 64-hex per-session token (constant-time compare); any other
+  path is `404`. The `Host` header must be `127.0.0.1:<port>` or `localhost:<port>`
+  (DNS rebinding → `403`).
+- `submit` requires `Origin` equal to this server (`403` otherwise, including `null`),
+  `Content-Type: application/json` (`415`), a body of at most 64 KiB (`413`) and texts of
+  at most 8000 characters.
+- Pages send a CSP with no inline scripts (CDN scripts are pinned with SRI) and
+  `Referrer-Policy: no-referrer`, so the token never leaves in a `Referer`. Topic files are
+  served with `Content-Security-Policy: sandbox allow-scripts`: a demo runs in an opaque
+  origin and cannot call `submit` itself.
+- The server closes on `session_shutdown`; a new session gets a new token.
+
 ## Verification evidence
 
 ### Fake-host suite (always runnable)
@@ -158,6 +206,10 @@ rtk node --test integrations/pi/*.test.mjs
   - unbounded settle continuation → 2 bound/budget tests fail.
 - These tests verify **adapter behavior against the documented contract only**; they make no
   claim about the engine implementation.
+
+`bridge.test.mjs` runs a real server on `127.0.0.1` against a temporary root: token, Host and
+Origin refusals, traversal and symlink containment, Range, answer-key hiding, the stored answers
+file, the exact chat message and `409` on a recorded quiz.
 
 ### Live-host check (installed Pi tooling, no model call)
 
