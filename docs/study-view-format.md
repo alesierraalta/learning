@@ -1,5 +1,10 @@
 # Study view: content, not page design
 
+> A part's main page is now its rich HTML page written with the kit (`docs/kit.md`):
+> the complete explanation with richer visuals, inline demos, the connected quiz and
+> the video button. This Markdown guide still governs the `.md` note the vault and the
+> engine keep, and quick notes.
+
 Builders write Markdown and learning material only. The shared view supplies the
 Distill Academic layout from the rendered videos: white paper, DejaVu Sans body
 and bold headings, DejaVu Sans Mono code and table cells, restrained semantic

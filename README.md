@@ -24,7 +24,8 @@ project-scoped Pi adapter only activates, executes and reports the engine's CLI.
 | Path | Owner | Purpose |
 |---|---|---|
 | `cmd/`, `internal/`, `rules/` | engine | Deterministic rules, stages, semantic judge (see `docs/protocol.md`, `docs/engine.md`) |
-| `integrations/pi/` | adapter | Local Pi extension: activation, execFile transport, settle gate, HTML study view (`bridge.ts`, `view/`) |
+| `integrations/pi/` | adapter | Local Pi extension: activation, execFile transport, settle gate, HTML study view (`bridge.ts`, `view/`), rich-page kit (`kit/`, `docs/kit.md`) |
+| `studio/` | studio | Local study app with Pi in the background (`docs/studio.md`, launcher `estudio`) |
 | `docs/protocol.md` | shared contract | Engine/adapter boundary this adapter implements |
 | `docs/integration.md` | adapter | Loading, configuration, usage, verification evidence |
 
