@@ -45,7 +45,6 @@ const PAGE_CSP = [
   "font-src 'self' data:",
   "base-uri 'none'",
   "form-action 'none'",
-  "frame-ancestors 'self'",
 ].join("; ");
 
 /**
@@ -63,8 +62,8 @@ const APP_CSP = [
   "font-src 'self' data:",
   "base-uri 'none'",
   "form-action 'none'",
-  "frame-ancestors 'none'",
 ].join("; ");
+const LOOPBACK_ORIGIN = /^http:\/\/(127\.0\.0\.1|localhost):\d{1,5}$/;
 
 const MIME: Record<string, string> = {
   ".mp4": "video/mp4",
@@ -370,9 +369,16 @@ export interface BridgeOptions {
   root: string;
   /** 0 picks a free port. */
   port?: number;
+  /** Loopback origins (e.g. the learning studio) allowed to embed pages and apps. */
+  frameAncestors?: string[];
 }
 
 export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
+  const embedders = options.frameAncestors ?? [];
+  const invalid = embedders.find((origin) => !LOOPBACK_ORIGIN.test(origin));
+  if (invalid !== undefined) throw new Error(`frameAncestors accepts loopback http origins only, got ${JSON.stringify(invalid)}`);
+  const pageCsp = `${PAGE_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
+  const appCsp = `${APP_CSP}; frame-ancestors ${embedders.length ? embedders.join(" ") : "'none'"}`;
   let server: Server | undefined;
   let starting: Promise<void> | undefined;
   let port = 0;
@@ -430,7 +436,7 @@ ${scripts}
 </body>
 </html>
 `;
-    send(res, 200, "text/html; charset=utf-8", html, { "content-security-policy": PAGE_CSP });
+    send(res, 200, "text/html; charset=utf-8", html, { "content-security-policy": pageCsp });
   };
 
   const indexPage = (res: ServerResponse) => {
@@ -507,7 +513,7 @@ ${scripts}
     const script = `<script>window.LEARNING_BRIDGE = ${config};</script>`;
     const html = readFileSync(file, "utf8");
     const injected = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (head) => head + script) : script + html;
-    send(res, 200, "text/html; charset=utf-8", injected, { "content-security-policy": APP_CSP });
+    send(res, 200, "text/html; charset=utf-8", injected, { "content-security-policy": appCsp });
   };
 
   const serveFile = (req: IncomingMessage, res: ServerResponse, topic: string, segments: string[]) => {

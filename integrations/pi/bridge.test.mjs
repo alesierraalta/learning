@@ -262,6 +262,21 @@ test("a part without an app has no appUrl and its app route is 404", async () =>
   await shutdown();
 });
 
+test("frameAncestors lets one loopback origin embed the pages and apps; anything else is refused at registration", async () => {
+  const { root } = makeRoot();
+  const host = makeHost();
+  registerBridge(host.api, { root, frameAncestors: ["http://127.0.0.1:5555"] });
+  const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
+  const page = await http(result.structuredContent.url);
+  assert.match(page.headers["content-security-policy"], /frame-ancestors 'self' http:\/\/127\.0\.0\.1:5555(;|$)/);
+  const app = await http(result.structuredContent.appUrl);
+  assert.match(app.headers["content-security-policy"], /frame-ancestors http:\/\/127\.0\.0\.1:5555(;|$)/);
+  for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
+  for (const bad of ["https://evil.example", "http://127.0.0.1:5555; script-src *", "*", "http://example.com:80"]) {
+    assert.throws(() => registerBridge(makeHost().api, { root, frameAncestors: [bad] }), /frameAncestors/);
+  }
+});
+
 test("session_shutdown closes the server", async () => {
   const { view, shutdown } = await setup();
   const url = (await view({})).structuredContent.url;
