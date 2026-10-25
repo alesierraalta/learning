@@ -295,6 +295,14 @@ func runStatus(ws string, r *rules.Rules) (Report, int) {
 	}
 
 	if detectWait(r, ws, fStage, fPart) {
+		// With concept diagnosis a learner wait never hides a chat obligation,
+		// such as a round written before the previous round's verdicts.
+		if r.Thresholds.ConceptMode() {
+			if fails := startedFrontierFailures(r, st, ws, fStage, fPart); len(fails) > 0 {
+				checks = append(checks, fails...)
+				return blocked(checks, fStage, fStage, fPart, ExitFailedCheck)
+			}
+		}
 		checks = append(checks, skipCheck("learner-input",
 			fmt.Sprintf("waiting for learner answers before %s can advance", fStage)))
 		return Report{Status: "waiting", Stage: fStage, NextStage: fStage, Part: fPart, Checks: checks}, ExitOK
@@ -528,6 +536,10 @@ func runFrontierStage(record bool, requested, fStage, fPart string, stale []stal
 		if gap, _ := assessmentGap(r, st, requested, part); gap {
 			return reopenPart(r, st, ws, requested, part, "a central gap persists", res, checks, fStage, fPart, nil)
 		}
+		if gaps := evidenceStrings(res.evidence, "centralConceptGaps"); len(gaps) > 0 {
+			return reopenPart(r, st, ws, requested, part,
+				"a laguna persists on a central concept ("+strings.Join(gaps, ", ")+")", res, checks, fStage, fPart, nil)
+		}
 	}
 
 	// Planning enrolls the declared parts, reusing records for parts that
@@ -752,6 +764,17 @@ func detectWait(r *rules.Rules, ws, stage, part string) bool {
 					return false
 				}
 			}
+			if r.Thresholds.ConceptMode() {
+				why, err := loadReasoning(ws, aRel)
+				if err != nil || guidedFlow(qs, answers, why) != nil {
+					return false
+				}
+				var ids []string
+				for _, q := range qs {
+					ids = append(ids, q.ID)
+				}
+				return len(pendingAnswers(ids, answers, why)) > 0
+			}
 			if _, err := adaptiveFlow(qs, answers, r.Thresholds); err != nil {
 				return false
 			}
@@ -762,8 +785,21 @@ func detectWait(r *rules.Rules, ws, stage, part string) bool {
 		planRel := declPathByKind(r, "preparation", "file_exists")
 		plan, planErr := loadPlan(ws, planRel)
 		partPlan := planPartByID(plan, part)
-		if err != nil || planErr != nil || partPlan == nil || validateQuizQuestions(qs, partPlan.Subtema, r.Thresholds) != nil {
+		if err != nil || planErr != nil || partPlan == nil || validateQuizQuestions(qs, partPlan.Subtema, planSubtemas(plan), r.Thresholds) != nil {
 			return false
+		}
+		aPart := substPart(aRel, part)
+		if r.Thresholds.ConceptMode() && !answerFileMissing(ws, aPart) {
+			answers, err := loadAnswers(ws, aPart)
+			why, whyErr := loadReasoning(ws, aPart)
+			if err != nil || whyErr != nil {
+				return false
+			}
+			var ids []string
+			for _, q := range qs {
+				ids = append(ids, q.ID)
+			}
+			return len(pendingAnswers(ids, answers, why)) > 0
 		}
 	default:
 		return false
@@ -931,6 +967,13 @@ func rubricApplies(r *rules.Rules, ws, part string, rub rules.Rubric) bool {
 			return true
 		}
 		return p.VisualsPlanned == nil || *p.VisualsPlanned
+	case "diagnosisAsked":
+		qRel, _ := declQA(r, "diagnosis")
+		qs, err := loadDiagQuestions(ws, qRel)
+		if err != nil {
+			return true
+		}
+		return !diagSkipped(ws, qRel, qs, r.Thresholds)
 	default:
 		return true
 	}
@@ -1136,6 +1179,13 @@ func semanticContext(r *rules.Rules, st *State, ws, stage, part string, sources 
 		case "own-words":
 			submission, _ := ownWordsSubmission(r, ws, part)
 			out.WriteString(submission)
+		case "diagnosis-reasoning":
+			qRel, aRel := declQA(r, "diagnosis")
+			questions, _ := os.ReadFile(absPath(ws, qRel))
+			out.Write(questions)
+			out.WriteString("\n")
+			answers, _ := os.ReadFile(absPath(ws, aRel))
+			out.Write(answers)
 		case "quiz-wrong-answers":
 			if ps := st.Parts[part]; ps != nil {
 				if rec, ok := ps.Stages["quiz"]; ok {

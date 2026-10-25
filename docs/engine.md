@@ -171,6 +171,41 @@ only the rounds written so far.
 - Complete when nothing is owed and every question is answered; the score is
   `correct/asked`, bound to `quiz.md` `puntaje`.
 
+### Concept diagnosis
+
+With `thresholds.concepts.required` (production rules; runs whose snapshot has
+no `concepts` block keep the rules above), the model chooses how many questions
+to ask and which ones, and the engine proves they were judged from the
+learner's own reasoning:
+
+- Every diagnosis and mini-quiz question declares `conceptos`: 2-3 distinct
+  codes (`minPerQuestion`/`maxPerQuestion`), each a plan subtema or a `P0.x`
+  foundation.
+- Every answer carries `razonamientos` in its answers file:
+  `{"q1": {"entendi": "...", "porque": "..."}}`. An answer without both fields
+  counts as not yet answered: a learner wait.
+- Diagnosis rounds have any size, start at 1 and are contiguous; at most
+  `diagnosisMaxQuestions` (15) in total. A round is written only after the
+  previous one is answered with reasoning **and** has its verdicts; `roundSize`,
+  `maxRounds` and the up/down follow-up rule are not enforced.
+- Verdicts (`concept-verdicts` check): `diagnostico-conceptos.json` for the
+  diagnosis and `conceptos` in `feedback/{part}.json` for a part, entries
+  `{"codigo", "estado", "pregunta", "evidencia"}`. Once a round is fully
+  answered, each concept of each of its questions needs an entry naming that
+  question; `estado` is one of `states` (`claro`, `dudoso`, `laguna`) and
+  `evidencia` appears verbatim (whitespace-normalized) in that question's
+  `entendi` or `porque`. Missing verdicts are a chat obligation: "concept
+  verdicts owed for round N", or "round M was written before the concept
+  verdicts for round N". With concept diagnosis a learner wait never hides
+  such an obligation in `status`.
+- The diagnosis also needs the recorded `diagnosis-sufficiency` review (a gate
+  on `diagnostico-conceptos.json`, skipped when the learner skipped the
+  diagnosis): the questions and verdicts give a clear map of every plan area.
+- Evidence: `diagnosticFocus` lists wrong answers and laguna questions;
+  planning focus areas must include one of them. A mini-quiz has
+  `minQuestions`..`maxQuestions` (1-12) questions and passes with
+  `correct/total >= minPassingRatio` (2/3) and no missed central question.
+
 ### JSON sidecar shapes
 
 The producer writes these next to the notes; `thresholds` in `rules/deep.json`
@@ -312,7 +347,8 @@ the attempt (with its wrong question ids), spends one round from
 for that part and returns `accepted` with `nextStage: "explanation"`. A
 `feedback` advance whose recorded `central-gap` assessment is `PASS` (a central
 gap in the learner's own words) re-teaches the part the same way, from the same
-budget, without recording `feedback`. The
+budget, without recording `feedback`; so does a `laguna` verdict on a concept of
+a `central` question (concept diagnosis, evidence `centralConceptGaps`). The
 explanation must change against the failed-attempt snapshot before it can be
 re-reviewed (its stale reviews reappear in `pendingReviews`). A failing attempt
 or central gap once the budget is spent is `blocked` (`reteach-bound` FAIL) with

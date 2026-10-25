@@ -164,6 +164,9 @@ func evalCheck(c *evalCtx, decl rules.CheckDecl) Check {
 	case "quiz_answers":
 		return evalMiniQuizAnswers(c, decl)
 
+	case "concept_verdicts":
+		return evalConceptVerdicts(c, decl)
+
 	case "quiz_passed":
 		if c.part == "" {
 			return failCheck(decl.ID, "no part context for quiz evaluation")
@@ -247,6 +250,20 @@ func evalPlanningLink(c *evalCtx, decl rules.CheckDecl) Check {
 	for _, id := range score.WrongIDs {
 		wrong[id] = true
 	}
+	var lagunas []string
+	if c.r.Thresholds.ConceptMode() && decl.Verdicts != "" {
+		if lagunas, err = lagunaQuestions(c.ws, decl.Verdicts, c.r.Thresholds); err != nil {
+			return failCheck(decl.ID, "concept verdicts unreadable: "+err.Error())
+		}
+	}
+	// focus are the questions planning must address: wrong answers and, with
+	// concept diagnosis, laguna questions.
+	var focus []string
+	for _, id := range ids {
+		if wrong[id] || slices.Contains(lagunas, id) {
+			focus = append(focus, id)
+		}
+	}
 	known := map[string]bool{}
 	for _, id := range ids {
 		known[id] = true
@@ -256,16 +273,21 @@ func evalPlanningLink(c *evalCtx, decl rules.CheckDecl) Check {
 			return failCheck(decl.ID, fmt.Sprintf("focusAreas reference unknown diagnostic question %q", f))
 		}
 	}
-	if len(score.WrongIDs) == 0 {
+	if len(focus) == 0 {
 		if len(c.plan.FocusAreas) > 0 {
 			return failCheck(decl.ID, "focusAreas declared but every diagnostic answer was correct")
 		}
 	} else {
 		linked := false
 		for _, f := range c.plan.FocusAreas {
-			if wrong[f] {
+			if slices.Contains(focus, f) {
 				linked = true
 			}
+		}
+		if !linked && len(lagunas) > 0 {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"focusAreas do not include any wrongly answered or laguna question (wrong: %s; laguna: %s)",
+				strings.Join(score.WrongIDs, ","), strings.Join(lagunas, ",")))
 		}
 		if !linked {
 			return failCheck(decl.ID, fmt.Sprintf(
@@ -365,7 +387,24 @@ func evalDiagnosticAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 			return failCheck(decl.ID, "answers invalid: "+err.Error())
 		}
 	}
-	if adaptive && !skipped {
+	if adaptive && !skipped && c.r.Thresholds.ConceptMode() {
+		why, err := loadReasoning(c.ws, decl.Answers)
+		if err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
+		if err := guidedFlow(qs, answers, why); err != nil {
+			return failCheck(decl.ID, "diagnosis round invalid: "+err.Error())
+		}
+		var ids []string
+		for _, q := range qs {
+			ids = append(ids, q.ID)
+		}
+		if pending := pendingAnswers(ids, answers, why); len(pending) > 0 {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"learner answers or reasoning (entendi, porque) not yet recorded for %s in %s (waiting for learner input)",
+				strings.Join(pending, ", "), decl.Answers))
+		}
+	} else if adaptive && !skipped {
 		owed, err := adaptiveFlow(qs, answers, c.r.Thresholds)
 		if err != nil {
 			return failCheck(decl.ID, "diagnosis round invalid: "+err.Error())
@@ -779,7 +818,7 @@ func evalMiniQuizQuestions(c *evalCtx, decl rules.CheckDecl) Check {
 	if p == nil {
 		return failCheck(decl.ID, "part not in plan")
 	}
-	if err := validateQuizQuestions(qs, p.Subtema, c.r.Thresholds); err != nil {
+	if err := validateQuizQuestions(qs, p.Subtema, planSubtemas(*c.plan), c.r.Thresholds); err != nil {
 		return failCheck(decl.ID, "mini-quiz questions invalid: "+err.Error())
 	}
 	partFile, err := c.partFile()
@@ -811,7 +850,7 @@ func evalMiniQuizAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 	if p == nil {
 		return failCheck(decl.ID, "part not in plan")
 	}
-	if err := validateQuizQuestions(qs, p.Subtema, c.r.Thresholds); err != nil {
+	if err := validateQuizQuestions(qs, p.Subtema, planSubtemas(*c.plan), c.r.Thresholds); err != nil {
 		return skipCheck(decl.ID, "questions invalid; answers cannot be checked: "+err.Error())
 	}
 	if answerFileMissing(c.ws, aRel) {
@@ -829,8 +868,23 @@ func evalMiniQuizAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 	if err := checkCoverage(ids, answers, c.r.Thresholds.Options); err != nil {
 		return failCheck(decl.ID, "answers invalid: "+err.Error())
 	}
+	threshold := fmt.Sprintf("%d", c.r.Thresholds.Quiz.MinPassingScore)
 	score := scoreQuiz(qs, answers)
 	passed := score.Correct >= c.r.Thresholds.Quiz.MinPassingScore && len(score.CentralMisses) == 0
+	if c.r.Thresholds.ConceptMode() {
+		why, err := loadReasoning(c.ws, aRel)
+		if err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
+		if pending := pendingAnswers(ids, answers, why); len(pending) > 0 {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"learner reasoning (entendi, porque) not yet recorded for %s in %s (waiting for learner input)",
+				strings.Join(pending, ", "), aRel))
+		}
+		ratio := c.r.Thresholds.Concepts.MinPassingRatio
+		threshold = fmt.Sprintf("%d/%d of the questions", ratio.Num, ratio.Den)
+		passed = score.Correct*ratio.Den >= ratio.Num*len(qs) && len(score.CentralMisses) == 0
+	}
 	central := "none"
 	if len(score.CentralMisses) > 0 {
 		central = strings.Join(score.CentralMisses, ",")
@@ -841,8 +895,8 @@ func evalMiniQuizAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 	c.evidence["quizWrongIds"] = score.WrongIDs
 	c.evidence["quizPassed"] = passed
 	return passCheck(decl.ID, fmt.Sprintf(
-		"%d/%d answers recorded; derived score %d/%d (pass threshold %d, central misses: %s)",
-		len(qs), len(qs), score.Correct, len(qs), c.r.Thresholds.Quiz.MinPassingScore, central))
+		"%d/%d answers recorded; derived score %d/%d (pass threshold %s, central misses: %s)",
+		len(qs), len(qs), score.Correct, len(qs), threshold, central))
 }
 
 func evalFeedback(c *evalCtx, decl rules.CheckDecl) Check {

@@ -26,6 +26,17 @@
       "minPassingScore": 4,
       "maxReteachRounds": 2
     },
+    "concepts": {
+      "required": true,
+      "minPerQuestion": 2,
+      "maxPerQuestion": 3,
+      "states": ["claro", "dudoso", "laguna"],
+      "gapState": "laguna",
+      "minQuestions": 1,
+      "maxQuestions": 12,
+      "diagnosisMaxQuestions": 15,
+      "minPassingRatio": { "num": 2, "den": 3 }
+    },
     "options": {
       "keys": ["A", "B", "C", "D", "E"],
       "noSayKey": "E",
@@ -73,6 +84,13 @@
         "questions": "quiz.json",
         "answers": "quiz.answers.json",
         "note": "quiz.md"
+      },
+      {
+        "id": "concept-verdicts",
+        "kind": "concept_verdicts",
+        "path": "diagnostico-conceptos.json",
+        "questions": "quiz.json",
+        "answers": "quiz.answers.json"
       }
     ],
     "planning": [
@@ -83,7 +101,8 @@
         "path": "plan.json",
         "questions": "quiz.json",
         "answers": "quiz.answers.json",
-        "note": "planificador.md"
+        "note": "planificador.md",
+        "verdicts": "diagnostico-conceptos.json"
       },
       {
         "id": "planificador-sections",
@@ -143,6 +162,13 @@
         "id": "feedback-evidence",
         "kind": "feedback_evidence",
         "path": "feedback/{part}.json"
+      },
+      {
+        "id": "concept-verdicts",
+        "kind": "concept_verdicts",
+        "path": "feedback/{part}.json",
+        "questions": "mini-quiz/{part}.json",
+        "answers": "mini-quiz/{part}.answers.json"
       }
     ],
     "adaptation": [{ "id": "feedback-condition", "kind": "feedback_condition" }],
@@ -192,6 +218,15 @@
     }
   ],
   "rubrics": [
+    {
+      "id": "diagnosis-sufficiency",
+      "stage": "diagnosis",
+      "artifact": "diagnostico-conceptos.json",
+      "kind": "gate",
+      "when": "diagnosisAsked",
+      "context": ["plan", "diagnosis-reasoning"],
+      "instruction": "You judge ONLY sufficiency: given the plan and the diagnosis questions with the learner's answers and reasoning (entendi, porque) in the untrusted data, do the questions asked and these per-concept verdicts give a clear map of what the learner knows and still needs for every area of the plan? PASS when every plan area has evidence or is deliberately declared not evaluated and the verdicts follow from the quoted reasoning; FAIL when an area that matters for the route has no evidence yet, so another round is needed. Do not judge counts, wording or formatting."
+    },
     {
       "id": "explanation-adapted",
       "stage": "explanation",

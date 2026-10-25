@@ -41,6 +41,7 @@ var KnownCheckKinds = map[string]bool{
 	"final_quiz_note":           true,
 	"all_current":               true,
 	"mermaid_graph":             true,
+	"concept_verdicts":          true,
 }
 
 // partPathKinds require a {part}/{index}/{slug} placeholder: their artifact is
@@ -71,10 +72,13 @@ var KnownContexts = map[string]bool{
 	"part-explanation":   true,
 	"own-words":          true,
 	"quiz-wrong-answers": true,
+	// diagnosis-reasoning is the diagnosis questions with the learner's
+	// answers and reasoning (concept diagnosis).
+	"diagnosis-reasoning": true,
 }
 
 // KnownWhen is the closed set of part-level applicability switches for rubrics.
-var KnownWhen = map[string]bool{"": true, "visualsPlanned": true}
+var KnownWhen = map[string]bool{"": true, "visualsPlanned": true, "diagnosisAsked": true}
 
 // canonicalOrder fixes the stage sequence the engine semantics rely on; a
 // rules file must declare exactly this order (values come from the rules).
@@ -95,6 +99,8 @@ type CheckDecl struct {
 	Questions string `json:"questions,omitempty"`
 	Answers   string `json:"answers,omitempty"`
 	Note      string `json:"note,omitempty"`
+	// Verdicts is the concept-verdict file a planning_link also reads.
+	Verdicts string `json:"verdicts,omitempty"`
 	// Receipt selects whether the declared files are hashed into the stage
 	// receipt (default true). Preparation sets it to false so that plan.json
 	// edits before planning are validated by planning, not treated as drift.
@@ -104,7 +110,7 @@ type CheckDecl struct {
 // Files returns the deduplicated artifacts this declaration reads.
 func (d CheckDecl) Files() []string {
 	var out []string
-	for _, p := range []string{d.Path, d.Questions, d.Answers, d.Note} {
+	for _, p := range []string{d.Path, d.Questions, d.Answers, d.Note, d.Verdicts} {
 		if p != "" && !slices.Contains(out, p) {
 			out = append(out, p)
 		}
@@ -162,6 +168,29 @@ type QuizThresholds struct {
 	MaxReteachRounds int `json:"maxReteachRounds"`
 }
 
+// Ratio is a fraction num/den in (0, 1].
+type Ratio struct {
+	Num int `json:"num"`
+	Den int `json:"den"`
+}
+
+// ConceptThresholds turn on concept diagnosis: integrative questions declare
+// the concepts they need, every answer carries the learner's reasoning, the
+// chat records per-concept verdicts quoted from it, and the model chooses how
+// many questions to ask within the bounds. Runs whose rules snapshot has no
+// concepts block keep the fixed counts and the up/down diagnosis.
+type ConceptThresholds struct {
+	Required              bool     `json:"required"`
+	MinPerQuestion        int      `json:"minPerQuestion"`
+	MaxPerQuestion        int      `json:"maxPerQuestion"`
+	States                []string `json:"states"`
+	GapState              string   `json:"gapState"`
+	MinQuestions          int      `json:"minQuestions"`
+	MaxQuestions          int      `json:"maxQuestions"`
+	DiagnosisMaxQuestions int      `json:"diagnosisMaxQuestions"`
+	MinPassingRatio       Ratio    `json:"minPassingRatio"`
+}
+
 type OptionThresholds struct {
 	Keys       []string `json:"keys"`
 	NoSayKey   string   `json:"noSayKey"`
@@ -172,6 +201,7 @@ type OptionThresholds struct {
 type Thresholds struct {
 	Diagnostic     DiagnosticThresholds `json:"diagnostic"`
 	Quiz           QuizThresholds       `json:"quiz"`
+	Concepts       *ConceptThresholds   `json:"concepts,omitempty"`
 	Options        OptionThresholds     `json:"options"`
 	Niveles        []string             `json:"niveles"`
 	NivelByLevel   map[string]string    `json:"nivelByLevel"`
@@ -188,6 +218,9 @@ type Thresholds struct {
 	// with at least one child element.
 	VisualElements []string `json:"visualElements"`
 }
+
+// ConceptMode reports whether these rules run concept diagnosis.
+func (t Thresholds) ConceptMode() bool { return t.Concepts != nil && t.Concepts.Required }
 
 // Rules is the parsed, validated source of truth.
 type Rules struct {
@@ -327,8 +360,12 @@ func (r *Rules) validateRubrics() error {
 		if err := validateRelPath(rb.Artifact, true); err != nil {
 			return fmt.Errorf("rubric %q artifact: %w", rb.ID, err)
 		}
-		if !hasPlaceholder(rb.Artifact) {
+		perPart := slices.Contains(r.PartStages, rb.Stage)
+		if perPart && !hasPlaceholder(rb.Artifact) {
 			return fmt.Errorf("rubric %q artifact %q needs a part placeholder ({part}/{index}/{slug})", rb.ID, rb.Artifact)
+		}
+		if !perPart && hasPlaceholder(rb.Artifact) {
+			return fmt.Errorf("rubric %q on global stage %q must not use part placeholders", rb.ID, rb.Stage)
 		}
 	}
 	return nil
@@ -368,6 +405,14 @@ func (r *Rules) validateThresholds() error {
 	}
 	if q.MaxReteachRounds < 0 {
 		return fmt.Errorf("quiz maxReteachRounds must not be negative")
+	}
+	if c := r.Thresholds.Concepts; c != nil {
+		if err := c.validate(); err != nil {
+			return err
+		}
+		if c.Required && d.Mode != "adaptive" {
+			return fmt.Errorf("concept diagnosis needs the round-based (adaptive) diagnostic mode")
+		}
 	}
 	o := r.Thresholds.Options
 	if len(o.Keys) < 2 || len(o.AnswerKeys) < 1 {
@@ -409,6 +454,35 @@ func (r *Rules) validateThresholds() error {
 	return nil
 }
 
+func (c ConceptThresholds) validate() error {
+	if c.MinPerQuestion < 1 || c.MaxPerQuestion < c.MinPerQuestion {
+		return fmt.Errorf("concepts minPerQuestion/maxPerQuestion must satisfy 1 <= min <= max")
+	}
+	if c.MinQuestions < 1 || c.MaxQuestions < c.MinQuestions {
+		return fmt.Errorf("concepts minQuestions/maxQuestions must satisfy 1 <= min <= max")
+	}
+	if c.DiagnosisMaxQuestions < 1 {
+		return fmt.Errorf("concepts diagnosisMaxQuestions must be positive")
+	}
+	if c.MinPassingRatio.Num < 1 || c.MinPassingRatio.Den < c.MinPassingRatio.Num {
+		return fmt.Errorf("concepts minPassingRatio must be a fraction in (0, 1]")
+	}
+	if len(c.States) < 2 {
+		return fmt.Errorf("concepts states must declare at least two states")
+	}
+	seen := map[string]bool{}
+	for _, s := range c.States {
+		if strings.TrimSpace(s) == "" || seen[s] {
+			return fmt.Errorf("concepts states must be unique and non-empty")
+		}
+		seen[s] = true
+	}
+	if !seen[c.GapState] {
+		return fmt.Errorf("concepts gapState %q is not among states", c.GapState)
+	}
+	return nil
+}
+
 func validateDecl(d CheckDecl) error {
 	if !KnownCheckKinds[d.Kind] {
 		return fmt.Errorf("unknown check kind %q", d.Kind)
@@ -436,6 +510,8 @@ func validateDecl(d CheckDecl) error {
 		err = need("path", "questions", "answers", "note")
 	case "quiz_answers":
 		err = need("questions", "answers")
+	case "concept_verdicts":
+		err = need("path", "questions", "answers")
 	case "feedback_evidence":
 		err = need("path")
 	case "quiz_passed", "part_has_mini_quiz", "feedback_condition", "all_current":
@@ -446,11 +522,16 @@ func validateDecl(d CheckDecl) error {
 	if err != nil {
 		return err
 	}
-	for _, f := range []string{d.Path, d.Questions, d.Answers, d.Note} {
+	if d.Verdicts != "" && d.Kind != "planning_link" {
+		return fmt.Errorf("kind %q does not take verdicts", d.Kind)
+	}
+	// A concept_verdicts check judges either the diagnosis or one part.
+	partScoped := partPathKinds[d.Kind] || d.Kind == "concept_verdicts"
+	for _, f := range []string{d.Path, d.Questions, d.Answers, d.Note, d.Verdicts} {
 		if f == "" {
 			continue
 		}
-		if err := validateRelPath(f, partPathKinds[d.Kind] && (f == d.Path || f == d.Questions || f == d.Answers)); err != nil {
+		if err := validateRelPath(f, partScoped && (f == d.Path || f == d.Questions || f == d.Answers)); err != nil {
 			return err
 		}
 	}

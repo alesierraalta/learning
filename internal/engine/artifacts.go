@@ -160,6 +160,7 @@ type diagQuestion struct {
 	Pieza     pieza             `json:"pieza"`
 	Options   map[string]string `json:"options"`
 	Answer    string            `json:"answer"`
+	Conceptos []string          `json:"conceptos,omitempty"`
 }
 
 type quizQuestion struct {
@@ -170,6 +171,7 @@ type quizQuestion struct {
 	Enunciado string            `json:"enunciado"`
 	Options   map[string]string `json:"options"`
 	Answer    string            `json:"answer"`
+	Conceptos []string          `json:"conceptos,omitempty"`
 }
 
 type finalQuestion struct {
@@ -280,6 +282,9 @@ func diagSkipped(ws, rel string, qs []diagQuestion, th rules.Thresholds) bool {
 
 func validateDiagnostic(qs []diagQuestion, plan *planDoc, th rules.Thresholds) error {
 	if th.Diagnostic.Adaptive() {
+		if th.ConceptMode() {
+			return validateGuidedDiagnostic(qs, plan, th)
+		}
 		return validateAdaptiveDiagnostic(qs, plan, th)
 	}
 	var prereq, topic int
@@ -391,8 +396,13 @@ func nivelesNonDecreasing(niveles []string, th rules.Thresholds, msg string) err
 	return nil
 }
 
-func validateQuizQuestions(qs []quizQuestion, partSubtema string, th rules.Thresholds) error {
-	if len(qs) != th.Quiz.QuestionCount {
+func validateQuizQuestions(qs []quizQuestion, partSubtema string, planSubs map[string]bool, th rules.Thresholds) error {
+	if th.ConceptMode() {
+		c := th.Concepts
+		if len(qs) < c.MinQuestions || len(qs) > c.MaxQuestions {
+			return fmt.Errorf("expected between %d and %d quiz questions, got %d", c.MinQuestions, c.MaxQuestions, len(qs))
+		}
+	} else if len(qs) != th.Quiz.QuestionCount {
 		return fmt.Errorf("expected %d quiz questions, got %d", th.Quiz.QuestionCount, len(qs))
 	}
 	seen := map[string]bool{}
@@ -418,6 +428,11 @@ func validateQuizQuestions(qs []quizQuestion, partSubtema string, th rules.Thres
 		}
 		if err := validateAnswerKey(q.Answer, th.Options); err != nil {
 			return fmt.Errorf("question %s: %w", q.ID, err)
+		}
+		if th.ConceptMode() {
+			if err := validateConceptos(q.ID, q.Conceptos, planSubs, th.Concepts); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

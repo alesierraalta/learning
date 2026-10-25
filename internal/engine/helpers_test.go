@@ -15,8 +15,13 @@ import (
 // (TestFixedRulesFixtureMatchesProductionRules).
 const repoRulesPath = "testdata/rules-fixed-diagnosis.json"
 
-// adaptiveRulesPath is the production rules file: adaptive diagnosis.
-const adaptiveRulesPath = "../../rules/deep.json"
+// adaptiveRulesPath is the adaptive-diagnosis rules (5-question mini-quiz,
+// up/down rounds) that runs started before concept diagnosis keep through
+// their rules snapshot (TestRulesFixturesMatchProductionRules).
+const adaptiveRulesPath = "testdata/rules-adaptive-diagnosis.json"
+
+// productionRulesPath is the production rules file: concept diagnosis.
+const productionRulesPath = "../../rules/deep.json"
 
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
@@ -27,6 +32,8 @@ type fixture struct {
 	base string
 	root string
 	ws   string
+	// rules overrides the rules file of every command (default repoRulesPath).
+	rules string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -45,10 +52,17 @@ func (f *fixture) opts(cmd, stage string) Options {
 		Command:   cmd,
 		Root:      f.root,
 		Workspace: f.ws,
-		RulesPath: repoRulesPath,
+		RulesPath: f.rulesPath(),
 		Mode:      "deep",
 		Stage:     stage,
 	}
+}
+
+func (f *fixture) rulesPath() string {
+	if f.rules != "" {
+		return f.rules
+	}
+	return repoRulesPath
 }
 
 // run executes the public engine entry point.
@@ -395,6 +409,7 @@ type diagQuestionWire struct {
 	Pieza     map[string]string `json:"pieza"`
 	Options   map[string]string `json:"options"`
 	Answer    string            `json:"answer"`
+	Conceptos []string          `json:"conceptos,omitempty"`
 }
 
 func optionSet() map[string]string {
@@ -506,6 +521,7 @@ type quizQuestionWire struct {
 	Enunciado string            `json:"enunciado"`
 	Options   map[string]string `json:"options"`
 	Answer    string            `json:"answer"`
+	Conceptos []string          `json:"conceptos,omitempty"`
 }
 
 func quizKey(i int) string { return string(rune('A' + i%4)) }
