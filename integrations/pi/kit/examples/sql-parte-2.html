@@ -230,6 +230,7 @@ td.null { color:#b45309; font-style:italic; }
 
 
 
+
 <p>Imagina que registramos empleados asignándoles un departamento numérico sin ninguna regla de validación.</p>
 <p>Un día, alguien inserta un empleado con <code>department_id = 99</code> (un departamento inexistente).</p>
 <pre class="mermaid">flowchart TD
@@ -449,6 +450,7 @@ td.null { color:#b45309; font-style:italic; }
 }
 </script>
 </lk-walkthrough>
+
 
 
 
@@ -844,6 +846,7 @@ WHERE department_id = 10;</code></pre>
 
 
 
+
 <p>Cuando se define una clave foránea, se puede especificar cómo debe reaccionar el motor al eliminar un registro padre:</p>
 <table>
 <thead><tr><th>Cláusula</th><th>Comportamiento del motor</th><th>Consecuencia en la tabla hija</th></tr></thead>
@@ -961,6 +964,7 @@ WHERE department_id = 10;</code></pre>
 
 
 
+
 <h3>Clave Primaria (PK) vs Clave Foránea (FK)</h3>
 <table>
 <thead><tr><th>Criterio</th><th>Clave primaria (PK)</th><th>Clave foránea (FK)</th></tr></thead>
@@ -989,73 +993,207 @@ WHERE department_id = 10;</code></pre>
 <lk-walkthrough>
 <script type="application/json">
 {
- "title": "El archivador y su límite",
- "viewBox": "96 72 968 300",
+ "title": "El archivador, con datos",
+ "viewBox": "-98.40000000000003 62 1222.4 532",
  "steps": [
   {
    "title": "La analogía",
-   "text": "Un archivador guarda fichas y cada ficha lleva el número de su carpeta.",
+   "text": "Cada ficha lleva el número de su carpeta, y la carpeta existe.",
    "scene": {
-    "sheets": [
+    "grids": [
      {
-      "x": 120,
-      "y": 90,
-      "w": 300,
-      "h": 170,
-      "title": "ARCHIVADOR",
-      "lines": 4,
-      "tone": "slate"
+      "x": 60,
+      "y": 80,
+      "cols": [
+       "department_id",
+       "department_name"
+      ],
+      "rows": [
+       [
+        "10",
+        "ACCOUNTING"
+       ],
+       [
+        "20",
+        "RESEARCH"
+       ]
+      ],
+      "width": 460,
+      "rowH": 52,
+      "size": 22
+     },
+     {
+      "x": 60,
+      "y": 300,
+      "cols": [
+       "employee_id",
+       "department_id"
+      ],
+      "rows": [
+       [
+        "7782",
+        "10"
+       ],
+       [
+        "7839",
+        "20"
+       ]
+      ],
+      "width": 460,
+      "rowH": 52,
+      "size": 22
      }
     ],
-    "boxes": [
+    "labels": [
      {
-      "x": 520,
-      "y": 130,
-      "w": 520,
-      "h": 64,
-      "label": "ficha → nº de carpeta",
-      "sub": "el número debe existir",
-      "tone": "blue",
-      "size": 24
+      "x": 300,
+      "y": 270,
+      "text": "las fichas apuntan a carpetas reales",
+      "tone": "slate",
+      "size": 26,
+      "anchor": "middle"
      }
     ]
    }
   },
   {
-   "title": "Dónde se rompe",
-   "text": "A mano nadie comprueba nada; el motor sí: sin carpeta, la ficha no entra.",
+   "title": "A mano nadie comprueba",
+   "text": "Nada impide escribir el número de una carpeta que no está en el archivador.",
    "scene": {
-    "sheets": [
+    "grids": [
      {
-      "x": 120,
-      "y": 90,
-      "w": 300,
-      "h": 170,
-      "title": "ARCHIVADOR",
-      "lines": 4,
-      "tone": "slate"
+      "x": 60,
+      "y": 80,
+      "cols": [
+       "department_id",
+       "department_name"
+      ],
+      "rows": [
+       [
+        "10",
+        "ACCOUNTING"
+       ],
+       [
+        "20",
+        "RESEARCH"
+       ]
+      ],
+      "width": 460,
+      "rowH": 52,
+      "size": 22
+     },
+     {
+      "x": 60,
+      "y": 300,
+      "cols": [
+       "employee_id",
+       "department_id"
+      ],
+      "rows": [
+       [
+        "7782",
+        "10"
+       ],
+       [
+        "7839",
+        "20"
+       ],
+       [
+        "7999",
+        "99"
+       ]
+      ],
+      "width": 460,
+      "rowH": 52,
+      "size": 22,
+      "rowTone": {
+       "2": "red"
+      },
+      "cellTone": {
+       "2,1": "red"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 300,
+      "y": 560,
+      "text": "99 no está en ninguna carpeta",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "El motor sí comprueba",
+   "text": "Antes de escribir la ficha, consulta la carpeta: si no existe, la fila no entra.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 80,
+      "cols": [
+       "department_id",
+       "department_name"
+      ],
+      "rows": [
+       [
+        "10",
+        "ACCOUNTING"
+       ],
+       [
+        "20",
+        "RESEARCH"
+       ]
+      ],
+      "width": 460,
+      "rowH": 52,
+      "size": 22
+     },
+     {
+      "x": 60,
+      "y": 300,
+      "cols": [
+       "employee_id",
+       "department_id"
+      ],
+      "rows": [
+       [
+        "7782",
+        "10"
+       ],
+       [
+        "7839",
+        "20"
+       ]
+      ],
+      "width": 460,
+      "rowH": 52,
+      "size": 22
      }
     ],
     "boxes": [
      {
-      "x": 520,
-      "y": 130,
-      "w": 520,
+      "x": 640,
+      "y": 300,
+      "w": 460,
       "h": 64,
-      "label": "ficha → nº de carpeta",
-      "sub": "el número debe existir",
-      "tone": "blue",
-      "size": 24
-     },
-     {
-      "x": 520,
-      "y": 260,
-      "w": 520,
-      "h": 64,
-      "label": "carpeta 99 inexistente",
-      "sub": "la ficha se rechaza",
+      "label": "INSERT 7999 · 99",
+      "sub": "ORA-02291",
       "tone": "red",
-      "size": 24
+      "size": 28
+     }
+    ],
+    "labels": [
+     {
+      "x": 300,
+      "y": 560,
+      "text": "la ficha con 99 nunca entra",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
      }
     ]
    }
@@ -1064,6 +1202,7 @@ WHERE department_id = 10;</code></pre>
 }
 </script>
 </lk-walkthrough>
+
 
 
 
@@ -1201,6 +1340,7 @@ WHERE department_id = 10;</code></pre>
 }
 </script>
 </lk-walkthrough>
+
 
 
 
@@ -1371,6 +1511,7 @@ WHERE department_id = 10;</code></pre>
 }
 </script>
 </lk-walkthrough>
+
 
 
 

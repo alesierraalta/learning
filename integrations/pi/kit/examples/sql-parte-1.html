@@ -244,6 +244,8 @@
 
 
 
+
+
 <p>Imagina que guardas la información de una empresa directamente en archivos de texto o en bloques de disco con punteros de memoria. Para buscar a un empleado, tus programas tendrían que saber la <strong>dirección física exacta</strong> del archivo en el disco. Si mañana el administrador cambia de disco duro, añade memoria o reorganiza los archivos, <strong>todos tus programas dejan de funcionar</strong>.</p>
 <p>El modelo relacional resuelve ese dolor creando una separación radical:</p>
 <pre class="mermaid">flowchart TD
@@ -509,6 +511,8 @@
 }
 </script>
 </lk-walkthrough>
+
+
 
 
 
@@ -1234,6 +1238,8 @@
 
 
 
+
+
 <p>Así reacciona el motor ante las operaciones del día a día. La tabla arranca con una sola entidad registrada y el motor mantiene su índice B-tree sincronizado para acceso instantáneo.</p>
 
 
@@ -1456,6 +1462,8 @@
 
 
 
+
+
 <h3>1. <code>UNIQUE ≠ PRIMARY KEY</code></h3>
 <table>
 <thead><tr><th>Restricción</th><th>¿Permite duplicados?</th><th>¿Permite <code>NULL</code>?</th><th>¿Identifica la entidad?</th></tr></thead>
@@ -1478,73 +1486,159 @@
 <lk-walkthrough>
 <script type="application/json">
 {
- "title": "El DNI y el límite de la analogía",
- "viewBox": "56 102 1028 300",
+ "title": "El DNI, con datos",
+ "viewBox": "36 72 1284.0 300",
  "steps": [
   {
-   "title": "La analogía",
-   "text": "El DNI identifica: único y obligatorio, igual que la clave primaria.",
+   "title": "Dos personas, un nombre",
+   "text": "El nombre se repite; el DNI no. Eso es exactamente lo que hace la clave primaria.",
    "scene": {
-    "sheets": [
+    "grids": [
      {
-      "x": 80,
-      "y": 120,
-      "w": 280,
-      "h": 160,
-      "title": "CIUDADANO",
-      "lines": 3,
-      "tone": "slate"
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "DNI",
+       "nombre"
+      ],
+      "rows": [
+       [
+        "12345678",
+        "JUAN PÉREZ"
+       ],
+       [
+        "87654321",
+        "JUAN PÉREZ"
+       ]
+      ],
+      "width": 520,
+      "rowH": 54,
+      "size": 22,
+      "colTone": {
+       "0": "blue"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 300,
+      "y": 300,
+      "text": "el DNI las distingue",
+      "tone": "blue",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Sin DNI no hay fila",
+   "text": "Un registro sin clave es como un ciudadano sin documento: el motor no lo guarda.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ],
+       [
+        "NULL",
+        "RODRIGUEZ"
+       ]
+      ],
+      "width": 520,
+      "rowH": 54,
+      "size": 22,
+      "rowTone": {
+       "1": "red"
+      },
+      "cellTone": {
+       "1,0": "red"
+      }
      }
     ],
     "boxes": [
      {
-      "x": 440,
-      "y": 150,
-      "w": 620,
-      "h": 74,
-      "label": "DNI",
-      "sub": "UNIQUE + NOT NULL",
-      "tone": "blue",
+      "x": 660,
+      "y": 90,
+      "w": 440,
+      "h": 64,
+      "label": "ORA-01400",
+      "sub": "cannot insert NULL",
+      "tone": "red",
       "size": 28
+     }
+    ],
+    "labels": [
+     {
+      "x": 880,
+      "y": 300,
+      "text": "la fila rechazada no se guarda",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
      }
     ]
    }
   },
   {
    "title": "Dónde se rompe",
-   "text": "Una persona sin documento sigue existiendo; un registro sin clave no existe para el motor.",
+   "text": "En la vida real la persona sigue existiendo sin papel; en la base, sin clave no existe fila.",
    "scene": {
-    "sheets": [
+    "grids": [
      {
-      "x": 80,
-      "y": 120,
-      "w": 280,
-      "h": 160,
-      "title": "CIUDADANO",
-      "lines": 3,
-      "tone": "slate"
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ],
+       [
+        "7839",
+        "KING"
+       ]
+      ],
+      "width": 520,
+      "rowH": 54,
+      "size": 22,
+      "rowTone": {
+       "0": "blue",
+       "1": "blue"
+      }
      }
     ],
     "boxes": [
      {
-      "x": 440,
-      "y": 150,
-      "w": 620,
-      "h": 74,
-      "label": "DNI",
-      "sub": "UNIQUE + NOT NULL",
-      "tone": "blue",
-      "size": 28
-     },
-     {
-      "x": 440,
-      "y": 280,
-      "w": 620,
-      "h": 74,
-      "label": "empleado sin PK",
-      "sub": "el motor no lo guarda",
+      "x": 660,
+      "y": 90,
+      "w": 440,
+      "h": 64,
+      "label": "INSERT NULL RODRIGUEZ",
+      "sub": "rechazada",
       "tone": "red",
       "size": 28
+     }
+    ],
+    "labels": [
+     {
+      "x": 880,
+      "y": 300,
+      "text": "la tabla queda igual: dos filas, no tres",
+      "tone": "ink",
+      "size": 26,
+      "anchor": "middle"
      }
     ]
    }
@@ -1553,6 +1647,8 @@
 }
 </script>
 </lk-walkthrough>
+
+
 
 
 
@@ -1789,6 +1885,8 @@
 
 
 
+
+
 <p>Ante cualquier inserción o modificación, este es el árbol de decisión exacto que ejecuta el motor:</p>
 <lk-callout type="tip" title="Cómo leerlo">
 <p>Son dos preguntas en orden fijo. Primero la nulidad, después la duplicidad: por eso una clave nula nunca llega a compararse con el índice.</p>
@@ -1932,6 +2030,8 @@
 
 
 
+
+
 <h2>9. Qué debes entender realmente de esta parte</h2>
 <!-- fig:auto -->
 <lk-walkthrough>
@@ -2028,6 +2128,8 @@
 }
 </script>
 </lk-walkthrough>
+
+
 
 
 
