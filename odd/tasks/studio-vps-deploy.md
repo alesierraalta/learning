@@ -10,7 +10,7 @@ Branch `feat/studio-vps`, based on `fix/studio-dictation` (PR #2) so the deploy 
 - **S2** Always on: "quiero que despliegues la aplicación en la BPS para yo poder entrar siempre, sin que me dé error de conexión o lo que sea. O sea, siempre tienes que estar prendida." The studio starts at boot without a login, restarts when it crashes, and keeps a stable address.
 - **S3** Remote access (rewritten after L7): the studio, its bridge pages and dictation work from a browser on another machine of the ZeroTier network over HTTPS (`https://10.154.59.151:8445`, bridge `:8446`), with the Infra Root CA certificate. Loopback use (`http://127.0.0.1:4747/`) keeps working unchanged. Nothing is exposed to the public internet.
 - **S4** Vault sync (user choice, L3): "Syncthing en las dos direcciones" — only the Learnings folder, PC (Obsidian) ↔ VPS (studio), conflicts kept as copies, never lost.
-- **S5** Credentials: the Pi login on the VPS is done by the user; no credential is copied or stored by the agent.
+- **S5** Credentials and model (rewritten after L8): the studio's Pi uses "deepseek v4.1 flash en high para el modelo de fondo" (`opencode-go/deepseek-v4.1-flash`, thinking `high`). Only the `opencode-go` API key is copied from the PC, with the user's explicit consent, never shown or stored elsewhere.
 
 ## Tasks
 
@@ -20,7 +20,7 @@ Branch `feat/studio-vps`, based on `fix/studio-dictation` (PR #2) so the deploy 
 | T2 | S3 | worker: configurable public origins in bridge + studio, with tests | 6607024 |
 | T3 | S2, S3 | worker: `deploy/vps/` systemd unit, install script, TLS front, docs | 3dbaf4b, b3a56b5, 7b3a1d9, see L7 |
 | T4 | S2 | VPS: Node deps, Go engine, Pi 1.4.0 + profile, skills | — |
-| T5 | S5 | user: Claude Code login on the VPS (Pi provider `claude-bridge`) | — |
+| T5 | S5 | copy only the `opencode-go` key to the VPS Pi `auth.json` (consented) and set the default model + thinking | see L8 |
 | T6 | S4 | Syncthing on VPS + Windows, share Learnings two-way | — |
 | T7 | S2, S3 | enable service, verify from the PC browser and after a restart | — |
 
