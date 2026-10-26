@@ -574,3 +574,70 @@ test("a quiz is answered without writing a thought, and the message quotes no em
   assert.ok(!said.includes("Pensamiento:"), said);
   await shutdown();
 });
+
+test("a thought with no text is saved as no thought, even when a confidence was picked", async () => {
+  const { view, topic, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, {
+    kind: "mini-quiz",
+    topic: TOPIC,
+    part: "p1",
+    answers: { q1: "B", q2: "B" },
+    reasoning: { q1: { razonamiento: "   ", confianza: "seguro" }, q2: { confianza: "dudo" } },
+  });
+  assert.equal(res.status, 200, res.body);
+  const saved = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.deepEqual(saved.razonamientos, {});
+  const said = host.sent.map((m) => m.content).join("\n");
+  assert.ok(!said.includes("Pensamiento:"), said);
+  await shutdown();
+});
+
+test("reasoning null means the learner wrote nothing", async () => {
+  const { view, topic, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" }, reasoning: null });
+  assert.equal(res.status, 200, res.body);
+  const saved = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.deepEqual(saved.razonamientos, {});
+  await shutdown();
+});
+
+test("a thought keeps its unicode and line breaks, and the chat quotes it verbatim", async () => {
+  const { view, topic, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const first = "Primero descarto la clave foránea 🔑";
+  const second = "porque el empleado puede no tener jefe";
+  const res = await submit(url, {
+    kind: "mini-quiz",
+    topic: TOPIC,
+    part: "p1",
+    answers: { q1: "B", q2: "B" },
+    reasoning: { q1: { razonamiento: `${first}\n${second}`, confianza: "seguro" } },
+  });
+  assert.equal(res.status, 200, res.body);
+  const saved = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.equal(saved.razonamientos.q1.razonamiento, `${first}\n${second}`);
+  assert.equal(saved.razonamientos.q1.confianza, "seguro");
+  const said = host.sent.map((m) => m.content).join("\n");
+  assert.ok(said.includes(first) && said.includes(second), said);
+  assert.ok(said.indexOf(first) < said.indexOf(second), said);
+  await shutdown();
+});
+
+test("a mixed answers file keeps old and new thoughts side by side", async () => {
+  const { view, topic, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, {
+    kind: "mini-quiz",
+    topic: TOPIC,
+    part: "p1",
+    answers: { q1: "B", q2: "B" },
+    reasoning: { q1: { entendi: "a", porque: "b" }, q2: { razonamiento: "nuevo" } },
+  });
+  assert.equal(res.status, 200, res.body);
+  const saved = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.equal(saved.razonamientos.q2.razonamiento, "nuevo");
+  assert.match(saved.razonamientos.q1.razonamiento, /a[\s\S]*b/);
+  await shutdown();
+});
