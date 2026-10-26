@@ -35,8 +35,10 @@ need loginctl 'systemd login manager is required'
 need systemctl 'systemd user services are required'
 need tailscale 'install and authenticate Tailscale'
 need curl 'install curl for health checks'
-if [[ ! -x /usr/bin/node ]] || ! /usr/bin/node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then
-  echo 'Missing prerequisite: Node >=22 at /usr/bin/node (use Node 22.22 or newer for direct TypeScript execution)' >&2
+# Distribution builds (e.g. Ubuntu's nodejs) can lack TypeScript support, so the studio uses its own Node.
+node_bin="$HOME/.local/node/bin/node"
+if [[ ! -x "$node_bin" ]] || ! "$node_bin" -e 'process.exit(process.features.typescript ? 0 : 1)'; then
+  echo "Missing prerequisite: official Node >=24 with TypeScript support at $node_bin (unpack the nodejs.org linux-x64 tarball into ~/.local/node-<version> and symlink ~/.local/node to it)" >&2
   missing=1
 fi
 if [[ ! -x "$repo/bin/learning" ]]; then

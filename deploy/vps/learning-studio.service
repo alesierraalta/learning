@@ -5,9 +5,9 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 WorkingDirectory=%h/learning
-Environment=PATH=%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.local/node/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=%h/.config/learning-studio.env
-ExecStart=/usr/bin/node studio/server.ts
+ExecStart=%h/.local/node/bin/node studio/server.ts
 Restart=always
 RestartSec=3
 
