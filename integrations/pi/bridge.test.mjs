@@ -306,6 +306,8 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
     video: "file/explicaciones/adjuntos/Parte%201%20-%20Claves.mp4",
   });
   assert.match(page.body, /<h1>Rica<\/h1>/);
+  const video = await http(new URL(config.video, url).href, { method: "HEAD" });
+  assert.equal(video.status, 200);
   const kit = await http(`${result.structuredContent.base}kit/kit.js`);
   assert.equal(kit.status, 200);
   assert.match(kit.headers["content-type"], /^text\/javascript/);

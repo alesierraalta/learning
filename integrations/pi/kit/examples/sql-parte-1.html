@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parte 1 — Estructura Relacional y Clave Primaria (PK)</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<script src="../kit/kit.js" defer></script>
+<style>
+.p1-lab { display:flex; flex-wrap:wrap; gap:20px; margin-top:14px; align-items:start; }
+.p1-form { flex:1 1 260px; min-width:0; display:grid; gap:10px; }
+.p1-form label { font-size:.85rem; }
+.p1-form input[type=text] { width:9em; font:inherit; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; }
+.p1-form .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.p1-table { flex:1 1 320px; min-width:0; }
+.p1-table table { width:100%; }
+.p1-table td.null { color:#b45309; font-style:italic; }
+.p1-table td.err { color:#b91c1c; }
+.p1-msg { margin:10px 0 0; padding:10px 12px; border-left:3px solid #cbd5e1; background:#f8fafc; font-size:.85rem; }
+.p1-msg.ok { border-color:#059669; }
+.p1-msg.bad { border-color:#dc2626; }
+.p1-msg.warn { border-color:#d97706; }
+</style>
+</head>
+<body><main>
+
+<div class="kicker">Parte 1 · Paradigma relacional</div>
+<h1>Estructura Relacional y Clave Primaria (PK)</h1>
+<p><strong>Fuente</strong>: Oracle Database Concepts 19c (Capítulo 3, <em>Data Integrity — Entity Integrity</em>) · Silberschatz, Korth y Sudarshan, <em>Database System Concepts</em> (Capítulo 2, <em>Relational Model</em>).</p>
+
+<p class="definition">Una <strong>base de datos relacional</strong> es una forma de organizar información en <strong>tablas bidimensionales estructuradas</strong>, donde cada registro posee identidad única y los datos se aíslan por completo del almacenamiento físico en disco.</p>
+
+<lk-video></lk-video>
+
+
+<lk-callout type="note" title="Dónde estás">
+<p>Paso <strong>1 de 10</strong> · nodo <code>1.1</code> · escalón <strong>básico</strong>. La visual asignada a esta parte es un diagrama de estructura y el árbol de decisión de integridad del motor.</p>
+</lk-callout>
+
+<lk-callout type="tip" title="El ejemplo que nos acompaña">
+<p>El sistema de empleados (<code>EMPLOYEE</code>) de una empresa, con cuatro columnas: <code>employee_id</code>, <code>last_name</code>, <code>department_id</code> y <code>salary</code>. Todos los pasos, errores y demos de esta parte usan esa misma tabla.</p>
+</lk-callout>
+
+<section>
+<h2>1. Por qué existe</h2>
+<p>Imagina que guardas la información de una empresa directamente en archivos de texto o en bloques de disco con punteros de memoria. Para buscar a un empleado, tus programas tendrían que saber la <strong>dirección física exacta</strong> del archivo en el disco. Si mañana el administrador cambia de disco duro, añade memoria o reorganiza los archivos, <strong>todos tus programas dejan de funcionar</strong>.</p>
+<p>El modelo relacional resuelve ese dolor creando una separación radical:</p>
+<pre class="mermaid">flowchart TD
+  APP["Código de la aplicación"] --&gt; LOGIC["Consulta lógica: tablas y columnas"]
+  LOGIC --&gt; ENGINE["Motor relacional: optimizador y traductor"]
+  ENGINE --&gt; DISK["Almacenamiento físico: bloques en disco"]</pre>
+<p>La aplicación solo conoce <strong>qué datos pide</strong>, nunca <strong>cómo están guardados físicamente</strong>. Eso es la <strong>independencia física de los datos</strong>.</p>
+</section>
+
+<section>
+<h2>2. Las piezas fundamentales</h2>
+<p>Cinco conceptos sostienen todo lo que viene después. Cada uno responde a una pregunta concreta que te harás al diseñar una tabla:</p>
+
+<table>
+<thead><tr><th>Pregunta mental</th><th>Pieza</th><th>En <code>EMPLOYEE</code></th></tr></thead>
+<tbody>
+<tr><td>¿Dónde organizo todos los registros de este tipo?</td><td><strong>Relación</strong> (tabla)</td><td>La tabla <code>EMPLOYEE</code></td></tr>
+<tr><td>¿De qué o de quién hablamos exactamente?</td><td><strong>Tupla</strong> (fila o registro)</td><td>La fila del empleado <code>CLARK</code></td></tr>
+<tr><td>¿Qué dato específico describe a esa entidad?</td><td><strong>Atributo</strong> (columna o campo)</td><td><code>employee_id</code>, <code>last_name</code>, <code>salary</code></td></tr>
+<tr><td>¿Qué valores son válidos para este dato?</td><td><strong>Dominio</strong></td><td><code>employee_id</code> solo enteros (<code>NUMBER(4)</code>); <code>salary</code> solo numéricos positivos</td></tr>
+<tr><td>¿Cómo garantizo que nadie se confunda con otro ni quede indocumentado?</td><td><strong>Clave Primaria</strong> (<code>PRIMARY KEY</code>)</td><td><code>employee_id</code>: <strong>única y obligatoria</strong></td></tr>
+</tbody></table>
+
+<h3>Relación (tabla)</h3>
+<p>El contenedor lógico bidimensional. Tiene un nombre único en el esquema y un conjunto fijo de columnas.</p>
+
+<h3>Tupla (fila o registro)</h3>
+<p>Cada elemento individual almacenado en la tabla. Corresponde a una entidad concreta del mundo real.</p>
+
+<h3>Atributo (columna o campo)</h3>
+<p>Cada propiedad atómica que describe a la entidad. Cada columna tiene un nombre y un tipo de dato.</p>
+
+<h3>Dominio</h3>
+<p>El conjunto estricto de valores y formatos válidos permitidos para una columna.</p>
+
+<h3>Clave primaria (<code>PRIMARY KEY</code>)</h3>
+<p>El atributo (o conjunto de atributos) que identifica unívocamente a cada tupla de la tabla. Su regla es inmutable: <strong><code>UNIQUE + NOT NULL</code></strong>, única y obligatoria a la vez.</p>
+<lk-callout type="warning" title="No son dos restricciones sueltas">
+<p>Una clave primaria no es «una columna con índice»: es la promesa de que <strong>todo registro es identificable y distinto</strong>. Por eso el motor exige las dos condiciones juntas y no permite relajarlas por separado.</p>
+</lk-callout>
+</section>
+
+<section>
+<h2>3. Anatomía visual de la relación</h2>
+<p>El esquema define los atributos y sus dominios; las tuplas son los valores que los cumplen. Esta es la misma tabla del ejemplo, con dos filas reales:</p>
+<pre class="mermaid">flowchart TD
+  ATTRS["ATRIBUTOS (esquema y dominios): employee_id PK NUMBER(4) único · last_name VARCHAR2(10) · department_id NUMBER(2) · salary NUMBER(7,2) mayor que 0"]
+  T1["Tupla 1: 7782 · CLARK · departamento 10 · 2450,00"]
+  T2["Tupla 2: 7839 · KING · departamento 10 · 5000,00"]
+  ATTRS --&gt;|"estructura y valida"| T1
+  T1 --&gt; T2</pre>
+<table>
+<thead><tr><th>Fila \ Columna</th><th><code>employee_id</code> (PK)</th><th><code>last_name</code></th><th><code>department_id</code></th><th><code>salary</code></th></tr></thead>
+<tbody>
+<tr><td><strong>Tupla 1</strong> (Clark)</td><td><strong>7782</strong></td><td>CLARK</td><td>10</td><td>2450,00</td></tr>
+<tr><td><strong>Tupla 2</strong> (King)</td><td><strong>7839</strong></td><td>KING</td><td>10</td><td>5000,00</td></tr>
+</tbody></table>
+</section>
+
+<section>
+<h2>4. Cómo funciona paso a paso en el motor</h2>
+<p>Así reacciona el motor ante las operaciones del día a día. La tabla arranca con una sola entidad registrada y el motor mantiene su índice B-tree sincronizado para acceso instantáneo.</p>
+
+<lk-steps>
+<lk-step label="T0"><p><strong>Estado inicial.</strong> La tabla contiene solo a <strong>CLARK</strong> (<code>employee_id = 7782</code>, departamento 10, salario 2450,00). El índice B-tree de la clave primaria guarda la entrada <code>7782</code>, que apunta en microsegundos al bloque de datos de esa fila.</p></lk-step>
+<lk-step label="T1" mark="nuevo"><p><strong>Inserción válida.</strong> Llega <code>INSERT INTO employee (employee_id, last_name, department_id, salary) VALUES (7839, 'KING', 10, 5000);</code>. El motor comprueba que <code>7839</code> no es <code>NULL</code> y que no existe en el B-tree: lo registra y actualiza el índice.</p></lk-step>
+<lk-step label="T2" mark="bloqueo"><p><strong>Clave primaria duplicada.</strong> <code>INSERT ... VALUES (7782, 'GARCIA', 10, 3000);</code> → el motor ve que <code>7782</code> ya está ocupado por Clark y aborta con <code>ORA-00001: unique constraint (SYS_C007123) violated</code>. La tabla queda intacta.</p></lk-step>
+<lk-step label="T3" mark="bloqueo"><p><strong>Clave primaria nula.</strong> <code>INSERT ... VALUES (NULL, 'RODRIGUEZ', 20, 2800);</code> → el motor detecta la violación de <code>NOT NULL</code> y aborta con <code>ORA-01400: cannot insert NULL into (EMPLOYEE_ID)</code>. Ninguna fila huérfana de identidad entra a la base de datos.</p></lk-step>
+</lk-steps>
+
+<table>
+<thead><tr><th><code>employee_id</code> (PK)</th><th><code>last_name</code></th><th><code>department_id</code></th><th><code>salary</code></th><th>Estado tras T1</th></tr></thead>
+<tbody>
+<tr><td><strong>7782</strong></td><td>CLARK</td><td>10</td><td>2450,00</td><td>Anterior</td></tr>
+<tr><td><strong>7839</strong></td><td>KING</td><td>10</td><td>5000,00</td><td><strong>Nuevo</strong></td></tr>
+</tbody></table>
+<p>Los intentos T2 y T3 no añaden ninguna fila: la operación consolidada de T1 es la única que sobrevive.</p>
+
+<lk-widget title="Prueba la integridad de entidad en la tabla">
+<p>Inserta empleados y observa qué decides tú y qué decide el motor. Cambia la restricción a <code>UNIQUE</code> para ver la diferencia que ninguna otra explicación te muestra tan rápido.</p>
+<div class="p1-lab">
+  <div class="p1-form">
+    <div class="row"><label for="p1id">employee_id</label><input id="p1id" type="text" inputmode="numeric" value="7839" size="6"></div>
+    <div class="row"><label for="p1name">last_name</label><input id="p1name" type="text" value="KING" size="10"></div>
+    <div class="row"><button id="p1insert" type="button">INSERT</button><button id="p1reset" type="button">Vaciar la tabla</button></div>
+    <label class="row"><input id="p1unique" type="checkbox"> Declarar <code>employee_id</code> como <code>UNIQUE</code> en vez de <code>PRIMARY KEY</code></label>
+    <p class="p1-msg" id="p1msg" role="status">La tabla está en T0: registra a 7782 CLARK para empezar.</p>
+  </div>
+  <div class="p1-table">
+    <table>
+    <thead><tr><th><code>employee_id</code></th><th><code>last_name</code></th></tr></thead>
+    <tbody id="p1rows"><tr><td>7782</td><td>CLARK</td></tr></tbody>
+    </table>
+  </div>
+</div>
+</lk-widget>
+</section>
+
+<section>
+<h2>5. Distinciones críticas: dónde suele tropezar la gente</h2>
+
+<h3>1. <code>UNIQUE ≠ PRIMARY KEY</code></h3>
+<table>
+<thead><tr><th>Restricción</th><th>¿Permite duplicados?</th><th>¿Permite <code>NULL</code>?</th><th>¿Identifica la entidad?</th></tr></thead>
+<tbody>
+<tr><td><strong><code>UNIQUE</code></strong></td><td>No</td><td><strong>Sí</strong> (uno o varios nulos)</td><td>No necesariamente</td></tr>
+<tr><td><strong><code>PRIMARY KEY</code></strong></td><td>No</td><td><strong>No</strong> (estrictamente prohibido)</td><td><strong>Sí, siempre</strong></td></tr>
+</tbody></table>
+<lk-callout type="warning" title="Regla de oro">
+<p>Una clave primaria exige siempre la combinación indestructible: <strong><code>UNIQUE + NOT NULL</code></strong>. Quedarse con una sola de las dos mitades deja la tabla sin identidad garantizada.</p>
+</lk-callout>
+
+<h3>2. Una tabla relacional no tiene orden físico</h3>
+<p>En el modelo relacional, una tabla es un <strong>conjunto matemático de tuplas</strong>, y los conjuntos no tienen primero ni último: <code>{ Clark, King } = { King, Clark }</code>.</p>
+<p>Si ejecutas <code>SELECT * FROM employee</code>, el motor devolverá las filas en el orden que le resulte más rápido leer del disco en ese instante. Si necesitas un orden concreto para un informe, <strong>debes indicarlo explícitamente con <code>ORDER BY</code></strong>.</p>
+
+<h3>3. ¿Por qué se llama «relacional»?</h3>
+<p>Muchos creen que se llama así porque conecta tablas con claves foráneas. <strong>Es falso.</strong> Se llama relacional porque cada tabla individual representa el concepto matemático de una <strong>relación</strong>: un subconjunto del producto cartesiano de los dominios de sus atributos. Las conexiones entre tablas vienen después.</p>
+</section>
+
+<section>
+<h2>6. Analogía con la realidad y dónde se rompe</h2>
+<h3>La analogía: el DNI o número de pasaporte</h3>
+<p>La clave primaria es como el Documento Nacional de Identidad:</p>
+<ul>
+<li>Dos ciudadanos distintos no pueden tener el mismo DNI (<code>UNIQUE</code>).</li>
+<li>Nadie puede registrarse en el censo sin DNI (<code>NOT NULL</code>).</li>
+<li>Si dos personas se llaman «Juan Pérez», el DNI evita que Hacienda o la Policía las confunda.</li>
+</ul>
+
+<h3>Dónde se rompe la analogía</h3>
+<p>En la vida real, una persona sigue existiendo físicamente aunque pierda su documento. En una base de datos relacional, si un registro carece de clave primaria válida, <strong>la entidad no existe formalmente para el motor</strong> y el sistema impide de forma absoluta su inserción.</p>
+<lk-callout type="note" title="Consecuencia práctica">
+<p>No existe el «empleado sin número que ya arreglaremos»: o entra con identidad, o no entra. Esa dureza es justamente lo que hace fiable a la tabla.</p>
+</lk-callout>
+</section>
+
+<section>
+<h2>7. El mapa mental más importante</h2>
+<p>Ante cualquier inserción o modificación, este es el árbol de decisión exacto que ejecuta el motor:</p>
+<pre class="mermaid">flowchart TD
+  START["Nueva instrucción INSERT"] --&gt; Q1{"1. ¿La PK es NULL?"}
+  Q1 --&gt;|Sí| ERR_NULL["ORA-01400: no admite NULL"]
+  Q1 --&gt;|No| Q2{"2. ¿Existe en el B-tree?"}
+  Q2 --&gt;|Sí| ERR_DUP["ORA-00001: ID ya ocupado"]
+  Q2 --&gt;|No| OK["Operación exitosa: fila registrada"]</pre>
+<lk-callout type="tip" title="Cómo leerlo">
+<p>Son dos preguntas en orden fijo. Primero la nulidad, después la duplicidad: por eso una clave nula nunca llega a compararse con el índice.</p>
+</lk-callout>
+</section>
+
+<section>
+<h2>8. Entrada ➔ Proceso ➔ Salida</h2>
+<pre class="mermaid">flowchart TD
+  IN["ENTRADA: sentencia INSERT con datos de empleado"] --&gt; PROC["PROCESO DEL MOTOR: 1. verificación de dominio · 2. comprobación NOT NULL · 3. búsqueda en el índice B-tree"]
+  PROC --&gt; OUT["SALIDA: inserción consolidada o aborto con código ORA"]</pre>
+
+<h2>9. Qué debes entender realmente de esta parte</h2>
+<table>
+<thead><tr><th>Concepto</th><th>Idea esencial en una sola línea</th></tr></thead>
+<tbody>
+<tr><td><strong>Relación (tabla)</strong></td><td>Contenedor bidimensional lógico con esquema y columnas fijas.</td></tr>
+<tr><td><strong>Tupla (fila)</strong></td><td>Registro individual concreto que representa una entidad del mundo real.</td></tr>
+<tr><td><strong>Atributo (columna)</strong></td><td>Propiedad atómica con nombre y tipo de dato definido.</td></tr>
+<tr><td><strong>Dominio</strong></td><td>Conjunto estricto de valores y formatos permitidos para un atributo.</td></tr>
+<tr><td><strong>Clave primaria (PK)</strong></td><td>Identificador único obligatorio: cumple <code>UNIQUE + NOT NULL</code>.</td></tr>
+<tr><td><strong><code>ORA-00001</code></strong></td><td>Error al intentar duplicar un valor existente de clave primaria.</td></tr>
+<tr><td><strong><code>ORA-01400</code></strong></td><td>Error al intentar dejar una clave primaria en <code>NULL</code>.</td></tr>
+</tbody></table>
+
+<lk-callout type="success" title="Resumen para guardar">
+<ul>
+<li><strong>Piezas:</strong> relación = tabla bidimensional; tupla = fila; atributo = columna; dominio = conjunto de valores y tipos permitidos.</li>
+<li><strong>Integridad de entidad:</strong> la clave primaria identifica unívocamente cada tupla con <code>UNIQUE + NOT NULL</code>; <code>UNIQUE</code> por sí sola admite nulos.</li>
+<li><strong>Motor:</strong> duplicado → <code>ORA-00001</code>; nulo → <code>ORA-01400</code>; el índice B-tree valida la clave en microsegundos.</li>
+<li><strong>Mitos:</strong> las filas no tienen orden intrínseco (el orden exige <code>ORDER BY</code>) y «relacional» viene de relación matemática, no de conectar tablas.</li>
+</ul>
+</lk-callout>
+</section>
+
+<section>
+<h2>Cuestionario de validación</h2>
+<p>Cinco preguntas sobre lo que acabas de leer. Cada una pide también, con tus palabras, qué entendiste y por qué elegiste esa opción: el tutor usa ese razonamiento para saber qué concepto quedó flojo.</p>
+<lk-quiz></lk-quiz>
+
+<h3>Fase práctica de código (SQL)</h3>
+<p>Escribe en el chat la sentencia SQL que resuelve cada ejercicio y el tutor la revisa.</p>
+<p><strong>Ejercicio 1 (fácil).</strong> Consulta únicamente el <code>employee_id</code> y el <code>last_name</code> de todos los registros de la tabla <code>EMPLOYEE</code>.</p>
+<p><strong>Ejercicio 2 (medio).</strong> Registra a un nuevo empleado con <code>employee_id = 7999</code>, apellido <code>'LOPEZ'</code> y salario <code>3500</code>. Explica después por qué fallaría si ya existiera otro empleado con ID <code>7999</code> y qué código de error lanzaría el motor.</p>
+</section>
+
+<lk-ask></lk-ask>
+
+</main>
+<script>
+(() => {
+  const rows = [{ id: '7782', name: 'CLARK' }];
+  const $ = (id) => document.getElementById(id);
+  const msg = $('p1msg');
+  const draw = () => {
+    $('p1rows').replaceChildren(...rows.map((r) => {
+      const tr = document.createElement('tr');
+      const id = document.createElement('td');
+      const name = document.createElement('td');
+      id.textContent = r.id === null ? 'NULL' : r.id;
+      if (r.id === null) id.className = 'null';
+      name.textContent = r.name;
+      tr.append(id, name);
+      return tr;
+    }));
+  };
+  const say = (text, tone) => {
+    msg.textContent = text;
+    msg.className = `p1-msg ${tone}`;
+  };
+  $('p1insert').addEventListener('click', () => {
+    const raw = $('p1id').value.trim();
+    const name = $('p1name').value.trim() || '(sin apellido)';
+    const unique = $('p1unique').checked;
+    const id = raw === '' ? null : raw;
+    if (id === null && !unique) {
+      say('ORA-01400: cannot insert NULL into (EMPLOYEE_ID). La clave primaria es obligatoria: esa fila no entra.', 'bad');
+      return;
+    }
+    if (id !== null && rows.some((r) => r.id === id)) {
+      say(`ORA-00001: unique constraint violated. El id ${id} ya está ocupado, así que la tabla no cambia.`, 'bad');
+      return;
+    }
+    rows.push({ id, name });
+    draw();
+    if (id === null) {
+      say(`Con UNIQUE en vez de PRIMARY KEY, el NULL entra: ${rows.length - 1} fila(s) quedan sin identidad. Prueba a insertar otro NULL y verás que también entra.`, 'warn');
+    } else if (unique) {
+      say(`Fila ${id} aceptada. Con UNIQUE, el motor impide duplicados pero no exige identidad.`, 'ok');
+    } else {
+      say(`Fila ${id} aceptada: no es NULL y no existía en el índice. Operación consolidada.`, 'ok');
+    }
+  });
+  $('p1reset').addEventListener('click', () => {
+    rows.length = 0;
+    draw();
+    say('Tabla vacía. Inserta de nuevo para repetir T1, T2 y T3.', '');
+  });
+  draw();
+})();
+</script>
+</body>
+</html>
