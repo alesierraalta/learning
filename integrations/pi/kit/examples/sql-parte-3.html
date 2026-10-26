@@ -25,8 +25,8 @@
 .p3-msg { margin:10px 0 0; padding:9px 11px; border-left:3px solid #cbd5e1; background:#f8fafc; font-size:.84rem; }
 .p3-msg.ok { border-color:#059669; }
 .p3-msg.warn { border-color:#d97706; }
-.p3-q { margin:0 0 18px; }
-.p3-q h3 { margin:0 0 6px; font-family:var(--font-ui); font-size:.95rem; }
+.p3-why { margin:0; }
+.p3-why summary { cursor:pointer; font-weight:600; }
 .p3-q ul { margin:0; padding-left:1.3em; }
 @media (max-width: 560px) {
   .p2-form .row, .p3-form .row { display:grid; grid-template-columns:1fr; gap:6px; }
@@ -282,69 +282,22 @@ WHERE department_id = NULL;</code></pre>
 
 <section>
 <h2>9. Cuestionario de validación (mini-quiz)</h2>
-<lk-callout type="note" title="Responde en el chat">
-<p>Esta parte todavía no tiene su archivo de mini-quiz en el tema, así que las preguntas van escritas aquí y el tutor las corrige en el chat. Envía la opción elegida y, con tus palabras, qué entendiste y por qué la elegiste.</p>
+<lk-callout type="note" title="Cómo responde el motor">
+<p>Responde las cinco preguntas aquí: cada respuesta viaja al tutor con lo que entendiste y por qué elegiste esa opción. El puntaje se guarda en el tema y la corrección llega al chat.</p>
 </lk-callout>
 
-<article class="p3-q">
-<h3>Pregunta 1</h3>
-<p>¿Cuál es la función de la cláusula <code>WHERE</code> en una consulta SQL?</p>
-<ul>
-<li>A) Proyectar las columnas que aparecen en el resultado.</li>
-<li>B) Filtrar las filas candidatas y conservar solo aquellas cuyo predicado evalúa a <code>TRUE</code>.</li>
-<li>C) Ordenar físicamente las filas de la tabla en el disco.</li>
-<li>D) Crear una clave foránea entre dos tablas.</li>
-<li>E) No sé.</li>
-</ul>
-</article>
+<lk-quiz></lk-quiz>
 
-<article class="p3-q">
-<h3>Pregunta 2</h3>
-<p>¿Qué filas devuelve esta consulta? <code>SELECT employee_id, last_name FROM employee WHERE department_id = 10 AND salary &gt; 2000;</code></p>
-<ul>
-<li>A) Todos los empleados del departamento 10, sin importar el salario.</li>
-<li>B) Solo los empleados del departamento 10 cuyo salario supera 2000.</li>
-<li>C) Todos los empleados con salario mayor a 2000, aunque sean de otro departamento.</li>
-<li>D) Una fila por cada columna seleccionada.</li>
-<li>E) No sé.</li>
-</ul>
-</article>
-
-<article class="p3-q">
-<h3>Pregunta 3</h3>
-<p>¿Qué filas conserva el predicado <code>WHERE department_id = 10 OR department_id = 20 AND salary &gt; 2900</code>?</p>
-<ul>
-<li>A) Solo los empleados del departamento 10 con salario mayor a 2900.</li>
-<li>B) Todos los del departamento 10, más los del 20 con salario mayor a 2900, porque <code>AND</code> se evalúa antes que <code>OR</code>.</li>
-<li>C) Todos los del departamento 20, más los del 10 con salario mayor a 2900.</li>
-<li>D) Ninguna, porque faltan paréntesis y el motor rechaza la consulta.</li>
-<li>E) No sé.</li>
-</ul>
-</article>
-
-<article class="p3-q">
-<h3>Pregunta 4</h3>
-<p>Si ejecutas <code>SELECT employee_id FROM employee WHERE department_id = NULL;</code>, ¿cuántas filas devuelve?</p>
-<ul>
-<li>A) Todas las filas cuyo <code>department_id</code> sea nulo.</li>
-<li>B) Cero filas, porque <code>= NULL</code> evalúa a <code>UNKNOWN</code> y <code>WHERE</code> solo conserva <code>TRUE</code>.</li>
-<li>C) Un error de sintaxis, porque <code>NULL</code> no admite el operador <code>=</code>.</li>
-<li>D) Todas las filas de la tabla, porque el predicado se ignora.</li>
-<li>E) No sé.</li>
-</ul>
-</article>
-
-<article class="p3-q">
-<h3>Pregunta 5</h3>
-<p>¿Qué hace <code>NOT</code> en un predicado de <code>WHERE</code>?</p>
-<ul>
-<li>A) Invierte el resultado booleano: <code>TRUE</code> pasa a <code>FALSE</code> y <code>FALSE</code> a <code>TRUE</code>; <code>UNKNOWN</code> sigue siendo <code>UNKNOWN</code>.</li>
-<li>B) Niega solo los valores numéricos, no las comparaciones.</li>
-<li>C) Elimina las filas duplicadas del resultado.</li>
-<li>D) Convierte el predicado en una proyección de columnas.</li>
-<li>E) No sé.</li>
-</ul>
-</article>
+<details class="p3-why">
+<summary>Por qué esas respuestas (después de enviar)</summary>
+<ol>
+<li><code>WHERE</code> filtra filas; <code>SELECT</code> proyecta columnas.</li>
+<li><code>AND</code> exige las dos condiciones: departamento 10 y salario mayor a 2000.</li>
+<li><code>AND</code> se evalúa antes que <code>OR</code>: (20 y salario &gt; 2900) o (10 sin importar el salario).</li>
+<li><code>= NULL</code> da <code>UNKNOWN</code>, y <code>WHERE</code> solo conserva <code>TRUE</code>: cero filas.</li>
+<li><code>NOT</code> invierte <code>TRUE</code> y <code>FALSE</code>; con <code>UNKNOWN</code> sigue siendo <code>UNKNOWN</code>.</li>
+</ol>
+</details>
 </section>
 
 <section>

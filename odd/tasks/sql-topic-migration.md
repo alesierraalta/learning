@@ -20,12 +20,15 @@ S5. Sin claves de respuesta en la página, sin fuentes externas, sin red salvo l
 | T3 | S1-S5 | Parte 2: página + video | hecho (sql-parte-2.html; video existente 2:10 se reproduce) |
 | T4 | S1-S5 | Parte 3: página + video | hecho (sql-parte-3.html; video existente 19.9M se reproduce) |
 | T5 | S1-S5 | verificación en Chromium (escritorio y móvil) | hecho (1.280 y 390 px sin desborde; demos ejercitadas; quizzes 5/5 en p2, estático en p3) |
+| T6 | S1-S5 | Parte 1: video propio (guion, specs, voz, render, entrega) | hecho — `Developer/learnings-video-html-renderer/sql-p1-html`, build OK (crosscheck OK, qa OK), entregado como `explicaciones/adjuntos/Parte 1 - Arquitectura relacional.mp4` (9.6 MB, 4:45, md5 3868c945) |
 
 Las tres páginas se sirven en vivo en el tema real y se copiaron al vault con el slug de su .md.
-Pendiente de decisión: la Parte 3 no tiene `mini-quiz/p3.json`, así que sus cinco preguntas son estáticas (sin registro ni puntaje).
-Pendiente de decisión: generar los videos de la Parte 1 (no existe) y regenerar el de la Parte 3 (19,9 MB, el doble que los demás).
+Resuelto por L3: la Parte 3 ya tiene `mini-quiz/p3.json` (5 preguntas, 3 conceptos), así que la página registra respuestas y puntaje como las otras dos.
+La Parte 3 no necesita regenerarse: su MP4 en el vault tiene md5 `dce7507b…` y la duración 10:39 del final documentado (`Capitulos.md`), es decir ya es la entrega vigente.
+T6 abierto por L3: la Parte 1 no tiene video y la página ya está migrada con su demo de clave foránea.
 
 ## Log
 
 L1 (usuario, m01209): «si» — autoriza la migración propuesta: «¿Empiezo por la migración de tu tema de SQL y transacciones, que es el que más partes tiene?».
 L2 (usuario, m01169): «que mas nos faltaria para nuestro objetivo? de todo lo que te he comentado, ademas si escribo learning web en la terminal debe abrir esa pagina» — el objetivo incluye videos, demos interactivos y quizzes vivos dentro del HTML.
+L3 (usuario, m01568): «si, go» — autoriza el quiz de la Parte 3 (5 preguntas integradoras con razonamiento) y el video de la Parte 1.
