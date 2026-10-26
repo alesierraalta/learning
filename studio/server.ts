@@ -357,6 +357,7 @@ ${scripts}
 <body>
 <main id="studio"></main>
 <script type="application/json" id="studio-data">${data}</script>
+<script src="/${token}/kit/scene.js"></script>
 <script src="/${token}/tutorial.js"></script>
 <script src="/${token}/studio.js"></script>
 </body>
@@ -493,6 +494,8 @@ ${scripts}
       case "studio.js":
       case "tutorial.js":
         return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(UI_DIR, path)));
+      case "kit/scene.js":
+        return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(HERE, "..", "integrations", "pi", "kit", "scene.js")));
       case "studio.css":
         return send(res, 200, "text/css; charset=utf-8", readFileSync(join(UI_DIR, "studio.css")));
       case "events":

@@ -85,3 +85,27 @@ legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; ma
 @media(max-width:560px) { :root { font-size:17px; } main { padding:28px 16px 60px; } h1 { font-size:1.8rem; } lk-widget,.lk-question { padding:12px; } th,td { padding:10px; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; animation:none !important; } }
 @media print { .lk-progress,.lk-toc { display:none; } main { max-width:none; } lk-step[hidden] { display:block !important; } }
+
+
+/* A step-by-step figure: the deck grows one layer per step */
+.lk-walkthrough { display:block; margin:36px 0; padding:20px 22px 18px; border:2px solid var(--ink); border-radius:14px; background:#fff; box-shadow:6px 6px 0 #f1f5f9; }
+.lk-walkthrough>.lk-title { display:block; font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; color:var(--cobalt); margin-bottom:10px; }
+.lk-wt-stage svg { display:block; width:100%; height:auto; }
+.lk-wt-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px; }
+.lk-wt-bar button { border-radius:999px; padding:6px 14px; font-size:.78rem; }
+.lk-wt-bar button:disabled { opacity:.35; cursor:default; }
+.lk-wt-count { font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; color:#64748b; }
+.lk-wt-dots { display:flex; gap:6px; margin-left:auto; }
+.lk-wt-dot { width:11px; height:11px; padding:0; border-radius:50%; border:2px solid var(--ink) !important; background:#fff; overflow:hidden; text-indent:-99px; }
+.lk-wt-dot[aria-current="true"] { background:var(--cobalt); border-color:var(--cobalt) !important; }
+.lk-wt-caption { margin-top:14px; padding-top:12px; border-top:1px solid var(--rule); }
+.lk-wt-caption strong { font-size:1.05rem; }
+.lk-wt-caption p { margin:6px 0 0; font-size:.95rem; line-height:1.6; }
+.lk-walkthrough:focus-visible { outline:3px solid var(--cobalt); outline-offset:4px; }
+.lk-wt-stage { max-width:100%; }
+.lk-wt-hint { display:none; margin:6px 0 0; font-size:.72rem; letter-spacing:.02em; color:#64748b; }
+@media(max-width:640px) {
+  .lk-wt-stage { overflow-x:auto; overflow-y:hidden; padding-bottom:4px; }
+  .lk-wt-stage svg { width:auto; min-width:680px; }
+  .lk-wt-hint { display:block; }
+}

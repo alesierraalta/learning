@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Parte 3 — Consultas Básicas y Filtrado Booleano (WHERE)</title>
 <link rel="stylesheet" href="../kit/kit.css">
+<script src="../kit/scene.js" defer></script>
 <script src="../kit/kit.js" defer></script>
 <style>
 .p3-lab { display:flex; flex-wrap:wrap; gap:20px; margin-top:14px; align-items:start; }
@@ -148,6 +149,576 @@ WHERE department_id = NULL;</code></pre>
   T4_U --&gt; T4_X["La fila no pasa"]
   T4_X --&gt; T4_R["Resultado: 0 filas"]</pre>
 <p><code>= NULL</code> no encuentra nulos: devuelve <code>UNKNOWN</code>, y <code>WHERE</code> solo conserva <code>TRUE</code>. Los nulos se tratan con <code>IS NULL</code> en la Parte 4.</p>
+
+<h3>El recorrido, capa por capa</h3>
+<p>La misma consulta de arriba, dibujada: avanza paso a paso y mira qué agrega cada cláusula. Se lee en este orden aunque se escriba al revés.</p>
+<lk-walkthrough>
+<script type="application/json">
+{
+  "title": "El recorrido de una consulta",
+  "viewBox": "0 0 1200 660",
+  "steps": [
+    {
+      "title": "De dónde salen las filas",
+      "text": "FROM elige la tabla. Aquí están todas las filas y todas las columnas: todavía no se filtró nada.",
+      "scene": {
+        "sheets": [
+          {
+            "x": 30,
+            "y": 80,
+            "w": 300,
+            "h": 400,
+            "title": "employees",
+            "lines": 8,
+            "tone": "slate"
+          }
+        ],
+        "arrows": [
+          {
+            "x1": 336,
+            "y1": 140,
+            "x2": 384,
+            "y2": 140,
+            "tone": "slate"
+          }
+        ],
+        "labels": [
+          {
+            "x": 180,
+            "y": 512,
+            "text": "todas las filas, todas las columnas",
+            "tone": "slate"
+          }
+        ],
+        "boxes": [
+          {
+            "x": 390,
+            "y": 90,
+            "w": 330,
+            "h": 100,
+            "label": "FROM employees",
+            "sub": "de dónde salen las filas",
+            "tone": "slate"
+          }
+        ]
+      }
+    },
+    {
+      "title": "Qué filas sobreviven",
+      "text": "WHERE evalúa el predicado fila por fila. Solo pasan las que dan TRUE: FALSE se va, y UNKNOWN —comparar con NULL, por ejemplo— también se va.",
+      "scene": {
+        "sheets": [
+          {
+            "x": 30,
+            "y": 80,
+            "w": 300,
+            "h": 400,
+            "title": "employees",
+            "lines": 8,
+            "tone": "slate"
+          }
+        ],
+        "arrows": [
+          {
+            "x1": 336,
+            "y1": 140,
+            "x2": 384,
+            "y2": 140,
+            "tone": "slate"
+          },
+          {
+            "x1": 555,
+            "y1": 190,
+            "x2": 555,
+            "y2": 232,
+            "tone": "blue"
+          }
+        ],
+        "labels": [
+          {
+            "x": 180,
+            "y": 512,
+            "text": "todas las filas, todas las columnas",
+            "tone": "slate"
+          },
+          {
+            "x": 760,
+            "y": 268,
+            "text": "TRUE → se queda",
+            "tone": "green",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 304,
+            "text": "FALSE → se va",
+            "tone": "red",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 340,
+            "text": "UNKNOWN (NULL) → se va",
+            "tone": "amber",
+            "anchor": "start"
+          }
+        ],
+        "boxes": [
+          {
+            "x": 390,
+            "y": 90,
+            "w": 330,
+            "h": 100,
+            "label": "FROM employees",
+            "sub": "de dónde salen las filas",
+            "tone": "slate"
+          },
+          {
+            "x": 390,
+            "y": 235,
+            "w": 330,
+            "h": 110,
+            "label": "WHERE department_id = 10",
+            "sub": "se queda lo que da TRUE",
+            "tone": "blue"
+          }
+        ],
+        "dashed": [
+          {
+            "x": 1000,
+            "y": 228,
+            "w": 170,
+            "h": 124,
+            "label": "quedan 3",
+            "tone": "blue"
+          }
+        ]
+      }
+    },
+    {
+      "title": "Qué columnas ves",
+      "text": "SELECT decide la proyección: cambia lo que ves de cada fila, no cuántas filas sobrevivieron al filtro.",
+      "scene": {
+        "sheets": [
+          {
+            "x": 30,
+            "y": 80,
+            "w": 300,
+            "h": 400,
+            "title": "employees",
+            "lines": 8,
+            "tone": "slate"
+          }
+        ],
+        "arrows": [
+          {
+            "x1": 336,
+            "y1": 140,
+            "x2": 384,
+            "y2": 140,
+            "tone": "slate"
+          },
+          {
+            "x1": 555,
+            "y1": 190,
+            "x2": 555,
+            "y2": 232,
+            "tone": "blue"
+          },
+          {
+            "x1": 555,
+            "y1": 345,
+            "x2": 555,
+            "y2": 387,
+            "tone": "amber"
+          }
+        ],
+        "labels": [
+          {
+            "x": 180,
+            "y": 512,
+            "text": "todas las filas, todas las columnas",
+            "tone": "slate"
+          },
+          {
+            "x": 760,
+            "y": 268,
+            "text": "TRUE → se queda",
+            "tone": "green",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 304,
+            "text": "FALSE → se va",
+            "tone": "red",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 340,
+            "text": "UNKNOWN (NULL) → se va",
+            "tone": "amber",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 452,
+            "text": "mismas filas, menos columnas",
+            "tone": "slate",
+            "anchor": "start"
+          }
+        ],
+        "boxes": [
+          {
+            "x": 390,
+            "y": 90,
+            "w": 330,
+            "h": 100,
+            "label": "FROM employees",
+            "sub": "de dónde salen las filas",
+            "tone": "slate"
+          },
+          {
+            "x": 390,
+            "y": 235,
+            "w": 330,
+            "h": 110,
+            "label": "WHERE department_id = 10",
+            "sub": "se queda lo que da TRUE",
+            "tone": "blue"
+          },
+          {
+            "x": 390,
+            "y": 390,
+            "w": 330,
+            "h": 110,
+            "label": "SELECT id, last_name",
+            "sub": "qué columnas ves",
+            "tone": "amber"
+          }
+        ],
+        "dashed": [
+          {
+            "x": 1000,
+            "y": 228,
+            "w": 170,
+            "h": 124,
+            "label": "quedan 3",
+            "tone": "blue"
+          }
+        ]
+      }
+    },
+    {
+      "title": "En qué orden salen",
+      "text": "ORDER BY ordena lo que ya sobrevivió. No agrega ni quita filas: el mismo conjunto, en otro orden.",
+      "scene": {
+        "sheets": [
+          {
+            "x": 30,
+            "y": 80,
+            "w": 300,
+            "h": 400,
+            "title": "employees",
+            "lines": 8,
+            "tone": "slate"
+          }
+        ],
+        "arrows": [
+          {
+            "x1": 336,
+            "y1": 140,
+            "x2": 384,
+            "y2": 140,
+            "tone": "slate"
+          },
+          {
+            "x1": 555,
+            "y1": 190,
+            "x2": 555,
+            "y2": 232,
+            "tone": "blue"
+          },
+          {
+            "x1": 555,
+            "y1": 345,
+            "x2": 555,
+            "y2": 387,
+            "tone": "amber"
+          },
+          {
+            "x1": 555,
+            "y1": 500,
+            "x2": 555,
+            "y2": 542,
+            "tone": "green"
+          }
+        ],
+        "labels": [
+          {
+            "x": 180,
+            "y": 512,
+            "text": "todas las filas, todas las columnas",
+            "tone": "slate"
+          },
+          {
+            "x": 760,
+            "y": 268,
+            "text": "TRUE → se queda",
+            "tone": "green",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 304,
+            "text": "FALSE → se va",
+            "tone": "red",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 340,
+            "text": "UNKNOWN (NULL) → se va",
+            "tone": "amber",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 452,
+            "text": "mismas filas, menos columnas",
+            "tone": "slate",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 596,
+            "text": "el orden no cambia qué filas hay",
+            "tone": "slate",
+            "anchor": "start"
+          }
+        ],
+        "boxes": [
+          {
+            "x": 390,
+            "y": 90,
+            "w": 330,
+            "h": 100,
+            "label": "FROM employees",
+            "sub": "de dónde salen las filas",
+            "tone": "slate"
+          },
+          {
+            "x": 390,
+            "y": 235,
+            "w": 330,
+            "h": 110,
+            "label": "WHERE department_id = 10",
+            "sub": "se queda lo que da TRUE",
+            "tone": "blue"
+          },
+          {
+            "x": 390,
+            "y": 390,
+            "w": 330,
+            "h": 110,
+            "label": "SELECT id, last_name",
+            "sub": "qué columnas ves",
+            "tone": "amber"
+          },
+          {
+            "x": 390,
+            "y": 545,
+            "w": 330,
+            "h": 90,
+            "label": "ORDER BY last_name",
+            "sub": "solo cambia el orden",
+            "tone": "green"
+          }
+        ],
+        "dashed": [
+          {
+            "x": 1000,
+            "y": 228,
+            "w": 170,
+            "h": 124,
+            "label": "quedan 3",
+            "tone": "blue"
+          }
+        ]
+      }
+    },
+    {
+      "title": "El orden real de lectura",
+      "text": "Se escribe SELECT primero, pero se lee FROM → WHERE → SELECT → ORDER BY. Por eso un alias definido en SELECT no existe todavía dentro de WHERE.",
+      "scene": {
+        "sheets": [
+          {
+            "x": 30,
+            "y": 80,
+            "w": 300,
+            "h": 400,
+            "title": "employees",
+            "lines": 8,
+            "tone": "slate"
+          }
+        ],
+        "arrows": [
+          {
+            "x1": 336,
+            "y1": 140,
+            "x2": 384,
+            "y2": 140,
+            "tone": "slate"
+          },
+          {
+            "x1": 555,
+            "y1": 190,
+            "x2": 555,
+            "y2": 232,
+            "tone": "blue"
+          },
+          {
+            "x1": 555,
+            "y1": 345,
+            "x2": 555,
+            "y2": 387,
+            "tone": "amber"
+          },
+          {
+            "x1": 555,
+            "y1": 500,
+            "x2": 555,
+            "y2": 542,
+            "tone": "green"
+          }
+        ],
+        "labels": [
+          {
+            "x": 180,
+            "y": 512,
+            "text": "todas las filas, todas las columnas",
+            "tone": "slate"
+          },
+          {
+            "x": 760,
+            "y": 268,
+            "text": "TRUE → se queda",
+            "tone": "green",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 304,
+            "text": "FALSE → se va",
+            "tone": "red",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 340,
+            "text": "UNKNOWN (NULL) → se va",
+            "tone": "amber",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 452,
+            "text": "mismas filas, menos columnas",
+            "tone": "slate",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 596,
+            "text": "el orden no cambia qué filas hay",
+            "tone": "slate",
+            "anchor": "start"
+          },
+          {
+            "x": 760,
+            "y": 150,
+            "text": "así se lee una consulta:",
+            "tone": "slate",
+            "anchor": "start"
+          }
+        ],
+        "boxes": [
+          {
+            "x": 390,
+            "y": 90,
+            "w": 330,
+            "h": 100,
+            "label": "FROM employees",
+            "sub": "de dónde salen las filas",
+            "tone": "slate"
+          },
+          {
+            "x": 390,
+            "y": 235,
+            "w": 330,
+            "h": 110,
+            "label": "WHERE department_id = 10",
+            "sub": "se queda lo que da TRUE",
+            "tone": "blue"
+          },
+          {
+            "x": 390,
+            "y": 390,
+            "w": 330,
+            "h": 110,
+            "label": "SELECT id, last_name",
+            "sub": "qué columnas ves",
+            "tone": "amber"
+          },
+          {
+            "x": 390,
+            "y": 545,
+            "w": 330,
+            "h": 90,
+            "label": "ORDER BY last_name",
+            "sub": "solo cambia el orden",
+            "tone": "green"
+          }
+        ],
+        "dashed": [
+          {
+            "x": 1000,
+            "y": 228,
+            "w": 170,
+            "h": 124,
+            "label": "quedan 3",
+            "tone": "blue"
+          }
+        ],
+        "badges": [
+          {
+            "x": 352,
+            "y": 140,
+            "n": 1
+          },
+          {
+            "x": 352,
+            "y": 290,
+            "n": 2
+          },
+          {
+            "x": 352,
+            "y": 445,
+            "n": 3
+          },
+          {
+            "x": 352,
+            "y": 590,
+            "n": 4
+          }
+        ]
+      }
+    }
+  ]
+}
+</script>
+</lk-walkthrough>
 
 <lk-widget title="Prueba el filtro booleano fila por fila">
 <p>Construye el predicado y mira cómo evalúa el motor cada una de las cinco filas. Activa «comparar con NULL» para ver por qué ese predicado nunca encuentra nada.</p>

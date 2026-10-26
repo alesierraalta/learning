@@ -49,6 +49,17 @@ use light DOM: normal page CSS and accessible native controls still work.
 <lk-math display>V(s) = r + \gamma V(s')</lk-math>
 <lk-math>\gamma = 0{,}9</lk-math>
 
+<lk-walkthrough>
+<script type="application/json">
+{"title":"El recorrido de una consulta","viewBox":"0 0 1200 660","steps":[
+  {"title":"De dónde salen las filas","text":"FROM elige la tabla.",
+   "scene":{"sheets":[{"x":30,"y":80,"w":300,"h":400,"title":"employees","lines":8}],
+            "boxes":[{"x":390,"y":90,"w":330,"h":100,"label":"FROM employees","sub":"de dónde salen las filas"}],
+            "arrows":[{"x1":336,"y1":140,"x2":384,"y2":140}],
+            "labels":[{"x":180,"y":512,"text":"todas las filas, todas las columnas"}]}}]}
+</script>
+</lk-walkthrough>
+
 <pre class="mermaid">flowchart TD
   A[State] --&gt; B[Action]
 </pre>
@@ -67,6 +78,13 @@ Diagram positions use an 80-pixel grid; boxes are 190 × 70 pixels. Leave at lea
 three grid units between centers. `kind` is `box`, `agent`, `env`, `store`, or
 `decision`. Dimensions are SVG viewBox pixels; diagrams scale to the column.
 Use short labels and inspect the result for overlapping edges and text.
+
+`lk-walkthrough` is the deck's own visual language, step by step: each step is a `scene`
+in the tutorial's primitives (`sheets`, `boxes`, `arrows`, `labels`, `badges`), and the learner
+reveals them with «Siguiente», «Anterior», the dots, or the arrow keys. Keep every step on the
+same coordinates so the figure grows instead of moving, put the sentence that explains the step
+in its `text`, and keep labels short: below 640 px the stage scrolls sideways with a hint instead
+of shrinking the letters.
 
 `lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
 the learner drains what they are thinking, typed or dictated with the microphone button — and

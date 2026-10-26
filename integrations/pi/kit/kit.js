@@ -323,4 +323,98 @@
     }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', decorate, { once: true }); else decorate();
+
+  // A step-by-step figure for a page: each step reveals one more layer of the
+  // same scene, drawn with the deck vocabulary (scene.js), so an explanation
+  // shows what it says instead of only describing it.
+  const WALK_TONES = () => {
+    const C = window.LKScene.C;
+    return {
+      ink: { stroke: C.ink, fill: '#ffffff', color: C.ink },
+      slate: { stroke: C.slate, fill: C.soft, color: C.slate },
+      blue: { stroke: C.blue, fill: C.blueS, color: C.blue },
+      green: { stroke: C.green, fill: C.greenS, color: C.green },
+      amber: { stroke: C.amber, fill: C.amberS, color: C.amber },
+      red: { stroke: C.red, fill: C.redS, color: C.red },
+    };
+  };
+  function walkScene(scene) {
+    const S = window.LKScene;
+    const tones = WALK_TONES();
+    const tone = (name) => tones[name] || tones.slate;
+    let out = '';
+    for (const d of scene.dashed || []) out += S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke);
+    for (const s of scene.sheets || []) out += S.sheet(s.x, s.y, s.w, s.h, s.title || '', s.lines ?? 4, tone(s.tone).stroke);
+    for (const g of scene.gears || []) out += S.gear(g.x, g.y, g.r || 60, g.teeth || 10, tone(g.tone).stroke);
+    for (const b of scene.boxes || []) {
+      const t = tone(b.tone);
+      out += S.box(b.x, b.y, b.w, b.h, b.label || '', {
+        stroke: b.stroke || t.stroke, fill: b.fill || t.fill, color: b.color || t.color,
+        size: b.size || 26, sub: b.sub || '', rx: b.rx ?? 10,
+      });
+    }
+    for (const n of scene.nodes || []) {
+      const t = tone(n.tone);
+      out += S.node(n.x, n.y, n.label || '', { stroke: t.stroke, fill: t.fill, color: t.color, r: n.r || 30 });
+    }
+    for (const a of scene.arrows || []) {
+      const color = tone(a.tone).stroke;
+      if (a.bend !== undefined) out += S.curve(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, bend: a.bend });
+      else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed });
+    }
+    for (const b of scene.badges || []) out += S.badge(b.x, b.y, b.n);
+    for (const l of scene.labels || []) out += S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 });
+    return out;
+  }
+  define('lk-walkthrough', function () {
+    const S = window.LKScene;
+    if (!S) throw new Error('Falta scene.js: no se puede dibujar el recorrido');
+    const spec = JSON.parse(this.querySelector('script[type="application/json"]').textContent);
+    const steps = spec.steps || [];
+    if (!steps.length) throw new Error('El recorrido no tiene pasos');
+    const stage = el('div', undefined, { class: 'lk-wt-stage' });
+    stage.innerHTML = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}))).join(''), spec.viewBox || '0 0 1200 640');
+    const captionTitle = el('strong');
+    const captionText = el('p');
+    const caption = el('div', undefined, { class: 'lk-wt-caption' });
+    caption.append(captionTitle, captionText);
+    const hint = el('p', 'Desliza el diagrama para verlo completo', { class: 'lk-wt-hint' });
+    const count = el('span', undefined, { class: 'lk-wt-count' });
+    const dots = el('div', undefined, { class: 'lk-wt-dots' });
+    let index = 0, whole = false;
+    const prev = button('◀ Anterior', () => go(index - 1));
+    const next = button('Siguiente ▶', () => go(index + 1));
+    const reveal = button('Ver todo', () => { whole = !whole; draw(); });
+    const bar = el('div', undefined, { class: 'lk-wt-bar' });
+    bar.append(prev, count, next, reveal, dots);
+    this.classList.add('lk-walkthrough');
+    this.tabIndex = 0;
+    if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
+    this.append(stage, hint, bar, caption);
+    steps.forEach((_, i) => {
+      const dot = button(String(i + 1), () => go(i));
+      dot.className = 'lk-wt-dot';
+      dot.setAttribute('aria-label', `Paso ${i + 1}`);
+      dots.append(dot);
+    });
+    function go(to) { index = Math.max(0, Math.min(steps.length - 1, to)); whole = false; draw(); }
+    function draw() {
+      stage.querySelectorAll('[data-step]').forEach((g) => {
+        g.style.display = whole || Number(g.dataset.step) <= index + 1 ? '' : 'none';
+      });
+      const step = steps[index];
+      captionTitle.textContent = step.title || '';
+      captionText.textContent = step.text || '';
+      count.textContent = whole ? `${steps.length} pasos` : `Paso ${index + 1} de ${steps.length}`;
+      prev.disabled = index === 0;
+      next.disabled = index === steps.length - 1;
+      reveal.textContent = whole ? 'Ver por pasos' : 'Ver todo';
+      [...dots.children].forEach((dot, i) => dot.setAttribute('aria-current', String(i === index)));
+    }
+    this.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowRight') { event.preventDefault(); go(index + 1); }
+      else if (event.key === 'ArrowLeft') { event.preventDefault(); go(index - 1); }
+    });
+    draw();
+  });
 })();
