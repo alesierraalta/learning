@@ -3,3 +3,5 @@ bin/
 .learning/
 .codegraph/
 scratch/
+# Local AI runtime state
+.atl/
