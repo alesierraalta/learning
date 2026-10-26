@@ -296,12 +296,97 @@
     }
     app.append(panel);
   }
+  function exerciseLinks() {
+    if (!data.exercises?.length) return;
+    const section = element("section");
+    section.append(element("h2", "Ejercicios de código"));
+    for (const ex of data.exercises) {
+      const row = element("p");
+      row.append(link(ex.titulo, data.topicBase + "codigo/" + encodeURIComponent(ex.id)), element("span", ` · ${ex.lenguaje} · Mejor: ${ex.mejor || "sin entregas"}`));
+      if (ex.error) row.append(element("span", " · Ejercicio no disponible", "error"));
+      section.append(row);
+    }
+    app.append(section);
+  }
+
+  function codePage() {
+    const ex = data.exercise;
+    app.append(element("h2", ex.titulo), element("p", `${ex.lenguaje} · ${data.file}`), markdown(ex.enunciado));
+    for (const test of ex.tests.filter((t) => !t.oculto)) {
+      app.append(element("h3", test.nombre), element("p", "Entrada"), element("pre", test.entrada), element("p", "Salida esperada"), element("pre", test.salida));
+    }
+    app.append(element("p", `${ex.tests.filter((t) => t.oculto).length} pruebas ocultas`));
+    const key = `learning-code:${data.topic}:${ex.id}`;
+    const editor = textarea(app, "Tu código");
+    editor.className = "code-editor";
+    editor.spellcheck = false;
+    editor.maxLength = 100000;
+    editor.rows = 18;
+    let draft;
+    try { draft = localStorage.getItem(key); } catch {}
+    editor.value = draft ?? data.lastCode ?? ex.plantilla;
+    const saveDraft = () => { try { localStorage.setItem(key, editor.value); } catch {} };
+    editor.addEventListener("input", saveDraft);
+    const input = textarea(app, "Mi entrada");
+    const note = textarea(app, "Nota para el tutor (opcional)");
+    const panel = element("section", undefined, "code-results");
+    panel.setAttribute("aria-live", "polite");
+    const history = element("section");
+    history.append(element("h2", "Historial de entregas"));
+    const addHistory = (s) => history.append(element("p", `#${s.numero} · ${s.aprobados}/${s.total} · ${s.fecha}`));
+    (data.submissions || []).forEach(addHistory);
+    const buttons = [];
+    const states = { correcto: "✔ correcto", incorrecto: "✘ incorrecto", tiempo: "⏱ tiempo", error: "💥 error", ejecutado: "▶ ejecutado" };
+    const run = async (mode) => {
+      buttons.forEach((b) => b.disabled = true);
+      panel.replaceChildren(element("p", "Ejecutando…"));
+      const payload = { topic: data.topic, exercise: ex.id, code: editor.value };
+      if (mode === "submit") { payload.kind = "code"; payload.note = note.value; }
+      if (mode === "free") payload.input = input.value;
+      try {
+        const response = await fetch(mode === "submit" ? data.submitUrl : data.runUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error);
+        panel.replaceChildren(element("h2", `Resultado: ${result.aprobados}/${result.total}`), element("h3", result.compilacion.ok ? "Compilación correcta" : "Error de compilación"), element("pre", result.compilacion.salida));
+        for (const r of result.resultados) {
+          panel.append(element("h3", `${r.nombre}${r.oculto ? " (oculto)" : ""} · ${states[r.estado]}`));
+          if (!r.oculto) for (const [key, label] of [["entrada", "Entrada"], ["esperado", "Esperado"], ["obtenido", "Obtenido"], ["errores", "Errores"]]) {
+            if (r[key] !== undefined) panel.append(element("p", label), element("pre", r[key]));
+          }
+        }
+        if (mode === "submit") {
+          panel.append(element("p", "Entrega guardada y enviada al tutor."));
+          addHistory({ numero: Number(result.saved.split("/").pop().split(".")[0]), aprobados: result.aprobados, total: result.total, fecha: new Date().toISOString() });
+        }
+      } catch (error) { panel.replaceChildren(element("p", `No se pudo ejecutar: ${error.message}`, "error")); }
+      finally { buttons.forEach((b) => b.disabled = false); }
+    };
+    for (const [text, mode] of [["Probar con las pruebas visibles", "visible"], ["Probar con mi entrada", "free"], ["Entregar al tutor", "submit"]]) {
+      const button = element("button", text);
+      button.onclick = () => run(mode);
+      buttons.push(button);
+      app.append(button);
+    }
+    const restore = element("button", "Restaurar plantilla");
+    restore.onclick = () => { if (confirm("¿Restaurar la plantilla? Se perderá el borrador actual.")) { editor.value = ex.plantilla; saveDraft(); } };
+    app.append(restore, panel, history);
+    editor.addEventListener("keydown", (event) => {
+      if (event.key === "Tab") {
+        event.preventDefault();
+        editor.setRangeText("    ", editor.selectionStart, editor.selectionEnd, "end");
+        saveDraft();
+      }
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); if (!buttons[0].disabled) run("visible"); }
+    });
+  }
+
   // Inside the studio the studio itself navigates; the view's own back link would move the frame.
   const embedded = window.self !== window.top;
   if (!embedded && data.topicBase) app.append(link(`← ${data.topicTitle || data.title}`, data.topicBase));
   else if (!embedded && data.kind !== "index") app.append(link("← Temas", data.home));
   // A part note carries its own title.
   if (data.kind !== "part") app.append(element("h1", data.title || "Learnings"));
+  if (data.kind === "code") { codePage(); return; }
   if (data.kind === "index" || data.kind === "topic") {
     const list = element("ul", undefined, "navigation");
     for (const item of data.topics || data.parts || []) {
@@ -313,6 +398,7 @@
     }
     app.append(list);
     if (data.hasDiagnosis) app.append(link("Diagnóstico", data.topicBase + "quiz"));
+    exerciseLinks();
     return;
   }
   if (data.kind === "part") {
@@ -337,6 +423,7 @@
     app.append(article);
     decorate(article);
   }
+  exerciseLinks();
   const frames = [];
   if (data.demos?.length) {
     const section = element("section");

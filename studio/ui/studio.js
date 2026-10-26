@@ -350,6 +350,11 @@
         ),
       );
     });
+    for (const ex of topic.exercises || []) {
+      rows.push(h("li", { class: "part-row ready" },
+        h("div", {}, h("h3", {}, ex.titulo), h("div", { class: "meta" }, `Código · ${ex.lenguaje} · Mejor: ${ex.mejor || "sin entregas"}`)),
+        btn("Resolver", () => go(`#/leer/${topic.id}/${encodeURIComponent(`codigo/${ex.id}`)}`), "btn small")));
+    }
     stage.replaceChildren(
       h(
         "div",
@@ -393,8 +398,9 @@
     const quick = quickId ? library.quick.find((q) => q.id === quickId) : null;
     const index = topic && part !== "quiz" ? partIndex(topic, part) : -1;
     const info = index >= 0 ? topic.parts[index] : null;
-    const title = quick ? quick.title : part === "quiz" ? "Diagnóstico inicial" : info ? info.title : "";
-    const kicker = quick ? "Nota rápida" : part === "quiz" ? "Diagnóstico" : `Parte ${index + 1}`;
+    const exercise = topic?.exercises?.find((e) => part === `codigo/${e.id}`);
+    const title = quick ? quick.title : exercise ? exercise.titulo : part === "quiz" ? "Diagnóstico inicial" : info ? info.title : "";
+    const kicker = quick ? "Nota rápida" : exercise ? "Ejercicio de código" : part === "quiz" ? "Diagnóstico" : `Parte ${index + 1}`;
     setCrumbs(
       quick
         ? [{ text: "Inicio", href: "#/" }, { text: "Notas rápidas" }, { text: quick.title }]
