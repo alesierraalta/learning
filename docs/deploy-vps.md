@@ -33,7 +33,7 @@ Run as `ale`, not root. Install Git, Go (the version required by `go.mod`), curl
    ```
    Dry-run prints planned mutations even when prerequisites are missing, exits nonzero for missing prerequisites, and never runs sudo or systemctl. For a different npm prefix, set `NPM_PREFIX=/your/prefix` before installation. The installer preserves an existing `~/.config/learning-studio.env`; edit its `PATH` yourself if changing prefixes later.
 
-Open **https://10.154.59.151:8445** from a device on the ZeroTier network. HTTPS bridge pages use port **8446**. The container `learning-studio-caddy` (Caddy, host network, `deploy/vps/Caddyfile`, restarts unless stopped) terminates TLS there and proxies to loopback ports **4747** and **4748**, preserving Host. Each browser device must trust the Infra Root CA (`~/sync-hub/certs/infra-root-ca.crt`): on Windows, open the `.crt`, *Install Certificate* → *Local Machine* → *Trusted Root Certification Authorities*. The microphone needs that trusted HTTPS origin.
+Open **https://10.154.59.151:8445** from a device on the ZeroTier network. HTTPS bridge pages use port **8446**. The container `learning-studio-caddy` (Caddy, host network, `deploy/vps/Caddyfile`, restarts unless stopped) terminates TLS there and proxies to loopback ports **4747** and **4748**, preserving Host. Each browser device must trust the Infra Root CA (`~/sync-hub/certs/infra-root-ca.crt`): on Windows, open the `.crt`, *Install Certificate* → *Local Machine* → *Trusted Root Certification Authorities*. The microphone needs that trusted HTTPS origin. UFW drops unlisted ports, so the installer allows `8445:8446/tcp` on the ZeroTier interface only.
 
 ## Update and operate
 
