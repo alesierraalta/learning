@@ -16,12 +16,13 @@ overrides the Learnings folder. Ctrl+C stops the studio and its Pi.
 
 ## HTTPS reverse proxy
 
-For tailnet-only HTTPS through `tailscale serve`, keep both listeners on loopback
+For HTTPS on a private network through a TLS reverse proxy (the VPS uses Caddy on
+its ZeroTier address, see `docs/deploy-vps.md`), keep both listeners on loopback
 and configure the two public origins together:
 
 ```bash
-STUDIO_PUBLIC_ORIGIN=https://box.tail0.ts.net:8445 \
-STUDIO_BRIDGE_PUBLIC_ORIGIN=https://box.tail0.ts.net:8446 \
+STUDIO_PUBLIC_ORIGIN=https://10.154.59.151:8445 \
+STUDIO_BRIDGE_PUBLIC_ORIGIN=https://10.154.59.151:8446 \
 STUDIO_BRIDGE_PORT=4748 node studio/server.ts
 ```
 
@@ -35,7 +36,7 @@ Forward the studio HTTPS port to `127.0.0.1:4747` (`STUDIO_PORT`) and the bridge
 HTTPS port to `127.0.0.1:4748`, preserving Host. With public origins configured,
 a taken studio port is an error, not a fallback: the proxy must not silently
 point at another process. With these options unset, loopback behavior is unchanged.
-Keep the proxy tailnet-only: this app controls a local Pi agent, not a public service.
+Keep the proxy on a private network only: this app controls a local Pi agent, not a public service.
 
 ## What runs
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Learning studio (tailnet only)
+Description=Learning studio (ZeroTier only)
 StartLimitIntervalSec=0
 
 [Service]

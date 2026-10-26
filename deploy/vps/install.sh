@@ -30,10 +30,14 @@ need() {
 }
 need git 'install git'
 need pi "install Pi under $NPM_PREFIX and add its bin directory to PATH"
-need sudo 'sudo is required for lingering and Tailscale'
+need sudo 'sudo is required for lingering'
 need loginctl 'systemd login manager is required'
 need systemctl 'systemd user services are required'
-need tailscale 'install and authenticate Tailscale'
+need docker 'install Docker and add this user to the docker group (TLS front and code exercises)'
+if [[ ! -r /srv/certs/docker/infra.pem || ! -r /srv/certs/docker/infra-key.pem ]]; then
+  echo 'Missing prerequisite: /srv/certs/docker/infra.pem and infra-key.pem (Infra Root CA service certificate with SAN IP:10.154.59.151)' >&2
+  missing=1
+fi
 need curl 'install curl for health checks'
 # Distribution builds (e.g. Ubuntu's nodejs) can lack TypeScript support, so the studio uses its own Node.
 node_bin="$HOME/.local/node/bin/node"
@@ -71,7 +75,12 @@ run install -m 644 "$assets/learning-studio.service" "$HOME/.config/systemd/user
 run sudo loginctl enable-linger "${USER:?USER must name the service owner}"
 run systemctl --user daemon-reload
 run systemctl --user enable --now learning-studio
-run sudo tailscale serve --bg --https=8445 http://127.0.0.1:4747
-run sudo tailscale serve --bg --https=8446 http://127.0.0.1:4748
+# HTTPS on the ZeroTier address only, with the Infra Root CA service certificate.
+if docker container inspect learning-studio-caddy >/dev/null 2>&1; then
+  run docker restart learning-studio-caddy
+else
+  run docker run -d --name learning-studio-caddy --restart unless-stopped --network host \
+    -v "$assets/Caddyfile:/etc/caddy/Caddyfile:ro" -v /srv/certs/docker:/certs:ro caddy:latest
+fi
 run bash "$assets/health.sh"
 exit "$missing"
