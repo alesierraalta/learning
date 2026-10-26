@@ -80,11 +80,22 @@ three grid units between centers. `kind` is `box`, `agent`, `env`, `store`, or
 Use short labels and inspect the result for overlapping edges and text.
 
 `lk-walkthrough` is the deck's own visual language, step by step: each step is a `scene`
-in the tutorial's primitives (`sheets`, `boxes`, `arrows`, `labels`, `badges`), and the learner
-reveals them with «Siguiente», «Anterior», the dots, or the arrow keys. Keep every step on the
-same coordinates so the figure grows instead of moving, put the sentence that explains the step
-in its `text`, and keep labels short: below 640 px the stage scrolls sideways with a hint instead
-of shrinking the letters.
+in the tutorial's primitives (`sheets`, `boxes`, `arrows`, `labels`, `badges`, `dashed`, `gears`,
+`nodes`), and the learner reveals them with «Siguiente», «Anterior», the dots, or the arrow keys.
+Keep every step on the same coordinates so the figure grows instead of moving, put the sentence
+that explains the step in its `text`, and keep labels short: below 640 px the stage scrolls
+sideways with a hint instead of shrinking the letters.
+
+A page with a walkthrough must load the drawing vocabulary first, because `kit.js` takes it from
+`window.LKScene` and throws «Falta scene.js» otherwise:
+
+```html
+<script src="../kit/scene.js" defer></script>
+<script src="../kit/kit.js" defer></script>
+```
+
+Later steps paint over earlier ones, so a `dashed` highlight that must not hide what it marks
+needs `"fill": "none"`.
 
 `lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
 the learner drains what they are thinking, typed or dictated with the microphone button — and

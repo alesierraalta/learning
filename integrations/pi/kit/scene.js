@@ -35,8 +35,8 @@
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="#ffffff" stroke="${color}" stroke-width="3"/>` +
     `<path d="M ${x} ${y} L ${f(x + w / 2)} ${f(y + h * 0.55)} L ${x + w} ${y}" fill="none" stroke="${color}" stroke-width="3"/>`;
 
-  const dashed = (x, y, w, h, label, color = C.slate2) =>
-    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="22" fill="${C.soft2}" stroke="${color}" stroke-width="3.5" stroke-dasharray="14 10"/>` +
+  const dashed = (x, y, w, h, label, color = C.slate2, fill = C.soft2) =>
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="22" fill="${fill}" stroke="${color}" stroke-width="3.5" stroke-dasharray="14 10"/>` +
     (label ? txt(x + w / 2, y + 50, label, { size: 30, color: C.slate }) : "");
 
   const sheet = (x, y, w, h, title = "", lines = 4, color = C.slate) => {

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Parte 1 — Estructura Relacional y Clave Primaria (PK)</title>
 <link rel="stylesheet" href="../kit/kit.css">
+<script src="../kit/scene.js" defer></script>
 <script src="../kit/kit.js" defer></script>
 <style>
 .p1-lab { display:flex; flex-wrap:wrap; gap:20px; margin-top:14px; align-items:start; }
@@ -99,6 +100,195 @@
 <tbody>
 <tr><td><strong>Tupla 1</strong> (Clark)</td><td><strong>7782</strong></td><td>CLARK</td><td>10</td><td>2450,00</td></tr>
 <tr><td><strong>Tupla 2</strong> (King)</td><td><strong>7839</strong></td><td>KING</td><td>10</td><td>5000,00</td></tr>
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Cómo se lee una relación",
+ "viewBox": "0 0 1200 660",
+ "steps": [
+  {
+   "title": "Las filas guardadas",
+   "text": "Una tabla guarda tuplas: cada fila es una entidad concreta, no una idea.",
+   "scene": {
+    "sheets": [
+     {
+      "x": 40,
+      "y": 110,
+      "w": 300,
+      "h": 320,
+      "title": "EMPLOYEE",
+      "lines": 8,
+      "tone": "slate"
+     }
+    ],
+    "labels": [
+     {
+      "x": 190,
+      "y": 470,
+      "text": "3 tuplas guardadas",
+      "size": 22,
+      "tone": "slate"
+     }
+    ]
+   }
+  },
+  {
+   "title": "El esquema pone las reglas",
+   "text": "Cada columna declara un atributo y su dominio: qué dato vive ahí y qué valores acepta.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 400,
+      "y": 110,
+      "w": 360,
+      "h": 62,
+      "label": "employee_id",
+      "sub": "NUMBER(4) · PRIMARY KEY",
+      "tone": "ink"
+     },
+     {
+      "x": 400,
+      "y": 190,
+      "w": 360,
+      "h": 62,
+      "label": "last_name",
+      "sub": "VARCHAR2(10)",
+      "tone": "slate"
+     },
+     {
+      "x": 400,
+      "y": 270,
+      "w": 360,
+      "h": 62,
+      "label": "department_id",
+      "sub": "NUMBER(2) · FK",
+      "tone": "slate"
+     },
+     {
+      "x": 400,
+      "y": 350,
+      "w": 360,
+      "h": 62,
+      "label": "salary",
+      "sub": "NUMBER(7,2) > 0",
+      "tone": "slate"
+     }
+    ],
+    "labels": [
+     {
+      "x": 980,
+      "y": 130,
+      "text": "cada columna fija",
+      "size": 24,
+      "tone": "slate"
+     },
+     {
+      "x": 980,
+      "y": 166,
+      "text": "un atributo y su dominio",
+      "size": 24,
+      "tone": "slate"
+     }
+    ]
+   }
+  },
+  {
+   "title": "La clave primaria",
+   "text": "employee_id es UNIQUE + NOT NULL: ninguna fila se confunde con otra ni queda indocumentada.",
+   "scene": {
+    "dashed": [
+     {
+      "x": 388,
+      "y": 100,
+      "w": 384,
+      "h": 82,
+      "label": "",
+      "tone": "blue",
+      "fill": "none"
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 776,
+      "y1": 150,
+      "x2": 856,
+      "y2": 286,
+      "tone": "blue",
+      "bend": 0.2
+     }
+    ],
+    "labels": [
+     {
+      "x": 980,
+      "y": 290,
+      "text": "clave primaria:",
+      "size": 24,
+      "tone": "blue"
+     },
+     {
+      "x": 980,
+      "y": 326,
+      "text": "única y obligatoria",
+      "size": 24,
+      "tone": "blue"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Consultar no cambia la estructura",
+   "text": "SELECT … WHERE devuelve un subconjunto de tuplas; el esquema sigue siendo el mismo.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 40,
+      "y": 520,
+      "w": 300,
+      "h": 80,
+      "label": "SELECT … WHERE",
+      "sub": "devuelve un subconjunto",
+      "tone": "blue"
+     }
+    ],
+    "arrows": [],
+    "labels": [
+     {
+      "x": 640,
+      "y": 560,
+      "text": "el esquema no cambia: cambia qué filas ves",
+      "size": 24,
+      "tone": "slate"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Las dos medidas de una relación",
+   "text": "Grado: cuántos atributos. Cardinalidad: cuántas tuplas. Confundirlas es el error clásico.",
+   "scene": {
+    "labels": [
+     {
+      "x": 980,
+      "y": 470,
+      "text": "grado = 4 atributos",
+      "size": 24,
+      "tone": "slate"
+     },
+     {
+      "x": 980,
+      "y": 510,
+      "text": "cardinalidad = 3 tuplas",
+      "size": 24,
+      "tone": "slate"
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
 </tbody></table>
 </section>
 
