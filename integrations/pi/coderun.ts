@@ -22,6 +22,8 @@ const MAX_CODE_CHARS = 100_000;
 const MAX_TESTS = 50;
 const MAX_IO_CHARS = 100_000;
 const SHOWN_CHARS = 8000;
+/** Grading compares the whole output, so it is read up to the largest expected output in bytes; only the shown copy is clipped. */
+const JUDGED_BYTES = MAX_IO_CHARS * 4 + 1;
 const COMPILE_SECONDS = 60;
 const DEFAULT_LIMIT_SECONDS = 2;
 const MAX_LIMIT_SECONDS = 20;
@@ -171,7 +173,7 @@ function readJudged(path: string): string | undefined {
     if (realpathSync(path) !== path || !lstatSync(path).isFile()) return undefined;
     const fd = openSync(path, "r");
     try {
-      const buffer = Buffer.alloc(SHOWN_CHARS * 4 + 1);
+      const buffer = Buffer.alloc(JUDGED_BYTES);
       const read = readSync(fd, buffer, 0, buffer.length, 0);
       return buffer.subarray(0, read).toString("utf8");
     } finally {

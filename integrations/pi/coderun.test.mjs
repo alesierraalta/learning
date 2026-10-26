@@ -89,6 +89,13 @@ test("a correct program passes every test and a wrong one shows expected against
   );
 });
 
+test("a correct program passes even when its output is longer than the shown part", { skip: needs("python") }, async () => {
+  const long = 40_000;
+  const result = await python(`print('x' * ${long})\n`, [{ nombre: "larga", entrada: "", salida: `${"x".repeat(long)}\n` }]);
+  assert.equal(result.resultados[0].estado, "correcto", "grading must see the whole output, not the clipped copy");
+  assert.equal(result.aprobados, 1);
+});
+
 test("an endless loop is stopped at the time limit and a crash reports its error", { skip: needs("python") }, async () => {
   const started = Date.now();
   const loop = await python("while True:\n    pass\n", [{ nombre: "t", entrada: "", salida: "" }], 1);
