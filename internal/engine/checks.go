@@ -388,20 +388,16 @@ func evalDiagnosticAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 		}
 	}
 	if adaptive && !skipped && c.r.Thresholds.ConceptMode() {
-		why, err := loadReasoning(c.ws, decl.Answers)
-		if err != nil {
-			return failCheck(decl.ID, "answers invalid: "+err.Error())
-		}
-		if err := guidedFlow(qs, answers, why); err != nil {
+		if err := guidedFlow(qs, answers); err != nil {
 			return failCheck(decl.ID, "diagnosis round invalid: "+err.Error())
 		}
 		var ids []string
 		for _, q := range qs {
 			ids = append(ids, q.ID)
 		}
-		if pending := pendingAnswers(ids, answers, why); len(pending) > 0 {
+		if pending := pendingAnswers(ids, answers); len(pending) > 0 {
 			return failCheck(decl.ID, fmt.Sprintf(
-				"learner answers or reasoning (razonamiento) not yet recorded for %s in %s (waiting for learner input)",
+				"learner answers not yet recorded for %s in %s (waiting for learner input)",
 				strings.Join(pending, ", "), decl.Answers))
 		}
 	} else if adaptive && !skipped {
@@ -872,15 +868,6 @@ func evalMiniQuizAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 	score := scoreQuiz(qs, answers)
 	passed := score.Correct >= c.r.Thresholds.Quiz.MinPassingScore && len(score.CentralMisses) == 0
 	if c.r.Thresholds.ConceptMode() {
-		why, err := loadReasoning(c.ws, aRel)
-		if err != nil {
-			return failCheck(decl.ID, "answers invalid: "+err.Error())
-		}
-		if pending := pendingAnswers(ids, answers, why); len(pending) > 0 {
-			return failCheck(decl.ID, fmt.Sprintf(
-				"learner reasoning (razonamiento) not yet recorded for %s in %s (waiting for learner input)",
-				strings.Join(pending, ", "), aRel))
-		}
 		ratio := c.r.Thresholds.Concepts.MinPassingRatio
 		threshold = fmt.Sprintf("%d/%d of the questions", ratio.Num, ratio.Den)
 		passed = score.Correct*ratio.Den >= ratio.Num*len(qs) && len(score.CentralMisses) == 0

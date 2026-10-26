@@ -465,7 +465,7 @@ func checkReason(checks []Check, id string) string {
 // runFrontierStage evaluates the current frontier stage. Advance validates
 // objective checks first, then requires every applicable review to be recorded
 // and fresh, and only then records. review stores one review verdict.
-func runFrontierStage(record bool, requested, fStage, fPart string, stale []staleRef, opts Options, ws string, st *State, r *rules.Rules) (Report, int) {
+func runFrontierStage(_ bool, requested, fStage, fPart string, stale []staleRef, opts Options, ws string, st *State, r *rules.Rules) (Report, int) {
 	part := ""
 	if r.IsPartStage(requested) {
 		part = fPart
@@ -765,15 +765,14 @@ func detectWait(r *rules.Rules, ws, stage, part string) bool {
 				}
 			}
 			if r.Thresholds.ConceptMode() {
-				why, err := loadReasoning(ws, aRel)
-				if err != nil || guidedFlow(qs, answers, why) != nil {
+				if guidedFlow(qs, answers) != nil {
 					return false
 				}
 				var ids []string
 				for _, q := range qs {
 					ids = append(ids, q.ID)
 				}
-				return len(pendingAnswers(ids, answers, why)) > 0
+				return len(pendingAnswers(ids, answers)) > 0
 			}
 			if _, err := adaptiveFlow(qs, answers, r.Thresholds); err != nil {
 				return false
@@ -791,15 +790,14 @@ func detectWait(r *rules.Rules, ws, stage, part string) bool {
 		aPart := substPart(aRel, part)
 		if r.Thresholds.ConceptMode() && !answerFileMissing(ws, aPart) {
 			answers, err := loadAnswers(ws, aPart)
-			why, whyErr := loadReasoning(ws, aPart)
-			if err != nil || whyErr != nil {
+			if err != nil {
 				return false
 			}
 			var ids []string
 			for _, q := range qs {
 				ids = append(ids, q.ID)
 			}
-			return len(pendingAnswers(ids, answers, why)) > 0
+			return len(pendingAnswers(ids, answers)) > 0
 		}
 	default:
 		return false
@@ -1002,7 +1000,7 @@ func bindReview(r *rules.Rules, st *State, ws, stage, part string, rub rules.Rub
 	return b
 }
 
-func reviewFresh(rub rules.Rubric, rec *SemanticReceipt, b reviewBinding, r *rules.Rules) bool {
+func reviewFresh(_ rules.Rubric, rec *SemanticReceipt, b reviewBinding, r *rules.Rules) bool {
 	return rec != nil && rec.ArtifactHash == b.artifactHash &&
 		rec.RulesHash == r.Hash && rec.ContextHash == b.contextHash
 }
@@ -1124,7 +1122,7 @@ func runReviewRecord(opts Options, stage, part string, checks []Check, stageEvid
 		Checks: checks, Evidence: ev}, ExitOK
 }
 
-func semanticContext(r *rules.Rules, st *State, ws, stage, part string, sources []string) string {
+func semanticContext(r *rules.Rules, st *State, ws, _ string, part string, sources []string) string {
 	var out strings.Builder
 	for _, source := range sources {
 		switch source {
@@ -1221,7 +1219,7 @@ func partRelFromWorkspace(r *rules.Rules, ws, part string) (string, error) {
 	return partRel(&plan, declPathByKind(r, "explanation", "part_file"), part)
 }
 
-func rubricArtifactPath(r *rules.Rules, st *State, ws, template, part string) string {
+func rubricArtifactPath(r *rules.Rules, _ *State, ws, template, part string) string {
 	if part != "" && (strings.Contains(template, "{index}") || strings.Contains(template, "{slug}")) {
 		planRel := declPathByKind(r, "preparation", "file_exists")
 		plan, err := loadPlan(ws, planRel)

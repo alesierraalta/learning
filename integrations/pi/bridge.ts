@@ -318,10 +318,11 @@ function quizMessage(header: string, saved: string, results: Graded[], reasoning
   const lines = [header, `Respuestas y razonamientos guardados en ${saved} (resultado inmediato: ${score}/${results.length}):`];
   for (const r of results) {
     lines.push(`- ${r.id}: ${r.chosen} ${r.ok ? "✔" : `✘ (correcta: ${r.correct})`}`);
-    lines.push(
-      `  Pensamiento: ${indented(thought(reasoning[r.id]))}`,
-      `  Confianza: ${CONFIDENCE[reasoning[r.id].confianza ?? ""] ?? "-"}`,
-    );
+    const said = thought(reasoning[r.id]);
+    if (said) {
+      lines.push(`  Pensamiento: ${indented(said)}`);
+      if (reasoning[r.id].confianza) lines.push(`  Confianza: ${CONFIDENCE[reasoning[r.id].confianza ?? ""] ?? "-"}`);
+    }
   }
   return lines;
 }
@@ -363,31 +364,30 @@ function checkAnswers(raw: unknown, questions: Question[], exact: boolean): Reco
   return raw as Record<string, string>;
 }
 
-/** Every answered question carries the learner's thought and how sure they were. */
-function checkReasoning(raw: unknown, answers: Record<string, string>): Record<string, Reasoning> {
-  if (!isRecord(raw)) throw new HttpError(400, "reasoning is required for every answered question");
+/** The learner's thought is optional: when they write it, it is stored and quoted; silence is allowed. */
+function optionalReasoning(raw: unknown, answers: Record<string, string>): Record<string, Reasoning> {
+  if (raw === undefined || raw === null) return {};
+  if (!isRecord(raw)) throw new HttpError(400, "reasoning must be an object of {razonamiento, confianza} per question");
   const extra = Object.keys(raw).find((id) => !(id in answers));
   if (extra) throw new HttpError(400, `reasoning for an unanswered question: ${extra}`);
   const out: Record<string, Reasoning> = {};
-  for (const id of Object.keys(answers)) {
-    const entry = raw[id];
-    const merged = isRecord(entry) && ["razonamiento", "entendi", "porque"].some((key) => Object.hasOwn(entry, key));
-    if (!isRecord(entry) || !merged || Object.keys(entry).some((key) => !["razonamiento", "entendi", "porque", "confianza"].includes(key))) {
+  for (const [id, entry] of Object.entries(raw)) {
+    if (!isRecord(entry) || Object.keys(entry).some((key) => !["razonamiento", "entendi", "porque", "confianza"].includes(key))) {
       throw new HttpError(400, `reasoning for ${id} must be {razonamiento, confianza}`);
     }
-    if (typeof entry.confianza !== "string" || !Object.hasOwn(CONFIDENCE, entry.confianza)) {
-      throw new HttpError(400, `reasoning confianza for ${id} must be one of ${Object.keys(CONFIDENCE).join(", ")}`);
-    }
-    const parts = [entry.razonamiento, entry.entendi, entry.porque];
-    for (const text of parts) {
-      if (text === undefined) continue;
-      if (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT_CHARS) {
-        throw new HttpError(400, `reasoning for ${id} must be non-empty text of at most ${MAX_TEXT_CHARS} characters`);
+    for (const key of ["razonamiento", "entendi", "porque"]) {
+      const value = entry[key];
+      if (value === undefined) continue;
+      if (typeof value !== "string" || value.length > MAX_TEXT_CHARS) {
+        throw new HttpError(400, `reasoning for ${id} must be text of at most ${MAX_TEXT_CHARS} characters`);
       }
     }
+    if (entry.confianza !== undefined && (typeof entry.confianza !== "string" || !Object.hasOwn(CONFIDENCE, entry.confianza))) {
+      throw new HttpError(400, `reasoning confianza for ${id} must be one of ${Object.keys(CONFIDENCE).join(", ")}`);
+    }
     const text = thought(entry as Reasoning);
-    if (!text) throw new HttpError(400, `reasoning for ${id} must say what the learner is thinking`);
-    out[id] = { razonamiento: text, confianza: entry.confianza };
+    if (!text) continue;
+    out[id] = entry.confianza ? { razonamiento: text, confianza: entry.confianza } : { razonamiento: text };
   }
   return out;
 }
@@ -780,7 +780,7 @@ ${scripts}
       const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
       if (!questions) throw new HttpError(400, `part ${partId} has no mini-quiz`);
       const answers = checkAnswers(payload.answers, questions, true);
-      const reasoning = checkReasoning(payload.reasoning, answers);
+      const reasoning = optionalReasoning(payload.reasoning, answers);
       const ownWords = optionalText(payload, "ownWords");
       const exercises = optionalText(payload, "exercises");
       const saved = `mini-quiz/${partId}.answers.json`;
@@ -800,7 +800,7 @@ ${scripts}
     const questions = readQuestions(join(dir, "quiz.json"));
     if (!questions) throw new HttpError(400, `topic ${topic} has no diagnosis quiz`);
     const answers = checkAnswers(payload.answers, questions, false);
-    const reasoning = checkReasoning(payload.reasoning, answers);
+    const reasoning = optionalReasoning(payload.reasoning, answers);
     const saved = "quiz.answers.json";
     const file = join(dir, saved);
     const recorded = readAnswers(file) ?? { answers: {}, razonamientos: {} };

@@ -68,10 +68,11 @@ three grid units between centers. `kind` is `box`, `agent`, `env`, `store`, or
 `decision`. Dimensions are SVG viewBox pixels; diagrams scale to the column.
 Use short labels and inspect the result for overlapping edges and text.
 
-`lk-quiz` fetches questions, requires a choice plus one `razonamiento` — the
-single box where the learner drains what they are thinking, typed or dictated
-with the microphone button — and `confianza` (`seguro`, `dudo`, `adivine`) for
-each, and includes optional own-words and exercise fields. It displays server grading and restored read-only answers
+`lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
+the learner drains what they are thinking, typed or dictated with the microphone button — and
+`confianza` (`seguro`, `dudo`, `adivine`) are optional extras that show the tutor how the learner
+reasons; leaving them empty never blocks grading. Own-words and exercise fields are optional too.
+It displays server grading and restored read-only answers
 and concept verdicts. Never put answer keys in the page. Exercise instructions
 remain page-authored content. `lk-video` checks availability with HEAD and polls
 every 30 seconds after requesting generation. `lk-ask` sends a question.

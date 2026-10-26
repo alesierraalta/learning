@@ -539,13 +539,8 @@ test("submit refuses foreign origins, non-JSON, oversize, unknown fields and inv
     [await submit(url, { ...valid, topic: "../x" }), 400],
     [await submit(url, { ...valid, part: "p2" }), 400],
     [await submit(url, { ...valid, ownWords: "x".repeat(9000) }), 400],
-    [await submit(url, { ...valid, reasoning: undefined }), 400],
-    [await submit(url, { ...valid, reasoning: why("q1") }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { razonamiento: "  " } } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "" } } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: "solo texto" } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1", "q2"), q2: { razonamiento: "y", confianza: "seguro", extra: "z" } } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { razonamiento: "y" } } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { razonamiento: "y", confianza: "mucho" } } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { razonamiento: "y", confianza: "constructor" } } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1", "q2", "q9") } }), 400],
@@ -562,5 +557,20 @@ test("submit refuses foreign origins, non-JSON, oversize, unknown fields and inv
   });
   assert.equal(wrongToken.status, 404);
   assert.equal(host.sent.length, 0);
+  await shutdown();
+});
+
+test("a quiz is answered without writing a thought, and the message quotes no empty reasoning", async () => {
+  const { view, topic, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" } });
+  assert.equal(res.status, 200, res.body);
+  const graded = JSON.parse(res.body);
+  assert.equal(graded.score, "2/2");
+  const saved = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.deepEqual(saved.razonamientos, {});
+  const said = host.sent.map((m) => m.content).join("\n");
+  assert.match(said, /Respuestas y razonamientos guardados/);
+  assert.ok(!said.includes("Pensamiento:"), said);
   await shutdown();
 });
