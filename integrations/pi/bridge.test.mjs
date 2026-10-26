@@ -1,15 +1,133 @@
 // Study-view bridge tests: a real HTTP server on 127.0.0.1 against a temporary
 // Learnings root, driven through the public learning_view tool and HTTP routes.
 import { after, test } from "node:test";
+import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, existsSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { registerBridge } from "./bridge.ts";
+import { registerBridge, listTopics } from "./bridge.ts";
+import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
+import { loadRunners } from "./coderun.ts";
 
 const TOPIC = "sql-demo";
+
+test("code vault lists malformed exercises and exclusively appends submission history", () => {
+  const { root, topic } = makeRoot();
+  const dir = codeFixture(topic);
+  mkdirSync(join(topic, "codigo", "broken"));
+  writeFileSync(join(topic, "codigo", "broken", "ejercicio.json"), "{}");
+  const record = { lenguaje: "python", codigo: "print(1)", compilacion: { ok: true, salida: "" }, resultados: [], aprobados: 1, total: 2 };
+  const first = saveSubmission(dir, record);
+  const original = readFileSync(first, "utf8");
+  saveSubmission(dir, { ...record, codigo: "print(2)", aprobados: 2 });
+  assert.equal(readFileSync(first, "utf8"), original);
+  const history = readSubmissions(dir);
+  assert.equal(history.lastCode, "print(2)");
+  assert.deepEqual(history.submissions.map(({ numero, aprobados, total }) => ({ numero, aprobados, total })), [{ numero: 1, aprobados: 1, total: 2 }, { numero: 2, aprobados: 2, total: 2 }]);
+  assert.ok(history.submissions.every((s) => !Number.isNaN(Date.parse(s.fecha))));
+  const exercises = listExercises(topic, loadRunners());
+  assert.deepEqual(exercises.map((e) => e.id), ["broken", "eco"]);
+  assert.match(exercises[0].error, /titulo/);
+  assert.equal(exercises[1].mejor, "2/2");
+  assert.equal(exercises[1].entregas, 2);
+  assert.equal(listTopics(root)[0].exercises[1].mejor, "2/2");
+  assert.equal(exerciseFile(topic, "eco"), join(dir, "ejercicio.json"));
+  assert.throws(() => exerciseFile(topic, "../eco"));
+});
+
+function codeFixture(topic) {
+  const dir = join(topic, "codigo", "eco");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "ejercicio.json"), JSON.stringify({ titulo: "Eco", enunciado: "Repite la entrada", lenguaje: "python", plantilla: "print(input())", parte: "p1", tests: [
+    { nombre: "visible", entrada: "hola", salida: "hola" },
+    { nombre: "secreto", entrada: "HIDDEN_INPUT_97", salida: "HIDDEN_EXPECTED_98", oculto: true },
+  ] }));
+  return dir;
+}
+
+test("code pages, code-only topics and learning_view never expose hidden data", async () => {
+  const { topic, root, view, host } = await setup();
+  codeFixture(topic);
+  const codeOnly = join(root, "solo-codigo");
+  codeFixture(codeOnly);
+  const result = await view({ topic: TOPIC, part: "codigo/eco" });
+  assert.equal(result.isError, false);
+  const response = await http(result.structuredContent.url);
+  assert.equal(response.status, 200);
+  assert.match(response.body, /"kind":"code"/);
+  assert.doesNotMatch(response.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
+  const leak = await http(result.structuredContent.base + TOPIC + "/file/codigo/eco/ejercicio.json");
+  assert.equal(leak.status, 404);
+  assert.doesNotMatch(leak.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
+  for (const name of [TOPIC, "solo-codigo"]) {
+    const page = await http((await view({ topic: name })).structuredContent.url);
+    assert.equal(page.status, 200);
+    assert.match(page.body, /"exercises":\[/);
+    assert.match(page.body, /Eco/);
+  }
+  assert.equal((await view({ topic: TOPIC, part: "codigo/.." })).isError, true);
+  assert.equal(existsSync(join(topic, "codigo", "eco", "entregas")), false);
+  assert.deepEqual(host.sent, []);
+});
+
+test("code HTTP runs, free input, submissions and rejected requests", async (t) => {
+  if (spawnSync("docker", ["image", "inspect", "python:3.12-alpine"]).status !== 0) return t.skip("python:3.12-alpine is not installed");
+  const { topic, view, host } = await setup();
+  const dir = codeFixture(topic);
+  const { base } = (await view({ topic: TOPIC })).structuredContent;
+  const post = (path, body, origin = new URL(base).origin) => http(base + path, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const payload = { topic: TOPIC, exercise: "eco", code: "print(input())" };
+  for (const [path, body, origin, status] of [
+    ["submit", { ...payload, kind: "code" }, "http://foreign.invalid", 403],
+    ["submit", { ...payload, kind: "code", extra: true }, undefined, 400],
+    ["api/code/run", { ...payload, extra: true }, undefined, 400],
+    ["submit", { ...payload, kind: "code", exercise: "../eco" }, undefined, 422],
+  ]) {
+    const response = await post(path, body, origin);
+    assert.equal(response.status, status);
+    assert.equal(typeof JSON.parse(response.body).error, "string");
+    assert.equal(existsSync(join(dir, "entregas")), false);
+    assert.deepEqual(host.sent, []);
+  }
+  const visible = await post("api/code/run", payload);
+  assert.equal(visible.status, 200);
+  assert.equal(JSON.parse(visible.body).resultados.length, 1);
+  assert.equal(JSON.parse(visible.body).aprobados, 1);
+  const free = await post("api/code/run", { ...payload, input: "libre" });
+  assert.equal(free.status, 200);
+  assert.equal(JSON.parse(free.body).resultados[0].estado, "ejecutado");
+  assert.equal(JSON.parse(free.body).resultados[0].obtenido.trim(), "libre");
+  assert.equal(existsSync(join(dir, "entregas")), false);
+  assert.deepEqual(host.sent, []);
+  for (const n of [1, 2]) {
+    const response = await post("submit", { ...payload, kind: "code", note: "Mi enfoque" });
+    assert.equal(response.status, 200);
+    const data = JSON.parse(response.body);
+    assert.equal(data.score, "1/2");
+    assert.equal(data.saved, `codigo/eco/entregas/00${n}.json`);
+    assert.doesNotMatch(response.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
+    const record = JSON.parse(readFileSync(join(dir, "entregas", `00${n}.json`), "utf8"));
+    assert.equal(record.numero, n);
+    assert.equal(record.codigo, payload.code);
+    assert.equal(record.nota, "Mi enfoque");
+    assert.equal(record.resultados[1].esperado, "HIDDEN_EXPECTED_98");
+    assert.equal(host.sent.length, n);
+    assert.match(host.sent[n - 1].content, /\[Vista HTML · sql-demo · código eco\]/);
+    assert.match(host.sent[n - 1].content, /1\/2/);
+    assert.ok(host.sent[n - 1].content.includes("```python\nprint(input())\n```"));
+    assert.ok(host.sent[n - 1].content.includes(data.saved));
+    assert.ok(host.sent[n - 1].content.includes("HIDDEN_EXPECTED_98"));
+    assert.ok(host.sent[n - 1].content.includes('"""\nMi enfoque\n"""'));
+    assert.equal(host.sent[n - 1].options.deliverAs, "followUp");
+  }
+  const page = await http((await view({ topic: TOPIC, part: "codigo/eco" })).structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.match(page.body, /"lastCode":"print\(input\(\)\)"/);
+  assert.doesNotMatch(page.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
+});
 const openServers = [];
 after(async () => {
   for (const shutdown of openServers) await shutdown();
@@ -640,4 +758,20 @@ test("a mixed answers file keeps old and new thoughts side by side", async () =>
   assert.equal(saved.razonamientos.q2.razonamiento, "nuevo");
   assert.match(saved.razonamientos.q1.razonamiento, /a[\s\S]*b/);
   await shutdown();
+});
+
+test("the index degrades one broken topic instead of failing the gallery", () => {
+  const { root } = makeRoot();
+  const bomba = join(root, "bomba");
+  mkdirSync(bomba, { recursive: true });
+  writeFileSync(join(bomba, "plan.json"), JSON.stringify({ topic: "Bomba", parts: [{ id: "p1", slug: "p1", title: "P1" }] }));
+  // `explicaciones` is a FILE: partNote's readdirSync explodes on it.
+  writeFileSync(join(bomba, "explicaciones"), "not a directory");
+  const rows = listTopics(root);
+  const bomb = rows.find((r) => r.id === "bomba");
+  assert.ok(bomb);
+  assert.equal(bomb.title, "Bomba");
+  assert.deepEqual(bomb.parts, []);
+  assert.deepEqual(bomb.exercises, []);
+  assert.ok(rows.find((r) => r.id === TOPIC).parts.length > 0);
 });
