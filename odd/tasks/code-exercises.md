@@ -32,7 +32,7 @@ Runner API already committed in `integrations/pi/coderun.ts` (2964310): `loadRun
 ## Tasks
 - T1 — S2, S4 — runner module `integrations/pi/coderun.ts` + `runners.json` + tests — inline — commit: 2964310
 - T2 — S1, S2, S3 — bridge routes, code page in the view, topic listing + tests — inline — commit: 85a17c7
-- T3 — S2, S3 — shell CLI `learning code` + docs — inline — commit: pending
+- T3 — S2, S3 — shell CLI `learning code` + docs — inline — commit: 0181b22
 - T4 — S1, S3 — skill `explicacion-interactiva`: author exercises, review submissions — inline — commit: n/a (outside repo)
 - T5 — S1–S4 — real run (C, Python, Java) through HTTP and CLI + independent verify (Risk item 2: sandbox) — verify — commit: n/a
 
@@ -41,3 +41,4 @@ L1 — "Necesito que mientras el otro chat que tenemos ahorita de Learning vaya 
 L2 — Asked which language Lab 2 uses. Answer: "son varios, asi que debe adaptarse a cualquiera".
 L3 — Environment: docker 29.1.5 available; node v24 (type stripping, no build); worktree isolated from the other chat.
 L4 — T2 by worker (RED 24/2 → GREEN); parent added case-insensitive block of file/codigo (vault on NTFS) and skip of damaged submissions. studio/server.test.mjs:172 is a pre-existing timing flake (base 2/8 fails, branch 1/8), left to the studio owner.
+L5 — T3 by worker (RED 2 → GREEN, 64 tests: 63 pass, 1 pre-existing skip). Real CLI run: open never overwrites, test records nothing, submit 001/002, exits 1/0/2, no hidden data printed. ~/.bashrc: learning code → main repo CLI, falls back to this worktree until merged. Real browser run (C, Python, Java) fixed the page in 6852c5e.
