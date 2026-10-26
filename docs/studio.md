@@ -37,7 +37,9 @@ The UI uses the visual language of the Learnings slides
 slides' serif (Tinos, metric-compatible with Liberation Serif, pinned with SRI), boxes
 with 2px strokes, dashed containers, illustrated objects and the deck palette.
 `studio/ui/tutorial.js` is a six-slide deck in that style (1920×1080 slides scaled to the
-window, pieces revealed step by step, keyboard ← → and Esc). It opens on the first visit
+window, pieces revealed step by step, keyboard ← → and Esc). From a terminal, `learning web` opens it (it reuses the studio already running on the
+port instead of starting a second one), `learning chat` opens the study chat, and
+`learning <engine command>` runs the engine. It opens on the first visit
 and from the «Tutorial» button. Open it at **http://127.0.0.1:4747/**: that stable address
 redirects to the current run's token URL. The studio listens on port 4747 (`STUDIO_PORT`; a taken
 port falls back to a free one) so the browser remembers that it was seen.
