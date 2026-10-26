@@ -30,8 +30,8 @@ Runner API already committed in `integrations/pi/coderun.ts` (2964310): `loadRun
 - Tests (`integrations/pi/bridge.test.mjs`, real Docker with `python:3.12-alpine`, skipped with a reason when missing): page hides hidden tests; run returns visible results only; free input; submit saves `entregas/001.json` then `002.json`, delivers the chat message (assert its header, score and code block), rejects foreign Origin and unknown keys; unsafe exercise id → 4xx; topic without plan but with `codigo/` lists it; `learning_view` with `codigo/<id>`. Existing tests stay green.
 
 ## Tasks
-- T1 — S2, S4 — runner module `integrations/pi/coderun.ts` + `runners.json` + tests — inline — commit: pending
-- T2 — S1, S2, S3 — bridge routes, code page in the view, topic listing + tests — inline — commit: pending
+- T1 — S2, S4 — runner module `integrations/pi/coderun.ts` + `runners.json` + tests — inline — commit: 2964310
+- T2 — S1, S2, S3 — bridge routes, code page in the view, topic listing + tests — inline — commit: 85a17c7
 - T3 — S2, S3 — shell CLI `learning code` + docs — inline — commit: pending
 - T4 — S1, S3 — skill `explicacion-interactiva`: author exercises, review submissions — inline — commit: n/a (outside repo)
 - T5 — S1–S4 — real run (C, Python, Java) through HTTP and CLI + independent verify (Risk item 2: sandbox) — verify — commit: n/a
@@ -40,3 +40,4 @@ Runner API already committed in `integrations/pi/coderun.ts` (2964310): `loadRun
 L1 — "Necesito que mientras el otro chat que tenemos ahorita de Learning vaya trabajando. Necesito que también incluyamos una sección o una forma de poder evaluar código. Porque ya tenemos para matemáticas y preguntas, pero quisiera alguna forma de. de que con el Gentle Shell o lo que sea, se pueda, no sé, hacer ejercicios de código. Y que se vayan corrigiendo bien. No sé, es que no sé, pero tiene que haber alguna sección. Porque yo estudio programación. Entonces necesito, por lo menos, para laboratorio 2, escribir mucho código. Y no sé si hay alguna forma de hacer evaluaciones basadas en el código y hacer ejercicios. que se puedan ir corrigiendo dentro de nuestro de nuestra aplicación."
 L2 — Asked which language Lab 2 uses. Answer: "son varios, asi que debe adaptarse a cualquiera".
 L3 — Environment: docker 29.1.5 available; node v24 (type stripping, no build); worktree isolated from the other chat.
+L4 — T2 by worker (RED 24/2 → GREEN); parent added case-insensitive block of file/codigo (vault on NTFS) and skip of damaged submissions. studio/server.test.mjs:172 is a pre-existing timing flake (base 2/8 fails, branch 1/8), left to the studio owner.
