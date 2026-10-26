@@ -29,6 +29,8 @@ project-scoped Pi adapter only activates, executes and reports the engine's CLI.
 | `docs/protocol.md` | shared contract | Engine/adapter boundary this adapter implements |
 | `docs/integration.md` | adapter | Loading, configuration, usage, verification evidence |
 
+Ejercicios evaluables en HTML y terminal: [docs/code-exercises.md](docs/code-exercises.md).
+
 ## Build
 
 ```bash
