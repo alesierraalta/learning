@@ -140,7 +140,9 @@ h3 { font-weight: 700; }
 /* ---------- topic ---------- */
 .topic-head { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 48px; align-items: start; }
 .topic-head h1 { font-size: clamp(2.2rem, 3.8vw, 3.2rem); line-height: 1.08; margin: 12px 0 20px; }
-.topic-head aside .continue { position: sticky; top: 90px; }
+/* card and its actions stick as one block: pinned separately, the actions
+   scrolled up over the card and covered its last line */
+.topic-head aside .aside-sticky { position: sticky; top: 90px; }
 .route { list-style: none; margin: 36px 0 0; padding: 0; position: relative; }
 .route::before { content: ""; position: absolute; left: 22px; top: 16px; bottom: 16px; border-left: 3px dashed var(--line); }
 .part-row { position: relative; display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 12px 14px 12px 0; }
@@ -251,7 +253,7 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
   body.drawer-open .stage { margin-right: 0; }
   .hero, .topic-head, .how { grid-template-columns: minmax(0, 1fr); }
   .hero > *, .topic-head > *, .how > * { min-width: 0; }
-  .topic-head aside .continue { position: static; }
+  .topic-head aside .aside-sticky { position: static; }
 }
 @media (max-width: 720px) {
   :root { --drawer: 100vw; }

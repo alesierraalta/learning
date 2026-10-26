@@ -368,18 +368,22 @@
           h(
             "aside",
             {},
-            continueCard(topic, step, true),
             h(
               "div",
-              { class: "side-actions reveal", style: "--i:2" },
-              topic.status !== "sin inscribir" ? btn("Repasar mis lagunas", () => say(prompts.gaps(topic)), "btn", "spark") : null,
-              btn("Preguntar sobre este tema", () => openDrawer(`Sobre ${topic.title}: `), "btn", "chat"),
+              { class: "aside-sticky" },
+              continueCard(topic, step, true),
+              h(
+                                        "div",
+                                        { class: "side-actions reveal", style: "--i:2" },
+                                        topic.status !== "sin inscribir" ? btn("Repasar mis lagunas", () => say(prompts.gaps(topic)), "btn", "spark") : null,
+                                        btn("Preguntar sobre este tema", () => openDrawer(`Sobre ${topic.title}: `), "btn", "chat"),
+              ),
             ),
           ),
         ),
-      ),
-    );
-  }
+),
+);
+}
 
   // ---------- reader ----------
   let readSeq = 0;
