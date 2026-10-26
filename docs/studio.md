@@ -14,6 +14,29 @@ estudio --no-open  # print the URL only
 `node studio/server.ts` is the same without the engine rebuild. `LEARNING_ROOT`
 overrides the Learnings folder. Ctrl+C stops the studio and its Pi.
 
+## HTTPS reverse proxy
+
+For tailnet-only HTTPS through `tailscale serve`, keep both listeners on loopback
+and configure the two public origins together:
+
+```bash
+STUDIO_PUBLIC_ORIGIN=https://box.tail0.ts.net:8445 \
+STUDIO_BRIDGE_PUBLIC_ORIGIN=https://box.tail0.ts.net:8446 \
+STUDIO_BRIDGE_PORT=4748 node studio/server.ts
+```
+
+`STUDIO_PUBLIC_ORIGIN` is the studio's browser origin; it prints that origin's
+entry URL and implies `--no-open`. `STUDIO_BRIDGE_PUBLIC_ORIGIN` is the bridge's
+browser origin. Both must be bare HTTPS origins (lowercase host, optional port,
+no path). `STUDIO_BRIDGE_PORT` is the numeric loopback bridge port; unset or `0`
+picks a free port. A fixed proxy mapping needs a fixed bridge port.
+
+Forward the studio HTTPS port to `127.0.0.1:4747` (`STUDIO_PORT`) and the bridge
+HTTPS port to `127.0.0.1:4748`, preserving Host. With public origins configured,
+a taken studio port is an error, not a fallback: the proxy must not silently
+point at another process. With these options unset, loopback behavior is unchanged.
+Keep the proxy tailnet-only: this app controls a local Pi agent, not a public service.
+
 ## What runs
 
 - `studio/server.ts` listens on 127.0.0.1 behind a per-run token and spawns
@@ -47,7 +70,8 @@ port falls back to a free one) so the browser remembers that it was seen.
 ## Contract and security
 
 The server ↔ UI API is the contract in `odd/tasks/learning-studio.md`. Every
-route needs the token; the Host header must be loopback; a POST must come from
+route needs the token; the Host header must be loopback or the configured public
+host; a POST must come from
 the studio origin with a JSON body of at most 64 KiB (prompts up to 20 000
 characters). The bridge allows only the studio origin to frame its pages
 (`frameAncestors`). The shell page frames nothing but that bridge.

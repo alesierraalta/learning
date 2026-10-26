@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, existsSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +14,42 @@ import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./
 import { loadRunners } from "./coderun.ts";
 
 const TOPIC = "sql-demo";
+
+test("public bridge origins preserve loopback access and constrain proxy requests", async () => {
+  const reservation = createServer();
+  await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
+  const port = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+  const publicOrigin = "https://box.tail0.ts.net:8446";
+  const publicEmbedder = "https://box.tail0.ts.net:8445";
+  const { view } = await setup({ port, publicOrigin, publicEmbedder });
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const url = result.structuredContent.url;
+  assert.match(url, /^https:\/\/box\.tail0\.ts\.net:8446\/[a-f0-9]{64}\//);
+  const local = url.replace(publicOrigin, `http://127.0.0.1:${port}`);
+  for (const host of [`127.0.0.1:${port}`, "box.tail0.ts.net:8446"]) {
+    const page = await http(local, { headers: { host } });
+    assert.equal(page.status, 200);
+    assert.ok(page.headers["content-security-policy"].includes(publicEmbedder));
+  }
+  const app = await http(result.structuredContent.appUrl.replace(publicOrigin, `http://127.0.0.1:${port}`));
+  assert.equal(app.status, 200);
+  assert.match(app.headers["content-security-policy"], /frame-ancestors https:\/\/box\.tail0\.ts\.net:8445(;|$)/);
+  assert.equal((await http(local, { headers: { host: "evil.example:80" } })).status, 403);
+  const endpoint = `http://127.0.0.1:${port}${new URL(result.structuredContent.base).pathname}submit`;
+  for (const [origin, rejected] of [[publicOrigin, false], ["https://evil.example", true]]) {
+    const response = await http(endpoint, { method: "POST", headers: { origin, "content-type": "application/json" }, body: "{}" });
+    assert.equal(response.status === 403, rejected);
+  }
+});
+
+test("public bridge options reject non-bare HTTPS origins at registration", () => {
+  for (const option of ["publicOrigin", "publicEmbedder"]) {
+    for (const value of ["http://box.ts.net", "https://a.ts.net; script-src *", "*", "https://a.ts.net/path"]) {
+      assert.throws(() => registerBridge(makeHost().api, { root: makeRoot().root, [option]: value }), new RegExp(option));
+    }
+  }
+});
 
 test("code vault lists malformed exercises and exclusively appends submission history", () => {
   const { root, topic } = makeRoot();
@@ -193,10 +230,10 @@ function makeHost() {
   return { api, handlers, tools, sent };
 }
 
-async function setup() {
+async function setup(options = {}) {
   const { root, topic } = makeRoot();
   const host = makeHost();
-  registerBridge(host.api, { root });
+  registerBridge(host.api, { root, ...options });
   const view = async (params, cwd = root) => {
     const result = await host.tools.get("learning_view").execute("call", params, undefined, undefined, { cwd });
     return result;

@@ -17,7 +17,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CDN_SCRIPTS, listTopics, registerBridge } from "../integrations/pi/bridge.ts";
+import { CDN_SCRIPTS, listTopics, registerBridge, validatePublicOrigin } from "../integrations/pi/bridge.ts";
 import { resolveContained } from "../integrations/pi/paths.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -40,6 +40,9 @@ export interface StudioOptions {
   /** Pi command line; the default resumes the studio's own persistent conversation. */
   piCommand?: string[];
   port?: number;
+  publicOrigin?: string;
+  bridgePublicOrigin?: string;
+  bridgePort?: number;
   enginePath?: string;
   rulesPath?: string;
 }
@@ -101,6 +104,11 @@ function toolLabel(name: string, args: unknown): string {
 }
 
 export async function startStudio(options: StudioOptions = {}): Promise<Studio> {
+  if ((options.publicOrigin !== undefined) !== (options.bridgePublicOrigin !== undefined)) {
+    throw new Error("publicOrigin and bridgePublicOrigin must be set together");
+  }
+  const publicUrl = validatePublicOrigin("publicOrigin", options.publicOrigin);
+  validatePublicOrigin("bridgePublicOrigin", options.bridgePublicOrigin);
   const contained = resolveContained(options.root ?? CANONICAL_ROOT, options.root ?? CANONICAL_ROOT);
   if (!contained.ok) throw new Error(contained.reason);
   const root = contained.rootReal;
@@ -399,7 +407,7 @@ ${scripts}
     });
 
   const post = async (req: IncomingMessage, res: ServerResponse, action: string) => {
-    const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
+    const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(options.publicOrigin === undefined ? [] : [options.publicOrigin])]);
     if (!allowed.has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
     if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
     const body = await readBody(req);
@@ -474,7 +482,7 @@ ${scripts}
   };
 
   const route = async (req: IncomingMessage, res: ServerResponse) => {
-    const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+    const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, ...(options.publicOrigin === undefined ? [] : [publicUrl!.host])]);
     if (!hosts.has(String(req.headers.host ?? ""))) throw new HttpError(403, "host not allowed");
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     // http://127.0.0.1:<port>/ is a stable, bookmarkable entry; every route behind it needs the token.
@@ -528,15 +536,19 @@ ${scripts}
   // if it is taken, any free port works.
   await new Promise<void>((resolve, reject) => {
     const listen = (wanted: number) => {
-      server.once("error", (err: NodeJS.ErrnoException) => (err.code === "EADDRINUSE" && wanted !== 0 ? listen(0) : reject(err)));
+      server.once("error", (err: NodeJS.ErrnoException) => (err.code === "EADDRINUSE" && wanted !== 0 && options.publicOrigin === undefined ? listen(0) : reject(err)));
       server.listen(wanted, "127.0.0.1", () => resolve());
     };
     listen(options.port ?? 0);
   });
   port = (server.address() as { port: number }).port;
 
-  registerBridge(fakePi as never, { root, frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] });
-  bridgeOrigin = /^http:\/\/127\.0\.0\.1:\d+/.exec(String((await view()).base))?.[0] ?? "";
+  registerBridge(fakePi as never, { root, port: options.bridgePort, publicOrigin: options.bridgePublicOrigin, publicEmbedder: options.publicOrigin, frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] });
+  try {
+    bridgeOrigin = new URL(String((await view()).base)).origin;
+  } catch {
+    throw new Error("the study-view bridge returned an invalid origin");
+  }
   if (!bridgeOrigin) throw new Error("the study-view bridge did not start");
   startPi();
 
@@ -558,10 +570,17 @@ ${scripts}
 
 /** `node studio/server.ts` starts the studio and opens it in the Windows browser (WSL). */
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const studio = await startStudio({ root: process.env.LEARNING_ROOT?.trim() || undefined, port: Number(process.env.STUDIO_PORT) || 4747 });
-  const entry = `http://127.0.0.1:${studio.port}/`;
+  const publicOrigin = process.env.STUDIO_PUBLIC_ORIGIN;
+  const studio = await startStudio({
+    root: process.env.LEARNING_ROOT?.trim() || undefined,
+    port: Number(process.env.STUDIO_PORT) || 4747,
+    publicOrigin,
+    bridgePublicOrigin: process.env.STUDIO_BRIDGE_PUBLIC_ORIGIN,
+    bridgePort: process.env.STUDIO_BRIDGE_PORT === undefined ? undefined : Number(process.env.STUDIO_BRIDGE_PORT),
+  });
+  const entry = `${publicOrigin ?? `http://127.0.0.1:${studio.port}`}/`;
   console.log(`Estudio: ${entry}`);
-  if (!process.argv.includes("--no-open")) {
+  if (publicOrigin === undefined && !process.argv.includes("--no-open")) {
     spawn("cmd.exe", ["/c", "start", "", entry], { cwd: "/mnt/c", stdio: "ignore", detached: true }).on("error", () => {});
   }
   const stop = async () => {

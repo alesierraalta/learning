@@ -18,10 +18,10 @@ after(async () => {
   for (const studio of open) await studio.close();
 });
 
-async function setup() {
+async function setup(options = {}) {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
-  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine });
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, ...options });
   open.push(studio);
   const received = () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
   return { studio, root, received };
@@ -116,6 +116,31 @@ test("the shell page is token-gated, loopback-only and allows framing only the h
   assert.equal((await http(`${studio.url}studio.js`)).status, 200);
   assert.equal((await http(`${studio.url}tutorial.js`)).status, 200);
   assert.match(page.body, /<script src="\/[0-9a-f]{64}\/tutorial\.js"><\/script>\n<script src="\/[0-9a-f]{64}\/studio\.js">/);
+});
+
+test("public studio origins route views and authorize only the configured proxy", async () => {
+  const publicOrigin = "https://box.tail0.ts.net:8445";
+  const bridgePublicOrigin = "https://box.tail0.ts.net:8446";
+  const { studio, received } = await setup({ publicOrigin, bridgePublicOrigin, bridgePort: 0 });
+  const page = await http(studio.url, { headers: { host: "box.tail0.ts.net:8445" } });
+  assert.equal(page.status, 200);
+  assert.match(page.headers["content-security-policy"], /frame-src https:\/\/box\.tail0\.ts\.net:8446(;|$)/);
+  const view = await http(`${studio.url}api/view?topic=redes&part=p1`);
+  assert.equal(view.status, 200, view.body);
+  assert.ok(JSON.parse(view.body).url.startsWith(`${bridgePublicOrigin}/`));
+  assert.equal((await http(studio.url, { headers: { host: "evil.example" } })).status, 403);
+  const before = received().filter((c) => c.type === "prompt").length;
+  assert.equal((await post(studio, "prompt", { text: "forbidden" }, { origin: "http://evil.example" })).status, 403);
+  assert.equal(received().filter((c) => c.type === "prompt").length, before);
+  assert.equal((await post(studio, "prompt", { text: "public prompt" }, { origin: publicOrigin })).status, 200);
+  assert.ok(received().some((c) => c.type === "prompt" && c.message === "public prompt"));
+  await assert.rejects(() => startStudio({ root: makeRoot().root, port: studio.port, publicOrigin, bridgePublicOrigin }), /EADDRINUSE/);
+});
+
+test("public studio origins must be configured together", async () => {
+  for (const options of [{ publicOrigin: "https://box.ts.net" }, { bridgePublicOrigin: "https://box.ts.net" }]) {
+    await assert.rejects(() => startStudio({ root: makeRoot().root, ...options }), /publicOrigin.*bridgePublicOrigin|bridgePublicOrigin.*publicOrigin/);
+  }
 });
 
 test("a taken port falls back to a free one", async () => {
