@@ -311,11 +311,12 @@
 
   function codePage() {
     const ex = data.exercise;
-    app.append(element("h2", ex.titulo), element("p", `${ex.lenguaje} · ${data.file}`), markdown(ex.enunciado));
+    app.append(element("p", `Lenguaje: ${ex.lenguaje} · archivo ${data.file}`, "part-kicker"), markdown(ex.enunciado));
     for (const test of ex.tests.filter((t) => !t.oculto)) {
       app.append(element("h3", test.nombre), element("p", "Entrada"), element("pre", test.entrada), element("p", "Salida esperada"), element("pre", test.salida));
     }
-    app.append(element("p", `${ex.tests.filter((t) => t.oculto).length} pruebas ocultas`));
+    const hidden = ex.tests.filter((t) => t.oculto).length;
+    if (hidden) app.append(element("p", `Y ${hidden} ${hidden === 1 ? "prueba oculta" : "pruebas ocultas"} que se corrigen al entregar.`, "muted"));
     const key = `learning-code:${data.topic}:${ex.id}`;
     const editor = textarea(app, "Tu código");
     editor.className = "code-editor";
@@ -333,7 +334,8 @@
     panel.setAttribute("aria-live", "polite");
     const history = element("section");
     history.append(element("h2", "Historial de entregas"));
-    const addHistory = (s) => history.append(element("p", `#${s.numero} · ${s.aprobados}/${s.total} · ${s.fecha}`));
+    const when = (iso) => { const date = new Date(iso); return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("es", { dateStyle: "medium", timeStyle: "short" }); };
+    const addHistory = (s) => history.append(element("p", `#${s.numero} · ${s.aprobados}/${s.total} pruebas · ${when(s.fecha)}`));
     (data.submissions || []).forEach(addHistory);
     const buttons = [];
     const states = { correcto: "✔ correcto", incorrecto: "✘ incorrecto", tiempo: "⏱ tiempo", error: "💥 error", ejecutado: "▶ ejecutado" };
@@ -347,11 +349,13 @@
         const response = await fetch(mode === "submit" ? data.submitUrl : data.runUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error);
-        panel.replaceChildren(element("h2", `Resultado: ${result.aprobados}/${result.total}`), element("h3", result.compilacion.ok ? "Compilación correcta" : "Error de compilación"), element("pre", result.compilacion.salida));
+        panel.replaceChildren(element("h2", mode === "free" ? "Ejecución con tu entrada" : `Resultado: ${result.aprobados}/${result.total} pruebas`));
+        if (!result.compilacion.ok) panel.append(element("h3", "Error de compilación", "error"));
+        if (result.compilacion.salida) panel.append(element("pre", result.compilacion.salida));
         for (const r of result.resultados) {
-          panel.append(element("h3", `${r.nombre}${r.oculto ? " (oculto)" : ""} · ${states[r.estado]}`));
+          panel.append(element("h3", `${r.nombre}${r.oculto ? " (oculto)" : ""} · ${states[r.estado]}`, r.estado === "correcto" ? "correct" : r.estado === "ejecutado" ? "" : "error"));
           if (!r.oculto) for (const [key, label] of [["entrada", "Entrada"], ["esperado", "Esperado"], ["obtenido", "Obtenido"], ["errores", "Errores"]]) {
-            if (r[key] !== undefined) panel.append(element("p", label), element("pre", r[key]));
+            if (r[key] !== undefined && (key !== "errores" || r[key].trim())) panel.append(element("p", label), element("pre", r[key]));
           }
         }
         if (mode === "submit") {
@@ -361,15 +365,17 @@
       } catch (error) { panel.replaceChildren(element("p", `No se pudo ejecutar: ${error.message}`, "error")); }
       finally { buttons.forEach((b) => b.disabled = false); }
     };
+    const actions = element("div", undefined, "code-actions");
     for (const [text, mode] of [["Probar con las pruebas visibles", "visible"], ["Probar con mi entrada", "free"], ["Entregar al tutor", "submit"]]) {
       const button = element("button", text);
       button.onclick = () => run(mode);
       buttons.push(button);
-      app.append(button);
+      actions.append(button);
     }
-    const restore = element("button", "Restaurar plantilla");
+    const restore = element("button", "Restaurar plantilla", "secondary");
     restore.onclick = () => { if (confirm("¿Restaurar la plantilla? Se perderá el borrador actual.")) { editor.value = ex.plantilla; saveDraft(); } };
-    app.append(restore, panel, history);
+    actions.append(restore);
+    app.append(actions, panel, history);
     editor.addEventListener("keydown", (event) => {
       if (event.key === "Tab") {
         event.preventDefault();

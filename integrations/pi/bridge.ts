@@ -796,7 +796,7 @@ ${scripts}
     const file = exerciseFile(dir, id);
     const runners = loadRunners(options.runnersFile);
     const ex = readExercise(file, runners);
-    page(res, ex.titulo, { kind: "code", topic, exercise: { ...publicExercise(ex), id }, file: runners[ex.lenguaje].file,
+    page(res, ex.titulo, { kind: "code", topic, title: ex.titulo, exercise: { ...publicExercise(ex), id }, file: runners[ex.lenguaje].file,
       ...readSubmissions(dirname(file)), runUrl: `/${token}/api/code/run`, topicBase: `/${token}/${encodeURIComponent(topic)}/`, topicTitle: readPlan(dir)?.topic || topic });
   };
 
