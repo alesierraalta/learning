@@ -12,7 +12,7 @@
  */
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { closeSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,6 +72,19 @@ export interface RunResult {
 }
 
 export class CodeRunError extends Error {}
+/** The image was never pulled or named wrongly; the caller offers `learning code setup`. */
+export class ImageMissingError extends CodeRunError {}
+/** Docker itself is down or unreachable; retrying after starting the daemon can help. */
+export class DockerDaemonError extends CodeRunError {}
+
+/** Classifies a failed `docker image inspect`: connection refusal means the daemon is down, everything else means the image is missing. */
+export const imageFailure = (code: number | null, stderr: string): "daemon" | "missing" =>
+  code !== 0 && /(cannot connect|failed to connect)/i.test(stderr) ? "daemon" : "missing";
+
+/** The judge work tree lives on shared-memory tmpfs when available (RAM-bounded, wiped on reboot) and falls back to the default temp dir. */
+export function workRoot(): string {
+  return existsSync("/dev/shm") ? "/dev/shm" : tmpdir();
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -200,6 +213,7 @@ function judgeScript(count: number, limit: number, compiled: boolean): string {
     `  timeout -s KILL ${limit} sh $J/run.sh < $J/in/$i > $J/out/$i.out 2> $J/out/$i.err`,
     "  c=$?",
     '  echo "$c $(( $(date +%s) - s ))" > $J/meta/$i',
+    "  rm -f $J/in/$i",
     "  i=$((i+1))",
     "done",
   );
@@ -252,10 +266,13 @@ async function runOnce({ runner, code, tests, limitSeconds, dockerBin = "docker"
   const limit = Math.max(1, Math.ceil(Math.min(limitSeconds, MAX_LIMIT_SECONDS)));
   const image = await docker(dockerBin, ["image", "inspect", runner.image], 30_000);
   if (image.code !== 0) {
-    throw new CodeRunError(`the ${runner.image} environment is not installed; run: learning code setup (or docker pull ${runner.image})`);
+    if (imageFailure(image.code, image.stderr) === "daemon") {
+      throw new DockerDaemonError(`cannot reach the docker daemon; start it and retry (${image.stderr.trim() || `exit ${image.code}`})`);
+    }
+    throw new ImageMissingError(`the ${runner.image} environment is not installed; run: learning code setup (or docker pull ${runner.image})`);
   }
 
-  const work = realpathSync(mkdtempSync(join(tmpdir(), "learning-code-")));
+  const work = realpathSync(mkdtempSync(join(workRoot(), "learning-code-")));
   try {
     const judge = join(work, ".judge");
     for (const dir of ["in", "out", "meta"]) mkdirSync(join(judge, dir), { recursive: true });
@@ -290,13 +307,19 @@ async function runOnce({ runner, code, tests, limitSeconds, dockerBin = "docker"
       if (!compilacion.ok) return { compilacion, resultados: [], aprobados: 0, total: tests.length };
     }
 
+    // If the judge container itself died (deleted judge directory, OOM, daemon restart),
+    // surface that on the tests it silently swallowed instead of a bare "the judge failed".
+    const judgeNote = () => {
+      const parts = [ran.code !== null && ran.code !== 0 ? `exit ${ran.code}` : "", ran.stderr.trim()].filter(Boolean);
+      return parts.length > 0 ? ` (${clip(parts.join("; "))})` : "";
+    };
     const resultados = tests.map((t, i): TestResult => {
       const meta = readJudged(join(judge, "meta", String(i)))?.trim().split(/\s+/).map(Number);
       const obtenido = readJudged(join(judge, "out", `${i}.out`)) ?? "";
       const errores = readJudged(join(judge, "out", `${i}.err`)) ?? "";
       const base = { nombre: t.nombre, oculto: t.oculto === true, entrada: t.entrada, ...(t.salida !== undefined ? { esperado: t.salida } : {}) };
       if (!meta || meta.length !== 2 || meta.some(Number.isNaN)) {
-        return { ...base, estado: "error", obtenido: clip(obtenido), errores: "el juez no terminó esta prueba", codigo: null };
+        return { ...base, estado: "error", obtenido: clip(obtenido), errores: `el juez no terminó esta prueba${judgeNote()}`, codigo: null };
       }
       const [codigo, seconds] = meta;
       let estado: Estado;
@@ -305,7 +328,8 @@ async function runOnce({ runner, code, tests, limitSeconds, dockerBin = "docker"
       else if (t.salida === undefined) estado = "ejecutado";
       else estado = sameOutput(obtenido, t.salida) ? "correcto" : "incorrecto";
       const killedNote = codigo === KILLED && estado === "error" ? "\n(terminado a la fuerza: probablemente se quedó sin memoria)" : "";
-      return { ...base, estado, obtenido: clip(obtenido), errores: clip(errores) + killedNote, codigo };
+      const judgeMissing = !errores && estado === "error" && codigo !== KILLED ? judgeNote() : "";
+      return { ...base, estado, obtenido: clip(obtenido), errores: clip(errores) + judgeMissing + killedNote, codigo };
     });
     return { compilacion, resultados, aprobados: resultados.filter((r) => r.estado === "correcto").length, total: tests.length };
   } finally {

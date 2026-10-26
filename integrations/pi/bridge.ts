@@ -447,20 +447,25 @@ export function listTopics(rootReal: string, runners = loadRunners()): TopicSumm
         return [];
       }
       if (!plan && !existsSync(join(dir, "codigo"))) return [];
-      const exercises = listExercises(dir, runners).map(({ id, titulo, lenguaje, mejor }) => ({ id, titulo, lenguaje, mejor }));
-      const parts = (plan?.parts ?? []).map((p) => {
-        const rich = richPage(dir, plan!, p.id) !== undefined;
-        return {
-          id: p.id,
-          title: p.title,
-          written: rich || partNote(dir, plan!, p.id) !== undefined,
-          rich,
-          hasApp: partApp(dir, p.id) !== undefined,
-          hasQuiz: existsSync(join(dir, "mini-quiz", `${p.id}.json`)),
-          answered: existsSync(join(dir, "mini-quiz", `${p.id}.answers.json`)),
-        };
-      });
-      return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts, exercises }];
+      // One unreadable file must not take the whole gallery down: a broken topic degrades to bare rows.
+      try {
+        const exercises = listExercises(dir, runners).map(({ id, titulo, lenguaje, mejor }) => ({ id, titulo, lenguaje, mejor }));
+        const parts = (plan?.parts ?? []).map((p) => {
+          const rich = richPage(dir, plan!, p.id) !== undefined;
+          return {
+            id: p.id,
+            title: p.title,
+            written: rich || partNote(dir, plan!, p.id) !== undefined,
+            rich,
+            hasApp: partApp(dir, p.id) !== undefined,
+            hasQuiz: existsSync(join(dir, "mini-quiz", `${p.id}.json`)),
+            answered: existsSync(join(dir, "mini-quiz", `${p.id}.answers.json`)),
+          };
+        });
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts, exercises }];
+      } catch {
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: false, parts: [], exercises: [] }];
+      }
     });
 }
 

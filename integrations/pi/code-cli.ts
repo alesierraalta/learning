@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
-import { CodeRunError, forPage, loadRunners, readExercise, runCode } from './coderun.ts';
+import { CodeRunError, DockerDaemonError, forPage, ImageMissingError, loadRunners, readExercise, runCode } from './coderun.ts';
 import { exerciseFile, listExercises, saveSubmission } from './codevault.ts';
 import { resolveContained, safeTopic } from './paths.ts';
 
@@ -85,7 +85,8 @@ async function main() {
     const tests = command === 'test' ? exercise.tests.filter(t => !t.oculto) : exercise.tests;
     result = tests.length ? await runCode({ runner, code, tests, limitSeconds: exercise.limite_segundos }) : { compilacion: { ok: true, salida: '' }, resultados: [], aprobados: 0, total: 0 };
   } catch (err) {
-    if (err instanceof CodeRunError && err.message.includes('environment is not installed')) fail(`Falta la imagen de Docker. Ejecuta: learning code setup ${exercise.lenguaje}`);
+    if (err instanceof DockerDaemonError) fail('Docker no responde. Arranca el daemon (por ejemplo: sudo systemctl start docker) y reintenta.');
+    if (err instanceof ImageMissingError) fail(`Falta la imagen de Docker. Ejecuta: learning code setup ${exercise.lenguaje}`);
     throw err;
   }
   if (!result.compilacion.ok) console.log(`💥 Error de compilación:\n${result.compilacion.salida}`);

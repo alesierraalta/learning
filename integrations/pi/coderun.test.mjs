@@ -7,7 +7,8 @@ import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { forPage, loadRunners, publicExercise, readExercise, runCode, sameOutput } from "./coderun.ts";
+import { existsSync } from "node:fs";
+import { forPage, imageFailure, loadRunners, publicExercise, readExercise, runCode, sameOutput, workRoot } from "./coderun.ts";
 
 const runners = loadRunners();
 
@@ -138,4 +139,28 @@ test("a compile error is reported and no test runs", { skip: needs("c") }, async
   assert.deepEqual(result.resultados, []);
   assert.equal(result.aprobados, 0);
   assert.equal(result.total, 1);
+});
+
+test("a failed docker inspect is classified daemon-down or missing-image", () => {
+  assert.equal(imageFailure(1, "Cannot connect to the Docker daemon at unix:///run/containerd.socket"), "daemon");
+  assert.equal(imageFailure(1, "failed to connect to the docker API at unix:///sock; check if the path is correct"), "daemon");
+  assert.equal(imageFailure(1, "Error: No such image: python:3.12-alpine"), "missing");
+  assert.equal(imageFailure(125, "docker: permission denied"), "missing");
+});
+
+test("the judge work tree prefers shared-memory tmpfs", () => {
+  assert.ok(existsSync(workRoot()));
+  if (process.platform !== "win32") assert.equal(workRoot(), "/dev/shm");
+});
+
+test("the judge's container stderr reaches the result when the judge cannot run a test", { skip: needs("python") }, async () => {
+  const result = await runCode({
+    runner: runners.python,
+    code: 'import shutil\nshutil.rmtree("/work/.judge", ignore_errors=True)\nprint("x")\n',
+    tests: [{ nombre: "visible", entrada: "", salida: "x\n" }],
+    limitSeconds: 5,
+  });
+  assert.equal(result.resultados[0].estado, "error");
+  assert.match(result.resultados[0].errores, /el juez no terminó esta prueba/);
+  assert.match(result.resultados[0].errores, /create|nonexistent|exit \d+/i);
 });

@@ -1,7 +1,7 @@
 {
-  "python": { "image": "python:3.12-alpine", "file": "main.py", "run": "python3 main.py" },
-  "c": { "image": "gcc:14", "file": "main.c", "compile": "gcc -std=c17 -O2 -Wall -o main main.c -lm", "run": "./main" },
-  "cpp": { "image": "gcc:14", "file": "main.cpp", "compile": "g++ -std=c++20 -O2 -Wall -o main main.cpp", "run": "./main" },
-  "java": { "image": "eclipse-temurin:21-jdk-alpine", "file": "Main.java", "compile": "javac Main.java", "run": "java Main" },
-  "javascript": { "image": "node:22-alpine", "file": "main.js", "run": "node main.js" }
+  "python": { "image": "python:3.12-alpine@sha256:b658b05ce9c4eb97ec6fc19424818a1f31993659c2b505a532f470e83807815d", "file": "main.py", "run": "python3 main.py" },
+  "c": { "image": "gcc:14@sha256:435c3cbc2ad1c25fbc1684c367808ff0ca2035a1bed56734a40165ab5cd7e3bd", "file": "main.c", "compile": "gcc -std=c17 -O2 -Wall -o main main.c -lm", "run": "./main" },
+  "cpp": { "image": "gcc:14@sha256:435c3cbc2ad1c25fbc1684c367808ff0ca2035a1bed56734a40165ab5cd7e3bd", "file": "main.cpp", "compile": "g++ -std=c++20 -O2 -Wall -o main main.cpp", "run": "./main" },
+  "java": { "image": "eclipse-temurin:21-jdk-alpine@sha256:fd52084c35bbac78890d95d57707d31ffc9d7a3324199e89c06be2a9dc71bfa0", "file": "Main.java", "compile": "javac Main.java", "run": "java Main" },
+  "javascript": { "image": "node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914", "file": "main.js", "run": "node main.js" }
 }

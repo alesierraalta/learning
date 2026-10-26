@@ -692,3 +692,19 @@ test("a quiz is answered without writing a thought, and the message quotes no em
   assert.ok(!said.includes("Pensamiento:"), said);
   await shutdown();
 });
+
+test("the index degrades one broken topic instead of failing the gallery", () => {
+  const { root } = makeRoot();
+  const bomba = join(root, "bomba");
+  mkdirSync(bomba, { recursive: true });
+  writeFileSync(join(bomba, "plan.json"), JSON.stringify({ topic: "Bomba", parts: [{ id: "p1", slug: "p1", title: "P1" }] }));
+  // `explicaciones` is a FILE: partNote's readdirSync explodes on it.
+  writeFileSync(join(bomba, "explicaciones"), "not a directory");
+  const rows = listTopics(root);
+  const bomb = rows.find((r) => r.id === "bomba");
+  assert.ok(bomb);
+  assert.equal(bomb.title, "Bomba");
+  assert.deepEqual(bomb.parts, []);
+  assert.deepEqual(bomb.exercises, []);
+  assert.ok(rows.find((r) => r.id === TOPIC).parts.length > 0);
+});

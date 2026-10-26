@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 const cli = resolve('integrations/pi/code-cli.ts');
-const run = (root, ...args) => spawnSync(process.execPath, [cli, '--root', root, ...args], { encoding: 'utf8' });
+const run = (root, ...args) => {
+  const env = args.at(-1) instanceof Object && !(args.at(-1) instanceof Array) ? args.pop() : undefined;
+  return spawnSync(process.execPath, [cli, '--root', root, ...args], { encoding: 'utf8', env: env ? { ...process.env, ...env } : undefined });
+};
 function fixture(lang = 'python') {
   const root = mkdtempSync(join(tmpdir(), 'code-cli-test-'));
   const dir = join(root, 'lab', 'codigo', 'suma');
@@ -29,6 +32,15 @@ test('ayuda, errores, listado y open no sobrescribe', () => {
   assert.equal(run(root, 'setup', 'desconocido').status, 2);
   const java = fixture('java');
   assert.equal(run(java.root, 'open', 'lab', 'suma').stdout, join(java.dir, 'mi-solucion', 'Main.java') + '\n');
+});
+
+test('distingue daemon caído de imagen ausente', () => {
+  const { root } = fixture();
+  run(root, 'open', 'lab', 'suma');
+  const out = run(root, 'test', 'lab', 'suma', { DOCKER_HOST: 'unix:///learning-code-no-daemon.sock' });
+  assert.equal(out.status, 2);
+  assert.doesNotMatch(out.stderr, /Falta la imagen/);
+  assert.match(out.stderr, /Docker no responde/);
 });
 const image = spawnSync('docker', ['image', 'inspect', 'python:3.12-alpine']);
 test('test no guarda; submit guarda 001 y 002 sin revelar ocultos', { skip: image.status !== 0 ? 'Falta python:3.12-alpine; ejecuta learning code setup python' : false }, () => {
