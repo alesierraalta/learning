@@ -12,14 +12,33 @@ import (
 // every answer carries the learner's reasoning, and the chat records one
 // verdict per concept whose evidence is quoted from that reasoning.
 
-// reasoning is what the learner understood a question asks and why they chose
-// their option.
+// reasoning is the learner's thought about a question: one drain text in new
+// records, the older pair of prompts in files written before they were merged.
 type reasoning struct {
-	Entendi string `json:"entendi"`
-	Porque  string `json:"porque"`
+	Razonamiento string `json:"razonamiento"`
+	Entendi      string `json:"entendi"`
+	Porque       string `json:"porque"`
+}
+
+func (r reasoning) text() string {
+	if thought := strings.TrimSpace(r.Razonamiento); thought != "" {
+		return thought
+	}
+	parts := []string{}
+	for _, part := range []string{r.Entendi, r.Porque} {
+		if part = strings.TrimSpace(part); part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func (r reasoning) complete() bool {
+	if strings.TrimSpace(r.Razonamiento) != "" {
+		return true
+	}
+	// A record from before the prompts were merged always carried both texts;
+	// a half-written one stays a learner wait instead of passing as a thought.
 	return strings.TrimSpace(r.Entendi) != "" && strings.TrimSpace(r.Porque) != ""
 }
 
@@ -214,10 +233,9 @@ func evalConceptVerdicts(c *evalCtx, decl rules.CheckDecl) Check {
 			return failCheck(decl.ID, fmt.Sprintf("verdict %s: %q is not one of the conceptos %v of %s", key, v.Codigo, q.Conceptos, q.ID))
 		case !slices.Contains(ct.States, v.Estado):
 			return failCheck(decl.ID, fmt.Sprintf("verdict %s uses estado %q outside %v", key, v.Estado, ct.States))
-		case strings.TrimSpace(v.Evidencia) == "" ||
-			!(containsNorm(why[v.Pregunta].Entendi, v.Evidencia) || containsNorm(why[v.Pregunta].Porque, v.Evidencia)):
+		case strings.TrimSpace(v.Evidencia) == "" || !containsNorm(why[v.Pregunta].text(), v.Evidencia):
 			return failCheck(decl.ID, fmt.Sprintf(
-				"verdict %s evidencia is not quoted from the learner's reasoning (entendi or porque) for %s", key, v.Pregunta))
+				"verdict %s evidencia is not quoted from the learner's reasoning for %s", key, v.Pregunta))
 		}
 		covered[key] = true
 		if v.Estado == ct.GapState {

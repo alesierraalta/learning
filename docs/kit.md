@@ -68,9 +68,10 @@ three grid units between centers. `kind` is `box`, `agent`, `env`, `store`, or
 `decision`. Dimensions are SVG viewBox pixels; diagrams scale to the column.
 Use short labels and inspect the result for overlapping edges and text.
 
-`lk-quiz` fetches questions, requires a choice plus `entendi`, `porque` and
-`confianza` (`seguro`, `dudo`, `adivine`) for each, and includes optional own-words
-and exercise fields. It displays server grading and restored read-only answers
+`lk-quiz` fetches questions, requires a choice plus one `razonamiento` — the
+single box where the learner drains what they are thinking, typed or dictated
+with the microphone button — and `confianza` (`seguro`, `dudo`, `adivine`) for
+each, and includes optional own-words and exercise fields. It displays server grading and restored read-only answers
 and concept verdicts. Never put answer keys in the page. Exercise instructions
 remain page-authored content. `lk-video` checks availability with HEAD and polls
 every 30 seconds after requesting generation. `lk-ask` sends a question.
@@ -92,8 +93,8 @@ window.LEARNING_BRIDGE = {
 
 Quiz responses are `{questions, answered, verdicts}`. Questions have `id`,
 `enunciado` and an A–E `options` object, without keys. `answered` is null or a
-graded array of `{id,chosen,correct,ok,entendi,porque,confianza}` (the bridge
-format). It also accepts a grading object with `results`, `score`, `reasoning`
+graded array of `{id,chosen,correct,ok,razonamiento,confianza}` (the bridge
+format; a file written by the older two-prompt page is still read and merged). It also accepts a grading object with `results`, `score`, `reasoning`
 (or `razonamientos`) and optional `answers`, `ownWords`, `exercises`. Verdicts
 are an array of `{codigo,estado,pregunta,evidencia}`; a concept-ID map to
 `{veredicto,evidencia}` is also accepted. Submissions use JSON:
@@ -101,8 +102,10 @@ are an array of `{codigo,estado,pregunta,evidencia}`; a concept-ID map to
 - Video: `{kind:'video', topic, part}`.
 - Question: `{kind:'question', topic, part, text}`.
 - Quiz: `{kind:'mini-quiz', topic, part, answers, reasoning, ownWords?, exercises?}`.
-  `reasoning` maps question IDs to `{entendi, porque, confianza}`. Successful
-  grading returns `{results:[{id,chosen,correct,ok}], score:'3/4', saved:...}`.
+  `reasoning` maps question IDs to `{razonamiento, confianza}`; the older
+  `{entendi, porque, confianza}` shape is accepted and stored as one
+  `razonamiento`. Successful grading returns
+  `{results:[{id,chosen,correct,ok}], score:'3/4', saved:...}`.
 
 ## Authoring rules
 

@@ -182,9 +182,10 @@ learner's own reasoning:
   codes (`minPerQuestion`/`maxPerQuestion`), each a plan subtema or a `P0.x`
   foundation.
 - Every answer carries `razonamientos` in its answers file:
-  `{"q1": {"entendi": "...", "porque": "...", "confianza": "dudo"}}`. An answer
-  without both `entendi` and `porque` counts as not yet answered: a learner
-  wait. `confianza` (`seguro`/`dudo`/`adivine`, written by the study view) is
+  `{"q1": {"razonamiento": "...", "confianza": "dudo"}}`. An answer without a
+  non-empty `razonamiento` counts as not yet answered: a learner wait. A file
+  written before the prompts were merged, with `entendi` and `porque`, is still
+  read and its two texts join into one thought. `confianza` (`seguro`/`dudo`/`adivine`, written by the study view) is
   for the chat's verdicts; the engine does not read it.
 - Diagnosis rounds have any size, start at 1 and are contiguous; at most
   `diagnosisMaxQuestions` (15) in total. A round is written only after the
@@ -196,7 +197,7 @@ learner's own reasoning:
   answered, each concept of each of its questions needs an entry naming that
   question; `estado` is one of `states` (`claro`, `dudoso`, `laguna`) and
   `evidencia` appears verbatim (whitespace-normalized) in that question's
-  `entendi` or `porque`. Missing verdicts are a chat obligation: "concept
+  `razonamiento`. Missing verdicts are a chat obligation: "concept
   verdicts owed for round N", or "round M was written before the concept
   verdicts for round N". With concept diagnosis a learner wait never hides
   such an obligation in `status`.

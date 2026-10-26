@@ -105,7 +105,7 @@ function http(url, { method = "GET", headers = {}, body } = {}) {
 
 const base = (result) => result.structuredContent.base;
 const why = (...ids) =>
-  Object.fromEntries(ids.map((id) => [id, { entendi: `entendí ${id}`, porque: `porque ${id}`, confianza: "seguro" }]));
+  Object.fromEntries(ids.map((id) => [id, { razonamiento: `pienso ${id}`, confianza: "seguro" }]));
 
 function submit(url, payload, headers = {}) {
   const origin = new URL(url).origin;
@@ -282,6 +282,8 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   const kitDir = realpathSync(mkdtempSync(join(tmpdir(), "kit-")));
   writeFileSync(join(kitDir, "kit.js"), "console.log('kit');");
   writeFileSync(join(kitDir, "kit.css"), "body{}");
+  mkdirSync(join(kitDir, "fonts"));
+  writeFileSync(join(kitDir, "fonts", "atkinson-400.woff2"), "wOF2");
   writeFileSync(
     join(topic, "explicaciones", "Parte 1 - Claves.html"),
     '<!doctype html><html lang="es"><head><link rel="stylesheet" href="../kit/kit.css"></head><body><h1>Rica</h1></body></html>',
@@ -313,6 +315,10 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   assert.match(kit.headers["content-type"], /^text\/javascript/);
   assert.equal((await http(`${result.structuredContent.base}kit/nope.js`)).status, 404);
   assert.equal((await http(`${result.structuredContent.base}kit/..%2Fbridge.ts`)).status, 404);
+  const font = await http(`${result.structuredContent.base}kit/fonts/atkinson-400.woff2`);
+  assert.equal(font.status, 200);
+  assert.match(font.headers["content-type"], /^font\/woff2/);
+  assert.equal((await http(`${result.structuredContent.base}kit/fonts/..%2Fkit.css`)).status, 404);
 
   const quiz = JSON.parse((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p1`)).body);
   assert.deepEqual(quiz.questions.map((q) => q.id), ["q1", "q2"]);
@@ -378,7 +384,7 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
     answers: { q1: "B", q2: "C" },
     reasoning: {
       ...why("q1"),
-      q2: { entendi: "Pide qué error da Oracle", porque: "Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
+      q2: { razonamiento: "Pide qué error da Oracle. Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
     },
     ownWords: "Una clave identifica una fila.",
     exercises: "SELECT * FROM t;",
@@ -394,7 +400,7 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
     answers: { q1: "B", q2: "C" },
     razonamientos: {
       ...why("q1"),
-      q2: { entendi: "Pide qué error da Oracle", porque: "Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
+      q2: { razonamiento: "Pide qué error da Oracle. Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
     },
   });
   assert.equal(host.sent.length, 1);
@@ -402,10 +408,32 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
   const text = host.sent[0].content;
   assert.match(text, /^\[Vista HTML · sql-demo · p1 · mini-quiz\]/);
   assert.match(text, /mini-quiz\/p1\.answers\.json/);
-  assert.match(text, /- q1: B ✔\n  Entendí: entendí q1\n  Por qué: porque q1\n  Confianza: seguro\n/);
-  assert.match(text, /- q2: C ✘ \(correcta: B\)\n  Entendí: Pide qué error da Oracle\n  Por qué: Pensé que C porque\.\.\.\n    lo vi en clase\n  Confianza: adiviné/);
+  assert.match(text, /- q1: B ✔\n  Pensamiento: pienso q1\n  Confianza: seguro\n/);
+  assert.match(text, /- q2: C ✘ \(correcta: B\)\n  Pensamiento: Pide qué error da Oracle\. Pensé que C porque\.\.\.\n    lo vi en clase\n  Confianza: adiviné/);
   assert.match(text, /Vuelco con mis palabras:\n"""\nUna clave identifica una fila\.\n"""/);
   assert.match(text, /Ejercicios:\n"""\nSELECT \* FROM t;\n"""/);
+  await shutdown();
+});
+
+test("reasoning written by the old two-prompt form still submits and is normalized", async () => {
+  const { view, topic, host, shutdown } = await setup();
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const res = await submit(url, {
+    kind: "mini-quiz",
+    topic: TOPIC,
+    part: "p1",
+    answers: { q1: "B", q2: "B" },
+    reasoning: {
+      q1: { entendi: "primer", porque: "segundo", confianza: "dudo" },
+      q2: { entendi: "otra", porque: "razón", confianza: "seguro" },
+    },
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")).razonamientos, {
+    q1: { razonamiento: "primer\n\nsegundo", confianza: "dudo" },
+    q2: { razonamiento: "otra\n\nrazón", confianza: "seguro" },
+  });
+  assert.match(host.sent[0].content, /Pensamiento: primer\n    \n    segundo/);
   await shutdown();
 });
 
@@ -431,7 +459,7 @@ test("the part page reports recorded answers with their grading once the quiz is
   const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
   assert.deepEqual(data.answered, [
     { id: "q1", chosen: "B", correct: "B", ok: true },
-    { id: "q2", chosen: "A", correct: "B", ok: false, entendi: "entendí q2", porque: "porque q2", confianza: "seguro" },
+    { id: "q2", chosen: "A", correct: "B", ok: false, razonamiento: "pienso q2", confianza: "seguro" },
   ]);
   assert.equal(data.verdicts, null);
   await shutdown();
@@ -467,8 +495,8 @@ test("diagnosis submit adds only new ids of the current round and keeps recorded
 test("part and diagnosis pages show the tutor's concept verdicts once recorded", async () => {
   const { view, topic, shutdown } = await setup();
   const verdicts = [
-    { codigo: "1.1", estado: "claro", pregunta: "q1", evidencia: "entendí q1" },
-    { codigo: "1.2", estado: "laguna", pregunta: "q2", evidencia: "porque q2" },
+    { codigo: "1.1", estado: "claro", pregunta: "q1", evidencia: "pienso q1" },
+    { codigo: "1.2", estado: "laguna", pregunta: "q2", evidencia: "pienso q2" },
   ];
   mkdirSync(join(topic, "feedback"));
   writeFileSync(join(topic, "feedback", "p1.json"), JSON.stringify({ partId: "p1", difficultyDetected: true, conceptos: verdicts }));
@@ -513,12 +541,13 @@ test("submit refuses foreign origins, non-JSON, oversize, unknown fields and inv
     [await submit(url, { ...valid, ownWords: "x".repeat(9000) }), 400],
     [await submit(url, { ...valid, reasoning: undefined }), 400],
     [await submit(url, { ...valid, reasoning: why("q1") }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "  " } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { razonamiento: "  " } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "" } } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: "solo texto" } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1", "q2"), q2: { entendi: "x", porque: "y", confianza: "seguro", extra: "z" } } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "y" } } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "y", confianza: "mucho" } } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "y", confianza: "constructor" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1", "q2"), q2: { razonamiento: "y", confianza: "seguro", extra: "z" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { razonamiento: "y" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { razonamiento: "y", confianza: "mucho" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { razonamiento: "y", confianza: "constructor" } } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1", "q2", "q9") } }), 400],
     [await submit(url, { kind: "prompt", topic: TOPIC, text: "rm -rf" }), 400],
     [await submit(url, { kind: "question", topic: TOPIC, text: "" }), 400],

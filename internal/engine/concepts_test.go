@@ -332,6 +332,32 @@ func TestConceptMiniQuizSizeIsChosenByTheModel(t *testing.T) {
 	}
 }
 
+// The current page asks for one thought instead of two prompts: the engine
+// reads that single text as the learner's reasoning, and a verdict may quote it.
+func TestConceptReasoningAcceptsOneThought(t *testing.T) {
+	f := throughConceptPlanning(t)
+	qs := conceptQuiz(1)
+	f.writeConceptQuiz(t, qs)
+	record := func(thought string) {
+		f.writeJSON(t, "mini-quiz/p1.answers.json", map[string]any{
+			"answers":       map[string]string{"q1": qs[0].Answer},
+			"razonamientos": map[string]any{"q1": map[string]string{"razonamiento": thought}},
+		})
+	}
+	record("   ")
+	f.statusExpect(t, "waiting")
+
+	record("Pienso que q1 me pide el caso, y elijo esta opción porque el valor existe.")
+	f.writeConceptFeedback(t,
+		verdict("T.p1", "claro", "q1", "el valor existe"),
+		verdict("P0.1", "claro", "q1", "elijo esta opción"),
+	)
+	rep := f.advanceOK(t, "quiz")
+	if rep.Evidence["quizPassed"] != true {
+		t.Fatalf("a one-thought answer with quoted verdicts passes: %+v", rep.Evidence)
+	}
+}
+
 func TestConceptMiniQuizPassesAtTwoThirds(t *testing.T) {
 	f := throughConceptPlanning(t)
 	qs := conceptQuiz(3)

@@ -99,6 +99,7 @@ const MIME: Record<string, string> = {
   ".vtt": "text/vtt; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
+  ".woff2": "font/woff2",
 };
 const VIDEO = new Set([".mp4", ".webm", ".mov"]);
 const AUDIO = new Set([".mp3", ".m4a", ".wav"]);
@@ -118,8 +119,9 @@ interface Question {
   round?: number;
 }
 interface Reasoning {
-  entendi: string;
-  porque: string;
+  razonamiento?: string;
+  entendi?: string;
+  porque?: string;
   confianza?: string;
 }
 interface Graded {
@@ -127,6 +129,7 @@ interface Graded {
   chosen: string;
   correct: string;
   ok: boolean;
+  razonamiento?: string;
   entendi?: string;
   porque?: string;
   confianza?: string;
@@ -177,8 +180,14 @@ function readQuestions(file: string): Question[] | undefined {
   );
 }
 
+/** New records hold one thought; older ones hold the two prompts we merged. */
 const isReasoning = (value: unknown): value is Reasoning =>
-  isRecord(value) && typeof value.entendi === "string" && typeof value.porque === "string";
+  isRecord(value) &&
+  (typeof value.razonamiento === "string" || (typeof value.entendi === "string" && typeof value.porque === "string"));
+
+const thought = (reasoning: Reasoning | undefined): string =>
+  reasoning?.razonamiento?.trim() ||
+  [reasoning?.entendi, reasoning?.porque].filter((text): text is string => typeof text === "string" && text.trim() !== "").join("\n\n").trim();
 
 function readAnswers(file: string): AnswerFile | undefined {
   const data = readRecord(file);
@@ -310,8 +319,7 @@ function quizMessage(header: string, saved: string, results: Graded[], reasoning
   for (const r of results) {
     lines.push(`- ${r.id}: ${r.chosen} ${r.ok ? "✔" : `✘ (correcta: ${r.correct})`}`);
     lines.push(
-      `  Entendí: ${indented(reasoning[r.id].entendi)}`,
-      `  Por qué: ${indented(reasoning[r.id].porque)}`,
+      `  Pensamiento: ${indented(thought(reasoning[r.id]))}`,
       `  Confianza: ${CONFIDENCE[reasoning[r.id].confianza ?? ""] ?? "-"}`,
     );
   }
@@ -355,7 +363,7 @@ function checkAnswers(raw: unknown, questions: Question[], exact: boolean): Reco
   return raw as Record<string, string>;
 }
 
-/** Every answered question carries what the learner understood, why they chose it and how sure they were. */
+/** Every answered question carries the learner's thought and how sure they were. */
 function checkReasoning(raw: unknown, answers: Record<string, string>): Record<string, Reasoning> {
   if (!isRecord(raw)) throw new HttpError(400, "reasoning is required for every answered question");
   const extra = Object.keys(raw).find((id) => !(id in answers));
@@ -363,19 +371,23 @@ function checkReasoning(raw: unknown, answers: Record<string, string>): Record<s
   const out: Record<string, Reasoning> = {};
   for (const id of Object.keys(answers)) {
     const entry = raw[id];
-    if (!isRecord(entry) || Object.keys(entry).some((key) => !["entendi", "porque", "confianza"].includes(key))) {
-      throw new HttpError(400, `reasoning for ${id} must be {entendi, porque, confianza}`);
+    const merged = isRecord(entry) && ["razonamiento", "entendi", "porque"].some((key) => Object.hasOwn(entry, key));
+    if (!isRecord(entry) || !merged || Object.keys(entry).some((key) => !["razonamiento", "entendi", "porque", "confianza"].includes(key))) {
+      throw new HttpError(400, `reasoning for ${id} must be {razonamiento, confianza}`);
     }
     if (typeof entry.confianza !== "string" || !Object.hasOwn(CONFIDENCE, entry.confianza)) {
       throw new HttpError(400, `reasoning confianza for ${id} must be one of ${Object.keys(CONFIDENCE).join(", ")}`);
     }
-    for (const key of ["entendi", "porque"] as const) {
-      const text = entry[key];
+    const parts = [entry.razonamiento, entry.entendi, entry.porque];
+    for (const text of parts) {
+      if (text === undefined) continue;
       if (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT_CHARS) {
-        throw new HttpError(400, `reasoning ${key} for ${id} must be non-empty text of at most ${MAX_TEXT_CHARS} characters`);
+        throw new HttpError(400, `reasoning for ${id} must be non-empty text of at most ${MAX_TEXT_CHARS} characters`);
       }
     }
-    out[id] = { entendi: (entry.entendi as string).trim(), porque: (entry.porque as string).trim(), confianza: entry.confianza };
+    const text = thought(entry as Reasoning);
+    if (!text) throw new HttpError(400, `reasoning for ${id} must say what the learner is thinking`);
+    out[id] = { razonamiento: text, confianza: entry.confianza };
   }
   return out;
 }
@@ -594,7 +606,7 @@ ${scripts}
   };
 
   const kitFile = (res: ServerResponse, name: string) => {
-    if (!/^[\w-]+\.(js|css)$/.test(name)) throw new HttpError(404, "not found");
+    if (!/^(?:fonts\/)?[\w-]+\.(js|css|woff2)$/.test(name)) throw new HttpError(404, "not found");
     const contained = resolveContained(kitDir, join(kitDir, name));
     if (!contained.ok) throw new HttpError(404, "not found");
     send(res, 200, MIME[extname(name)], readFileSync(contained.targetReal));
@@ -822,7 +834,7 @@ ${scripts}
     }
     if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method not allowed");
     if (rest.length === 0) return indexPage(res);
-    if (rest.length === 2 && rest[0] === "kit") return kitFile(res, rest[1]);
+    if (rest[0] === "kit" && rest.length >= 2) return kitFile(res, rest.slice(1).join("/"));
     if (rest.length === 2 && rest[0] === "api" && rest[1] === "quiz") return quizApi(res, url);
     if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css")) {
       return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])));

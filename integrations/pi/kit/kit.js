@@ -21,6 +21,65 @@
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
   }
+  /* One place to think: the person drains what they are reasoning, typing or
+     speaking. Speech recognition is the browser's own, so nothing leaves the
+     machine beyond the configured engine. */
+  function dictate(area, button, note) {
+    const Engine = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Engine) {
+      button.hidden = true;
+      note.textContent = 'Este navegador no dicta; escribe con el teclado.';
+      return;
+    }
+    let recognition = null, base = '';
+    const resting = (text = '') => {
+      note.textContent = text;
+      button.dataset.state = '';
+      button.textContent = 'Dictar';
+      recognition = null;
+    };
+    button.addEventListener('click', () => {
+      if (recognition) { recognition.stop(); return; }
+      base = area.value.trim();
+      recognition = new Engine();
+      recognition.lang = 'es-ES';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.onresult = (event) => {
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          if (result.isFinal) base = [base, result[0].transcript.trim()].filter(Boolean).join(' ');
+          else interim += result[0].transcript;
+        }
+        area.value = [base, interim.trim()].filter(Boolean).join(' ');
+      };
+      recognition.onerror = (event) => resting(event.error === 'not-allowed' ? 'Permiso de micrófono denegado.' : `No se pudo dictar (${event.error}).`);
+      recognition.onend = () => resting();
+      try {
+        recognition.start();
+        button.dataset.state = 'listening';
+        button.textContent = 'Detener';
+        note.textContent = 'Escuchando: habla con calma.';
+      } catch (error) { resting(error.message); }
+    });
+  }
+  function thoughtField(id, index) {
+    const wrap = el('div', undefined, { class: 'lk-thought' });
+    const area = el('textarea', undefined, { id: `${id}-razonamiento`, name: `${id}-razonamiento`, rows: '5', required: '', placeholder: 'Estoy pensando que…' });
+    const bar = el('div', undefined, { class: 'lk-thought-bar' });
+    const mic = el('button', 'Dictar', { type: 'button', class: 'lk-mic', 'aria-label': `Dictar el razonamiento de la pregunta ${index + 1}` });
+    const note = el('span', '', { class: 'lk-mic-note', 'aria-live': 'polite' });
+    bar.append(mic, note);
+    wrap.append(
+      el('label', 'Tu razonamiento', { class: 'lk-thought-label', for: `${id}-razonamiento` }),
+      el('span', 'Qué te pide la pregunta, por qué eliges esa opción, qué te hace dudar.', { class: 'lk-thought-hint' }),
+      area,
+      bar,
+    );
+    dictate(area, mic, note);
+    return wrap;
+  }
   const loaded = new Map();
   function library(name, url, integrity, css = false) {
     if (!loaded.has(name)) loaded.set(name, new Promise((resolve, reject) => {
@@ -176,7 +235,7 @@
         const label = el('label', undefined, { class: 'lk-option' });
         label.append(el('input', undefined, { type: 'radio', name: q.id, value: letter, required: '' }), el('span', `${letter}. ${text}`)); box.append(label);
       }
-      box.append(textField('¿Qué entendiste que te pide la pregunta?', `${q.id}-entendi`, true), textField('¿Por qué llegaste a esa opción?', `${q.id}-porque`, true));
+      box.append(thoughtField(q.id, index));
       const confidence = el('div', 'Confianza: ', { class: 'lk-controls' });
       for (const [value, title] of Object.entries({ seguro: 'Seguro', dudo: 'Dudo', adivine: 'Adiviné' })) {
         const label = el('label'); label.append(el('input', undefined, { type: 'radio', name: `${q.id}-confianza`, value, required: '' }), document.createTextNode(title)); confidence.append(label);
@@ -207,7 +266,8 @@
         const chosen = a.answers?.[q.id] || a.results?.find(r => r.id === q.id)?.chosen;
         for (const input of boxes.get(q.id).querySelectorAll('input')) if (input.name === q.id) input.checked = input.value === chosen;
         const reasoning = (a.reasoning || a.razonamientos || {})[q.id] || {};
-        for (const key of ['entendi', 'porque']) form.elements[`${q.id}-${key}`].value = reasoning[key] || '';
+        const thought = reasoning.razonamiento || [reasoning.entendi, reasoning.porque].filter(Boolean).join(' ');
+        form.elements[`${q.id}-razonamiento`].value = thought;
         for (const input of boxes.get(q.id).querySelectorAll('input')) if (input.name === `${q.id}-confianza`) input.checked = input.value === reasoning.confianza;
       }
       form.elements.ownWords.value = a.ownWords || ''; form.elements.exercises.value = a.exercises || '';
@@ -224,10 +284,10 @@
     form.addEventListener('submit', async event => {
       event.preventDefault(); const answers = {}, reasoning = {};
       for (const q of data.questions) {
-        const entendi = form.elements[`${q.id}-entendi`].value.trim(), porque = form.elements[`${q.id}-porque`].value.trim();
-        if (!entendi || !porque) { out.textContent = 'Completa ambos razonamientos en cada pregunta'; return; }
+        const razonamiento = form.elements[`${q.id}-razonamiento`].value.trim();
+        if (!razonamiento) { out.textContent = 'Escribe qué estás pensando en cada pregunta'; return; }
         answers[q.id] = form.elements[q.id].value;
-        reasoning[q.id] = { entendi, porque, confianza: form.elements[`${q.id}-confianza`].value };
+        reasoning[q.id] = { razonamiento, confianza: form.elements[`${q.id}-confianza`].value };
       }
       submit.disabled = true;
       try {

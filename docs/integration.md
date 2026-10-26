@@ -169,9 +169,10 @@ A submission is one of three fixed shapes (`mini-quiz`, `diagnosis`, `question`;
 are rejected). For a quiz the bridge validates every id and option against the quiz file,
 writes the answers file the engine already reads (`mini-quiz/<part>.answers.json`, or merges
 new ids into `quiz.answers.json`) atomically, and never overwrites recorded answers (`409`).
-Every answered question must carry `reasoning: {<id>: {entendi, porque, confianza}}` — what the
-learner understood the question asks, why they chose their option (both non-empty) and how sure
-they were (`seguro`, `dudo` or `adivine`); anything else is `400`;
+Every answered question must carry `reasoning: {<id>: {razonamiento, confianza}}` — the one text
+where the learner drains what they are thinking (non-empty; typed or dictated with the page's
+microphone button) and how sure they were (`seguro`, `dudo` or `adivine`); anything else is `400`.
+The older `{entendi, porque, confianza}` shape is still accepted and stored as one `razonamiento`;
 it is stored as `razonamientos` next to `answers` in the same file. Then it calls
 `pi.sendUserMessage(..., { deliverAs: "followUp" })` with a message that starts with
 `[Vista HTML · <topic> · ...]` and carries the graded answers, both reasoning fields and the confidence, the

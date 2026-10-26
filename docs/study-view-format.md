@@ -108,7 +108,7 @@ JS, no network). `learning_view` then returns an **Aplicación interactiva** URL
 part page shows a launch button. The bridge serves the app full page and injects
 `window.LEARNING_BRIDGE = { submitUrl, topic, part }`; the app posts the same fixed
 payloads as the view (`kind: "mini-quiz"` with `answers` and `reasoning` carrying
-`entendi`, `porque` and `confianza`; `kind: "question"` with `text`). The bridge grades
+`razonamiento` and `confianza`; `kind: "question"` with `text`). The bridge grades
 the quiz, so the app holds no answer keys; keep question ids and option letters equal
 to `mini-quiz/<part>.json`. Opened without the bridge (`window.LEARNING_BRIDGE`
 undefined) the app must still run its experiments and say it is not connected.
