@@ -343,8 +343,10 @@
     const tones = WALK_TONES();
     const tone = (name) => tones[name] || tones.slate;
     let out = '';
-    for (const d of scene.dashed || []) out += S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke, d.fill);
+    // Sheets and boxes first: a highlight drawn before them would disappear
+    // under their white fill.
     for (const s of scene.sheets || []) out += S.sheet(s.x, s.y, s.w, s.h, s.title || '', s.lines ?? 4, tone(s.tone).stroke);
+    for (const g of scene.grids || []) out += S.grid(g.x, g.y, g.cols, g.rows, g);
     for (const g of scene.gears || []) out += S.gear(g.x, g.y, g.r || 60, g.teeth || 10, tone(g.tone).stroke);
     for (const b of scene.boxes || []) {
       const t = tone(b.tone);
@@ -363,13 +365,16 @@
       else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed });
     }
     for (const b of scene.badges || []) out += S.badge(b.x, b.y, b.n);
+    for (const d of scene.dashed || []) out += S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke, d.fill);
     for (const l of scene.labels || []) out += S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 });
     return out;
   }
   define('lk-walkthrough', function () {
     const S = window.LKScene;
     if (!S) throw new Error('Falta scene.js: no se puede dibujar el recorrido');
-    const spec = JSON.parse(this.querySelector('script[type="application/json"]').textContent);
+    let spec;
+    try { spec = JSON.parse(this.querySelector('script[type="application/json"]').textContent); }
+    catch (error) { throw new Error(`El recorrido tiene un JSON inválido: ${error.message}`); }
     const steps = spec.steps || [];
     if (!steps.length) throw new Error('El recorrido no tiene pasos');
     const stage = el('div', undefined, { class: 'lk-wt-stage' });
@@ -385,12 +390,25 @@
     const prev = button('◀ Anterior', () => go(index - 1));
     const next = button('Siguiente ▶', () => go(index + 1));
     const reveal = button('Ver todo', () => { whole = !whole; draw(); });
+    // The figure is the lesson: letting it own the screen is what makes the
+    // small labels readable on a laptop and in class.
+    const full = button('Pantalla completa', () => {
+      if (document.fullscreenElement === this) document.exitFullscreen?.();
+      else this.requestFullscreen?.().catch(() => {});
+    });
+    full.className = 'lk-wt-full';
+    const syncFull = () => {
+      const on = document.fullscreenElement === this;
+      full.textContent = on ? 'Salir' : 'Pantalla completa';
+      full.setAttribute('aria-pressed', String(on));
+    };
+    document.addEventListener('fullscreenchange', syncFull);
     const bar = el('div', undefined, { class: 'lk-wt-bar' });
     bar.append(prev, count, next, reveal, dots);
     this.classList.add('lk-walkthrough');
     this.tabIndex = 0;
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
-    this.append(stage, hint, bar, caption);
+    this.append(full, stage, hint, bar, caption);
     steps.forEach((_, i) => {
       const dot = button(String(i + 1), () => go(i));
       dot.className = 'lk-wt-dot';
@@ -399,8 +417,12 @@
     });
     function go(to) { index = Math.max(0, Math.min(steps.length - 1, to)); whole = false; draw(); }
     function draw() {
+      // One scene per step: the figure shows the state that step describes, and
+      // «Ver todo» shows the last one. Cumulative scenes still work, because
+      // their last step already contains every earlier element.
       stage.querySelectorAll('[data-step]').forEach((g) => {
-        g.style.display = whole || Number(g.dataset.step) <= index + 1 ? '' : 'none';
+        const shown = whole ? steps.length : index + 1;
+        g.style.display = Number(g.dataset.step) === shown ? '' : 'none';
       });
       const step = steps[index];
       captionTitle.textContent = step.title || '';

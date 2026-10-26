@@ -56,6 +56,37 @@
   const node = (cx, cy, label, { fill = "#ffffff", stroke = C.ink, color = C.ink, r = 30 } = {}) =>
     `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="3"/>` + txt(cx, cy + 9, label, { size: 24, color });
 
+  // A real table: header band, cell values and colour marks, so a figure can
+  // show the data it talks about instead of four grey lines.
+  const grid = (x, y, cols, rows, o = {}) => {
+    const size = o.size || 22, rowH = o.rowH || 48, w = o.width || 560;
+    const header = o.header === false ? 0 : 1;
+    const colW = w / cols.length;
+    const h = rowH * (rows.length + header);
+    const tone = (t) => ({ blue: C.blueS, green: C.greenS, amber: C.amberS, red: C.redS, soft: C.soft }[t] || C.soft);
+    const ink = (t) => ({ blue: C.blue, green: C.green, amber: C.amber, red: C.red }[t] || C.ink);
+    let out = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="#ffffff" stroke="${C.ink}" stroke-width="3"/>`;
+    for (const [key, t] of Object.entries(o.rowTone || {})) {
+      out += `<rect x="${x + 2}" y="${f(y + rowH * (Number(key) + header) + 1)}" width="${w - 4}" height="${rowH - 2}" fill="${tone(t)}"/>`;
+    }
+    for (const [key, t] of Object.entries(o.colTone || {})) {
+      out += `<rect x="${f(x + colW * Number(key) + 1)}" y="${y + 2}" width="${f(colW - 2)}" height="${h - 4}" fill="${tone(t)}"/>`;
+    }
+    if (header) {
+      out += `<rect x="${x + 2}" y="${y + 2}" width="${w - 4}" height="${rowH - 1}" rx="8" fill="${C.soft}"/>`;
+      cols.forEach((c, i) => { out += txt(x + colW * (i + 0.5), f(y + rowH * 0.66), c, { size: size - 2, color: C.slate }); });
+      out += `<path d="M ${x + 2} ${y + rowH + 1} H ${f(x + w - 2)}" stroke="${C.line}" stroke-width="2"/>`;
+    }
+    rows.forEach((row, r) => {
+      if (r) out += `<path d="M ${x + 2} ${f(y + rowH * (r + header) + 1)} H ${f(x + w - 2)}" stroke="${C.line}" stroke-width="1.5"/>`;
+      row.forEach((cell, c) => {
+        const t = (o.cellTone || {})[`${r},${c}`];
+        out += txt(x + colW * (c + 0.5), f(y + rowH * (r + header) + rowH / 2 + size * 0.36), cell, { size, color: t ? ink(t) : C.ink, bold: !!t || c === 0 });
+      });
+    });
+    return out;
+  };
+
   const markerIds = { [C.slate]: "a-slate", [C.blue]: "a-blue", [C.green]: "a-green", [C.red]: "a-red", [C.amber]: "a-amber" };
 
   const defs = () =>
@@ -79,7 +110,7 @@
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${defs()}${markup}</svg>`;
 
   window.LKScene = {
-    C, esc, f, txt, lbl, step, gear, packet, dashed, sheet, box, node, badge, defs,
+    C, esc, f, txt, lbl, step, gear, packet, dashed, sheet, box, node, badge, grid, defs,
     curve, path, line, svg,
   };
 })();

@@ -88,13 +88,15 @@ legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; ma
 
 
 /* A step-by-step figure: the deck grows one layer per step */
-.lk-walkthrough { display:block; margin:36px 0; padding:20px 22px 18px; border:2px solid var(--ink); border-radius:14px; background:#fff; box-shadow:6px 6px 0 #f1f5f9; }
+.lk-walkthrough { position:relative; display:block; margin:36px 0; padding:20px 22px 18px; border:2px solid var(--ink); border-radius:14px; background:#fff; box-shadow:6px 6px 0 #f1f5f9; }
 .lk-walkthrough>.lk-title { display:block; font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; color:var(--cobalt); margin-bottom:10px; }
 .lk-wt-stage svg { display:block; width:100%; height:auto; }
 .lk-wt-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px; }
 .lk-wt-bar button { border-radius:999px; padding:6px 14px; font-size:.78rem; }
 .lk-wt-bar button:disabled { opacity:.35; cursor:default; }
 .lk-wt-count { font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; color:#64748b; }
+.lk-wt-full { position:absolute; top:10px; right:12px; border-radius:999px; padding:5px 12px; font-size:.7rem; letter-spacing:.04em; background:#fff; border:1.5px solid var(--ink); color:var(--ink); cursor:pointer; }
+.lk-wt-full:hover { background:var(--ink); color:#fff; }
 .lk-wt-dots { display:flex; gap:6px; margin-left:auto; }
 .lk-wt-dot { width:11px; height:11px; padding:0; border-radius:50%; border:2px solid var(--ink) !important; background:#fff; overflow:hidden; text-indent:-99px; }
 .lk-wt-dot[aria-current="true"] { background:var(--cobalt); border-color:var(--cobalt) !important; }
@@ -109,3 +111,13 @@ legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; ma
   .lk-wt-stage svg { width:auto; min-width:680px; }
   .lk-wt-hint { display:block; }
 }
+/* Full screen: the figure takes the whole screen, letters included */
+.lk-walkthrough:fullscreen, .lk-walkthrough:-webkit-full-screen { display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; width:100%; height:100%; margin:0; border:0; border-radius:0; box-shadow:none; padding:22px 34px; background:#fff; }
+.lk-walkthrough:fullscreen .lk-wt-stage, .lk-walkthrough:-webkit-full-screen .lk-wt-stage { flex:0 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.lk-walkthrough:fullscreen .lk-wt-stage svg, .lk-walkthrough:-webkit-full-screen .lk-wt-stage svg { width:100%; height:auto; max-height:74vh; }
+.lk-walkthrough:fullscreen .lk-wt-caption strong, .lk-walkthrough:-webkit-full-screen .lk-wt-caption strong { font-size:1.5rem; }
+.lk-walkthrough:fullscreen .lk-wt-caption p, .lk-walkthrough:-webkit-full-screen .lk-wt-caption p { font-size:1.15rem; max-width:70ch; }
+.lk-walkthrough:fullscreen .lk-wt-hint, .lk-walkthrough:-webkit-full-screen .lk-wt-hint { display:none; }
+.lk-walkthrough:fullscreen .lk-wt-bar, .lk-walkthrough:-webkit-full-screen .lk-wt-bar { margin-top:20px; }
+.lk-walkthrough:fullscreen .lk-wt-bar button, .lk-walkthrough:-webkit-full-screen .lk-wt-bar button { font-size:.95rem; padding:9px 18px; }
+.lk-walkthrough:fullscreen .lk-wt-full, .lk-walkthrough:-webkit-full-screen .lk-wt-full { background:var(--ink); color:#fff; }

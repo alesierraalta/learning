@@ -60,6 +60,110 @@
 
 <section>
 <h2>1. Por qué existe</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Devolver todo o devolver lo que importa",
+ "viewBox": "36 16 668 340",
+ "steps": [
+  {
+   "title": "Sin filtrar",
+   "text": "SELECT * devuelve las cuatro filas, útiles o no.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "last_name",
+       "dept_id",
+       "salary"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK",
+        "10",
+        "2450"
+       ],
+       [
+        "7839",
+        "KING",
+        "10",
+        "5000"
+       ],
+       [
+        "7934",
+        "MILLER",
+        "20",
+        "3200"
+       ],
+       [
+        "7902",
+        "FORD",
+        "30",
+        "1200"
+       ]
+      ],
+      "width": 620,
+      "rowH": 48,
+      "size": 22
+     }
+    ]
+   }
+  },
+  {
+   "title": "Con WHERE",
+   "text": "La condición deja pasar solo las filas que la cumplen.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "last_name",
+       "dept_id",
+       "salary"
+      ],
+      "rows": [
+       [
+        "7839",
+        "KING",
+        "10",
+        "5000"
+       ]
+      ],
+      "width": 620,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "green"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 370,
+      "y": 60,
+      "text": "WHERE department_id = 10",
+      "tone": "green",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <p>Imagina que <code>EMPLOYEE</code> ya tiene 10 000 empleados y solo necesitas los del departamento 10. Sin un filtro declarativo tendrías que leer fila por fila y descartar a mano. Con <code>WHERE</code> describes la condición una vez y el motor la evalúa sobre cada fila.</p>
 <p>¿Qué pasaría si no existiera <code>WHERE</code>? Cada consulta devolvería la tabla completa: cálculos lentos, reportes contaminados y decisiones tomadas sobre datos que no corresponden.</p>
 <p><code>WHERE</code> existe para <strong>reducir el conjunto de filas antes de proyectar las columnas</strong>.</p>
@@ -67,6 +171,162 @@
 
 <section>
 <h2>2. Las piezas fundamentales</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Tabla, condición y resultado",
+ "viewBox": "36 72 908 310",
+ "steps": [
+  {
+   "title": "La tabla",
+   "text": "De dónde salen las filas.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "last_name",
+       "dept_id"
+      ],
+      "rows": [
+       [
+        "KING",
+        "10"
+       ],
+       [
+        "MILLER",
+        "20"
+       ]
+      ],
+      "width": 340,
+      "rowH": 48,
+      "size": 22
+     }
+    ]
+   }
+  },
+  {
+   "title": "La condición",
+   "text": "La expresión booleana que se evalúa fila por fila.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "last_name",
+       "dept_id"
+      ],
+      "rows": [
+       [
+        "KING",
+        "10"
+       ],
+       [
+        "MILLER",
+        "20"
+       ]
+      ],
+      "width": 340,
+      "rowH": 48,
+      "size": 22
+     }
+    ],
+    "boxes": [
+     {
+      "x": 500,
+      "y": 110,
+      "w": 420,
+      "h": 64,
+      "label": "dept_id = 10",
+      "sub": "TRUE / FALSE / UNKNOWN",
+      "tone": "blue",
+      "size": 24
+     }
+    ]
+   }
+  },
+  {
+   "title": "El resultado",
+   "text": "Solo las filas cuyo predicado dio TRUE.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "last_name",
+       "dept_id"
+      ],
+      "rows": [
+       [
+        "KING",
+        "10"
+       ],
+       [
+        "MILLER",
+        "20"
+       ]
+      ],
+      "width": 340,
+      "rowH": 48,
+      "size": 22
+     },
+     {
+      "x": 500,
+      "y": 260,
+      "cols": [
+       "last_name",
+       "dept_id"
+      ],
+      "rows": [
+       [
+        "KING",
+        "10"
+       ]
+      ],
+      "width": 340,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "green"
+      }
+     }
+    ],
+    "boxes": [
+     {
+      "x": 500,
+      "y": 110,
+      "w": 420,
+      "h": 64,
+      "label": "dept_id = 10",
+      "sub": "TRUE / FALSE / UNKNOWN",
+      "tone": "blue",
+      "size": 24
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 420,
+      "y1": 250,
+      "x2": 480,
+      "y2": 290,
+      "tone": "green",
+      "dashed": false
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <p>Toda consulta de lectura tiene tres piezas:</p>
 <pre class="mermaid">flowchart TD
   F["1. FROM: tabla de donde salen las filas candidatas"] --&gt; W["2. WHERE: predicado que filtra cada fila"]
@@ -156,7 +416,7 @@ WHERE department_id = NULL;</code></pre>
 <script type="application/json">
 {
   "title": "El recorrido de una consulta",
-  "viewBox": "0 0 1200 660",
+  "viewBox": "-214 0 1444 660",
   "steps": [
     {
       "title": "De dónde salen las filas",
@@ -757,6 +1017,231 @@ WHERE department_id = NULL;</code></pre>
 
 <section>
 <h2>4. Las reglas del álgebra booleana</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "AND, OR y NOT en una tabla",
+ "viewBox": "36 72 1008 446",
+ "steps": [
+  {
+   "title": "AND",
+   "text": "Solo es TRUE si las dos condiciones lo son.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "A",
+       "B",
+       "A AND B"
+      ],
+      "rows": [
+       [
+        "TRUE",
+        "TRUE",
+        "TRUE"
+       ],
+       [
+        "TRUE",
+        "FALSE",
+        "FALSE"
+       ],
+       [
+        "FALSE",
+        "FALSE",
+        "FALSE"
+       ]
+      ],
+      "width": 460,
+      "rowH": 48,
+      "size": 22,
+      "cellTone": {
+       "0,2": "green",
+       "1,2": "red",
+       "2,2": "red"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "title": "OR",
+   "text": "Basta con que una sea TRUE.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "A",
+       "B",
+       "A AND B"
+      ],
+      "rows": [
+       [
+        "TRUE",
+        "TRUE",
+        "TRUE"
+       ],
+       [
+        "TRUE",
+        "FALSE",
+        "FALSE"
+       ],
+       [
+        "FALSE",
+        "FALSE",
+        "FALSE"
+       ]
+      ],
+      "width": 460,
+      "rowH": 48,
+      "size": 22,
+      "cellTone": {
+       "0,2": "green",
+       "1,2": "red",
+       "2,2": "red"
+      }
+     },
+     {
+      "x": 560,
+      "y": 90,
+      "cols": [
+       "A",
+       "B",
+       "A OR B"
+      ],
+      "rows": [
+       [
+        "TRUE",
+        "FALSE",
+        "TRUE"
+       ],
+       [
+        "FALSE",
+        "FALSE",
+        "FALSE"
+       ]
+      ],
+      "width": 460,
+      "rowH": 48,
+      "size": 22,
+      "cellTone": {
+       "0,2": "green",
+       "1,2": "red"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "title": "NOT",
+   "text": "Invierte el valor, y UNKNOWN sigue siendo UNKNOWN.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "A",
+       "B",
+       "A AND B"
+      ],
+      "rows": [
+       [
+        "TRUE",
+        "TRUE",
+        "TRUE"
+       ],
+       [
+        "TRUE",
+        "FALSE",
+        "FALSE"
+       ],
+       [
+        "FALSE",
+        "FALSE",
+        "FALSE"
+       ]
+      ],
+      "width": 460,
+      "rowH": 48,
+      "size": 22,
+      "cellTone": {
+       "0,2": "green",
+       "1,2": "red",
+       "2,2": "red"
+      }
+     },
+     {
+      "x": 560,
+      "y": 90,
+      "cols": [
+       "A",
+       "B",
+       "A OR B"
+      ],
+      "rows": [
+       [
+        "TRUE",
+        "FALSE",
+        "TRUE"
+       ],
+       [
+        "FALSE",
+        "FALSE",
+        "FALSE"
+       ]
+      ],
+      "width": 460,
+      "rowH": 48,
+      "size": 22,
+      "cellTone": {
+       "0,2": "green",
+       "1,2": "red"
+      }
+     },
+     {
+      "x": 60,
+      "y": 300,
+      "cols": [
+       "A",
+       "NOT A"
+      ],
+      "rows": [
+       [
+        "TRUE",
+        "FALSE"
+       ],
+       [
+        "FALSE",
+        "TRUE"
+       ],
+       [
+        "NULL",
+        "UNKNOWN"
+       ]
+      ],
+      "width": 420,
+      "rowH": 48,
+      "size": 22,
+      "cellTone": {
+       "2,1": "amber"
+      }
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <p><code>WHERE</code> trabaja con tres valores: <code>TRUE</code>, <code>FALSE</code> y <code>UNKNOWN</code>.</p>
 <table>
 <thead><tr><th>A</th><th>B</th><th>A AND B</th><th>A OR B</th></tr></thead>
@@ -776,6 +1261,109 @@ WHERE department_id = NULL;</code></pre>
 
 <section>
 <h2>5. Distinciones críticas</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "WHERE elige filas, SELECT elige columnas",
+ "viewBox": "18.799999999999983 16 985.2 300",
+ "steps": [
+  {
+   "title": "WHERE",
+   "text": "Decide qué filas sobreviven.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "last_name",
+       "dept_id"
+      ],
+      "rows": [
+       [
+        "KING",
+        "10"
+       ]
+      ],
+      "width": 340,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "blue"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 230,
+      "y": 60,
+      "text": "WHERE dept_id = 10",
+      "tone": "blue",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "SELECT",
+   "text": "Decide qué columnas ves, no qué filas entran.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "last_name",
+       "dept_id"
+      ],
+      "rows": [
+       [
+        "KING",
+        "10"
+       ]
+      ],
+      "width": 340,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "blue"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 230,
+      "y": 60,
+      "text": "WHERE dept_id = 10",
+      "tone": "blue",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ],
+    "boxes": [
+     {
+      "x": 560,
+      "y": 110,
+      "w": 420,
+      "h": 64,
+      "label": "SELECT last_name",
+      "sub": "solo esa columna",
+      "tone": "amber",
+      "size": 24
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 
 <h3>WHERE vs SELECT</h3>
 <table>
@@ -804,6 +1392,89 @@ WHERE department_id = NULL;</code></pre>
 
 <section>
 <h2>6. Dónde se rompe la analogía</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "El colador y su límite",
+ "viewBox": "96 72 968 300",
+ "steps": [
+  {
+   "title": "La analogía",
+   "text": "Un colador deja pasar lo que cabe por sus agujeros.",
+   "scene": {
+    "sheets": [
+     {
+      "x": 120,
+      "y": 90,
+      "w": 280,
+      "h": 160,
+      "title": "COLADOR",
+      "lines": 3,
+      "tone": "slate"
+     }
+    ],
+    "boxes": [
+     {
+      "x": 520,
+      "y": 130,
+      "w": 520,
+      "h": 64,
+      "label": "deja pasar / retiene",
+      "sub": "una regla simple",
+      "tone": "blue",
+      "size": 24
+     }
+    ]
+   }
+  },
+  {
+   "title": "Dónde se rompe",
+   "text": "El motor no filtra por forma: compara valores, y con NULL la respuesta es UNKNOWN.",
+   "scene": {
+    "sheets": [
+     {
+      "x": 120,
+      "y": 90,
+      "w": 280,
+      "h": 160,
+      "title": "COLADOR",
+      "lines": 3,
+      "tone": "slate"
+     }
+    ],
+    "boxes": [
+     {
+      "x": 520,
+      "y": 130,
+      "w": 520,
+      "h": 64,
+      "label": "deja pasar / retiene",
+      "sub": "una regla simple",
+      "tone": "blue",
+      "size": 24
+     },
+     {
+      "x": 520,
+      "y": 260,
+      "w": 520,
+      "h": 64,
+      "label": "NULL = 10 → UNKNOWN",
+      "sub": "la fila no entra",
+      "tone": "amber",
+      "size": 24
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <p><strong>Analogía cotidiana</strong>: <code>WHERE</code> es un colador de cocina. Solo pasa lo que cumple la condición.</p>
 <p><strong>Dónde se rompe</strong>:</p>
 <ol>
@@ -814,16 +1485,208 @@ WHERE department_id = NULL;</code></pre>
 
 <section>
 <h2>7. El mapa mental más importante</h2>
-<pre class="mermaid">flowchart TD
-  A["Fila candidata de FROM"] --&gt; B{"¿Cómo evalúa el predicado WHERE?"}
-  B --&gt;|"TRUE"| C["La fila pasa"]
-  C --&gt; F["SELECT proyecta las columnas de las filas que pasaron"]
-  B --&gt;|"FALSE"| D["La fila se descarta"]
-  B --&gt;|"UNKNOWN"| E["La fila también se descarta"]</pre>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Cómo se evalúa una fila",
+ "viewBox": "406 42 640 300",
+ "steps": [
+  {
+   "title": "Una fila",
+   "text": "El motor toma la fila y evalúa la condición.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 430,
+      "y": 60,
+      "w": 420,
+      "h": 66,
+      "label": "fila",
+      "sub": "dept_id = 10",
+      "tone": "slate",
+      "size": 22
+     }
+    ]
+   }
+  },
+  {
+   "title": "Resultado",
+   "text": "TRUE entra, FALSE y UNKNOWN se quedan fuera.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 430,
+      "y": 60,
+      "w": 420,
+      "h": 66,
+      "label": "fila",
+      "sub": "dept_id = 10",
+      "tone": "slate",
+      "size": 22
+     },
+     {
+      "x": 430,
+      "y": 180,
+      "w": 420,
+      "h": 66,
+      "label": "TRUE → entra",
+      "sub": "FALSE / UNKNOWN → fuera",
+      "tone": "green",
+      "size": 22
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 640,
+      "y1": 130,
+      "x2": 640,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 </section>
 
 <section>
 <h2>8. Cierre estandarizado</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Entrada, proceso y salida",
+ "viewBox": "46 102 1108 300",
+ "steps": [
+  {
+   "title": "Entrada",
+   "text": "La tabla y la condición.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 70,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "ENTRADA",
+      "sub": "tabla + WHERE",
+      "tone": "blue",
+      "size": 24
+     }
+    ]
+   }
+  },
+  {
+   "title": "Proceso",
+   "text": "Se evalúa el predicado fila por fila.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 70,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "ENTRADA",
+      "sub": "tabla + WHERE",
+      "tone": "blue",
+      "size": 24
+     },
+     {
+      "x": 435,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "PROCESO",
+      "sub": "evaluar por fila",
+      "tone": "slate",
+      "size": 22
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 402,
+      "y1": 166,
+      "x2": 431,
+      "y2": 166,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  },
+  {
+   "title": "Salida",
+   "text": "El subconjunto que dio TRUE.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 70,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "ENTRADA",
+      "sub": "tabla + WHERE",
+      "tone": "blue",
+      "size": 24
+     },
+     {
+      "x": 435,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "PROCESO",
+      "sub": "evaluar por fila",
+      "tone": "slate",
+      "size": 22
+     },
+     {
+      "x": 800,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "SALIDA",
+      "sub": "filas visibles",
+      "tone": "green",
+      "size": 22
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 402,
+      "y1": 166,
+      "x2": 431,
+      "y2": 166,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 767,
+      "y1": 166,
+      "x2": 796,
+      "y2": 166,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <h3>Entrada, Proceso y Salida</h3>
 <pre class="mermaid">flowchart TD
   IN["Entrada: consulta SELECT ... FROM ... WHERE ..."] --&gt; PROC["Proceso: el motor evalúa el predicado fila por fila"]

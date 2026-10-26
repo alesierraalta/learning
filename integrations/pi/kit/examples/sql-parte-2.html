@@ -57,6 +57,179 @@ td.null { color:#b45309; font-style:italic; }
 
 <section>
 <h2>1. Por qué existe</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Una fila no puede apuntar a la nada",
+ "viewBox": "36 72 1150.8 300",
+ "steps": [
+  {
+   "title": "Sin clave foránea",
+   "text": "Se puede guardar un empleado en un departamento que no existe: la fila queda huérfana.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "department_id",
+       "department_name"
+      ],
+      "rows": [
+       [
+        "10",
+        "ACCOUNTING"
+       ],
+       [
+        "20",
+        "RESEARCH"
+       ],
+       [
+        "30",
+        "SALES"
+       ]
+      ],
+      "width": 420,
+      "rowH": 48,
+      "size": 22
+     },
+     {
+      "x": 640,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "department_id"
+      ],
+      "rows": [
+       [
+        "7999",
+        "99"
+       ]
+      ],
+      "width": 380,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "red"
+      },
+      "cellTone": {
+       "0,1": "red"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 270,
+      "y": 330,
+      "text": "departamentos",
+      "tone": "ink",
+      "size": 26,
+      "anchor": "middle"
+     },
+     {
+      "x": 830,
+      "y": 210,
+      "text": "99 no existe",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Con clave foránea",
+   "text": "El motor consulta el padre antes de escribir: si no está, la fila no entra.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "department_id",
+       "department_name"
+      ],
+      "rows": [
+       [
+        "10",
+        "ACCOUNTING"
+       ],
+       [
+        "20",
+        "RESEARCH"
+       ],
+       [
+        "30",
+        "SALES"
+       ]
+      ],
+      "width": 420,
+      "rowH": 48,
+      "size": 22
+     },
+     {
+      "x": 640,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "department_id"
+      ],
+      "rows": [
+       [
+        "7999",
+        "99"
+       ]
+      ],
+      "width": 380,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "red"
+      },
+      "cellTone": {
+       "0,1": "red"
+      }
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 632,
+      "y1": 150,
+      "x2": 548,
+      "y2": 150,
+      "tone": "red",
+      "dashed": false
+     }
+    ],
+    "labels": [
+     {
+      "x": 590,
+      "y": 250,
+      "text": "consulta al padre",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     },
+     {
+      "x": 830,
+      "y": 330,
+      "text": "ORA-02291 · parent key not found",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <p>Imagina que registramos empleados asignándoles un departamento numérico sin ninguna regla de validación.</p>
 <p>Un día, alguien inserta un empleado con <code>department_id = 99</code> (un departamento inexistente).</p>
 <pre class="mermaid">flowchart TD
@@ -71,6 +244,215 @@ td.null { color:#b45309; font-style:italic; }
 
 <section>
 <h2>2. Las piezas fundamentales</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Padre, hija y clave foránea",
+ "viewBox": "36 72 960.8 446",
+ "steps": [
+  {
+   "title": "Tabla padre",
+   "text": "DEPARTMENT guarda los departamentos válidos y su clave primaria.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "department_id",
+       "department_name"
+      ],
+      "rows": [
+       [
+        "10",
+        "ACCOUNTING"
+       ],
+       [
+        "20",
+        "RESEARCH"
+       ],
+       [
+        "30",
+        "SALES"
+       ]
+      ],
+      "width": 460,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "blue"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "title": "Tabla hija",
+   "text": "EMPLOYEE apunta al padre con una clave foránea.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "department_id",
+       "department_name"
+      ],
+      "rows": [
+       [
+        "10",
+        "ACCOUNTING"
+       ],
+       [
+        "20",
+        "RESEARCH"
+       ],
+       [
+        "30",
+        "SALES"
+       ]
+      ],
+      "width": 460,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "blue"
+      }
+     },
+     {
+      "x": 60,
+      "y": 300,
+      "cols": [
+       "employee_id",
+       "last_name",
+       "department_id"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK",
+        "10"
+       ],
+       [
+        "7839",
+        "KING",
+        "10"
+       ],
+       [
+        "7934",
+        "MILLER",
+        "20"
+       ]
+      ],
+      "width": 560,
+      "rowH": 48,
+      "size": 22
+     }
+    ]
+   }
+  },
+  {
+   "title": "La clave foránea",
+   "text": "department_id en la hija repite un valor que existe en la PK del padre.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "department_id",
+       "department_name"
+      ],
+      "rows": [
+       [
+        "10",
+        "ACCOUNTING"
+       ],
+       [
+        "20",
+        "RESEARCH"
+       ],
+       [
+        "30",
+        "SALES"
+       ]
+      ],
+      "width": 460,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "blue"
+      }
+     },
+     {
+      "x": 60,
+      "y": 300,
+      "cols": [
+       "employee_id",
+       "last_name",
+       "department_id"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK",
+        "10"
+       ],
+       [
+        "7839",
+        "KING",
+        "10"
+       ],
+       [
+        "7934",
+        "MILLER",
+        "20"
+       ]
+      ],
+      "width": 560,
+      "rowH": 48,
+      "size": 22
+     }
+    ],
+    "labels": [
+     {
+      "x": 900,
+      "y": 160,
+      "text": "PK",
+      "tone": "blue",
+      "size": 26,
+      "anchor": "middle"
+     },
+     {
+      "x": 900,
+      "y": 366,
+      "text": "FK → PK",
+      "tone": "amber",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 540,
+      "y1": 150,
+      "x2": 760,
+      "y2": 330,
+      "tone": "amber",
+      "dashed": false
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <p>En una relación referencial intervienen cuatro elementos:</p>
 <pre class="mermaid">flowchart TD
   M["1. Tabla maestra (padre): DEPARTMENT"] --&gt; PK["Clave primaria: department_id = 10"]
@@ -136,7 +518,7 @@ WHERE department_id = 10;</code></pre>
 <script type="application/json">
 {
  "title": "Qué revisa el motor antes de dejar pasar una fila",
- "viewBox": "0 0 1200 660",
+ "viewBox": "-100 0 1420 660",
  "steps": [
   {
    "title": "Quién depende de quién",
@@ -295,6 +677,173 @@ WHERE department_id = 10;</code></pre>
 
 <section>
 <h2>4. Reglas de borrado (Acciones referenciales)</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Qué pasa al borrar el padre",
+ "viewBox": "36 62 1121.6 302",
+ "steps": [
+  {
+   "title": "RESTRICT",
+   "text": "Con hijos apuntando al padre, el borrado se bloquea.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 80,
+      "cols": [
+       "department_id"
+      ],
+      "rows": [
+       [
+        "10"
+       ]
+      ],
+      "width": 200,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "red"
+      }
+     },
+     {
+      "x": 360,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "department_id"
+      ],
+      "rows": [
+       [
+        "7782",
+        "10"
+       ],
+       [
+        "7839",
+        "10"
+       ]
+      ],
+      "width": 420,
+      "rowH": 48,
+      "size": 22
+     }
+    ],
+    "labels": [
+     {
+      "x": 780,
+      "y": 330,
+      "text": "ORA-02292 · child record found",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "CASCADE",
+   "text": "El borrado arrastra a los hijos: desaparecen con el padre.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 80,
+      "cols": [
+       "department_id"
+      ],
+      "rows": [],
+      "width": 200,
+      "rowH": 48,
+      "size": 22
+     },
+     {
+      "x": 360,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "department_id"
+      ],
+      "rows": [],
+      "width": 420,
+      "rowH": 48,
+      "size": 22
+     }
+    ],
+    "labels": [
+     {
+      "x": 780,
+      "y": 330,
+      "text": "el padre y sus hijos se van juntos",
+      "tone": "amber",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "SET NULL",
+   "text": "Los hijos sobreviven, pero pierden la referencia.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 80,
+      "cols": [
+       "department_id"
+      ],
+      "rows": [],
+      "width": 200,
+      "rowH": 48,
+      "size": 22
+     },
+     {
+      "x": 360,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "department_id"
+      ],
+      "rows": [
+       [
+        "7782",
+        "NULL"
+       ],
+       [
+        "7839",
+        "NULL"
+       ]
+      ],
+      "width": 420,
+      "rowH": 48,
+      "size": 22,
+      "cellTone": {
+       "0,1": "amber",
+       "1,1": "amber"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 780,
+      "y": 330,
+      "text": "la FK queda vacía",
+      "tone": "amber",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <p>Cuando se define una clave foránea, se puede especificar cómo debe reaccionar el motor al eliminar un registro padre:</p>
 <table>
 <thead><tr><th>Cláusula</th><th>Comportamiento del motor</th><th>Consecuencia en la tabla hija</th></tr></thead>
@@ -314,6 +863,103 @@ WHERE department_id = 10;</code></pre>
 
 <section>
 <h2>5. Distinciones críticas</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "PK y FK no son lo mismo",
+ "viewBox": "56 62 748 332",
+ "steps": [
+  {
+   "title": "Clave primaria",
+   "text": "Identifica dentro de su propia tabla: única y obligatoria.",
+   "scene": {
+    "grids": [
+     {
+      "x": 80,
+      "y": 80,
+      "cols": [
+       "clave",
+       "dónde vive",
+       "qué garantiza"
+      ],
+      "rows": [
+       [
+        "PRIMARY KEY",
+        "en su tabla",
+        "identidad"
+       ]
+      ],
+      "width": 700,
+      "rowH": 54,
+      "size": 22,
+      "rowTone": {
+       "0": "blue"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "title": "Clave foránea",
+   "text": "Conecta con otra tabla: puede repetirse y admite NULL si la relación es opcional.",
+   "scene": {
+    "grids": [
+     {
+      "x": 80,
+      "y": 80,
+      "cols": [
+       "clave",
+       "dónde vive",
+       "qué garantiza"
+      ],
+      "rows": [
+       [
+        "PRIMARY KEY",
+        "en su tabla",
+        "identidad"
+       ]
+      ],
+      "width": 700,
+      "rowH": 54,
+      "size": 22,
+      "rowTone": {
+       "0": "blue"
+      }
+     },
+     {
+      "x": 80,
+      "y": 260,
+      "cols": [
+       "clave",
+       "dónde vive",
+       "qué garantiza"
+      ],
+      "rows": [
+       [
+        "FOREIGN KEY",
+        "en la hija",
+        "que el padre exista"
+       ]
+      ],
+      "width": 700,
+      "rowH": 54,
+      "size": 22,
+      "rowTone": {
+       "0": "amber"
+      }
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 
 <h3>Clave Primaria (PK) vs Clave Foránea (FK)</h3>
 <table>
@@ -339,6 +985,89 @@ WHERE department_id = 10;</code></pre>
 
 <section>
 <h2>6. Dónde se rompe la analogía</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "El archivador y su límite",
+ "viewBox": "96 72 968 300",
+ "steps": [
+  {
+   "title": "La analogía",
+   "text": "Un archivador guarda fichas y cada ficha lleva el número de su carpeta.",
+   "scene": {
+    "sheets": [
+     {
+      "x": 120,
+      "y": 90,
+      "w": 300,
+      "h": 170,
+      "title": "ARCHIVADOR",
+      "lines": 4,
+      "tone": "slate"
+     }
+    ],
+    "boxes": [
+     {
+      "x": 520,
+      "y": 130,
+      "w": 520,
+      "h": 64,
+      "label": "ficha → nº de carpeta",
+      "sub": "el número debe existir",
+      "tone": "blue",
+      "size": 24
+     }
+    ]
+   }
+  },
+  {
+   "title": "Dónde se rompe",
+   "text": "A mano nadie comprueba nada; el motor sí: sin carpeta, la ficha no entra.",
+   "scene": {
+    "sheets": [
+     {
+      "x": 120,
+      "y": 90,
+      "w": 300,
+      "h": 170,
+      "title": "ARCHIVADOR",
+      "lines": 4,
+      "tone": "slate"
+     }
+    ],
+    "boxes": [
+     {
+      "x": 520,
+      "y": 130,
+      "w": 520,
+      "h": 64,
+      "label": "ficha → nº de carpeta",
+      "sub": "el número debe existir",
+      "tone": "blue",
+      "size": 24
+     },
+     {
+      "x": 520,
+      "y": 260,
+      "w": 520,
+      "h": 64,
+      "label": "carpeta 99 inexistente",
+      "sub": "la ficha se rechaza",
+      "tone": "red",
+      "size": 24
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <p><strong>Analogía cotidiana</strong>: un tutor legal matriculando a un estudiante menor de edad. Para matricular al estudiante (hijo), el tutor (padre) debe existir en el registro civil.</p>
 <p><strong>Dónde se rompe</strong>:</p>
 <ol>
@@ -349,20 +1078,134 @@ WHERE department_id = 10;</code></pre>
 
 <section>
 <h2>7. El mapa mental más importante</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "El árbol de decisión del motor",
+ "viewBox": "406 42 640 350",
+ "steps": [
+  {
+   "title": "Llega un INSERT",
+   "text": "La fila trae un department_id.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 430,
+      "y": 60,
+      "w": 420,
+      "h": 66,
+      "label": "INSERT",
+      "sub": "con department_id",
+      "tone": "slate",
+      "size": 22
+     }
+    ]
+   }
+  },
+  {
+   "title": "¿Existe el padre?",
+   "text": "El motor consulta la PK del padre.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 430,
+      "y": 60,
+      "w": 420,
+      "h": 66,
+      "label": "INSERT",
+      "sub": "con department_id",
+      "tone": "slate",
+      "size": 22
+     },
+     {
+      "x": 430,
+      "y": 180,
+      "w": 420,
+      "h": 66,
+      "label": "¿existe department_id?",
+      "sub": "no → ORA-02291",
+      "tone": "blue",
+      "size": 22
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 640,
+      "y1": 130,
+      "x2": 640,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  },
+  {
+   "title": "Salida",
+   "text": "Si existe, la fila se registra; si no, la operación se aborta.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 430,
+      "y": 60,
+      "w": 420,
+      "h": 66,
+      "label": "INSERT",
+      "sub": "con department_id",
+      "tone": "slate",
+      "size": 22
+     },
+     {
+      "x": 430,
+      "y": 180,
+      "w": 420,
+      "h": 66,
+      "label": "¿existe department_id?",
+      "sub": "no → ORA-02291",
+      "tone": "blue",
+      "size": 22
+     },
+     {
+      "x": 430,
+      "y": 300,
+      "w": 420,
+      "h": 66,
+      "label": "fila registrada",
+      "sub": "el padre existe",
+      "tone": "green",
+      "size": 22
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 640,
+      "y1": 130,
+      "x2": 640,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 640,
+      "y1": 250,
+      "x2": 640,
+      "y2": 296,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <p>Árbol de decisión para determinar el resultado de operaciones que involucran integridad referencial:</p>
-<pre class="mermaid">flowchart TD
-  D_START{"Operación DML sobre datos relacionales"} --&gt; D_TIPO{"¿Es sobre tabla hija o padre?"}
-  D_TIPO --&gt; D_HIJA["Operación INSERT / UPDATE en la hija"]
-  D_TIPO --&gt; D_PADRE["Operación DELETE en el padre"]
-  D_HIJA --&gt; D_VAL_H{"¿El valor de la FK existe en la PK del padre?"}
-  D_VAL_H --&gt;|"Sí o NULL"| D_H_OK["Operación permitida"]
-  D_VAL_H --&gt;|"No existe"| D_H_FAIL["Error ORA-02291: parent key not found"]
-  D_PADRE --&gt; D_VAL_P{"¿Tiene filas hijas asociadas?"}
-  D_VAL_P --&gt;|"No"| D_P_NO["Operación permitida"]
-  D_VAL_P --&gt;|"Sí"| D_P_REG{"¿Qué regla ON DELETE tiene?"}
-  D_P_REG --&gt;|"RESTRICT"| D_P_ERR["Error ORA-02292: child record found"]
-  D_P_REG --&gt;|"CASCADE"| D_P_CASC["Borra los hijos automáticamente"]
-  D_P_REG --&gt;|"SET NULL"| D_P_SETN["Pone los hijos en NULL"]</pre>
 
 <lk-widget title="Prueba la integridad referencial">
 <p>Inserta empleados en departamentos que existen o no, y borra departamentos bajo cada regla de borrado. Observa qué decide el motor y qué decides tú.</p>
@@ -405,6 +1248,133 @@ WHERE department_id = 10;</code></pre>
 
 <section>
 <h2>8. Cierre estandarizado</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Entrada, proceso y salida",
+ "viewBox": "46 102 1108 300",
+ "steps": [
+  {
+   "title": "Entrada",
+   "text": "INSERT con su clave foránea.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 70,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "ENTRADA",
+      "sub": "INSERT con FK",
+      "tone": "blue",
+      "size": 24
+     }
+    ]
+   }
+  },
+  {
+   "title": "Proceso",
+   "text": "El motor comprueba que el padre exista.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 70,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "ENTRADA",
+      "sub": "INSERT con FK",
+      "tone": "blue",
+      "size": 24
+     },
+     {
+      "x": 435,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "PROCESO",
+      "sub": "buscar el padre",
+      "tone": "slate",
+      "size": 22
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 402,
+      "y1": 166,
+      "x2": 431,
+      "y2": 166,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  },
+  {
+   "title": "Salida",
+   "text": "Fila consolidada o aborto con código ORA.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 70,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "ENTRADA",
+      "sub": "INSERT con FK",
+      "tone": "blue",
+      "size": 24
+     },
+     {
+      "x": 435,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "PROCESO",
+      "sub": "buscar el padre",
+      "tone": "slate",
+      "size": 22
+     },
+     {
+      "x": 800,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "SALIDA",
+      "sub": "fila u ORA-02291",
+      "tone": "green",
+      "size": 22
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 402,
+      "y1": 166,
+      "x2": 431,
+      "y2": 166,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 767,
+      "y1": 166,
+      "x2": 796,
+      "y2": 166,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
 <h3>Entrada, Proceso y Salida</h3>
 <pre class="mermaid">flowchart TD
   IN["Entrada: sentencia DML que afecta a una clave foránea"] --&gt; PROC["Proceso: el motor verifica la existencia de la clave en la tabla relacionada"]

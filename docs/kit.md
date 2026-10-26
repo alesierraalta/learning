@@ -79,12 +79,30 @@ three grid units between centers. `kind` is `box`, `agent`, `env`, `store`, or
 `decision`. Dimensions are SVG viewBox pixels; diagrams scale to the column.
 Use short labels and inspect the result for overlapping edges and text.
 
-`lk-walkthrough` is the deck's own visual language, step by step: each step is a `scene`
-in the tutorial's primitives (`sheets`, `boxes`, `arrows`, `labels`, `badges`, `dashed`, `gears`,
-`nodes`), and the learner reveals them with «Siguiente», «Anterior», the dots, or the arrow keys.
-Keep every step on the same coordinates so the figure grows instead of moving, put the sentence
-that explains the step in its `text`, and keep labels short: below 640 px the stage scrolls
-sideways with a hint instead of shrinking the letters.
+`lk-walkthrough` is the deck's own visual language, step by step. **Every reading section gets
+one**: the figure carries the visual explanation and the prose keeps the detail, so a section
+without a figure is a gap. Each `scene` is the complete state that step shows, drawn with the
+tutorial's primitives (`grids`, `sheets`, `boxes`, `arrows`, `labels`, `badges`, `dashed`,
+`gears`, `nodes`); the component reveals one scene per step, so earlier steps never leak into
+later ones, and «Ver todo» shows the last scene. Reach it with «Siguiente», «Anterior», the dots
+or the arrow keys, and press «Pantalla completa» when you need the letters big.
+
+Try to draw data, not prose: a `grids` entry paints a real table with its values, so a figure can
+show the row that violates the rule instead of describing it.
+
+```json
+{"step": "...", "scene": {
+  "grids": [{"x": 60, "y": 90, "cols": ["employee_id", "last_name", "salary"],
+             "rows": [["7782", "CLARK", "2450,00"], ["7999", "LOPEZ", "mucho"]],
+             "width": 620, "rowH": 52, "rowTone": {"1": "red"}, "cellTone": {"1,2": "red"}}],
+  "boxes": [{"x": 740, "y": 300, "w": 420, "h": 62, "label": "dominio de salary", "sub": "NUMBER(7,2) > 0", "tone": "amber"}]}}
+```
+
+`rowTone`, `colTone` and `cellTone` take `{índice: tono}` with `blue`, `green`, `amber` or `red`;
+`rowH` and `size` keep long values readable. Keep every step on the same coordinates so the figure
+stays put while its state changes, put the one sentence that explains the step in its `text`, and
+keep labels short: below 640 px the stage scrolls sideways with a hint instead of shrinking the
+letters.
 
 A page with a walkthrough must load the drawing vocabulary first, because `kit.js` takes it from
 `window.LKScene` and throws «Falta scene.js» otherwise:
@@ -94,8 +112,8 @@ A page with a walkthrough must load the drawing vocabulary first, because `kit.j
 <script src="../kit/kit.js" defer></script>
 ```
 
-Later steps paint over earlier ones, so a `dashed` highlight that must not hide what it marks
-needs `"fill": "none"`.
+Highlights (`dashed`) are painted after sheets and boxes and before labels, so a highlight that
+must not hide what it marks needs `"fill": "none"`.
 
 `lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
 the learner drains what they are thinking, typed or dictated with the microphone button — and
