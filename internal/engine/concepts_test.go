@@ -109,10 +109,12 @@ func TestConceptDiagnosisRoundsAreChosenByTheModel(t *testing.T) {
 	r := reasonsFor("a1", "a2")
 	r["a2"] = why{"entendí que a2 pide el caso", "   "}
 	f.writeGuided(t, r1, ans, r, false)
-	f.statusExpect(t, "waiting")
-	val, _ := f.run(t, f.opts("validate", "diagnosis"))
-	if reason := failReason(val, "quiz-answers"); !strings.Contains(reason, "a2") || !strings.Contains(reason, "reasoning") || !strings.Contains(reason, "(waiting for learner input)") {
-		t.Fatalf("an answer without both reasoning fields must be a learner wait naming a2: %q", reason)
+	blocked := f.statusExpect(t, "blocked")
+	if reason := failReason(blocked, "quiz-answers"); strings.Contains(reason, "reasoning") || strings.Contains(reason, "waiting for learner input") {
+		t.Fatalf("a half-written legacy record must not keep the answer open: %q", reason)
+	}
+	if reason := failReason(blocked, "concept-verdicts"); !strings.Contains(reason, "concept verdicts owed") {
+		t.Fatalf("the concepts of both answers are owed: %q", reason)
 	}
 
 	r = reasonsFor("a1", "a2")
@@ -168,7 +170,8 @@ func TestConceptDiagnosisRoundsAreChosenByTheModel(t *testing.T) {
 	}
 
 	f.writeDiagVerdicts(t, coverAll(r2, r, gaps)...)
-	val, _ = f.run(t, f.opts("validate", "diagnosis"))
+	// The sufficiency rubric is the last review the diagnosis waits on.
+	val, _ := f.run(t, f.opts("validate", "diagnosis"))
 	if got := pendingRules(val); !strings.Contains(strings.Join(got, ","), "diagnosis-sufficiency") {
 		t.Fatalf("the diagnosis needs the recorded sufficiency review, pending %v (checks %+v)", got, val.Checks)
 	}
@@ -317,18 +320,45 @@ func TestConceptMiniQuizSizeIsChosenByTheModel(t *testing.T) {
 	qs := conceptQuiz(1)
 	f.writeConceptQuiz(t, qs)
 	f.statusExpect(t, "waiting")
-	r := reasonsFor("q1")
-	r["q1"] = why{"", "porque sí"}
-	f.writeConceptAnswers(t, qs, r, "q1")
-	f.statusExpect(t, "waiting")
-	val, _ := f.run(t, f.opts("validate", "quiz"))
-	if reason := failReason(val, "mini-quiz-answers"); !strings.Contains(reason, "q1") || !strings.Contains(reason, "reasoning") || !strings.Contains(reason, "(waiting for learner input)") {
-		t.Fatalf("mini-quiz answer without reasoning: %q", reason)
-	}
-	f.writeConceptAnswers(t, qs, reasonsFor("q1"), "q1")
+	f.writeConceptAnswers(t, qs, nil, "q1")
 	rep := f.advanceOK(t, "quiz")
 	if rep.Evidence["quizPassed"] != true {
-		t.Fatalf("a one-question quiz answered right passes: %+v", rep.Evidence)
+		t.Fatalf("a one-question quiz answered right passes without reasoning: %+v", rep.Evidence)
+	}
+}
+
+// A verdict has to quote something the learner actually wrote: when they stay
+// silent there is nothing to judge, so inventing evidence is refused.
+func TestConceptVerdictsRefuseSilence(t *testing.T) {
+	f := throughConceptPlanning(t)
+	qs := conceptQuiz(1)
+	f.writeConceptQuiz(t, qs)
+	f.writeConceptAnswers(t, qs, nil, "q1")
+	f.advanceOK(t, "quiz")
+	f.writeConceptFeedback(t, verdict("T.p1", "claro", "q1", "el valor existe"))
+	f.advanceExpectBlocked(t, "feedback", "concept-verdicts", "no reasoning to quote")
+}
+
+// The current page asks for one thought instead of two prompts: the engine
+// reads that single text as the learner's reasoning, and a verdict may quote it.
+func TestConceptReasoningAcceptsOneThought(t *testing.T) {
+	f := throughConceptPlanning(t)
+	qs := conceptQuiz(1)
+	f.writeConceptQuiz(t, qs)
+	record := func(thought string) {
+		f.writeJSON(t, "mini-quiz/p1.answers.json", map[string]any{
+			"answers":       map[string]string{"q1": qs[0].Answer},
+			"razonamientos": map[string]any{"q1": map[string]string{"razonamiento": thought}},
+		})
+	}
+	record("Pienso que q1 me pide el caso, y elijo esta opción porque el valor existe.")
+	f.writeConceptFeedback(t,
+		verdict("T.p1", "claro", "q1", "el valor existe"),
+		verdict("P0.1", "claro", "q1", "elijo esta opción"),
+	)
+	rep := f.advanceOK(t, "quiz")
+	if rep.Evidence["quizPassed"] != true {
+		t.Fatalf("a one-thought answer with quoted verdicts passes: %+v", rep.Evidence)
 	}
 }
 

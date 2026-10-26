@@ -18,8 +18,11 @@ import { dirname, extname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveContained, safeTopic } from "./paths.ts";
+import { CodeRunError, loadRunners, readExercise, publicExercise, forPage, runCode } from "./coderun.ts";
+import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 
 const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
+const KIT_DIR = join(dirname(fileURLToPath(import.meta.url)), "kit");
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_TEXT_CHARS = 8000;
 const CHOICES = new Set(["A", "B", "C", "D", "E"]);
@@ -28,7 +31,7 @@ const CONFIDENCE: Record<string, string> = { seguro: "seguro", dudo: "dudo", adi
 const DIAGNOSIS = "quiz";
 const EMBED_SEARCH_DEPTH = 4;
 
-const CDN_SCRIPTS = [
+export const CDN_SCRIPTS = [
   ["https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js", "sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+"],
   ["https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js", "sha384-JEyTNhjM6R1ElGoJns4U2Ln4ofPcqzSsynQkmEc/KGy6336qAZl70tDLufbkla+3"],
   ["https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js", "sha384-zkWMJO4sgpPUzyuOgDx8HB/K55glbAwajEpk1Go2NWRuPkPA/wIhoEJTuSkmOYrV"],
@@ -45,8 +48,38 @@ const PAGE_CSP = [
   "font-src 'self' data:",
   "base-uri 'none'",
   "form-action 'none'",
-  "frame-ancestors 'self'",
 ].join("; ");
+
+/**
+ * A part's interactive app is a self-contained vault page (inline script and
+ * style) served top-level so it can use the injected submit channel; it may
+ * reach nothing but this server.
+ */
+const APP_CSP = [
+  "default-src 'none'",
+  "script-src 'unsafe-inline'",
+  "style-src 'unsafe-inline'",
+  "img-src 'self' data:",
+  "media-src 'self'",
+  "connect-src 'self'",
+  "font-src 'self' data:",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
+/** A rich part page: page-authored demos run inline; it reaches only this server and the pinned CDN. */
+const RICH_CSP = [
+  "default-src 'none'",
+  "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'",
+  "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'",
+  "img-src 'self' data:",
+  "media-src 'self'",
+  "connect-src 'self'",
+  "font-src 'self' data: https://cdn.jsdelivr.net",
+  "frame-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
+const LOOPBACK_ORIGIN = /^http:\/\/(127\.0\.0\.1|localhost):\d{1,5}$/;
 
 const MIME: Record<string, string> = {
   ".mp4": "video/mp4",
@@ -68,6 +101,7 @@ const MIME: Record<string, string> = {
   ".vtt": "text/vtt; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
+  ".woff2": "font/woff2",
 };
 const VIDEO = new Set([".mp4", ".webm", ".mov"]);
 const AUDIO = new Set([".mp3", ".m4a", ".wav"]);
@@ -87,8 +121,9 @@ interface Question {
   round?: number;
 }
 interface Reasoning {
-  entendi: string;
-  porque: string;
+  razonamiento?: string;
+  entendi?: string;
+  porque?: string;
   confianza?: string;
 }
 interface Graded {
@@ -96,6 +131,7 @@ interface Graded {
   chosen: string;
   correct: string;
   ok: boolean;
+  razonamiento?: string;
   entendi?: string;
   porque?: string;
   confianza?: string;
@@ -146,8 +182,14 @@ function readQuestions(file: string): Question[] | undefined {
   );
 }
 
+/** New records hold one thought; older ones hold the two prompts we merged. */
 const isReasoning = (value: unknown): value is Reasoning =>
-  isRecord(value) && typeof value.entendi === "string" && typeof value.porque === "string";
+  isRecord(value) &&
+  (typeof value.razonamiento === "string" || (typeof value.entendi === "string" && typeof value.porque === "string"));
+
+const thought = (reasoning: Reasoning | undefined): string =>
+  reasoning?.razonamiento?.trim() ||
+  [reasoning?.entendi, reasoning?.porque].filter((text): text is string => typeof text === "string" && text.trim() !== "").join("\n\n").trim();
 
 function readAnswers(file: string): AnswerFile | undefined {
   const data = readRecord(file);
@@ -183,6 +225,23 @@ function gradeRecorded(questions: Question[], recorded: AnswerFile | undefined):
     .filter((q) => q.id in recorded.answers)
     .map((q) => ({ ...grade(q, recorded.answers[q.id]), ...recorded.razonamientos[q.id] }));
 }
+
+/** `explicaciones/Parte N - <slug>.html`: the part's rich page, when the builder wrote one. */
+function richPage(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string | undefined {
+  const index = plan.parts.findIndex((p) => p.id === partId);
+  if (index < 0) return undefined;
+  const file = join(topicDir, "explicaciones", `Parte ${index + 1} - ${plan.parts[index].slug}.html`);
+  return existsSync(file) ? file : undefined;
+}
+
+const partVideo = (plan: { parts: PlanPart[] }, partId: string) => {
+  const index = plan.parts.findIndex((p) => p.id === partId);
+  return `explicaciones/adjuntos/Parte ${index + 1} - ${plan.parts[index].slug}.mp4`;
+};
+
+/** Writes `script` first in <head>, or at the start of a page without one. */
+const injectFirst = (html: string, script: string) =>
+  /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (head) => head + script) : script + html;
 
 function partNote(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string | undefined {
   const index = plan.parts.findIndex((p) => p.id === partId);
@@ -236,6 +295,13 @@ export function obsidianToMarkdown(markdown: string, topicDir: string): string {
     .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) => (alias ?? target).trim());
 }
 
+/** explicaciones/apps/<part>.html when the part has an interactive app. */
+function partApp(topicDir: string, partId: string): string | undefined {
+  if (!safeTopic(partId)) return undefined;
+  const contained = resolveContained(topicDir, join(topicDir, "explicaciones", "apps", `${partId}.html`));
+  return contained.ok && statSync(contained.targetReal).isFile() ? contained.targetReal : undefined;
+}
+
 function partDemos(topicDir: string, partId: string): string[] {
   const dir = join(topicDir, "explicaciones", "demos");
   if (!existsSync(dir)) return [];
@@ -254,11 +320,11 @@ function quizMessage(header: string, saved: string, results: Graded[], reasoning
   const lines = [header, `Respuestas y razonamientos guardados en ${saved} (resultado inmediato: ${score}/${results.length}):`];
   for (const r of results) {
     lines.push(`- ${r.id}: ${r.chosen} ${r.ok ? "✔" : `✘ (correcta: ${r.correct})`}`);
-    lines.push(
-      `  Entendí: ${indented(reasoning[r.id].entendi)}`,
-      `  Por qué: ${indented(reasoning[r.id].porque)}`,
-      `  Confianza: ${CONFIDENCE[reasoning[r.id].confianza ?? ""] ?? "-"}`,
-    );
+    const said = thought(reasoning[r.id]);
+    if (said) {
+      lines.push(`  Pensamiento: ${indented(said)}`);
+      if (reasoning[r.id].confianza) lines.push(`  Confianza: ${CONFIDENCE[reasoning[r.id].confianza ?? ""] ?? "-"}`);
+    }
   }
   return lines;
 }
@@ -274,6 +340,8 @@ const ALLOWED_KEYS: Record<string, Set<string>> = {
   "mini-quiz": new Set(["kind", "topic", "part", "answers", "reasoning", "ownWords", "exercises"]),
   diagnosis: new Set(["kind", "topic", "answers", "reasoning"]),
   question: new Set(["kind", "topic", "part", "text", "demo"]),
+  video: new Set(["kind", "topic", "part"]),
+  code: new Set(["kind", "topic", "exercise", "code", "note"]),
 };
 
 function optionalText(payload: Record<string, unknown>, key: string): string {
@@ -299,27 +367,30 @@ function checkAnswers(raw: unknown, questions: Question[], exact: boolean): Reco
   return raw as Record<string, string>;
 }
 
-/** Every answered question carries what the learner understood, why they chose it and how sure they were. */
-function checkReasoning(raw: unknown, answers: Record<string, string>): Record<string, Reasoning> {
-  if (!isRecord(raw)) throw new HttpError(400, "reasoning is required for every answered question");
+/** The learner's thought is optional: when they write it, it is stored and quoted; silence is allowed. */
+function optionalReasoning(raw: unknown, answers: Record<string, string>): Record<string, Reasoning> {
+  if (raw === undefined || raw === null) return {};
+  if (!isRecord(raw)) throw new HttpError(400, "reasoning must be an object of {razonamiento, confianza} per question");
   const extra = Object.keys(raw).find((id) => !(id in answers));
   if (extra) throw new HttpError(400, `reasoning for an unanswered question: ${extra}`);
   const out: Record<string, Reasoning> = {};
-  for (const id of Object.keys(answers)) {
-    const entry = raw[id];
-    if (!isRecord(entry) || Object.keys(entry).some((key) => !["entendi", "porque", "confianza"].includes(key))) {
-      throw new HttpError(400, `reasoning for ${id} must be {entendi, porque, confianza}`);
+  for (const [id, entry] of Object.entries(raw)) {
+    if (!isRecord(entry) || Object.keys(entry).some((key) => !["razonamiento", "entendi", "porque", "confianza"].includes(key))) {
+      throw new HttpError(400, `reasoning for ${id} must be {razonamiento, confianza}`);
     }
-    if (typeof entry.confianza !== "string" || !Object.hasOwn(CONFIDENCE, entry.confianza)) {
-      throw new HttpError(400, `reasoning confianza for ${id} must be one of ${Object.keys(CONFIDENCE).join(", ")}`);
-    }
-    for (const key of ["entendi", "porque"] as const) {
-      const text = entry[key];
-      if (typeof text !== "string" || text.trim() === "" || text.length > MAX_TEXT_CHARS) {
-        throw new HttpError(400, `reasoning ${key} for ${id} must be non-empty text of at most ${MAX_TEXT_CHARS} characters`);
+    for (const key of ["razonamiento", "entendi", "porque"]) {
+      const value = entry[key];
+      if (value === undefined) continue;
+      if (typeof value !== "string" || value.length > MAX_TEXT_CHARS) {
+        throw new HttpError(400, `reasoning for ${id} must be text of at most ${MAX_TEXT_CHARS} characters`);
       }
     }
-    out[id] = { entendi: (entry.entendi as string).trim(), porque: (entry.porque as string).trim(), confianza: entry.confianza };
+    if (entry.confianza !== undefined && (typeof entry.confianza !== "string" || !Object.hasOwn(CONFIDENCE, entry.confianza))) {
+      throw new HttpError(400, `reasoning confianza for ${id} must be one of ${Object.keys(CONFIDENCE).join(", ")}`);
+    }
+    const text = thought(entry as Reasoning);
+    if (!text) continue;
+    out[id] = entry.confianza ? { razonamiento: text, confianza: entry.confianza } : { razonamiento: text };
   }
   return out;
 }
@@ -332,22 +403,91 @@ function viewPath(rootReal: string, topic: unknown, part: unknown): string {
   }
   if (part === undefined) return encodeURIComponent(topic);
   const dir = join(rootReal, topic);
+  if (typeof part === "string" && part.startsWith("codigo/")) {
+    const id = part.slice(7);
+    exerciseFile(dir, id);
+    return `${encodeURIComponent(topic)}/codigo/${encodeURIComponent(id)}`;
+  }
   const plan = readPlan(dir);
   const known =
     part === DIAGNOSIS
       ? existsSync(join(dir, "quiz.json"))
-      : typeof part === "string" && plan !== undefined && partNote(dir, plan, part) !== undefined;
+      : typeof part === "string" && plan !== undefined && (partNote(dir, plan, part) ?? richPage(dir, plan, part)) !== undefined;
   if (!known) throw new Error(`part ${String(part)} is not written in ${topic}`);
   return `${encodeURIComponent(topic)}/${part}`;
 }
 
+export interface PartSummary {
+  id: string;
+  title: string;
+  written: boolean;
+  rich: boolean;
+  hasApp: boolean;
+  hasQuiz: boolean;
+  answered: boolean;
+}
+export interface TopicSummary {
+  id: string;
+  title: string;
+  hasDiagnosis: boolean;
+  parts: PartSummary[];
+  exercises: { id: string; titulo: string; lenguaje: string; mejor: string | null }[];
+}
+
+/** Every topic folder with a plan.json under the Learnings root, with its parts as the vault holds them. */
+export function listTopics(rootReal: string, runners = loadRunners()): TopicSummary[] {
+  return readdirSync(rootReal, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.name.startsWith("_") && !e.name.startsWith(".") && e.name !== "rapidos")
+    .flatMap((e) => {
+      const dir = join(rootReal, e.name);
+      let plan;
+      try {
+        plan = readPlan(dir);
+      } catch {
+        return [];
+      }
+      if (!plan && !existsSync(join(dir, "codigo"))) return [];
+      // One unreadable file must not take the whole gallery down: a broken topic degrades to bare rows.
+      try {
+        const exercises = listExercises(dir, runners).map(({ id, titulo, lenguaje, mejor }) => ({ id, titulo, lenguaje, mejor }));
+        const parts = (plan?.parts ?? []).map((p) => {
+          const rich = richPage(dir, plan!, p.id) !== undefined;
+          return {
+            id: p.id,
+            title: p.title,
+            written: rich || partNote(dir, plan!, p.id) !== undefined,
+            rich,
+            hasApp: partApp(dir, p.id) !== undefined,
+            hasQuiz: existsSync(join(dir, "mini-quiz", `${p.id}.json`)),
+            answered: existsSync(join(dir, "mini-quiz", `${p.id}.answers.json`)),
+          };
+        });
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts, exercises }];
+      } catch {
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: false, parts: [], exercises: [] }];
+      }
+    });
+}
+
 export interface BridgeOptions {
   root: string;
+  runnersFile?: string;
   /** 0 picks a free port. */
   port?: number;
+  /** Loopback origins (e.g. the learning studio) allowed to embed pages and apps. */
+  frameAncestors?: string[];
+  /** Directory of kit.css / kit.js (tests). */
+  kitDir?: string;
 }
 
 export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
+  const embedders = options.frameAncestors ?? [];
+  const invalid = embedders.find((origin) => !LOOPBACK_ORIGIN.test(origin));
+  if (invalid !== undefined) throw new Error(`frameAncestors accepts loopback http origins only, got ${JSON.stringify(invalid)}`);
+  const pageCsp = `${PAGE_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
+  const appCsp = `${APP_CSP}; frame-ancestors ${embedders.length ? embedders.join(" ") : "'none'"}`;
+  const richCsp = `${RICH_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
+  const kitDir = options.kitDir ?? KIT_DIR;
   let server: Server | undefined;
   let starting: Promise<void> | undefined;
   let port = 0;
@@ -405,42 +545,62 @@ ${scripts}
 </body>
 </html>
 `;
-    send(res, 200, "text/html; charset=utf-8", html, { "content-security-policy": PAGE_CSP });
+    send(res, 200, "text/html; charset=utf-8", html, { "content-security-policy": pageCsp });
   };
 
   const indexPage = (res: ServerResponse) => {
-    const topics = readdirSync(rootReal, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith("_") && !e.name.startsWith(".") && e.name !== "rapidos")
-      .map((e) => ({ id: e.name, plan: readPlan(join(rootReal, e.name)) }))
-      .filter((t) => t.plan)
-      .map((t) => ({ id: t.id, title: t.plan!.topic || t.id }));
-    page(res, "Learnings", { kind: "index", topics });
+    page(res, "Learnings", { kind: "index", topics: listTopics(rootReal, loadRunners(options.runnersFile)).map(({ id, title }) => ({ id, title })) });
   };
 
   const topicPage = (res: ServerResponse, topic: string) => {
     const dir = topicDir(topic);
     const plan = readPlan(dir);
-    if (!plan) throw new HttpError(404, `topic has no plan.json: ${topic}`);
-    const parts = plan.parts.map((p) => ({ id: p.id, title: p.title, written: partNote(dir, plan, p.id) !== undefined }));
-    page(res, plan.topic || topic, {
+    if (!plan && !existsSync(join(dir, "codigo"))) throw new HttpError(404, `topic has no plan.json: ${topic}`);
+    const parts = (plan?.parts ?? []).map((p) => ({ id: p.id, title: p.title, written: partNote(dir, plan!, p.id) !== undefined }));
+    page(res, plan?.topic || topic, {
       kind: "topic",
       topic,
-      title: plan.topic || topic,
+      title: plan?.topic || topic,
+      exercises: listExercises(dir, loadRunners(options.runnersFile)),
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
       parts,
       hasDiagnosis: existsSync(join(dir, "quiz.json")),
     });
   };
 
+  const config = (topic: string, partId: string, plan: { parts: PlanPart[] }) => {
+    const json = JSON.stringify({
+      submitUrl: `/${token}/submit`,
+      quizUrl: `/${token}/api/quiz?topic=${encodeURIComponent(topic)}&part=${encodeURIComponent(partId)}`,
+      topic,
+      part: partId,
+      video: `file/${partVideo(plan, partId).split("/").map(encodeURIComponent).join("/")}`,
+    }).replace(/</g, "\\u003c");
+    return `<script>window.LEARNING_BRIDGE = ${json};</script>`;
+  };
+
   const partPage = (res: ServerResponse, topic: string, partId: string) => {
     const dir = topicDir(topic);
     const plan = readPlan(dir);
+    const rich = plan && richPage(dir, plan, partId);
+    if (plan && rich) {
+      let html = injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan));
+      const exercises = listExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId);
+      if (exercises.length) {
+        const escape = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+        const links = exercises.map((e) => `<li><a href="/${token}/${encodeURIComponent(topic)}/codigo/${encodeURIComponent(e.id)}">${escape(e.titulo)}</a> · ${escape(e.lenguaje)} · Mejor: ${escape(e.mejor || "sin entregas")}</li>`).join("");
+        const section = `<section><h2>Ejercicios de código</h2><ul>${links}</ul></section>`;
+        html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => section + "</body>") : html + section;
+      }
+      return send(res, 200, "text/html; charset=utf-8", html, { "content-security-policy": richCsp });
+    }
     const note = plan && partNote(dir, plan, partId);
     if (!plan || !note) throw new HttpError(404, `part ${partId} is not written yet`);
     const part = plan.parts.find((p) => p.id === partId)!;
     const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
     page(res, part.title, {
       kind: "part",
+      exercises: listExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId),
       topic,
       part: partId,
       title: part.title,
@@ -450,7 +610,54 @@ ${scripts}
       quiz: questions ? { questions: questions.map(publicQuestion) } : null,
       answered: questions ? gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))) : null,
       demos: partDemos(dir, partId),
+      app: partApp(dir, partId) ? `/${token}/${encodeURIComponent(topic)}/${partId}/app` : null,
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
+    });
+  };
+
+  const quizApi = (res: ServerResponse, url: URL) => {
+    const topic = url.searchParams.get("topic");
+    const partId = url.searchParams.get("part") ?? "";
+    const dir = topicDir(topic);
+    const plan = readPlan(dir);
+    if (!plan?.parts.some((p) => p.id === partId)) throw new HttpError(404, `part ${partId} is not in plan.json`);
+    const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
+    if (!questions) throw new HttpError(404, `part ${partId} has no mini-quiz`);
+    sendJson(res, 200, {
+      questions: questions.map(publicQuestion),
+      answered: gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))),
+      verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
+    });
+  };
+
+  const kitFile = (res: ServerResponse, name: string) => {
+    if (!/^(?:fonts\/)?[\w-]+\.(js|css|woff2)$/.test(name)) throw new HttpError(404, "not found");
+    const contained = resolveContained(kitDir, join(kitDir, name));
+    if (!contained.ok) throw new HttpError(404, "not found");
+    send(res, 200, MIME[extname(name)], readFileSync(contained.targetReal));
+  };
+
+  /** A quick explanation (`rapidos/<id>.md`): the same view, no engine and no quiz sidecar. */
+  const quickPage = (res: ServerResponse, id: string) => {
+    if (!safeTopic(id)) throw new HttpError(404, "not found");
+    const dir = topicDir("rapidos");
+    const contained = resolveContained(dir, join(dir, `${id}.md`));
+    if (!contained.ok) throw new HttpError(404, `no quick note ${id}`);
+    const markdown = obsidianToMarkdown(readFileSync(contained.targetReal, "utf8"), dir);
+    const title = /^#\s+(.+)$/m.exec(markdown)?.[1]?.trim() || id;
+    page(res, title, {
+      kind: "part",
+      topic: "rapidos",
+      part: "",
+      title,
+      topicTitle: "Rápidos",
+      topicBase: `/${token}/`,
+      markdown,
+      quiz: null,
+      answered: null,
+      demos: [],
+      app: null,
+      verdicts: null,
     });
   };
 
@@ -472,6 +679,17 @@ ${scripts}
     });
   };
 
+  const appPage = (res: ServerResponse, topic: string, partId: string) => {
+    const dir = topicDir(topic);
+    const plan = readPlan(dir);
+    const file = plan?.parts.some((p) => p.id === partId) ? partApp(dir, partId) : undefined;
+    if (!file) throw new HttpError(404, `part ${partId} has no interactive app`);
+    const config = JSON.stringify({ submitUrl: `/${token}/submit`, topic, part: partId }).replace(/</g, "\\u003c");
+    const script = `<script>window.LEARNING_BRIDGE = ${config};</script>`;
+    const injected = injectFirst(readFileSync(file, "utf8"), script);
+    send(res, 200, "text/html; charset=utf-8", injected, { "content-security-policy": appCsp });
+  };
+
   const serveFile = (req: IncomingMessage, res: ServerResponse, topic: string, segments: string[]) => {
     const dir = topicDir(topic);
     if (segments.length === 0 || segments.some((s) => s === "" || s === "." || s === ".." || /[\\/\0]/.test(s))) {
@@ -479,6 +697,11 @@ ${scripts}
     }
     const contained = resolveContained(dir, join(dir, ...segments));
     if (!contained.ok) throw new HttpError(404, "not found");
+    const codeDir = resolveContained(dir, join(dir, "codigo"));
+    // Exercise files hold the hidden tests; the vault may sit on a case-insensitive drive.
+    const target = contained.targetReal.toLowerCase();
+    const codeRoot = codeDir.ok ? codeDir.targetReal.toLowerCase() : join(dir, "codigo").toLowerCase();
+    if (target === codeRoot || target.startsWith(codeRoot + sep)) throw new HttpError(404, "not found");
     const stat = statSync(contained.targetReal);
     if (!stat.isFile()) throw new HttpError(404, "not found");
     const headers: Record<string, string> = {
@@ -535,6 +758,53 @@ ${scripts}
     }
   };
 
+  const codeRequest = async (res: ServerResponse, payload: Record<string, unknown>, submit: boolean) => {
+    const dir = topicDir(payload.topic);
+    const file = exerciseFile(dir, payload.exercise);
+    const runners = loadRunners(options.runnersFile);
+    const ex = readExercise(file, runners);
+    if (typeof payload.code !== "string") throw new HttpError(400, "code must be a string");
+    if (payload.input !== undefined && (typeof payload.input !== "string" || payload.input.length > 100_000)) throw new HttpError(400, "input must be a string of at most 100000 characters");
+    const note = optionalText(payload, "note");
+    const tests = submit ? ex.tests : payload.input !== undefined ? [{ nombre: "Entrada libre", entrada: payload.input as string }] : ex.tests.filter((t) => !t.oculto);
+    const result = await runCode({ runner: runners[ex.lenguaje], code: payload.code, tests, limitSeconds: ex.limite_segundos });
+    if (!submit) return sendJson(res, 200, forPage(result));
+    const savedFile = saveSubmission(dirname(file), { ...result, lenguaje: ex.lenguaje, codigo: payload.code, ...(note ? { nota: note } : {}) });
+    const saved = relative(dir, savedFile).split(sep).join("/");
+    const score = `${result.aprobados}/${result.total}`;
+    const lines = [`[Vista HTML · ${payload.topic} · código ${payload.exercise}]`, `Guardado: ${saved}`, `Resultado: ${score}`, `Compilación: ${result.compilacion.ok ? "correcta" : "error"}`, result.compilacion.salida];
+    for (const r of result.resultados) {
+      lines.push(`${r.nombre}${r.oculto ? " (oculto)" : ""}: ${r.estado}`);
+      if (r.estado !== "correcto") lines.push(`Esperado: ${r.esperado ?? ""}\nObtenido: ${r.obtenido ?? ""}\nErrores: ${r.errores ?? ""}`);
+    }
+    lines.push("", `\`\`\`${ex.lenguaje}\n${payload.code}\n\`\`\``);
+    if (note) lines.push(quote(note));
+    lines.push("Revisa la corrección según las pruebas, el enfoque, la legibilidad y los errores típicos. Inyecta la corrección en la nota del tema como de costumbre.");
+    await deliver(lines.join("\n"));
+    sendJson(res, 200, { ...forPage(result), saved, score });
+  };
+
+  const codeRun = async (req: IncomingMessage, res: ServerResponse) => {
+    if (!allowedOrigins().has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
+    if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
+    let payload: unknown;
+    try { payload = JSON.parse(await readBody(req)); } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, "body is not JSON");
+    }
+    if (!isRecord(payload) || Object.keys(payload).some((k) => !["topic", "exercise", "code", "input"].includes(k))) throw new HttpError(400, "unknown field");
+    return codeRequest(res, payload, false);
+  };
+
+  const codePage = (res: ServerResponse, topic: string, id: string) => {
+    const dir = topicDir(topic);
+    const file = exerciseFile(dir, id);
+    const runners = loadRunners(options.runnersFile);
+    const ex = readExercise(file, runners);
+    page(res, ex.titulo, { kind: "code", topic, title: ex.titulo, exercise: { ...publicExercise(ex), id }, file: runners[ex.lenguaje].file,
+      ...readSubmissions(dirname(file)), runUrl: `/${token}/api/code/run`, topicBase: `/${token}/${encodeURIComponent(topic)}/`, topicTitle: readPlan(dir)?.topic || topic });
+  };
+
   const submit = async (req: IncomingMessage, res: ServerResponse) => {
     if (!allowedOrigins().has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
     if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
@@ -551,12 +821,23 @@ ${scripts}
     const kind = payload.kind;
     const unknownKey = Object.keys(payload).find((key) => !ALLOWED_KEYS[kind].has(key));
     if (unknownKey) throw new HttpError(400, `unknown field: ${unknownKey}`);
+    if (kind === "code") return codeRequest(res, payload, true);
     const dir = topicDir(payload.topic);
     const topic = payload.topic as string;
     const plan = readPlan(dir);
     const partId = payload.part;
     if (partId !== undefined && (typeof partId !== "string" || !plan?.parts.some((p) => p.id === partId))) {
       throw new HttpError(400, "part is not in plan.json");
+    }
+
+    if (kind === "video") {
+      if (typeof partId !== "string") throw new HttpError(400, "part is required");
+      const header = ["Vista HTML", topic, partId, "video"].join(" · ");
+      await deliver(
+        `[${header}]\nLa persona pide el video de esta parte: prodúcelo con el pipeline de learnings-video (video-distill.md) y guárdalo en ${partVideo(plan!, partId)}.`,
+      );
+      sendJson(res, 200, { sent: true });
+      return;
     }
 
     if (kind === "question") {
@@ -577,7 +858,7 @@ ${scripts}
       const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
       if (!questions) throw new HttpError(400, `part ${partId} has no mini-quiz`);
       const answers = checkAnswers(payload.answers, questions, true);
-      const reasoning = checkReasoning(payload.reasoning, answers);
+      const reasoning = optionalReasoning(payload.reasoning, answers);
       const ownWords = optionalText(payload, "ownWords");
       const exercises = optionalText(payload, "exercises");
       const saved = `mini-quiz/${partId}.answers.json`;
@@ -597,7 +878,7 @@ ${scripts}
     const questions = readQuestions(join(dir, "quiz.json"));
     if (!questions) throw new HttpError(400, `topic ${topic} has no diagnosis quiz`);
     const answers = checkAnswers(payload.answers, questions, false);
-    const reasoning = checkReasoning(payload.reasoning, answers);
+    const reasoning = optionalReasoning(payload.reasoning, answers);
     const saved = "quiz.answers.json";
     const file = join(dir, saved);
     const recorded = readAnswers(file) ?? { answers: {}, razonamientos: {} };
@@ -626,17 +907,23 @@ ${scripts}
     if (rest.length > 0 && rest[rest.length - 1] === "") rest.pop();
 
     if (req.method === "POST") {
+      if (rest.join("/") === "api/code/run") return codeRun(req, res);
       if (rest.length === 1 && rest[0] === "submit") return submit(req, res);
       throw new HttpError(404, "not found");
     }
     if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method not allowed");
     if (rest.length === 0) return indexPage(res);
+    if (rest[0] === "kit" && rest.length >= 2) return kitFile(res, rest.slice(1).join("/"));
+    if (rest.length === 2 && rest[0] === "api" && rest[1] === "quiz") return quizApi(res, url);
     if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css")) {
       return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])));
     }
     const [topic, second, ...more] = rest;
     if (second === undefined) return topicPage(res, topic);
+    if (second === "codigo" && more.length === 1) return codePage(res, topic, more[0]);
     if (second === "file") return serveFile(req, res, topic, more);
+    if (topic === "rapidos" && more.length === 0) return quickPage(res, second);
+    if (more.length === 1 && more[0] === "app") return appPage(res, topic, second);
     if (more.length > 0) throw new HttpError(404, "not found");
     if (second === DIAGNOSIS) return diagnosisPage(res, topic);
     return partPage(res, topic, second);
@@ -651,7 +938,7 @@ ${scripts}
       token = randomBytes(32).toString("hex");
       const candidate = createServer((req, res) => {
         route(req, res).catch((err: unknown) => {
-          const status = err instanceof HttpError ? err.status : 500;
+          const status = err instanceof HttpError ? err.status : err instanceof CodeRunError ? 422 : 500;
           if (!res.headersSent) sendJson(res, status, { error: (err as Error).message });
           else res.destroy();
         });
@@ -691,7 +978,7 @@ ${scripts}
     name: "learning_view",
     label: "Learning HTML view",
     description:
-      "Start (once per session) the local interactive HTML view of the Learnings vault and return its URL: index of topics, a topic, one written part (note, video, demos, live mini-quiz) or the diagnosis quiz (part = \"quiz\"). " +
+      "Start (once per session) the local interactive HTML view of the Learnings vault and return its URL: index of topics, a topic, one written part (note, video, demos, live mini-quiz) the diagnosis quiz (part = \"quiz\") or a code exercise (part = \"codigo/<id>\"). " +
       "The learner's quiz answers are stored in the answers file the engine reads (never overwriting recorded answers) and arrive in this chat as a message starting with [Vista HTML · ...], together with reasoning, own words, exercises or questions.",
     promptSnippet: "Get the interactive HTML view URL of a Learnings topic or part",
     promptGuidelines: [
@@ -703,7 +990,7 @@ ${scripts}
       type: "object",
       properties: {
         topic: { type: "string", description: "Topic folder name directly under the Learnings root; omit for the index." },
-        part: { type: "string", description: "Part id from plan.json (p1, p2, ...) or \"quiz\" for the diagnosis; requires topic." },
+        part: { type: "string", description: "Part id from plan.json (p1, p2, ...) or \"quiz\" for the diagnosis, or codigo/<id> for code; requires topic." },
       },
       additionalProperties: false,
     } as unknown as TSchema,
@@ -726,10 +1013,12 @@ ${scripts}
         return viewError(`could not start the view server: ${(err as Error).message}`);
       }
       const url = base() + path;
+      const hasApp = typeof topic === "string" && typeof part === "string" && partApp(join(session.rootReal, topic), part) !== undefined;
+      const appUrl = hasApp ? `${url}/app` : undefined;
       return {
-        content: [{ type: "text" as const, text: `Vista HTML: ${url}` }],
-        details: { url },
-        structuredContent: { url, base: base() } as Record<string, unknown>,
+        content: [{ type: "text" as const, text: appUrl ? `Aplicación interactiva: ${appUrl}\nVista HTML: ${url}` : `Vista HTML: ${url}` }],
+        details: { url, appUrl },
+        structuredContent: { url, base: base(), ...(appUrl ? { appUrl } : {}) } as Record<string, unknown>,
         isError: false,
       };
     },

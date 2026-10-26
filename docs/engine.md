@@ -181,14 +181,16 @@ learner's own reasoning:
 - Every diagnosis and mini-quiz question declares `conceptos`: 2-3 distinct
   codes (`minPerQuestion`/`maxPerQuestion`), each a plan subtema or a `P0.x`
   foundation.
-- Every answer carries `razonamientos` in its answers file:
-  `{"q1": {"entendi": "...", "porque": "...", "confianza": "dudo"}}`. An answer
-  without both `entendi` and `porque` counts as not yet answered: a learner
-  wait. `confianza` (`seguro`/`dudo`/`adivine`, written by the study view) is
+- Answers carry `razonamientos` when the learner writes or dictates a thought:
+  `{"q1": {"razonamiento": "...", "confianza": "dudo"}}`. That thought is an
+  extra, never a gate: an answer without it is a complete answer and the quiz
+  still passes by score. When a reasoning file exists, what it holds is what the
+  verdicts may quote; a file written before the prompts were merged, with
+  `entendi` and `porque`, still joins its two texts into one thought. `confianza` (`seguro`/`dudo`/`adivine`, written by the study view) is
   for the chat's verdicts; the engine does not read it.
 - Diagnosis rounds have any size, start at 1 and are contiguous; at most
   `diagnosisMaxQuestions` (15) in total. A round is written only after the
-  previous one is answered with reasoning **and** has its verdicts; `roundSize`,
+  previous one is answered **and** has its verdicts; `roundSize`,
   `maxRounds` and the up/down follow-up rule are not enforced.
 - Verdicts (`concept-verdicts` check): `diagnostico-conceptos.json` for the
   diagnosis and `conceptos` in `feedback/{part}.json` for a part, entries
@@ -196,7 +198,8 @@ learner's own reasoning:
   answered, each concept of each of its questions needs an entry naming that
   question; `estado` is one of `states` (`claro`, `dudoso`, `laguna`) and
   `evidencia` appears verbatim (whitespace-normalized) in that question's
-  `entendi` or `porque`. Missing verdicts are a chat obligation: "concept
+  `razonamiento`, when the learner wrote one: a verdict may not invent evidence
+  for a silent question. Missing verdicts are a chat obligation: "concept
   verdicts owed for round N", or "round M was written before the concept
   verdicts for round N". With concept diagnosis a learner wait never hides
   such an obligation in `status`.

@@ -1,0 +1,95 @@
+// The example pages are the template the tutor copies: a broken walkthrough block or a missing
+// scene.js would ship silently, because the page still renders everything else.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const KIT = join(import.meta.dirname, "kit");
+const pages = ["sql-parte-1.html", "sql-parte-2.html", "sql-parte-3.html"];
+
+const read = (name) => readFileSync(join(KIT, "examples", name), "utf8");
+
+const walkthroughs = (html) => [...html.matchAll(/<lk-walkthrough>\s*<script type="application\/json">([\s\S]*?)<\/script>/g)];
+
+test("every page ships at least one walkthrough", () => {
+  for (const name of pages) {
+    assert.ok(walkthroughs(read(name)).length > 0, `${name} has no lk-walkthrough block`);
+  }
+});
+
+test("every walkthrough is a well-formed list of one-scene steps", () => {
+  for (const name of pages) {
+    const blocks = walkthroughs(read(name));
+    assert.ok(blocks.length > 0, `${name} has no lk-walkthrough block`);
+    for (const [n, block] of blocks.entries()) {
+      const spec = JSON.parse(block[1]);
+      const where = `${name} figura ${n + 1}`;
+      assert.ok(Array.isArray(spec.steps) && spec.steps.length > 0, `${where}: empty walkthrough`);
+      const viewBox = (spec.viewBox ?? "").trim().split(/\s+/).map(Number);
+      assert.equal(viewBox.length, 4, `${where}: viewBox needs four numbers`);
+      assert.ok(viewBox.every(Number.isFinite), `${where}: viewBox is not numeric`);
+      assert.ok(viewBox[2] > 0 && viewBox[3] > 0, `${where}: empty viewBox`);
+      for (const [i, step] of spec.steps.entries()) {
+        assert.ok(step.title && step.text, `${where}: step ${i + 1} needs a title and a text`);
+        assert.ok(step.scene && typeof step.scene === "object", `${where}: step ${i + 1} needs a scene`);
+        assert.ok(Object.keys(step.scene).length > 0, `${where}: step ${i + 1} draws nothing`);
+      }
+    }
+  }
+});
+
+// The user's rule: the reading is visual section by section, so a section without a figure is a
+// gap, not a style choice. The validation quiz is the only section allowed to have none.
+test("every reading section has its own figure", () => {
+  for (const name of pages) {
+    const html = read(name);
+    const sections = [...html.matchAll(/<section>([\s\S]*?)<\/section>/g)].map((m) => m[1]);
+    for (const body of sections) {
+      const heading = body.match(/<h2>(.*?)<\/h2>/);
+      if (!heading) continue;
+      const title = heading[1].replace(/<[^>]+>/g, "").trim();
+      if (/^(?:\d+\.\s*)?cuestionario/i.test(title)) continue;
+      // Sections 8 and 9 of part 1 can share one section block; both headings still count.
+      for (const each of body.split(/<h2>/).slice(1)) {
+        const name2 = each.replace(/<[^>]+>/g, "").trim().split("\n")[0];
+        if (/^(?:\d+\.\s*)?cuestionario/i.test(name2)) continue;
+        const own = "<h2>" + each;
+        assert.ok(own.includes("<lk-walkthrough>"), `${name}: la sección «${name2.slice(0, 60)}» no tiene figura`);
+      }
+    }
+  }
+});
+
+test("figure text stays inside the canvas and never runs off a sheet", () => {
+  for (const name of pages) {
+    for (const block of walkthroughs(read(name))) {
+      const spec = JSON.parse(block[1]);
+      const [vx, vy, vw, vh] = spec.viewBox.trim().split(/\s+/).map(Number);
+      for (const [i, step] of spec.steps.entries()) {
+        const scene = step.scene;
+        for (const label of scene.labels ?? []) {
+          const half = label.text.length * (label.size ?? 26) * 0.40;
+          assert.ok(label.x - half >= vx - 2 && label.x + half <= vx + vw + 2,
+            `${name} figura «${spec.title}» paso ${i + 1}: la etiqueta «${label.text}» se sale del lienzo`);
+        }
+        for (const box of [...(scene.boxes ?? []), ...(scene.sheets ?? [])]) {
+          const w = box.w, h = box.h;
+          assert.ok(box.x >= vx - 2 && box.x + w <= vx + vw + 2, `${name} figura «${spec.title}» paso ${i + 1}: una caja se sale a lo ancho`);
+          assert.ok(box.y >= vy - 2 && box.y + h <= vy + vh + 2, `${name} figura «${spec.title}» paso ${i + 1}: una caja se sale a lo alto`);
+        }
+      }
+    }
+  }
+});
+
+test("scene.js loads before kit.js", () => {
+  for (const name of pages) {
+    const html = read(name);
+    if (!html.includes("<lk-walkthrough>")) continue;
+    const scene = html.indexOf('<script src="../kit/scene.js" defer></script>');
+    const kit = html.indexOf('<script src="../kit/kit.js" defer></script>');
+    assert.ok(scene > -1, `${name} never loads scene.js`);
+    assert.ok(scene < kit, `${name} loads scene.js after kit.js`);
+  }
+});

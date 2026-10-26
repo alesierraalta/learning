@@ -156,6 +156,7 @@ vault files on every request, so Obsidian stays the source of truth:
 | `<topic>/<part>` | `explicaciones/Parte N - <slug>.md`, `mini-quiz/<part>.json`, `explicaciones/demos/<part>-*.html` |
 | `<topic>/quiz` | `quiz.json` + `quiz.answers.json` (diagnosis rounds) |
 | `<topic>/file/<path>` | any file inside the topic folder, with HTTP Range (video seeking) |
+| `<topic>/<part>/app` | `explicaciones/apps/<part>.html`, full page, with `window.LEARNING_BRIDGE` injected |
 | `submit` (POST) | learner submission, see below |
 
 Obsidian syntax is translated: frontmatter is dropped, `![[file.mp4]]` becomes a `<video>`
@@ -168,10 +169,15 @@ A submission is one of three fixed shapes (`mini-quiz`, `diagnosis`, `question`;
 are rejected). For a quiz the bridge validates every id and option against the quiz file,
 writes the answers file the engine already reads (`mini-quiz/<part>.answers.json`, or merges
 new ids into `quiz.answers.json`) atomically, and never overwrites recorded answers (`409`).
-Every answered question must carry `reasoning: {<id>: {entendi, porque, confianza}}` — what the
-learner understood the question asks, why they chose their option (both non-empty) and how sure
-they were (`seguro`, `dudo` or `adivine`); anything else is `400`;
-it is stored as `razonamientos` next to `answers` in the same file. Then it calls
+Answers are what the bridge requires: every answered question must carry a valid option, and
+recorded answers are never overwritten (`409`). The learner's thought is optional:
+`reasoning: {<id>: {razonamiento, confianza}}` carries the single text where they drain what they
+are thinking (typed or dictated with the page's microphone button) plus how sure they were
+(`seguro`, `dudo` or `adivine`). When present it is stored and quoted in the chat; when absent the
+quiz still grades and the message carries no empty thought line. A reasoning for an unanswered
+question, unknown keys or an invalid `confianza` are `400`. The older `{entendi, porque,
+confianza}` shape is still accepted and normalized to one `razonamiento`; whatever was written is
+stored as `razonamientos` next to `answers` in the same file. Then it calls
 `pi.sendUserMessage(..., { deliverAs: "followUp" })` with a message that starts with
 `[Vista HTML · <topic> · ...]` and carries the graded answers, both reasoning fields and the confidence, the
 learner's own words and exercises. Once the tutor records concept verdicts (`conceptos` in
@@ -193,6 +199,9 @@ observation to the question box; it is sent only when the learner presses send.
   `Referrer-Policy: no-referrer`, so the token never leaves in a `Referer`. Topic files are
   served with `Content-Security-Policy: sandbox allow-scripts`: a demo runs in an opaque
   origin and cannot call `submit` itself.
+- A part's app is vault content served top-level with its own CSP (`script-src
+  'unsafe-inline'`, `connect-src 'self'`, no remote origin, `frame-ancestors 'none'`): it
+  can only reach this server, and only through the same validated `submit`.
 - The server closes on `session_shutdown`; a new session gets a new token.
 
 ## Verification evidence

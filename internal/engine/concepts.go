@@ -9,18 +9,34 @@ import (
 )
 
 // Concept diagnosis: integrative questions declare the concepts they need,
-// every answer carries the learner's reasoning, and the chat records one
-// verdict per concept whose evidence is quoted from that reasoning.
+// every answer carries the learner's reasoning when they care to write it, and
+// the chat records one verdict per concept whose evidence is quoted from that
+// reasoning. Silence is allowed: it never blocks a round, it only leaves the
+// concepts of that question unjudged.
 
-// reasoning is what the learner understood a question asks and why they chose
-// their option.
+// reasoning is the learner's thought about a question: one drain text in new
+// records, the older pair of prompts in files written before they were merged.
 type reasoning struct {
-	Entendi string `json:"entendi"`
-	Porque  string `json:"porque"`
+	Razonamiento string `json:"razonamiento"`
+	Entendi      string `json:"entendi"`
+	Porque       string `json:"porque"`
+}
+
+func (r reasoning) text() string {
+	if thought := strings.TrimSpace(r.Razonamiento); thought != "" {
+		return thought
+	}
+	parts := []string{}
+	for _, part := range []string{r.Entendi, r.Porque} {
+		if part = strings.TrimSpace(part); part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func (r reasoning) complete() bool {
-	return strings.TrimSpace(r.Entendi) != "" && strings.TrimSpace(r.Porque) != ""
+	return strings.TrimSpace(r.text()) != ""
 }
 
 // loadReasoning reads the razonamientos of an answers file; a missing file or
@@ -41,12 +57,12 @@ func loadReasoning(ws, rel string) (map[string]reasoning, error) {
 	return doc.Razonamientos, nil
 }
 
-// pendingAnswers lists the ids still owed by the learner: no answer, or an
-// answer without both reasoning fields.
-func pendingAnswers(ids []string, answers map[string]string, why map[string]reasoning) []string {
+// pendingAnswers lists the ids still owed by the learner: a question with no
+// answer. Reasoning is optional, so it never keeps a question open.
+func pendingAnswers(ids []string, answers map[string]string) []string {
 	var out []string
 	for _, id := range ids {
-		if strings.TrimSpace(answers[id]) == "" || !why[id].complete() {
+		if strings.TrimSpace(answers[id]) == "" {
 			out = append(out, id)
 		}
 	}
@@ -110,10 +126,10 @@ func validateGuidedDiagnostic(qs []diagQuestion, plan *planDoc, th rules.Thresho
 }
 
 // guidedFlow allows a round only after the previous one is fully answered.
-func guidedFlow(qs []diagQuestion, answers map[string]string, why map[string]reasoning) error {
+func guidedFlow(qs []diagQuestion, answers map[string]string) error {
 	for _, q := range qs {
 		for _, p := range qs {
-			if p.Round == q.Round-1 && len(pendingAnswers([]string{p.ID}, answers, why)) > 0 {
+			if p.Round == q.Round-1 && len(pendingAnswers([]string{p.ID}, answers)) > 0 {
 				return fmt.Errorf("round %d question %s was written before round %d was fully answered (%s is unanswered)", q.Round, q.ID, p.Round, p.ID)
 			}
 		}
@@ -198,7 +214,7 @@ func evalConceptVerdicts(c *evalCtx, decl rules.CheckDecl) Check {
 	answered := map[string]bool{}
 	for _, q := range qs {
 		byID[q.ID] = q
-		answered[q.ID] = len(pendingAnswers([]string{q.ID}, answers, why)) == 0
+		answered[q.ID] = len(pendingAnswers([]string{q.ID}, answers)) == 0
 	}
 
 	covered := map[string]bool{}
@@ -214,10 +230,12 @@ func evalConceptVerdicts(c *evalCtx, decl rules.CheckDecl) Check {
 			return failCheck(decl.ID, fmt.Sprintf("verdict %s: %q is not one of the conceptos %v of %s", key, v.Codigo, q.Conceptos, q.ID))
 		case !slices.Contains(ct.States, v.Estado):
 			return failCheck(decl.ID, fmt.Sprintf("verdict %s uses estado %q outside %v", key, v.Estado, ct.States))
-		case strings.TrimSpace(v.Evidencia) == "" ||
-			!(containsNorm(why[v.Pregunta].Entendi, v.Evidencia) || containsNorm(why[v.Pregunta].Porque, v.Evidencia)):
+		case strings.TrimSpace(why[v.Pregunta].text()) == "":
 			return failCheck(decl.ID, fmt.Sprintf(
-				"verdict %s evidencia is not quoted from the learner's reasoning (entendi or porque) for %s", key, v.Pregunta))
+				"verdict %s judges %s, where the learner wrote no reasoning to quote", key, v.Pregunta))
+		case strings.TrimSpace(v.Evidencia) == "" || !containsNorm(why[v.Pregunta].text(), v.Evidencia):
+			return failCheck(decl.ID, fmt.Sprintf(
+				"verdict %s evidencia is not quoted from the learner's reasoning for %s", key, v.Pregunta))
 		}
 		covered[key] = true
 		if v.Estado == ct.GapState {
@@ -243,6 +261,11 @@ func evalConceptVerdicts(c *evalCtx, decl rules.CheckDecl) Check {
 				complete = false
 				break
 			}
+			// Silence leaves nothing to quote, so those concepts stay unjudged
+			// instead of blocking the round forever.
+			if strings.TrimSpace(why[q.ID].text()) == "" {
+				continue
+			}
 			for _, code := range q.Conceptos {
 				if !covered[q.ID+"/"+code] {
 					owed = append(owed, q.ID+"/"+code)
@@ -266,7 +289,11 @@ func evalConceptVerdicts(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 
 	var gapList, focus []string
+	withoutReasoning := []string{}
 	for _, q := range qs {
+		if answered[q.ID] && strings.TrimSpace(why[q.ID].text()) == "" {
+			withoutReasoning = append(withoutReasoning, q.ID)
+		}
 		if gaps[q.ID] {
 			gapList = append(gapList, q.ID)
 		}
@@ -276,11 +303,12 @@ func evalConceptVerdicts(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	c.evidence["conceptGaps"] = gapList
 	c.evidence["centralConceptGaps"] = centralGaps
+	c.evidence["conceptsWithoutReasoning"] = withoutReasoning
 	if c.part == "" {
 		c.evidence["diagnosticFocus"] = focus
 	}
-	return passCheck(decl.ID, fmt.Sprintf("%d concept verdicts quoted from the learner's reasoning in %s (laguna on %v, central %v)",
-		len(verdicts), vRel, gapList, centralGaps))
+	return passCheck(decl.ID, fmt.Sprintf("%d concept verdicts quoted from the learner's reasoning in %s (laguna on %v, central %v, no reasoning on %v)",
+		len(verdicts), vRel, gapList, centralGaps, withoutReasoning))
 }
 
 // lagunaQuestions lists the questions with a gapState verdict in a verdict file.

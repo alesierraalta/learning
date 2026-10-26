@@ -1,5 +1,10 @@
 # Study view: content, not page design
 
+> A part's main page is now its rich HTML page written with the kit (`docs/kit.md`):
+> the complete explanation with richer visuals, inline demos, the connected quiz and
+> the video button. This Markdown guide still governs the `.md` note the vault and the
+> engine keep, and quick notes.
+
 Builders write Markdown and learning material only. The shared view supplies the
 Distill Academic layout from the rendered videos: white paper, DejaVu Sans body
 and bold headings, DejaVu Sans Mono code and table cells, restrained semantic
@@ -94,6 +99,21 @@ The parent checks the sending iframe and payload type. Observations (prefixed
 with the demo filename, capped at 2,000 characters) populate the question box;
 the learner still submits them to the tutor. Do not send secrets or answers
 through this channel.
+
+## The part's interactive app
+
+When the explanation itself should be an experiment (predict, act, compute, check),
+write it as one self-contained page, `explicaciones/apps/<part>.html` (inline CSS and
+JS, no network). `learning_view` then returns an **Aplicación interactiva** URL and the
+part page shows a launch button. The bridge serves the app full page and injects
+`window.LEARNING_BRIDGE = { submitUrl, topic, part }`; the app posts the same fixed
+payloads as the view (`kind: "mini-quiz"` with `answers`, plus `reasoning` only when
+the app collects the optional `razonamiento` and `confianza`; `kind: "question"` with `text`). The bridge grades
+the quiz, so the app holds no answer keys; keep question ids and option letters equal
+to `mini-quiz/<part>.json`. Opened without the bridge (`window.LEARNING_BRIDGE`
+undefined) the app must still run its experiments and say it is not connected.
+Reference: the reinforcement-learning Part 3 test app
+(`Learnings/prueba-vista-aprendizaje-por-refuerzo/explicaciones/apps/p3.html`).
 
 ## Do not
 

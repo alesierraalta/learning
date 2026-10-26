@@ -296,10 +296,103 @@
     }
     app.append(panel);
   }
-  if (data.topicBase) app.append(link(`← ${data.topicTitle || data.title}`, data.topicBase));
-  else if (data.kind !== "index") app.append(link("← Temas", data.home));
+  function exerciseLinks() {
+    if (!data.exercises?.length) return;
+    const section = element("section");
+    section.append(element("h2", "Ejercicios de código"));
+    for (const ex of data.exercises) {
+      const row = element("p");
+      row.append(link(ex.titulo, data.topicBase + "codigo/" + encodeURIComponent(ex.id)), element("span", ` · ${ex.lenguaje} · Mejor: ${ex.mejor || "sin entregas"}`));
+      if (ex.error) row.append(element("span", " · Ejercicio no disponible", "error"));
+      section.append(row);
+    }
+    app.append(section);
+  }
+
+  function codePage() {
+    const ex = data.exercise;
+    app.append(element("p", `Lenguaje: ${ex.lenguaje} · archivo ${data.file}`, "part-kicker"), markdown(ex.enunciado));
+    for (const test of ex.tests.filter((t) => !t.oculto)) {
+      app.append(element("h3", test.nombre), element("p", "Entrada"), element("pre", test.entrada), element("p", "Salida esperada"), element("pre", test.salida));
+    }
+    const hidden = ex.tests.filter((t) => t.oculto).length;
+    if (hidden) app.append(element("p", `Y ${hidden} ${hidden === 1 ? "prueba oculta" : "pruebas ocultas"} que se corrigen al entregar.`, "muted"));
+    const key = `learning-code:${data.topic}:${ex.id}`;
+    const editor = textarea(app, "Tu código");
+    editor.className = "code-editor";
+    editor.spellcheck = false;
+    editor.maxLength = 100000;
+    editor.rows = 18;
+    let draft;
+    try { draft = localStorage.getItem(key); } catch {}
+    editor.value = draft ?? data.lastCode ?? ex.plantilla;
+    const saveDraft = () => { try { localStorage.setItem(key, editor.value); } catch {} };
+    editor.addEventListener("input", saveDraft);
+    const input = textarea(app, "Mi entrada");
+    const note = textarea(app, "Nota para el tutor (opcional)");
+    const panel = element("section", undefined, "code-results");
+    panel.setAttribute("aria-live", "polite");
+    const history = element("section");
+    history.append(element("h2", "Historial de entregas"));
+    const when = (iso) => { const date = new Date(iso); return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("es", { dateStyle: "medium", timeStyle: "short" }); };
+    const addHistory = (s) => history.append(element("p", `#${s.numero} · ${s.aprobados}/${s.total} pruebas · ${when(s.fecha)}`));
+    (data.submissions || []).forEach(addHistory);
+    const buttons = [];
+    const states = { correcto: "✔ correcto", incorrecto: "✘ incorrecto", tiempo: "⏱ tiempo", error: "💥 error", ejecutado: "▶ ejecutado" };
+    const run = async (mode) => {
+      buttons.forEach((b) => b.disabled = true);
+      panel.replaceChildren(element("p", "Ejecutando…"));
+      const payload = { topic: data.topic, exercise: ex.id, code: editor.value };
+      if (mode === "submit") { payload.kind = "code"; payload.note = note.value; }
+      if (mode === "free") payload.input = input.value;
+      try {
+        const response = await fetch(mode === "submit" ? data.submitUrl : data.runUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error);
+        panel.replaceChildren(element("h2", mode === "free" ? "Ejecución con tu entrada" : `Resultado: ${result.aprobados}/${result.total} pruebas`));
+        if (!result.compilacion.ok) panel.append(element("h3", "Error de compilación", "error"));
+        if (result.compilacion.salida) panel.append(element("pre", result.compilacion.salida));
+        for (const r of result.resultados) {
+          panel.append(element("h3", `${r.nombre}${r.oculto ? " (oculto)" : ""} · ${states[r.estado]}`, r.estado === "correcto" ? "correct" : r.estado === "ejecutado" ? "" : "error"));
+          if (!r.oculto) for (const [key, label] of [["entrada", "Entrada"], ["esperado", "Esperado"], ["obtenido", "Obtenido"], ["errores", "Errores"]]) {
+            if (r[key] !== undefined && (key !== "errores" || r[key].trim())) panel.append(element("p", label), element("pre", r[key]));
+          }
+        }
+        if (mode === "submit") {
+          panel.append(element("p", "Entrega guardada y enviada al tutor."));
+          addHistory({ numero: Number(result.saved.split("/").pop().split(".")[0]), aprobados: result.aprobados, total: result.total, fecha: new Date().toISOString() });
+        }
+      } catch (error) { panel.replaceChildren(element("p", `No se pudo ejecutar: ${error.message}`, "error")); }
+      finally { buttons.forEach((b) => b.disabled = false); }
+    };
+    const actions = element("div", undefined, "code-actions");
+    for (const [text, mode] of [["Probar con las pruebas visibles", "visible"], ["Probar con mi entrada", "free"], ["Entregar al tutor", "submit"]]) {
+      const button = element("button", text);
+      button.onclick = () => run(mode);
+      buttons.push(button);
+      actions.append(button);
+    }
+    const restore = element("button", "Restaurar plantilla", "secondary");
+    restore.onclick = () => { if (confirm("¿Restaurar la plantilla? Se perderá el borrador actual.")) { editor.value = ex.plantilla; saveDraft(); } };
+    actions.append(restore);
+    app.append(actions, panel, history);
+    editor.addEventListener("keydown", (event) => {
+      if (event.key === "Tab") {
+        event.preventDefault();
+        editor.setRangeText("    ", editor.selectionStart, editor.selectionEnd, "end");
+        saveDraft();
+      }
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); if (!buttons[0].disabled) run("visible"); }
+    });
+  }
+
+  // Inside the studio the studio itself navigates; the view's own back link would move the frame.
+  const embedded = window.self !== window.top;
+  if (!embedded && data.topicBase) app.append(link(`← ${data.topicTitle || data.title}`, data.topicBase));
+  else if (!embedded && data.kind !== "index") app.append(link("← Temas", data.home));
   // A part note carries its own title.
   if (data.kind !== "part") app.append(element("h1", data.title || "Learnings"));
+  if (data.kind === "code") { codePage(); return; }
   if (data.kind === "index" || data.kind === "topic") {
     const list = element("ul", undefined, "navigation");
     for (const item of data.topics || data.parts || []) {
@@ -311,6 +404,7 @@
     }
     app.append(list);
     if (data.hasDiagnosis) app.append(link("Diagnóstico", data.topicBase + "quiz"));
+    exerciseLinks();
     return;
   }
   if (data.kind === "part") {
@@ -324,9 +418,18 @@
       const shortSubject = /\(([^)]+)\)\s*$/.exec(subject)?.[1] || subject;
       title.before(element("p", `Parte ${number} · ${shortSubject}`, "part-kicker"));
     }
+    if (data.app) {
+      const launch = element("div", undefined, "app-launch");
+      const open = link("▶ Abrir la aplicación interactiva de esta parte", data.app);
+      open.className = "app-button";
+      launch.append(open, element("p", "La explicación como experimento: predices, mueves, calculas y respondes; lo que envíes llega al chat de Pi.", "muted"));
+      if (title) title.after(launch);
+      else article.prepend(launch);
+    }
     app.append(article);
     decorate(article);
   }
+  exerciseLinks();
   const frames = [];
   if (data.demos?.length) {
     const section = element("section");

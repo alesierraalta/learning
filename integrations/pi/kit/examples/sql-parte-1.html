@@ -1,0 +1,2233 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parte 1 — Estructura Relacional y Clave Primaria (PK)</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<script src="../kit/scene.js" defer></script>
+<script src="../kit/kit.js" defer></script>
+<style>
+.p1-lab { display:flex; flex-wrap:wrap; gap:20px; margin-top:14px; align-items:start; }
+.p1-form { flex:1 1 260px; min-width:0; display:grid; gap:10px; }
+.p1-form label { font-size:.85rem; }
+.p1-form input[type=text] { width:9em; font:inherit; padding:5px 7px; border:1px solid #cbd5e1; border-radius:5px; }
+.p1-form .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.p1-table { flex:1 1 320px; min-width:0; }
+.p1-table table { width:100%; }
+.p1-table td.null { color:#b45309; font-style:italic; }
+.p1-table td.err { color:#b91c1c; }
+.p1-msg { margin:10px 0 0; padding:10px 12px; border-left:3px solid #cbd5e1; background:#f8fafc; font-size:.85rem; }
+.p1-msg.ok { border-color:#059669; }
+.p1-msg.bad { border-color:#dc2626; }
+.p1-msg.warn { border-color:#d97706; }
+</style>
+</head>
+<body><main>
+
+<div class="kicker">Parte 1 · Paradigma relacional</div>
+<h1>Estructura Relacional y Clave Primaria (PK)</h1>
+<p><strong>Fuente</strong>: Oracle Database Concepts 19c (Capítulo 3, <em>Data Integrity — Entity Integrity</em>) · Silberschatz, Korth y Sudarshan, <em>Database System Concepts</em> (Capítulo 2, <em>Relational Model</em>).</p>
+
+<p class="definition">Una <strong>base de datos relacional</strong> es una forma de organizar información en <strong>tablas bidimensionales estructuradas</strong>, donde cada registro posee identidad única y los datos se aíslan por completo del almacenamiento físico en disco.</p>
+
+<lk-video></lk-video>
+
+
+<lk-callout type="note" title="Dónde estás">
+<p>Paso <strong>1 de 10</strong> · nodo <code>1.1</code> · escalón <strong>básico</strong>. La visual asignada a esta parte es un diagrama de estructura y el árbol de decisión de integridad del motor.</p>
+</lk-callout>
+
+<lk-callout type="tip" title="El ejemplo que nos acompaña">
+<p>El sistema de empleados (<code>EMPLOYEE</code>) de una empresa, con cuatro columnas: <code>employee_id</code>, <code>last_name</code>, <code>department_id</code> y <code>salary</code>. Todos los pasos, errores y demos de esta parte usan esa misma tabla.</p>
+</lk-callout>
+
+<section>
+<h2>1. Por qué existe</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Un archivo frente a una tabla",
+ "viewBox": "4.800000000000011 72 1179.2 316",
+ "steps": [
+  {
+   "title": "Un archivo guarda filas",
+   "text": "Un archivo conserva los datos, pero acepta dos veces la misma identidad.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ],
+       [
+        "7782",
+        "GARCIA"
+       ]
+      ],
+      "width": 520,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "1": "red"
+      },
+      "cellTone": {
+       "1,0": "red"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 320,
+      "y": 300,
+      "text": "dos veces la misma identidad",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "El esquema la rechaza",
+   "text": "Sobre una clave primaria la segunda fila no entra: ORA-00001.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ],
+       [
+        "7782",
+        "GARCIA"
+       ]
+      ],
+      "width": 520,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "1": "red"
+      },
+      "cellTone": {
+       "1,0": "red"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 320,
+      "y": 300,
+      "text": "dos veces la misma identidad",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ],
+    "boxes": [
+     {
+      "x": 700,
+      "y": 300,
+      "w": 460,
+      "h": 62,
+      "label": "INSERT 7782 GARCIA",
+      "sub": "ORA-00001 · clave duplicada",
+      "tone": "red",
+      "size": 24
+     }
+    ]
+   }
+  },
+  {
+   "title": "La consulta elige filas",
+   "text": "Preguntar devuelve un subconjunto: no cambia lo guardado.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ]
+      ],
+      "width": 460,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "blue"
+      }
+     },
+     {
+      "x": 700,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ]
+      ],
+      "width": 460,
+      "rowH": 48,
+      "size": 22,
+      "rowTone": {
+       "0": "green"
+      }
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 530,
+      "y1": 215,
+      "x2": 690,
+      "y2": 215,
+      "tone": "blue",
+      "dashed": false
+     }
+    ],
+    "labels": [
+     {
+      "x": 290,
+      "y": 300,
+      "text": "la tabla",
+      "tone": "ink",
+      "size": 26,
+      "anchor": "middle"
+     },
+     {
+      "x": 930,
+      "y": 300,
+      "text": "la consulta",
+      "tone": "green",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<p>Imagina que guardas la información de una empresa directamente en archivos de texto o en bloques de disco con punteros de memoria. Para buscar a un empleado, tus programas tendrían que saber la <strong>dirección física exacta</strong> del archivo en el disco. Si mañana el administrador cambia de disco duro, añade memoria o reorganiza los archivos, <strong>todos tus programas dejan de funcionar</strong>.</p>
+<p>El modelo relacional resuelve ese dolor creando una separación radical:</p>
+<pre class="mermaid">flowchart TD
+  APP["Código de la aplicación"] --&gt; LOGIC["Consulta lógica: tablas y columnas"]
+  LOGIC --&gt; ENGINE["Motor relacional: optimizador y traductor"]
+  ENGINE --&gt; DISK["Almacenamiento físico: bloques en disco"]</pre>
+<p>La aplicación solo conoce <strong>qué datos pide</strong>, nunca <strong>cómo están guardados físicamente</strong>. Eso es la <strong>independencia física de los datos</strong>.</p>
+</section>
+
+<section>
+<h2>2. Las piezas fundamentales</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Las piezas de una relación",
+ "viewBox": "36 62 1148 326",
+ "steps": [
+  {
+   "title": "Relación: la tabla",
+   "text": "Un contenedor lógico con nombre, columnas fijas y filas.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "last_name",
+       "dept_id",
+       "salary"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK",
+        "10",
+        "2450,00"
+       ],
+       [
+        "7839",
+        "KING",
+        "10",
+        "5000,00"
+       ],
+       [
+        "7934",
+        "MILLER",
+        "20",
+        "3200,00"
+       ],
+       [
+        "7999",
+        "LOPEZ",
+        "99",
+        "mucho"
+       ]
+      ],
+      "width": 620,
+      "rowH": 52,
+      "size": 22
+     }
+    ]
+   }
+  },
+  {
+   "title": "Tupla: una fila",
+   "text": "Cada fila es un registro completo de una entidad.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "last_name",
+       "dept_id",
+       "salary"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK",
+        "10",
+        "2450,00"
+       ],
+       [
+        "7839",
+        "KING",
+        "10",
+        "5000,00"
+       ],
+       [
+        "7934",
+        "MILLER",
+        "20",
+        "3200,00"
+       ],
+       [
+        "7999",
+        "LOPEZ",
+        "99",
+        "mucho"
+       ]
+      ],
+      "width": 620,
+      "rowH": 52,
+      "size": 22,
+      "rowTone": {
+       "1": "blue"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 850,
+      "y": 160,
+      "text": "fila = tupla",
+      "tone": "blue",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Atributo: una columna",
+   "text": "Cada columna es una propiedad atómica con su tipo de dato.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "last_name",
+       "dept_id",
+       "salary"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK",
+        "10",
+        "2450,00"
+       ],
+       [
+        "7839",
+        "KING",
+        "10",
+        "5000,00"
+       ],
+       [
+        "7934",
+        "MILLER",
+        "20",
+        "3200,00"
+       ],
+       [
+        "7999",
+        "LOPEZ",
+        "99",
+        "mucho"
+       ]
+      ],
+      "width": 620,
+      "rowH": 52,
+      "size": 22,
+      "colTone": {
+       "2": "amber"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 850,
+      "y": 160,
+      "text": "columna = atributo",
+      "tone": "amber",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Dominio: qué valores admite",
+   "text": "El dominio fija qué valores acepta la columna: 99 no está en DEPT_ID y «mucho» no es un salario.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "last_name",
+       "dept_id",
+       "salary"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK",
+        "10",
+        "2450,00"
+       ],
+       [
+        "7839",
+        "KING",
+        "10",
+        "5000,00"
+       ],
+       [
+        "7934",
+        "MILLER",
+        "20",
+        "3200,00"
+       ],
+       [
+        "7999",
+        "LOPEZ",
+        "99",
+        "mucho"
+       ]
+      ],
+      "width": 620,
+      "rowH": 52,
+      "size": 22,
+      "rowTone": {
+       "3": "red"
+      },
+      "cellTone": {
+       "3,2": "red",
+       "3,3": "red"
+      }
+     }
+    ],
+    "boxes": [
+     {
+      "x": 740,
+      "y": 300,
+      "w": 420,
+      "h": 62,
+      "label": "dominio de salary",
+      "sub": "NUMBER(7,2) > 0",
+      "tone": "amber",
+      "size": 24
+     }
+    ],
+    "labels": [
+     {
+      "x": 850,
+      "y": 160,
+      "text": "fuera del dominio",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<p>Cinco conceptos sostienen todo lo que viene después. Cada uno responde a una pregunta concreta que te harás al diseñar una tabla:</p>
+
+<table>
+<thead><tr><th>Pregunta mental</th><th>Pieza</th><th>En <code>EMPLOYEE</code></th></tr></thead>
+<tbody>
+<tr><td>¿Dónde organizo todos los registros de este tipo?</td><td><strong>Relación</strong> (tabla)</td><td>La tabla <code>EMPLOYEE</code></td></tr>
+<tr><td>¿De qué o de quién hablamos exactamente?</td><td><strong>Tupla</strong> (fila o registro)</td><td>La fila del empleado <code>CLARK</code></td></tr>
+<tr><td>¿Qué dato específico describe a esa entidad?</td><td><strong>Atributo</strong> (columna o campo)</td><td><code>employee_id</code>, <code>last_name</code>, <code>salary</code></td></tr>
+<tr><td>¿Qué valores son válidos para este dato?</td><td><strong>Dominio</strong></td><td><code>employee_id</code> solo enteros (<code>NUMBER(4)</code>); <code>salary</code> solo numéricos positivos</td></tr>
+<tr><td>¿Cómo garantizo que nadie se confunda con otro ni quede indocumentado?</td><td><strong>Clave Primaria</strong> (<code>PRIMARY KEY</code>)</td><td><code>employee_id</code>: <strong>única y obligatoria</strong></td></tr>
+</tbody></table>
+
+<h3>Relación (tabla)</h3>
+<p>El contenedor lógico bidimensional. Tiene un nombre único en el esquema y un conjunto fijo de columnas.</p>
+
+<h3>Tupla (fila o registro)</h3>
+<p>Cada elemento individual almacenado en la tabla. Corresponde a una entidad concreta del mundo real.</p>
+
+<h3>Atributo (columna o campo)</h3>
+<p>Cada propiedad atómica que describe a la entidad. Cada columna tiene un nombre y un tipo de dato.</p>
+
+<h3>Dominio</h3>
+<p>El conjunto estricto de valores y formatos válidos permitidos para una columna.</p>
+
+<h3>Clave primaria (<code>PRIMARY KEY</code>)</h3>
+<p>El atributo (o conjunto de atributos) que identifica unívocamente a cada tupla de la tabla. Su regla es inmutable: <strong><code>UNIQUE + NOT NULL</code></strong>, única y obligatoria a la vez.</p>
+</section>
+
+<section>
+<h2>3. Anatomía visual de la relación</h2>
+<p>El esquema define los atributos y sus dominios; las tuplas son los valores que los cumplen. Esta es la misma tabla del ejemplo, con dos filas reales:</p>
+<pre class="mermaid">flowchart TD
+  ATTRS["ATRIBUTOS (esquema y dominios): employee_id PK NUMBER(4) único · last_name VARCHAR2(10) · department_id NUMBER(2) · salary NUMBER(7,2) mayor que 0"]
+  T1["Tupla 1: 7782 · CLARK · departamento 10 · 2450,00"]
+  T2["Tupla 2: 7839 · KING · departamento 10 · 5000,00"]
+  ATTRS --&gt;|"estructura y valida"| T1
+  T1 --&gt; T2</pre>
+<table>
+<thead><tr><th>Fila \ Columna</th><th><code>employee_id</code> (PK)</th><th><code>last_name</code></th><th><code>department_id</code></th><th><code>salary</code></th></tr></thead>
+<tbody>
+<tr><td><strong>Tupla 1</strong> (Clark)</td><td><strong>7782</strong></td><td>CLARK</td><td>10</td><td>2450,00</td></tr>
+<tr><td><strong>Tupla 2</strong> (King)</td><td><strong>7839</strong></td><td>KING</td><td>10</td><td>5000,00</td></tr>
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Cómo se lee una relación",
+ "viewBox": "-30 0 1261 660",
+ "steps": [
+  {
+   "title": "Las filas guardadas",
+   "text": "Una tabla guarda tuplas: cada fila es una entidad concreta, no una idea.",
+   "scene": {
+    "sheets": [
+     {
+      "x": 40,
+      "y": 110,
+      "w": 300,
+      "h": 320,
+      "title": "EMPLOYEE",
+      "lines": 8,
+      "tone": "slate"
+     }
+    ],
+    "labels": [
+     {
+      "x": 190,
+      "y": 470,
+      "text": "3 tuplas guardadas",
+      "size": 22,
+      "tone": "slate"
+     }
+    ]
+   }
+  },
+  {
+   "title": "El esquema pone las reglas",
+   "text": "Cada columna declara un atributo y su dominio: qué dato vive ahí y qué valores acepta.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 400,
+      "y": 110,
+      "w": 360,
+      "h": 62,
+      "label": "employee_id",
+      "sub": "NUMBER(4) · PRIMARY KEY",
+      "tone": "ink"
+     },
+     {
+      "x": 400,
+      "y": 190,
+      "w": 360,
+      "h": 62,
+      "label": "last_name",
+      "sub": "VARCHAR2(10)",
+      "tone": "slate"
+     },
+     {
+      "x": 400,
+      "y": 270,
+      "w": 360,
+      "h": 62,
+      "label": "department_id",
+      "sub": "NUMBER(2) · FK",
+      "tone": "slate"
+     },
+     {
+      "x": 400,
+      "y": 350,
+      "w": 360,
+      "h": 62,
+      "label": "salary",
+      "sub": "NUMBER(7,2) > 0",
+      "tone": "slate"
+     }
+    ],
+    "labels": [
+     {
+      "x": 980,
+      "y": 130,
+      "text": "cada columna fija",
+      "size": 24,
+      "tone": "slate"
+     },
+     {
+      "x": 940,
+      "y": 166,
+      "text": "un atributo y su dominio",
+      "size": 24,
+      "tone": "slate"
+     }
+    ]
+   }
+  },
+  {
+   "title": "La clave primaria",
+   "text": "employee_id es UNIQUE + NOT NULL: ninguna fila se confunde con otra ni queda indocumentada.",
+   "scene": {
+    "dashed": [
+     {
+      "x": 388,
+      "y": 100,
+      "w": 384,
+      "h": 82,
+      "label": "",
+      "tone": "blue",
+      "fill": "none"
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 776,
+      "y1": 150,
+      "x2": 856,
+      "y2": 286,
+      "tone": "blue",
+      "bend": 0.2
+     }
+    ],
+    "labels": [
+     {
+      "x": 980,
+      "y": 290,
+      "text": "clave primaria:",
+      "size": 24,
+      "tone": "blue"
+     },
+     {
+      "x": 980,
+      "y": 326,
+      "text": "única y obligatoria",
+      "size": 24,
+      "tone": "blue"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Consultar no cambia la estructura",
+   "text": "SELECT … WHERE devuelve un subconjunto de tuplas; el esquema sigue siendo el mismo.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 40,
+      "y": 520,
+      "w": 300,
+      "h": 80,
+      "label": "SELECT … WHERE",
+      "sub": "devuelve un subconjunto",
+      "tone": "blue"
+     }
+    ],
+    "arrows": [],
+    "labels": [
+     {
+      "x": 640,
+      "y": 560,
+      "text": "el esquema no cambia: cambia qué filas ves",
+      "size": 24,
+      "tone": "slate"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Las dos medidas de una relación",
+   "text": "Grado: cuántos atributos. Cardinalidad: cuántas tuplas. Confundirlas es el error clásico.",
+   "scene": {
+    "labels": [
+     {
+      "x": 980,
+      "y": 470,
+      "text": "grado = 4 atributos",
+      "size": 24,
+      "tone": "slate"
+     },
+     {
+      "x": 980,
+      "y": 510,
+      "text": "cardinalidad = 3 tuplas",
+      "size": 24,
+      "tone": "slate"
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+</tbody></table>
+</section>
+
+<section>
+<h2>4. Cómo funciona paso a paso en el motor</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "El índice B-tree y la clave primaria",
+ "viewBox": "2.799999999999997 62 1201.2 342",
+ "steps": [
+  {
+   "title": "Estado inicial",
+   "text": "La tabla contiene a CLARK (7782) y KING (7839); el índice los tiene en sus hojas.",
+   "scene": {
+    "gears": [
+     {
+      "x": 110,
+      "y": 190,
+      "r": 62,
+      "tone": "ink"
+     }
+    ],
+    "nodes": [
+     {
+      "x": 470,
+      "y": 80,
+      "label": "7800",
+      "tone": "ink"
+     }
+    ],
+    "boxes": [
+     {
+      "x": 290,
+      "y": 180,
+      "w": 180,
+      "h": 54,
+      "label": "7622 · 7782",
+      "sub": "",
+      "tone": "slate",
+      "size": 22
+     },
+     {
+      "x": 600,
+      "y": 180,
+      "w": 180,
+      "h": 54,
+      "label": "7839 · 7902",
+      "sub": "",
+      "tone": "slate",
+      "size": 22
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 440,
+      "y1": 104,
+      "x2": 380,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 500,
+      "y1": 104,
+      "x2": 690,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     }
+    ],
+    "grids": [
+     {
+      "x": 840,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ],
+       [
+        "7839",
+        "KING"
+       ]
+      ],
+      "width": 340,
+      "rowH": 46,
+      "size": 20,
+      "rowTone": {}
+     }
+    ],
+    "labels": [
+     {
+      "x": 110,
+      "y": 288,
+      "text": "el motor",
+      "tone": "slate",
+      "size": 26,
+      "anchor": "middle"
+     },
+     {
+      "x": 470,
+      "y": 330,
+      "text": "hojas del índice",
+      "tone": "slate",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Inserción válida",
+   "text": "7902 no está en la hoja: el índice la acepta y la tabla gana su fila.",
+   "scene": {
+    "gears": [
+     {
+      "x": 110,
+      "y": 190,
+      "r": 62,
+      "tone": "ink"
+     }
+    ],
+    "nodes": [
+     {
+      "x": 470,
+      "y": 80,
+      "label": "7800",
+      "tone": "ink"
+     }
+    ],
+    "boxes": [
+     {
+      "x": 290,
+      "y": 180,
+      "w": 180,
+      "h": 54,
+      "label": "7622 · 7782",
+      "sub": "",
+      "tone": "slate",
+      "size": 22
+     },
+     {
+      "x": 600,
+      "y": 180,
+      "w": 180,
+      "h": 54,
+      "label": "7839 · 7902",
+      "sub": "",
+      "tone": "green",
+      "size": 22
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 440,
+      "y1": 104,
+      "x2": 380,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 500,
+      "y1": 104,
+      "x2": 690,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     }
+    ],
+    "grids": [
+     {
+      "x": 840,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ],
+       [
+        "7839",
+        "KING"
+       ],
+       [
+        "7902",
+        "FORD"
+       ]
+      ],
+      "width": 340,
+      "rowH": 46,
+      "size": 20,
+      "rowTone": {
+       "2": "green"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 110,
+      "y": 288,
+      "text": "el motor",
+      "tone": "slate",
+      "size": 26,
+      "anchor": "middle"
+     },
+     {
+      "x": 690,
+      "y": 330,
+      "text": "hoja actualizada",
+      "tone": "green",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Clave duplicada",
+   "text": "7782 ya ocupa una hoja: el motor aborta antes de tocar la tabla.",
+   "scene": {
+    "gears": [
+     {
+      "x": 110,
+      "y": 190,
+      "r": 62,
+      "tone": "ink"
+     }
+    ],
+    "nodes": [
+     {
+      "x": 470,
+      "y": 80,
+      "label": "7800",
+      "tone": "ink"
+     }
+    ],
+    "boxes": [
+     {
+      "x": 290,
+      "y": 180,
+      "w": 180,
+      "h": 54,
+      "label": "7622 · 7782",
+      "sub": "",
+      "tone": "red",
+      "size": 22
+     },
+     {
+      "x": 600,
+      "y": 180,
+      "w": 180,
+      "h": 54,
+      "label": "7839 · 7902",
+      "sub": "",
+      "tone": "slate",
+      "size": 22
+     },
+     {
+      "x": 300,
+      "y": 276,
+      "w": 160,
+      "h": 50,
+      "label": "7782 ✕",
+      "sub": "ya existe",
+      "tone": "red",
+      "size": 20
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 440,
+      "y1": 104,
+      "x2": 380,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 500,
+      "y1": 104,
+      "x2": 690,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 380,
+      "y1": 238,
+      "x2": 380,
+      "y2": 274,
+      "tone": "red",
+      "dashed": false
+     }
+    ],
+    "grids": [
+     {
+      "x": 840,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ],
+       [
+        "7839",
+        "KING"
+       ]
+      ],
+      "width": 340,
+      "rowH": 46,
+      "size": 20,
+      "rowTone": {}
+     }
+    ],
+    "labels": [
+     {
+      "x": 110,
+      "y": 288,
+      "text": "el motor",
+      "tone": "slate",
+      "size": 26,
+      "anchor": "middle"
+     },
+     {
+      "x": 470,
+      "y": 370,
+      "text": "ORA-00001 · clave duplicada",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Clave nula",
+   "text": "NULL no llega ni a compararse: el motor la rechaza en la puerta.",
+   "scene": {
+    "gears": [
+     {
+      "x": 110,
+      "y": 190,
+      "r": 62,
+      "tone": "ink"
+     }
+    ],
+    "nodes": [
+     {
+      "x": 470,
+      "y": 80,
+      "label": "7800",
+      "tone": "ink"
+     }
+    ],
+    "boxes": [
+     {
+      "x": 290,
+      "y": 180,
+      "w": 180,
+      "h": 54,
+      "label": "7622 · 7782",
+      "sub": "",
+      "tone": "slate",
+      "size": 22
+     },
+     {
+      "x": 600,
+      "y": 180,
+      "w": 180,
+      "h": 54,
+      "label": "7839 · 7902",
+      "sub": "",
+      "tone": "slate",
+      "size": 22
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 440,
+      "y1": 104,
+      "x2": 380,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 500,
+      "y1": 104,
+      "x2": 690,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 176,
+      "y1": 190,
+      "x2": 436,
+      "y2": 116,
+      "tone": "red",
+      "dashed": true
+     }
+    ],
+    "grids": [
+     {
+      "x": 840,
+      "y": 80,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ],
+       [
+        "7839",
+        "KING"
+       ]
+      ],
+      "width": 340,
+      "rowH": 46,
+      "size": 20,
+      "rowTone": {}
+     }
+    ],
+    "labels": [
+     {
+      "x": 110,
+      "y": 288,
+      "text": "el motor",
+      "tone": "slate",
+      "size": 26,
+      "anchor": "middle"
+     },
+     {
+      "x": 236,
+      "y": 152,
+      "text": "NULL",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     },
+     {
+      "x": 470,
+      "y": 370,
+      "text": "ORA-01400 · no admite NULL",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<p>Así reacciona el motor ante las operaciones del día a día. La tabla arranca con una sola entidad registrada y el motor mantiene su índice B-tree sincronizado para acceso instantáneo.</p>
+
+
+<table>
+<thead><tr><th><code>employee_id</code> (PK)</th><th><code>last_name</code></th><th><code>department_id</code></th><th><code>salary</code></th><th>Estado tras T1</th></tr></thead>
+<tbody>
+<tr><td><strong>7782</strong></td><td>CLARK</td><td>10</td><td>2450,00</td><td>Anterior</td></tr>
+<tr><td><strong>7839</strong></td><td>KING</td><td>10</td><td>5000,00</td><td><strong>Nuevo</strong></td></tr>
+</tbody></table>
+
+<lk-widget title="Prueba la integridad de entidad en la tabla">
+<p>Inserta empleados y observa qué decides tú y qué decide el motor. Cambia la restricción a <code>UNIQUE</code> para ver la diferencia que ninguna otra explicación te muestra tan rápido.</p>
+<div class="p1-lab">
+  <div class="p1-form">
+    <div class="row"><label for="p1id">employee_id</label><input id="p1id" type="text" inputmode="numeric" value="7839" size="6"></div>
+    <div class="row"><label for="p1name">last_name</label><input id="p1name" type="text" value="KING" size="10"></div>
+    <div class="row"><button id="p1insert" type="button">INSERT</button><button id="p1reset" type="button">Vaciar la tabla</button></div>
+    <label class="row"><input id="p1unique" type="checkbox"> Declarar <code>employee_id</code> como <code>UNIQUE</code> en vez de <code>PRIMARY KEY</code></label>
+    <p class="p1-msg" id="p1msg" role="status">La tabla está en T0: registra a 7782 CLARK para empezar.</p>
+  </div>
+  <div class="p1-table">
+    <table>
+    <thead><tr><th><code>employee_id</code></th><th><code>last_name</code></th></tr></thead>
+    <tbody id="p1rows"><tr><td>7782</td><td>CLARK</td></tr></tbody>
+    </table>
+  </div>
+</div>
+</lk-widget>
+</section>
+
+<section>
+<h2>5. Distinciones críticas: dónde suele tropezar la gente</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "PK, UNIQUE y el orden de las filas",
+ "viewBox": "56 62 908 372",
+ "steps": [
+  {
+   "title": "PRIMARY KEY",
+   "text": "Las dos mitades a la vez: no admite NULL ni duplicados.",
+   "scene": {
+    "grids": [
+     {
+      "x": 90,
+      "y": 80,
+      "cols": [
+       "clave",
+       "acepta NULL",
+       "acepta duplicados"
+      ],
+      "rows": [
+       [
+        "PRIMARY KEY",
+        "no",
+        "no"
+       ]
+      ],
+      "width": 660,
+      "rowH": 54,
+      "size": 22,
+      "rowTone": {
+       "0": "blue"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 420,
+      "y": 210,
+      "text": "identifica cada fila, siempre",
+      "tone": "blue",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "UNIQUE sola",
+   "text": "Impide duplicados pero admite NULL: sirve para un correo, no para identificar.",
+   "scene": {
+    "grids": [
+     {
+      "x": 90,
+      "y": 80,
+      "cols": [
+       "clave",
+       "acepta NULL",
+       "acepta duplicados"
+      ],
+      "rows": [
+       [
+        "PRIMARY KEY",
+        "no",
+        "no"
+       ]
+      ],
+      "width": 660,
+      "rowH": 54,
+      "size": 22,
+      "rowTone": {
+       "0": "blue"
+      }
+     },
+     {
+      "x": 90,
+      "y": 270,
+      "cols": [
+       "clave",
+       "acepta NULL",
+       "acepta duplicados"
+      ],
+      "rows": [
+       [
+        "UNIQUE",
+        "sí",
+        "no"
+       ]
+      ],
+      "width": 660,
+      "rowH": 54,
+      "size": 22,
+      "rowTone": {
+       "0": "amber"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 420,
+      "y": 400,
+      "text": "una sola mitad no da identidad",
+      "tone": "amber",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Las filas no tienen orden",
+   "text": "Sin ORDER BY el orden lo decide el disco; con ORDER BY lo decides tú.",
+   "scene": {
+    "grids": [
+     {
+      "x": 80,
+      "y": 90,
+      "cols": [
+       "sin ORDER BY"
+      ],
+      "rows": [
+       [
+        "GARCIA"
+       ],
+       [
+        "CLARK"
+       ],
+       [
+        "KING"
+       ]
+      ],
+      "width": 280,
+      "rowH": 56,
+      "size": 22
+     },
+     {
+      "x": 560,
+      "y": 90,
+      "cols": [
+       "ORDER BY last_name"
+      ],
+      "rows": [
+       [
+        "CLARK"
+       ],
+       [
+        "GARCIA"
+       ],
+       [
+        "KING"
+       ]
+      ],
+      "width": 380,
+      "rowH": 56,
+      "size": 22,
+      "rowTone": {
+       "0": "green",
+       "1": "green",
+       "2": "green"
+      }
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 370,
+      "y1": 175,
+      "x2": 545,
+      "y2": 175,
+      "tone": "blue",
+      "dashed": false
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h3>1. <code>UNIQUE ≠ PRIMARY KEY</code></h3>
+<table>
+<thead><tr><th>Restricción</th><th>¿Permite duplicados?</th><th>¿Permite <code>NULL</code>?</th><th>¿Identifica la entidad?</th></tr></thead>
+<tbody>
+<tr><td><strong><code>UNIQUE</code></strong></td><td>No</td><td><strong>Sí</strong> (uno o varios nulos)</td><td>No necesariamente</td></tr>
+<tr><td><strong><code>PRIMARY KEY</code></strong></td><td>No</td><td><strong>No</strong> (estrictamente prohibido)</td><td><strong>Sí, siempre</strong></td></tr>
+</tbody></table>
+
+<h3>2. Una tabla relacional no tiene orden físico</h3>
+<p>En el modelo relacional, una tabla es un <strong>conjunto matemático de tuplas</strong>, y los conjuntos no tienen primero ni último: <code>{ Clark, King } = { King, Clark }</code>.</p>
+<p>Si ejecutas <code>SELECT * FROM employee</code>, el motor devolverá las filas en el orden que le resulte más rápido leer del disco en ese instante. Si necesitas un orden concreto para un informe, <strong>debes indicarlo explícitamente con <code>ORDER BY</code></strong>.</p>
+
+<h3>3. ¿Por qué se llama «relacional»?</h3>
+<p>Muchos creen que se llama así porque conecta tablas con claves foráneas. <strong>Es falso.</strong> Se llama relacional porque cada tabla individual representa el concepto matemático de una <strong>relación</strong>: un subconjunto del producto cartesiano de los dominios de sus atributos. Las conexiones entre tablas vienen después.</p>
+</section>
+
+<section>
+<h2>6. Analogía con la realidad y dónde se rompe</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "El DNI, con datos",
+ "viewBox": "36 72 1284.0 300",
+ "steps": [
+  {
+   "title": "Dos personas, un nombre",
+   "text": "El nombre se repite; el DNI no. Eso es exactamente lo que hace la clave primaria.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "DNI",
+       "nombre"
+      ],
+      "rows": [
+       [
+        "12345678",
+        "JUAN PÉREZ"
+       ],
+       [
+        "87654321",
+        "JUAN PÉREZ"
+       ]
+      ],
+      "width": 520,
+      "rowH": 54,
+      "size": 22,
+      "colTone": {
+       "0": "blue"
+      }
+     }
+    ],
+    "labels": [
+     {
+      "x": 300,
+      "y": 300,
+      "text": "el DNI las distingue",
+      "tone": "blue",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Sin DNI no hay fila",
+   "text": "Un registro sin clave es como un ciudadano sin documento: el motor no lo guarda.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ],
+       [
+        "NULL",
+        "RODRIGUEZ"
+       ]
+      ],
+      "width": 520,
+      "rowH": 54,
+      "size": 22,
+      "rowTone": {
+       "1": "red"
+      },
+      "cellTone": {
+       "1,0": "red"
+      }
+     }
+    ],
+    "boxes": [
+     {
+      "x": 660,
+      "y": 90,
+      "w": 440,
+      "h": 64,
+      "label": "ORA-01400",
+      "sub": "cannot insert NULL",
+      "tone": "red",
+      "size": 28
+     }
+    ],
+    "labels": [
+     {
+      "x": 880,
+      "y": 300,
+      "text": "la fila rechazada no se guarda",
+      "tone": "red",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  },
+  {
+   "title": "Dónde se rompe",
+   "text": "En la vida real la persona sigue existiendo sin papel; en la base, sin clave no existe fila.",
+   "scene": {
+    "grids": [
+     {
+      "x": 60,
+      "y": 90,
+      "cols": [
+       "employee_id",
+       "last_name"
+      ],
+      "rows": [
+       [
+        "7782",
+        "CLARK"
+       ],
+       [
+        "7839",
+        "KING"
+       ]
+      ],
+      "width": 520,
+      "rowH": 54,
+      "size": 22,
+      "rowTone": {
+       "0": "blue",
+       "1": "blue"
+      }
+     }
+    ],
+    "boxes": [
+     {
+      "x": 660,
+      "y": 90,
+      "w": 440,
+      "h": 64,
+      "label": "INSERT NULL RODRIGUEZ",
+      "sub": "rechazada",
+      "tone": "red",
+      "size": 28
+     }
+    ],
+    "labels": [
+     {
+      "x": 880,
+      "y": 300,
+      "text": "la tabla queda igual: dos filas, no tres",
+      "tone": "ink",
+      "size": 26,
+      "anchor": "middle"
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h3>La analogía: el DNI o número de pasaporte</h3>
+<p>La clave primaria es como el Documento Nacional de Identidad:</p>
+<ul>
+<li>Dos ciudadanos distintos no pueden tener el mismo DNI (<code>UNIQUE</code>).</li>
+<li>Nadie puede registrarse en el censo sin DNI (<code>NOT NULL</code>).</li>
+<li>Si dos personas se llaman «Juan Pérez», el DNI evita que Hacienda o la Policía las confunda.</li>
+</ul>
+
+<h3>Dónde se rompe la analogía</h3>
+<p>En la vida real, una persona sigue existiendo físicamente aunque pierda su documento. En una base de datos relacional, si un registro carece de clave primaria válida, <strong>la entidad no existe formalmente para el motor</strong> y el sistema impide de forma absoluta su inserción.</p>
+<lk-callout type="note" title="Consecuencia práctica">
+<p>No existe el «empleado sin número que ya arreglaremos»: o entra con identidad, o no entra. Esa dureza es justamente lo que hace fiable a la tabla.</p>
+</lk-callout>
+</section>
+
+<section>
+<h2>7. El mapa mental más importante</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "El árbol de decisión del motor",
+ "viewBox": "406 42 640 470",
+ "steps": [
+  {
+   "title": "Llega un INSERT",
+   "text": "Toda instrucción entra por el mismo camino.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 430,
+      "y": 60,
+      "w": 420,
+      "h": 66,
+      "label": "INSERT",
+      "sub": "nueva instrucción",
+      "tone": "slate",
+      "size": 28
+     }
+    ]
+   }
+  },
+  {
+   "title": "¿La PK es NULL?",
+   "text": "Primero la nulidad: una clave nula nunca se compara con el índice.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 430,
+      "y": 60,
+      "w": 420,
+      "h": 66,
+      "label": "INSERT",
+      "sub": "nueva instrucción",
+      "tone": "slate",
+      "size": 28
+     },
+     {
+      "x": 430,
+      "y": 180,
+      "w": 420,
+      "h": 66,
+      "label": "¿PK es NULL?",
+      "sub": "sí → ORA-01400",
+      "tone": "blue",
+      "size": 28
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 640,
+      "y1": 130,
+      "x2": 640,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  },
+  {
+   "title": "¿Ya existe en el índice?",
+   "text": "Después la duplicidad: el B-tree responde en microsegundos.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 430,
+      "y": 60,
+      "w": 420,
+      "h": 66,
+      "label": "INSERT",
+      "sub": "nueva instrucción",
+      "tone": "slate",
+      "size": 28
+     },
+     {
+      "x": 430,
+      "y": 180,
+      "w": 420,
+      "h": 66,
+      "label": "¿PK es NULL?",
+      "sub": "sí → ORA-01400",
+      "tone": "blue",
+      "size": 28
+     },
+     {
+      "x": 430,
+      "y": 300,
+      "w": 420,
+      "h": 66,
+      "label": "¿existe en el B-tree?",
+      "sub": "sí → ORA-00001",
+      "tone": "blue",
+      "size": 28
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 640,
+      "y1": 130,
+      "x2": 640,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 640,
+      "y1": 250,
+      "x2": 640,
+      "y2": 296,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  },
+  {
+   "title": "Salida",
+   "text": "Solo si pasa las dos preguntas la fila se registra.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 430,
+      "y": 60,
+      "w": 420,
+      "h": 66,
+      "label": "INSERT",
+      "sub": "nueva instrucción",
+      "tone": "slate",
+      "size": 28
+     },
+     {
+      "x": 430,
+      "y": 180,
+      "w": 420,
+      "h": 66,
+      "label": "¿PK es NULL?",
+      "sub": "sí → ORA-01400",
+      "tone": "blue",
+      "size": 28
+     },
+     {
+      "x": 430,
+      "y": 300,
+      "w": 420,
+      "h": 66,
+      "label": "¿existe en el B-tree?",
+      "sub": "sí → ORA-00001",
+      "tone": "blue",
+      "size": 28
+     },
+     {
+      "x": 430,
+      "y": 420,
+      "w": 420,
+      "h": 66,
+      "label": "fila registrada",
+      "sub": "operación exitosa",
+      "tone": "green",
+      "size": 28
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 640,
+      "y1": 130,
+      "x2": 640,
+      "y2": 176,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 640,
+      "y1": 250,
+      "x2": 640,
+      "y2": 296,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 640,
+      "y1": 370,
+      "x2": 640,
+      "y2": 416,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<p>Ante cualquier inserción o modificación, este es el árbol de decisión exacto que ejecuta el motor:</p>
+<lk-callout type="tip" title="Cómo leerlo">
+<p>Son dos preguntas en orden fijo. Primero la nulidad, después la duplicidad: por eso una clave nula nunca llega a compararse con el índice.</p>
+</lk-callout>
+</section>
+
+<section>
+<h2>8. Entrada ➔ Proceso ➔ Salida</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Entrada, proceso y salida",
+ "viewBox": "46 102 1108 300",
+ "steps": [
+  {
+   "title": "Entrada",
+   "text": "La sentencia trae los datos del empleado.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 70,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "ENTRADA",
+      "sub": "INSERT con datos",
+      "tone": "blue",
+      "size": 28
+     }
+    ]
+   }
+  },
+  {
+   "title": "Proceso",
+   "text": "El motor verifica dominio, NOT NULL e índice, en ese orden.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 70,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "ENTRADA",
+      "sub": "INSERT con datos",
+      "tone": "blue",
+      "size": 28
+     },
+     {
+      "x": 435,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "PROCESO",
+      "sub": "dominio · NOT NULL · índice",
+      "tone": "slate",
+      "size": 28
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 402,
+      "y1": 166,
+      "x2": 431,
+      "y2": 166,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  },
+  {
+   "title": "Salida",
+   "text": "O la fila queda consolidada, o la operación aborta con su código ORA.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 70,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "ENTRADA",
+      "sub": "INSERT con datos",
+      "tone": "blue",
+      "size": 28
+     },
+     {
+      "x": 435,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "PROCESO",
+      "sub": "dominio · NOT NULL · índice",
+      "tone": "slate",
+      "size": 28
+     },
+     {
+      "x": 800,
+      "y": 120,
+      "w": 330,
+      "h": 92,
+      "label": "SALIDA",
+      "sub": "consolidada o aborto",
+      "tone": "green",
+      "size": 28
+     }
+    ],
+    "arrows": [
+     {
+      "x1": 402,
+      "y1": 166,
+      "x2": 431,
+      "y2": 166,
+      "tone": "slate",
+      "dashed": false
+     },
+     {
+      "x1": 767,
+      "y1": 166,
+      "x2": 796,
+      "y2": 166,
+      "tone": "slate",
+      "dashed": false
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h2>9. Qué debes entender realmente de esta parte</h2>
+<!-- fig:auto -->
+<lk-walkthrough>
+<script type="application/json">
+{
+ "title": "Lo que te llevas de esta parte",
+ "viewBox": "336 82 640 380",
+ "steps": [
+  {
+   "title": "El vocabulario",
+   "text": "Relación, tupla, atributo y dominio nombran lo que ya ves en la tabla.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 360,
+      "y": 100,
+      "w": 480,
+      "h": 76,
+      "label": "relación · tupla · atributo · dominio",
+      "sub": "el vocabulario",
+      "tone": "slate",
+      "size": 28
+     }
+    ]
+   }
+  },
+  {
+   "title": "La identidad",
+   "text": "La clave primaria es UNIQUE + NOT NULL; una sola mitad no basta.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 360,
+      "y": 100,
+      "w": 480,
+      "h": 76,
+      "label": "relación · tupla · atributo · dominio",
+      "sub": "el vocabulario",
+      "tone": "slate",
+      "size": 28
+     },
+     {
+      "x": 360,
+      "y": 230,
+      "w": 480,
+      "h": 76,
+      "label": "PRIMARY KEY = UNIQUE + NOT NULL",
+      "sub": "la identidad",
+      "tone": "blue",
+      "size": 28
+     }
+    ]
+   }
+  },
+  {
+   "title": "La respuesta del motor",
+   "text": "Duplicado → ORA-00001; nulo → ORA-01400; y el orden exige ORDER BY.",
+   "scene": {
+    "boxes": [
+     {
+      "x": 360,
+      "y": 100,
+      "w": 480,
+      "h": 76,
+      "label": "relación · tupla · atributo · dominio",
+      "sub": "el vocabulario",
+      "tone": "slate",
+      "size": 28
+     },
+     {
+      "x": 360,
+      "y": 230,
+      "w": 480,
+      "h": 76,
+      "label": "PRIMARY KEY = UNIQUE + NOT NULL",
+      "sub": "la identidad",
+      "tone": "blue",
+      "size": 28
+     },
+     {
+      "x": 360,
+      "y": 360,
+      "w": 480,
+      "h": 76,
+      "label": "ORA-00001 · ORA-01400",
+      "sub": "los dos errores que verás",
+      "tone": "red",
+      "size": 28
+     }
+    ]
+   }
+  }
+ ]
+}
+</script>
+</lk-walkthrough>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table>
+<thead><tr><th>Concepto</th><th>Idea esencial en una sola línea</th></tr></thead>
+<tbody>
+<tr><td><strong>Relación (tabla)</strong></td><td>Contenedor bidimensional lógico con esquema y columnas fijas.</td></tr>
+<tr><td><strong>Tupla (fila)</strong></td><td>Registro individual concreto que representa una entidad del mundo real.</td></tr>
+<tr><td><strong>Atributo (columna)</strong></td><td>Propiedad atómica con nombre y tipo de dato definido.</td></tr>
+<tr><td><strong>Dominio</strong></td><td>Conjunto estricto de valores y formatos permitidos para un atributo.</td></tr>
+<tr><td><strong>Clave primaria (PK)</strong></td><td>Identificador único obligatorio: cumple <code>UNIQUE + NOT NULL</code>.</td></tr>
+<tr><td><strong><code>ORA-00001</code></strong></td><td>Error al intentar duplicar un valor existente de clave primaria.</td></tr>
+<tr><td><strong><code>ORA-01400</code></strong></td><td>Error al intentar dejar una clave primaria en <code>NULL</code>.</td></tr>
+</tbody></table>
+
+<lk-callout type="success" title="Resumen para guardar">
+<ul>
+<li><strong>Piezas:</strong> relación = tabla bidimensional; tupla = fila; atributo = columna; dominio = conjunto de valores y tipos permitidos.</li>
+<li><strong>Integridad de entidad:</strong> la clave primaria identifica unívocamente cada tupla con <code>UNIQUE + NOT NULL</code>; <code>UNIQUE</code> por sí sola admite nulos.</li>
+<li><strong>Motor:</strong> duplicado → <code>ORA-00001</code>; nulo → <code>ORA-01400</code>; el índice B-tree valida la clave en microsegundos.</li>
+<li><strong>Mitos:</strong> las filas no tienen orden intrínseco (el orden exige <code>ORDER BY</code>) y «relacional» viene de relación matemática, no de conectar tablas.</li>
+</ul>
+</lk-callout>
+</section>
+
+<section>
+<h2>Cuestionario de validación</h2>
+<p>Cinco preguntas sobre lo que acabas de leer. Cada una pide también, con tus palabras, qué entendiste y por qué elegiste esa opción: el tutor usa ese razonamiento para saber qué concepto quedó flojo.</p>
+<lk-quiz></lk-quiz>
+
+<h3>Fase práctica de código (SQL)</h3>
+<p>Escribe en el chat la sentencia SQL que resuelve cada ejercicio y el tutor la revisa.</p>
+<p><strong>Ejercicio 1 (fácil).</strong> Consulta únicamente el <code>employee_id</code> y el <code>last_name</code> de todos los registros de la tabla <code>EMPLOYEE</code>.</p>
+<p><strong>Ejercicio 2 (medio).</strong> Registra a un nuevo empleado con <code>employee_id = 7999</code>, apellido <code>'LOPEZ'</code> y salario <code>3500</code>. Explica después por qué fallaría si ya existiera otro empleado con ID <code>7999</code> y qué código de error lanzaría el motor.</p>
+</section>
+
+<lk-ask></lk-ask>
+
+</main>
+<script>
+(() => {
+  const rows = [{ id: '7782', name: 'CLARK' }];
+  const $ = (id) => document.getElementById(id);
+  const msg = $('p1msg');
+  const draw = () => {
+    $('p1rows').replaceChildren(...rows.map((r) => {
+      const tr = document.createElement('tr');
+      const id = document.createElement('td');
+      const name = document.createElement('td');
+      id.textContent = r.id === null ? 'NULL' : r.id;
+      if (r.id === null) id.className = 'null';
+      name.textContent = r.name;
+      tr.append(id, name);
+      return tr;
+    }));
+  };
+  const say = (text, tone) => {
+    msg.textContent = text;
+    msg.className = `p1-msg ${tone}`;
+  };
+  $('p1insert').addEventListener('click', () => {
+    const raw = $('p1id').value.trim();
+    const name = $('p1name').value.trim() || '(sin apellido)';
+    const unique = $('p1unique').checked;
+    const id = raw === '' ? null : raw;
+    if (id === null && !unique) {
+      say('ORA-01400: cannot insert NULL into (EMPLOYEE_ID). La clave primaria es obligatoria: esa fila no entra.', 'bad');
+      return;
+    }
+    if (id !== null && rows.some((r) => r.id === id)) {
+      say(`ORA-00001: unique constraint violated. El id ${id} ya está ocupado, así que la tabla no cambia.`, 'bad');
+      return;
+    }
+    rows.push({ id, name });
+    draw();
+    if (id === null) {
+      say(`Con UNIQUE en vez de PRIMARY KEY, el NULL entra: ${rows.length - 1} fila(s) quedan sin identidad. Prueba a insertar otro NULL y verás que también entra.`, 'warn');
+    } else if (unique) {
+      say(`Fila ${id} aceptada. Con UNIQUE, el motor impide duplicados pero no exige identidad.`, 'ok');
+    } else {
+      say(`Fila ${id} aceptada: no es NULL y no existía en el índice. Operación consolidada.`, 'ok');
+    }
+  });
+  $('p1reset').addEventListener('click', () => {
+    rows.length = 0;
+    draw();
+    say('Tabla vacía. Inserta de nuevo para repetir T1, T2 y T3.', '');
+  });
+  draw();
+})();
+</script>
+</body>
+</html>

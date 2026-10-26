@@ -1,0 +1,123 @@
+/* Atkinson Hyperlegible: letterforms designed so that similar characters stay
+   distinguishable, which is what the person reads for twenty minutes straight */
+@font-face { font-family:"Atkinson Hyperlegible"; font-style:normal; font-weight:400; font-display:swap; src:url("fonts/atkinson-400.woff2") format("woff2"); }
+@font-face { font-family:"Atkinson Hyperlegible"; font-style:normal; font-weight:700; font-display:swap; src:url("fonts/atkinson-700.woff2") format("woff2"); }
+:root { color-scheme: light; --paper:#ffffff; --ink:#0f172a; --rule:#e2e8f0; --cobalt:#2563eb; --emerald:#059669; --amber:#d97706; --crimson:#dc2626; font:20px/1.75 "Atkinson Hyperlegible","DejaVu Sans",Arial,sans-serif; color:var(--ink); background:var(--paper); }
+* { box-sizing:border-box; }
+body { margin:0; }
+main { max-width:760px; padding:48px 28px 96px; margin:auto; overflow-wrap:anywhere; }
+h1,h2,h3 { line-height:1.3; letter-spacing:-.015em; text-wrap:balance; }
+h1 { font-size:2.2rem; margin:8px 0 32px; }
+h2 { font-size:1.6rem; margin:60px 0 24px; border-bottom:1px solid var(--rule); padding-bottom:14px; scroll-margin-top:24px; }
+h3 { font-size:1.2rem; margin-top:30px; }
+p { margin:1.05em 0; }
+li { margin:.35em 0; }
+a { color:var(--cobalt); text-underline-offset:3px; }
+.kicker { color:var(--cobalt); font-size:.68rem; text-transform:uppercase; letter-spacing:.09em; font-weight:700; }
+.kicker::before { content:"■ "; }
+.definition { font-size:1.1rem; }
+code,pre,.mono { font-family:"DejaVu Sans Mono",Consolas,monospace; font-size:.85em; }
+pre { padding:18px; overflow-x:auto; border:1px solid var(--rule); background:#f8fafc; border-radius:6px; }
+:not(pre)>code { background:#f8fafc; padding:2px 4px; }
+table { display:block; overflow-x:auto; border-collapse:collapse; width:100%; font-size:.9rem; margin:24px 0 32px; }
+th,td { text-align:left; vertical-align:top; padding:14px 16px; border-bottom:1px solid var(--rule); }
+th { background:#f8fafc; font-weight:700; }
+blockquote { margin-inline:0; padding-left:20px; border-left:3px solid var(--rule); }
+svg,img,video { max-width:100%; }
+video { width:100%; }
+button,input,textarea,select { font:inherit; }
+button { border:1px solid var(--cobalt); border-radius:5px; padding:8px 14px; background:white; color:var(--cobalt); cursor:pointer; font-size:.8rem; }
+button:hover { background:#eff6ff; }
+button:disabled { opacity:.6; cursor:default; }
+:focus-visible { outline:3px solid var(--cobalt); outline-offset:3px; }
+textarea { display:block; width:100%; resize:vertical; margin-top:8px; padding:12px; border:1px solid #cbd5e1; border-radius:5px; background:white; color:var(--ink); }
+input { accent-color:var(--cobalt); }
+[hidden] { display:none !important; }
+lk-callout,lk-widget,lk-steps,lk-step,lk-diagram,lk-video,lk-quiz,lk-ask { display:block; margin:24px 0; }
+lk-callout { padding:16px 20px; border:1px solid var(--rule); border-left:4px solid var(--cobalt); border-radius:5px; background:#f8fafc; }
+lk-callout[type=warning] { border-left-color:var(--amber); }
+lk-callout[type=success],lk-callout[type=tip] { border-left-color:var(--emerald); }
+lk-callout[type=danger],lk-callout[type=error] { border-left-color:var(--crimson); }
+.lk-title { display:block; margin-bottom:12px; }
+lk-callout>:last-child { margin-bottom:0; }
+lk-widget { border:1px solid var(--rule); border-radius:8px; padding:20px; }
+lk-step { border-left:2px solid var(--cobalt); padding:12px 18px; background:#f8fafc; }
+.lk-step-label { color:var(--cobalt); font-family:"DejaVu Sans Mono",monospace; }
+.lk-mark { font-size:.75rem; color:#047857; }
+.lk-mark.bloqueo { color:var(--crimson); }
+.lk-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; }
+.lk-controls p { margin:0; font-size:.8rem; }
+lk-diagram svg { width:100%; height:auto; }
+.lk-node-label { font:600 16px "DejaVu Sans",sans-serif; fill:var(--ink); }
+.lk-node-sub,.lk-edge-label { font:12px "DejaVu Sans",sans-serif; fill:#475569; }
+.lk-edge-label { paint-order:stroke; stroke:white; stroke-width:5px; stroke-linejoin:round; }
+lk-math[display] { display:block; overflow-x:auto; padding:10px 0; }
+pre.mermaid { background:white; text-align:center; border-inline:0; }
+pre.mermaid svg { max-width:400px !important; height:auto; }
+.lk-progress { position:fixed; top:0; left:0; z-index:100; width:100%; height:4px; border:0; appearance:none; background:var(--rule); }
+.lk-progress::-webkit-progress-bar { background:var(--rule); }
+.lk-progress::-webkit-progress-value { background:var(--cobalt); }
+.lk-progress::-moz-progress-bar { background:var(--cobalt); }
+.lk-toc { margin-bottom:32px; border-bottom:1px solid var(--rule); padding-bottom:16px; font-size:.8rem; }
+.lk-toc summary { cursor:pointer; font-weight:700; }
+.lk-toc li { margin:6px 0; }
+.lk-question { min-width:0; margin:24px 0; border:1px solid var(--rule); padding:20px; border-radius:8px; }
+legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; max-width:100%; }
+.lk-option { display:flex; align-items:baseline; gap:12px; padding:10px 4px; font-size:1.02rem; border-radius:5px; }
+.lk-option:has(input:checked) { background:#eff6ff; }
+.lk-field { display:block; margin:20px 0; font-size:.95rem; }
+.lk-thought { margin:22px 0 18px; }
+.lk-thought-label { display:block; font-weight:700; font-size:1.02rem; }
+.lk-thought-hint { display:block; margin:2px 0 10px; font-size:.86rem; color:#475569; }
+.lk-thought textarea { min-height:132px; font-size:1.05rem; line-height:1.7; padding:14px 16px; }
+.lk-thought-bar { display:flex; align-items:center; gap:12px; margin-top:8px; }
+.lk-mic { display:inline-flex; align-items:center; gap:8px; font-size:.9rem; padding:7px 12px; }
+.lk-mic::before { content:"🎙"; font-size:1rem; }
+.lk-mic[data-state=listening] { border-color:var(--crimson); color:var(--crimson); background:#fef2f2; }
+.lk-mic[data-state=listening]::before { content:"◉"; animation:pulse 1.4s ease-in-out infinite; }
+.lk-mic-note { font-size:.86rem; color:#475569; }
+@keyframes pulse { 50% { opacity:.35; } }
+.lk-correct { color:#047857; }
+.lk-error { color:var(--crimson); }
+.lk-reward { border:1px solid var(--emerald); border-left-width:4px; padding:20px; border-radius:6px; background:#ecfdf5; font-weight:700; }
+.lk-verdict { border:1px solid var(--rule); padding:16px; margin:12px 0; }
+.lk-verdict blockquote { margin-bottom:0; }
+@media(max-width:560px) { :root { font-size:17px; } main { padding:28px 16px 60px; } h1 { font-size:1.8rem; } lk-widget,.lk-question { padding:12px; } th,td { padding:10px; } }
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; animation:none !important; } }
+@media print { .lk-progress,.lk-toc { display:none; } main { max-width:none; } lk-step[hidden] { display:block !important; } }
+
+
+/* A step-by-step figure: the deck grows one layer per step */
+.lk-walkthrough { position:relative; display:block; margin:36px 0; padding:20px 22px 18px; border:2px solid var(--ink); border-radius:14px; background:#fff; box-shadow:6px 6px 0 #f1f5f9; }
+.lk-walkthrough>.lk-title { display:block; font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; color:var(--cobalt); margin-bottom:10px; }
+.lk-wt-stage svg { display:block; width:100%; height:auto; }
+.lk-wt-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px; }
+.lk-wt-bar button { border-radius:999px; padding:6px 14px; font-size:.78rem; }
+.lk-wt-bar button:disabled { opacity:.35; cursor:default; }
+.lk-wt-count { font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; color:#64748b; }
+.lk-wt-full { position:absolute; top:10px; right:12px; border-radius:999px; padding:5px 12px; font-size:.7rem; letter-spacing:.04em; background:#fff; border:1.5px solid var(--ink); color:var(--ink); cursor:pointer; }
+.lk-wt-full:hover { background:var(--ink); color:#fff; }
+.lk-wt-dots { display:flex; gap:6px; margin-left:auto; }
+.lk-wt-dot { width:11px; height:11px; padding:0; border-radius:50%; border:2px solid var(--ink) !important; background:#fff; overflow:hidden; text-indent:-99px; }
+.lk-wt-dot[aria-current="true"] { background:var(--cobalt); border-color:var(--cobalt) !important; }
+.lk-wt-caption { margin-top:14px; padding-top:12px; border-top:1px solid var(--rule); }
+.lk-wt-caption strong { font-size:1.05rem; }
+.lk-wt-caption p { margin:6px 0 0; font-size:.95rem; line-height:1.6; }
+.lk-walkthrough:focus-visible { outline:3px solid var(--cobalt); outline-offset:4px; }
+.lk-wt-stage { max-width:100%; }
+.lk-wt-hint { display:none; margin:6px 0 0; font-size:.72rem; letter-spacing:.02em; color:#64748b; }
+@media(max-width:640px) {
+  .lk-wt-stage { overflow-x:auto; overflow-y:hidden; padding-bottom:4px; }
+  .lk-wt-stage svg { width:auto; min-width:680px; }
+  .lk-wt-hint { display:block; }
+}
+/* Full screen: the figure takes the whole screen, letters included */
+.lk-walkthrough:fullscreen, .lk-walkthrough:-webkit-full-screen { display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; width:100%; height:100%; margin:0; border:0; border-radius:0; box-shadow:none; padding:22px 34px; background:#fff; }
+.lk-walkthrough:fullscreen .lk-wt-stage, .lk-walkthrough:-webkit-full-screen .lk-wt-stage { flex:0 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.lk-walkthrough:fullscreen .lk-wt-stage svg, .lk-walkthrough:-webkit-full-screen .lk-wt-stage svg { width:100%; height:auto; max-height:74vh; }
+.lk-walkthrough:fullscreen .lk-wt-caption strong, .lk-walkthrough:-webkit-full-screen .lk-wt-caption strong { font-size:1.5rem; }
+.lk-walkthrough:fullscreen .lk-wt-caption p, .lk-walkthrough:-webkit-full-screen .lk-wt-caption p { font-size:1.15rem; max-width:70ch; }
+.lk-walkthrough:fullscreen .lk-wt-hint, .lk-walkthrough:-webkit-full-screen .lk-wt-hint { display:none; }
+.lk-walkthrough:fullscreen .lk-wt-bar, .lk-walkthrough:-webkit-full-screen .lk-wt-bar { margin-top:20px; }
+.lk-walkthrough:fullscreen .lk-wt-bar button, .lk-walkthrough:-webkit-full-screen .lk-wt-bar button { font-size:.95rem; padding:9px 18px; }
+.lk-walkthrough:fullscreen .lk-wt-full, .lk-walkthrough:-webkit-full-screen .lk-wt-full { background:var(--ink); color:#fff; }

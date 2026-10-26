@@ -1,15 +1,133 @@
 // Study-view bridge tests: a real HTTP server on 127.0.0.1 against a temporary
 // Learnings root, driven through the public learning_view tool and HTTP routes.
 import { after, test } from "node:test";
+import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, existsSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { registerBridge } from "./bridge.ts";
+import { registerBridge, listTopics } from "./bridge.ts";
+import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
+import { loadRunners } from "./coderun.ts";
 
 const TOPIC = "sql-demo";
+
+test("code vault lists malformed exercises and exclusively appends submission history", () => {
+  const { root, topic } = makeRoot();
+  const dir = codeFixture(topic);
+  mkdirSync(join(topic, "codigo", "broken"));
+  writeFileSync(join(topic, "codigo", "broken", "ejercicio.json"), "{}");
+  const record = { lenguaje: "python", codigo: "print(1)", compilacion: { ok: true, salida: "" }, resultados: [], aprobados: 1, total: 2 };
+  const first = saveSubmission(dir, record);
+  const original = readFileSync(first, "utf8");
+  saveSubmission(dir, { ...record, codigo: "print(2)", aprobados: 2 });
+  assert.equal(readFileSync(first, "utf8"), original);
+  const history = readSubmissions(dir);
+  assert.equal(history.lastCode, "print(2)");
+  assert.deepEqual(history.submissions.map(({ numero, aprobados, total }) => ({ numero, aprobados, total })), [{ numero: 1, aprobados: 1, total: 2 }, { numero: 2, aprobados: 2, total: 2 }]);
+  assert.ok(history.submissions.every((s) => !Number.isNaN(Date.parse(s.fecha))));
+  const exercises = listExercises(topic, loadRunners());
+  assert.deepEqual(exercises.map((e) => e.id), ["broken", "eco"]);
+  assert.match(exercises[0].error, /titulo/);
+  assert.equal(exercises[1].mejor, "2/2");
+  assert.equal(exercises[1].entregas, 2);
+  assert.equal(listTopics(root)[0].exercises[1].mejor, "2/2");
+  assert.equal(exerciseFile(topic, "eco"), join(dir, "ejercicio.json"));
+  assert.throws(() => exerciseFile(topic, "../eco"));
+});
+
+function codeFixture(topic) {
+  const dir = join(topic, "codigo", "eco");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "ejercicio.json"), JSON.stringify({ titulo: "Eco", enunciado: "Repite la entrada", lenguaje: "python", plantilla: "print(input())", parte: "p1", tests: [
+    { nombre: "visible", entrada: "hola", salida: "hola" },
+    { nombre: "secreto", entrada: "HIDDEN_INPUT_97", salida: "HIDDEN_EXPECTED_98", oculto: true },
+  ] }));
+  return dir;
+}
+
+test("code pages, code-only topics and learning_view never expose hidden data", async () => {
+  const { topic, root, view, host } = await setup();
+  codeFixture(topic);
+  const codeOnly = join(root, "solo-codigo");
+  codeFixture(codeOnly);
+  const result = await view({ topic: TOPIC, part: "codigo/eco" });
+  assert.equal(result.isError, false);
+  const response = await http(result.structuredContent.url);
+  assert.equal(response.status, 200);
+  assert.match(response.body, /"kind":"code"/);
+  assert.doesNotMatch(response.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
+  const leak = await http(result.structuredContent.base + TOPIC + "/file/codigo/eco/ejercicio.json");
+  assert.equal(leak.status, 404);
+  assert.doesNotMatch(leak.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
+  for (const name of [TOPIC, "solo-codigo"]) {
+    const page = await http((await view({ topic: name })).structuredContent.url);
+    assert.equal(page.status, 200);
+    assert.match(page.body, /"exercises":\[/);
+    assert.match(page.body, /Eco/);
+  }
+  assert.equal((await view({ topic: TOPIC, part: "codigo/.." })).isError, true);
+  assert.equal(existsSync(join(topic, "codigo", "eco", "entregas")), false);
+  assert.deepEqual(host.sent, []);
+});
+
+test("code HTTP runs, free input, submissions and rejected requests", async (t) => {
+  if (spawnSync("docker", ["image", "inspect", "python:3.12-alpine"]).status !== 0) return t.skip("python:3.12-alpine is not installed");
+  const { topic, view, host } = await setup();
+  const dir = codeFixture(topic);
+  const { base } = (await view({ topic: TOPIC })).structuredContent;
+  const post = (path, body, origin = new URL(base).origin) => http(base + path, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const payload = { topic: TOPIC, exercise: "eco", code: "print(input())" };
+  for (const [path, body, origin, status] of [
+    ["submit", { ...payload, kind: "code" }, "http://foreign.invalid", 403],
+    ["submit", { ...payload, kind: "code", extra: true }, undefined, 400],
+    ["api/code/run", { ...payload, extra: true }, undefined, 400],
+    ["submit", { ...payload, kind: "code", exercise: "../eco" }, undefined, 422],
+  ]) {
+    const response = await post(path, body, origin);
+    assert.equal(response.status, status);
+    assert.equal(typeof JSON.parse(response.body).error, "string");
+    assert.equal(existsSync(join(dir, "entregas")), false);
+    assert.deepEqual(host.sent, []);
+  }
+  const visible = await post("api/code/run", payload);
+  assert.equal(visible.status, 200);
+  assert.equal(JSON.parse(visible.body).resultados.length, 1);
+  assert.equal(JSON.parse(visible.body).aprobados, 1);
+  const free = await post("api/code/run", { ...payload, input: "libre" });
+  assert.equal(free.status, 200);
+  assert.equal(JSON.parse(free.body).resultados[0].estado, "ejecutado");
+  assert.equal(JSON.parse(free.body).resultados[0].obtenido.trim(), "libre");
+  assert.equal(existsSync(join(dir, "entregas")), false);
+  assert.deepEqual(host.sent, []);
+  for (const n of [1, 2]) {
+    const response = await post("submit", { ...payload, kind: "code", note: "Mi enfoque" });
+    assert.equal(response.status, 200);
+    const data = JSON.parse(response.body);
+    assert.equal(data.score, "1/2");
+    assert.equal(data.saved, `codigo/eco/entregas/00${n}.json`);
+    assert.doesNotMatch(response.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
+    const record = JSON.parse(readFileSync(join(dir, "entregas", `00${n}.json`), "utf8"));
+    assert.equal(record.numero, n);
+    assert.equal(record.codigo, payload.code);
+    assert.equal(record.nota, "Mi enfoque");
+    assert.equal(record.resultados[1].esperado, "HIDDEN_EXPECTED_98");
+    assert.equal(host.sent.length, n);
+    assert.match(host.sent[n - 1].content, /\[Vista HTML · sql-demo · código eco\]/);
+    assert.match(host.sent[n - 1].content, /1\/2/);
+    assert.ok(host.sent[n - 1].content.includes("```python\nprint(input())\n```"));
+    assert.ok(host.sent[n - 1].content.includes(data.saved));
+    assert.ok(host.sent[n - 1].content.includes("HIDDEN_EXPECTED_98"));
+    assert.ok(host.sent[n - 1].content.includes('"""\nMi enfoque\n"""'));
+    assert.equal(host.sent[n - 1].options.deliverAs, "followUp");
+  }
+  const page = await http((await view({ topic: TOPIC, part: "codigo/eco" })).structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.match(page.body, /"lastCode":"print\(input\(\)\)"/);
+  assert.doesNotMatch(page.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
+});
 const openServers = [];
 after(async () => {
   for (const shutdown of openServers) await shutdown();
@@ -37,6 +155,8 @@ function makeRoot() {
   );
   writeFileSync(join(topic, "explicaciones", "adjuntos", "Parte 1 - Claves.mp4"), Buffer.from("0123456789"));
   writeFileSync(join(topic, "explicaciones", "demos", "p1-claves.html"), "<p>demo</p>");
+  mkdirSync(join(topic, "explicaciones", "apps"), { recursive: true });
+  writeFileSync(join(topic, "explicaciones", "apps", "p1.html"), "<!doctype html><html><head><title>app</title></head><body>app</body></html>");
   const question = (id, extra = {}) => ({
     id,
     enunciado: `Pregunta ${id}`,
@@ -103,7 +223,7 @@ function http(url, { method = "GET", headers = {}, body } = {}) {
 
 const base = (result) => result.structuredContent.base;
 const why = (...ids) =>
-  Object.fromEntries(ids.map((id) => [id, { entendi: `entendí ${id}`, porque: `porque ${id}`, confianza: "seguro" }]));
+  Object.fromEntries(ids.map((id) => [id, { razonamiento: `pienso ${id}`, confianza: "seguro" }]));
 
 function submit(url, payload, headers = {}) {
   const origin = new URL(url).origin;
@@ -224,6 +344,147 @@ test("plan.json part ids or slugs with path separators are never used as paths",
   await shutdown();
 });
 
+test("a part's interactive app is served full page with the submit channel injected", async () => {
+  const { view, shutdown } = await setup();
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const appUrl = result.structuredContent.appUrl;
+  assert.equal(appUrl, `${base(result)}${TOPIC}/p1/app`);
+  assert.match(result.content[0].text, /Aplicación interactiva: http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{64}\/sql-demo\/p1\/app/);
+  const page = await http(appUrl);
+  assert.equal(page.status, 200);
+  assert.match(page.headers["content-type"], /^text\/html/);
+  const csp = page.headers["content-security-policy"];
+  assert.match(csp, /script-src 'unsafe-inline'/);
+  assert.match(csp, /connect-src 'self'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.doesNotMatch(csp, /https:/);
+  const injected = JSON.parse(page.body.match(/<head><script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
+  assert.deepEqual(injected, { submitUrl: `${new URL(base(result)).pathname}submit`, topic: TOPIC, part: "p1" });
+  assert.match(page.body, /<body>app<\/body>/);
+  const partPage = await http(result.structuredContent.url);
+  assert.equal(JSON.parse(partPage.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]).app, `${new URL(base(result)).pathname}${TOPIC}/p1/app`);
+  await shutdown();
+});
+
+test("a part without an app has no appUrl and its app route is 404", async () => {
+  const { view, topic, shutdown } = await setup();
+  writeFileSync(join(topic, "explicaciones", "Parte 2 - Joins.md"), "# Parte 2 — Joins\n");
+  const result = await view({ topic: TOPIC, part: "p2" });
+  assert.equal(result.structuredContent.appUrl, undefined);
+  assert.doesNotMatch(result.content[0].text, /Aplicación interactiva/);
+  assert.equal((await http(`${base(result)}${TOPIC}/p2/app`)).status, 404);
+  assert.equal((await http(`${base(result)}${TOPIC}/p9/app`)).status, 404);
+  assert.equal((await http(`${base(result)}${TOPIC}/..%2Fp1/app`)).status, 404);
+  const page = await http(result.structuredContent.url);
+  assert.equal(JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]).app, null);
+  await shutdown();
+});
+
+test("frameAncestors lets one loopback origin embed the pages and apps; anything else is refused at registration", async () => {
+  const { root } = makeRoot();
+  const host = makeHost();
+  registerBridge(host.api, { root, frameAncestors: ["http://127.0.0.1:5555"] });
+  const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
+  const page = await http(result.structuredContent.url);
+  assert.match(page.headers["content-security-policy"], /frame-ancestors 'self' http:\/\/127\.0\.0\.1:5555(;|$)/);
+  const app = await http(result.structuredContent.appUrl);
+  assert.match(app.headers["content-security-policy"], /frame-ancestors http:\/\/127\.0\.0\.1:5555(;|$)/);
+  for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
+  for (const bad of ["https://evil.example", "http://127.0.0.1:5555; script-src *", "*", "http://example.com:80"]) {
+    assert.throws(() => registerBridge(makeHost().api, { root, frameAncestors: [bad] }), /frameAncestors/);
+  }
+});
+
+test("a part's rich HTML page replaces the Markdown rendering, with the kit, the quiz API and the injected config", async () => {
+  const { root, topic } = makeRoot();
+  const kitDir = realpathSync(mkdtempSync(join(tmpdir(), "kit-")));
+  writeFileSync(join(kitDir, "kit.js"), "console.log('kit');");
+  writeFileSync(join(kitDir, "kit.css"), "body{}");
+  mkdirSync(join(kitDir, "fonts"));
+  writeFileSync(join(kitDir, "fonts", "atkinson-400.woff2"), "wOF2");
+  writeFileSync(
+    join(topic, "explicaciones", "Parte 1 - Claves.html"),
+    '<!doctype html><html lang="es"><head><link rel="stylesheet" href="../kit/kit.css"></head><body><h1>Rica</h1></body></html>',
+  );
+  const host = makeHost();
+  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"] });
+  const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
+  const url = result.structuredContent.url;
+  const prefix = new URL(result.structuredContent.base).pathname;
+  const page = await http(url);
+  assert.equal(page.status, 200);
+  const csp = page.headers["content-security-policy"];
+  assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net 'unsafe-inline'/);
+  assert.match(csp, /connect-src 'self'/);
+  assert.match(csp, /frame-ancestors 'self' http:\/\/127\.0\.0\.1:5555/);
+  const config = JSON.parse(page.body.match(/<head><script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
+  assert.deepEqual(config, {
+    submitUrl: `${prefix}submit`,
+    quizUrl: `${prefix}api/quiz?topic=${TOPIC}&part=p1`,
+    topic: TOPIC,
+    part: "p1",
+    video: "file/explicaciones/adjuntos/Parte%201%20-%20Claves.mp4",
+  });
+  assert.match(page.body, /<h1>Rica<\/h1>/);
+  const video = await http(new URL(config.video, url).href, { method: "HEAD" });
+  assert.equal(video.status, 200);
+  const kit = await http(`${result.structuredContent.base}kit/kit.js`);
+  assert.equal(kit.status, 200);
+  assert.match(kit.headers["content-type"], /^text\/javascript/);
+  assert.equal((await http(`${result.structuredContent.base}kit/nope.js`)).status, 404);
+  assert.equal((await http(`${result.structuredContent.base}kit/..%2Fbridge.ts`)).status, 404);
+  const font = await http(`${result.structuredContent.base}kit/fonts/atkinson-400.woff2`);
+  assert.equal(font.status, 200);
+  assert.match(font.headers["content-type"], /^font\/woff2/);
+  assert.equal((await http(`${result.structuredContent.base}kit/fonts/..%2Fkit.css`)).status, 404);
+
+  const quiz = JSON.parse((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  assert.deepEqual(quiz.questions.map((q) => q.id), ["q1", "q2"]);
+  assert.equal(JSON.stringify(quiz).includes('"answer"'), false);
+  assert.equal(quiz.answered, null);
+  assert.equal(quiz.verdicts, null);
+  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), JSON.stringify({ answers: { q1: "B", q2: "A" }, razonamientos: why("q1", "q2") }));
+  const after = JSON.parse((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  assert.deepEqual(after.answered[1], { id: "q2", chosen: "A", correct: "B", ok: false, ...why("q2").q2 });
+  assert.equal((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p9`)).status, 404);
+  assert.equal((await http(`${result.structuredContent.base}api/quiz?topic=..&part=p1`)).status, 400);
+  for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
+});
+
+test("a video request reaches the chat as a fixed message", async () => {
+  const { view, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, { kind: "video", topic: TOPIC, part: "p1" });
+  assert.equal(res.status, 200);
+  assert.equal(
+    host.sent[0].content,
+    "[Vista HTML · sql-demo · p1 · video]\nLa persona pide el video de esta parte: prodúcelo con el pipeline de learnings-video (video-distill.md) y guárdalo en explicaciones/adjuntos/Parte 1 - Claves.mp4.",
+  );
+  assert.equal((await submit(url, { kind: "video", topic: TOPIC })).status, 400);
+  assert.equal((await submit(url, { kind: "video", topic: TOPIC, part: "p1", text: "x" })).status, 400);
+  assert.equal(host.sent.length, 1);
+  await shutdown();
+});
+
+test("a quick note is served with the view design, its embeds and no quiz", async () => {
+  const { view, root, shutdown } = await setup();
+  mkdirSync(join(root, "rapidos", "adjuntos"), { recursive: true });
+  writeFileSync(join(root, "rapidos", "hash.md"), "---\ntipo: rapido\n---\n# Qué es un hash\n\n> [!video] Video\n> ![[hash.mp4]]\n");
+  writeFileSync(join(root, "rapidos", "adjuntos", "hash.mp4"), "0123");
+  const url = base(await view({}));
+  const page = await http(`${url}rapidos/hash`);
+  assert.equal(page.status, 200);
+  const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
+  assert.equal(data.kind, "part");
+  assert.equal(data.quiz, null);
+  assert.match(data.markdown, /^# Qué es un hash/);
+  assert.match(data.markdown, /<video controls preload="metadata" src="file\/adjuntos\/hash\.mp4">/);
+  assert.equal((await http(`${url}rapidos/file/adjuntos/hash.mp4`)).status, 200);
+  assert.equal((await http(`${url}rapidos/nope`)).status, 404);
+  assert.equal((await http(`${url}rapidos/..%2Fsecret`)).status, 404);
+  await shutdown();
+});
+
 test("session_shutdown closes the server", async () => {
   const { view, shutdown } = await setup();
   const url = (await view({})).structuredContent.url;
@@ -241,7 +502,7 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
     answers: { q1: "B", q2: "C" },
     reasoning: {
       ...why("q1"),
-      q2: { entendi: "Pide qué error da Oracle", porque: "Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
+      q2: { razonamiento: "Pide qué error da Oracle. Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
     },
     ownWords: "Una clave identifica una fila.",
     exercises: "SELECT * FROM t;",
@@ -257,7 +518,7 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
     answers: { q1: "B", q2: "C" },
     razonamientos: {
       ...why("q1"),
-      q2: { entendi: "Pide qué error da Oracle", porque: "Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
+      q2: { razonamiento: "Pide qué error da Oracle. Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
     },
   });
   assert.equal(host.sent.length, 1);
@@ -265,10 +526,32 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
   const text = host.sent[0].content;
   assert.match(text, /^\[Vista HTML · sql-demo · p1 · mini-quiz\]/);
   assert.match(text, /mini-quiz\/p1\.answers\.json/);
-  assert.match(text, /- q1: B ✔\n  Entendí: entendí q1\n  Por qué: porque q1\n  Confianza: seguro\n/);
-  assert.match(text, /- q2: C ✘ \(correcta: B\)\n  Entendí: Pide qué error da Oracle\n  Por qué: Pensé que C porque\.\.\.\n    lo vi en clase\n  Confianza: adiviné/);
+  assert.match(text, /- q1: B ✔\n  Pensamiento: pienso q1\n  Confianza: seguro\n/);
+  assert.match(text, /- q2: C ✘ \(correcta: B\)\n  Pensamiento: Pide qué error da Oracle\. Pensé que C porque\.\.\.\n    lo vi en clase\n  Confianza: adiviné/);
   assert.match(text, /Vuelco con mis palabras:\n"""\nUna clave identifica una fila\.\n"""/);
   assert.match(text, /Ejercicios:\n"""\nSELECT \* FROM t;\n"""/);
+  await shutdown();
+});
+
+test("reasoning written by the old two-prompt form still submits and is normalized", async () => {
+  const { view, topic, host, shutdown } = await setup();
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const res = await submit(url, {
+    kind: "mini-quiz",
+    topic: TOPIC,
+    part: "p1",
+    answers: { q1: "B", q2: "B" },
+    reasoning: {
+      q1: { entendi: "primer", porque: "segundo", confianza: "dudo" },
+      q2: { entendi: "otra", porque: "razón", confianza: "seguro" },
+    },
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")).razonamientos, {
+    q1: { razonamiento: "primer\n\nsegundo", confianza: "dudo" },
+    q2: { razonamiento: "otra\n\nrazón", confianza: "seguro" },
+  });
+  assert.match(host.sent[0].content, /Pensamiento: primer\n    \n    segundo/);
   await shutdown();
 });
 
@@ -294,7 +577,7 @@ test("the part page reports recorded answers with their grading once the quiz is
   const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
   assert.deepEqual(data.answered, [
     { id: "q1", chosen: "B", correct: "B", ok: true },
-    { id: "q2", chosen: "A", correct: "B", ok: false, entendi: "entendí q2", porque: "porque q2", confianza: "seguro" },
+    { id: "q2", chosen: "A", correct: "B", ok: false, razonamiento: "pienso q2", confianza: "seguro" },
   ]);
   assert.equal(data.verdicts, null);
   await shutdown();
@@ -330,8 +613,8 @@ test("diagnosis submit adds only new ids of the current round and keeps recorded
 test("part and diagnosis pages show the tutor's concept verdicts once recorded", async () => {
   const { view, topic, shutdown } = await setup();
   const verdicts = [
-    { codigo: "1.1", estado: "claro", pregunta: "q1", evidencia: "entendí q1" },
-    { codigo: "1.2", estado: "laguna", pregunta: "q2", evidencia: "porque q2" },
+    { codigo: "1.1", estado: "claro", pregunta: "q1", evidencia: "pienso q1" },
+    { codigo: "1.2", estado: "laguna", pregunta: "q2", evidencia: "pienso q2" },
   ];
   mkdirSync(join(topic, "feedback"));
   writeFileSync(join(topic, "feedback", "p1.json"), JSON.stringify({ partId: "p1", difficultyDetected: true, conceptos: verdicts }));
@@ -374,14 +657,10 @@ test("submit refuses foreign origins, non-JSON, oversize, unknown fields and inv
     [await submit(url, { ...valid, topic: "../x" }), 400],
     [await submit(url, { ...valid, part: "p2" }), 400],
     [await submit(url, { ...valid, ownWords: "x".repeat(9000) }), 400],
-    [await submit(url, { ...valid, reasoning: undefined }), 400],
-    [await submit(url, { ...valid, reasoning: why("q1") }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "  " } } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: "solo texto" } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1", "q2"), q2: { entendi: "x", porque: "y", confianza: "seguro", extra: "z" } } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "y" } } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "y", confianza: "mucho" } } }), 400],
-    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { entendi: "x", porque: "y", confianza: "constructor" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1", "q2"), q2: { razonamiento: "y", confianza: "seguro", extra: "z" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { razonamiento: "y", confianza: "mucho" } } }), 400],
+    [await submit(url, { ...valid, reasoning: { ...why("q1"), q2: { razonamiento: "y", confianza: "constructor" } } }), 400],
     [await submit(url, { ...valid, reasoning: { ...why("q1", "q2", "q9") } }), 400],
     [await submit(url, { kind: "prompt", topic: TOPIC, text: "rm -rf" }), 400],
     [await submit(url, { kind: "question", topic: TOPIC, text: "" }), 400],
@@ -397,4 +676,102 @@ test("submit refuses foreign origins, non-JSON, oversize, unknown fields and inv
   assert.equal(wrongToken.status, 404);
   assert.equal(host.sent.length, 0);
   await shutdown();
+});
+
+test("a quiz is answered without writing a thought, and the message quotes no empty reasoning", async () => {
+  const { view, topic, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" } });
+  assert.equal(res.status, 200, res.body);
+  const graded = JSON.parse(res.body);
+  assert.equal(graded.score, "2/2");
+  const saved = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.deepEqual(saved.razonamientos, {});
+  const said = host.sent.map((m) => m.content).join("\n");
+  assert.match(said, /Respuestas y razonamientos guardados/);
+  assert.ok(!said.includes("Pensamiento:"), said);
+  await shutdown();
+});
+
+test("a thought with no text is saved as no thought, even when a confidence was picked", async () => {
+  const { view, topic, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, {
+    kind: "mini-quiz",
+    topic: TOPIC,
+    part: "p1",
+    answers: { q1: "B", q2: "B" },
+    reasoning: { q1: { razonamiento: "   ", confianza: "seguro" }, q2: { confianza: "dudo" } },
+  });
+  assert.equal(res.status, 200, res.body);
+  const saved = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.deepEqual(saved.razonamientos, {});
+  const said = host.sent.map((m) => m.content).join("\n");
+  assert.ok(!said.includes("Pensamiento:"), said);
+  await shutdown();
+});
+
+test("reasoning null means the learner wrote nothing", async () => {
+  const { view, topic, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" }, reasoning: null });
+  assert.equal(res.status, 200, res.body);
+  const saved = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.deepEqual(saved.razonamientos, {});
+  await shutdown();
+});
+
+test("a thought keeps its unicode and line breaks, and the chat quotes it verbatim", async () => {
+  const { view, topic, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const first = "Primero descarto la clave foránea 🔑";
+  const second = "porque el empleado puede no tener jefe";
+  const res = await submit(url, {
+    kind: "mini-quiz",
+    topic: TOPIC,
+    part: "p1",
+    answers: { q1: "B", q2: "B" },
+    reasoning: { q1: { razonamiento: `${first}\n${second}`, confianza: "seguro" } },
+  });
+  assert.equal(res.status, 200, res.body);
+  const saved = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.equal(saved.razonamientos.q1.razonamiento, `${first}\n${second}`);
+  assert.equal(saved.razonamientos.q1.confianza, "seguro");
+  const said = host.sent.map((m) => m.content).join("\n");
+  assert.ok(said.includes(first) && said.includes(second), said);
+  assert.ok(said.indexOf(first) < said.indexOf(second), said);
+  await shutdown();
+});
+
+test("a mixed answers file keeps old and new thoughts side by side", async () => {
+  const { view, topic, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, {
+    kind: "mini-quiz",
+    topic: TOPIC,
+    part: "p1",
+    answers: { q1: "B", q2: "B" },
+    reasoning: { q1: { entendi: "a", porque: "b" }, q2: { razonamiento: "nuevo" } },
+  });
+  assert.equal(res.status, 200, res.body);
+  const saved = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.equal(saved.razonamientos.q2.razonamiento, "nuevo");
+  assert.match(saved.razonamientos.q1.razonamiento, /a[\s\S]*b/);
+  await shutdown();
+});
+
+test("the index degrades one broken topic instead of failing the gallery", () => {
+  const { root } = makeRoot();
+  const bomba = join(root, "bomba");
+  mkdirSync(bomba, { recursive: true });
+  writeFileSync(join(bomba, "plan.json"), JSON.stringify({ topic: "Bomba", parts: [{ id: "p1", slug: "p1", title: "P1" }] }));
+  // `explicaciones` is a FILE: partNote's readdirSync explodes on it.
+  writeFileSync(join(bomba, "explicaciones"), "not a directory");
+  const rows = listTopics(root);
+  const bomb = rows.find((r) => r.id === "bomba");
+  assert.ok(bomb);
+  assert.equal(bomb.title, "Bomba");
+  assert.deepEqual(bomb.parts, []);
+  assert.deepEqual(bomb.exercises, []);
+  assert.ok(rows.find((r) => r.id === TOPIC).parts.length > 0);
 });
