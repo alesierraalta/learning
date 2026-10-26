@@ -401,7 +401,7 @@ func evalDiagnosticAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 		}
 		if pending := pendingAnswers(ids, answers, why); len(pending) > 0 {
 			return failCheck(decl.ID, fmt.Sprintf(
-				"learner answers or reasoning (entendi, porque) not yet recorded for %s in %s (waiting for learner input)",
+				"learner answers or reasoning (razonamiento) not yet recorded for %s in %s (waiting for learner input)",
 				strings.Join(pending, ", "), decl.Answers))
 		}
 	} else if adaptive && !skipped {
@@ -878,7 +878,7 @@ func evalMiniQuizAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 		}
 		if pending := pendingAnswers(ids, answers, why); len(pending) > 0 {
 			return failCheck(decl.ID, fmt.Sprintf(
-				"learner reasoning (entendi, porque) not yet recorded for %s in %s (waiting for learner input)",
+				"learner reasoning (razonamiento) not yet recorded for %s in %s (waiting for learner input)",
 				strings.Join(pending, ", "), aRel))
 		}
 		ratio := c.r.Thresholds.Concepts.MinPassingRatio

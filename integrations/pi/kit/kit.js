@@ -66,13 +66,13 @@
   }
   function thoughtField(id, index) {
     const wrap = el('div', undefined, { class: 'lk-thought' });
-    const area = el('textarea', undefined, { id: `${id}-razonamiento`, name: `${id}-razonamiento`, rows: '5', required: '', placeholder: 'Estoy pensando que…' });
+    const area = el('textarea', undefined, { id: `${id}-razonamiento`, name: `${id}-razonamiento`, rows: '5', required: '', placeholder: 'Escribe aquí lo que piensas, o dictalo con el micrófono…' });
     const bar = el('div', undefined, { class: 'lk-thought-bar' });
     const mic = el('button', 'Dictar', { type: 'button', class: 'lk-mic', 'aria-label': `Dictar el razonamiento de la pregunta ${index + 1}` });
     const note = el('span', '', { class: 'lk-mic-note', 'aria-live': 'polite' });
     bar.append(mic, note);
     wrap.append(
-      el('label', 'Tu razonamiento', { class: 'lk-thought-label', for: `${id}-razonamiento` }),
+      el('label', 'Cuéntame qué estás pensando', { class: 'lk-thought-label', for: `${id}-razonamiento` }),
       el('span', 'Qué te pide la pregunta, por qué eliges esa opción, qué te hace dudar.', { class: 'lk-thought-hint' }),
       area,
       bar,
