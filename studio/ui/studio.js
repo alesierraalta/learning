@@ -78,6 +78,54 @@
   const post = (path, body = {}) =>
     request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
+  // ---------- deleting a note ----------
+  /**
+   * Nothing is destroyed: the studio moves the note to the vault's `.papelera/`,
+   * so the confirmation names exactly what leaves the library.
+   */
+  const askDelete = ({ body, title, detail, leaves }) => {
+    const note = h("p", { class: "modal-note" }, "No se pierde nada: queda en la papelera del vault y se puede restaurar.");
+    const cancel = btn("Cancelar", () => box.remove(), "btn ghost");
+    const accept = btn(
+      "Mover a la papelera",
+      async () => {
+        accept.disabled = true;
+        try {
+          await post("delete", body);
+          box.remove();
+          toast(`«${title}» está en la papelera`);
+          if (leaves) go("#/");
+          await loadLibrary();
+        } catch (error) {
+          accept.disabled = false;
+          note.textContent = error.message;
+          note.classList.add("alert");
+        }
+      },
+      "btn danger",
+    );
+    const box = h(
+      "div",
+      { class: "modal-backdrop" },
+      h(
+        "div",
+        { class: "modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "delete-title" },
+        h("h2", { id: "delete-title" }, `¿Mover «${title}» a la papelera?`),
+        h("p", {}, detail),
+        note,
+        h("div", { class: "modal-actions" }, cancel, accept),
+      ),
+    );
+    box.addEventListener("click", (event) => {
+      if (event.target === box) box.remove();
+    });
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") box.remove();
+    });
+    document.body.append(box);
+    cancel.focus();
+  };
+
   // ---------- what the engine state means for the learner ----------
   /** The same stages with their article, for sentences ("en la explicación"). */
   const STAGE_IN = {
@@ -405,6 +453,18 @@
                                         { class: "side-actions reveal", style: "--i:2" },
                                         topic.status !== "sin inscribir" ? btn("Repasar mis lagunas", () => say(prompts.gaps(topic)), "btn", "spark") : null,
                                         btn("Preguntar sobre este tema", () => openDrawer(`Sobre ${topic.title}: `), "btn", "chat"),
+                                        btn(
+                                          "Borrar el tema",
+                                          () =>
+                                            askDelete({
+                                              body: { kind: "topic", topic: topic.id },
+                                              title: topic.title,
+                                              detail: `Se moverá «${topic.title}» completo: su plan, sus partes, sus apps y sus mini-quizzes.`,
+                                              leaves: true,
+                                            }),
+                                          "btn ghost danger",
+                                          "x",
+                                        ),
               ),
             ),
           ),
@@ -451,6 +511,22 @@
       prev ? btn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost", "back") : null,
       next ? btn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost", "next") : null,
       btn("Preguntar", () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `), "btn small", "chat"),
+      quick || info
+        ? btn(
+            "Borrar",
+            () =>
+              askDelete({
+                body: quick ? { kind: "quick", quick: quickId } : { kind: "part", topic: topicId, part },
+                title,
+                detail: quick
+                  ? `Se moverá la nota rápida «${title}».`
+                  : `Se moverá «${title}» con su explicación, su app, sus demos y su mini-quiz.`,
+                leaves: true,
+              }),
+            "btn small ghost danger",
+            "x",
+          )
+        : null,
     );
     stage.replaceChildren(h("div", { class: "reader" }, bar, h("div", { class: "sheet-wrap" }, frame)));
     try {

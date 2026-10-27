@@ -80,6 +80,10 @@ h3 { font-weight: 700; }
 .btn.ghost { border-color: transparent; background: transparent; color: var(--slate); }
 .btn.ghost:hover { border-color: var(--line); background: var(--paper); }
 .btn.soft { border-color: var(--blue); background: var(--blue-s); color: var(--blue); }
+.btn.danger { border-color: var(--red); background: var(--red-s); color: var(--red); }
+.btn.danger:hover { background: var(--red); color: #fff; }
+.btn.ghost.danger { background: transparent; border-color: transparent; }
+.btn.ghost.danger:hover { background: var(--red-s); border-color: var(--red); color: var(--red); }
 .btn.small { padding: 6px 13px; font-size: .92rem; }
 .btn svg, .chip svg { width: 18px; height: 18px; flex: none; }
 .btn:disabled { opacity: .45; cursor: default; }
@@ -226,6 +230,14 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 .composer .stop { color: var(--red); background: none; border: 0; cursor: pointer; font-weight: 700; font-style: normal; }
 
 .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 6px; z-index: 60; }
+/* Deleting a note is confirmed by name: the card that leaves is the one that was read. */
+.modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(15, 23, 42, .55); z-index: 70; }
+.modal { width: min(520px, 100%); background: var(--paper); border: 2px solid var(--ink); border-radius: 12px; padding: 24px 26px 20px; box-shadow: 8px 8px 0 rgba(15, 23, 42, .14); }
+.modal h2 { font-size: 1.35rem; line-height: 1.25; margin-bottom: 12px; }
+.modal p { color: var(--slate); margin-bottom: 10px; }
+.modal .modal-note { font-style: italic; font-size: .96rem; color: var(--muted); }
+.modal .modal-note.alert { font-style: normal; font-weight: 600; color: var(--red); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
 /* ---------- tutorial: a deck of 1920×1080 slides scaled to the window ---------- */
 .deck { position: fixed; inset: 0; z-index: 50; background: rgba(15, 23, 42, .82); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 20px; animation: rise .25s ease forwards; }

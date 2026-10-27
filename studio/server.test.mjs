@@ -369,3 +369,52 @@ test("if Pi stops the studio reports it and restart brings it back", async () =>
   assert.ok(received().some((c) => c.type === "new_session"));
   stream.close();
 });
+
+test("deleting a note moves it to the vault trash, drops it from the plan and refreshes the library", async () => {
+  const { studio, root } = await setup();
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+
+  // A quick note: it leaves the library and waits in .papelera with its manifest.
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/library`)).body).quick.map((q) => q.id), ["hash"]);
+  const quick = await post(studio, "delete", { kind: "quick", quick: "hash" });
+  assert.equal(quick.status, 200, quick.body);
+  const result = JSON.parse(quick.body);
+  assert.deepEqual(result.moved, [join("rapidos", "hash.md")]);
+  assert.equal(existsSync(join(root, "rapidos", "hash.md")), false);
+  const manifest = JSON.parse(readFileSync(join(root, result.trash, "papelera.json"), "utf8"));
+  assert.equal(manifest.kind, "quick");
+  assert.equal(manifest.quick, "hash");
+  await stream.next("library_changed");
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/library`)).body).quick, []);
+
+  // A part: its files leave and the plan stops listing it.
+  const part = await post(studio, "delete", { kind: "part", topic: "redes", part: "p1" });
+  assert.equal(part.status, 200, part.body);
+  assert.equal(existsSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md")), false);
+  assert.equal(existsSync(join(root, "redes", "explicaciones", "apps", "p1.html")), false);
+  assert.deepEqual(JSON.parse(readFileSync(join(root, "redes", "plan.json"), "utf8")).parts.map((p) => p.id), ["p2"]);
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/library`)).body).topics[0].parts.map((p) => p.id), ["p2"]);
+
+  // A whole topic.
+  const topic = await post(studio, "delete", { kind: "topic", topic: "redes" });
+  assert.equal(topic.status, 200, topic.body);
+  assert.equal(existsSync(join(root, "redes")), false);
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/library`)).body).topics, []);
+  stream.close();
+});
+
+test("the delete route refuses foreign origins, weak bodies and paths outside the vault", async () => {
+  const { studio, root } = await setup();
+  assert.equal((await post(studio, "delete", { kind: "quick", quick: "hash" }, { origin: "http://evil.test" })).status, 403);
+  assert.equal((await http(`${studio.url}delete`, { method: "POST", headers: { origin: new URL(studio.url).origin }, body: "kind=quick" })).status, 415);
+  for (const body of [{}, { kind: "folder", topic: "redes" }, { kind: "topic", topic: ".." }, { kind: "topic", topic: ".papelera" }, { kind: "part", topic: "redes", part: "../p1" }]) {
+    const response = await post(studio, "delete", body);
+    assert.equal(response.status, 400, `${JSON.stringify(body)} → ${response.status} ${response.body}`);
+  }
+  assert.equal((await post(studio, "delete", { kind: "topic", topic: "no-existe" })).status, 404);
+  // Nothing moved and the refusals left no trash folder behind.
+  assert.equal(existsSync(join(root, "rapidos", "hash.md")), true);
+  assert.equal(existsSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md")), true);
+  assert.equal(existsSync(join(root, ".papelera")), false);
+});
