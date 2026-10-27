@@ -1,0 +1,82 @@
+name: CI
+
+# The engine, the Pi adapter and the studio have one source of truth: the
+# suites documented in README.md and docs/protocol.md. CI runs exactly those
+# commands on GitHub-hosted runners; the VPS runner only serves the deploy
+# workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Engine, adapter and studio
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "$unformatted" ]]; then
+            echo "gofmt reports unformatted files:" >&2
+            printf '%s\n' "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Engine tests
+        run: go test ./... -count=1
+
+      - name: Engine tests with the race detector
+        run: go test -race ./... -count=1
+
+      - name: Build the engine binary
+        run: go build -o bin/learning ./cmd/learning
+
+      # The code-exercise tests skip themselves when a pinned image is
+      # missing; pulling them here turns those skips into real runs. The
+      # digests in runners.json are amd64, which is what ubuntu-latest is.
+      - name: Pull the sandbox images
+        run: |
+          # Pull each digest-pinned reference and its plain tag: some suites
+          # probe the tag directly, and the pinned pull alone leaves it absent.
+          jq -r '.[].image' integrations/pi/runners.json \
+            | sort -u \
+            | while read -r image; do
+                docker pull "$image"
+                docker pull "${image%%@*}"
+              done
+
+      # node --test does not resolve globally installed modules, so the
+      # suites import Playwright through PLAYWRIGHT_MODULE (the variable the
+      # test files document for local runs).
+      - name: Install Playwright
+        run: |
+          npm install --global playwright@1.64.1
+          playwright install --with-deps chromium
+          module="$(npm root -g)/playwright/index.mjs"
+          echo "PLAYWRIGHT_MODULE=$module" >> "$GITHUB_ENV"
+
+      - name: Adapter and studio suites
+        run: node --test integrations/pi/*.test.mjs studio/*.test.mjs
