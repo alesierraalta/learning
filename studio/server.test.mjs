@@ -195,6 +195,21 @@ test("public studio origins must be configured together", async () => {
   }
 });
 
+test("a configured studio token survives a restart so open tabs keep working", async () => {
+  const token = "0123456789abcdef".repeat(4);
+  const first = await setup({ token });
+  assert.equal(first.studio.url, `http://127.0.0.1:${first.studio.port}/${token}/`);
+  assert.equal((await http(`${first.studio.url}api/library`)).status, 200);
+  await first.studio.close();
+  const second = await setup({ token });
+  assert.equal((await http(`${second.studio.url}api/library`)).status, 200, "the same token still opens the studio");
+  assert.equal((await http(`http://127.0.0.1:${second.studio.port}/${token.slice(1)}/api/library`)).status, 404);
+});
+
+test("a weak studio token is refused", async () => {
+  await assert.rejects(() => startStudio({ root: makeRoot().root, token: "short" }), /64 lowercase hex/);
+});
+
 test("a taken port falls back to a free one", async () => {
   const { root, engine } = makeRoot();
   const first = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, port: 0 });
