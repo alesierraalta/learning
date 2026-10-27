@@ -406,7 +406,8 @@
         ? [{ text: "Inicio", href: "#/" }, { text: "Notas rápidas" }, { text: quick.title }]
         : [{ text: "Inicio", href: "#/" }, { text: topic ? topic.title : topicId, href: `#/tema/${topicId}` }, { text: kicker }],
     );
-    const frame = h("iframe", { class: "sheet", title: title || "Contenido" });
+    // The bridge is another origin: dictation needs the microphone delegated to it.
+    const frame = h("iframe", { class: "sheet", title: title || "Contenido", allow: "microphone" });
     const neighbours = topic ? topic.parts.filter((p) => p.written) : [];
     const at = info ? neighbours.indexOf(info) : -1;
     const prev = at > 0 ? neighbours[at - 1] : null;

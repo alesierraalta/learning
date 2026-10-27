@@ -90,3 +90,22 @@ test("topic page does not overflow a phone viewport", { skip: browser ? false : 
   assert.equal(seen.position, "static", "on a narrow screen nothing is pinned");
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
 });
+
+// The bridge serves the part from another port, so the sheet is a cross-origin
+// frame: without delegation the browser refuses the microphone and dictation
+// fails with "not-allowed" before asking the learner.
+test("the reading sheet may use the microphone for dictation", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  const sheet = await page.waitForSelector("iframe.sheet[src]");
+  const frame = await sheet.contentFrame();
+  await frame.waitForLoadState("load");
+  assert.notEqual(new URL(frame.url()).origin, new URL(studio.url).origin, "the sheet is served cross-origin");
+  assert.equal(await frame.evaluate(() => document.featurePolicy.allowsFeature("microphone")), true);
+});

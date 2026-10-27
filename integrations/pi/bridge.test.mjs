@@ -4,7 +4,8 @@ import { after, test } from "node:test";
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, existsSync, symlinkSync, writeFileSync } from "node:fs";
-import { request } from "node:http";
+import { request, createServer as httpServer } from "node:http";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +14,188 @@ import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./
 import { loadRunners } from "./coderun.ts";
 
 const TOPIC = "sql-demo";
+
+let playwright;
+for (const id of [process.env.PLAYWRIGHT_MODULE, 'playwright', '/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs'].filter(Boolean)) {
+  try { playwright = await import(id); break; } catch {}
+}
+test('app pages inline shared reasoning and private bridge config', async () => {
+  for (const configured of [false, true]) {
+    const { view } = await setup(configured ? { transcriber: { url: 'http://127.0.0.1:1', token: 'app-private-token' } } : {});
+    const result = await view({ topic: TOPIC, part: 'p1' });
+    const response = await http(result.structuredContent.appUrl);
+    assert.equal(response.status, 200);
+    assert.match(response.body, /window\.learningThoughtField\s*=/);
+    assert.match(response.body, /window\.learningDictate\s*=/);
+    const config = JSON.parse(response.body.match(/window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
+    assert.equal('transcribeUrl' in config, configured);
+    assert.doesNotMatch(response.body, /app-private-token/);
+  }
+});
+
+test('app dictation honors kitDir and escapes script terminators', async () => {
+  const kitDir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-')));
+  writeFileSync(join(kitDir, 'dictate.js'), 'window.customDictation = "</ScRiPt><p>not markup</p>";');
+  const { view } = await setup({ kitDir });
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  const response = await http(result.structuredContent.appUrl);
+  assert.ok(response.body.includes('window.customDictation = "<\\/script><p>not markup</p>";'));
+  assert.doesNotMatch(response.body, /<\/ScRiPt>/);
+});
+
+test('app reasoning renders and records under its inline-only CSP', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { view, topic } = await setup({ transcriber: { url: 'http://127.0.0.1:1', token: 'app-private-token' } });
+  writeFileSync(join(topic, 'explicaciones', 'apps', 'p1.html'), '<!doctype html><html><head></head><body><script>document.body.append(window.learningThoughtField("q1", 0, window.LEARNING_BRIDGE));</script></body></html>');
+  const browser = await playwright.chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const violations = [];
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.exposeFunction('recordViolation', value => violations.push(value));
+  await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => window.recordViolation(event.violatedDirective)));
+  await page.route('**/api/transcribe', route => route.fulfill({ json: { text: 'Pensé en la clave' } }));
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  await page.goto(result.structuredContent.appUrl);
+  const field = page.getByLabel('Cómo lo pensé (opcional)');
+  await field.waitFor();
+  await page.getByRole('button', { name: /Dictar el razonamiento/ }).click();
+  const stop = page.locator('.lk-mic');
+  await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Detener');
+  await page.waitForTimeout(300);
+  await stop.click();
+  await page.waitForFunction(() => document.querySelector('textarea')?.value === 'Pensé en la clave');
+  assert.equal(await field.inputValue(), 'Pensé en la clave');
+  assert.deepEqual(violations, []);
+  assert.deepEqual(errors, []);
+});
+
+test('plain part and diagnosis share optional dictable reasoning', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { view, topic } = await setup({ transcriber: { url: 'http://127.0.0.1:1', token: 'never-in-page' } });
+  const browser = await playwright.chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.route('**/api/transcribe', route => route.fulfill({ json: { text: 'Mi razonamiento dictado' } }));
+  for (const part of ['p1', 'quiz']) {
+    const result = await view({ topic: TOPIC, part });
+    await page.goto(result.structuredContent.url);
+    assert.equal(await page.getByText('¿Qué entendiste que te pide la pregunta?').count(), 0);
+    assert.equal(await page.getByText('¿Por qué llegaste a esa opción?').count(), 0);
+    const fields = page.locator('fieldset.quiz-question').filter({ has: page.locator('input[type=radio]:not(:disabled)') });
+    assert.ok(await fields.count() > 0);
+    assert.equal(await fields.locator('textarea').count(), await fields.count());
+    const mic = fields.first().getByRole('button', { name: /Dictar/ });
+    await mic.click();
+    await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Detener');
+    await page.waitForTimeout(300);
+    await mic.click();
+    await page.waitForFunction(() => document.querySelector('fieldset textarea')?.value === 'Mi razonamiento dictado');
+    assert.equal(await fields.first().getByLabel('Cómo lo pensé (opcional)').inputValue(), 'Mi razonamiento dictado');
+    if (part === 'p1') {
+      for (const field of await fields.all()) {
+        await field.locator('input[type=radio]').first().check();
+      }
+      await page.getByRole('button', { name: 'Enviar al tutor' }).click();
+      await page.getByText('Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.').waitFor();
+      for (const field of await fields.all()) await field.locator('.confidence input').first().check();
+      const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
+      const received = page.waitForResponse(response => response.url().endsWith('/submit'));
+      await page.getByRole('button', { name: 'Enviar al tutor' }).click();
+      const payload = (await sent).postDataJSON();
+      assert.equal((await received).status(), 200);
+      const reasoning = Object.values(payload.reasoning);
+      assert.deepEqual(reasoning[0], { razonamiento: 'Mi razonamiento dictado', confianza: 'seguro' });
+      assert.ok(reasoning.slice(1).every(value => value.razonamiento === '' && value.confianza === 'seguro'));
+      const stored = JSON.parse(readFileSync(join(topic, 'mini-quiz', 'p1.answers.json'), 'utf8'));
+      assert.deepEqual(stored.razonamientos, Object.fromEntries(Object.entries(payload.reasoning).filter(([, value]) => value.razonamiento)));
+      assert.equal(Object.keys(stored.answers).length, reasoning.length);
+    }
+  }
+  const asset = await http(base(await view({ topic: TOPIC, part: 'p1' })) + 'kit/dictate.js');
+  assert.equal(asset.status, 200);
+  assert.match(asset.headers['content-type'], /javascript/);
+});
+
+test("dictation uploads audio privately, rejects invalid input and deletes failed jobs", async (t) => {
+  const seen = []; let failed = false; let polls = 0;
+  const fake = httpServer(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    seen.push({ method: req.method, url: req.url, auth: req.headers.authorization, body: Buffer.concat(chunks) });
+    if (req.method === "DELETE") { res.writeHead(204); return res.end(); }
+    res.setHeader("content-type", "application/json");
+    res.end(req.method === "PUT" ? JSON.stringify({ id: "job1" }) : req.url.endsWith("/txt") ? "hola mundo" : JSON.stringify({ status: failed ? "failed" : ["queued", "running", "done"][Math.min(polls++, 2)] }));
+  });
+  await new Promise(resolve => fake.listen(0, "127.0.0.1", resolve));
+  t.after(() => { fake.closeAllConnections(); fake.close(); });
+  const { view } = await setup({ transcriber: { url: `http://127.0.0.1:${fake.address().port}`, token: "private-transcriber-token" } });
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const endpoint = base(result) + "api/transcribe";
+  const headers = { origin: new URL(endpoint).origin, "content-type": "audio/webm" };
+  const audio = Buffer.from([0, 1, 2, 255]);
+  const response = await http(endpoint, { method: "POST", headers, body: audio });
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(response.body), { text: "hola mundo" });
+  assert.equal(seen[0].auth, "Bearer private-transcriber-token");
+  assert.equal(seen[0].url, "/api/jobs?filename=dictado.webm&diarize=false", "dictation is one voice: no speaker labels");
+  assert.deepEqual(seen[0].body, audio);
+  assert.equal(seen.at(-1).method, "DELETE");
+  const count = seen.length;
+  for (const [extra, body, status] of [[{ origin: "https://evil.example" }, audio, 403], [{ "content-type": "text/plain" }, audio, 415], [{}, "", 400], [{}, Buffer.alloc(15 * 1024 * 1024 + 1), 413]]) {
+    assert.equal((await http(endpoint, { method: "POST", headers: { ...headers, ...extra }, body })).status, status);
+    assert.equal(seen.length, count);
+  }
+  failed = true;
+  assert.equal((await http(endpoint, { method: "POST", headers, body: audio })).status, 502);
+  assert.equal(seen.at(-1).method, "DELETE");
+  const page = await http(result.structuredContent.url);
+  assert.doesNotMatch(page.body, /private-transcriber-token/);
+  assert.match(page.body, /transcribeUrl/);
+  const diagnosis = await view({ topic: TOPIC, part: 'quiz' });
+  assert.equal(diagnosis.isError, false);
+  const html = (await http(diagnosis.structuredContent.url)).body;
+  assert.match(html, /transcribeUrl/);
+  assert.doesNotMatch(html, /private-transcriber-token/);
+  const plain = await setup();
+  const other = await plain.view({ topic: TOPIC, part: "p1" });
+  assert.equal((await http(base(other) + "api/transcribe", { method: "POST", headers, body: audio })).status, 404);
+  assert.doesNotMatch((await http(other.structuredContent.url)).body, /transcribeUrl/);
+});
+
+test("public bridge origins preserve loopback access and constrain proxy requests", async () => {
+  const reservation = createServer();
+  await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
+  const port = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+  const publicOrigin = "https://box.tail0.ts.net:8446";
+  const publicEmbedder = "https://box.tail0.ts.net:8445";
+  const { view } = await setup({ port, publicOrigin, publicEmbedder });
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const url = result.structuredContent.url;
+  assert.match(url, /^https:\/\/box\.tail0\.ts\.net:8446\/[a-f0-9]{64}\//);
+  const local = url.replace(publicOrigin, `http://127.0.0.1:${port}`);
+  for (const host of [`127.0.0.1:${port}`, "box.tail0.ts.net:8446"]) {
+    const page = await http(local, { headers: { host } });
+    assert.equal(page.status, 200);
+    assert.ok(page.headers["content-security-policy"].includes(publicEmbedder));
+  }
+  const app = await http(result.structuredContent.appUrl.replace(publicOrigin, `http://127.0.0.1:${port}`));
+  assert.equal(app.status, 200);
+  assert.match(app.headers["content-security-policy"], /frame-ancestors https:\/\/box\.tail0\.ts\.net:8445(;|$)/);
+  assert.equal((await http(local, { headers: { host: "evil.example:80" } })).status, 403);
+  const endpoint = `http://127.0.0.1:${port}${new URL(result.structuredContent.base).pathname}submit`;
+  for (const [origin, rejected] of [[publicOrigin, false], ["https://evil.example", true]]) {
+    const response = await http(endpoint, { method: "POST", headers: { origin, "content-type": "application/json" }, body: "{}" });
+    assert.equal(response.status === 403, rejected);
+  }
+});
+
+test("public bridge options reject non-bare HTTPS origins at registration", () => {
+  for (const option of ["publicOrigin", "publicEmbedder"]) {
+    for (const value of ["http://box.ts.net", "https://a.ts.net; script-src *", "*", "https://a.ts.net/path"]) {
+      assert.throws(() => registerBridge(makeHost().api, { root: makeRoot().root, [option]: value }), new RegExp(option));
+    }
+  }
+});
 
 test("code vault lists malformed exercises and exclusively appends submission history", () => {
   const { root, topic } = makeRoot();
@@ -193,10 +376,10 @@ function makeHost() {
   return { api, handlers, tools, sent };
 }
 
-async function setup() {
+async function setup(options = {}) {
   const { root, topic } = makeRoot();
   const host = makeHost();
-  registerBridge(host.api, { root });
+  registerBridge(host.api, { root, ...options });
   const view = async (params, cwd = root) => {
     const result = await host.tools.get("learning_view").execute("call", params, undefined, undefined, { cwd });
     return result;

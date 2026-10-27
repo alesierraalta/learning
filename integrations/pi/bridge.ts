@@ -476,14 +476,30 @@ export interface BridgeOptions {
   port?: number;
   /** Loopback origins (e.g. the learning studio) allowed to embed pages and apps. */
   frameAncestors?: string[];
+  publicOrigin?: string;
+  publicEmbedder?: string;
+  transcriber?: { url: string; token: string; deadlineMs?: number };
   /** Directory of kit.css / kit.js (tests). */
   kitDir?: string;
 }
 
+export function validatePublicOrigin(option: string, value: string | undefined): URL | undefined {
+  if (value === undefined) return;
+  try {
+    if (!/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*(:\d{1,5})?$/.test(value)) throw new Error("invalid origin");
+    return new URL(value);
+  } catch {
+    throw new Error(`${option} must be a bare HTTPS origin`);
+  }
+}
+
 export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
-  const embedders = options.frameAncestors ?? [];
+  const publicUrl = validatePublicOrigin("publicOrigin", options.publicOrigin);
+  validatePublicOrigin("publicEmbedder", options.publicEmbedder);
+  const embedders = [...(options.frameAncestors ?? [])];
   const invalid = embedders.find((origin) => !LOOPBACK_ORIGIN.test(origin));
   if (invalid !== undefined) throw new Error(`frameAncestors accepts loopback http origins only, got ${JSON.stringify(invalid)}`);
+  if (options.publicEmbedder !== undefined) embedders.push(options.publicEmbedder);
   const pageCsp = `${PAGE_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
   const appCsp = `${APP_CSP}; frame-ancestors ${embedders.length ? embedders.join(" ") : "'none'"}`;
   const richCsp = `${RICH_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
@@ -494,9 +510,9 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   let token = "";
   let rootReal = "";
 
-  const allowedHosts = () => new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
-  const allowedOrigins = () => new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
-  const base = () => `http://127.0.0.1:${port}/${token}/`;
+  const allowedHosts = () => new Set([`127.0.0.1:${port}`, `localhost:${port}`, ...(options.publicOrigin === undefined ? [] : [publicUrl!.host])]);
+  const allowedOrigins = () => new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(options.publicOrigin === undefined ? [] : [options.publicOrigin])]);
+  const base = () => `${options.publicOrigin ?? `http://127.0.0.1:${port}`}/${token}/`;
 
   const tokenMatches = (candidate: string) => {
     const a = Buffer.from(candidate);
@@ -524,9 +540,59 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   const sendJson = (res: ServerResponse, status: number, body: unknown) =>
     send(res, status, "application/json; charset=utf-8", JSON.stringify(body));
 
+  const transcribeConfig = () => options.transcriber ? { transcribeUrl: `/${token}/api/transcribe` } : {};
+
+  const transcribe = async (req: IncomingMessage, res: ServerResponse) => {
+    const target = options.transcriber;
+    if (!target) throw new HttpError(404, "not found");
+    if (!allowedOrigins().has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
+    const type = String(req.headers["content-type"] ?? "").toLowerCase();
+    if (!type.startsWith("audio/")) throw new HttpError(415, "Se necesita audio.");
+    const chunks: Buffer[] = []; let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size <= 15 * 1024 * 1024) chunks.push(chunk);
+    }
+    if (size > 15 * 1024 * 1024) throw new HttpError(413, "Audio demasiado grande.");
+    if (!size) throw new HttpError(400, "El audio está vacío.");
+    const ext = ({ webm: "webm", ogg: "ogg", mp4: "m4a", wav: "wav", mpeg: "mp3" } as Record<string, string>)[type.split(";")[0].slice(6)] ?? "webm";
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), target.deadlineMs ?? 90000);
+    const headers = { authorization: `Bearer ${target.token}` };
+    const jobs = `${target.url.replace(/\/$/, "")}/api/jobs`;
+    let job: string | undefined;
+    const call = async (url: string, init: RequestInit = {}) => {
+      const response = await fetch(url, { ...init, headers, signal: controller.signal });
+      if (!response.ok) throw new Error("transcriber");
+      return response;
+    };
+    try {
+      // Dictation is one voice: speaker diarization would prefix every line with "Speaker N:".
+      const uploaded = await (await call(`${jobs}?filename=dictado.${ext}&diarize=false`, { method: "PUT", body: Buffer.concat(chunks) })).json();
+      if (typeof uploaded.id !== "string" || !uploaded.id) throw new Error("missing job");
+      job = `${jobs}/${encodeURIComponent(uploaded.id)}`;
+      while (true) {
+        const state = await (await call(job)).json();
+        if (state.status === "failed") throw new Error("failed");
+        if (state.status === "done") break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 250));
+        if (controller.signal.aborted) throw new Error("timeout");
+      }
+      const text = await (await call(`${job}/txt`)).text();
+      await fetch(job, { method: "DELETE", headers, signal: AbortSignal.timeout(5000) }).catch(() => {});
+      job = undefined;
+      sendJson(res, 200, { text });
+    } catch {
+      throw new HttpError(controller.signal.aborted ? 504 : 502, "No se pudo transcribir el audio.");
+    } finally {
+      clearTimeout(timer);
+      if (job) await fetch(job, { method: "DELETE", headers, signal: AbortSignal.timeout(5000) }).catch(() => {});
+    }
+  };
+
   const page = (res: ServerResponse, title: string, data: Record<string, unknown>) => {
     const prefix = `/${token}/`;
-    const json = JSON.stringify({ ...data, submitUrl: `${prefix}submit`, home: prefix }).replace(/</g, "\\u003c");
+    const json = JSON.stringify({ ...data, ...transcribeConfig(), submitUrl: `${prefix}submit`, home: prefix }).replace(/</g, "\\u003c");
     const scripts = CDN_SCRIPTS.map(([src, sri]) => `<script src="${src}" integrity="${sri}" crossorigin="anonymous"></script>`).join("\n");
     const escapedTitle = title.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
     const html = `<!doctype html>
@@ -541,6 +607,7 @@ ${scripts}
 <body>
 <main id="app"></main>
 <script type="application/json" id="view-data">${json}</script>
+<script src="${prefix}kit/dictate.js"></script>
 <script src="${prefix}app.js"></script>
 </body>
 </html>
@@ -570,13 +637,13 @@ ${scripts}
 
   const config = (topic: string, partId: string, plan: { parts: PlanPart[] }) => {
     const json = JSON.stringify({
-      submitUrl: `/${token}/submit`,
+      ...transcribeConfig(), submitUrl: `/${token}/submit`,
       quizUrl: `/${token}/api/quiz?topic=${encodeURIComponent(topic)}&part=${encodeURIComponent(partId)}`,
       topic,
       part: partId,
       video: `file/${partVideo(plan, partId).split("/").map(encodeURIComponent).join("/")}`,
     }).replace(/</g, "\\u003c");
-    return `<script>window.LEARNING_BRIDGE = ${json};</script>`;
+    return `<script>window.LEARNING_BRIDGE = ${json};</script><script src="/${token}/kit/dictate.js"></script>`;
   };
 
   const partPage = (res: ServerResponse, topic: string, partId: string) => {
@@ -684,8 +751,9 @@ ${scripts}
     const plan = readPlan(dir);
     const file = plan?.parts.some((p) => p.id === partId) ? partApp(dir, partId) : undefined;
     if (!file) throw new HttpError(404, `part ${partId} has no interactive app`);
-    const config = JSON.stringify({ submitUrl: `/${token}/submit`, topic, part: partId }).replace(/</g, "\\u003c");
-    const script = `<script>window.LEARNING_BRIDGE = ${config};</script>`;
+    const config = JSON.stringify({ ...transcribeConfig(), submitUrl: `/${token}/submit`, topic, part: partId }).replace(/</g, "\\u003c");
+    const dictate = readFileSync(join(kitDir, "dictate.js"), "utf8").replace(/<\/script/gi, "<\\/script");
+    const script = `<script>window.LEARNING_BRIDGE = ${config};</script><script>${dictate}</script>`;
     const injected = injectFirst(readFileSync(file, "utf8"), script);
     send(res, 200, "text/html; charset=utf-8", injected, { "content-security-policy": appCsp });
   };
@@ -907,6 +975,7 @@ ${scripts}
     if (rest.length > 0 && rest[rest.length - 1] === "") rest.pop();
 
     if (req.method === "POST") {
+      if (rest.join("/") === "api/transcribe") return transcribe(req, res);
       if (rest.join("/") === "api/code/run") return codeRun(req, res);
       if (rest.length === 1 && rest[0] === "submit") return submit(req, res);
       throw new HttpError(404, "not found");

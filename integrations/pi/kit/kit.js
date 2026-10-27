@@ -1,5 +1,15 @@
 /* Shared, light-DOM learning components. No build step. */
-(() => {
+(async () => {
+  if (!window.learningThoughtField) {
+    const source = new URL('dictate.js', document.currentScript.src);
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = source.href;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.append(script);
+    });
+  }
   const offline = 'Abre esta página desde Pi para enviarla al tutor';
   const config = () => window.LEARNING_BRIDGE;
   const el = (tag, text, attrs = {}) => {
@@ -21,65 +31,7 @@
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
   }
-  /* One place to think: the person drains what they are reasoning, typing or
-     speaking. Speech recognition is the browser's own, so nothing leaves the
-     machine beyond the configured engine. */
-  function dictate(area, button, note) {
-    const Engine = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Engine) {
-      button.hidden = true;
-      note.textContent = 'Este navegador no dicta; escribe con el teclado.';
-      return;
-    }
-    let recognition = null, base = '';
-    const resting = (text = '') => {
-      note.textContent = text;
-      button.dataset.state = '';
-      button.textContent = 'Dictar';
-      recognition = null;
-    };
-    button.addEventListener('click', () => {
-      if (recognition) { recognition.stop(); return; }
-      base = area.value.trim();
-      recognition = new Engine();
-      recognition.lang = 'es-ES';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.onresult = (event) => {
-        let interim = '';
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const result = event.results[i];
-          if (result.isFinal) base = [base, result[0].transcript.trim()].filter(Boolean).join(' ');
-          else interim += result[0].transcript;
-        }
-        area.value = [base, interim.trim()].filter(Boolean).join(' ');
-      };
-      recognition.onerror = (event) => resting(event.error === 'not-allowed' ? 'Permiso de micrófono denegado.' : `No se pudo dictar (${event.error}).`);
-      recognition.onend = () => resting();
-      try {
-        recognition.start();
-        button.dataset.state = 'listening';
-        button.textContent = 'Detener';
-        note.textContent = 'Escuchando: habla con calma.';
-      } catch (error) { resting(error.message); }
-    });
-  }
-  function thoughtField(id, index) {
-    const wrap = el('div', undefined, { class: 'lk-thought' });
-    const area = el('textarea', undefined, { id: `${id}-razonamiento`, name: `${id}-razonamiento`, rows: '4', placeholder: 'Opcional: qué te pide la pregunta, por qué eliges esa opción, qué te hace dudar…' });
-    const bar = el('div', undefined, { class: 'lk-thought-bar' });
-    const mic = el('button', 'Dictar', { type: 'button', class: 'lk-mic', 'aria-label': `Dictar el razonamiento de la pregunta ${index + 1}` });
-    const note = el('span', '', { class: 'lk-mic-note', 'aria-live': 'polite' });
-    bar.append(mic, note);
-    wrap.append(
-      el('label', 'Cómo lo pensé (opcional)', { class: 'lk-thought-label', for: `${id}-razonamiento` }),
-      el('span', 'Si me lo cuentas, el tutor ve cómo razono y me corrige mejor; si lo dejas vacío, el quiz sigue valiendo.', { class: 'lk-thought-hint' }),
-      area,
-      bar,
-    );
-    dictate(area, mic, note);
-    return wrap;
-  }
+  const thoughtField = (id, index) => window.learningThoughtField(id, index, config());
   const loaded = new Map();
   function library(name, url, integrity, css = false) {
     if (!loaded.has(name)) loaded.set(name, new Promise((resolve, reject) => {

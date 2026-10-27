@@ -95,7 +95,7 @@
           step(4, `<rect x="${x + 24}" y="${y + 630}" width="${w - 48}" height="92" rx="8" fill="${C.amberS}" stroke="${C.amber}" stroke-width="3"/>` +
             txt(x + 44, y + 664, "Mini-quiz", { anchor: "start", size: 22, color: C.amber }) +
             [0, 1, 2, 3].map((i) => `<circle cx="${x + 60 + i * 120}" cy="${y + 698}" r="10" fill="#ffffff" stroke="${C.ink}" stroke-width="2.5"/>`).join("") +
-            txt(1400, 650, "quiz al final", { color: C.amber }) + lbl(1400, 686, "con lo que entendiste,") + lbl(1400, 720, "por qué y tu confianza") + curve(1250, 680, x + w - 18, y + 676, { color: C.amber, dashedLine: true }));
+            txt(1400, 650, "quiz al final", { color: C.amber }) + lbl(1400, 686, "cómo lo pensé (opcional)") + lbl(1400, 720, "y tu confianza") + curve(1250, 680, x + w - 18, y + 676, { color: C.amber, dashedLine: true }));
       },
     },
     {
@@ -105,10 +105,10 @@
           txt(48, 70, "¿Qué número compara el robot para elegir?", { anchor: "start", size: 25 }) +
           ["A  la recompensa del próximo paso", "B  el valor V de donde puede llegar"].map((t, i) =>
             `<circle cx="64" cy="${118 + i * 46}" r="11" fill="${i === 1 ? C.blue : "#ffffff"}" stroke="${C.ink}" stroke-width="2.5"/>` + lbl(88, 127 + i * 46, t, { anchor: "start", color: C.ink, size: 24 })).join("") +
-          txt(48, 248, "¿Qué entendiste que te pide?", { anchor: "start", size: 22 }) +
-          `<rect x="48" y="262" width="584" height="70" rx="6" fill="${C.soft2}" stroke="${C.line}" stroke-width="2.5"/>` + lbl(64, 306, "elegir con lo que gana a la larga", { anchor: "start", color: C.ink }) +
-          txt(48, 372, "¿Por qué esa opción?", { anchor: "start", size: 22 }) +
-          `<rect x="48" y="386" width="584" height="70" rx="6" fill="${C.soft2}" stroke="${C.line}" stroke-width="2.5"/>` + lbl(64, 430, "porque V resume todo lo que viene", { anchor: "start", color: C.ink }) +
+          txt(48, 248, "Cómo lo pensé (opcional)", { anchor: "start", size: 22 }) +
+          `<rect x="48" y="262" width="584" height="140" rx="6" fill="${C.soft2}" stroke="${C.line}" stroke-width="2.5"/>` + lbl(64, 306, "elegir con lo que gana a la larga", { anchor: "start", color: C.ink }) +
+          lbl(64, 352, "porque V resume todo lo que viene", { anchor: "start", color: C.ink }) +
+          box(48, 418, 150, 46, "Dictar", { stroke: C.blue, color: C.blue, size: 22 }) +
           txt(48, 500, "¿Qué tan seguro estás?", { anchor: "start", size: 22 }) +
           [["seguro", false], ["dudo", true], ["adiviné", false]].map(([t, on], i) => box(48 + i * 196, 520, 176, 60, t, { stroke: on ? C.amber : C.line, fill: on ? C.amberS : "#ffffff", color: on ? C.amber : C.slate, size: 24, rx: 30 })).join("")) +
         step(2, line(680, 340, 840, 340, { color: C.green }) + packet(722, 300, C.green, 64, 42) + gear(930, 340, 70) + txt(930, 458, "tutor", { color: C.blue }) + lbl(930, 494, "lee respuesta y razonamiento")) +

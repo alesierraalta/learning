@@ -187,14 +187,18 @@
         choices.push(radio);
       }
       if (result) {
-        if (result.entendi) field.append(element("p", `Entendiste: ${result.entendi}`, "muted"));
-        if (result.porque) field.append(element("p", `Por qué: ${result.porque}`, "muted"));
+        if (result.razonamiento) field.append(element("p", `Cómo lo pensé: ${result.razonamiento}`, "muted"));
+        else {
+          if (result.entendi) field.append(element("p", `Entendiste: ${result.entendi}`, "muted"));
+          if (result.porque) field.append(element("p", `Por qué: ${result.porque}`, "muted"));
+        }
         if (CONFIDENCE[result.confianza]) field.append(element("p", `Confianza: ${CONFIDENCE[result.confianza]}`, "muted"));
         showResult(field, result, question);
       }
       if (!readonly) {
-        const entendi = textarea(field, "¿Qué entendiste que te pide la pregunta?");
-        const porque = textarea(field, "¿Por qué llegaste a esa opción?");
+        const thought = window.learningThoughtField(`question-${index}`, index, data);
+        field.append(thought);
+        const razonamiento = thought.querySelector('textarea');
         const confidence = element("div", undefined, "confidence");
         confidence.append(element("span", "¿Qué tan seguro estás?"));
         const sure = Object.entries(CONFIDENCE).map(([value, text]) => {
@@ -208,7 +212,7 @@
           return radio;
         });
         field.append(confidence);
-        pending.push({ question, field, choices, entendi, porque, sure });
+        pending.push({ question, field, choices, razonamiento, sure });
       }
       container.append(field);
     }
@@ -229,13 +233,6 @@
           missing.choices[0]?.focus();
           return;
         }
-        const unexplained = pending.find((item) => !item.entendi.value.trim() || !item.porque.value.trim());
-        if (unexplained) {
-          message.className = "error";
-          message.textContent = "Explica en cada pregunta qué entendiste y por qué elegiste tu opción.";
-          (unexplained.entendi.value.trim() ? unexplained.porque : unexplained.entendi).focus();
-          return;
-        }
         const unsure = pending.find((item) => !item.sure.some((input) => input.checked));
         if (unsure) {
           message.className = "error";
@@ -248,8 +245,7 @@
           pending.map((item) => [
             item.question.id,
             {
-              entendi: item.entendi.value.trim(),
-              porque: item.porque.value.trim(),
+              razonamiento: item.razonamiento.value.trim(),
               confianza: item.sure.find((input) => input.checked).value,
             },
           ]),
