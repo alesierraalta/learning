@@ -567,7 +567,8 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
       return response;
     };
     try {
-      const uploaded = await (await call(`${jobs}?filename=dictado.${ext}`, { method: "PUT", body: Buffer.concat(chunks) })).json();
+      // Dictation is one voice: speaker diarization would prefix every line with "Speaker N:".
+      const uploaded = await (await call(`${jobs}?filename=dictado.${ext}&diarize=false`, { method: "PUT", body: Buffer.concat(chunks) })).json();
       if (typeof uploaded.id !== "string" || !uploaded.id) throw new Error("missing job");
       job = `${jobs}/${encodeURIComponent(uploaded.id)}`;
       while (true) {
@@ -606,6 +607,7 @@ ${scripts}
 <body>
 <main id="app"></main>
 <script type="application/json" id="view-data">${json}</script>
+<script src="${prefix}kit/dictate.js"></script>
 <script src="${prefix}app.js"></script>
 </body>
 </html>
@@ -641,7 +643,7 @@ ${scripts}
       part: partId,
       video: `file/${partVideo(plan, partId).split("/").map(encodeURIComponent).join("/")}`,
     }).replace(/</g, "\\u003c");
-    return `<script>window.LEARNING_BRIDGE = ${json};</script>`;
+    return `<script>window.LEARNING_BRIDGE = ${json};</script><script src="/${token}/kit/dictate.js"></script>`;
   };
 
   const partPage = (res: ServerResponse, topic: string, partId: string) => {

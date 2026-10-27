@@ -115,6 +115,12 @@ A page with a walkthrough must load the drawing vocabulary first, because `kit.j
 Highlights (`dashed`) are painted after sheets and boxes and before labels, so a highlight that
 must not hide what it marks needs `"fill": "none"`.
 
+Both rich quizzes and plain part/diagnosis quizzes share `kit/dictate.js`:
+«Cómo lo pensé (opcional)», its hint and «Dictar» button. The bridge loads it
+before either client; standalone kit pages load it automatically beside `kit.js`.
+Plain quizzes still require confidence, but never require reasoning; saved legacy
+answers retain their old explanation when no `razonamiento` is present.
+
 `lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
 the learner drains what they are thinking, typed or dictated with the microphone button — and
 `confianza` (`seguro`, `dudo`, `adivine`) are optional extras that show the tutor how the learner

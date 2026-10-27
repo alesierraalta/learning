@@ -1,6 +1,12 @@
 :root { --paper: #ffffff; --ink: #0f172a; --rule: #e2e8f0; --cobalt: #2563eb; --emerald: #059669; --amber: #d97706; --crimson: #dc2626; --sans: "DejaVu Sans", Arial, sans-serif; --mono: "DejaVu Sans Mono", Consolas, monospace; color-scheme: light; font-family: var(--sans); font-size: 19px; color: var(--ink); background: var(--paper); line-height: 1.65; }
 * { box-sizing: border-box; }
 body { margin: 0; }
+.lk-thought { margin-block: 24px; }
+.lk-thought-label, .lk-thought-hint { display: block; }
+.lk-thought-label { font-weight: 700; }
+.lk-thought-hint, .lk-mic-note { font-size: .8rem; color: #475569; }
+.lk-thought-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.lk-mic[data-state="listening"] { background: var(--crimson); }
 textarea.code-editor { font-family: var(--mono); font-size: .8rem; line-height: 1.5; tab-size: 4; white-space: pre; overflow: auto; }
 .code-results pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; }
 .code-results { border-left: 3px solid var(--cobalt); padding-left: 18px; margin-block: 24px; }

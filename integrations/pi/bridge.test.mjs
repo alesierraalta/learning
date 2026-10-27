@@ -15,6 +15,56 @@ import { loadRunners } from "./coderun.ts";
 
 const TOPIC = "sql-demo";
 
+let playwright;
+for (const id of [process.env.PLAYWRIGHT_MODULE, 'playwright', '/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs'].filter(Boolean)) {
+  try { playwright = await import(id); break; } catch {}
+}
+test('plain part and diagnosis share optional dictable reasoning', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { view, topic } = await setup({ transcriber: { url: 'http://127.0.0.1:1', token: 'never-in-page' } });
+  const browser = await playwright.chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.route('**/api/transcribe', route => route.fulfill({ json: { text: 'Mi razonamiento dictado' } }));
+  for (const part of ['p1', 'quiz']) {
+    const result = await view({ topic: TOPIC, part });
+    await page.goto(result.structuredContent.url);
+    assert.equal(await page.getByText('¿Qué entendiste que te pide la pregunta?').count(), 0);
+    assert.equal(await page.getByText('¿Por qué llegaste a esa opción?').count(), 0);
+    const fields = page.locator('fieldset.quiz-question').filter({ has: page.locator('input[type=radio]:not(:disabled)') });
+    assert.ok(await fields.count() > 0);
+    assert.equal(await fields.locator('textarea').count(), await fields.count());
+    const mic = fields.first().getByRole('button', { name: /Dictar/ });
+    await mic.click();
+    await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Detener');
+    await page.waitForTimeout(300);
+    await mic.click();
+    await page.waitForFunction(() => document.querySelector('fieldset textarea')?.value === 'Mi razonamiento dictado');
+    assert.equal(await fields.first().getByLabel('Cómo lo pensé (opcional)').inputValue(), 'Mi razonamiento dictado');
+    if (part === 'p1') {
+      for (const field of await fields.all()) {
+        await field.locator('input[type=radio]').first().check();
+      }
+      await page.getByRole('button', { name: 'Enviar al tutor' }).click();
+      await page.getByText('Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.').waitFor();
+      for (const field of await fields.all()) await field.locator('.confidence input').first().check();
+      const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
+      const received = page.waitForResponse(response => response.url().endsWith('/submit'));
+      await page.getByRole('button', { name: 'Enviar al tutor' }).click();
+      const payload = (await sent).postDataJSON();
+      assert.equal((await received).status(), 200);
+      const reasoning = Object.values(payload.reasoning);
+      assert.deepEqual(reasoning[0], { razonamiento: 'Mi razonamiento dictado', confianza: 'seguro' });
+      assert.ok(reasoning.slice(1).every(value => value.razonamiento === '' && value.confianza === 'seguro'));
+      const stored = JSON.parse(readFileSync(join(topic, 'mini-quiz', 'p1.answers.json'), 'utf8'));
+      assert.deepEqual(stored.razonamientos, Object.fromEntries(Object.entries(payload.reasoning).filter(([, value]) => value.razonamiento)));
+      assert.equal(Object.keys(stored.answers).length, reasoning.length);
+    }
+  }
+  const asset = await http(base(await view({ topic: TOPIC, part: 'p1' })) + 'kit/dictate.js');
+  assert.equal(asset.status, 200);
+  assert.match(asset.headers['content-type'], /javascript/);
+});
+
 test("dictation uploads audio privately, rejects invalid input and deletes failed jobs", async (t) => {
   const seen = []; let failed = false; let polls = 0;
   const fake = httpServer(async (req, res) => {
@@ -35,7 +85,7 @@ test("dictation uploads audio privately, rejects invalid input and deletes faile
   assert.equal(response.status, 200);
   assert.deepEqual(JSON.parse(response.body), { text: "hola mundo" });
   assert.equal(seen[0].auth, "Bearer private-transcriber-token");
-  assert.equal(seen[0].url, "/api/jobs?filename=dictado.webm");
+  assert.equal(seen[0].url, "/api/jobs?filename=dictado.webm&diarize=false", "dictation is one voice: no speaker labels");
   assert.deepEqual(seen[0].body, audio);
   assert.equal(seen.at(-1).method, "DELETE");
   const count = seen.length;

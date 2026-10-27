@@ -23,8 +23,9 @@ test('recorded dictation uploads audio and appends the transcript', { skip: !pla
       return route.fulfill({ json: { text: 'hola mundo' } });
     }
     if (path === '/quiz') return route.fulfill({ json: { questions: [{ id: 'q1', stem: 'Pregunta', options: { a: 'A' } }] } });
+    if (path === '/dictate.js') return route.fulfill({ contentType: 'text/javascript', body: readFileSync(join(KIT, 'dictate.js'), 'utf8') });
     if (path === '/kit.js') return route.fulfill({ contentType: 'text/javascript', body: readFileSync(join(KIT, 'kit.js'), 'utf8') });
-    return route.fulfill({ contentType: 'text/html', body: '<script>window.LEARNING_BRIDGE={quizUrl:"/quiz",transcribeUrl:"/audio"}</script><script src="/kit.js"></script><lk-quiz></lk-quiz>' });
+    return route.fulfill({ contentType: 'text/html', body: '<script>window.LEARNING_BRIDGE={quizUrl:"/quiz",transcribeUrl:"/audio"}</script><script src="/dictate.js"></script><script src="/kit.js"></script><lk-quiz></lk-quiz>' });
   });
   await page.goto('http://localhost:45678/');
   const mic = page.getByRole('button', { name: 'Dictar el razonamiento' });
