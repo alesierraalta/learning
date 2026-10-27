@@ -39,7 +39,7 @@ requested visuals is a defect the engine must catch, not a style preference.
 
 - T6 (S1, S2, S3) [done]: engine counts visuals, enforces minVisuals + M1;
   fixture explanations carry two guided visuals; dead code (`hasVisual`,
-  `howToReadFollows`) removed. 181 Go tests pass.
+  `howToReadFollows`) removed. 181 Go tests pass. Commit 879bcc8.
 - T7 (S2) [done]: real run — production binary + `rules/deep.json` on a
   `mktemp -d` workspace, 10/10 scenarios (zero/one visual blocked, broken
   guide pinned, two guided visuals certified); docs/engine.md checks table,
@@ -54,6 +54,8 @@ requested visuals is a defect the engine must catch, not a style preference.
   row, "Demo components" paragraph, plan.json example); skill refs
   (learning-validation.md "Mini demos interactivas" section,
   metodo-explicame.md plan + metrics bullets); memory mirror updated.
+- T10 (S1-S3) [done]: shipped to `main` and deployed on the VPS via CI
+  (feature commit 879bcc8; fullscreen fix 95b8c50).
 
 ## Log
 
