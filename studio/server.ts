@@ -368,6 +368,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Estudio — Learnings</title>
+<link rel="icon" href="/${token}/favicon.svg" type="image/svg+xml">
 ${FONT_STYLESHEETS.map(([href, sri]) => `<link rel="stylesheet" href="${href}" integrity="${sri}" crossorigin="anonymous">`).join("\n")}
 <link rel="stylesheet" href="/${token}/studio.css">
 ${scripts}
@@ -516,6 +517,9 @@ ${scripts}
         return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(HERE, "..", "integrations", "pi", "kit", "scene.js")));
       case "studio.css":
         return send(res, 200, "text/css; charset=utf-8", readFileSync(join(UI_DIR, "studio.css")));
+      case "favicon.svg":
+        // The same mark the reader serves, so both surfaces share one icon file.
+        return send(res, 200, "image/svg+xml", readFileSync(join(HERE, "..", "integrations", "pi", "view", "favicon.svg")), { "cache-control": "public, max-age=3600" });
       case "events":
         return events(res);
       case "api/library":

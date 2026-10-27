@@ -655,6 +655,7 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapedTitle}</title>
+<link rel="icon" href="${prefix}favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="${prefix}app.css">
 ${scripts}
 </head>
@@ -1038,8 +1039,8 @@ ${scripts}
     if (rest.length === 0) return indexPage(res);
     if (rest[0] === "kit" && rest.length >= 2) return kitFile(res, rest.slice(1).join("/"));
     if (rest.length === 2 && rest[0] === "api" && rest[1] === "quiz") return quizApi(res, url);
-    if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css")) {
-      return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])));
+    if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css" || rest[0] === "favicon.svg")) {
+      return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])), { "cache-control": "public, max-age=3600" });
     }
     const [topic, second, ...more] = rest;
     if (second === undefined) return topicPage(res, topic);
