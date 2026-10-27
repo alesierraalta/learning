@@ -14,6 +14,16 @@ estudio --no-open  # print the URL only
 `node studio/server.ts` is the same without the engine rebuild. `LEARNING_ROOT`
 overrides the Learnings folder. Ctrl+C stops the studio and its Pi.
 
+## Wide reading mode
+
+Every part page carries a **Modo ancho** toggle in its top-right corner. Off by
+default: the reader keeps one narrow column. Switched on, on a screen at least
+1080px wide, the prose spreads into two columns, headings, tables, code and the
+app button span both, and the page uses up to 1400px of the monitor. The choice is
+remembered per browser, so it survives a reload and a studio restart; below 1080px
+the text stays in one column even with the mode on. Interactive apps and the
+mini-quiz are not affected: only the explanation text is a reading surface.
+
 ## HTTPS reverse proxy
 
 For HTTPS on a private network through a TLS reverse proxy (the VPS uses Caddy on

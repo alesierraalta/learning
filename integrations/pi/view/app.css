@@ -94,3 +94,20 @@ textarea:disabled { background: #f8fafc; }
 .verdict-dudoso { border-left-color: #d97706; }
 .verdict-laguna { border-left-color: #dc2626; background: #fef2f2; }
 @media (max-width: 520px) { #app { padding: 24px 16px 56px; } h1 { font-size: 1.8rem; } .quiz-question { padding: 12px; } iframe { height: 360px; } }
+
+/* Wide reading mode: opt-in, for horizontal screens. The default reader keeps one
+   narrow column; this one spreads the prose into two so a monitor is used. */
+.reading-toggle { position: fixed; top: 14px; right: 14px; z-index: 20; display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; border: 1px solid #cbd5e1; border-radius: 999px; background: rgba(255, 255, 255, .94); color: #334155; font: 600 12.5px/1 var(--sans); cursor: pointer; box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
+.reading-toggle:hover { border-color: #2563eb; color: #2563eb; }
+.reading-toggle:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.reading-toggle[aria-pressed="true"] { background: #2563eb; border-color: #2563eb; color: #fff; }
+.reading-toggle .mark { font-size: 14px; line-height: 1; }
+@media (max-width: 899px) { .reading-toggle { top: auto; bottom: 16px; } }
+body.wide #app { max-width: min(1400px, 94vw); }
+@media (min-width: 1080px) {
+  body.wide .prose { column-count: 2; column-gap: 64px; }
+  body.wide .prose > * { break-inside: avoid; }
+  body.wide .prose > h1, body.wide .prose > h2, body.wide .prose > table, body.wide .prose > pre,
+  body.wide .prose > iframe, body.wide .prose > .part-kicker, body.wide .prose > .app-launch { column-span: all; }
+  body.wide .prose > h1 { max-width: 30em; }
+}

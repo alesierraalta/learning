@@ -20,6 +20,40 @@
     node.href = href;
     return node;
   };
+  // Wide reading mode: an opt-in layout for horizontal screens. The default reader
+  // keeps one narrow column; this one spreads the prose into two so a monitor is used.
+  const WIDE_KEY = "learnings.wide-reading";
+  const storedWide = () => {
+    try {
+      return localStorage.getItem(WIDE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  };
+  const setWide = (wide, remember = true) => {
+    document.body.classList.toggle("wide", wide);
+    if (!remember) return;
+    try {
+      if (wide) localStorage.setItem(WIDE_KEY, "1");
+      else localStorage.removeItem(WIDE_KEY);
+    } catch {
+      // A frame without storage keeps the choice for this page only.
+    }
+  };
+  const readingToggle = () => {
+    const button = element("button", undefined, "reading-toggle");
+    button.type = "button";
+    button.title = "Leer en dos columnas, para pantallas horizontales";
+    const mark = element("span", "▭▭", "mark");
+    const pressed = () => String(document.body.classList.contains("wide"));
+    button.setAttribute("aria-pressed", pressed());
+    button.append(mark, element("span", "Modo ancho"));
+    button.addEventListener("click", () => {
+      setWide(!document.body.classList.contains("wide"));
+      button.setAttribute("aria-pressed", pressed());
+    });
+    app.append(button);
+  };
   const markdown = (text, inline = false) => {
     const node = element(inline ? "span" : "div");
     node.innerHTML = DOMPurify.sanitize(inline ? marked.parseInline(text) : marked.parse(text), {
@@ -424,6 +458,8 @@
     }
     app.append(article);
     decorate(article);
+    setWide(storedWide(), false);
+    readingToggle();
   }
   exerciseLinks();
   const frames = [];
