@@ -21,6 +21,12 @@ if ! git -C "$repo" diff --quiet || ! git -C "$repo" diff --cached --quiet; then
 fi
 
 git -C "$repo" pull --ff-only
+# The fast-forward may have replaced this script. Re-exec so the deploy runs
+# the version it just pulled instead of the one loaded at start-up.
+if [[ "${LEARNING_UPDATE_REEXEC:-0}" != 1 ]]; then
+  echo 'Re-executing the updated deploy script' >&2
+  exec env LEARNING_UPDATE_REEXEC=1 bash "$repo/deploy/vps/update.sh"
+fi
 commit=$(git -C "$repo" rev-parse --short HEAD)
 echo "Deploying $repo at $commit"
 
