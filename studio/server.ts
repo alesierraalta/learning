@@ -574,6 +574,12 @@ ${scripts}
   };
 }
 
+/** The URL a person should open: the first configured public origin, else the loopback entry. */
+export function entryUrl(publicOrigin: string | undefined, port: number): string {
+  const origins = parsePublicOrigins("publicOrigin", publicOrigin);
+  return `${origins?.[0]?.origin ?? `http://127.0.0.1:${port}`}/`;
+}
+
 /** `node studio/server.ts` starts the studio and opens it in the Windows browser (WSL). */
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const publicOrigin = process.env.STUDIO_PUBLIC_ORIGIN;
@@ -586,7 +592,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     bridgePublicOrigin: process.env.STUDIO_BRIDGE_PUBLIC_ORIGIN,
     bridgePort: process.env.STUDIO_BRIDGE_PORT === undefined ? undefined : Number(process.env.STUDIO_BRIDGE_PORT),
   });
-  const entry = `${publicUrl?.origin ?? `http://127.0.0.1:${studio.port}`}/`;
+  const entry = entryUrl(publicOrigin, studio.port);
   console.log(`Estudio: ${entry}`);
   if (publicOrigin === undefined && !process.argv.includes("--no-open")) {
     spawn("cmd.exe", ["/c", "start", "", entry], { cwd: "/mnt/c", stdio: "ignore", detached: true }).on("error", () => {});

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { startStudio } from "./server.ts";
+import { entryUrl, startStudio } from "./server.ts";
 import { makeRoot } from "./testdata/root.mjs";
 
 test('configured studio bridge reaches the transcriber from its framed origin', async t => {
@@ -182,6 +182,11 @@ test("a second public studio origin is authorized while the first stays canonica
   }
   assert.ok(received().some((c) => c.type === "prompt" && c.message === `desde ${fallback}`));
   assert.equal((await post(studio, "prompt", { text: "forbidden" }, { origin: "https://evil.example" })).status, 403);
+});
+
+test("the entry URL a person opens is the first configured origin", () => {
+  assert.equal(entryUrl(undefined, 4747), "http://127.0.0.1:4747/");
+  assert.equal(entryUrl("https://learnings.infra.local,https://10.154.59.151:8445", 4747), "https://learnings.infra.local/");
 });
 
 test("public studio origins must be configured together", async () => {
