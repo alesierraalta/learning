@@ -111,6 +111,7 @@ interface PlanPart {
   id: string;
   title: string;
   slug: string;
+  visualsPlanned?: boolean;
 }
 interface Question {
   id: string;
@@ -425,6 +426,17 @@ export interface PartSummary {
   hasApp: boolean;
   hasQuiz: boolean;
   answered: boolean;
+  /** Figures in the written note: fenced visual blocks plus inline visual elements. */
+  visuals: number;
+}
+/** What a topic still owes, so a half-written topic cannot look finished. */
+export interface TopicGaps {
+  /** Planned parts the vault never wrote, in plan order. */
+  missing: string[];
+  /** Written parts whose plan promised visuals and whose note carries none. */
+  noVisuals: string[];
+  /** Written parts with no mini-quiz. */
+  noQuiz: string[];
 }
 export interface TopicSummary {
   id: string;
@@ -432,7 +444,29 @@ export interface TopicSummary {
   hasDiagnosis: boolean;
   parts: PartSummary[];
   exercises: { id: string; titulo: string; lenguaje: string; mejor: string | null }[];
+  gaps: TopicGaps;
 }
+
+/**
+ * Fenced languages and inline elements that render as a figure, mirroring the
+ * engine's default visualBlocks/visualElements. A plan that promised visuals and
+ * a note that carries none is a gap to report, not a formatting preference.
+ */
+const VISUAL_BLOCKS = new Set(["mermaid", "svg", "graphviz", "dot", "plantuml"]);
+const VISUAL_ELEMENTS = /<\s*(?:svg|figure|canvas)\b/gi;
+
+export function countVisuals(markdown: string): number {
+  let fenced = 0;
+  // Strip every fenced block first: an <svg> inside a ```text sample is a sample, not a figure.
+  const outside = markdown.replace(/^```[^\n]*\n[\s\S]*?^```[ \t]*$/gm, (block) => {
+    const language = /^```[ \t]*([A-Za-z0-9_+-]+)/.exec(block)?.[1]?.toLowerCase();
+    if (language !== undefined && VISUAL_BLOCKS.has(language)) fenced += 1;
+    return "";
+  });
+  return fenced + (outside.match(VISUAL_ELEMENTS)?.length ?? 0);
+}
+
+const EMPTY_GAPS: TopicGaps = { missing: [], noVisuals: [], noQuiz: [] };
 
 /** Every topic folder with a plan.json under the Learnings root, with its parts as the vault holds them. */
 export function listTopics(rootReal: string, runners = loadRunners()): TopicSummary[] {
@@ -452,19 +486,30 @@ export function listTopics(rootReal: string, runners = loadRunners()): TopicSumm
         const exercises = listExercises(dir, runners).map(({ id, titulo, lenguaje, mejor }) => ({ id, titulo, lenguaje, mejor }));
         const parts = (plan?.parts ?? []).map((p) => {
           const rich = richPage(dir, plan!, p.id) !== undefined;
+          const note = partNote(dir, plan!, p.id);
           return {
             id: p.id,
             title: p.title,
-            written: rich || partNote(dir, plan!, p.id) !== undefined,
+            written: rich || note !== undefined,
             rich,
             hasApp: partApp(dir, p.id) !== undefined,
             hasQuiz: existsSync(join(dir, "mini-quiz", `${p.id}.json`)),
             answered: existsSync(join(dir, "mini-quiz", `${p.id}.answers.json`)),
+            visuals: note === undefined ? 0 : countVisuals(readFileSync(note, "utf8")),
           };
         });
-        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts, exercises }];
+        const gaps: TopicGaps = {
+          missing: parts.filter((p) => !p.written).map((p) => p.id),
+          noVisuals: (plan?.parts ?? [])
+            .filter((p) => p.visualsPlanned === true)
+            .map((p) => parts.find((s) => s.id === p.id))
+            .filter((s): s is PartSummary => s !== undefined && s.written && s.visuals === 0)
+            .map((s) => s.id),
+          noQuiz: parts.filter((p) => p.written && !p.hasQuiz).map((p) => p.id),
+        };
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts, exercises, gaps }];
       } catch {
-        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: false, parts: [], exercises: [] }];
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: false, parts: [], exercises: [], gaps: EMPTY_GAPS }];
       }
     });
 }

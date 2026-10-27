@@ -9,7 +9,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { registerBridge, listTopics } from "./bridge.ts";
+import { countVisuals, registerBridge, listTopics } from "./bridge.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { loadRunners } from "./coderun.ts";
 
@@ -982,4 +982,37 @@ test("the index degrades one broken topic instead of failing the gallery", () =>
   assert.deepEqual(bomb.parts, []);
   assert.deepEqual(bomb.exercises, []);
   assert.ok(rows.find((r) => r.id === TOPIC).parts.length > 0);
+});
+
+test("visuals count fenced figures and inline elements, never code samples", () => {
+  assert.equal(countVisuals("```python\nprint(1)\n```\n"), 0);
+  assert.equal(countVisuals("```mermaid\ngraph TD; A-->B;\n```\n"), 1);
+  assert.equal(countVisuals("<figure><svg viewBox='0 0 1 1'></svg></figure>"), 2);
+  assert.equal(countVisuals("```text\n<svg>\n```\n"), 0, "a sample is not a figure");
+  assert.equal(countVisuals("```js\nconst a = 1;\n```\n\n```mermaid\ngraph TD;\n```\n"), 1);
+});
+
+test("a topic reports what it still owes: missing parts, promised visuals and missing quiz", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "gaps-")));
+  const topic = join(root, "tema");
+  mkdirSync(join(topic, "explicaciones"), { recursive: true });
+  mkdirSync(join(topic, "mini-quiz"), { recursive: true });
+  writeFileSync(
+    join(topic, "plan.json"),
+    JSON.stringify({
+      topic: "Tema",
+      parts: [
+        { id: "p1", title: "Uno", slug: "Uno", visualsPlanned: true },
+        { id: "p2", title: "Dos", slug: "Dos", visualsPlanned: true },
+        { id: "p3", title: "Tres", slug: "Tres" },
+      ],
+    }),
+  );
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Uno.md"), "# Uno\n\nSolo texto, ninguna figura.\n");
+  writeFileSync(join(topic, "explicaciones", "Parte 2 - Dos.md"), "# Dos\n\n```mermaid\ngraph TD; A-->B;\n```\n");
+  writeFileSync(join(topic, "mini-quiz", "p2.json"), JSON.stringify({ questions: [] }));
+
+  const [summary] = listTopics(root);
+  assert.deepEqual(summary.gaps, { missing: ["p3"], noVisuals: ["p1"], noQuiz: ["p1"] });
+  assert.deepEqual(summary.parts.map((p) => p.visuals), [0, 1, 0]);
 });

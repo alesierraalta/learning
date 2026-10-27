@@ -109,3 +109,20 @@ test("the reading sheet may use the microphone for dictation", { skip: browser ?
   assert.notEqual(new URL(frame.url()).origin, new URL(studio.url).origin, "the sheet is served cross-origin");
   assert.equal(await frame.evaluate(() => document.featurePolicy.allowsFeature("microphone")), true);
 });
+
+test("a topic that still owes parts says so instead of looking finished", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+
+  await topicPage(page, studio, 1280);
+  const banner = await page.locator(".empty", { hasText: "faltan" }).first().textContent();
+  assert.match(banner, /El plan tiene 2 partes y 1 escrita: faltan 1 \(p2\)/);
+  assert.equal(await page.locator(".empty button", { hasText: "Pedir las que faltan" }).count(), 1);
+
+  const written = await page.locator("li.part-row", { hasText: "Capas" }).first().textContent();
+  assert.match(written, /sin mini-quiz/, "a written part still says what it owes");
+});
