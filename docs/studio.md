@@ -74,6 +74,27 @@ Microphone capture requires HTTPS remotely (loopback HTTP still works).
   parts, quick notes), viewer, and tutor panel (streamed text, tool activity,
   dialogs, input, stop, new conversation, restart).
 
+## Deleting a note
+
+Every note can be deleted from the studio: a quick note or a part from the
+reader's **Borrar**, and a whole topic from **Borrar el tema** on its page. The
+confirmation names exactly what leaves, and nothing is destroyed:
+
+- what moves lands in `<vault>/.papelera/<stamp>__<kind>__<label>/`, keeping its
+  vault-relative paths (`explicaciones/Parte 2 - ….md`, `mini-quiz/p2.json`, …);
+- a `papelera.json` manifest records the kind, the ids, the moment and every path
+  that moved, so putting it back is a `mv` to the recorded path;
+- deleting a part also drops its entry from `plan.json`, and the manifest keeps
+  the removed entry (`planPart`) so the plan can be rebuilt by hand;
+- a part takes its whole footprint with it: note, rich page, app, demos,
+  attachments (its video) and mini-quiz.
+
+The trash is a dotted folder, so the library and the engine ignore it; the vault
+backup (`git add -A`) keeps deleted notes in its history as well. Only paths
+inside the vault are deletable: ids are validated, symbolic links and the
+reserved folders (`.papelera`, `rapidos`) are refused, and a refused delete moves
+nothing.
+
 ## Design and tutorial
 
 The UI uses the visual language of the Learnings slides

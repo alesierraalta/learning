@@ -17,7 +17,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CDN_SCRIPTS, listTopics, parsePublicOrigins, registerBridge } from "../integrations/pi/bridge.ts";
+import { CDN_SCRIPTS, deleteNote, listTopics, parsePublicOrigins, registerBridge, type DeleteResult } from "../integrations/pi/bridge.ts";
 import { resolveContained } from "../integrations/pi/paths.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -447,6 +447,20 @@ ${scripts}
       case "abort":
         await call({ type: "abort" }, 60000);
         break;
+      case "delete": {
+        const kind = body.kind;
+        if (kind !== "topic" && kind !== "part" && kind !== "quick") throw new HttpError(400, "kind must be topic, part or quick");
+        const text = (value: unknown) => (typeof value === "string" ? value : undefined);
+        let result: DeleteResult;
+        try {
+          result = deleteNote(root, { kind, topic: text(body.topic), part: text(body.part), quick: text(body.quick) });
+        } catch (err) {
+          // The bridge owns the vault rules, so its status is the answer and never a 500.
+          throw err instanceof HttpError ? err : new HttpError(Number((err as { status?: number }).status) || 500, (err as Error).message);
+        }
+        emit("library_changed", {});
+        return sendJson(res, 200, { ok: true, ...result });
+      }
       case "new-session": {
         const reply = await call({ type: "new_session" });
         if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused a new session"));

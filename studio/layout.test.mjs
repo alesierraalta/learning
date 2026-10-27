@@ -3,6 +3,7 @@
 // scrolling compose. Geometry is asserted, not eyeballed.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -125,4 +126,41 @@ test("a topic that still owes parts says so instead of looking finished", { skip
 
   const written = await page.locator("li.part-row", { hasText: "Capas" }).first().textContent();
   assert.match(written, /sin mini-quiz/, "a written part still says what it owes");
+});
+
+// Deleting is a promise kept: the note leaves the library only after the learner
+// confirms it by name, and what leaves stays in the vault's trash.
+test("deleting a note asks first, names it, and refreshes the library", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("estudio.tutorial", "visto");
+    } catch {
+      /* private mode */
+    }
+  });
+  await topicPage(page, studio, 1280);
+  const remove = page.getByRole("button", { name: "Borrar el tema" });
+  await remove.click();
+  const dialog = page.getByRole("dialog");
+  assert.match(await dialog.innerText(), /¿Mover «Redes» a la papelera\?/, "the dialog names the topic it will move");
+
+  await page.getByRole("button", { name: "Cancelar" }).click();
+  assert.equal(await dialog.count(), 0, "cancelling closes the dialog");
+  assert.ok(existsSync(join(root, "redes")), "cancelling leaves the topic in place");
+
+  await remove.click();
+  await page.getByRole("button", { name: "Mover a la papelera" }).click();
+  await page.getByText("«Redes» está en la papelera").waitFor({ timeout: 5000 });
+  await page.waitForFunction(() => !document.body.innerText.includes("Redes"), null, { timeout: 5000 });
+  assert.equal(existsSync(join(root, "redes")), false, "the topic left the vault");
+  const trash = readdirSync(join(root, ".papelera"));
+  assert.equal(trash.length, 1, "it waits in the trash");
+  assert.equal(existsSync(join(root, ".papelera", trash[0], "redes", "plan.json")), true, "with its plan intact");
 });

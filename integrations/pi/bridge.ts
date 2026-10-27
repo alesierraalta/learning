@@ -13,7 +13,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { createReadStream, existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -310,6 +310,127 @@ function partDemos(topicDir: string, partId: string): string[] {
     .filter((name) => name.startsWith(`${partId}-`) && name.endsWith(".html"))
     .sort()
     .map((name) => `file/explicaciones/demos/${name}`);
+}
+
+/** Deleted notes leave the library but never the vault: they wait in `.papelera/`, restorable by hand. */
+const TRASH_DIR = ".papelera";
+/** Folders the vault needs: a topic is a content folder, never the trash or the quick notes. */
+const RESERVED_DIRS = new Set([TRASH_DIR, "rapidos"]);
+
+/** Every file a part owns: note, rich page, app, demos, attachments and mini-quiz. */
+function partFiles(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string[] {
+  const index = plan.parts.findIndex((p) => p.id === partId);
+  if (index < 0) return [];
+  const files = [partNote(topicDir, plan, partId), richPage(topicDir, plan, partId), partApp(topicDir, partId)];
+  const demos = join(topicDir, "explicaciones", "demos");
+  if (existsSync(demos)) {
+    for (const name of readdirSync(demos)) if (name.startsWith(`${partId}-`) && name.endsWith(".html")) files.push(join(demos, name));
+  }
+  const attachments = join(topicDir, "explicaciones", "adjuntos");
+  if (existsSync(attachments)) {
+    const prefix = `Parte ${index + 1} - `;
+    for (const name of readdirSync(attachments)) if (name.startsWith(prefix)) files.push(join(attachments, name));
+  }
+  files.push(join(topicDir, "mini-quiz", `${partId}.json`));
+  return files.filter((file): file is string => typeof file === "string" && existsSync(file));
+}
+
+export type DeleteKind = "topic" | "part" | "quick";
+
+export interface DeleteTarget {
+  kind: DeleteKind;
+  /** Topic folder for `topic` and `part`. */
+  topic?: string;
+  /** Part id (`p1`, `p2`, ...) for `part`. */
+  part?: string;
+  /** Quick note id for `quick`. */
+  quick?: string;
+}
+
+export interface DeleteResult {
+  /** Vault-relative folder holding what was moved, e.g. `.papelera/2026-10-27T18-20-31__part__sql-demo-p1`. */
+  trash: string;
+  /** Vault-relative paths that moved, in the order they left. */
+  moved: string[];
+  /** The plan entry removed for a deleted part, so the plan can be rebuilt by hand. */
+  removedPart?: string;
+}
+
+/**
+ * Moves a note out of the library without destroying it: the files land in
+ * `.papelera/<stamp>__<kind>__<label>/` keeping their vault-relative paths, and a
+ * `papelera.json` manifest records what it was, where it came from and when.
+ * Deleting a part also drops its entry from `plan.json` (recorded in the manifest).
+ */
+export function deleteNote(root: string, target: DeleteTarget, now = new Date()): DeleteResult {
+  const rootReal = realpathSync(root);
+  const contained = (file: string): string => {
+    if (lstatSync(file).isSymbolicLink()) throw new HttpError(400, `refusing to move a symbolic link: ${relative(rootReal, file)}`);
+    const inside = resolveContained(rootReal, file);
+    if (!inside.ok) throw new HttpError(400, inside.reason);
+    if (inside.targetReal === rootReal) throw new HttpError(400, "refusing to move the Learnings root");
+    return inside.targetReal;
+  };
+
+  let label = "";
+  let files: string[] = [];
+  const detail: Record<string, unknown> = {};
+  let plan: { topic: string; parts: PlanPart[] } | undefined;
+  let removedPart: PlanPart | undefined;
+  if (target.kind === "quick") {
+    if (!safeTopic(target.quick)) throw new HttpError(400, "invalid quick note id");
+    label = target.quick;
+    detail.quick = target.quick;
+    const file = join(rootReal, "rapidos", `${target.quick}.md`);
+    if (existsSync(file)) files = [file];
+  } else if (target.kind === "topic") {
+    if (!safeTopic(target.topic) || RESERVED_DIRS.has(target.topic)) throw new HttpError(400, "invalid topic id");
+    label = target.topic;
+    detail.topic = target.topic;
+    const dir = join(rootReal, target.topic);
+    if (existsSync(dir)) files = [dir];
+  } else if (target.kind === "part") {
+    if (!safeTopic(target.topic) || RESERVED_DIRS.has(target.topic)) throw new HttpError(400, "invalid topic id");
+    if (!/^p\d+$/.test(String(target.part))) throw new HttpError(400, "invalid part id");
+    const topicDir = join(rootReal, target.topic);
+    // A malformed plan must abort before anything moves.
+    plan = readPlan(topicDir);
+    if (!plan) throw new HttpError(404, `topic ${target.topic} has no plan`);
+    removedPart = plan.parts.find((p) => p.id === target.part);
+    label = `${target.topic}-${target.part}`;
+    detail.topic = target.topic;
+    detail.part = target.part;
+    detail.planPart = removedPart ?? null;
+    files = partFiles(topicDir, plan, target.part);
+  } else {
+    throw new HttpError(400, "kind must be topic, part or quick");
+  }
+
+  const moving = files.map(contained);
+  if (moving.length === 0 && !removedPart) throw new HttpError(404, "nothing to delete");
+
+  const stamp = now.toISOString().replace(/[:.]/g, "-").replace(/Z$/, "");
+  const trashRel = join(TRASH_DIR, `${stamp}__${target.kind}__${label.replace(/[^\w.-]/g, "-")}`);
+  const trash = join(rootReal, trashRel);
+  const moved: string[] = [];
+  const manifest = { kind: target.kind, at: now.toISOString(), ...detail, moved };
+  mkdirSync(trash, { recursive: true });
+  // The intent is on disk before the first move: nothing can leave untraceable.
+  writeFileSync(join(trash, "papelera.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  for (const file of moving) {
+    const rel = relative(rootReal, file);
+    mkdirSync(dirname(join(trash, rel)), { recursive: true });
+    renameSync(file, join(trash, rel));
+    moved.push(rel);
+  }
+  if (plan && removedPart) {
+    const file = join(rootReal, target.topic!, "plan.json");
+    const record = readRecord(file) ?? {};
+    const parts = (Array.isArray(record.parts) ? record.parts : []).filter((p) => !(isRecord(p) && p.id === removedPart!.id));
+    writeFileSync(file, `${JSON.stringify({ ...record, parts }, null, 2)}\n`);
+  }
+  writeFileSync(join(trash, "papelera.json"), `${JSON.stringify({ ...manifest, moved }, null, 2)}\n`);
+  return { trash: trashRel, moved, ...(removedPart ? { removedPart: removedPart.id } : {}) };
 }
 
 const quote = (text: string) => `"""\n${text.trim()}\n"""`;
