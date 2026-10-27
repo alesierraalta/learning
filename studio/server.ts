@@ -43,6 +43,8 @@ export interface StudioOptions {
   publicOrigin?: string;
   bridgePublicOrigin?: string;
   bridgePort?: number;
+  transcriberUrl?: string;
+  transcriberToken?: string;
   enginePath?: string;
   rulesPath?: string;
 }
@@ -104,6 +106,9 @@ function toolLabel(name: string, args: unknown): string {
 }
 
 export async function startStudio(options: StudioOptions = {}): Promise<Studio> {
+  if ((options.transcriberUrl !== undefined) !== (options.transcriberToken !== undefined)) {
+    throw new Error("transcriberUrl and transcriberToken must be set together");
+  }
   if ((options.publicOrigin !== undefined) !== (options.bridgePublicOrigin !== undefined)) {
     throw new Error("publicOrigin and bridgePublicOrigin must be set together");
   }
@@ -543,7 +548,7 @@ ${scripts}
   });
   port = (server.address() as { port: number }).port;
 
-  registerBridge(fakePi as never, { root, port: options.bridgePort, publicOrigin: options.bridgePublicOrigin, publicEmbedder: options.publicOrigin, frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] });
+  registerBridge(fakePi as never, { root, transcriber: options.transcriberUrl === undefined ? undefined : { url: options.transcriberUrl, token: options.transcriberToken! }, port: options.bridgePort, publicOrigin: options.bridgePublicOrigin, publicEmbedder: options.publicOrigin, frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] });
   try {
     bridgeOrigin = new URL(String((await view()).base)).origin;
   } catch {
@@ -575,6 +580,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     root: process.env.LEARNING_ROOT?.trim() || undefined,
     port: Number(process.env.STUDIO_PORT) || 4747,
     publicOrigin,
+    transcriberUrl: process.env.STUDIO_TRANSCRIBER_URL,
+    transcriberToken: process.env.STUDIO_TRANSCRIBER_TOKEN,
     bridgePublicOrigin: process.env.STUDIO_BRIDGE_PUBLIC_ORIGIN,
     bridgePort: process.env.STUDIO_BRIDGE_PORT === undefined ? undefined : Number(process.env.STUDIO_BRIDGE_PORT),
   });

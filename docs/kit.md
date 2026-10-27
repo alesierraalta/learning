@@ -119,6 +119,10 @@ must not hide what it marks needs `"fill": "none"`.
 the learner drains what they are thinking, typed or dictated with the microphone button — and
 `confianza` (`seguro`, `dudo`, `adivine`) are optional extras that show the tutor how the learner
 reasons; leaving them empty never blocks grading. Own-words and exercise fields are optional too.
+When bridge config includes `transcribeUrl`, «Dictar» records browser audio and
+«Detener» uploads it for server-side transcription, showing «Transcribiendo…».
+The microphone needs HTTPS remotely; the server keeps the transcriber credential
+private. Without that URL the existing browser Web Speech dictation is unchanged.
 It displays server grading and restored read-only answers
 and concept verdicts. Never put answer keys in the page. Exercise instructions
 remain page-authored content. `lk-video` checks availability with HEAD and polls

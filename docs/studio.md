@@ -38,6 +38,16 @@ a taken studio port is an error, not a fallback: the proxy must not silently
 point at another process. With these options unset, loopback behavior is unchanged.
 Keep the proxy on a private network only: this app controls a local Pi agent, not a public service.
 
+## Dictation
+
+Set `STUDIO_TRANSCRIBER_URL` and `STUDIO_TRANSCRIBER_TOKEN` together to enable
+server-side transcription (for example `http://10.154.59.151:8765`). A partial
+configuration refuses startup. The token stays on the server, never in page config.
+«Dictar» records microphone audio; «Detener» uploads it (maximum 15 MiB), then
+«Transcribiendo…» waits for the transcript. Jobs are deleted after use; transcription
+has a 90-second deadline. Without these variables the existing Web Speech path remains.
+Microphone capture requires HTTPS remotely (loopback HTTP still works).
+
 ## What runs
 
 - `studio/server.ts` listens on 127.0.0.1 behind a per-run token and spawns

@@ -4,7 +4,7 @@ import { after, test } from "node:test";
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, existsSync, symlinkSync, writeFileSync } from "node:fs";
-import { request } from "node:http";
+import { request, createServer as httpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +14,51 @@ import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./
 import { loadRunners } from "./coderun.ts";
 
 const TOPIC = "sql-demo";
+
+test("dictation uploads audio privately, rejects invalid input and deletes failed jobs", async (t) => {
+  const seen = []; let failed = false; let polls = 0;
+  const fake = httpServer(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    seen.push({ method: req.method, url: req.url, auth: req.headers.authorization, body: Buffer.concat(chunks) });
+    if (req.method === "DELETE") { res.writeHead(204); return res.end(); }
+    res.setHeader("content-type", "application/json");
+    res.end(req.method === "PUT" ? JSON.stringify({ id: "job1" }) : req.url.endsWith("/txt") ? "hola mundo" : JSON.stringify({ status: failed ? "failed" : ["queued", "running", "done"][Math.min(polls++, 2)] }));
+  });
+  await new Promise(resolve => fake.listen(0, "127.0.0.1", resolve));
+  t.after(() => { fake.closeAllConnections(); fake.close(); });
+  const { view } = await setup({ transcriber: { url: `http://127.0.0.1:${fake.address().port}`, token: "private-transcriber-token" } });
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const endpoint = base(result) + "api/transcribe";
+  const headers = { origin: new URL(endpoint).origin, "content-type": "audio/webm" };
+  const audio = Buffer.from([0, 1, 2, 255]);
+  const response = await http(endpoint, { method: "POST", headers, body: audio });
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(response.body), { text: "hola mundo" });
+  assert.equal(seen[0].auth, "Bearer private-transcriber-token");
+  assert.equal(seen[0].url, "/api/jobs?filename=dictado.webm");
+  assert.deepEqual(seen[0].body, audio);
+  assert.equal(seen.at(-1).method, "DELETE");
+  const count = seen.length;
+  for (const [extra, body, status] of [[{ origin: "https://evil.example" }, audio, 403], [{ "content-type": "text/plain" }, audio, 415], [{}, "", 400], [{}, Buffer.alloc(15 * 1024 * 1024 + 1), 413]]) {
+    assert.equal((await http(endpoint, { method: "POST", headers: { ...headers, ...extra }, body })).status, status);
+    assert.equal(seen.length, count);
+  }
+  failed = true;
+  assert.equal((await http(endpoint, { method: "POST", headers, body: audio })).status, 502);
+  assert.equal(seen.at(-1).method, "DELETE");
+  const page = await http(result.structuredContent.url);
+  assert.doesNotMatch(page.body, /private-transcriber-token/);
+  assert.match(page.body, /transcribeUrl/);
+  const diagnosis = await view({ topic: TOPIC, part: 'quiz' });
+  assert.equal(diagnosis.isError, false);
+  const html = (await http(diagnosis.structuredContent.url)).body;
+  assert.match(html, /transcribeUrl/);
+  assert.doesNotMatch(html, /private-transcriber-token/);
+  const plain = await setup();
+  const other = await plain.view({ topic: TOPIC, part: "p1" });
+  assert.equal((await http(base(other) + "api/transcribe", { method: "POST", headers, body: audio })).status, 404);
+  assert.doesNotMatch((await http(other.structuredContent.url)).body, /transcribeUrl/);
+});
 
 test("public bridge origins preserve loopback access and constrain proxy requests", async () => {
   const reservation = createServer();

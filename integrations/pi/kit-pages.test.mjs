@@ -6,6 +6,37 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const KIT = join(import.meta.dirname, "kit");
+
+let playwright;
+for (const id of [process.env.PLAYWRIGHT_MODULE, 'playwright', '/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs'].filter(Boolean)) {
+  try { playwright = await import(id); break; } catch {}
+}
+test('recorded dictation uploads audio and appends the transcript', { skip: !playwright && 'playwright not installed' }, async t => {
+  const browser = await playwright.chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  let uploaded;
+  await page.route('http://localhost:45678/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/audio') {
+      uploaded = route.request();
+      return route.fulfill({ json: { text: 'hola mundo' } });
+    }
+    if (path === '/quiz') return route.fulfill({ json: { questions: [{ id: 'q1', stem: 'Pregunta', options: { a: 'A' } }] } });
+    if (path === '/kit.js') return route.fulfill({ contentType: 'text/javascript', body: readFileSync(join(KIT, 'kit.js'), 'utf8') });
+    return route.fulfill({ contentType: 'text/html', body: '<script>window.LEARNING_BRIDGE={quizUrl:"/quiz",transcribeUrl:"/audio"}</script><script src="/kit.js"></script><lk-quiz></lk-quiz>' });
+  });
+  await page.goto('http://localhost:45678/');
+  const mic = page.getByRole('button', { name: 'Dictar el razonamiento' });
+  await mic.click();
+  await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Detener');
+  await page.waitForTimeout(400);
+  await mic.click();
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.endsWith('hola mundo'));
+  assert.equal(await mic.textContent(), 'Dictar');
+  assert.match(uploaded.headers()['content-type'], /^audio\//);
+  assert.ok(uploaded.postDataBuffer().length > 0);
+});
 const pages = ["sql-parte-1.html", "sql-parte-2.html", "sql-parte-3.html"];
 
 const read = (name) => readFileSync(join(KIT, "examples", name), "utf8");

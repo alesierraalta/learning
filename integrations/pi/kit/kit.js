@@ -25,6 +25,47 @@
      speaking. Speech recognition is the browser's own, so nothing leaves the
      machine beyond the configured engine. */
   function dictate(area, button, note) {
+    if (config()?.transcribeUrl && navigator.mediaDevices?.getUserMedia && window.MediaRecorder) {
+      let recorder, stream;
+      button.addEventListener('click', async () => {
+        if (recorder?.state === 'recording') { recorder.stop(); return; }
+        button.disabled = true;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          recorder = new MediaRecorder(stream);
+          const chunks = [];
+          recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+          recorder.onstop = async () => {
+            stream.getTracks().forEach(track => track.stop());
+            button.disabled = true;
+            button.textContent = 'Transcribiendo…';
+            try {
+              const blob = new Blob(chunks, { type: recorder.mimeType });
+              const response = await fetch(config().transcribeUrl, { method: 'POST', headers: { 'content-type': blob.type }, body: blob });
+              const data = await response.json();
+              if (!response.ok) throw new Error(data.error || 'No se pudo transcribir el audio.');
+              area.value = [area.value.trim(), data.text.trim()].filter(Boolean).join(' ');
+              note.textContent = '';
+            } catch (error) { note.textContent = error.message; }
+            finally { recorder = null; button.disabled = false; button.textContent = 'Dictar'; button.dataset.state = ''; }
+          };
+          recorder.start();
+          button.textContent = 'Detener';
+          button.dataset.state = 'listening';
+          note.textContent = 'Escuchando: habla con calma.';
+          button.disabled = false;
+        } catch (error) {
+          stream?.getTracks().forEach(track => track.stop());
+          button.disabled = false;
+          button.textContent = 'Dictar';
+          note.textContent = error.name === 'NotAllowedError' ? 'Permiso de micrófono denegado.' : !window.isSecureContext ? 'El dictado necesita abrir el Estudio por HTTPS.' : error.message;
+        }
+      });
+      return;
+    }
+    if (config()?.transcribeUrl && !window.isSecureContext) {
+      note.textContent = 'El dictado necesita abrir el Estudio por HTTPS.';
+    }
     const Engine = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Engine) {
       button.hidden = true;

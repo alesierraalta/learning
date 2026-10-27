@@ -3,13 +3,39 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { request } from "node:http";
+import { request, createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startStudio } from "./server.ts";
 import { makeRoot } from "./testdata/root.mjs";
+
+test('configured studio bridge reaches the transcriber from its framed origin', async t => {
+  let uploads = 0;
+  const fake = createServer(async (req, res) => {
+    for await (const _chunk of req) {}
+    if (req.method === 'DELETE') { res.writeHead(204); return res.end(); }
+    if (req.method === 'PUT') uploads++;
+    assert.equal(req.headers.authorization, 'Bearer studio-transcriber-secret');
+    res.end(req.method === 'PUT' ? JSON.stringify({ id: 'studio-job' }) : req.url.endsWith('/txt') ? 'desde estudio' : JSON.stringify({ status: 'done' }));
+  });
+  await new Promise(resolve => fake.listen(0, '127.0.0.1', resolve));
+  t.after(() => { fake.closeAllConnections(); fake.close(); });
+  const { studio } = await setup({ transcriberUrl: `http://127.0.0.1:${fake.address().port}`, transcriberToken: 'studio-transcriber-secret' });
+  const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
+  const endpoint = view.url.replace(/redes\/p1$/, '') + 'api/transcribe';
+  const response = await http(endpoint, { method: 'POST', headers: { origin: new URL(view.url).origin, 'content-type': 'audio/webm' }, body: 'audio' });
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(response.body), { text: 'desde estudio' });
+  assert.equal(uploads, 1);
+});
+
+test('transcriber settings must be paired', async () => {
+  for (const options of [{ transcriberUrl: 'http://127.0.0.1:8765' }, { transcriberToken: 'secret' }]) {
+    await assert.rejects(() => startStudio(options), /transcriberUrl and transcriberToken/);
+  }
+});
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
