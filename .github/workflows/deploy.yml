@@ -1,0 +1,39 @@
+name: Deploy studio
+
+# Delivery runs on the VPS itself: a repository-scoped self-hosted runner
+# with the label learning-vps. Only this workflow targets that runner, and
+# pull requests never do, so fork workflows cannot execute on the host.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy the live tree
+    runs-on: [self-hosted, linux, x64, learning-vps]
+    timeout-minutes: 20
+    steps:
+      - name: Report the trigger
+        run: |
+          echo "commit: $GITHUB_SHA"
+          echo "actor: $GITHUB_ACTOR"
+          echo "ref: $GITHUB_REF"
+
+      # update.sh is the operator path documented in docs/deploy-vps.md: it
+      # fast-forwards ~/learning, rebuilds bin/learning, restarts the user
+      # service and finishes with health.sh. A failed build stops before the
+      # restart.
+      - name: Pull, rebuild, restart and verify
+        run: bash "$HOME/learning/deploy/vps/update.sh"
+
+      - name: Report the deployed commit
+        if: always()
+        run: git -C "$HOME/learning" log -1 --format='%h %s'
