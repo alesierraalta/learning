@@ -17,7 +17,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CDN_SCRIPTS, listTopics, registerBridge, validatePublicOrigin } from "../integrations/pi/bridge.ts";
+import { CDN_SCRIPTS, listTopics, parsePublicOrigins, registerBridge } from "../integrations/pi/bridge.ts";
 import { resolveContained } from "../integrations/pi/paths.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -112,8 +112,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   if ((options.publicOrigin !== undefined) !== (options.bridgePublicOrigin !== undefined)) {
     throw new Error("publicOrigin and bridgePublicOrigin must be set together");
   }
-  const publicUrl = validatePublicOrigin("publicOrigin", options.publicOrigin);
-  validatePublicOrigin("bridgePublicOrigin", options.bridgePublicOrigin);
+  const publicOrigins = parsePublicOrigins("publicOrigin", options.publicOrigin);
+  const publicUrl = publicOrigins?.[0];
+  parsePublicOrigins("bridgePublicOrigin", options.bridgePublicOrigin);
   const contained = resolveContained(options.root ?? CANONICAL_ROOT, options.root ?? CANONICAL_ROOT);
   if (!contained.ok) throw new Error(contained.reason);
   const root = contained.rootReal;
@@ -412,7 +413,7 @@ ${scripts}
     });
 
   const post = async (req: IncomingMessage, res: ServerResponse, action: string) => {
-    const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(options.publicOrigin === undefined ? [] : [options.publicOrigin])]);
+    const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.origin)]);
     if (!allowed.has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
     if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
     const body = await readBody(req);
@@ -487,7 +488,7 @@ ${scripts}
   };
 
   const route = async (req: IncomingMessage, res: ServerResponse) => {
-    const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, ...(options.publicOrigin === undefined ? [] : [publicUrl!.host])]);
+    const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.host)]);
     if (!hosts.has(String(req.headers.host ?? ""))) throw new HttpError(403, "host not allowed");
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     // http://127.0.0.1:<port>/ is a stable, bookmarkable entry; every route behind it needs the token.
@@ -585,7 +586,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     bridgePublicOrigin: process.env.STUDIO_BRIDGE_PUBLIC_ORIGIN,
     bridgePort: process.env.STUDIO_BRIDGE_PORT === undefined ? undefined : Number(process.env.STUDIO_BRIDGE_PORT),
   });
-  const entry = `${publicOrigin ?? `http://127.0.0.1:${studio.port}`}/`;
+  const entry = `${publicUrl?.origin ?? `http://127.0.0.1:${studio.port}`}/`;
   console.log(`Estudio: ${entry}`);
   if (publicOrigin === undefined && !process.argv.includes("--no-open")) {
     spawn("cmd.exe", ["/c", "start", "", entry], { cwd: "/mnt/c", stdio: "ignore", detached: true }).on("error", () => {});

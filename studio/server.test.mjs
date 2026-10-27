@@ -163,6 +163,27 @@ test("public studio origins route views and authorize only the configured proxy"
   await assert.rejects(() => startStudio({ root: makeRoot().root, port: studio.port, publicOrigin, bridgePublicOrigin }), /EADDRINUSE/);
 });
 
+test("a second public studio origin is authorized while the first stays canonical", async () => {
+  const canonical = "https://learnings.infra.local";
+  const fallback = "https://10.154.59.151:8445";
+  const bridgeCanonical = "https://learnings.infra.local:8446";
+  const bridgeFallback = "https://10.154.59.151:8446";
+  const { studio, received } = await setup({ publicOrigin: `${canonical},${fallback}`, bridgePublicOrigin: `${bridgeCanonical},${bridgeFallback}`, bridgePort: 0 });
+  for (const host of ["learnings.infra.local", "10.154.59.151:8445"]) {
+    const page = await http(studio.url, { headers: { host } });
+    assert.equal(page.status, 200, host);
+    assert.match(page.headers["content-security-policy"], /frame-src https:\/\/learnings\.infra\.local:8446(;|$)/);
+    assert.match(page.headers["content-security-policy"], /frame-ancestors 'none'/);
+  }
+  const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
+  assert.ok(view.url.startsWith(`${bridgeCanonical}/`), "the first bridge origin stays canonical");
+  for (const origin of [canonical, fallback]) {
+    assert.equal((await post(studio, "prompt", { text: `desde ${origin}` }, { origin })).status, 200, origin);
+  }
+  assert.ok(received().some((c) => c.type === "prompt" && c.message === `desde ${fallback}`));
+  assert.equal((await post(studio, "prompt", { text: "forbidden" }, { origin: "https://evil.example" })).status, 403);
+});
+
 test("public studio origins must be configured together", async () => {
   for (const options of [{ publicOrigin: "https://box.ts.net" }, { bridgePublicOrigin: "https://box.ts.net" }]) {
     await assert.rejects(() => startStudio({ root: makeRoot().root, ...options }), /publicOrigin.*bridgePublicOrigin|bridgePublicOrigin.*publicOrigin/);

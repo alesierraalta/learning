@@ -82,9 +82,10 @@ else
   run docker run -d --name learning-studio-caddy --restart unless-stopped --network host \
     -v "$assets/Caddyfile:/etc/caddy/Caddyfile:ro" -v /srv/certs/docker:/certs:ro caddy:latest
 fi
-# UFW drops everything not listed: open the two ports on the ZeroTier interface only.
+# UFW drops everything not listed: open the studio ports on the ZeroTier interface only.
 zt_if=$(ip -o -4 addr show | awk '/ 10\.154\.59\.151\//{print $2; exit}')
 if [[ -n "$zt_if" ]]; then
+  run sudo ufw allow in on "$zt_if" to any port 443 proto tcp comment 'learning studio name (ZeroTier)'
   run sudo ufw allow in on "$zt_if" to any port 8445:8446 proto tcp comment 'learning studio (ZeroTier)'
 else
   echo 'Warning: no interface holds 10.154.59.151; is ZeroTier joined? Skipping the firewall rule.' >&2
@@ -97,5 +98,6 @@ if [[ -d "$LEARNING_ROOT/.git" ]]; then
 else
   echo "Warning: $LEARNING_ROOT is not a Git repository; hourly backup not installed (see docs/deploy-vps.md)." >&2
 fi
+run bash "$assets/learnings-dns.sh"
 run bash "$assets/health.sh"
 exit "$missing"

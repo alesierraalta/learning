@@ -493,13 +493,23 @@ export function validatePublicOrigin(option: string, value: string | undefined):
   }
 }
 
+/** A comma-separated list of bare HTTPS origins; the first one is the canonical address. */
+export function parsePublicOrigins(option: string, value: string | undefined): URL[] | undefined {
+  if (value === undefined) return;
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .map((origin) => validatePublicOrigin(option, origin === "" ? value : origin)!);
+}
+
 export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
-  const publicUrl = validatePublicOrigin("publicOrigin", options.publicOrigin);
-  validatePublicOrigin("publicEmbedder", options.publicEmbedder);
+  const publicOrigins = parsePublicOrigins("publicOrigin", options.publicOrigin);
+  const publicUrl = publicOrigins?.[0];
+  const embedderOrigins = parsePublicOrigins("publicEmbedder", options.publicEmbedder);
   const embedders = [...(options.frameAncestors ?? [])];
   const invalid = embedders.find((origin) => !LOOPBACK_ORIGIN.test(origin));
   if (invalid !== undefined) throw new Error(`frameAncestors accepts loopback http origins only, got ${JSON.stringify(invalid)}`);
-  if (options.publicEmbedder !== undefined) embedders.push(options.publicEmbedder);
+  if (embedderOrigins !== undefined) embedders.push(...embedderOrigins.map((origin) => origin.origin));
   const pageCsp = `${PAGE_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
   const appCsp = `${APP_CSP}; frame-ancestors ${embedders.length ? embedders.join(" ") : "'none'"}`;
   const richCsp = `${RICH_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
@@ -510,9 +520,9 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   let token = "";
   let rootReal = "";
 
-  const allowedHosts = () => new Set([`127.0.0.1:${port}`, `localhost:${port}`, ...(options.publicOrigin === undefined ? [] : [publicUrl!.host])]);
-  const allowedOrigins = () => new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(options.publicOrigin === undefined ? [] : [options.publicOrigin])]);
-  const base = () => `${options.publicOrigin ?? `http://127.0.0.1:${port}`}/${token}/`;
+  const allowedHosts = () => new Set([`127.0.0.1:${port}`, `localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.host)]);
+  const allowedOrigins = () => new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.origin)]);
+  const base = () => `${publicUrl?.origin ?? `http://127.0.0.1:${port}`}/${token}/`;
 
   const tokenMatches = (candidate: string) => {
     const a = Buffer.from(candidate);

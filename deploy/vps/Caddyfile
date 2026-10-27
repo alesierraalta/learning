@@ -1,9 +1,16 @@
 # TLS front for the learning studio on the ZeroTier address only.
-# The certificate is the Infra Root CA service certificate (SAN IP:10.154.59.151).
+# The certificate is the Infra Root CA service certificate (SAN IP:10.154.59.151 and *.infra.local).
 # Caddy forwards the incoming Host, which the studio and bridge allow-list.
 {
 	admin off
 	auto_https off
+}
+
+# The stable, memorable address: it only resolves inside the ZeroTier network.
+https://learnings.infra.local {
+	bind 10.154.59.151
+	tls /certs/infra.pem /certs/infra-key.pem
+	reverse_proxy 127.0.0.1:4747
 }
 
 :8445 {

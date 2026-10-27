@@ -189,6 +189,31 @@ test("public bridge origins preserve loopback access and constrain proxy request
   }
 });
 
+test("a second public bridge origin is authorized while the first stays canonical", async () => {
+  const reservation = createServer();
+  await new Promise((resolve) => reservation.listen(0, "127.0.0.1", resolve));
+  const port = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+  const canonical = "https://learnings.infra.local:8446";
+  const fallback = "https://10.154.59.151:8446";
+  const { view } = await setup({ port, publicOrigin: `${canonical},${fallback}`, publicEmbedder: "https://learnings.infra.local,https://10.154.59.151:8445" });
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const url = result.structuredContent.url;
+  assert.match(url, /^https:\/\/learnings\.infra\.local:8446\/[a-f0-9]{64}\//);
+  const local = url.replace(canonical, `http://127.0.0.1:${port}`);
+  for (const host of ["learnings.infra.local:8446", "10.154.59.151:8446"]) {
+    const page = await http(local, { headers: { host } });
+    assert.equal(page.status, 200, host);
+    assert.ok(page.headers["content-security-policy"].includes("https://learnings.infra.local"), host);
+    assert.ok(page.headers["content-security-policy"].includes("https://10.154.59.151:8445"), host);
+  }
+  const endpoint = `http://127.0.0.1:${port}${new URL(result.structuredContent.base).pathname}submit`;
+  for (const [origin, rejected] of [[canonical, false], [fallback, false], ["https://evil.example", true]]) {
+    const response = await http(endpoint, { method: "POST", headers: { origin, "content-type": "application/json" }, body: "{}" });
+    assert.equal(response.status === 403, rejected, origin);
+  }
+});
+
 test("public bridge options reject non-bare HTTPS origins at registration", () => {
   for (const option of ["publicOrigin", "publicEmbedder"]) {
     for (const value of ["http://box.ts.net", "https://a.ts.net; script-src *", "*", "https://a.ts.net/path"]) {
