@@ -142,6 +142,12 @@ test("the shell page is token-gated, loopback-only and allows framing only the h
   assert.equal((await http(`${studio.url}studio.js`)).status, 200);
   assert.equal((await http(`${studio.url}tutorial.js`)).status, 200);
   assert.match(page.body, /<script src="\/[0-9a-f]{64}\/tutorial\.js"><\/script>\n<script src="\/[0-9a-f]{64}\/studio\.js">/);
+  const icon = page.body.match(/<link rel="icon" href="(\/[0-9a-f]{64}\/favicon\.svg)" type="image\/svg\+xml">/);
+  assert.ok(icon, "the shell declares the shared icon");
+  const svg = await http(new URL(icon[1], studio.url).href);
+  assert.equal(svg.status, 200, "the shell's icon is served under the token");
+  assert.match(svg.headers["content-type"], /^image\/svg\+xml/);
+  assert.match(svg.body, /^<svg /);
 });
 
 test("public studio origins route views and authorize only the configured proxy", async () => {

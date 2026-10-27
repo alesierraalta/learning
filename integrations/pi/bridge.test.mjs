@@ -1065,3 +1065,18 @@ test('wide reading mode is opt-in, spreads the prose and survives a reload', { s
   await page.setViewportSize({ width: 900, height: 900 });
   assert.equal((await measure()).columns, 'auto', 'a narrow screen keeps one column even in wide mode');
 });
+
+test('every reader page declares the shared icon and serves it under the token', async () => {
+  const { view } = await setup();
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  const url = new URL(result.structuredContent.url);
+  const page = await http(url.href);
+  assert.equal(page.status, 200);
+  const icon = page.body.match(/<link rel="icon" href="([^"]+)" type="image\/svg\+xml">/);
+  assert.ok(icon, 'the page declares an svg icon');
+  const svg = await http(new URL(icon[1], url).href);
+  assert.equal(svg.status, 200);
+  assert.match(svg.headers['content-type'], /^image\/svg\+xml/);
+  assert.match(svg.body, /^<svg /);
+  assert.equal((await http(new URL('/favicon.svg', url).href)).status, 404, 'the icon stays behind the token');
+});
