@@ -752,7 +752,8 @@ ${scripts}
     const file = plan?.parts.some((p) => p.id === partId) ? partApp(dir, partId) : undefined;
     if (!file) throw new HttpError(404, `part ${partId} has no interactive app`);
     const config = JSON.stringify({ ...transcribeConfig(), submitUrl: `/${token}/submit`, topic, part: partId }).replace(/</g, "\\u003c");
-    const script = `<script>window.LEARNING_BRIDGE = ${config};</script>`;
+    const dictate = readFileSync(join(kitDir, "dictate.js"), "utf8").replace(/<\/script/gi, "<\\/script");
+    const script = `<script>window.LEARNING_BRIDGE = ${config};</script><script>${dictate}</script>`;
     const injected = injectFirst(readFileSync(file, "utf8"), script);
     send(res, 200, "text/html; charset=utf-8", injected, { "content-security-policy": appCsp });
   };

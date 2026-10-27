@@ -106,9 +106,14 @@ When the explanation itself should be an experiment (predict, act, compute, chec
 write it as one self-contained page, `explicaciones/apps/<part>.html` (inline CSS and
 JS, no network). `learning_view` then returns an **Aplicación interactiva** URL and the
 part page shows a launch button. The bridge serves the app full page and injects
-`window.LEARNING_BRIDGE = { submitUrl, topic, part }`; the app posts the same fixed
-payloads as the view (`kind: "mini-quiz"` with `answers`, plus `reasoning` only when
-the app collects the optional `razonamiento` and `confianza`; `kind: "question"` with `text`). The bridge grades
+`window.LEARNING_BRIDGE = { submitUrl, topic, part }` (plus `transcribeUrl` when configured)
+and the shared dictation helpers. An app that asks quiz questions renders each reasoning
+field with `window.learningThoughtField(questionId, index, window.LEARNING_BRIDGE)`:
+one optional «Cómo lo pensé» field with «Dictar», never the old two fields
+«¿Qué entendiste…» / «¿Por qué llegaste…». It sends
+`reasoning[id] = { razonamiento, confianza }` alongside `answers` in the same fixed
+payload as the view (`kind: "mini-quiz"`; `kind: "question"` with `text` for questions).
+The bridge grades
 the quiz, so the app holds no answer keys; keep question ids and option letters equal
 to `mini-quiz/<part>.json`. Opened without the bridge (`window.LEARNING_BRIDGE`
 undefined) the app must still run its experiments and say it is not connected.

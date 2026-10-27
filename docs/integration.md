@@ -156,7 +156,7 @@ vault files on every request, so Obsidian stays the source of truth:
 | `<topic>/<part>` | `explicaciones/Parte N - <slug>.md`, `mini-quiz/<part>.json`, `explicaciones/demos/<part>-*.html` |
 | `<topic>/quiz` | `quiz.json` + `quiz.answers.json` (diagnosis rounds) |
 | `<topic>/file/<path>` | any file inside the topic folder, with HTTP Range (video seeking) |
-| `<topic>/<part>/app` | `explicaciones/apps/<part>.html`, full page, with `window.LEARNING_BRIDGE` injected |
+| `<topic>/<part>/app` | `explicaciones/apps/<part>.html`, full page, with `window.LEARNING_BRIDGE` and shared `learningThoughtField` / `learningDictate` helpers inlined |
 | `submit` (POST) | learner submission, see below |
 
 Obsidian syntax is translated: frontmatter is dropped, `![[file.mp4]]` becomes a `<video>`

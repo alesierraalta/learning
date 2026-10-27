@@ -19,6 +19,57 @@ let playwright;
 for (const id of [process.env.PLAYWRIGHT_MODULE, 'playwright', '/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs'].filter(Boolean)) {
   try { playwright = await import(id); break; } catch {}
 }
+test('app pages inline shared reasoning and private bridge config', async () => {
+  for (const configured of [false, true]) {
+    const { view } = await setup(configured ? { transcriber: { url: 'http://127.0.0.1:1', token: 'app-private-token' } } : {});
+    const result = await view({ topic: TOPIC, part: 'p1' });
+    const response = await http(result.structuredContent.appUrl);
+    assert.equal(response.status, 200);
+    assert.match(response.body, /window\.learningThoughtField\s*=/);
+    assert.match(response.body, /window\.learningDictate\s*=/);
+    const config = JSON.parse(response.body.match(/window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
+    assert.equal('transcribeUrl' in config, configured);
+    assert.doesNotMatch(response.body, /app-private-token/);
+  }
+});
+
+test('app dictation honors kitDir and escapes script terminators', async () => {
+  const kitDir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-')));
+  writeFileSync(join(kitDir, 'dictate.js'), 'window.customDictation = "</ScRiPt><p>not markup</p>";');
+  const { view } = await setup({ kitDir });
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  const response = await http(result.structuredContent.appUrl);
+  assert.ok(response.body.includes('window.customDictation = "<\\/script><p>not markup</p>";'));
+  assert.doesNotMatch(response.body, /<\/ScRiPt>/);
+});
+
+test('app reasoning renders and records under its inline-only CSP', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { view, topic } = await setup({ transcriber: { url: 'http://127.0.0.1:1', token: 'app-private-token' } });
+  writeFileSync(join(topic, 'explicaciones', 'apps', 'p1.html'), '<!doctype html><html><head></head><body><script>document.body.append(window.learningThoughtField("q1", 0, window.LEARNING_BRIDGE));</script></body></html>');
+  const browser = await playwright.chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const violations = [];
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.exposeFunction('recordViolation', value => violations.push(value));
+  await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => window.recordViolation(event.violatedDirective)));
+  await page.route('**/api/transcribe', route => route.fulfill({ json: { text: 'Pensé en la clave' } }));
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  await page.goto(result.structuredContent.appUrl);
+  const field = page.getByLabel('Cómo lo pensé (opcional)');
+  await field.waitFor();
+  await page.getByRole('button', { name: /Dictar el razonamiento/ }).click();
+  const stop = page.locator('.lk-mic');
+  await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Detener');
+  await page.waitForTimeout(300);
+  await stop.click();
+  await page.waitForFunction(() => document.querySelector('textarea')?.value === 'Pensé en la clave');
+  assert.equal(await field.inputValue(), 'Pensé en la clave');
+  assert.deepEqual(violations, []);
+  assert.deepEqual(errors, []);
+});
+
 test('plain part and diagnosis share optional dictable reasoning', { skip: !playwright && 'playwright not installed' }, async t => {
   const { view, topic } = await setup({ transcriber: { url: 'http://127.0.0.1:1', token: 'never-in-page' } });
   const browser = await playwright.chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
