@@ -1,0 +1,7 @@
+[Unit]
+Description=Back up the Learnings content to its private GitHub repository
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/learning-studio.env
+ExecStart=/bin/bash %h/learning/deploy/vps/learnings-backup.sh

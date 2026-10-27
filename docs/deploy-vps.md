@@ -50,6 +50,16 @@ browser configuration. Protect the environment file with mode 600 and restart
 audio to the bridge. Without both variables, leave both unset to use Web Speech.
 HTTPS is still required by the browser for microphone access, even with this model.
 
+## Content backup
+
+The VPS holds the only working copy of Learnings (migrated once from Obsidian). `~/Learnings`
+is a Git repository pushed to the private `alesierraalta/learnings` with a repository-scoped
+deploy key (`~/.ssh/learnings_deploy`, SSH host alias `github-learnings`). Videos (`*.mp4`,
+`*.mov`, `*.webm`) and Pi's `.pi/` and `.atl/` stay out (`.gitignore`). The installer enables
+`learnings-backup.timer`, which runs `deploy/vps/learnings-backup.sh` hourly: it commits and
+pushes only when something changed. Run it now with `systemctl --user start learnings-backup`;
+see runs with `journalctl --user -u learnings-backup`.
+
 ## Update and operate
 
 ```sh

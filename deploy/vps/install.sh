@@ -89,5 +89,13 @@ if [[ -n "$zt_if" ]]; then
 else
   echo 'Warning: no interface holds 10.154.59.151; is ZeroTier joined? Skipping the firewall rule.' >&2
 fi
+# The VPS holds the only working copy of Learnings: back it up hourly to its private repository.
+if [[ -d "$LEARNING_ROOT/.git" ]]; then
+  run install -m 644 "$assets/learnings-backup.service" "$assets/learnings-backup.timer" "$HOME/.config/systemd/user/"
+  run systemctl --user daemon-reload
+  run systemctl --user enable --now learnings-backup.timer
+else
+  echo "Warning: $LEARNING_ROOT is not a Git repository; hourly backup not installed (see docs/deploy-vps.md)." >&2
+fi
 run bash "$assets/health.sh"
 exit "$missing"
