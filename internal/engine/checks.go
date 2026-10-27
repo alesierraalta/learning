@@ -167,6 +167,15 @@ func evalCheck(c *evalCtx, decl rules.CheckDecl) Check {
 	case "concept_verdicts":
 		return evalConceptVerdicts(c, decl)
 
+	case "pareto_plan":
+		return evalParetoPlan(c, decl)
+
+	case "pareto_part":
+		return evalParetoPart(c, decl)
+
+	case "demo_part":
+		return evalDemoPart(c, decl)
+
 	case "quiz_passed":
 		if c.part == "" {
 			return failCheck(decl.ID, "no part context for quiz evaluation")
@@ -682,10 +691,18 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 		return failCheck(decl.ID, fmt.Sprintf("part %s planned an example but %s contains none", c.part, rel))
 	}
 	th := c.r.Thresholds
-	if p.VisualsPlanned != nil && *p.VisualsPlanned && !hasVisual(text, th.VisualBlocks, th.VisualElements) {
-		return failCheck(decl.ID, fmt.Sprintf(
-			"part %s planned a visual but %s has no embed (![...]), no nonempty visual block (%s) and no inline visual element (%s)",
-			c.part, rel, strings.Join(th.VisualBlocks, ", "), strings.Join(th.VisualElements, ", ")))
+	if p.VisualsPlanned != nil && *p.VisualsPlanned {
+		count := countVisuals(text, th.VisualBlocks, th.VisualElements)
+		if count < th.MinVisuals {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"part %s planned a visual but %s has only %d visual(s), below the minimum of %d (an embed (![...]), a nonempty visual block (%s) or an inline visual element (%s))",
+				c.part, rel, count, th.MinVisuals, strings.Join(th.VisualBlocks, ", "), strings.Join(th.VisualElements, ", ")))
+		}
+		if missing := countVisualsWithoutHowToRead(text, th.VisualBlocks, th.VisualElements, th.HowToReadLine); missing > 0 {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"%d of %d visual(s) in %s lack the reading guide %q on the next line (M1)",
+				missing, count, rel, th.HowToReadLine))
+		}
 	}
 	if index := declPathByKind(c.r, "planning", "index_note"); index != "" {
 		raw, err := os.ReadFile(absPath(c.ws, index))
@@ -694,46 +711,14 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 			return failCheck(decl.ID, fmt.Sprintf("%s does not link this part as [[%s|...]]: link each part in the index once it is written", index, target))
 		}
 	}
+	visual := "not planned"
+	if p.VisualsPlanned != nil && *p.VisualsPlanned {
+		visual = fmt.Sprintf("verified %d/%d with reading guide", countVisuals(text, c.r.Thresholds.VisualBlocks, c.r.Thresholds.VisualElements), c.r.Thresholds.MinVisuals)
+	}
 	return passCheck(decl.ID, fmt.Sprintf(
 		"%s: frontmatter joined to %s, Fuente traceability, heading, example %s, visual %s", rel, p.Subtema,
 		obligationLabel(p.ExamplesPlanned, "verified", "not planned"),
-		obligationLabel(p.VisualsPlanned, "verified", "not planned")))
-}
-
-// hasVisual reports an embed, a nonempty fenced block whose language is a
-// declared visual format, or a declared inline element outside code blocks.
-// It proves a visual is present, not that it helps: that is the visual-value
-// rubric's judgment.
-func hasVisual(text string, blocks, elements []string) bool {
-	if strings.Contains(text, "![") {
-		return true
-	}
-	open, visual, body := false, false, 0
-	var prose strings.Builder
-	for line := range strings.SplitSeq(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "```") {
-			if !open {
-				prose.WriteString(line)
-				prose.WriteByte('\n')
-			} else if visual && trimmed != "" {
-				body++
-			}
-			continue
-		}
-		if open { // closing fence
-			if visual && body > 0 {
-				return true
-			}
-			open, visual = false, false
-			continue
-		}
-		open, body = true, 0
-		if fields := strings.Fields(strings.TrimPrefix(trimmed, "```")); len(fields) > 0 {
-			visual = slices.Contains(blocks, strings.ToLower(fields[0]))
-		}
-	}
-	return hasInlineElement(prose.String(), elements)
+		visual))
 }
 
 // hasInlineElement reports a closed element from elements, such as
@@ -763,6 +748,154 @@ func hasInlineElement(text string, elements []string) bool {
 		}
 	}
 	return false
+}
+
+// countVisuals returns how many visuals the text contains: embeds, nonempty
+// fenced blocks in a declared visual format and declared inline elements.
+func countVisuals(text string, blocks, elements []string) int {
+	total, _ := countVisualsAndGuides(text, blocks, elements, "")
+	return total
+}
+
+// countVisualsAndGuides walks a note once with a small state machine and
+// returns how many visuals it contains and how many of them lack the
+// reading-guide line. Fences, embeds and inline markup may all span lines;
+// the machine tracks multiline markup and never judges fence bodies.
+//
+// A visual is an embed (![...), a nonempty fenced block whose language is
+// declared in blocks, or a closed declared inline element (for example
+// <svg>) with at least one child element. Markup inside fences is code,
+// never a visual. The reading-guide marker must be the first non-blank line
+// after a visual; when marker is empty the guide pass is skipped entirely.
+func countVisualsAndGuides(text string, blocks, elements []string, marker string) (total, missing int) {
+	inFence, fenceVisual, fenceBody := false, false, 0
+	openEl := ""
+	pending := false
+	judge := func(line string) {
+		if !pending {
+			return
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			return
+		}
+		if !strings.HasPrefix(trimmed, marker) {
+			missing++
+		}
+		pending = false
+	}
+	for line := range strings.SplitSeq(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			judge(trimmed) // a fence line right after a visual needs its guide too
+			if !inFence {
+				inFence = true
+				fenceVisual = false
+				if fields := strings.Fields(strings.TrimPrefix(trimmed, "```")); len(fields) > 0 {
+					fenceVisual = slices.Contains(blocks, strings.ToLower(fields[0]))
+				}
+				fenceBody = 0
+			} else { // closing fence
+				inFence = false
+				if fenceVisual && fenceBody > 0 {
+					total++
+					pending = true
+				}
+				fenceVisual = false
+			}
+			continue
+		}
+		if inFence { // fence body: code, never judged
+			fenceBody++
+			continue
+		}
+		judge(trimmed) // the first non-blank line after a visual
+		if openEl != "" {
+			if strings.Contains(trimmed, "</"+openEl+">") {
+				openEl = ""
+				total++
+				pending = true
+			}
+			continue
+		}
+		if n := strings.Count(trimmed, "!["); n > 0 {
+			total += n
+			pending = true
+			missing += n - 1
+			continue
+		}
+		if n := countInlineElements(trimmed, elements); n > 0 {
+			total += n
+			pending = true
+			missing += n - 1
+			continue
+		}
+		for _, el := range elements {
+			lower := strings.ToLower(trimmed)
+			if strings.Contains(lower, "<"+el) && !strings.Contains(lower, "</"+el+">") {
+				openEl = el
+				break
+			}
+		}
+	}
+	if pending { // the note ended right after a visual: the guide is missing
+		missing++
+	}
+	return total, missing
+}
+
+// countInlineElements counts closed inline elements from elements with at
+// least one child element on one line of prose.
+func countInlineElements(line string, elements []string) int {
+	n := 0
+	lower := strings.ToLower(line)
+	for _, el := range elements {
+		rest := lower
+		for {
+			i := strings.Index(rest, "<"+el)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+1+len(el):]
+			if rest == "" || !strings.ContainsRune("> \t\n", rune(rest[0])) {
+				continue
+			}
+			gt := strings.IndexByte(rest, '>')
+			end := strings.Index(rest, "</"+el+">")
+			if gt < 0 || end < gt || !strings.Contains(rest[gt+1:end], "<") {
+				continue
+			}
+			n++
+			rest = rest[end:]
+		}
+	}
+	return n
+}
+
+// proseOnly strips fenced blocks so inline counting does not read code.
+func proseOnly(text string) string {
+	var out strings.Builder
+	open := false
+	for line := range strings.SplitSeq(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			open = !open
+			continue
+		}
+		if !open {
+			out.WriteString(line)
+			out.WriteByte('\n')
+		}
+	}
+	return out.String()
+}
+
+// countVisualsWithoutHowToRead counts visuals whose next non-blank line does
+// not start with the reading-guide marker (M1 of the visual metrics,
+// fail-closed: an unguided visual is a missing guide).
+func countVisualsWithoutHowToRead(text string, blocks, elements []string, marker string) int {
+	_, missing := countVisualsAndGuides(text, blocks, elements, marker)
+	return missing
 }
 
 // evalChangedAfterFailedQuiz enforces re-teaching: after a failed attempt the
@@ -1344,4 +1477,18 @@ func recordFor(r *rules.Rules, st *State, stage, part string) (StageRecord, bool
 	}
 	rec, ok := st.Global[stage]
 	return rec, ok
+}
+
+// countDemos counts interactive kit components (closed declared inline
+// elements with at least one child) in prose, outside fenced blocks.
+func countDemos(text string, elements []string) int {
+	total, _ := countVisualsAndGuides(text, nil, elements, "")
+	return total
+}
+
+// countDemosWithoutGuide counts interactive components whose next non-blank
+// line does not start with the reading-guide marker (M1, fail-closed).
+func countDemosWithoutGuide(text string, elements []string, marker string) int {
+	_, missing := countVisualsAndGuides(text, nil, elements, marker)
+	return missing
 }

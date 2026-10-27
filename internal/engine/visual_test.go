@@ -28,15 +28,17 @@ func TestPlannedVisualAcceptsDeclaredFormats(t *testing.T) {
 		visual string
 		ok     bool
 	}{
-		{"image embed", "![diagrama](diagrama.png)", true},
-		{"excalidraw embed", "![[consenso.excalidraw]]", true},
-		{"mermaid block", "```mermaid\nflowchart LR\n  A --> B\n```", true},
-		{"desmos block", "```desmos-graph\ny = x^2\n```", true},
-		{"geogebra block", "```geogebra\nA = (1, 2)\n```", true},
-		{"ggb block", "```ggb\nf(x) = 2x\n```", true},
-		{"datachart block", "```datachart\ntype: bar\n```", true},
-		{"inline svg", `<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>`, true},
-		{"multiline inline svg", "<svg viewBox=\"0 0 10 10\">\n  <rect width=\"4\" height=\"4\"/>\n</svg>", true},
+		// the marker is per-visual: one line right after the visual
+		{"embed with reading guide", "![diagrama](diagrama.png)\nCómo leerlo: entra por la caja de arriba y baja.\n\n![detalle](detalle.png)\nCómo leerlo: compara las dos barras.\n", true},
+		{"image embed", "![diagrama](diagrama.png)\nCómo leerlo: entra por la caja de arriba y baja.\n\n\n![detalle](detalle.png)\nCómo leerlo: compara las dos barras.\n", true},
+		{"excalidraw embed", "![[consenso.excalidraw]]\nCómo leerlo: entra por la caja de arriba y baja.\n\n\n![detalle](detalle.png)\nCómo leerlo: compara las dos barras.\n", true},
+		{"mermaid block", "```mermaid\nflowchart LR\n  A --> B\n```\nCómo leerlo: entra por la caja de arriba y baja.\n\n\n![detalle](detalle.png)\nCómo leerlo: compara las dos barras.\n", true},
+		{"desmos block", "```desmos-graph\ny = x^2\n```\nCómo leerlo: entra por la caja de arriba y baja.\n\n\n![detalle](detalle.png)\nCómo leerlo: compara las dos barras.\n", true},
+		{"geogebra block", "```geogebra\nA = (1, 2)\n```\nCómo leerlo: entra por la caja de arriba y baja.\n\n\n![detalle](detalle.png)\nCómo leerlo: compara las dos barras.\n", true},
+		{"ggb block", "```ggb\nf(x) = 2x\n```\nCómo leerlo: entra por la caja de arriba y baja.\n\n\n![detalle](detalle.png)\nCómo leerlo: compara las dos barras.\n", true},
+		{"datachart block", "```datachart\ntype: bar\n```\nCómo leerlo: entra por la caja de arriba y baja.\n\n\n![detalle](detalle.png)\nCómo leerlo: compara las dos barras.\n", true},
+		{"inline svg", `<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>` + "\nCómo leerlo: entra por la caja de arriba y baja.\n\n\n![detalle](detalle.png)\nCómo leerlo: compara las dos barras.\n", true},
+		{"multiline inline svg", "<svg viewBox=\"0 0 10 10\">\n  <rect width=\"4\" height=\"4\"/>\n</svg>\nCómo leerlo: entra por la caja de arriba y baja.\n\n\n![detalle](detalle.png)\nCómo leerlo: compara las dos barras.\n", true},
 		{"empty svg", "<svg viewBox=\"0 0 10 10\"></svg>", false},
 		{"unclosed svg", "<svg viewBox=\"0 0 10 10\"><rect/>", false},
 		{"svg inside a code block is code", "```html\n<svg><rect/></svg>\n```", false},

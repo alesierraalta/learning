@@ -43,10 +43,18 @@ func partRel(plan *planDoc, template, part string) (string, error) {
 // --- plan.json (structured plan sidecar) -----------------------------------
 
 type planDoc struct {
-	Topic            string        `json:"topic"`
-	Parts            []planPartDoc `json:"parts"`
-	DiagnosisSummary string        `json:"diagnosisSummary"`
-	FocusAreas       []string      `json:"focusAreas"`
+	Topic            string         `json:"topic"`
+	Parts            []planPartDoc  `json:"parts"`
+	DiagnosisSummary string         `json:"diagnosisSummary"`
+	FocusAreas       []string       `json:"focusAreas"`
+	Pareto           *planParetoDoc `json:"pareto,omitempty"`
+}
+
+// planParetoDoc is the declared trim of a pareto-scope run: the criterion that
+// chose the vital slice and the content deliberately left out.
+type planParetoDoc struct {
+	Criterio   string   `json:"criterio"`
+	Descartado []string `json:"descartado"`
 }
 
 type planPartDoc struct {
@@ -56,6 +64,10 @@ type planPartDoc struct {
 	Subtema         string `json:"subtema"`
 	ExamplesPlanned *bool  `json:"examplesPlanned"`
 	VisualsPlanned  *bool  `json:"visualsPlanned"`
+	// Pareto is the part's declared contribution to the 80% result.
+	Pareto string `json:"pareto,omitempty"`
+	// DemosPlanned marks the part as owing a hands-on demo.
+	DemosPlanned *bool `json:"demosPlanned,omitempty"`
 }
 
 func loadPlan(ws, rel string) (planDoc, error) {

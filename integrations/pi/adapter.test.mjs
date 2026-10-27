@@ -632,6 +632,52 @@ test("stage tool init creates the topic, records a new run and activates the ses
   assert.equal(engine.calls[1].args[0], "validate");
 });
 
+test("stage tool init records the learning scope and passes it once", async () => {
+  const env = tempEnv();
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+
+  const result = await executeTool(host, { action: "init", topic: "nuevo-tema", scope: "pareto" });
+
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent));
+  const created = realpathSync(join(env.root, "nuevo-tema"));
+  assert.deepEqual(engine.calls[0].args, [
+    "init",
+    "--root",
+    realpathSync(env.root),
+    "--workspace",
+    created,
+    "--rules",
+    RULES_PATH,
+    "--mode",
+    "deep",
+    "--scope",
+    "pareto",
+    "--json",
+  ]);
+});
+
+test("stage tool keeps the scope to init and defaults to complete", async () => {
+  const env = tempEnv();
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+
+  const late = await executeTool(host, { action: "status", scope: "pareto" });
+  assert.equal(late.isError, true);
+  assert.equal(late.structuredContent.reason, "invalid-arguments");
+  assert.match(late.structuredContent.detail, /scope is only accepted by init/);
+
+  const invalid = await executeTool(host, { action: "init", topic: "otro-tema", scope: "all" });
+  assert.equal(invalid.isError, true);
+  assert.equal(invalid.structuredContent.reason, "invalid-arguments");
+  assert.match(invalid.structuredContent.detail, /scope must be complete or pareto/);
+  assert.equal(engine.calls.length, 0, "rejected arguments never reach the engine");
+
+  const plain = await executeTool(host, { action: "init", topic: "completo" });
+  assert.equal(plain.isError, false, JSON.stringify(plain.structuredContent));
+  assert.equal(engine.calls[0].args.includes("--scope"), false, "complete scope is the engine default");
+});
+
 test("stage tool start resumes an existing topic with a status read", async () => {
   const env = tempEnv();
   const { host, engine } = installAtRoot(env);

@@ -97,7 +97,7 @@ will proceed. Tests configure nothing and never call a provider.
 
 | Host action | Engine command | Notes |
 |---|---|---|
-| tool `learning_stage {action:"init", topic}` | `init` | creates `<root>/<topic>` (one folder name, no separators), enrolls it, records a new run; engine refuses to overwrite an existing run |
+| tool `learning_stage {action:"init", topic, scope?}` | `init` | creates `<root>/<topic>` (one folder name, no separators), enrolls it, records a new run; engine refuses to overwrite an existing run. `scope` (`complete` default, `pareto`) is passed as `--scope` only on init; any other action rejects it before the engine runs, and the scope then lives in state |
 | tool `learning_stage {action:"start", topic}` | `status` | enrolls an existing topic (`not-found` if absent), then status report |
 | `/learning start [ws]` | `status` | enrollment first (realpath containment), then status report |
 | `/learning init [ws]` | `init` | engine refuses to overwrite an existing run |

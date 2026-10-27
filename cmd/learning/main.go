@@ -17,7 +17,7 @@ import (
 const usage = `learning — deep-learning validation engine (structured rules, deterministic checks, recorded reviews)
 
 Usage:
-  learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode MODE] [--stage STAGE] [--json]
+  learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode MODE] [--scope SCOPE] [--stage STAGE] [--json]
   learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
   learning help
 
@@ -53,6 +53,9 @@ Flags:
               thresholds, check declarations, conditions and rubrics.
   --mode      deep (default) or conceptual. Conceptual reports skipped and
               touches neither state nor reviews.
+  --scope     init only: complete (default) teaches the whole topic; pareto
+              teaches only the vital slice and requires the plan to declare
+              what it dropped. Later commands read the scope from state.
   --stage     Stage name; required for advance and review, optional for
               validate, rejected for init and status.
   --rule      review only: rubric id receiving the verdict.
@@ -173,7 +176,7 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 		}
 		name := strings.TrimPrefix(tok, "--")
 		switch name {
-		case "root", "workspace", "rules", "mode", "stage",
+		case "root", "workspace", "rules", "mode", "scope", "stage",
 			"rule", "verdict", "reason", "reviewer":
 		default:
 			return engine.Options{}, false, fmt.Errorf("unknown flag --%s", name)
@@ -195,6 +198,8 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 			opts.RulesPath = args[i]
 		case "mode":
 			opts.Mode = args[i]
+		case "scope":
+			opts.Scope = args[i]
 		case "stage":
 			opts.Stage = args[i]
 		case "rule":

@@ -139,6 +139,7 @@ export async function callEngine(
   target: {
     root: string;
     workspace: string;
+    scope?: string;
     stage?: string;
     rule?: string;
     verdict?: string;
@@ -166,6 +167,9 @@ export async function callEngine(
     "--mode",
     "deep",
   ];
+  if (target.scope) {
+    argv.push("--scope", target.scope);
+  }
   if (target.stage) {
     argv.push("--stage", target.stage);
   }
@@ -472,11 +476,12 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     label: "Learning engine stage",
     description:
       "Transport one stage operation (init, start, validate, advance, status, review) to the Go learning engine via its CLI and return the single-JSON report. " +
-      "init enrolls a new topic (creates its folder under the Learnings root and records a new run); start resumes an existing topic; both take topic = the folder name and activate the deep session, so the learner never types a command. The other actions require an active deep session. validate lists pendingReviews (rules whose recorded review is missing or stale); the chat (possibly via subagents) evaluates the rubric on the artifact and context, then records the verdict with action review (stage, rule, verdict, reason, optional reviewer). advance needs an explicit stage and blocks while any required review is missing, stale or a gate verdict is FAIL. " +
+      "init enrolls a new topic (creates its folder under the Learnings root and records a new run); start resumes an existing topic; both take topic = the folder name and activate the deep session, so the learner never types a command. init also records the teaching scope: complete (the whole topic) or pareto (only the vital slice that yields most of the results). The other actions require an active deep session; they read the scope from state and reject a scope argument. validate lists pendingReviews (rules whose recorded review is missing or stale); the chat (possibly via subagents) evaluates the rubric on the artifact and context, then records the verdict with action review (stage, rule, verdict, reason, optional reviewer). advance needs an explicit stage and blocks while any required review is missing, stale or a gate verdict is FAIL. " +
       "The engine report is the authority on completion; a FAIL check means the work is not finished.",
     promptSnippet: "Run a learning-engine stage operation and read its JSON verdict",
     promptGuidelines: [
       "Once the learner chooses the deep (university) mode, enroll the topic yourself: init for a new topic, start to resume one; never ask the learner to type a command.",
+      "If the learner chose to learn with the Pareto rule, pass scope=pareto on init; otherwise omit it (complete). Never change the scope of a running topic.",
       "Stage actions are only meaningful inside an active deep learning session; inactive sessions return an error.",
       "Never claim a stage or the topic is complete while the engine report shows FAIL, blocked or error.",
       "When validate returns pendingReviews, evaluate each rubric against the listed artifact and context (delegate to a subagent if useful) and record one review per rule before advancing.",
@@ -507,6 +512,12 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
           type: "string",
           description: "Topic folder name directly under the Learnings root (no path separators); required for init and start.",
         },
+        scope: {
+          type: "string",
+          enum: ["complete", "pareto"],
+          description:
+            "init only: complete teaches the whole topic; pareto teaches only the vital slice that yields most of the results and requires the plan to declare what it drops. Omit for complete; later actions read it from state.",
+        },
       },
       required: ["action"],
       additionalProperties: false,
@@ -514,7 +525,25 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     // SAFETY: open JSON Schema object, read by the host as a TypeBox-compatible schema.
     outputSchema: { type: "object", additionalProperties: true } as unknown as TSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const { action: requested, topic } = params as { action?: string; topic?: unknown };
+      const { action: requested, topic, scope } = params as {
+        action?: string;
+        topic?: unknown;
+        scope?: unknown;
+      };
+      if (scope !== undefined) {
+        if (requested !== "init") {
+          return adapterError(
+            "invalid-arguments",
+            `scope is only accepted by init; ${requested} reads it from state`,
+          );
+        }
+        if (scope !== "complete" && scope !== "pareto") {
+          return adapterError(
+            "invalid-arguments",
+            `scope must be complete or pareto, got ${JSON.stringify(scope)}`,
+          );
+        }
+      }
       if (requested === "init" || requested === "start") {
         if (!safeTopic(topic)) {
           return adapterError(
@@ -537,7 +566,10 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
         if (!enrolled.ok) {
           return adapterError("out-of-scope", enrolled.reason);
         }
-        const enrollOutcome = await callEngine(deps, requested === "init" ? "init" : "status", engineTarget());
+        const enrollOutcome = await callEngine(deps, requested === "init" ? "init" : "status", {
+          ...engineTarget(),
+          ...(requested === "init" && scope !== undefined ? { scope: scope as string } : {}),
+        });
         if (!enrollOutcome.ok) {
           return adapterError(enrollOutcome.reason, enrollOutcome.detail);
         }

@@ -581,7 +581,9 @@ func (f *fixture) writeExplanation(t *testing.T, part string, vis bool, marker s
 	t.Helper()
 	body := "---\ntipo: explicacion\nnodo: T." + part + "\nnivel: medio\n---\n# " + part + "\n\nExplicación de la parte con ejemplos concretos. " + marker + "\n\n## Ejemplo\n\nCaso numérico paso a paso.\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
 	if vis {
-		body += "\n![diagrama](diagrama-" + part + ".png)\nCómo leerlo: sigue los pasos de izquierda a derecha.\n"
+		// two visuals: the fixture rules demand a minimum of two, each with
+		// its reading-guide line
+		body += "\n![diagrama](diagrama-" + part + ".png)\nCómo leerlo: sigue los pasos de izquierda a derecha.\n\n![detalle](detalle-" + part + ".png)\nCómo leerlo: compara las dos barras.\n"
 	}
 	for _, q := range buildQuizQuestions(part) {
 		body += "\n" + q.Enunciado + "\n"

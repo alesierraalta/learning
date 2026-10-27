@@ -176,3 +176,76 @@ func TestCLIStatusOnFreshWorkspaceIsBlocked(t *testing.T) {
 		t.Fatalf("status = %v, want blocked", doc["status"])
 	}
 }
+
+// The pareto scope is an init decision recorded in state: later commands read
+// it from there instead of accepting a flag that could disagree with the run.
+func TestCLIScopeIsFixedAtInit(t *testing.T) {
+	c := newCLIFixture(t)
+
+	var out bytes.Buffer
+	if code := run(c.args("init", "--scope", "pareto", "--json"), &out); code != 0 {
+		t.Fatalf("init exit = %d, stdout = %q", code, out.String())
+	}
+	doc := parseOne(t, &out)
+	evidence, _ := doc["evidence"].(map[string]any)
+	if evidence["scope"] != "pareto" {
+		t.Fatalf("init evidence.scope = %v, want pareto", evidence["scope"])
+	}
+
+	out.Reset()
+	if code := run(c.args("status", "--json"), &out); code != 0 {
+		t.Fatalf("status exit = %d, stdout = %q", code, out.String())
+	}
+	if doc = parseOne(t, &out); doc["scope"] != "pareto" {
+		t.Fatalf("status scope = %v, want pareto", doc["scope"])
+	}
+
+	raw, err := os.ReadFile(filepath.Join(c.ws, ".learning", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]any
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state["scope"] != "pareto" {
+		t.Fatalf("state.scope = %v, want pareto", state["scope"])
+	}
+}
+
+func TestCLIScopeDefaultsToComplete(t *testing.T) {
+	c := newCLIFixture(t)
+	var out bytes.Buffer
+	if code := run(c.args("init", "--json"), &out); code != 0 {
+		t.Fatalf("init exit = %d, stdout = %q", code, out.String())
+	}
+	out.Reset()
+	if code := run(c.args("status", "--json"), &out); code != 0 {
+		t.Fatalf("status exit = %d, stdout = %q", code, out.String())
+	}
+	if doc := parseOne(t, &out); doc["scope"] != "complete" {
+		t.Fatalf("status scope = %v, want complete", doc["scope"])
+	}
+}
+
+func TestCLIScopeRejectsInvalidAndLateUse(t *testing.T) {
+	c := newCLIFixture(t)
+	cases := map[string][]string{
+		"invalid scope":   {"init", "--root", c.root, "--workspace", c.ws, "--rules", rulesPath, "--scope", "all", "--json"},
+		"scope on status": {"status", "--root", c.root, "--workspace", c.ws, "--rules", rulesPath, "--scope", "pareto", "--json"},
+	}
+	for want, args := range cases {
+		var out bytes.Buffer
+		if code := run(args, &out); code != 2 {
+			t.Fatalf("%s: exit = %d, want 2 (stdout %q)", want, code, out.String())
+		}
+		doc := parseOne(t, &out)
+		if doc["status"] != "error" {
+			t.Fatalf("%s: status = %v, want error", want, doc["status"])
+		}
+		detail, _ := doc["detail"].(string)
+		if !strings.Contains(detail, "scope") {
+			t.Fatalf("%s: detail = %q, wants a scope explanation", want, detail)
+		}
+	}
+}

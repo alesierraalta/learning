@@ -42,6 +42,9 @@ var KnownCheckKinds = map[string]bool{
 	"all_current":               true,
 	"mermaid_graph":             true,
 	"concept_verdicts":          true,
+	"pareto_plan":               true,
+	"pareto_part":               true,
+	"demo_part":                 true,
 }
 
 // partPathKinds require a {part}/{index}/{slug} placeholder: their artifact is
@@ -54,6 +57,8 @@ var partPathKinds = map[string]bool{
 	"changed_after_failed_quiz": true,
 	"quiz_questions":            true,
 	"quiz_answers":              true,
+	"pareto_part":               true,
+	"demo_part":                 true,
 }
 
 var knownRequireKinds = map[string]bool{"changed_after": true}
@@ -78,7 +83,7 @@ var KnownContexts = map[string]bool{
 }
 
 // KnownWhen is the closed set of part-level applicability switches for rubrics.
-var KnownWhen = map[string]bool{"": true, "visualsPlanned": true, "diagnosisAsked": true}
+var KnownWhen = map[string]bool{"": true, "visualsPlanned": true, "diagnosisAsked": true, "pareto": true}
 
 // canonicalOrder fixes the stage sequence the engine semantics rely on; a
 // rules file must declare exactly this order (values come from the rules).
@@ -191,6 +196,15 @@ type ConceptThresholds struct {
 	MinPassingRatio       Ratio    `json:"minPassingRatio"`
 }
 
+// ParetoThresholds bound a pareto-scope run: only the vital slice of each
+// part is taught, and the trim has to be declared before it is applied.
+type ParetoThresholds struct {
+	MaxParts       int    `json:"maxParts"`
+	MinCriterioLen int    `json:"minCriterioChars"`
+	Heading        string `json:"heading"`
+	MaxWords       int    `json:"maxWords"`
+}
+
 type OptionThresholds struct {
 	Keys       []string `json:"keys"`
 	NoSayKey   string   `json:"noSayKey"`
@@ -202,6 +216,7 @@ type Thresholds struct {
 	Diagnostic     DiagnosticThresholds `json:"diagnostic"`
 	Quiz           QuizThresholds       `json:"quiz"`
 	Concepts       *ConceptThresholds   `json:"concepts,omitempty"`
+	Pareto         *ParetoThresholds    `json:"pareto,omitempty"`
 	Options        OptionThresholds     `json:"options"`
 	Niveles        []string             `json:"niveles"`
 	NivelByLevel   map[string]string    `json:"nivelByLevel"`
@@ -213,10 +228,24 @@ type Thresholds struct {
 	// the vault (native mermaid and installed Obsidian plugins). Embeds
 	// (![...]) always count as visuals.
 	VisualBlocks []string `json:"visualBlocks"`
+	// HowToReadLine is the literal marker line every planned visual must be
+	// followed by (M1 of the visual metrics; fail-closed when absent).
+	HowToReadLine string `json:"howToReadLine"`
+	// MinVisuals is the least number of visuals a part must contain when the
+	// plan marks its visuals planned (fail-closed when absent).
+	MinVisuals int `json:"minVisuals"`
 	// VisualElements are inline HTML elements that Obsidian renders as a
 	// visual (for example svg); they count outside code blocks, closed and
 	// with at least one child element.
 	VisualElements []string `json:"visualElements"`
+	// DemoElements are inline HTML elements the kit renders as interactive
+	// components (lk-widget, lk-walkthrough); they count like visuals,
+	// outside code blocks, closed and with at least one child element.
+	DemoElements []string `json:"demoElements"`
+	// MinDemos is the least number of interactive components a part must
+	// contain when the plan marks its demos planned (fail-closed when
+	// absent).
+	MinDemos int `json:"minDemos"`
 }
 
 // ConceptMode reports whether these rules run concept diagnosis.
@@ -302,6 +331,50 @@ func (r *Rules) validate() error {
 	}
 	if err := r.validateRubrics(); err != nil {
 		return err
+	}
+	if err := r.validatePareto(); err != nil {
+		return err
+	}
+	if err := r.validateDemo(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validatePareto keeps the pareto scope fail-closed: the checks and the rubric
+// that enforce it are rejected unless the rules also bound it.
+func (r *Rules) validatePareto() error {
+	usesPareto := r.Thresholds.Pareto != nil
+	for stage, decls := range r.Checks {
+		for _, d := range decls {
+			if d.Kind == "pareto_plan" || d.Kind == "pareto_part" {
+				if !usesPareto {
+					return fmt.Errorf("stage %q check %q needs the pareto thresholds", stage, d.ID)
+				}
+			}
+		}
+	}
+	for _, rb := range r.Rubrics {
+		if rb.When == "pareto" && !usesPareto {
+			return fmt.Errorf("rubric %q needs the pareto thresholds", rb.ID)
+		}
+	}
+	return nil
+}
+
+// ParetoMode reports whether these rules bound a pareto scope.
+func (t Thresholds) ParetoMode() bool { return t.Pareto != nil }
+
+// validateDemo keeps the interactive-demos parameter fail-closed: the check
+// that enforces it is rejected unless the rules also declare its vocabulary.
+func (r *Rules) validateDemo() error {
+	usesDemos := len(r.Thresholds.DemoElements) > 0
+	for stage, decls := range r.Checks {
+		for _, d := range decls {
+			if d.Kind == "demo_part" && !usesDemos {
+				return fmt.Errorf("stage %q check %q needs the demo thresholds", stage, d.ID)
+			}
+		}
 	}
 	return nil
 }
@@ -414,6 +487,20 @@ func (r *Rules) validateThresholds() error {
 			return fmt.Errorf("concept diagnosis needs the round-based (adaptive) diagnostic mode")
 		}
 	}
+	if p := r.Thresholds.Pareto; p != nil {
+		if p.MaxParts < 1 {
+			return fmt.Errorf("pareto maxParts must be positive")
+		}
+		if p.MinCriterioLen < 1 {
+			return fmt.Errorf("pareto minCriterioChars must be positive")
+		}
+		if strings.TrimSpace(p.Heading) == "" {
+			return fmt.Errorf("pareto heading must not be empty")
+		}
+		if p.MaxWords < 1 {
+			return fmt.Errorf("pareto maxWords must be positive")
+		}
+	}
 	o := r.Thresholds.Options
 	if len(o.Keys) < 2 || len(o.AnswerKeys) < 1 {
 		return fmt.Errorf("option keys and answerKeys must be declared")
@@ -450,6 +537,20 @@ func (r *Rules) validateThresholds() error {
 		if e == "" || strings.Trim(e, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" {
 			return fmt.Errorf("visualElements entries must be lowercase HTML element names, got %q", e)
 		}
+	}
+	for _, e := range t.DemoElements {
+		if e == "" || strings.Trim(e, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" {
+			return fmt.Errorf("demoElements entries must be lowercase HTML element names, got %q", e)
+		}
+	}
+	if t.MinDemos < 1 {
+		return fmt.Errorf("minDemos must be positive")
+	}
+	if strings.TrimSpace(t.HowToReadLine) == "" {
+		return fmt.Errorf("howToReadLine must not be empty: it is the mandatory reading-guide line for planned visuals")
+	}
+	if t.MinVisuals < 1 {
+		return fmt.Errorf("minVisuals must be positive")
 	}
 	return nil
 }
@@ -500,7 +601,8 @@ func validateDecl(d CheckDecl) error {
 	case "file_exists", "plan_valid", "part_file", "explanation_content",
 		"changed_after_failed_quiz", "quiz_questions", "feedback_valid",
 		"planificador_sections", "index_note", "mis_palabras_structure",
-		"mis_palabras_area", "exercises_note", "mermaid_graph":
+		"mis_palabras_area", "exercises_note", "mermaid_graph",
+		"pareto_plan", "pareto_part", "demo_part":
 		err = need("path")
 	case "diagnostic_questions":
 		err = need("path", "note")

@@ -24,6 +24,7 @@ type Options struct {
 	Workspace string
 	RulesPath string
 	Mode      string // deep (default) | conceptual
+	Scope     string // init only: complete (default) | pareto
 	Stage     string // required for advance and review, optional for validate
 	Rule      string // review: rubric id receiving the verdict
 	Verdict   string // review: PASS or FAIL
@@ -45,6 +46,7 @@ type Report struct {
 	Stage     string         `json:"stage"`
 	Checks    []Check        `json:"checks"`
 	NextStage string         `json:"nextStage"`
+	Scope     string         `json:"scope,omitempty"`
 	Part      string         `json:"part,omitempty"`
 	Evidence  map[string]any `json:"evidence,omitempty"`
 	Detail    string         `json:"detail,omitempty"`
@@ -81,6 +83,17 @@ func Run(opts Options) (Report, int) {
 	}
 	if opts.RulesPath == "" {
 		return errorReport("missing required argument --rules"), ExitOperational
+	}
+	// The learning scope is fixed at init and lives in state afterwards, so a
+	// later command passing --scope would silently disagree with the run.
+	if opts.Scope != "" && opts.Command != "init" {
+		return errorReport("--scope is only accepted by the init command"), ExitOperational
+	}
+	if opts.Scope == "" {
+		opts.Scope = scopeComplete
+	}
+	if opts.Scope != scopeComplete && opts.Scope != scopePareto {
+		return errorReport("invalid scope " + opts.Scope + ": expected complete or pareto"), ExitOperational
 	}
 	if (opts.Command == "advance" || opts.Command == "review") && opts.Stage == "" {
 		return errorReport(opts.Command + " requires an explicit --stage"), ExitOperational
@@ -153,7 +166,7 @@ func Run(opts Options) (Report, int) {
 
 	switch opts.Command {
 	case "init":
-		return runInit(wsReal, r)
+		return runInit(wsReal, r, opts.Scope)
 	case "status":
 		return runStatus(wsReal, r)
 	default:
@@ -220,7 +233,7 @@ func blocked(checks []Check, stage, next, part string, code int) (Report, int) {
 
 // --- init ------------------------------------------------------------------
 
-func runInit(ws string, r *rules.Rules) (Report, int) {
+func runInit(ws string, r *rules.Rules, scope string) (Report, int) {
 	release, err := acquireLock(ws)
 	if err != nil {
 		return errorReport(err.Error()), ExitOperational
@@ -232,7 +245,7 @@ func runInit(ws string, r *rules.Rules) (Report, int) {
 	if err := os.WriteFile(rulesSnapshotPath(ws), r.Raw, 0o644); err != nil {
 		return errorReport("cannot snapshot the run rules: " + err.Error()), ExitOperational
 	}
-	st := newState(ws, r.Hash)
+	st := newState(ws, r.Hash, scope)
 	if err := saveState(ws, st); err != nil {
 		return errorReport(err.Error()), ExitOperational
 	}
@@ -241,7 +254,7 @@ func runInit(ws string, r *rules.Rules) (Report, int) {
 		NextStage: r.StageOrder[0],
 		Checks: []Check{passCheck("run-initialized",
 			fmt.Sprintf("deep run %s created; rules %s recorded", st.RunID, shortHash(r.Hash)))},
-		Evidence: map[string]any{"runId": st.RunID},
+		Evidence: map[string]any{"runId": st.RunID, "scope": scope},
 	}, ExitOK
 }
 
@@ -256,8 +269,18 @@ func runStatus(ws string, r *rules.Rules) (Report, int) {
 			r.StageOrder[0], r.StageOrder[0], "", ExitFailedCheck)
 	}
 	fStage, fPart, complete := frontier(r, st, ws)
+	scope := stateScope(st)
+	// Every status report carries the scope, including a blocked one: the
+	// adapter and the chat read it to know how much the run teaches.
+	report := func(rep Report, code int) (Report, int) {
+		rep.Scope = scope
+		return rep, code
+	}
 
-	checks := []Check{passCheck("state-initialized", fmt.Sprintf("engine state present (run %s)", st.RunID))}
+	checks := []Check{
+		passCheck("state-initialized", fmt.Sprintf("engine state present (run %s)", st.RunID)),
+		passCheck("scope", "learning scope is "+stateScope(st)),
+	}
 	if st.RulesHash != r.Hash {
 		checks = append(checks, failCheck("rules-current",
 			fmt.Sprintf("rules changed since init: state has %s, current file has %s", shortHash(st.RulesHash), shortHash(r.Hash))))
@@ -282,16 +305,16 @@ func runStatus(ws string, r *rules.Rules) (Report, int) {
 
 	// Every integrity problem is reported before blocking; no early return.
 	if hasFAIL(checks) {
-		return blocked(checks, fStage, fStage, fPart, ExitFailedCheck)
+		return report(blocked(checks, fStage, fStage, fPart, ExitFailedCheck))
 	}
 
 	if complete {
 		res := evalStage(r, st, ws, "final", "")
 		checks = append(checks, res.checks...)
 		if hasFAIL(res.checks) {
-			return blocked(checks, "final", "final", "", ExitFailedCheck)
+			return report(blocked(checks, "final", "final", "", ExitFailedCheck))
 		}
-		return Report{Status: "completed", Stage: "final", NextStage: "", Checks: checks}, ExitOK
+		return report(Report{Status: "completed", Stage: "final", NextStage: "", Checks: checks}, ExitOK)
 	}
 
 	if detectWait(r, ws, fStage, fPart) {
@@ -300,18 +323,18 @@ func runStatus(ws string, r *rules.Rules) (Report, int) {
 		if r.Thresholds.ConceptMode() {
 			if fails := startedFrontierFailures(r, st, ws, fStage, fPart); len(fails) > 0 {
 				checks = append(checks, fails...)
-				return blocked(checks, fStage, fStage, fPart, ExitFailedCheck)
+				return report(blocked(checks, fStage, fStage, fPart, ExitFailedCheck))
 			}
 		}
 		checks = append(checks, skipCheck("learner-input",
 			fmt.Sprintf("waiting for learner answers before %s can advance", fStage)))
-		return Report{Status: "waiting", Stage: fStage, NextStage: fStage, Part: fPart, Checks: checks}, ExitOK
+		return report(Report{Status: "waiting", Stage: fStage, NextStage: fStage, Part: fPart, Checks: checks}, ExitOK)
 	}
 	if fails := startedFrontierFailures(r, st, ws, fStage, fPart); len(fails) > 0 {
 		checks = append(checks, fails...)
-		return blocked(checks, fStage, fStage, fPart, ExitFailedCheck)
+		return report(blocked(checks, fStage, fStage, fPart, ExitFailedCheck))
 	}
-	return Report{Status: "accepted", Stage: fStage, NextStage: fStage, Part: fPart, Checks: checks}, ExitOK
+	return report(Report{Status: "accepted", Stage: fStage, NextStage: fStage, Part: fPart, Checks: checks}, ExitOK)
 }
 
 // startedFrontierFailures evaluates the frontier stage read-only once the chat
@@ -494,7 +517,7 @@ func runFrontierStage(_ bool, requested, fStage, fPart string, stale []staleRef,
 		return blocked(checks, requested, fStage, fPart, ExitFailedCheck)
 	}
 
-	rubrics := applicableRubrics(r, ws, requested, part)
+	rubrics := applicableRubrics(r, st, ws, requested, part)
 
 	switch opts.Command {
 	case "validate":
@@ -809,7 +832,7 @@ func detectWait(r *rules.Rules, ws, stage, part string) bool {
 // artifact and rules hashes.
 func semanticFreshness(r *rules.Rules, st *State, ws string) (checked int, problems []string) {
 	visit := func(stage, part string) {
-		checked += len(applicableRubrics(r, ws, stage, part))
+		checked += len(applicableRubrics(r, st, ws, stage, part))
 		problems = append(problems, semanticProblems(r, st, ws, stage, part)...)
 	}
 	for stage := range r.Checks {
@@ -837,7 +860,7 @@ func semanticFreshness(r *rules.Rules, st *State, ws string) (checked int, probl
 // the artifact or the evidence the judgment was bound to has changed.
 func semanticProblems(r *rules.Rules, st *State, ws, stage, part string) []string {
 	var problems []string
-	for _, rub := range applicableRubrics(r, ws, stage, part) {
+	for _, rub := range applicableRubrics(r, st, ws, stage, part) {
 		rec := findSemantic(st, rub.ID, stage, part)
 		if rec == nil {
 			problems = append(problems, fmt.Sprintf("%s for %s review missing", rub.ID, stageLabel(stage, part)))
@@ -904,7 +927,7 @@ func semanticReuseChecks(r *rules.Rules, st *State, ws, stage string) []Check {
 				if _, ok := ps.Stages[stage]; !ok {
 					continue
 				}
-				if !rubricApplies(r, ws, p, rub) {
+				if !rubricApplies(r, st, ws, p, rub) {
 					continue
 				}
 				applicable++
@@ -936,10 +959,10 @@ func semanticReuseChecks(r *rules.Rules, st *State, ws, stage string) []Check {
 // applicableRubrics filters the stage rubrics by their when switch, so a
 // conditional review (e.g. visual-value) is only ever demanded when its
 // condition holds. Unknown conditions fail closed (always applicable).
-func applicableRubrics(r *rules.Rules, ws, stage, part string) []rules.Rubric {
+func applicableRubrics(r *rules.Rules, st *State, ws, stage, part string) []rules.Rubric {
 	var out []rules.Rubric
 	for _, rub := range r.RubricsFor(stage) {
-		if rubricApplies(r, ws, part, rub) {
+		if rubricApplies(r, st, ws, part, rub) {
 			out = append(out, rub)
 		}
 	}
@@ -948,10 +971,12 @@ func applicableRubrics(r *rules.Rules, ws, stage, part string) []rules.Rubric {
 
 // rubricApplies resolves one rubric's when switch for a part. Fail-closed:
 // anything unreadable or unknown keeps the review requirement.
-func rubricApplies(r *rules.Rules, ws, part string, rub rules.Rubric) bool {
+func rubricApplies(r *rules.Rules, st *State, ws, part string, rub rules.Rubric) bool {
 	switch rub.When {
 	case "":
 		return true
+	case "pareto":
+		return stateScope(st) == scopePareto
 	case "visualsPlanned":
 		if part == "" {
 			return true

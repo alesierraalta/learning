@@ -65,9 +65,13 @@ type Counters struct {
 
 // State is the engine-owned .learning/state.json document.
 type State struct {
-	Version   int                    `json:"version"`
-	RunID     string                 `json:"runId"`
-	Mode      string                 `json:"mode"`
+	Version int    `json:"version"`
+	RunID   string `json:"runId"`
+	Mode    string `json:"mode"`
+	// Scope is the learning scope chosen at init: complete (the whole topic)
+	// or pareto (only the vital slice). Runs created before scope existed
+	// carry no value and are resolved as complete.
+	Scope     string                 `json:"scope,omitempty"`
 	Workspace string                 `json:"workspace"`
 	CreatedAt time.Time              `json:"createdAt"`
 	RulesHash string                 `json:"rulesHash"`
@@ -81,6 +85,23 @@ type State struct {
 const stateVersion = 1
 const lockStaleAfter = 5 * time.Minute
 
+// Learning scopes fixed at init. The engine only enforces the extra pareto
+// checks when the run declares that scope, so a complete run is unchanged.
+const (
+	scopeComplete = "complete"
+	scopePareto   = "pareto"
+)
+
+// stateScope resolves the engine-owned learning scope. A run created before
+// scope existed is a complete run: the trim was never declared, so it was
+// never applied.
+func stateScope(st *State) string {
+	if st == nil || st.Scope == "" {
+		return scopeComplete
+	}
+	return st.Scope
+}
+
 var errLockHeld = errors.New("another operation in progress: workspace lock is held")
 
 func stateDir(ws string) string  { return filepath.Join(ws, ".learning") }
@@ -90,11 +111,12 @@ func lockPath(ws string) string  { return filepath.Join(stateDir(ws), "lock") }
 // rulesSnapshotPath holds the rules a run started with (written by init).
 func rulesSnapshotPath(ws string) string { return filepath.Join(stateDir(ws), "rules.json") }
 
-func newState(workspace, rulesHash string) *State {
+func newState(workspace, rulesHash, scope string) *State {
 	return &State{
 		Version:   stateVersion,
 		RunID:     newRunID(),
 		Mode:      "deep",
+		Scope:     scope,
 		Workspace: workspace,
 		CreatedAt: time.Now().UTC(),
 		RulesHash: rulesHash,

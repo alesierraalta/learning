@@ -9,7 +9,7 @@ Both conditions are required: canonical workspace is within the configured Learn
 ## CLI boundary
 
 Build: `go build -o bin/learning ./cmd/learning`.
-Commands: `learning init|validate|advance|status|review --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--stage STAGE] [--rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer ID]] [--json]`.
+Commands: `learning init|validate|advance|status|review --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--stage STAGE] [--rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer ID]] [--json]`. `--scope` is an `init` decision stored as `state.scope` (`complete` default, `pareto` teaches only the vital slice and demands the declared trim); later commands reject it and read state instead.
 `--rules` points to repository `rules/deep.json`. Adapter passes canonical paths as argv, never concatenates a shell command. CLI help documents each command, input artifacts and configuration. stdout with `--json` is exactly one JSON object, no logging mixed in. Exit 0 = accepted/completed/waiting/skipped; 1 = failed mandatory validation; 2 = invalid arguments/configuration/operational failure. Errors must produce a machine-readable report with JSON mode.
 
 Response: `{ "status": "accepted|completed|waiting|skipped|blocked|error", "stage": "...", "checks": [{"id":"...", "kind":"deterministic|semantic", "status":"PASS|FAIL|SKIP", "reason":"..."}], "nextStage": "..." }`. Additional structured evidence fields may be added. Adapter uses status/checks, not prose matching.

@@ -25,7 +25,7 @@ rtk go build -o bin/learning ./cmd/learning
 ## CLI contract
 
 ```text
-learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--stage STAGE] [--json]
+learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--stage STAGE] [--json]
 learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
 learning help
 ```
@@ -84,6 +84,28 @@ The adapter may only treat the first group as passing.
 are read, no state exists, no review is requested or recorded. The conceptual
 teaching flow is untouched.
 
+## Teaching scope (pareto)
+
+`--scope` is accepted only by `init` and is recorded as `state.scope`; every
+later command reads it from state and rejects the flag (exit 2). An empty or
+missing scope is `complete`, so runs created before this option behave
+exactly as before.
+
+- `complete` (default): the whole topic is taught.
+- `pareto`: only the vital slice that yields most of the result. The plan must
+  declare the selection — `plan.json` carries
+  `"pareto": {"criterio": "<why these are the vital 20%>", "descartado": [...]}`
+  and every part a `"pareto": "<what this part buys>"` line — and the taught
+  part must stay within the trim. Two deterministic checks enforce it
+  (`pareto-plan` in `preparation` and `planning`, `pareto-part` in
+  `explanation`), and the `pareto-value` gate rubric judges whether the part
+  really delivers the declared slice. Thresholds live in
+  `thresholds.pareto` (`maxParts`, `minCriterioChars`, `heading`,
+  `maxWords`); a rules file that declares pareto kinds or rubrics without
+  those thresholds fails to load.
+- Measurement is never trimmed: the quiz, its answer key, the diagnosis and
+  the learner dump keep their full checks in both scopes.
+
 ## Stage flow
 
 ```text
@@ -124,10 +146,10 @@ is the source of truth for paths and checks; this table summarizes it.
 
 | Stage | Artifacts | Objective checks (summary) |
 |---|---|---|
-| preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned` |
+| preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned`; in `pareto` scope, a stated `pareto.criterio`, a nonempty `pareto.descartado`, one `pareto` line per part and at most `maxParts` parts. Optional per-part `demosPlanned` declares an interactive-demo promise |
 | diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | adaptive rounds (`thresholds.diagnostic.mode: adaptive`, see "Adaptive diagnosis") or, for runs whose rules snapshot has fixed counts, 6 prerequisite + 6 topic questions (2/2/2 by level); enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
-| planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part |
-| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), revised after a failed mini-quiz |
+| planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part; in `pareto` scope the selection is re-checked because planning rewrites `plan.json` |
+| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
 | quiz | `mini-quiz/{part}.json`, `mini-quiz/{part}.answers.json` | part note has a mini-quiz section, 5 questions with enunciados present in it, complete answers, derived score ≥ 4/5 with no central miss |
 | feedback | `feedback/{part}.json` | matches the part, nonempty notes, `difficultyDetected=false` cannot contradict recorded wrong answers |
@@ -144,9 +166,22 @@ code-block processor. Add or remove a format by editing that list.
 `thresholds.visualElements` lists inline HTML elements Obsidian renders as a
 visual — `svg` today. One counts only outside code blocks, closed
 (`<svg ...>...</svg>`) and with at least one child element; an empty or
-unclosed element, or one inside a fenced block, is not a visual. The check
-proves a visual is present, not that it helps; that is the `visual-value`
-rubric's judgment.
+unclosed element, or one inside a fenced block, is not a visual. When the part
+planned a visual, `thresholds.minVisuals` (2 today) sets the minimum count and
+`thresholds.howToReadLine` ("Cómo leerlo") is the reading guide every visual
+must carry on its next non-blank line (M1). The check proves the visuals are
+present and guided, not that they help; that is the `visual-value` rubric's
+judgment.
+
+Demo components: `thresholds.demoElements` lists the inline HTML elements that
+count as an interactive mini demo — `lk-widget` (inline parameter playground)
+and `lk-walkthrough` (stepped deck) today. Same counting rules: closed element,
+at least one child, outside fenced blocks. When the part declared
+`"demosPlanned": true` in `plan.json`, `thresholds.minDemos` (1 today) sets the
+minimum count and each demo needs its own `howToReadLine` guide (M1). The
+declared demo component is what the vault renders — a neural-net playground,
+a stepped SQL deck — so the check certifies the practice promise the plan
+made, not just prose.
 
 ### Adaptive diagnosis
 
@@ -224,7 +259,8 @@ planning, focus areas naming the diagnosis' wrong answers):
 ```json
 {"topic": "Factor de descuento",
  "parts": [{"id": "p1", "title": "El retorno", "slug": "El retorno",
-            "subtema": "1.2.2", "examplesPlanned": true, "visualsPlanned": true}],
+            "subtema": "1.2.2", "examplesPlanned": true, "visualsPlanned": true,
+            "demosPlanned": true}],
  "diagnosisSummary": "...", "focusAreas": ["..."]}
 ```
 
@@ -381,7 +417,7 @@ no review request at all):
   binding `context`. The chat evaluates each rubric — delegating to a subagent
   when useful — and records one verdict with
   `learning review --stage S --rule R --verdict PASS|FAIL --reason TEXT [--reviewer ID]`.
-- Rubrics (`rules/deep.json`): `explanation-adapted` and `visual-value` at
+- Rubrics (`rules/deep.json`): `explanation-adapted`, `visual-value` (and, in scope `pareto`, `pareto-value`) at
   explanation (`visual-value` applies only when the part planned a visual),
   `distractor-quality` (plausible, unambiguous, no cue leakage) at quiz,
   `central-gap` assessment at feedback.
@@ -420,7 +456,7 @@ quality, which rests on the evaluator named in each receipt.
 
 ```json
 {
-  "version": 1, "runId": "…", "mode": "deep", "workspace": "…",
+  "version": 1, "runId": "…", "mode": "deep", "scope": "pareto", "workspace": "…",
   "createdAt": "…", "rulesHash": "sha256:…",
   "counters": {"successfulAdvances": 12},
   "global": {"planning": {"completedAt": "…", "receipts": {"plan.json": "sha256:…"}, "evidence": {}}},
