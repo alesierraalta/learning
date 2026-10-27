@@ -504,7 +504,6 @@ export function parsePublicOrigins(option: string, value: string | undefined): U
 
 export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   const publicOrigins = parsePublicOrigins("publicOrigin", options.publicOrigin);
-  const publicUrl = publicOrigins?.[0];
   const embedderOrigins = parsePublicOrigins("publicEmbedder", options.publicEmbedder);
   const embedders = [...(options.frameAncestors ?? [])];
   const invalid = embedders.find((origin) => !LOOPBACK_ORIGIN.test(origin));
@@ -522,7 +521,7 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
 
   const allowedHosts = () => new Set([`127.0.0.1:${port}`, `localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.host)]);
   const allowedOrigins = () => new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.origin)]);
-  const base = () => `${publicUrl?.origin ?? `http://127.0.0.1:${port}`}/${token}/`;
+  const base = () => `${publicOrigins?.[0]?.origin ?? `http://127.0.0.1:${port}`}/${token}/`;
 
   const tokenMatches = (candidate: string) => {
     const a = Buffer.from(candidate);

@@ -26,6 +26,8 @@ const UI_DIR = join(HERE, "ui");
 const CANONICAL_ROOT = "/mnt/c/Users/ismar/Documents/obsidian/ale/notes/04-RECURSOS/Learnings";
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_PROMPT_CHARS = 20000;
+/** A configured token keeps the shape of a generated one, so a weak secret is refused. */
+const TOKEN_SHAPE = /^[a-f0-9]{64}$/;
 const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
 /** The slides' serif: Tinos is metric-compatible with the Liberation Serif the decks render with. */
 const FONT_STYLESHEETS = [
@@ -47,6 +49,8 @@ export interface StudioOptions {
   transcriberToken?: string;
   enginePath?: string;
   rulesPath?: string;
+  /** A fixed 64-hex token, so restarts never invalidate an open tab; random per run when absent. */
+  token?: string;
 }
 
 export interface Studio {
@@ -113,16 +117,16 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     throw new Error("publicOrigin and bridgePublicOrigin must be set together");
   }
   const publicOrigins = parsePublicOrigins("publicOrigin", options.publicOrigin);
-  const publicUrl = publicOrigins?.[0];
   parsePublicOrigins("bridgePublicOrigin", options.bridgePublicOrigin);
   const contained = resolveContained(options.root ?? CANONICAL_ROOT, options.root ?? CANONICAL_ROOT);
   if (!contained.ok) throw new Error(contained.reason);
+  if (options.token !== undefined && !TOKEN_SHAPE.test(options.token)) throw new Error("token must be 64 lowercase hex characters");
   const root = contained.rootReal;
   // Its own session id: terminal sessions in the same folder are never written by two processes.
   const piCommand = options.piCommand ?? ["pi", "--mode", "rpc", "--session-id", "estudio"];
   const enginePath = options.enginePath ?? join(REPO, "bin", "learning");
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
-  const token = randomBytes(32).toString("hex");
+  const token = options.token ?? randomBytes(32).toString("hex");
   let port = 0;
 
   // ---- Server-Sent Events ------------------------------------------------
@@ -591,6 +595,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     transcriberToken: process.env.STUDIO_TRANSCRIBER_TOKEN,
     bridgePublicOrigin: process.env.STUDIO_BRIDGE_PUBLIC_ORIGIN,
     bridgePort: process.env.STUDIO_BRIDGE_PORT === undefined ? undefined : Number(process.env.STUDIO_BRIDGE_PORT),
+    token: process.env.STUDIO_TOKEN?.trim() || undefined,
   });
   const entry = entryUrl(publicOrigin, studio.port);
   console.log(`Estudio: ${entry}`);
