@@ -22,9 +22,10 @@ Branch `feat/github-ci-cd`, worktree `~/documents/learning-ci-cd`, based on `ori
 | T3 | S4 | inline: `deploy/vps/update.sh` guard + Go PATH; `deploy/vps/install-runner.sh` | 68114e0 |
 | T4 | S5 | inline: `docs/deploy-vps.md` CI/CD section, README verification pointer | docs commit |
 | T5 | S2 | VPS: install and register the runner, verify online in the repository API | 68114e0 |
-| T6 | S1-S4 | verify: local suites exactly as CI runs them, `actionlint`, real `update.sh` run on the VPS | in progress |
-| T7 | S1 | push branch, open PR, watch CI on the pull request | pending |
-| T8 | S3 | merge to `main` and watch the first automatic deploy (user decision) | pending |
+| T6 | S1-S4 | verify: local suites exactly as CI runs them, `actionlint`, real `update.sh` run on the VPS | docs commit |
+| T7 | S1 | push branch, open PR, watch CI on the pull request | 93375df |
+| T8 | S3 | merge to `main` and watch the first automatic deploy (user decision) | 93375df |
+| T9 | S3, S4 | inline: `update.sh` re-executes the pulled script; scratch-clone test on the VPS | c7d3f69 |
 
 ## Log
 
@@ -35,3 +36,4 @@ Branch `feat/github-ci-cd`, worktree `~/documents/learning-ci-cd`, based on `ori
 - **L5** CI design: one GitHub-hosted job so the built `bin/learning`, the pulled images and Playwright are shared; `PLAYWRIGHT_MODULE` points at the global install because `node --test` does not resolve global modules; `npm root -g` is exported to `$GITHUB_ENV`.
 - **L6** CD design: the runner runs as `ale` from a systemd user unit; the deploy job calls the live tree's `update.sh` (single source of truth); `concurrency: deploy-vps` keeps runs serial; the job reports the deployed commit. The runner's default labels already include `self-hosted`, `linux`, `x64`; the custom label `learning-vps` keeps the workflow explicit.
 - **L7** Evidence: pulling only the digest-pinned references leaves the plain tags (`python:3.12-alpine`) absent, and the bridge suite probes the tag, so its code-HTTP test skipped; the CI pull step pulls each reference and its tag. With both pulled, `node --test integrations/pi/*.test.mjs studio/*.test.mjs` reports 112 pass, 0 skip. The runner registered as `alelaptop-learning`, labels `self-hosted, Linux, X64, learning-vps`, status online; linger is enabled for `ale`.
+- **L8** Evidence: CI passed on PR #9 in 1m59s and the PR merged as `93375df`. The first automatic deploy failed in 11s: the job executed the pre-merge `update.sh`, which fast-forwarded the live tree and then failed with "Missing prerequisite: Go" because that version lacked the `/usr/local/go/bin` fallback. Running the pulled script by hand deployed `93375df` with healthy checks. `update.sh` now re-executes after the pull so a deploy runs the version it just pulled; tested on a scratch clone on the VPS (marker printed once, deploy and health OK). A `workflow_dispatch` run (`40588585413`) then deployed `93375df` end-to-end in 8s.
