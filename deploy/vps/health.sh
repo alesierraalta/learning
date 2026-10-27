@@ -7,4 +7,6 @@ code=$(curl -s --retry 10 --retry-connrefused --retry-delay 1 --max-time 10 -o /
 ca="$HOME/sync-hub/certs/infra-root-ca.crt"
 code=$(curl -s --retry 5 --retry-connrefused --retry-delay 1 --max-time 15 --cacert "$ca" -o /dev/null -w '%{http_code}' https://10.154.59.151:8445/) || fail 'ZeroTier HTTPS unreachable'
 [[ "$code" == 302 ]] || fail "ZeroTier HTTPS $code, expected 302"
-echo 'learning-studio: OK (active; loopback HTTP 302; ZeroTier HTTPS 302 with a trusted certificate)'
+code=$(curl -s --retry 5 --retry-connrefused --retry-delay 1 --max-time 15 --cacert "$ca" --resolve learnings.infra.local:443:10.154.59.151 -o /dev/null -w '%{http_code}' https://learnings.infra.local/) || fail 'named HTTPS unreachable'
+[[ "$code" == 302 ]] || fail "named HTTPS $code, expected 302"
+echo 'learning-studio: OK (active; loopback HTTP 302; ZeroTier HTTPS 302 with a trusted certificate; learnings.infra.local 302)'

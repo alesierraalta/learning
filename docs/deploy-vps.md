@@ -10,7 +10,7 @@ Run as `ale`, not root. Install Git, Go (the version required by `go.mod`), curl
 
 1. Clone the deploy branch:
    ```sh
-   git clone --branch feat/studio-vps https://github.com/alesierraalta/learning.git ~/learning
+   git clone https://github.com/alesierraalta/learning.git ~/learning
    cd ~/learning
    ```
 2. Build the Linux engine:
@@ -25,7 +25,7 @@ Run as `ale`, not root. Install Git, Go (the version required by `go.mod`), curl
    ```
    Complete the repository's Pi profile setup before starting the service; the studio starts `pi --mode rpc --session-id estudio` inside the vault.
 4. Give Pi its model credential and default model. The studio's tutor uses `opencode-go/deepseek-v4.1-flash` with thinking `high`: the `opencode-go` API key lives in `~/.pi/agent/auth.json` (mode 600; log in with `pi` → `/login`, or copy only that entry from the PC with the owner's consent), and `~/.pi/agent/settings.json` sets `defaultProvider: opencode-go`, `defaultModel: deepseek-v4.1-flash`, `defaultThinkingLevel: high`. Check with `pi -p --mode json "di hola" | grep -o '"thinkingLevel":"[a-z]*"'`, then `systemctl --user restart learning-studio`.
-5. Configure Syncthing separately: sync only Learnings two-way with the PC's Obsidian vault into `/home/ale/Learnings`. Keep conflict copies; wait for initial sync.
+5. Put the vault in place. The VPS holds the only working copy of Learnings at `/home/ale/Learnings` (copied once from the PC's Obsidian vault; there is no live sync). The installer turns it into a Git repository backup only if it already is one (see [Content backup](#content-backup)).
 6. Preview and install:
    ```sh
    bash deploy/vps/install.sh --dry-run
@@ -33,7 +33,16 @@ Run as `ale`, not root. Install Git, Go (the version required by `go.mod`), curl
    ```
    Dry-run prints planned mutations even when prerequisites are missing, exits nonzero for missing prerequisites, and never runs sudo or systemctl. For a different npm prefix, set `NPM_PREFIX=/your/prefix` before installation. The installer preserves an existing `~/.config/learning-studio.env`; edit its `PATH` yourself if changing prefixes later.
 
-Open **https://10.154.59.151:8445** from a device on the ZeroTier network. HTTPS bridge pages use port **8446**. The container `learning-studio-caddy` (Caddy, host network, `deploy/vps/Caddyfile`, restarts unless stopped) terminates TLS there and proxies to loopback ports **4747** and **4748**, preserving Host. For microphone capture, keep using HTTPS; accepting the certificate warning once is enough. Installing the Infra Root CA is optional. UFW drops unlisted ports, so the installer allows `8445:8446/tcp` on the ZeroTier interface only.
+Open **https://learnings.infra.local/** from a device on the ZeroTier network; the bare address **https://10.154.59.151:8445** keeps working as a fallback. HTTPS bridge pages use port **8446** (`https://learnings.infra.local:8446`). The container `learning-studio-caddy` (Caddy, host network, `deploy/vps/Caddyfile`, restarts unless stopped) terminates TLS on port **443** for the name and on **8445**/**8446** for the address, proxying to loopback ports **4747** and **4748** and preserving Host. For microphone capture, keep using HTTPS; accepting the certificate warning once is enough. Installing the Infra Root CA is optional. UFW drops unlisted ports, so the installer allows `443/tcp` and `8445:8446/tcp` on the ZeroTier interface only.
+
+## The stable name
+
+`learnings.infra.local` is served only inside the ZeroTier network, so nothing is exposed to the internet:
+
+- The certificate is the Infra Root CA service certificate, whose SAN covers `*.infra.local`.
+- `deploy/vps/learnings-dns.sh` (run by the installer) installs dnsmasq listening on `10.154.59.151:53` only, answering `learnings.infra.local` with that address and forwarding every other query to the host resolver. It checks the record with `dig` before reporting success.
+- Point the network's managed DNS at `10.154.59.151` for the `infra.local` domain in ZeroTier Central (network → **DNS**: nameserver `10.154.59.151`, domain `infra.local`). Members then resolve the name at home and away; every other lookup keeps using the device's own resolvers.
+- mDNS was evaluated first and rejected: Windows did not resolve a published `*.local` address across ZeroTier (`ENOTFOUND`).
 
 ## Server-side dictation
 
