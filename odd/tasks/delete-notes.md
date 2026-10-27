@@ -14,11 +14,11 @@ S5 — La interfaz pide confirmación nombrando exactamente lo que se moverá y 
 
 | ID | Specs | Ruta | Commit |
 | --- | --- | --- | --- |
-| T1 | S2, S4 | inline — `deleteNote()` en el puente: papelera, manifiesto, guardas | 3b66055 |
-| T2 | S3 | inline — reescritura de `plan.json` al borrar una parte | 3b66055 |
-| T3 | S1, S4 | inline — `POST delete` en el estudio | 3b66055 |
-| T4 | S1, S5 | inline — botones, confirmación y refresco en la UI | 3b66055 |
-| T5 | S2 | inline — documentación de la papelera | 3b66055 |
+| T1 | S2, S4 | inline — `deleteNote()` en el puente: papelera, manifiesto, guardas | ec39ad4 |
+| T2 | S3 | inline — reescritura de `plan.json` al borrar una parte | ec39ad4 |
+| T3 | S1, S4 | inline — `POST delete` en el estudio | ec39ad4 |
+| T4 | S1, S5 | inline — botones, confirmación y refresco en la UI | ec39ad4 |
+| T5 | S2 | inline — documentación de la papelera | ec39ad4 |
 
 ## Log
 
