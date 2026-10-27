@@ -471,6 +471,10 @@
       const frame = element("iframe");
       frame.src = path.split("/").map(encodeURIComponent).join("/");
       frame.setAttribute("sandbox", "allow-scripts");
+      // Fullscreen must be allowed explicitly, or the demo's own
+      // "Pantalla completa" button is denied and looks dead.
+      frame.setAttribute("allow", "fullscreen");
+      frame.setAttribute("allowfullscreen", "");
       frame.title = name;
       section.append(element("h3", name), frame);
       frames.push({ frame, name });

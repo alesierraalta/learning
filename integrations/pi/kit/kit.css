@@ -121,3 +121,4 @@ legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; ma
 .lk-walkthrough:fullscreen .lk-wt-bar, .lk-walkthrough:-webkit-full-screen .lk-wt-bar { margin-top:20px; }
 .lk-walkthrough:fullscreen .lk-wt-bar button, .lk-walkthrough:-webkit-full-screen .lk-wt-bar button { font-size:.95rem; padding:9px 18px; }
 .lk-walkthrough:fullscreen .lk-wt-full, .lk-walkthrough:-webkit-full-screen .lk-wt-full { background:var(--ink); color:#fff; }
+.lk-wt-hint-error { display:block !important; color:var(--warn, #b00020); font-weight:600; }

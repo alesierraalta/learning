@@ -345,8 +345,21 @@
     // The figure is the lesson: letting it own the screen is what makes the
     // small labels readable on a laptop and in class.
     const full = button('Pantalla completa', () => {
-      if (document.fullscreenElement === this) document.exitFullscreen?.();
-      else this.requestFullscreen?.().catch(() => {});
+      if (document.fullscreenElement === this) {
+        document.exitFullscreen?.();
+        return;
+      }
+      // A denied request must be visible, never a dead button: the embed may
+      // lack allow="fullscreen" (sandboxed iframe) or the user may have
+      // blocked the permission.
+      this.requestFullscreen?.().catch(() => {
+        hint.textContent = 'Pantalla completa bloqueada por el contexto donde está embebido este demo.';
+        hint.classList.add('lk-wt-hint-error');
+        setTimeout(() => {
+          hint.textContent = 'Desliza el diagrama para verlo completo';
+          hint.classList.remove('lk-wt-hint-error');
+        }, 4000);
+      });
     });
     full.className = 'lk-wt-full';
     const syncFull = () => {
