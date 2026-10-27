@@ -1016,3 +1016,52 @@ test("a topic reports what it still owes: missing parts, promised visuals and mi
   assert.deepEqual(summary.gaps, { missing: ["p3"], noVisuals: ["p1"], noQuiz: ["p1"] });
   assert.deepEqual(summary.parts.map((p) => p.visuals), [0, 1, 0]);
 });
+
+test('wide reading mode is opt-in, spreads the prose and survives a reload', { skip: !playwright && 'playwright not installed' }, async (t) => {
+  const { view, topic } = await setup();
+  const sections = Array.from(
+    { length: 24 },
+    (_, i) =>
+      `## Sección ${i + 1}\n\nUn párrafo de prueba con suficiente texto como para que el reparto en dos columnas se observe en una pantalla ancha, sin depender de una figura.\n`,
+  ).join('\n');
+  writeFileSync(join(topic, 'explicaciones', 'Parte 1 - Claves.md'), `# Parte 1 — Claves\n\n${sections}`);
+  const result = await view({ topic: TOPIC, part: 'p1' });
+
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  const measure = () =>
+    page.evaluate(() => {
+      const prose = document.querySelector('.prose');
+      const toggle = document.querySelector('.reading-toggle');
+      const box = document.querySelector('#app').getBoundingClientRect();
+      return {
+        columns: getComputedStyle(prose).columnCount,
+        width: Math.round(box.width),
+        overflow: document.documentElement.scrollWidth - window.innerWidth,
+        pressed: toggle?.getAttribute('aria-pressed') ?? null,
+        label: toggle?.textContent ?? '',
+      };
+    });
+
+  await page.goto(result.structuredContent.url);
+  const narrow = await measure();
+  assert.equal(narrow.columns, 'auto', 'the default reader is a single narrow flow');
+  assert.ok(narrow.width <= 800, `the default reader stays narrow (${narrow.width}px)`);
+  assert.equal(narrow.pressed, 'false', 'the wide mode is off by default');
+  assert.match(narrow.label, /modo ancho/i, 'the reader offers the toggle');
+  assert.equal(narrow.overflow, 0, 'the default reader never overflows horizontally');
+
+  await page.getByRole('button', { name: /modo ancho/i }).click();
+  const wide = await measure();
+  assert.equal(wide.columns, '2', 'the wide mode splits the prose into two columns');
+  assert.ok(wide.width > 1200, `the wide mode uses the horizontal space (${wide.width}px)`);
+  assert.equal(wide.pressed, 'true', 'the toggle reports the mode as on');
+  assert.equal(wide.overflow, 0, 'the wide mode never overflows horizontally');
+
+  await page.reload();
+  assert.equal((await measure()).columns, '2', 'the chosen mode survives a reload');
+
+  await page.setViewportSize({ width: 900, height: 900 });
+  assert.equal((await measure()).columns, 'auto', 'a narrow screen keeps one column even in wide mode');
+});
