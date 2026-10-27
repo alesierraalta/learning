@@ -318,6 +318,9 @@ test("the library lists topics with engine status, parts and quick notes; api/vi
   assert.equal(topic.stage, "diagnosis");
   assert.equal(topic.hasDiagnosis, true);
   assert.deepEqual(topic.parts.map((p) => [p.id, p.written, p.hasApp]), [["p1", true, true], ["p2", false, false]]);
+  // What the topic still owes travels with the library, so no view can call it finished.
+  assert.deepEqual(topic.gaps, { missing: ["p2"], noVisuals: [], noQuiz: ["p1"] });
+  assert.deepEqual(topic.parts.map((p) => p.visuals), [0, 0]);
 
   const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
   assert.match(view.url, /^http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{64}\/redes\/p1$/);

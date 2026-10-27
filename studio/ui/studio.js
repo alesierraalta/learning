@@ -114,6 +114,10 @@
     resume: (t) => `Sigamos con ${t.title} (carpeta ${t.id}).`,
     next: (t) => `Escribe la siguiente parte de ${t.title} (carpeta ${t.id}).`,
     gaps: (t) => `Repasa mis lagunas de ${t.title} (carpeta ${t.id}).`,
+    fill: (t) => {
+      const ids = ((t.gaps && t.gaps.missing) || []).join(", ");
+      return `Escribe las partes que faltan de ${t.title} (carpeta ${t.id}): ${ids}. Cada una con sus visuales, sus ejemplos y su mini-quiz.`;
+    },
   };
 
   /** One sentence and one button: what to do next in a topic. */
@@ -312,6 +316,7 @@
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: topic.title }]);
     const step = nextStep(topic);
     const firstPending = topic.parts.find((p) => !p.written);
+    const gaps = topic.gaps || { missing: [], noVisuals: [], noQuiz: [] };
     const rows = [];
     if (topic.hasDiagnosis) {
       const current = (topic.nextStage || topic.stage) === "diagnosis";
@@ -334,12 +339,18 @@
         ready: "Lista para leer",
         pending: "Todavía no escrita",
       }[state];
+      // A written part still owes what the plan promised: say so instead of letting it look finished.
+      const owed = [];
+      if (p.written && gaps.noVisuals.includes(p.id)) owed.push("sin visuales");
+      if (p.written && gaps.noQuiz.includes(p.id)) owed.push("sin mini-quiz");
+      if (p.written && p.visuals > 0) owed.push(`${p.visuals} visual${p.visuals === 1 ? "" : "es"}`);
+      const metaText = owed.length ? `${meta} · ${owed.join(" · ")}` : meta;
       rows.push(
         h(
           "li",
           { class: `part-row reveal ${state}`, style: `--i:${i + 3}` },
           h("span", { class: "node" }, state === "done" ? icon("check") : String(i + 1)),
-          h("div", {}, h("h3", {}, p.title), h("div", { class: "meta" }, `Parte ${i + 1} · ${meta}`)),
+          h("div", {}, h("h3", {}, p.title), h("div", { class: "meta" }, `Parte ${i + 1} · ${metaText}`)),
           h(
             "div",
             { class: "row-actions" },
@@ -368,6 +379,18 @@
             h("span", { class: `tag reveal${step.tone === "test" ? " test" : ""}`, style: "--i:0" }, step.tone === "test" ? "Prueba" : "Universitario"),
             h("h1", { class: "reveal", style: "--i:0" }, topic.title),
             h("div", { class: "reveal", style: "--i:1;max-width:520px" }, progress(topic)),
+            gaps.missing.length > 0 && topic.status !== "sin inscribir"
+              ? h(
+                  "div",
+                  { class: "empty reveal", style: "--i:1" },
+                  h(
+                    "p",
+                    {},
+                    `El plan tiene ${topic.parts.length} partes y ${topic.parts.length - gaps.missing.length} escrita${topic.parts.length - gaps.missing.length === 1 ? "" : "s"}: faltan ${gaps.missing.length} (${gaps.missing.join(", ")}).`,
+                  ),
+                  btn("Pedir las que faltan", () => say(prompts.fill(topic)), "btn small ghost", "spark"),
+                )
+              : null,
             h("ol", { class: "route", "aria-label": "Ruta del tema" }, rows),
           ),
           h(
