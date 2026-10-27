@@ -1,5 +1,7 @@
 # learning
 
+[![CI](https://github.com/alesierraalta/learning/actions/workflows/ci.yml/badge.svg)](https://github.com/alesierraalta/learning/actions/workflows/ci.yml)
+
 Separate repository for the deep-learning validation system (spec: `odd/tasks/learning-validation.md`).
 A Go engine owns every rule, validation, semantic judgment and completion decision; a thin,
 project-scoped Pi adapter only activates, executes and reports the engine's CLI.
@@ -83,6 +85,10 @@ go test ./... && go test -race ./... && go vet ./...   # engine
 go build -o bin/learning ./cmd/learning
 rtk node --test integrations/pi/*.test.mjs             # adapter (fake ExtensionAPI + CLI stub)
 ```
+
+The same commands run in CI (`.github/workflows/ci.yml`) on every pull request and push to
+`main`; the studio deploys to the VPS after each merge (see
+[docs/deploy-vps.md](docs/deploy-vps.md#continuous-integration-and-delivery)).
 
 The adapter suite verifies adapter behavior against the documented CLI contract; it does
 **not** verify the engine. The live-host load check and the real-CLI seam check are

@@ -17,12 +17,12 @@ Branch `feat/github-ci-cd`, worktree `~/documents/learning-ci-cd`, based on `ori
 
 | ID | Specs | Route | Commit |
 |---|---|---|---|
-| T1 | S1 | inline: `.github/workflows/ci.yml` (GitHub-hosted job; Go, Node 24, Playwright, sandbox images) | pending |
-| T2 | S2, S3 | inline: `.github/workflows/deploy.yml` (self-hosted labels, push to main + dispatch, concurrency) | pending |
-| T3 | S4 | inline: `deploy/vps/update.sh` guard + Go PATH; `deploy/vps/install-runner.sh` | pending |
-| T4 | S5 | inline: `docs/deploy-vps.md` CI/CD section, README verification pointer | pending |
-| T5 | S2 | VPS: install and register the runner, verify online in the repository API | pending |
-| T6 | S1-S4 | verify: local suites exactly as CI runs them, `actionlint`, real `update.sh` run on the VPS | pending |
+| T1 | S1 | inline: `.github/workflows/ci.yml` (GitHub-hosted job; Go, Node 24, Playwright, sandbox images) | 5ea77ad |
+| T2 | S2, S3 | inline: `.github/workflows/deploy.yml` (self-hosted labels, push to main + dispatch, concurrency) | 68114e0 |
+| T3 | S4 | inline: `deploy/vps/update.sh` guard + Go PATH; `deploy/vps/install-runner.sh` | 68114e0 |
+| T4 | S5 | inline: `docs/deploy-vps.md` CI/CD section, README verification pointer | docs commit |
+| T5 | S2 | VPS: install and register the runner, verify online in the repository API | 68114e0 |
+| T6 | S1-S4 | verify: local suites exactly as CI runs them, `actionlint`, real `update.sh` run on the VPS | in progress |
 | T7 | S1 | push branch, open PR, watch CI on the pull request | pending |
 | T8 | S3 | merge to `main` and watch the first automatic deploy (user decision) | pending |
 
