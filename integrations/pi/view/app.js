@@ -56,14 +56,23 @@
   };
   const markdown = (text, inline = false) => {
     const node = element(inline ? "span" : "div");
+    const math = globalThis.lkMath?.extract(text) ?? { text, blocks: [] };
     // The kit vocabulary written inside a note IS the lesson: walkthrough decks and
     // their JSON payload scripts must survive marked + DOMPurify, then kit.js (loaded
-    // in the page head) upgrades them on connect.
-    node.innerHTML = DOMPurify.sanitize(inline ? marked.parseInline(text) : marked.parse(text), {
+    // in the page head) upgrades them on connect. Diagrams come written as inline
+    // SVG, which needs the svg profile; nothing a note writes may load from outside
+    // the document, so image, use and foreignObject stay out.
+    const clean = DOMPurify.sanitize(inline ? marked.parseInline(math.text) : marked.parse(math.text), {
+      USE_PROFILES: { html: true, svg: true },
       ADD_TAGS: ["video", "audio", "source", "details", "summary", "script",
         "lk-walkthrough", "lk-callout", "lk-quiz", "lk-widget", "lk-diagram", "lk-math", "lk-steps", "lk-ask", "lk-step"],
       ADD_ATTR: ["controls", "preload", "type", "title"],
+      FORBID_TAGS: ["foreignObject", "image", "use"],
     });
+    // The sanitizer has already spoken; parsing the result in an inert document
+    // keeps the page from ever handing note text straight to innerHTML.
+    node.append(...new DOMParser().parseFromString(clean, "text/html").body.childNodes);
+    globalThis.lkMath?.render(node, math.blocks);
     return node;
   };
   const status = () => {

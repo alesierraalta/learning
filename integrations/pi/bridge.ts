@@ -62,12 +62,12 @@ export const CDN_SCRIPTS = [
 const PAGE_CSP = [
   "default-src 'none'",
   "script-src 'self' https://cdn.jsdelivr.net",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
   "img-src 'self' data:",
   "media-src 'self'",
   "frame-src 'self'",
   "connect-src 'self'",
-  "font-src 'self' data:",
+  "font-src 'self' data: https://cdn.jsdelivr.net",
   "base-uri 'none'",
   "form-action 'none'",
 ].join("; ");
@@ -820,6 +820,7 @@ ${scripts}
 <script src="${prefix}kit/dictate.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/scene.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/kit.js?v=${staticVersion}"></script>
+<script src="${prefix}math.js?v=${staticVersion}"></script>
 <script src="${prefix}app.js?v=${staticVersion}"></script>
 </body>
 </html>
@@ -1201,7 +1202,7 @@ ${scripts}
     if (rest.length === 0) return indexPage(res);
     if (rest[0] === "kit" && rest.length >= 2) return kitFile(res, rest.slice(1).join("/"));
     if (rest.length === 2 && rest[0] === "api" && rest[1] === "quiz") return quizApi(res, url);
-    if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css" || rest[0] === "favicon.svg")) {
+    if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css" || rest[0] === "math.js" || rest[0] === "favicon.svg")) {
       return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])), { "cache-control": "no-cache" });
     }
     const [topic, second, ...more] = rest;
