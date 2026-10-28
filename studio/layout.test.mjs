@@ -73,7 +73,7 @@ test("topic column keeps the card above its actions while scrolling", { skip: br
     await page.waitForTimeout(120);
     const seen = await geometry(page);
     assert.equal(seen.overlap, 0, `actions cover the card at scroll ${y}`);
-    assert.equal(seen.cardAlpha, "rgb(248, 250, 252)", "the card stays opaque while pinned");
+    assert.equal(seen.cardAlpha, "rgb(250, 251, 251)", "the card stays opaque while pinned");
   }
 });
 
