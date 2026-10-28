@@ -693,15 +693,22 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 	th := c.r.Thresholds
 	if p.VisualsPlanned != nil && *p.VisualsPlanned {
 		count := countVisuals(text, th.VisualBlocks, th.VisualElements)
-		if count < th.MinVisuals {
+		if count == 0 {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"part %s planned a visual but %s has none (an embed (![...]), a nonempty visual block (%s) or an inline visual element (%s))",
+				c.part, rel, strings.Join(th.VisualBlocks, ", "), strings.Join(th.VisualElements, ", ")))
+		}
+		if th.MinVisuals > 0 && count < th.MinVisuals {
 			return failCheck(decl.ID, fmt.Sprintf(
 				"part %s planned a visual but %s has only %d visual(s), below the minimum of %d (an embed (![...]), a nonempty visual block (%s) or an inline visual element (%s))",
 				c.part, rel, count, th.MinVisuals, strings.Join(th.VisualBlocks, ", "), strings.Join(th.VisualElements, ", ")))
 		}
-		if missing := countVisualsWithoutHowToRead(text, th.VisualBlocks, th.VisualElements, th.HowToReadLine); missing > 0 {
-			return failCheck(decl.ID, fmt.Sprintf(
-				"%d of %d visual(s) in %s lack the reading guide %q on the next line (M1)",
-				missing, count, rel, th.HowToReadLine))
+		if th.HowToReadLine != "" {
+			if missing := countVisualsWithoutHowToRead(text, th.VisualBlocks, th.VisualElements, th.HowToReadLine); missing > 0 {
+				return failCheck(decl.ID, fmt.Sprintf(
+					"%d of %d visual(s) in %s lack the reading guide %q on the next line (M1)",
+					missing, count, rel, th.HowToReadLine))
+			}
 		}
 	}
 	if index := declPathByKind(c.r, "planning", "index_note"); index != "" {
@@ -713,7 +720,15 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	visual := "not planned"
 	if p.VisualsPlanned != nil && *p.VisualsPlanned {
-		visual = fmt.Sprintf("verified %d/%d with reading guide", countVisuals(text, c.r.Thresholds.VisualBlocks, c.r.Thresholds.VisualElements), c.r.Thresholds.MinVisuals)
+		count := countVisuals(text, th.VisualBlocks, th.VisualElements)
+		switch {
+		case th.MinVisuals > 0 && th.HowToReadLine != "":
+			visual = fmt.Sprintf("verified %d/%d with reading guide", count, th.MinVisuals)
+		case th.MinVisuals > 0:
+			visual = fmt.Sprintf("verified %d/%d", count, th.MinVisuals)
+		default:
+			visual = fmt.Sprintf("verified %d", count)
+		}
 	}
 	return passCheck(decl.ID, fmt.Sprintf(
 		"%s: frontmatter joined to %s, Fuente traceability, heading, example %s, visual %s", rel, p.Subtema,

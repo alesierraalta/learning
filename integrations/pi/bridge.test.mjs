@@ -9,7 +9,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { countVisuals, registerBridge, listTopics } from "./bridge.ts";
+import { countVisuals, obsidianToMarkdown, registerBridge, listTopics } from "./bridge.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { loadRunners } from "./coderun.ts";
 
@@ -644,6 +644,9 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   const font = await http(`${result.structuredContent.base}kit/fonts/atkinson-400.woff2`);
   assert.equal(font.status, 200);
   assert.match(font.headers["content-type"], /^font\/woff2/);
+  // A demo page is served with `sandbox allow-scripts`, so it has the null origin and the
+  // browser refuses the kit's fonts without this header: the page fell back to DejaVu.
+  assert.equal(font.headers["access-control-allow-origin"], "*", "sandboxed demo pages need the font CORS header");
   assert.equal((await http(`${result.structuredContent.base}kit/fonts/..%2Fkit.css`)).status, 404);
 
   const quiz = JSON.parse((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p1`)).body);
@@ -1079,4 +1082,91 @@ test('every reader page declares the shared icon and serves it under the token',
   assert.match(svg.headers['content-type'], /^image\/svg\+xml/);
   assert.match(svg.body, /^<svg /);
   assert.equal((await http(new URL('/favicon.svg', url).href)).status, 404, 'the icon stays behind the token');
+});
+
+// The note's own kit vocabulary carries JSON: a walkthrough scene holds arrays like
+// rows":[["7","..."]]. The wikilink rewrite must never touch that payload, or the deck
+// silently dies inside the reader ("El recorrido tiene un JSON inválido").
+test("obsidianToMarkdown keeps walkthrough JSON payloads intact", () => {
+  const markdown = [
+    "# Nota",
+    "",
+    '<lk-walkthrough>',
+    '<script type="application/json">',
+    '{"title":"Dos filas","steps":[{"title":"a","text":"b","scene":{"grids":[{"x":1,"y":2,"cols":["a","b"],"rows":[["7","x"],["11","y"]]}]}}]}',
+    "</script>",
+    "</lk-walkthrough>",
+    "",
+    "Cómo leerlo: dos filas.",
+    "",
+    "Ver [[otra nota]] para más.",
+  ].join("\n");
+  const out = obsidianToMarkdown(markdown, mkdtempSync(join(tmpdir(), "note-")));
+  assert.ok(out.includes('"rows":[["7","x"],["11","y"]]'), `payload corrupted: ${out.slice(out.indexOf('"rows"'), out.indexOf('"rows"') + 40)}`);
+  assert.ok(out.includes("Ver otra nota para más."), "a real wikilink must still resolve");
+  assert.ok(out.includes("Cómo leerlo: dos filas."), "the reading guide survives");
+});
+
+// The same payload can appear inside a fenced block (a sample of the format): it is shown,
+// never rewritten, and never resolved into a link.
+test("obsidianToMarkdown leaves fenced samples alone", () => {
+  const markdown = ["# N", "", "```json", '{"rows":[["7"]]}', "```", "", "Ver [[otra]]"].join("\n");
+  const out = obsidianToMarkdown(markdown, mkdtempSync(join(tmpdir(), "note-")));
+  assert.ok(out.includes('{"rows":[["7"]]}'), "a fenced sample is not a payload to rewrite");
+  assert.ok(out.includes("Ver otra"), "wikilinks outside the fence still resolve");
+});
+
+// The note is written in the kit's own vocabulary: without kit.css the browser falls back to
+// raw inline markup (huge default buttons floating over the text), which is exactly the design
+// the reader must never show. The page ships the stylesheet before app.css so the note keeps
+// the kit's paper layout and app.css still wins for the page chrome.
+test("the part page ships the kit stylesheet and scripts for the note's own elements", async () => {
+  const { view, shutdown } = await setup();
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const page = await http(result.structuredContent.url);
+  assert.match(page.body, /<link rel="stylesheet" href="[^"]*kit\/kit\.css\?v=\d+">/, "kit.css must load before app.css");
+  assert.match(page.body, /kit\/scene\.js\?v=\d+/, "scene.js must load so a deck can be drawn");
+  assert.match(page.body, /kit\/kit\.js\?v=\d+/, "kit.js must load so the custom elements upgrade");
+  const kitAt = page.body.indexOf("kit/kit.css");
+  const appAt = page.body.indexOf("app.css");
+  assert.ok(kitAt !== -1 && appAt !== -1 && kitAt < appAt, "kit.css comes first, app.css refines it");
+  await shutdown();
+});
+
+// A learner reported a control as still broken after it was fixed: the page cached app.css for
+// an hour, so the deploy never reached their tab. Every view asset now carries a version stamp
+// and must be revalidated, so the next load cannot show yesterday's stylesheet.
+test("view assets are versioned and revalidated on every load", async () => {
+  const { view, shutdown } = await setup();
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const page = await http(result.structuredContent.url);
+  assert.match(page.body, /app\.css\?v=\d+/, "app.css carries a version stamp");
+  assert.match(page.body, /app\.js\?v=\d+/, "app.js carries the same stamp");
+  const stamped = /app\.css\?v=(\d+)/.exec(page.body);
+  const css = await http(`${result.structuredContent.base}app.css?v=${stamped[1]}`);
+  assert.equal(css.status, 200);
+  assert.equal(css.headers["cache-control"], "no-cache", "a deploy must be visible on the next load");
+  await shutdown();
+});
+
+// A demo page under explicaciones/demos/ links the kit with a relative path
+// (../../../kit/kit.js). Served through the reader, that climbs to
+// <topic>/file/kit/..., so the same kit route must answer there or every deck in
+// a demo page stays an unstyled, undrawn placeholder.
+test("a demo page finds the kit through its own relative path", async () => {
+  const { view, shutdown } = await setup();
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const base = result.structuredContent.base;
+  const viaTopic = await http(`${base}${TOPIC}/kit/kit.js`);
+  assert.equal(viaTopic.status, 200);
+  assert.match(viaTopic.headers["content-type"], /^text\/javascript/);
+  assert.match(viaTopic.body, /lk-walkthrough/);
+  const nested = await http(`${base}${TOPIC}/file/kit/kit.js`);
+  assert.equal(nested.status, 200, "a deeper demo resolves one level further");
+  const css = await http(`${base}${TOPIC}/kit/kit.css`);
+  assert.equal(css.status, 200);
+  assert.match(css.headers["content-type"], /^text\/css/);
+  assert.equal((await http(`${base}${TOPIC}/kit/nope.js`)).status, 404);
+  assert.equal((await http(`${base}${TOPIC}/file/kit/..%2Fkit.css`)).status, 404);
+  await shutdown();
 });

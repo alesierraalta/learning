@@ -70,3 +70,11 @@ L4: Real run 10/10 PASS. Note: editing `explicacion.md` after planning rewinds t
 L5: "Pantalla completa" did not work inside the Studio because demo embeds lacked `allow="fullscreen"`; the kit swallowed the rejection silently. Fixed in the embed attributes and by surfacing the denial as a visible hint.
 
 L6: Demo vocabulary chosen from what the vault actually renders today (per the user's walkthrough screenshot and the kit docs): `lk-widget` for parameter playgrounds (the neural-net style the user described), `lk-walkthrough` for stepped decks. The user's photo of the wanted visual TYPES may extend `demoElements`; the rules file is the single place to extend it.
+
+L7: "Hagalo" (m03789) resolved the two decisions: the `.html` exports were archived instead of deleted (reversible, and they leave the published set with 34 fewer arrow defects), and the three stale part stages were re-advanced. Evidence: `paradigma-relacional-sql-transacciones` accepted at `own_words/p3`, `gramatica-y-phrasal-verbs-speaking` at `own_words/p1`, `fundamentos-aprendizaje-por-refuerzo` still `waiting diagnosis` because it needs the learner's answers. The engine state was pushed to the VPS and md5-verified on both sides.
+
+L8: Backward compatibility defect: `status` on a topic frozen before this feature returned `rules invalid: minDemos must be positive`, because the engine validates the frozen `.learning/rules.json` snapshot and the new keys had been made mandatory. Absent thresholds now mean "not checked"; a half-declared pair still fails closed. Pinned by `TestFrozenRulesWithoutNewThresholdsKeepWorking`.
+
+L9: Deploy gotcha that hid the whole delivery: the first deploy put the parts at the topic root (`~/Learnings/<topic>/Parte N.md`), so audits and md5 checks passed on files the reader never serves; the served copies live in `<topic>/explicaciones/`. Everything was re-deployed there and the stray root copies were removed after md5 equality. Lesson: verify what the reader serves, not a convenient copy.
+
+L10: The demo pages existed but only one note linked its demo, so a learner could not reach the labs. Each part now ends with `**Para verlo en movimiento:** [abre el laboratorio ...](file/explicaciones/demos/<page>.html)`. Verified live: the link answers 200 and the page loads one walkthrough with 6 steps and 11 arrows.

@@ -149,7 +149,7 @@ is the source of truth for paths and checks; this table summarizes it.
 | preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned`; in `pareto` scope, a stated `pareto.criterio`, a nonempty `pareto.descartado`, one `pareto` line per part and at most `maxParts` parts. Optional per-part `demosPlanned` declares an interactive-demo promise |
 | diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | adaptive rounds (`thresholds.diagnostic.mode: adaptive`, see "Adaptive diagnosis") or, for runs whose rules snapshot has fixed counts, 6 prerequisite + 6 topic questions (2/2/2 by level); enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
 | planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part; in `pareto` scope the selection is re-checked because planning rewrites `plan.json` |
-| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide |
+| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step, or scene markup |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
 | quiz | `mini-quiz/{part}.json`, `mini-quiz/{part}.answers.json` | part note has a mini-quiz section, 5 questions with enunciados present in it, complete answers, derived score ≥ 4/5 with no central miss |
 | feedback | `feedback/{part}.json` | matches the part, nonempty notes, `difficultyDetected=false` cannot contradict recorded wrong answers |
@@ -168,8 +168,12 @@ visual — `svg` today. One counts only outside code blocks, closed
 (`<svg ...>...</svg>`) and with at least one child element; an empty or
 unclosed element, or one inside a fenced block, is not a visual. When the part
 planned a visual, `thresholds.minVisuals` (2 today) sets the minimum count and
-`thresholds.howToReadLine` ("Cómo leerlo") is the reading guide every visual
-must carry on its next non-blank line (M1). The check proves the visuals are
+`thresholds.howToReadLine` ("Cómo leerlo") the guide marker. A rules snapshot
+that omits either key is not checked for that dimension, which is what keeps a
+frozen `.learning/rules.json` written before these keys existed loadable; a
+half-declared pair (a minimum with no marker) is still rejected. The
+`howToReadLine` guide is what every visual must carry on its next non-blank
+line (M1). The check proves the visuals are
 present and guided, not that they help; that is the `visual-value` rubric's
 judgment.
 
@@ -182,6 +186,12 @@ minimum count and each demo needs its own `howToReadLine` guide (M1). The
 declared demo component is what the vault renders — a neural-net playground,
 a stepped SQL deck — so the check certifies the practice promise the plan
 made, not just prose.
+
+A part can also fulfil the promise with a page-level demo file, the form the
+vault already serves in its demos panel: `explicaciones/apps/<part>.html` or
+any `explicaciones/demos/<part>-<name>.html`. Such a page satisfies `demo-part`
+without inline elements; inline components are still the choice when the demo
+belongs inside the note's flow.
 
 ### Adaptive diagnosis
 

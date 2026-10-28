@@ -543,14 +543,22 @@ func (r *Rules) validateThresholds() error {
 			return fmt.Errorf("demoElements entries must be lowercase HTML element names, got %q", e)
 		}
 	}
-	if t.MinDemos < 1 {
-		return fmt.Errorf("minDemos must be positive")
+	// The visual, guide and demo thresholds arrived after the first topics were
+	// enrolled, and a frozen rules snapshot can never gain keys. Absent values
+	// therefore mean "this is not checked" instead of failing the whole file, so an
+	// old snapshot keeps its original behaviour while a rules file that declares
+	// the thresholds is held to them. Half-declared pairs still fail closed.
+	if t.MinDemos < 0 {
+		return fmt.Errorf("minDemos must not be negative")
 	}
-	if strings.TrimSpace(t.HowToReadLine) == "" {
-		return fmt.Errorf("howToReadLine must not be empty: it is the mandatory reading-guide line for planned visuals")
+	if t.MinDemos > 0 && len(t.DemoElements) == 0 {
+		return fmt.Errorf("minDemos needs demoElements to count")
 	}
-	if t.MinVisuals < 1 {
-		return fmt.Errorf("minVisuals must be positive")
+	if t.MinVisuals < 0 {
+		return fmt.Errorf("minVisuals must not be negative")
+	}
+	if t.MinVisuals > 0 && strings.TrimSpace(t.HowToReadLine) == "" {
+		return fmt.Errorf("minVisuals needs howToReadLine: every counted visual carries its reading guide")
 	}
 	return nil
 }

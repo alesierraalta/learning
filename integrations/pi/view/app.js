@@ -56,9 +56,13 @@
   };
   const markdown = (text, inline = false) => {
     const node = element(inline ? "span" : "div");
+    // The kit vocabulary written inside a note IS the lesson: walkthrough decks and
+    // their JSON payload scripts must survive marked + DOMPurify, then kit.js (loaded
+    // in the page head) upgrades them on connect.
     node.innerHTML = DOMPurify.sanitize(inline ? marked.parseInline(text) : marked.parse(text), {
-      ADD_TAGS: ["video", "audio", "source", "details", "summary"],
-      ADD_ATTR: ["controls", "preload"],
+      ADD_TAGS: ["video", "audio", "source", "details", "summary", "script",
+        "lk-walkthrough", "lk-callout", "lk-quiz", "lk-widget", "lk-diagram", "lk-math", "lk-steps", "lk-ask", "lk-step"],
+      ADD_ATTR: ["controls", "preload", "type", "title"],
     });
     return node;
   };

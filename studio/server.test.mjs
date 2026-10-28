@@ -267,12 +267,14 @@ test("a prompt streams text, tool activity and a dialog whose answer goes back t
   assert.equal((await post(studio, "dialog", { id: "d1" })).status, 400);
   const answer = await post(studio, "dialog", { id: "d1", value: "Rápido con quiz" });
   assert.equal(answer.status, 200, answer.body);
-  assert.deepEqual(received().find((c) => c.type === "extension_ui_response"), {
-    type: "extension_ui_response", id: "d1", value: "Rápido con quiz", interactiveHost: "1", cwd: received()[0].cwd,
-  });
   assert.deepEqual(await stream.next("dialog_closed"), { id: "d1" });
   const end = await stream.next("assistant_end");
   assert.equal(end.text, "Hola, elegiste Rápido con quiz.");
+  // A dialog answer gets no RPC response, so the 200 only means it was written to
+  // Pi; Pi has recorded it once it answers with the rest of the message.
+  assert.deepEqual(received().find((c) => c.type === "extension_ui_response"), {
+    type: "extension_ui_response", id: "d1", value: "Rápido con quiz", interactiveHost: "1", cwd: received()[0].cwd,
+  });
   assert.equal(end.id, delta.id);
   assert.deepEqual(await stream.next("state", (s) => !s.busy), { busy: false, alive: true });
   await stream.next("library_changed");

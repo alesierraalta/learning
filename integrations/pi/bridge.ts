@@ -23,6 +23,28 @@ import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./
 
 const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
 const KIT_DIR = join(dirname(fileURLToPath(import.meta.url)), "kit");
+/**
+ * Static assets are revalidated on every load and carry this version stamp. The
+ * reader used to cache app.css for an hour, so a deploy left the old stylesheet
+ * in place and an already-fixed control still looked broken to the learner.
+ */
+const staticVersion = (() => {
+  const files = [
+    join(VIEW_DIR, "app.css"),
+    join(VIEW_DIR, "app.js"),
+    join(KIT_DIR, "kit.css"),
+    join(KIT_DIR, "kit.js"),
+  ];
+  let stamp = 1;
+  for (const file of files) {
+    try {
+      stamp = Math.max(stamp, Math.round(statSync(file).mtimeMs));
+    } catch {
+      /* a missing asset keeps the previous stamp */
+    }
+  }
+  return String(stamp);
+})();
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_TEXT_CHARS = 8000;
 const CHOICES = new Set(["A", "B", "C", "D", "E"]);
@@ -278,10 +300,20 @@ function findByName(dir: string, name: string, depth: number): string | undefine
 const fileUrl = (topicDir: string, file: string) =>
   `file/${relative(topicDir, file).split(sep).map(encodeURIComponent).join("/")}`;
 
+/**
+ * Payloads the reader will parse or show verbatim: a walkthrough scene carries arrays
+ * like rows":[["7"]] and a fenced sample shows the format as-is. The wikilink rewrite
+ * must never reach them, or the deck dies inside the reader with an invalid-JSON error.
+ */
+const PROTECTED_PAYLOADS = /(<script type="application\/json">[\s\S]*?<\/script>|^```[^\n]*\n[\s\S]*?^```)/gm;
+
 /** Obsidian-only syntax (frontmatter, ![[embeds]], [[links]]) to portable Markdown/HTML. */
 export function obsidianToMarkdown(markdown: string, topicDir: string): string {
-  return markdown
+  const kept: string[] = [];
+  const body = markdown
     .replace(/^---\n[\s\S]*?\n---\n/, "")
+    .replace(PROTECTED_PAYLOADS, (block) => `\u0000${kept.push(block) - 1}\u0000`);
+  return body
     .replace(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g, (_m, rawName: string) => {
       const name = rawName.trim();
       const file = findByName(topicDir, name, EMBED_SEARCH_DEPTH);
@@ -293,7 +325,8 @@ export function obsidianToMarkdown(markdown: string, topicDir: string): string {
       if (IMAGE.has(ext)) return `<img alt="${name.replace(/"/g, "&quot;")}" src="${src}">`;
       return `*${name}*`;
     })
-    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) => (alias ?? target).trim());
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) => (alias ?? target).trim())
+    .replace(/\u0000(\d+)\u0000/g, (_m, index: string) => kept[Number(index)]!);
 }
 
 /** explicaciones/apps/<part>.html when the part has an interactive app. */
@@ -777,14 +810,17 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapedTitle}</title>
 <link rel="icon" href="${prefix}favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="${prefix}app.css">
+<link rel="stylesheet" href="${prefix}kit/kit.css?v=${staticVersion}">
+<link rel="stylesheet" href="${prefix}app.css?v=${staticVersion}">
 ${scripts}
 </head>
 <body>
 <main id="app"></main>
 <script type="application/json" id="view-data">${json}</script>
-<script src="${prefix}kit/dictate.js"></script>
-<script src="${prefix}app.js"></script>
+<script src="${prefix}kit/dictate.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/scene.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/kit.js?v=${staticVersion}"></script>
+<script src="${prefix}app.js?v=${staticVersion}"></script>
 </body>
 </html>
 `;
@@ -877,7 +913,12 @@ ${scripts}
     if (!/^(?:fonts\/)?[\w-]+\.(js|css|woff2)$/.test(name)) throw new HttpError(404, "not found");
     const contained = resolveContained(kitDir, join(kitDir, name));
     if (!contained.ok) throw new HttpError(404, "not found");
-    send(res, 200, MIME[extname(name)], readFileSync(contained.targetReal));
+    // A demo page is served with `sandbox allow-scripts`, which gives it the null
+    // origin; without this the browser blocks the kit's fonts and the page falls back
+    // to a different typeface than the notes it belongs to.
+    send(res, 200, MIME[extname(name)], readFileSync(contained.targetReal), {
+      "access-control-allow-origin": "*",
+    });
   };
 
   /** A quick explanation (`rapidos/<id>.md`): the same view, no engine and no quiz sidecar. */
@@ -1161,12 +1202,19 @@ ${scripts}
     if (rest[0] === "kit" && rest.length >= 2) return kitFile(res, rest.slice(1).join("/"));
     if (rest.length === 2 && rest[0] === "api" && rest[1] === "quiz") return quizApi(res, url);
     if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css" || rest[0] === "favicon.svg")) {
-      return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])), { "cache-control": "public, max-age=3600" });
+      return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])), { "cache-control": "no-cache" });
     }
     const [topic, second, ...more] = rest;
     if (second === undefined) return topicPage(res, topic);
     if (second === "codigo" && more.length === 1) return codePage(res, topic, more[0]);
-    if (second === "file") return serveFile(req, res, topic, more);
+    // A page under the topic links the kit relatively (../../../kit/kit.js), so served
+    // through the reader it lands on <topic>/kit/... (and <topic>/file/kit/... from a
+    // deeper demo). Both must answer, or the page's decks stay undrawn placeholders.
+    if (second === "kit" && more.length >= 1) return kitFile(res, more.join("/"));
+    if (second === "file") {
+      if (more[0] === "kit" && more.length >= 2) return kitFile(res, more.slice(1).join("/"));
+      return serveFile(req, res, topic, more);
+    }
     if (topic === "rapidos" && more.length === 0) return quickPage(res, second);
     if (more.length === 1 && more[0] === "app") return appPage(res, topic, second);
     if (more.length > 0) throw new HttpError(404, "not found");
