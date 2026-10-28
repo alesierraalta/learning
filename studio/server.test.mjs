@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { entryUrl, noteFromPath, startStudio } from "./server.ts";
+import { entryUrl, noteFromMessages, noteFromPath, startStudio } from "./server.ts";
 import { makeRoot } from "./testdata/root.mjs";
 
 test('configured studio bridge reaches the transcriber from its framed origin', async t => {
@@ -235,6 +235,7 @@ test("Pi runs in the Learnings folder as an interactive RPC host and the history
     { role: "assistant", text: "¡Hola!" },
   ]);
   assert.deepEqual(await stream.next("state"), { busy: false, alive: true });
+  assert.deepEqual(history.note, { topic: "tema", index: 1 }, "the reloaded tab still knows the note the tutor wrote");
   const first = received().find((c) => c.type === "get_messages");
   assert.equal(first.interactiveHost, "1");
   assert.equal(first.cwd, root);
@@ -250,6 +251,20 @@ test("a part note path resolves to the topic and part the reader routes on", () 
   assert.equal(noteFromPath("/home/ale/Learnings/redes/plan.json"), null);
   assert.equal(noteFromPath("explicaciones/Parte 1 - Sin tema.md"), null, "a note without its topic folder has no route");
   assert.equal(noteFromPath(undefined), null);
+});
+
+test("the conversation remembers the last part note the tutor wrote", () => {
+  const call = (name, path) => ({ role: "assistant", content: [{ type: "toolCall", id: "t", name, arguments: { path } }] });
+  assert.deepEqual(noteFromMessages([call("write", "redes/explicaciones/Parte 1 - Capas.md")]), { topic: "redes", index: 1 });
+  assert.deepEqual(
+    noteFromMessages([call("write", "redes/explicaciones/Parte 1 - Capas.md"), call("edit", "redes/explicaciones/Parte 3 - TCP.md")]),
+    { topic: "redes", index: 3 },
+    "the latest note wins",
+  );
+  assert.equal(noteFromMessages([call("bash", "redes/explicaciones/Parte 1 - Capas.md")]), null, "only writes and edits carry a note");
+  assert.equal(noteFromMessages([{ role: "user", content: "hola" }]), null);
+  assert.equal(noteFromMessages([call("write", "redes/explicaciones/mis-palabras.md")]), null);
+  assert.equal(noteFromMessages(undefined), null);
 });
 
 test("a prompt streams text, tool activity and a dialog whose answer goes back to Pi", async () => {

@@ -551,7 +551,7 @@
   }
 
   // ---------- tutor ----------
-  const tutor = { busy: false, alive: true, activity: "", unread: 0 };
+  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null };
   const thread = h("div", { class: "thread", "aria-live": "polite" });
   const composerText = h("textarea", { rows: "1", "aria-label": "Mensaje para el tutor", placeholder: "Escribe al tutor…" });
   const stateLine = h("span", { class: "state" }, "Conectando…");
@@ -709,10 +709,11 @@
       }
       fn(data);
     });
-  on("history", ({ messages }) => {
+  on("history", ({ messages, note }) => {
     thread.replaceChildren();
     assistant.clear();
     activities.clear();
+    showNote(note);
     if (!messages.length) thread.append(intro);
     for (const m of messages) thread.append(m.role === "user" ? h("div", { class: "msg user" }, m.text) : h("div", { class: "msg assistant" }, ...markdown(m.text).childNodes));
     thread.scrollTop = thread.scrollHeight;
@@ -737,19 +738,24 @@
     noteUnread();
   });
   // The tutor writes notes inside the vault: the chat hands back the way to the one it wrote.
-  const noteButton = (note) => {
+  const notePart = (note) => {
     const topic = note ? topicById(note.topic) : null;
-    const part = topic ? topic.parts[note.index - 1] : null;
-    if (!part) return null;
-    return btn(
-      "Ir a la nota",
-      () => {
-        closeDrawer();
-        go(`#/leer/${note.topic}/${part.id}`);
-      },
-      "btn small ghost",
-      "book",
-    );
+    return topic ? topic.parts[note.index - 1] || null : null;
+  };
+  const openNote = (note) => {
+    const part = notePart(note);
+    if (!part) return;
+    closeDrawer();
+    go(`#/leer/${note.topic}/${part.id}`);
+  };
+  const noteButton = (note) => (notePart(note) ? btn("Ir a la nota", () => openNote(note), "btn small ghost", "book") : null);
+  // The head keeps the way back to the last note the tutor wrote, so a reloaded tab still has it.
+  const noteBtn = btn("Ir a la nota", () => openNote(tutor.note), "btn small ghost", "book");
+  noteBtn.style.display = "none";
+  const showNote = (note) => {
+    tutor.note = notePart(note) ? note : null;
+    noteBtn.style.display = tutor.note ? "" : "none";
+    noteBtn.title = tutor.note ? `Ir a la nota: Parte ${tutor.note.index}` : "";
   };
   on("tool", ({ phase, id, label, ok, note }) => {
     if (phase === "start") {
@@ -763,6 +769,7 @@
       row?.classList.remove("running");
       tutor.activity = "";
     }
+    if (note) showNote(note);
     updatePill();
   });
   on("dialog", (dialog) => {
@@ -793,6 +800,7 @@
       "div",
       { class: "drawer-head" },
       h("h2", {}, "Tutor", stateLine),
+      noteBtn,
       h("button", { class: "icon-btn", type: "button", "aria-label": "Más opciones", onclick: () => menu.classList.toggle("open") }, icon("more")),
       h("button", { class: "icon-btn", type: "button", "aria-label": "Cerrar el tutor", onclick: closeDrawer }, icon("x")),
       menu,

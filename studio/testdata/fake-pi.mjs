@@ -46,7 +46,7 @@ process.stdin.on("data", (chunk) => {
       case "get_messages":
         out({
           id: command.id, type: "response", command: "get_messages", success: true,
-          data: { messages: [{ role: "user", content: "hola" }, { role: "assistant", content: [{ type: "text", text: "¡Hola!" }] }, { role: "toolResult", content: "x" }] },
+          data: { messages: [{ role: "user", content: "hola" }, { role: "assistant", content: [{ type: "text", text: "¡Hola!" }] }, { role: "toolResult", content: "x" }, { role: "assistant", content: [{ type: "toolCall", id: "t1", name: "write", arguments: { path: "tema/explicaciones/Parte 1 - Algo.md" } }] }] },
         });
         break;
       case "prompt":
