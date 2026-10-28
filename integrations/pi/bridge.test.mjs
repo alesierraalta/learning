@@ -9,7 +9,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { countVisuals, registerBridge, listTopics } from "./bridge.ts";
+import { countVisuals, obsidianToMarkdown, registerBridge, listTopics } from "./bridge.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { loadRunners } from "./coderun.ts";
 
@@ -1079,4 +1079,36 @@ test('every reader page declares the shared icon and serves it under the token',
   assert.match(svg.headers['content-type'], /^image\/svg\+xml/);
   assert.match(svg.body, /^<svg /);
   assert.equal((await http(new URL('/favicon.svg', url).href)).status, 404, 'the icon stays behind the token');
+});
+
+// The note's own kit vocabulary carries JSON: a walkthrough scene holds arrays like
+// rows":[["7","..."]]. The wikilink rewrite must never touch that payload, or the deck
+// silently dies inside the reader ("El recorrido tiene un JSON inválido").
+test("obsidianToMarkdown keeps walkthrough JSON payloads intact", () => {
+  const markdown = [
+    "# Nota",
+    "",
+    '<lk-walkthrough>',
+    '<script type="application/json">',
+    '{"title":"Dos filas","steps":[{"title":"a","text":"b","scene":{"grids":[{"x":1,"y":2,"cols":["a","b"],"rows":[["7","x"],["11","y"]]}]}}]}',
+    "</script>",
+    "</lk-walkthrough>",
+    "",
+    "Cómo leerlo: dos filas.",
+    "",
+    "Ver [[otra nota]] para más.",
+  ].join("\n");
+  const out = obsidianToMarkdown(markdown, mkdtempSync(join(tmpdir(), "note-")));
+  assert.ok(out.includes('"rows":[["7","x"],["11","y"]]'), `payload corrupted: ${out.slice(out.indexOf('"rows"'), out.indexOf('"rows"') + 40)}`);
+  assert.ok(out.includes("Ver otra nota para más."), "a real wikilink must still resolve");
+  assert.ok(out.includes("Cómo leerlo: dos filas."), "the reading guide survives");
+});
+
+// The same payload can appear inside a fenced block (a sample of the format): it is shown,
+// never rewritten, and never resolved into a link.
+test("obsidianToMarkdown leaves fenced samples alone", () => {
+  const markdown = ["# N", "", "```json", '{"rows":[["7"]]}', "```", "", "Ver [[otra]]"].join("\n");
+  const out = obsidianToMarkdown(markdown, mkdtempSync(join(tmpdir(), "note-")));
+  assert.ok(out.includes('{"rows":[["7"]]}'), "a fenced sample is not a payload to rewrite");
+  assert.ok(out.includes("Ver otra"), "wikilinks outside the fence still resolve");
 });

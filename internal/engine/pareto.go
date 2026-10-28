@@ -118,6 +118,29 @@ func hasVitalHeading(body, heading string) bool {
 	return false
 }
 
+// demoPageExists reports whether the part-level demo page exists in the vault
+// (explicaciones/apps/<part>.html).
+func demoPageExists(ws, rel string) bool {
+	info, err := os.Stat(absPath(ws, rel))
+	return err == nil && info.Mode().IsRegular()
+}
+
+// demoPageExistsPrefixed reports the first demo page whose name starts with
+// the prefix (explicaciones/demos/<part>-<name>.html), in directory order.
+func demoPageExistsPrefixed(ws, dir, prefix string) (string, bool) {
+	entries, err := os.ReadDir(absPath(ws, dir))
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".html") {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 // evalDemoPart proves a part that planned hands-on work delivers it: the note
 // carries an interactive component (an lk-widget deck or a walkthrough) and
 // each one is introduced by the reading-guide line, so the demo is not
@@ -136,21 +159,37 @@ func evalDemoPart(c *evalCtx, decl rules.CheckDecl) Check {
 	if err != nil {
 		return failCheck(decl.ID, err.Error())
 	}
-	raw, err := os.ReadFile(absPath(c.ws, rel))
-	if err != nil {
-		return failCheck(decl.ID, "missing artifact: "+rel)
-	}
+	raw, readErr := os.ReadFile(absPath(c.ws, rel))
 	demoElements := c.r.Thresholds.DemoElements
-	count := countDemos(string(raw), demoElements)
+	count, missing := 0, 0
+	var guideRel string
+	if readErr == nil {
+		count = countDemos(string(raw), demoElements)
+		missing = countDemosWithoutGuide(string(raw), demoElements, c.r.Thresholds.HowToReadLine)
+		guideRel = rel
+	}
+	if count < c.r.Thresholds.MinDemos {
+		// The vault's established demo form is a page-level file the reader
+		// embeds: explicaciones/apps/<part>.html or
+		// explicaciones/demos/<part>-<name>.html. Those pages hand the part its
+		// demo too, so they satisfy the same promise without inline elements.
+		appRel := "explicaciones/apps/" + c.part + ".html"
+		demoRel := "explicaciones/demos/"
+		if demoPageExists(c.ws, appRel) {
+			count, missing, guideRel = c.r.Thresholds.MinDemos, 0, appRel
+		} else if name, ok := demoPageExistsPrefixed(c.ws, demoRel, c.part+"-"); ok {
+			count, missing, guideRel = c.r.Thresholds.MinDemos, 0, demoRel+name
+		}
+	}
 	if count < c.r.Thresholds.MinDemos {
 		return failCheck(decl.ID, fmt.Sprintf(
-			"part %s planned a demo but %s has only %d demo(s), below the minimum of %d (a closed %s element)",
-			c.part, rel, count, c.r.Thresholds.MinDemos, strings.Join(demoElements, ", ")))
+			"part %s planned a demo but %s has only %d demo(s), below the minimum of %d (a closed %s element or an %s page)",
+			c.part, guideRel, count, c.r.Thresholds.MinDemos, strings.Join(demoElements, ", "), "explicaciones/apps/<part>.html"))
 	}
-	if missing := countDemosWithoutGuide(string(raw), demoElements, c.r.Thresholds.HowToReadLine); missing > 0 {
+	if missing > 0 {
 		return failCheck(decl.ID, fmt.Sprintf(
-			"%d of %d demo(s) in %s lack the %q line introducing them (M1)", missing, count, rel, c.r.Thresholds.HowToReadLine))
+			"%d of %d demo(s) in %s lack the %q line introducing them (M1)", missing, count, guideRel, c.r.Thresholds.HowToReadLine))
 	}
 	return passCheck(decl.ID, fmt.Sprintf(
-		"%s hands on its demo (%d checked with how-to note)", rel, count))
+		"%s hands on its demo (%d checked with how-to note)", guideRel, count))
 }

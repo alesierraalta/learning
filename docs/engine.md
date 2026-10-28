@@ -183,6 +183,12 @@ declared demo component is what the vault renders — a neural-net playground,
 a stepped SQL deck — so the check certifies the practice promise the plan
 made, not just prose.
 
+A part can also fulfil the promise with a page-level demo file, the form the
+vault already serves in its demos panel: `explicaciones/apps/<part>.html` or
+any `explicaciones/demos/<part>-<name>.html`. Such a page satisfies `demo-part`
+without inline elements; inline components are still the choice when the demo
+belongs inside the note's flow.
+
 ### Adaptive diagnosis
 
 `thresholds.diagnostic` = `{"mode": "adaptive", "roundSize": 3, "maxRounds": 3}`.

@@ -278,10 +278,20 @@ function findByName(dir: string, name: string, depth: number): string | undefine
 const fileUrl = (topicDir: string, file: string) =>
   `file/${relative(topicDir, file).split(sep).map(encodeURIComponent).join("/")}`;
 
+/**
+ * Payloads the reader will parse or show verbatim: a walkthrough scene carries arrays
+ * like rows":[["7"]] and a fenced sample shows the format as-is. The wikilink rewrite
+ * must never reach them, or the deck dies inside the reader with an invalid-JSON error.
+ */
+const PROTECTED_PAYLOADS = /(<script type="application\/json">[\s\S]*?<\/script>|^```[^\n]*\n[\s\S]*?^```)/gm;
+
 /** Obsidian-only syntax (frontmatter, ![[embeds]], [[links]]) to portable Markdown/HTML. */
 export function obsidianToMarkdown(markdown: string, topicDir: string): string {
-  return markdown
+  const kept: string[] = [];
+  const body = markdown
     .replace(/^---\n[\s\S]*?\n---\n/, "")
+    .replace(PROTECTED_PAYLOADS, (block) => `\u0000${kept.push(block) - 1}\u0000`);
+  return body
     .replace(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g, (_m, rawName: string) => {
       const name = rawName.trim();
       const file = findByName(topicDir, name, EMBED_SEARCH_DEPTH);
@@ -293,7 +303,8 @@ export function obsidianToMarkdown(markdown: string, topicDir: string): string {
       if (IMAGE.has(ext)) return `<img alt="${name.replace(/"/g, "&quot;")}" src="${src}">`;
       return `*${name}*`;
     })
-    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) => (alias ?? target).trim());
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) => (alias ?? target).trim())
+    .replace(/\u0000(\d+)\u0000/g, (_m, index: string) => kept[Number(index)]!);
 }
 
 /** explicaciones/apps/<part>.html when the part has an interactive app. */
@@ -784,6 +795,8 @@ ${scripts}
 <main id="app"></main>
 <script type="application/json" id="view-data">${json}</script>
 <script src="${prefix}kit/dictate.js"></script>
+<script src="${prefix}kit/scene.js"></script>
+<script src="${prefix}kit/kit.js"></script>
 <script src="${prefix}app.js"></script>
 </body>
 </html>
