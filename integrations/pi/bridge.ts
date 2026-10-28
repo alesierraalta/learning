@@ -1180,10 +1180,11 @@ ${scripts}
     const [topic, second, ...more] = rest;
     if (second === undefined) return topicPage(res, topic);
     if (second === "codigo" && more.length === 1) return codePage(res, topic, more[0]);
+    // A page under the topic links the kit relatively (../../../kit/kit.js), so served
+    // through the reader it lands on <topic>/kit/... (and <topic>/file/kit/... from a
+    // deeper demo). Both must answer, or the page's decks stay undrawn placeholders.
+    if (second === "kit" && more.length >= 1) return kitFile(res, more.join("/"));
     if (second === "file") {
-      // A demo page links the kit relatively (../../../kit/kit.js). Served through the
-      // reader that path lands on <topic>/file/kit/..., so the same kit must answer
-      // there too, or the page's decks stay undrawn, unstyled placeholders.
       if (more[0] === "kit" && more.length >= 2) return kitFile(res, more.slice(1).join("/"));
       return serveFile(req, res, topic, more);
     }
