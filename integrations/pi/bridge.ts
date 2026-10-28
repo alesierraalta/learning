@@ -913,7 +913,12 @@ ${scripts}
     if (!/^(?:fonts\/)?[\w-]+\.(js|css|woff2)$/.test(name)) throw new HttpError(404, "not found");
     const contained = resolveContained(kitDir, join(kitDir, name));
     if (!contained.ok) throw new HttpError(404, "not found");
-    send(res, 200, MIME[extname(name)], readFileSync(contained.targetReal));
+    // A demo page is served with `sandbox allow-scripts`, which gives it the null
+    // origin; without this the browser blocks the kit's fonts and the page falls back
+    // to a different typeface than the notes it belongs to.
+    send(res, 200, MIME[extname(name)], readFileSync(contained.targetReal), {
+      "access-control-allow-origin": "*",
+    });
   };
 
   /** A quick explanation (`rapidos/<id>.md`): the same view, no engine and no quiz sidecar. */

@@ -644,6 +644,9 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   const font = await http(`${result.structuredContent.base}kit/fonts/atkinson-400.woff2`);
   assert.equal(font.status, 200);
   assert.match(font.headers["content-type"], /^font\/woff2/);
+  // A demo page is served with `sandbox allow-scripts`, so it has the null origin and the
+  // browser refuses the kit's fonts without this header: the page fell back to DejaVu.
+  assert.equal(font.headers["access-control-allow-origin"], "*", "sandboxed demo pages need the font CORS header");
   assert.equal((await http(`${result.structuredContent.base}kit/fonts/..%2Fkit.css`)).status, 404);
 
   const quiz = JSON.parse((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p1`)).body);
