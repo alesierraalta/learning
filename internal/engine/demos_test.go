@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -144,7 +145,7 @@ func TestDeckStepsWithoutArrowsAreRejected(t *testing.T) {
 	}{
 		{"two figures with an arrow", deck(t, twoBoxesArrow), true},
 		{"two figures without an arrow", deck(t, twoBoxes), false},
-		{"one figure alone needs no arrow", deck(t, oneTable), true},
+		{"a lone figure is fine when the deck guides elsewhere", deck(t, oneTable, twoBoxesArrow), true},
 		{"a later step stops guiding", deck(t, twoBoxesArrow, twoBoxes), false},
 	}
 	for _, tc := range cases {
@@ -163,5 +164,21 @@ func TestDeckStepsWithoutArrowsAreRejected(t *testing.T) {
 				t.Fatalf("deck accepted: %s (exit %d)", check.Reason, code)
 			}
 		})
+	}
+}
+
+// A deck made only of pictures never shows what happens: stepping through it
+// teaches nothing about the relation between the things it draws.
+func TestDeckWithoutAnyArrowIsRejected(t *testing.T) {
+	oneTable := `{"grids":[{"x":40,"y":40,"cols":["a","b"],"rows":[["1","2"]],"width":400,"rowH":44}]}`
+	f := demoThroughPlanning(t)
+	f.writeExplanationWithDemo(t, "p1", deck(t, oneTable, oneTable))
+	rep, code := f.run(t, f.opts("validate", "explanation"))
+	check, _ := hasCheck(rep, "demo-part")
+	if check.Status != "FAIL" || code != 1 {
+		t.Fatalf("arrowless deck accepted: %s (exit %d)", check.Reason, code)
+	}
+	if !strings.Contains(check.Reason, "without a single arrow") {
+		t.Fatalf("reason does not name the deck rule: %s", check.Reason)
 	}
 }

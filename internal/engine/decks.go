@@ -75,7 +75,11 @@ func deckPayloads(markup string) []deckSpec {
 func guideArrowGaps(markup string) []string {
 	var gaps []string
 	for _, spec := range deckPayloads(markup) {
+		guided := 0
 		for i, step := range spec.Steps {
+			if len(step.Scene.Arrows) > 0 {
+				guided++
+			}
 			if step.Scene.figures() < 2 || len(step.Scene.Arrows) > 0 {
 				continue
 			}
@@ -84,6 +88,15 @@ func guideArrowGaps(markup string) []string {
 				where += " (" + title + ")"
 			}
 			gaps = append(gaps, where)
+		}
+		// A deck that never draws an arrow is a set of pictures: the reader can
+		// step through it and still not be shown what happens.
+		if len(spec.Steps) > 0 && guided == 0 {
+			name := strings.TrimSpace(spec.Title)
+			if name == "" {
+				name = "the deck"
+			}
+			gaps = append(gaps, "«"+name+"» without a single arrow")
 		}
 	}
 	return gaps

@@ -192,8 +192,8 @@ func evalDemoPart(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	if gaps := guideArrowGaps(readArtifact(c.ws, guideRel)); len(gaps) > 0 {
 		return failCheck(decl.ID, fmt.Sprintf(
-			"%s draws %s with no arrow: every step that shows two or more things must draw the arrows that say what happens between them",
-			guideRel, strings.Join(gaps, ", ")))
+			"%s does not guide: %s — every deck draws arrows, and a step with two or more figures draws at least one",
+			guideRel, strings.Join(gaps, "; ")))
 	}
 	return passCheck(decl.ID, fmt.Sprintf(
 		"%s hands on its demo (%d checked with how-to note)", guideRel, count))
