@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { entryUrl, startStudio } from "./server.ts";
+import { entryUrl, noteFromPath, startStudio } from "./server.ts";
 import { makeRoot } from "./testdata/root.mjs";
 
 test('configured studio bridge reaches the transcriber from its framed origin', async t => {
@@ -241,6 +241,17 @@ test("Pi runs in the Learnings folder as an interactive RPC host and the history
   stream.close();
 });
 
+test("a part note path resolves to the topic and part the reader routes on", () => {
+  assert.deepEqual(noteFromPath("/home/ale/Learnings/redes/explicaciones/Parte 3 - Capas.md"), { topic: "redes", index: 3 });
+  assert.deepEqual(noteFromPath("redes/explicaciones/Parte 1 - Algo.md"), { topic: "redes", index: 1 });
+  assert.deepEqual(noteFromPath("C:\\Users\\ismar\\Learnings\\redes\\explicaciones\\Parte 12 - Redes.md"), { topic: "redes", index: 12 });
+  assert.equal(noteFromPath("/home/ale/Learnings/redes/explicaciones/mis-palabras.md"), null, "only part notes are routable");
+  assert.equal(noteFromPath("/home/ale/Learnings/redes/explicaciones/Parte 4 - Falsa.txt"), null);
+  assert.equal(noteFromPath("/home/ale/Learnings/redes/plan.json"), null);
+  assert.equal(noteFromPath("explicaciones/Parte 1 - Sin tema.md"), null, "a note without its topic folder has no route");
+  assert.equal(noteFromPath(undefined), null);
+});
+
 test("a prompt streams text, tool activity and a dialog whose answer goes back to Pi", async () => {
   const { studio, received } = await setup();
   const stream = sse(`${studio.url}events`);
@@ -252,8 +263,8 @@ test("a prompt streams text, tool activity and a dialog whose answer goes back t
   assert.deepEqual(await stream.next("state", (s) => s.busy), { busy: true, alive: true });
   const delta = await stream.next("assistant_delta");
   assert.equal(delta.delta, "Hola, ");
-  assert.deepEqual(await stream.next("tool", (t) => t.phase === "start"), { phase: "start", id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true });
-  assert.equal((await stream.next("tool", (t) => t.phase === "end")).ok, true);
+  assert.deepEqual(await stream.next("tool", (t) => t.phase === "start"), { phase: "start", id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true, note: { topic: "tema", index: 1 } });
+  assert.deepEqual(await stream.next("tool", (t) => t.phase === "end"), { phase: "end", id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true, note: { topic: "tema", index: 1 } }, "the end keeps the arguments its start carried");
   assert.deepEqual(await stream.next("notice"), { level: "info", message: "Aviso del tutor" });
   const dialog = await stream.next("dialog");
   assert.deepEqual(dialog, { id: "d1", method: "select", title: "¿Cómo quieres aprender?", message: "", options: ["Universitario", "Rápido con quiz"], placeholder: "" });

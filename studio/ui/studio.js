@@ -736,15 +736,30 @@
     renderAssistant(id);
     noteUnread();
   });
-  on("tool", ({ phase, id, label, ok }) => {
+  // The tutor writes notes inside the vault: the chat hands back the way to the one it wrote.
+  const noteButton = (note) => {
+    const topic = note ? topicById(note.topic) : null;
+    const part = topic ? topic.parts[note.index - 1] : null;
+    if (!part) return null;
+    return btn(
+      "Ir a la nota",
+      () => {
+        closeDrawer();
+        go(`#/leer/${note.topic}/${part.id}`);
+      },
+      "btn small ghost",
+      "book",
+    );
+  };
+  on("tool", ({ phase, id, label, ok, note }) => {
     if (phase === "start") {
-      const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), label);
+      const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), label, noteButton(note));
       activities.set(id, row);
       append(row);
       tutor.activity = label;
     } else {
       const row = activities.get(id);
-      if (row) row.replaceChildren(icon(ok ? "check" : "x"), label);
+      if (row) row.replaceChildren(...[icon(ok ? "check" : "x"), label, noteButton(note)].filter((child) => child !== null));
       row?.classList.remove("running");
       tutor.activity = "";
     }

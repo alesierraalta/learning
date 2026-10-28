@@ -109,6 +109,27 @@ function toolLabel(name: string, args: unknown): string {
   }
 }
 
+/**
+ * `explicaciones/Parte N - <slug>.md` inside a topic folder: the studio can open that note, so a
+ * write that produced it comes back with the topic and part number the reader routes on.
+ */
+export function noteFromPath(path: unknown): { topic: string; index: number } | null {
+  if (typeof path !== "string") return null;
+  const segments = path.split(/[\\/]+/).filter((segment) => segment !== "" && segment !== ".");
+  const folder = segments.lastIndexOf("explicaciones");
+  const topic = folder < 1 ? undefined : segments[folder - 1];
+  if (topic === undefined) return null;
+  const name = /^Parte (\d+) - .+\.md$/.exec(segments[folder + 1] ?? "");
+  const index = name === null ? 0 : Number(name[1]);
+  return index < 1 ? null : { topic, index };
+}
+
+/** The note a write or edit produced, when the tutor is working on a part of a topic. */
+function toolNote(name: string, args: unknown): { topic: string; index: number } | null {
+  if (name !== "write" && name !== "edit") return null;
+  return isRecord(args) ? noteFromPath(args.path) : null;
+}
+
 export async function startStudio(options: StudioOptions = {}): Promise<Studio> {
   if ((options.transcriberUrl !== undefined) !== (options.transcriberToken !== undefined)) {
     throw new Error("transcriberUrl and transcriberToken must be set together");
@@ -144,6 +165,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   let assistantSeq = 0;
   let assistantId = "";
   const waiting = new Map<string, (record: Json) => void>();
+  // A tool's end event may arrive without its arguments; the row keeps the ones its start carried.
+  const toolArgs = new Map<string, unknown>();
   const dialogs = new Map<string, Json>();
   const state = () => ({ busy, alive });
 
@@ -161,6 +184,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         return;
       case "agent_settled":
         busy = false;
+        toolArgs.clear();
         emit("state", state());
         emit("library_changed", {});
         return;
@@ -185,12 +209,23 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         }
         return;
       }
-      case "tool_execution_start":
-        emit("tool", { phase: "start", id: record.toolCallId, name: record.toolName, label: toolLabel(String(record.toolName), record.args), ok: true });
+      case "tool_execution_start": {
+        const name = String(record.toolName);
+        const id = String(record.toolCallId);
+        toolArgs.set(id, record.args);
+        const note = toolNote(name, record.args);
+        emit("tool", { phase: "start", id: record.toolCallId, name: record.toolName, label: toolLabel(name, record.args), ok: true, ...(note === null ? {} : { note }) });
         return;
-      case "tool_execution_end":
-        emit("tool", { phase: "end", id: record.toolCallId, name: record.toolName, label: toolLabel(String(record.toolName), record.args), ok: !record.isError });
+      }
+      case "tool_execution_end": {
+        const name = String(record.toolName);
+        const id = String(record.toolCallId);
+        const args = record.args ?? toolArgs.get(id);
+        toolArgs.delete(id);
+        const note = toolNote(name, args);
+        emit("tool", { phase: "end", id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }) });
         return;
+      }
       case "extension_ui_request": {
         const method = String(record.method);
         if (DIALOG_METHODS.has(method) && typeof record.id === "string") {
