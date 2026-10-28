@@ -315,6 +315,16 @@
       const color = tone(a.tone).stroke;
       if (a.bend !== undefined) out += S.curve(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, bend: a.bend });
       else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed });
+      // An arrow that carries its own words is what makes a step readable: the
+      // reader does not have to infer what moved, the figure says it.
+      if (a.label) {
+        const mid = a.bend === undefined ? { x: (a.x1 + a.x2) / 2, y: (a.y1 + a.y2) / 2 } : { x: (a.x1 + a.x2) / 2, y: (a.y1 + a.y2) / 2 - Math.abs(a.y2 - a.y1) * 0.18 };
+        out += S.lbl(mid.x, mid.y - 14, a.label, {
+          anchor: a.labelAnchor || 'middle',
+          color: tone(a.labelTone || a.tone).color,
+          size: a.labelSize || 22,
+        });
+      }
     }
     for (const b of scene.badges || []) out += S.badge(b.x, b.y, b.n);
     for (const d of scene.dashed || []) out += S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke, d.fill);

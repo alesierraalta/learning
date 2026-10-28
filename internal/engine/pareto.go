@@ -190,6 +190,11 @@ func evalDemoPart(c *evalCtx, decl rules.CheckDecl) Check {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"%d of %d demo(s) in %s lack the %q line introducing them (M1)", missing, count, guideRel, c.r.Thresholds.HowToReadLine))
 	}
+	if gaps := guideArrowGaps(readArtifact(c.ws, guideRel)); len(gaps) > 0 {
+		return failCheck(decl.ID, fmt.Sprintf(
+			"%s draws %s with no arrow: every step that shows two or more things must draw the arrows that say what happens between them",
+			guideRel, strings.Join(gaps, ", ")))
+	}
 	return passCheck(decl.ID, fmt.Sprintf(
 		"%s hands on its demo (%d checked with how-to note)", guideRel, count))
 }

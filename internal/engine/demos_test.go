@@ -115,3 +115,53 @@ func TestUnplannedDemoSkips(t *testing.T) {
 		t.Fatalf("unplanned demo-part = %s (exit %d, reason %s)", check.Status, code, check.Reason)
 	}
 }
+
+// deck builds a walkthrough whose scenes are given as raw scene JSON, so a test
+// can state exactly what the figure draws.
+func deck(t *testing.T, scenes ...string) string {
+	t.Helper()
+	steps := ""
+	for i, scene := range scenes {
+		if i > 0 {
+			steps += ","
+		}
+		steps += `{"title":"Paso ` + string(rune('1'+i)) + `","text":"Lo que ocurre en este paso.","scene":` + scene + `}`
+	}
+	return "<lk-walkthrough>\n<script type=\"application/json\">\n{\"title\":\"Recorrido\",\"viewBox\":\"0 0 800 400\",\"steps\":[" + steps + "]}\n</script>\n</lk-walkthrough>\nCómo leerlo: avanza paso a paso y mira la figura."
+}
+
+// The figure has to say what happens: a step that draws two things and no arrow
+// leaves the reader reading a static picture. The tutorial is the reference the
+// person keeps pointing at, and there every step carries its own arrows.
+func TestDeckStepsWithoutArrowsAreRejected(t *testing.T) {
+	twoBoxes := `{"boxes":[{"x":40,"y":40,"w":180,"h":70,"label":"Entrada"},{"x":420,"y":40,"w":180,"h":70,"label":"Salida"}]}`
+	twoBoxesArrow := `{"boxes":[{"x":40,"y":40,"w":180,"h":70,"label":"Entrada"},{"x":420,"y":40,"w":180,"h":70,"label":"Salida"}],"arrows":[{"x1":230,"y1":75,"x2":410,"y2":75}]}`
+	oneTable := `{"grids":[{"x":40,"y":40,"cols":["a","b"],"rows":[["1","2"]],"width":400,"rowH":44}]}`
+	cases := []struct {
+		name string
+		body string
+		ok   bool
+	}{
+		{"two figures with an arrow", deck(t, twoBoxesArrow), true},
+		{"two figures without an arrow", deck(t, twoBoxes), false},
+		{"one figure alone needs no arrow", deck(t, oneTable), true},
+		{"a later step stops guiding", deck(t, twoBoxesArrow, twoBoxes), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := demoThroughPlanning(t)
+			f.writeExplanationWithDemo(t, "p1", tc.body)
+			rep, code := f.run(t, f.opts("validate", "explanation"))
+			check, found := hasCheck(rep, "demo-part")
+			if !found {
+				t.Fatalf("demo-part check missing: %+v", rep.Checks)
+			}
+			if tc.ok && (check.Status != "PASS" || code != 0) {
+				t.Fatalf("deck rejected: %s (exit %d)", check.Reason, code)
+			}
+			if !tc.ok && (check.Status != "FAIL" || code != 1) {
+				t.Fatalf("deck accepted: %s (exit %d)", check.Reason, code)
+			}
+		})
+	}
+}

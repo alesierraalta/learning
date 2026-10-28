@@ -1128,3 +1128,23 @@ test("the part page ships the kit stylesheet and scripts for the note's own elem
   assert.ok(kitAt !== -1 && appAt !== -1 && kitAt < appAt, "kit.css comes first, app.css refines it");
   await shutdown();
 });
+
+// A demo page under explicaciones/demos/ links the kit with a relative path
+// (../../../kit/kit.js). Served through the reader, that climbs to
+// <topic>/file/kit/..., so the same kit route must answer there or every deck in
+// a demo page stays an unstyled, undrawn placeholder.
+test("a demo page finds the kit through its own relative path", async () => {
+  const { view, shutdown } = await setup();
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const base = result.structuredContent.base;
+  const viaTopic = await http(`${base}${TOPIC}/file/kit/kit.js`);
+  assert.equal(viaTopic.status, 200);
+  assert.match(viaTopic.headers["content-type"], /^text\/javascript/);
+  assert.match(viaTopic.body, /lk-walkthrough/);
+  const css = await http(`${base}${TOPIC}/file/kit/kit.css`);
+  assert.equal(css.status, 200);
+  assert.match(css.headers["content-type"], /^text\/css/);
+  assert.equal((await http(`${base}${TOPIC}/file/kit/nope.js`)).status, 404);
+  assert.equal((await http(`${base}${TOPIC}/file/kit/..%2Fkit.css`)).status, 404);
+  await shutdown();
+});

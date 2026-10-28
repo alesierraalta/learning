@@ -1180,7 +1180,13 @@ ${scripts}
     const [topic, second, ...more] = rest;
     if (second === undefined) return topicPage(res, topic);
     if (second === "codigo" && more.length === 1) return codePage(res, topic, more[0]);
-    if (second === "file") return serveFile(req, res, topic, more);
+    if (second === "file") {
+      // A demo page links the kit relatively (../../../kit/kit.js). Served through the
+      // reader that path lands on <topic>/file/kit/..., so the same kit must answer
+      // there too, or the page's decks stay undrawn, unstyled placeholders.
+      if (more[0] === "kit" && more.length >= 2) return kitFile(res, more.slice(1).join("/"));
+      return serveFile(req, res, topic, more);
+    }
     if (topic === "rapidos" && more.length === 0) return quickPage(res, second);
     if (more.length === 1 && more[0] === "app") return appPage(res, topic, second);
     if (more.length > 0) throw new HttpError(404, "not found");
