@@ -3,9 +3,9 @@
 // by the studio tutorial and by the inline lk-walkthrough of a page.
 (() => {
   const C = {
-    ink: "#0f172a", slate: "#334155", slate2: "#475569", line: "#cbd5e1", soft: "#f1f5f9", soft2: "#f8fafc",
-    blue: "#2563eb", blueS: "#dbeafe", green: "#059669", greenS: "#d1fae5", amber: "#d97706", amberS: "#fef3c7",
-    red: "#dc2626", redS: "#fee2e2", gold: "#d4a017", muted: "#64748b", meta: "#555555",
+    ink: "#0F2E3D", slate: "#3F5B69", slate2: "#5A7481", line: "rgba(15,46,61,.30)", soft: "#F6F7F7", soft2: "#FAFBFB",
+    blue: "#004276", blueS: "rgba(0,66,118,0.06)", green: "#21594F", greenS: "rgba(15,46,61,0.05)", amber: "#8A6B3F", amberS: "rgba(166,127,89,0.08)",
+    red: "#DD4A68", redS: "rgba(221,74,104,0.07)", gold: "#a67f59", muted: "rgba(15,46,61,.62)", meta: "#555555",
   };
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -32,8 +32,8 @@
   };
 
   const packet = (x, y, color = C.blue, w = 70, h = 46) =>
-    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="#ffffff" stroke="${color}" stroke-width="3"/>` +
-    `<path d="M ${x} ${y} L ${f(x + w / 2)} ${f(y + h * 0.55)} L ${x + w} ${y}" fill="none" stroke="${color}" stroke-width="3"/>`;
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="0" fill="#ffffff" stroke="${color}" stroke-width="2"/>` +
+    `<path d="M ${x} ${y} L ${f(x + w / 2)} ${f(y + h * 0.55)} L ${x + w} ${y}" fill="none" stroke="${color}" stroke-width="2"/>`;
 
   const dashed = (x, y, w, h, label, color = C.slate2, fill = C.soft2) =>
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="22" fill="${fill}" stroke="${color}" stroke-width="3.5" stroke-dasharray="14 10"/>` +
@@ -41,20 +41,20 @@
 
   const sheet = (x, y, w, h, title = "", lines = 4, color = C.slate) => {
     const fold = Math.min(34, w * 0.2);
-    let out = `<path d="M ${x} ${y} H ${x + w - fold} L ${x + w} ${y + fold} V ${y + h} H ${x} Z" fill="#ffffff" stroke="${color}" stroke-width="3"/>` +
-      `<path d="M ${x + w - fold} ${y} V ${y + fold} H ${x + w}" fill="${C.soft}" stroke="${color}" stroke-width="3"/>`;
+    let out = `<path d="M ${x} ${y} H ${x + w - fold} L ${x + w} ${y + fold} V ${y + h} H ${x} Z" fill="#ffffff" stroke="${color}" stroke-width="2"/>` +
+      `<path d="M ${x + w - fold} ${y} V ${y + fold} H ${x + w}" fill="${C.soft}" stroke="${color}" stroke-width="2"/>`;
     if (title) out += txt(x + 18, y + 40, title, { size: 22, anchor: "start" });
     for (let i = 0; i < lines; i++) out += `<rect x="${x + 18}" y="${f(y + (title ? 62 : 26) + i * 22)}" width="${f((w - 36) * (i % 3 === 2 ? 0.6 : 0.92))}" height="9" rx="4" fill="${C.line}"/>`;
     return out;
   };
 
-  const box = (x, y, w, h, label, { stroke = C.ink, fill = "#ffffff", color = C.ink, size = 28, sub = "", rx = 6 } = {}) =>
-    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="3"/>` +
+  const box = (x, y, w, h, label, { stroke = C.ink, fill = "#ffffff", color = C.ink, size = 28, sub = "", rx = 0 } = {}) =>
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="2"/>` +
     txt(x + w / 2, y + h / 2 + (sub ? -2 : size * 0.35), label, { size, color }) +
     (sub ? txt(x + w / 2, y + h / 2 + 30, sub, { size: 22, color: C.slate, bold: false, italic: true }) : "");
 
   const node = (cx, cy, label, { fill = "#ffffff", stroke = C.ink, color = C.ink, r = 30 } = {}) =>
-    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="3"/>` + txt(cx, cy + 9, label, { size: 24, color });
+    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2"/>` + txt(cx, cy + 9, label, { size: 24, color });
 
   // A real table: header band, cell values and colour marks, so a figure can
   // show the data it talks about instead of four grey lines.
@@ -65,7 +65,7 @@
     const h = rowH * (rows.length + header);
     const tone = (t) => ({ blue: C.blueS, green: C.greenS, amber: C.amberS, red: C.redS, soft: C.soft }[t] || C.soft);
     const ink = (t) => ({ blue: C.blue, green: C.green, amber: C.amber, red: C.red }[t] || C.ink);
-    let out = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="#ffffff" stroke="${C.ink}" stroke-width="3"/>`;
+    let out = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="0" fill="#ffffff" stroke="${C.ink}" stroke-width="2"/>`;
     for (const [key, t] of Object.entries(o.rowTone || {})) {
       out += `<rect x="${x + 2}" y="${f(y + rowH * (Number(key) + header) + 1)}" width="${w - 4}" height="${rowH - 2}" fill="${tone(t)}"/>`;
     }
@@ -73,7 +73,7 @@
       out += `<rect x="${f(x + colW * Number(key) + 1)}" y="${y + 2}" width="${f(colW - 2)}" height="${h - 4}" fill="${tone(t)}"/>`;
     }
     if (header) {
-      out += `<rect x="${x + 2}" y="${y + 2}" width="${w - 4}" height="${rowH - 1}" rx="8" fill="${C.soft}"/>`;
+      out += `<rect x="${x + 2}" y="${y + 2}" width="${w - 4}" height="${rowH - 1}" rx="0" fill="none"/>`;
       cols.forEach((c, i) => { out += txt(x + colW * (i + 0.5), f(y + rowH * 0.66), c, { size: size - 2, color: C.slate }); });
       out += `<path d="M ${x + 2} ${y + rowH + 1} H ${f(x + w - 2)}" stroke="${C.line}" stroke-width="2"/>`;
     }

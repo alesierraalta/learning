@@ -283,11 +283,11 @@
     const C = window.LKScene.C;
     return {
       ink: { stroke: C.ink, fill: '#ffffff', color: C.ink },
-      slate: { stroke: C.slate, fill: C.soft, color: C.slate },
-      blue: { stroke: C.blue, fill: C.blueS, color: C.blue },
-      green: { stroke: C.green, fill: C.greenS, color: C.green },
-      amber: { stroke: C.amber, fill: C.amberS, color: C.amber },
-      red: { stroke: C.red, fill: C.redS, color: C.red },
+      slate: { stroke: C.slate, fill: '#ffffff', color: C.slate },
+      blue: { stroke: C.blue, fill: 'rgba(0,66,118,0.05)', color: C.blue },
+      green: { stroke: C.green, fill: 'rgba(15,46,61,0.04)', color: C.green },
+      amber: { stroke: C.amber, fill: 'rgba(166,127,89,0.06)', color: C.amber },
+      red: { stroke: C.red, fill: 'rgba(221,74,104,0.06)', color: C.red },
     };
   };
   function walkScene(scene) {
