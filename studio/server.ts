@@ -130,6 +130,24 @@ function toolNote(name: string, args: unknown): { topic: string; index: number }
   return isRecord(args) ? noteFromPath(args.path) : null;
 }
 
+/**
+ * The last part note the conversation wrote or edited: a reloaded tab still knows which note the
+ * tutor was talking about, so the chat keeps the way back to it.
+ */
+export function noteFromMessages(messages: unknown): { topic: string; index: number } | null {
+  if (!Array.isArray(messages)) return null;
+  let found: { topic: string; index: number } | null = null;
+  for (const message of messages) {
+    if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (!isRecord(part) || part.type !== "toolCall") continue;
+      const note = toolNote(String(part.name), part.arguments);
+      if (note !== null) found = note;
+    }
+  }
+  return found;
+}
+
 export async function startStudio(options: StudioOptions = {}): Promise<Studio> {
   if ((options.transcriberUrl !== undefined) !== (options.transcriberToken !== undefined)) {
     throw new Error("transcriberUrl and transcriberToken must be set together");
@@ -499,7 +517,7 @@ ${scripts}
       case "new-session": {
         const reply = await call({ type: "new_session" });
         if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused a new session"));
-        emit("history", { messages: [] });
+        emit("history", { messages: [], note: null });
         break;
       }
       case "restart":
@@ -512,23 +530,24 @@ ${scripts}
     sendJson(res, 200, { ok: true });
   };
 
-  const history = async (): Promise<Json[]> => {
-    if (!alive) return [];
+  const history = async (): Promise<{ messages: Json[]; note: { topic: string; index: number } | null }> => {
+    if (!alive) return { messages: [], note: null };
     try {
       const reply = await call({ type: "get_messages" }, 10000);
-      const messages = isRecord(reply.data) && Array.isArray(reply.data.messages) ? reply.data.messages : [];
-      return messages
+      const raw = isRecord(reply.data) && Array.isArray(reply.data.messages) ? reply.data.messages : [];
+      const messages = raw
         .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
         .map((m) => ({ role: m.role, text: messageText(m) }))
         .filter((m) => m.text);
+      return { messages, note: noteFromMessages(raw) };
     } catch {
-      return [];
+      return { messages: [], note: null };
     }
   };
 
   const events = async (res: ServerResponse) => {
     res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", "x-content-type-options": "nosniff" });
-    res.write(`event: history\ndata: ${JSON.stringify({ messages: await history() })}\n\n`);
+    res.write(`event: history\ndata: ${JSON.stringify(await history())}\n\n`);
     res.write(`event: state\ndata: ${JSON.stringify(state())}\n\n`);
     for (const dialog of dialogs.values()) res.write(`event: dialog\ndata: ${JSON.stringify(dialog)}\n\n`);
     clients.add(res);
