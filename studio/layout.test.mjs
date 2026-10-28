@@ -109,6 +109,8 @@ test("the reading sheet may use the microphone for dictation", { skip: browser ?
   await frame.waitForLoadState("load");
   assert.notEqual(new URL(frame.url()).origin, new URL(studio.url).origin, "the sheet is served cross-origin");
   assert.equal(await frame.evaluate(() => document.featurePolicy.allowsFeature("microphone")), true);
+  // Demos inside the sheet ask for fullscreen; every frame up the chain must delegate it.
+  assert.equal(await frame.evaluate(() => document.featurePolicy.allowsFeature("fullscreen")), true);
 });
 
 test("a topic that still owes parts says so instead of looking finished", { skip: browser ? false : "playwright not installed" }, async (t) => {
