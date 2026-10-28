@@ -919,6 +919,9 @@ ${scripts}
     // to a different typeface than the notes it belongs to.
     send(res, 200, MIME[extname(name)], readFileSync(contained.targetReal), {
       "access-control-allow-origin": "*",
+      // A demo page loads the kit without a version query; without this the browser
+      // keeps the previous stylesheet for an hour and the page drifts from the notes.
+      "cache-control": "no-cache",
     });
   };
 
