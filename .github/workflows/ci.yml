@@ -80,3 +80,24 @@ jobs:
 
       - name: Adapter and studio suites
         run: node --test integrations/pi/*.test.mjs studio/*.test.mjs
+
+  # A broken deploy script only shows up when it runs, which for update.sh is
+  # after the merge: it has already pulled over the live tree by then. This
+  # job checks the scripts a pull request would introduce, before the merge.
+  # pull_request only: the deploy workflow checks the live tree itself.
+  deploy-scripts:
+    name: Deploy scripts
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the shell syntax
+        run: |
+          for script in deploy/vps/*.sh; do
+            bash -n "$script"
+          done
+
+      - name: Run shellcheck
+        run: shellcheck --severity=warning deploy/vps/*.sh
