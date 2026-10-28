@@ -788,6 +788,7 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapedTitle}</title>
 <link rel="icon" href="${prefix}favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="${prefix}kit/kit.css">
 <link rel="stylesheet" href="${prefix}app.css">
 ${scripts}
 </head>

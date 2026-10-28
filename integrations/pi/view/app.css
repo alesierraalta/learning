@@ -111,3 +111,43 @@ body.wide #app { max-width: min(1400px, 94vw); }
   body.wide .prose > iframe, body.wide .prose > .part-kicker, body.wide .prose > .app-launch { column-span: all; }
   body.wide .prose > h1 { max-width: 30em; }
 }
+
+/* The note keeps the kit's own paper design. app.css styles the page chrome with a
+   broad button rule; inside the note the kit component owns its controls, so these
+   scoped rules win by specificity instead of by load order. */
+.prose .lk-walkthrough button,
+.prose .lk-wt-bar button {
+  padding: 6px 14px;
+  border: 1px solid var(--rule, #e2e8f0);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink, #0f172a);
+  font-size: .78rem;
+  font-weight: 400;
+}
+.prose .lk-walkthrough button:hover,
+.prose .lk-wt-bar button:hover { background: #f8fafc; }
+.prose .lk-walkthrough button:disabled,
+.prose .lk-wt-bar button:disabled { opacity: .35; background: #fff; cursor: default; }
+.prose .lk-walkthrough .lk-wt-dot {
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  border: 2px solid var(--rule, #e2e8f0);
+  border-radius: 50%;
+  background: transparent;
+  font-size: 0;
+}
+.prose .lk-walkthrough .lk-wt-dot[aria-current="true"] {
+  background: var(--cobalt, #2563eb);
+  border-color: var(--cobalt, #2563eb);
+}
+.prose .lk-wt-full {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink, #0f172a);
+  font-size: .72rem;
+}
+.prose .lk-wt-full:hover { background: var(--ink, #0f172a); color: #fff; }
+.prose .lk-wt-caption { font-size: .95rem; }

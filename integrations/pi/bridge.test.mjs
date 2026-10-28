@@ -1112,3 +1112,19 @@ test("obsidianToMarkdown leaves fenced samples alone", () => {
   assert.ok(out.includes('{"rows":[["7"]]}'), "a fenced sample is not a payload to rewrite");
   assert.ok(out.includes("Ver otra"), "wikilinks outside the fence still resolve");
 });
+
+// The note is written in the kit's own vocabulary: without kit.css the browser falls back to
+// raw inline markup (huge default buttons floating over the text), which is exactly the design
+// the reader must never show. The page ships the stylesheet before app.css so the note keeps
+// the kit's paper layout and app.css still wins for the page chrome.
+test("the part page ships the kit stylesheet and scripts for the note's own elements", async () => {
+  const { view, shutdown } = await setup();
+  const page = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
+  assert.match(page.body, /<link rel="stylesheet" href="[^"]*kit\/kit\.css">/, "kit.css must load before app.css");
+  assert.match(page.body, /kit\/scene\.js/, "scene.js must load so a deck can be drawn");
+  assert.match(page.body, /kit\/kit\.js/, "kit.js must load so the custom elements upgrade");
+  const kitAt = page.body.indexOf("kit/kit.css");
+  const appAt = page.body.indexOf("app.css");
+  assert.ok(kitAt !== -1 && appAt !== -1 && kitAt < appAt, "kit.css comes first, app.css refines it");
+  await shutdown();
+});
