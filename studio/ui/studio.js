@@ -489,8 +489,9 @@
         ? [{ text: "Inicio", href: "#/" }, { text: "Notas rápidas" }, { text: quick.title }]
         : [{ text: "Inicio", href: "#/" }, { text: topic ? topic.title : topicId, href: `#/tema/${topicId}` }, { text: kicker }],
     );
-    // The bridge is another origin: dictation needs the microphone delegated to it.
-    const frame = h("iframe", { class: "sheet", title: title || "Contenido", allow: "microphone" });
+    // The bridge is another origin: dictation needs the microphone delegated to it,
+    // and its demo embeds can only go fullscreen if this frame delegates that too.
+    const frame = h("iframe", { class: "sheet", title: title || "Contenido", allow: "microphone; fullscreen", allowfullscreen: "" });
     const neighbours = topic ? topic.parts.filter((p) => p.written) : [];
     const at = info ? neighbours.indexOf(info) : -1;
     const prev = at > 0 ? neighbours[at - 1] : null;
