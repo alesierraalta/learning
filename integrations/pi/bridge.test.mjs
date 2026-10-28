@@ -1119,13 +1119,30 @@ test("obsidianToMarkdown leaves fenced samples alone", () => {
 // the kit's paper layout and app.css still wins for the page chrome.
 test("the part page ships the kit stylesheet and scripts for the note's own elements", async () => {
   const { view, shutdown } = await setup();
-  const page = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
-  assert.match(page.body, /<link rel="stylesheet" href="[^"]*kit\/kit\.css">/, "kit.css must load before app.css");
-  assert.match(page.body, /kit\/scene\.js/, "scene.js must load so a deck can be drawn");
-  assert.match(page.body, /kit\/kit\.js/, "kit.js must load so the custom elements upgrade");
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const page = await http(result.structuredContent.url);
+  assert.match(page.body, /<link rel="stylesheet" href="[^"]*kit\/kit\.css\?v=\d+">/, "kit.css must load before app.css");
+  assert.match(page.body, /kit\/scene\.js\?v=\d+/, "scene.js must load so a deck can be drawn");
+  assert.match(page.body, /kit\/kit\.js\?v=\d+/, "kit.js must load so the custom elements upgrade");
   const kitAt = page.body.indexOf("kit/kit.css");
   const appAt = page.body.indexOf("app.css");
   assert.ok(kitAt !== -1 && appAt !== -1 && kitAt < appAt, "kit.css comes first, app.css refines it");
+  await shutdown();
+});
+
+// A learner reported a control as still broken after it was fixed: the page cached app.css for
+// an hour, so the deploy never reached their tab. Every view asset now carries a version stamp
+// and must be revalidated, so the next load cannot show yesterday's stylesheet.
+test("view assets are versioned and revalidated on every load", async () => {
+  const { view, shutdown } = await setup();
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const page = await http(result.structuredContent.url);
+  assert.match(page.body, /app\.css\?v=\d+/, "app.css carries a version stamp");
+  assert.match(page.body, /app\.js\?v=\d+/, "app.js carries the same stamp");
+  const stamped = /app\.css\?v=(\d+)/.exec(page.body);
+  const css = await http(`${result.structuredContent.base}app.css?v=${stamped[1]}`);
+  assert.equal(css.status, 200);
+  assert.equal(css.headers["cache-control"], "no-cache", "a deploy must be visible on the next load");
   await shutdown();
 });
 

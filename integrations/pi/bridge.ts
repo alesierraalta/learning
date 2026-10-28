@@ -23,6 +23,28 @@ import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./
 
 const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
 const KIT_DIR = join(dirname(fileURLToPath(import.meta.url)), "kit");
+/**
+ * Static assets are revalidated on every load and carry this version stamp. The
+ * reader used to cache app.css for an hour, so a deploy left the old stylesheet
+ * in place and an already-fixed control still looked broken to the learner.
+ */
+const staticVersion = (() => {
+  const files = [
+    join(VIEW_DIR, "app.css"),
+    join(VIEW_DIR, "app.js"),
+    join(KIT_DIR, "kit.css"),
+    join(KIT_DIR, "kit.js"),
+  ];
+  let stamp = 1;
+  for (const file of files) {
+    try {
+      stamp = Math.max(stamp, Math.round(statSync(file).mtimeMs));
+    } catch {
+      /* a missing asset keeps the previous stamp */
+    }
+  }
+  return String(stamp);
+})();
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_TEXT_CHARS = 8000;
 const CHOICES = new Set(["A", "B", "C", "D", "E"]);
@@ -788,17 +810,17 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapedTitle}</title>
 <link rel="icon" href="${prefix}favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="${prefix}kit/kit.css">
-<link rel="stylesheet" href="${prefix}app.css">
+<link rel="stylesheet" href="${prefix}kit/kit.css?v=${staticVersion}">
+<link rel="stylesheet" href="${prefix}app.css?v=${staticVersion}">
 ${scripts}
 </head>
 <body>
 <main id="app"></main>
 <script type="application/json" id="view-data">${json}</script>
-<script src="${prefix}kit/dictate.js"></script>
-<script src="${prefix}kit/scene.js"></script>
-<script src="${prefix}kit/kit.js"></script>
-<script src="${prefix}app.js"></script>
+<script src="${prefix}kit/dictate.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/scene.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/kit.js?v=${staticVersion}"></script>
+<script src="${prefix}app.js?v=${staticVersion}"></script>
 </body>
 </html>
 `;
@@ -1175,7 +1197,7 @@ ${scripts}
     if (rest[0] === "kit" && rest.length >= 2) return kitFile(res, rest.slice(1).join("/"));
     if (rest.length === 2 && rest[0] === "api" && rest[1] === "quiz") return quizApi(res, url);
     if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css" || rest[0] === "favicon.svg")) {
-      return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])), { "cache-control": "public, max-age=3600" });
+      return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])), { "cache-control": "no-cache" });
     }
     const [topic, second, ...more] = rest;
     if (second === undefined) return topicPage(res, topic);
