@@ -181,7 +181,7 @@
       return { tone: "done", label: "Terminado", text: "Completaste este tema. Puedes repasarlo cuando quieras.", cta: ["Repasar mis lagunas", () => say(prompts.gaps(topic))] };
     }
     if (topic.status === "waiting") {
-      if (stage === "diagnosis") return { tone: "you", label: "Te toca a ti", text: "Responde el diagnóstico inicial para que el tutor sepa qué sabes y arme tu ruta.", cta: ["Responder el diagnóstico", read("quiz")] };
+      if (stage === "diagnosis") return { tone: "you", label: "Te toca a ti", text: "Responde el diagnóstico inicial: con tus respuestas el tutor entiende qué sabes y enfoca el plan de tu ruta.", cta: ["Responder el diagnóstico", read("quiz")] };
       if (stage === "quiz" && topic.part) return { tone: "you", label: "Te toca a ti", text: `Responde el mini-quiz de ${part}.`, cta: ["Ir al quiz", read(topic.part)] };
       if (stage === "own_words") return { tone: "you", label: "Te toca a ti", text: `Escribe con tus palabras lo que entendiste de ${part}.`, cta: ["Escribírselo al tutor", () => openDrawer(`Mi vuelco de ${part} de ${topic.title}: `)] };
       return { tone: "you", label: "Te toca a ti", text: `El tutor espera tu respuesta (${where}).`, cta: ["Abrir el tutor", () => openDrawer()] };
@@ -368,12 +368,20 @@
     const rows = [];
     if (topic.hasDiagnosis) {
       const current = (topic.nextStage || topic.stage) === "diagnosis";
+      const writtenCount = topic.parts.filter((p) => p.written).length;
+      // The plan's parts come from preparation; the diagnosis only decides the focus.
+      // Say that, even when the tutor wrote parts before the learner answered.
+      const diagnosisMeta = current
+        ? writtenCount
+          ? `Te toca: responde; enfoca las ${topic.parts.length - writtenCount} partes que faltan`
+          : "Te toca: responde sus preguntas"
+        : "Hecho · enfocó el plan de tu ruta";
       rows.push(
         h(
           "li",
           { class: `part-row reveal ${current ? "current" : "done"}`, style: "--i:2" },
           h("span", { class: "node" }, current ? icon("quiz") : icon("check")),
-          h("div", {}, h("h3", {}, "Diagnóstico inicial"), h("div", { class: "meta" }, current ? "Te toca: responde sus preguntas" : "Hecho · sirvió para armar tu ruta")),
+          h("div", {}, h("h3", {}, "Diagnóstico inicial"), h("div", { class: "meta" }, diagnosisMeta)),
           h("div", { class: "row-actions" }, btn(current ? "Responder" : "Ver", () => go(`#/leer/${topic.id}/quiz`), current ? "btn small you" : "btn small")),
         ),
       );
