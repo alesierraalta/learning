@@ -155,6 +155,9 @@ func evalDemoPart(c *evalCtx, decl rules.CheckDecl) Check {
 	if part == nil || part.DemosPlanned == nil || !*part.DemosPlanned {
 		return skipCheck(decl.ID, "part does not plan a demo")
 	}
+	if c.r.Thresholds.MinDemos <= 0 {
+		return skipCheck(decl.ID, "the rules do not set a demo minimum")
+	}
 	rel, err := partRel(c.plan, decl.Path, c.part)
 	if err != nil {
 		return failCheck(decl.ID, err.Error())
@@ -189,6 +192,11 @@ func evalDemoPart(c *evalCtx, decl rules.CheckDecl) Check {
 	if missing > 0 {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"%d of %d demo(s) in %s lack the %q line introducing them (M1)", missing, count, guideRel, c.r.Thresholds.HowToReadLine))
+	}
+	if problems := walkthroughProblems(readArtifact(c.ws, guideRel)); len(problems) > 0 {
+		return failCheck(decl.ID, fmt.Sprintf(
+			"%s hands on a deck that cannot render: %s — a walkthrough needs a valid payload with at least one step",
+			guideRel, strings.Join(problems, "; ")))
 	}
 	if gaps := guideArrowGaps(readArtifact(c.ws, guideRel)); len(gaps) > 0 {
 		return failCheck(decl.ID, fmt.Sprintf(

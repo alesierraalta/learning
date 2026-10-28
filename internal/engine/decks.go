@@ -111,3 +111,48 @@ func readArtifact(ws, rel string) string {
 	}
 	return string(raw)
 }
+
+// walkthroughProblems reports declared walkthrough decks that cannot render: a
+// walkthrough with no payload, a payload that is not valid JSON, or one without
+// steps. A deck that draws nothing is not the demo the part promised.
+func walkthroughProblems(markup string) []string {
+	const open = `<script type="application/json">`
+	const close = `</script>`
+	var problems []string
+	rest := markup
+	for {
+		at := strings.Index(rest, "<lk-walkthrough")
+		if at < 0 {
+			return problems
+		}
+		rest = rest[at:]
+		end := strings.Index(rest, "</lk-walkthrough>")
+		block := rest
+		if end >= 0 {
+			block, rest = rest[:end], rest[end+len("</lk-walkthrough>"):]
+		} else {
+			rest = ""
+		}
+		payload := strings.Index(block, open)
+		if payload < 0 {
+			// A deck may also be written as scene markup the kit draws directly;
+			// only a walkthrough with nothing to draw is a broken promise.
+			if !strings.Contains(block, `class="scene"`) {
+				problems = append(problems, "a walkthrough has nothing to draw")
+			}
+			continue
+		}
+		body := block[payload+len(open):]
+		if cut := strings.Index(body, close); cut >= 0 {
+			body = body[:cut]
+		}
+		var spec deckSpec
+		if err := json.Unmarshal([]byte(body), &spec); err != nil {
+			problems = append(problems, "a walkthrough declares a deck payload that is not valid JSON")
+			continue
+		}
+		if len(spec.Steps) == 0 {
+			problems = append(problems, "a walkthrough declares a deck without steps")
+		}
+	}
+}
