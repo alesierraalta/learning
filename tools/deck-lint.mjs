@@ -63,8 +63,9 @@ export function lintMarkdown(text) {
       const arrows = scene.arrows ?? [];
       const labels = scene.labels ?? [];
       const grids = scene.grids ?? [];
-      if (boxes.length === 0 && grids.length === 0) problems.push(at('scene', `${tag}: no boxes`));
-      if (arrows.length === 0) problems.push(at('scene', `${tag}: no arrows`));
+      // Messages name the fix, because the studio shows them to the author verbatim.
+      if (boxes.length === 0 && grids.length === 0) problems.push(at('scene', `${tag}: needs at least one box or grid with the thing that changes`));
+      if (arrows.length === 0) problems.push(at('scene', `${tag}: needs an arrow that shows what happens`));
 
       arrows.forEach((a, k) => {
         const name = `arrow ${k + 1}`;
