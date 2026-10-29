@@ -598,7 +598,13 @@
     const saveBtn = btn("Guardar", save, "btn primary", "check");
     const frame = h("iframe", { class: "sheet", title: "Vista previa de la nota", allow: "microphone; fullscreen", allowfullscreen: "" });
     const preview = h("div", { class: "editor-preview-body" });
-    const hint = h("p", { class: "editor-hint" }, "La vista previa es el lector real: mostrará la nota en cuanto exista. Al guardar, la nota se abre ahí mismo.");
+    // Be explicit: the frame shows what the vault holds, never the unsaved textarea.
+    const previewNote = h("span", { class: "muted" }, "lo guardado");
+    const hint = h(
+      "p",
+      { class: "editor-hint" },
+      "La vista previa es el lector real y solo puede mostrar una nota guardada. Al guardar, la nota se abre ahí mismo.",
+    );
     // The version the fields were built from: a save must name it, so a note
     // changed elsewhere is refused instead of silently overwritten.
     let rev = "";
@@ -731,14 +737,18 @@
           h(
             "section",
             { class: "editor-preview" },
-            h("header", { class: "preview-head" }, h("h2", {}, "Vista previa"), h("span", { class: "muted" }, "lector real")),
+            h("header", { class: "preview-head" }, h("h2", {}, "Vista previa"), previewNote),
             preview,
           ),
         ),
       ),
     );
-    if (isNew) preview.replaceChildren(hint);
-    else await load();
+    if (isNew) {
+      preview.replaceChildren(hint);
+    } else {
+      previewNote.textContent = "lo guardado; tus cambios al guardar";
+      await load();
+    }
   }
 
   // ---------- tutor ----------

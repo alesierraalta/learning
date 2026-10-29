@@ -362,6 +362,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .editor-preview-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .editor-preview-body .sheet { flex: 1; min-height: 460px; }
 .editor-hint { margin: auto; max-width: 26em; padding: 24px; text-align: center; font-family: var(--sans); font-size: 15px; font-style: italic; color: var(--muted); }
+/* A note that does not exist yet has nothing to show: keep the empty box short. */
+.editor-preview:has(.editor-hint) { min-height: 0; }
+.editor-preview:has(.editor-hint) .editor-preview-body { min-height: 0; }
 
 @media (max-width: 1100px) {
   .editor-grid { grid-template-columns: minmax(0, 1fr); }
@@ -370,6 +373,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 }
 @media (max-width: 720px) {
   .editor-page { padding: 24px 18px 70px; }
+  /* The preview is the real reader: give the frame the same width the reader has
+     on a phone instead of padding it into a narrower column. */
+  .editor-preview { padding-left: 0; padding-right: 0; }
+  .editor-preview .preview-head { padding-left: 0; padding-right: 0; }
   .field textarea { min-height: 300px; }
   .editor-actions { justify-content: stretch; }
   .editor-actions .btn { flex: 1 1 auto; justify-content: center; }
