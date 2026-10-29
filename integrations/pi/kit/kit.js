@@ -384,6 +384,34 @@
     this.tabIndex = 0;
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
     this.append(full, stage, hint, bar, caption);
+    // No word may leave the box that holds it. Measuring the real glyphs is the
+    // only honest way: a character count said this deck fit while it overflowed.
+    const fitStage = () => {
+      const groups = [...stage.querySelectorAll('[data-step]')];
+      const shown = groups.map((g) => g.style.display);
+      // A hidden text measures as zero, so the pass sees every step at once.
+      groups.forEach((g) => { g.style.display = ''; });
+      for (const text of stage.querySelectorAll('text[data-fit]')) {
+        const max = Number(text.dataset.fit);
+        const authored = Number(text.getAttribute('font-size')) || 22;
+        if (!(max > 0)) continue;
+        const floor = authored * 0.55;
+        for (let tries = 0; tries < 4; tries++) {
+          const need = text.getComputedTextLength();
+          if (need <= max) break;
+          const size = Math.max(floor, (Number(text.getAttribute('font-size')) || authored) * (max / need) * 0.98);
+          text.setAttribute('font-size', S.f(size));
+          if (size === floor) break;
+        }
+        // Last resort: squeezing the glyphs is still better than spilling the box.
+        if (text.getComputedTextLength() > max) {
+          text.setAttribute('textLength', String(Math.round(max)));
+          text.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+        }
+      }
+      groups.forEach((g, i) => { g.style.display = shown[i]; });
+    };
+    fitStage();
     steps.forEach((_, i) => {
       const dot = button(String(i + 1), () => go(i));
       dot.className = 'lk-wt-dot';

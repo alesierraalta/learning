@@ -12,7 +12,7 @@
  */
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -394,10 +394,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       ? readdirSync(quickDir)
           .filter((f) => f.endsWith(".md"))
           .map((f) => {
-            const text = readFileSync(join(quickDir, f), "utf8");
+            const file = join(quickDir, f);
+            const text = readFileSync(file, "utf8");
             const h1 = /^#\s+(.+)$/m.exec(text)?.[1]?.trim();
-            return { id: f.replace(/\.md$/, ""), title: h1 || f.replace(/\.md$/, "") };
+            const id = f.replace(/\.md$/, "");
+            return { id, title: h1 || id, used: statSync(file).mtimeMs };
           })
+          // The note used most recently is the one you are likely to open again.
+          .sort((a, b) => b.used - a.used || a.id.localeCompare(b.id))
+          .map(({ used: _used, ...note }) => note)
       : [];
     return { topics, quick };
   };

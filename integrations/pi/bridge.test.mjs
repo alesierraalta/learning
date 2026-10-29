@@ -97,6 +97,36 @@ test('deck titles leave room for the full-screen button', { skip: !playwright &&
   assert.ok(gaps[1] >= 8, JSON.stringify(gaps));
 });
 
+test('a long word never leaves its walkthrough box', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { root, view } = await setup();
+  mkdirSync(join(root, 'rapidos'), { recursive: true });
+  const scene = JSON.stringify({
+    title: 'Ajuste', viewBox: '0 0 320 200',
+    steps: [{
+      title: 'Paso', text: 'El texto se ajusta a la caja',
+      scene: { boxes: [{ x: 20, y: 20, w: 280, h: 90, label: 'sin corrección, la primera palabra no aparece', sub: 'plural, ocho palabras antes del verbo' }] },
+    }],
+  });
+  writeFileSync(join(root, 'rapidos', 'fit.md'), `# Ajuste\n\n<lk-walkthrough class="lk-wt-compact" title="Ajuste"><script type="application/json">${scene}</script></lk-walkthrough>\n`);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(base(await view({})) + 'rapidos/fit');
+  const deck = page.locator('lk-walkthrough');
+  await deck.locator('svg').waitFor();
+  const measured = await deck.evaluate(node => {
+    const stage = node.querySelector('.lk-wt-stage');
+    const box = stage.querySelector('rect').getBBox();
+    return [...stage.querySelectorAll('text')].map(text => {
+      const b = text.getBBox();
+      return { text: text.textContent.slice(0, 20), inside: b.x >= box.x - 1 && b.x + b.width <= box.x + box.width + 1, size: Number(text.getAttribute('font-size')), authored: 22 };
+    });
+  });
+  assert.equal(measured.length, 2);
+  for (const item of measured) assert.ok(item.inside, JSON.stringify(item));
+  assert.ok(measured[0].size < measured[0].authored, JSON.stringify(measured));
+});
+
 test('the reader draws SVG fences while preserving inline figures and code samples', { skip: !playwright && 'playwright not installed' }, async t => {
   const { view, topic } = await setup();
   const diagram = '<svg viewBox="0 0 380 260" role="img" aria-label="Estado de celda"><defs><marker id="fl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><rect x="140" y="24" width="100" height="34" fill="none" stroke="currentColor"/><text x="190" y="46">c t-1 = 2,00</text><line x1="190" y1="58" x2="190" y2="82" stroke="currentColor" marker-end="url(#fl)"/></svg>';

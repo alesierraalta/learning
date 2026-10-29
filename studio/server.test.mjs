@@ -2,7 +2,7 @@
 // child (testdata/fake-pi.mjs) and a temporary Learnings root.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { request, createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -367,6 +367,21 @@ test("the library lists topics with engine status, parts and quick notes; api/vi
   assert.equal((await http(quick.url)).status, 200);
   assert.equal((await http(`${studio.url}api/view?quick=nope`)).status, 404);
   assert.equal((await http(`${studio.url}api/view?quick=..`)).status, 404);
+});
+
+test("the library lists the most recently used quick note first", async () => {
+  const { studio, root } = await setup();
+  const dir = join(root, "rapidos");
+  // Same vault, three notes touched at different times: the order the learner
+  // sees must follow the last use, not the order the directory happens to give.
+  for (const [id, hoursAgo] of [["hash", 30], ["vector", 5], ["arbol", 0.5]]) {
+    const file = join(dir, `${id}.md`);
+    if (id !== "hash") writeFileSync(file, `# ${id}\n\nUna nota breve.\n`);
+    const when = new Date(Date.now() - hoursAgo * 3600_000);
+    utimesSync(file, when, when);
+  }
+  const library = JSON.parse((await http(`${studio.url}api/library`)).body);
+  assert.deepEqual(library.quick.map((q) => q.id), ["arbol", "vector", "hash"]);
 });
 
 test("a submission from the hosted view becomes a prompt of the same Pi session", async () => {
