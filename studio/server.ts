@@ -517,8 +517,13 @@ ${scripts}
         const markdown = body.body;
         if (typeof markdown !== "string") throw new HttpError(400, "body must be a string");
         if (markdown.length > DRAFT_MAX_CHARS) throw new HttpError(413, "draft too long");
-        const readerBase = String((await view()).base);
-        const answer = await fetch(new URL("api/draft", readerBase), {
+        // The studio and the bridge share a machine: talk over loopback, never through
+        // the public proxy, whose certificate a Node fetch would refuse. The URL handed
+        // back is the public one, because the browser — not this process — loads it.
+        const reader = await view();
+        const localBase = String(reader.localBase ?? reader.base);
+        const publicBase = String(reader.base);
+        const answer = await fetch(new URL("api/draft", localBase), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ title: written(body.title), body: markdown }),
@@ -526,7 +531,7 @@ ${scripts}
         if (!answer.ok) throw new HttpError(answer.status === 413 ? 413 : 502, "the reader refused the draft");
         const draft = (await answer.json()) as { url?: unknown };
         if (typeof draft.url !== "string") throw new HttpError(502, "the reader returned no draft url");
-        return sendJson(res, 200, { url: new URL(draft.url, readerBase).href });
+        return sendJson(res, 200, { url: new URL(draft.url, publicBase).href });
       }
       case "save-note": {
         const text = (value: unknown) => (typeof value === "string" ? value : undefined);
