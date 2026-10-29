@@ -140,7 +140,9 @@ function runCli(args) {
   for (const arg of args) {
     const info = statSync(arg, { throwIfNoEntry: false });
     if (!info) { console.error(`deck-lint: no such file or directory: ${arg}`); return 2; }
-    if (info.isDirectory()) collect(arg); else if (arg.endsWith('.md')) files.push(arg);
+    // A file named on the command line is linted whatever its name: callers compare a
+    // temporary copy of an older revision, and that copy does not end in .md.
+    if (info.isDirectory()) collect(arg); else files.push(arg);
   }
   let failed = 0;
   let checked = 0;
