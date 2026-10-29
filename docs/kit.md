@@ -102,7 +102,11 @@ show the row that violates the rule instead of describing it.
 `rowH` and `size` keep long values readable. Keep every step on the same coordinates so the figure
 stays put while its state changes, put the one sentence that explains the step in its `text`, and
 keep labels short: below 640 px the stage scrolls sideways with a hint instead of shrinking the
-letters.
+letters. For diagrams deliberately authored as a narrow vertical layout, opt in with
+`<lk-walkthrough class="lk-wt-compact">`: in full screen the cap is lifted so the figure grows; on mobile the SVG fits the available width and the
+scroll hint is hidden. This does not reflow SVG contents; authors must keep text
+large enough and verify every scene on a phone. Decks without the attribute keep
+existing horizontal scrolling.
 
 A page with a walkthrough must load the drawing vocabulary first, because `kit.js` takes it from
 `window.LKScene` and throws «Falta scene.js» otherwise:
