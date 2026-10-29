@@ -17,7 +17,19 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CDN_SCRIPTS, deleteNote, listTopics, parsePublicOrigins, registerBridge, type DeleteResult } from "../integrations/pi/bridge.ts";
+import {
+  CDN_SCRIPTS,
+  HttpError,
+  NoteRevMismatch,
+  deleteNote,
+  listTopics,
+  parsePublicOrigins,
+  readQuickNote,
+  registerBridge,
+  writeQuickNote,
+  type DeleteResult,
+} from "../integrations/pi/bridge.ts";
+import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { resolveContained } from "../integrations/pi/paths.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -59,13 +71,6 @@ export interface Studio {
   close: () => Promise<void>;
 }
 
-class HttpError extends Error {
-  readonly status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
 
 type Json = Record<string, unknown>;
 const isRecord = (v: unknown): v is Json => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -505,6 +510,30 @@ ${scripts}
       case "abort":
         await call({ type: "abort" }, 60000);
         break;
+      case "save-note": {
+        const text = (value: unknown) => (typeof value === "string" ? value : undefined);
+        const body_ = body.body;
+        if (typeof body_ !== "string") throw new HttpError(400, "body must be a string");
+        // The deck rules are the same ones the publishing gate runs, so a note
+        // the reader would break cannot be stored in the first place.
+        const problems = lintMarkdown(body_);
+        if (problems.length) {
+          return sendJson(res, 400, {
+            error: `${problems.length} problem(s) in the guided decks`,
+            problems,
+          });
+        }
+        let result: { id: string; rev: string; created: boolean };
+        try {
+          result = writeQuickNote(root, { quick: text(body.quick), title: text(body.title), body: body_, rev: text(body.rev) });
+        } catch (err) {
+          if (err instanceof NoteRevMismatch) return sendJson(res, 409, { error: err.message, rev: err.rev });
+          // The bridge owns the vault rules, so its status is the answer, never a 500.
+          throw err instanceof HttpError ? err : new HttpError(Number((err as { status?: number }).status) || 500, (err as Error).message);
+        }
+        emit("library_changed", {});
+        return sendJson(res, 200, { ok: true, ...result });
+      }
       case "delete": {
         const kind = body.kind;
         if (kind !== "topic" && kind !== "part" && kind !== "quick") throw new HttpError(400, "kind must be topic, part or quick");
@@ -597,6 +626,10 @@ ${scripts}
         return events(res);
       case "api/library":
         return sendJson(res, 200, await library());
+      case "api/note": {
+        const quick = url.searchParams.get("quick") ?? "";
+        return sendJson(res, 200, readQuickNote(root, quick));
+      }
       case "api/view": {
         const quick = url.searchParams.get("quick");
         if (quick !== null) {
