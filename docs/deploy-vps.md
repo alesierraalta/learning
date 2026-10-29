@@ -71,6 +71,17 @@ GitHub's 100 MiB limit; larger future media needs a separate storage decision. T
 pushes only when something changed. Run it now with `systemctl --user start learnings-backup`;
 see runs with `journalctl --user -u learnings-backup`.
 
+Before pushing, the script lints every note it is about to publish (`tools/deck-lint.mjs`) and
+refuses to publish when a guided deck breaks the structural rules, printing the note and the rule
+that failed. The content stays on the machine and the run exits nonzero, so a broken note never
+reaches the pushed history. `LEARNINGS_SKIP_DECK_LINT=1` publishes anyway, for the case where the
+note must be saved and fixed later — never as the normal path.
+
+Two layers, on purpose: the VPS checks structure, because it has no browser; the real-ink
+measurement (`tools/deck-gate.mjs`, which also catches a word leaving its box or a label sitting
+on an arrow) runs where a browser exists: on the authoring machine before publishing a note, and
+in the app's test suite. Point it at the whole vault with `node tools/deck-gate.mjs ~/Learnings`.
+
 ## Update and operate
 
 ```sh
