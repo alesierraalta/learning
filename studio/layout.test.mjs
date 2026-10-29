@@ -253,6 +253,29 @@ test("a quick note is created, listed first and edited through the reader", { sk
   assert.equal(readFileSync(join(root, "rapidos", "nota-con-diapositivas.md"), "utf8"), changed);
 });
 
+test("the preview draws the draft before it is saved", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, page } = await phonePage(t);
+  const heading = "Borrador dibujado";
+  const typed = noteBody(heading, steps("El borrador"));
+
+  await page.getByRole("button", { name: "Nueva nota" }).click();
+  await page.getByLabel("Título").fill(heading);
+  await editorBody(page).fill(typed);
+
+  const frameElement = await page.waitForSelector(".editor-preview iframe.sheet[src]", { timeout: 15000 });
+  assert.match(await frameElement.getAttribute("src"), /\/borrador\/[0-9a-f]{32}$/, "the frame points at a draft, not at a saved note");
+  const frame = await frameElement.contentFrame();
+  await frame.waitForLoadState("load");
+  await frame.locator("lk-walkthrough svg").first().waitFor({ timeout: 15000 });
+  // The deck title is styled in caps, so compare without case.
+  assert.match(await frame.locator(".lk-title").first().innerText(), /borrador dibujado/i, "the draft is drawn by the real reader");
+
+  // The draft never touched the vault and the textarea keeps exactly what was typed.
+  assert.equal(existsSync(join(root, "rapidos", "borrador-dibujado.md")), false, "nothing was written");
+  assert.equal(await editorBody(page).inputValue(), typed);
+  assert.equal(await page.getByLabel("Título").inputValue(), heading);
+});
+
 test("a deck whose word does not fit is refused and the typed text stays", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, page } = await phonePage(t);
   const refused = noteBody("Nota rota", steps("sin corrección, la primera palabra no aparece"));
