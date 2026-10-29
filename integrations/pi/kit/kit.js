@@ -290,7 +290,7 @@
       red: { stroke: C.red, fill: 'rgba(221,74,104,0.06)', color: C.red },
     };
   };
-  function walkScene(scene) {
+  function walkScene(scene, stageWidth) {
     const S = window.LKScene;
     const tones = WALK_TONES();
     const tone = (name) => tones[name] || tones.slate;
@@ -320,9 +320,13 @@
       // A caption drawn on the line hides the direction the arrow exists to show. The arrow
       // is cut where its words sit, the way a labelled arrow is drawn by hand: shaft, words,
       // shaft with the head. A short arrow has no room to cut, so the words move beside it.
-      const words = a.label ? Math.min((scene.width || 320) - 30, a.label.length * size * 0.54 + 14) : 0;
+      // The scene marker is 11 units across a 12-unit viewBox, with refX=10
+      // and a 4-unit stroke: it extends 10 * 11 / 12 * 4 = 36.67 units backwards.
+      const headBack = 10 * 11 / 12 * 4;
+      const words = a.label ? Math.min(stageWidth - 30, a.label.length * size * 0.54 + 14) : 0;
       const cut = Math.min(len * 0.62, words);
-      if (a.label && cut > size * 1.2 && cut < len - 14) {
+      const captionRun = vertical ? size * 1.2 : words;
+      if (a.label && cut >= captionRun && cut > size * 1.2 && (len - cut) / 2 > headBack) {
         const ux = dx / len, uy = dy / len;
         const half = cut / 2;
         const midX = a.x1 + ux * (len / 2), midY = a.y1 + uy * (len / 2);
@@ -331,18 +335,22 @@
         out += S.line(head.x, head.y, a.x2, a.y2, { color, dashedLine: !!a.dashed });
         out += S.lbl(midX + (vertical ? 0 : 0), midY + size * 0.36, a.label, {
           anchor: 'middle', color: tone(a.labelTone || a.tone).color, size,
+          fit: vertical ? Math.max(1, 2 * Math.min(midX - 4, stageWidth - midX - 4)) : Math.max(1, cut - 14),
         });
       } else {
         if (a.bend !== undefined) out += S.curve(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, bend: a.bend });
         else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed });
         if (a.label) {
           const midX = (a.x1 + a.x2) / 2, midY = (a.y1 + a.y2) / 2 - (a.bend === undefined ? 0 : Math.abs(dy) * 0.18);
-          const side = midX > (scene.width || 320) / 2 ? -1 : 1;
-          const gap = Math.round(size * 0.6) + 5;
-          out += S.lbl(vertical ? midX + side * gap : midX, vertical ? midY : midY - gap - Math.round(size * 0.3), a.label, {
-            anchor: vertical ? (side > 0 ? 'start' : 'end') : a.labelAnchor || 'middle',
+          const gap = 11 * 4 / 2 + 4;
+          const left = Math.min(a.x1, a.x2) - gap, right = Math.max(a.x1, a.x2) + gap;
+          const side = left - 4 > stageWidth - right - 4 ? -1 : 1;
+          const x = vertical ? (side > 0 ? right : left) : Math.max(15, Math.min(stageWidth - 15, midX));
+          const fit = vertical ? Math.max(1, side > 0 ? stageWidth - x - 4 : x - 4) : Math.max(1, 2 * Math.min(x - 4, stageWidth - x - 4));
+          out += S.lbl(x, vertical ? midY + size * 0.36 : Math.min(a.y1, a.y2) - gap - size * 0.3, a.label, {
+            anchor: vertical ? (side > 0 ? 'start' : 'end') : 'middle',
             color: tone(a.labelTone || a.tone).color,
-            size,
+            size, fit,
           });
         }
       }
@@ -361,7 +369,8 @@
     const steps = spec.steps || [];
     if (!steps.length) throw new Error('El recorrido no tiene pasos');
     const stage = el('div', undefined, { class: 'lk-wt-stage' });
-    stage.innerHTML = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}))).join(''), spec.viewBox || '0 0 1200 640');
+    const stageWidth = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[2]) || 1200;
+    stage.innerHTML = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth))).join(''), spec.viewBox || '0 0 1200 640');
     const captionTitle = el('strong');
     const captionText = el('p');
     const caption = el('div', undefined, { class: 'lk-wt-caption' });

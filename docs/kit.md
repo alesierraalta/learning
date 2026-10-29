@@ -119,6 +119,11 @@ word is a collision, not a label, so put the identifying words in the box `label
 An arrow's own `label` is drawn beside the arrow, never on it: a caption on the line hides the very
 direction the arrow exists to show. That placement is the component's job, so an author writes
 `label` and nothing more; the gate fails a free label that lands on the arrow's ink.
+The browser gate also reports `text-over-arrowhead` when a text rectangle overlaps the
+marker head's screen-space bounding box by more than 2 px horizontally and more than
+35% of the text rectangle's height vertically. This threshold avoids treating a small
+graze of the font's empty bounding-box leading as a collision; it is a geometric
+heuristic, not a test of individual painted glyphs.
 
 The renderer is the safety net, not the review. Before publishing a note with decks, run the real
 browser gate over the file and fix what it names; it exits non-zero on any spill, label over a box,

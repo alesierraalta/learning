@@ -111,6 +111,44 @@ test('an arrow carries its words beside it, never on the line', { skip: !playwri
   assert.ok(clear.drawn >= 2, `the shaft must be cut around the caption: ${JSON.stringify(clear)}`);
 });
 
+test('short arrow captions clear the marker and stay inside the stage', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { root, view } = await setup();
+  mkdirSync(join(root, 'rapidos'), { recursive: true });
+  const scene = JSON.stringify({ title: 'Memoria', viewBox: '0 0 320 320', steps: [{ title: 'Paso', text: 'Transición', scene: { boxes: [{ x: 20, y: 10, w: 280, h: 62, label: 'Antes' }, { x: 20, y: 180, w: 280, h: 62, label: 'Después' }], arrows: [{ x1: 160, y1: 72, x2: 160, y2: 180, label: 'una leyenda larga sobre la flecha', labelSize: 28 }] } }] });
+  writeFileSync(join(root, 'rapidos', 'head-regression.md'), `# Prueba\n\n<lk-walkthrough class="lk-wt-compact"><script type="application/json">${scene}</script></lk-walkthrough>`);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(base(await view({})) + 'rapidos/head-regression');
+  const deck = page.locator('lk-walkthrough').first();
+  await deck.locator('svg').waitFor();
+  const result = await deck.evaluate(node => {
+    const stage = node.querySelector('.lk-wt-stage'), svg = stage.querySelector('svg');
+    const arrow = stage.querySelector('path[marker-end]'), m = arrow.getScreenCTM();
+    const length = arrow.getTotalLength(), end = arrow.getPointAtLength(length), prev = arrow.getPointAtLength(length - 0.01);
+    const dx = end.x - prev.x, dy = end.y - prev.y, mag = Math.hypot(dx, dy), ux = dx / mag, uy = dy / mag;
+    const marker = stage.querySelector(`marker[id="${arrow.getAttribute('marker-end').match(/#([^)]*)/)[1]}"]`);
+    const vb = marker.viewBox.baseVal, stroke = parseFloat(getComputedStyle(arrow).strokeWidth);
+    const vertices = [[0, 0], [12, 6], [0, 12]].map(([x, y]) => {
+      const a = (x - marker.refX.baseVal.value) * marker.markerWidth.baseVal.value / vb.width * stroke;
+      const b = (y - marker.refY.baseVal.value) * marker.markerHeight.baseVal.value / vb.height * stroke;
+      const px = end.x + ux * a - uy * b, py = end.y + uy * a + ux * b;
+      return { x: m.a * px + m.c * py + m.e, y: m.b * px + m.d * py + m.f };
+    });
+    const xs = vertices.map(p => p.x), ys = vertices.map(p => p.y);
+    const head = { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+    const overlaps = [...stage.querySelectorAll('text')].map(t => {
+      const b = t.getBoundingClientRect();
+      return { text: t.textContent, x: Math.min(b.right, head.right) - Math.max(b.left, head.left), y: Math.min(b.bottom, head.bottom) - Math.max(b.top, head.top) };
+    }).filter(hit => hit.x > 2 && hit.y > 2);
+    const caption = [...stage.querySelectorAll('text')].find(t => t.textContent === 'una leyenda larga sobre la flecha').getBoundingClientRect();
+    const bounds = svg.getBoundingClientRect();
+    return { overlaps, inside: caption.left >= bounds.left - 1 && caption.right <= bounds.right + 1 };
+  });
+  assert.deepEqual(result.overlaps, [], JSON.stringify(result));
+  assert.ok(result.inside, JSON.stringify(result));
+});
+
 test('deck titles leave room for the full-screen button', { skip: !playwright && 'playwright not installed' }, async t => {
   const { root, view } = await setup();
   mkdirSync(join(root, 'rapidos'), { recursive: true });
