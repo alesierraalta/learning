@@ -2,6 +2,7 @@ bin/
 *.test
 .learning/
 .codegraph/
+.tgrep/
 scratch/
 # Local AI runtime state
 .atl/

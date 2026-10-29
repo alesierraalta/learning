@@ -63,8 +63,10 @@ HTTPS is still required by the browser for microphone access, even with this mod
 
 The VPS holds the only working copy of Learnings (migrated once from Obsidian). `~/Learnings`
 is a Git repository pushed to the private `alesierraalta/learnings` with a repository-scoped
-deploy key (`~/.ssh/learnings_deploy`, SSH host alias `github-learnings`). Videos (`*.mp4`,
-`*.mov`, `*.webm`) and Pi's `.pi/` and `.atl/` stay out (`.gitignore`). The installer enables
+deploy key (`~/.ssh/learnings_deploy`, SSH host alias `github-learnings`). Lesson videos
+(`*.mp4`, `*.mov`, `*.webm`) are versioned alongside the notes; Pi's `.pi/` and `.atl/`,
+search indexes and local backups stay out (`.gitignore`). Keep individual files below
+GitHub's 100 MiB limit; larger future media needs a separate storage decision. The installer enables
 `learnings-backup.timer`, which runs `deploy/vps/learnings-backup.sh` hourly: it commits and
 pushes only when something changed. Run it now with `systemctl --user start learnings-backup`;
 see runs with `journalctl --user -u learnings-backup`.

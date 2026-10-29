@@ -54,15 +54,23 @@
     });
     app.append(button);
   };
+  const renderer = new marked.Renderer();
+  const renderCode = renderer.code;
+  renderer.code = function (token) {
+    if (token.lang?.trim().toLowerCase() === "svg" && /^\s*<svg[\s>][\s\S]*<\/svg>\s*$/i.test(token.text)) {
+      return token.text;
+    }
+    return renderCode.call(this, token);
+  };
   const markdown = (text, inline = false) => {
     const node = element(inline ? "span" : "div");
     const math = globalThis.lkMath?.extract(text) ?? { text, blocks: [] };
     // The kit vocabulary written inside a note IS the lesson: walkthrough decks and
     // their JSON payload scripts must survive marked + DOMPurify, then kit.js (loaded
     // in the page head) upgrades them on connect. Diagrams come written as inline
-    // SVG, which needs the svg profile; nothing a note writes may load from outside
+    // SVG or svg fences, which need the svg profile; nothing a note writes may load from outside
     // the document, so image, use and foreignObject stay out.
-    const clean = DOMPurify.sanitize(inline ? marked.parseInline(math.text) : marked.parse(math.text), {
+    const clean = DOMPurify.sanitize(inline ? marked.parseInline(math.text) : marked.parse(math.text, { renderer }), {
       USE_PROFILES: { html: true, svg: true },
       ADD_TAGS: ["video", "audio", "source", "details", "summary", "script",
         "lk-walkthrough", "lk-callout", "lk-quiz", "lk-widget", "lk-diagram", "lk-math", "lk-steps", "lk-ask", "lk-step"],

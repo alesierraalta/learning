@@ -76,6 +76,11 @@ flowchart TD
 ```
 ````
 
+SVG diagrams can be inline `<svg>…</svg>` or enclosed in a fenced `svg` block.
+The reader renders both through the same sanitizer: event handlers, external
+images, `use` and `foreignObject` are not allowed. Use a `text` or `html` fence
+when showing SVG source as a code example instead of drawing it.
+
 ## Video and optional interactive demos
 
 Store videos under `explicaciones/adjuntos/` and embed by filename:

@@ -1,0 +1,21 @@
+# Learnings visuals and Git coverage
+Restore the visualizations shown as SVG source and audit version coverage on the VPS.
+Branch: fix/learnings-visuals-git. Delivery: ask-on-risk; forecast <250 authored lines. Checks: existing Node/browser suites and served-page verification.
+
+## Specs
+S1. User: «las visualizaciones en la en en el en la aplicación de learning en la bps se ven así no se ven entonces bueno para que arregles eso». Evidence: screenshot shows literal `<svg viewBox="0 0 380 260"` with cell-state diagram text.
+S2. User: «arregles todo el tema del git que al parecer conoce necesito que todo esté versionado con git ya tenemos el proy el el cómo se llama el repo hazlo todo». Audit application and content repositories; preserve existing data. Assumption: secrets, generated dependencies and caches must not be committed; media exclusions require an explicit coverage finding.
+
+## Tasks
+T1 [S1] inline, done: reproduced SVG fence failure in Chromium (RED timeout, exit 1); renderer plus sanitized fence/inline/code regression GREEN (1/1, exit 0); commit 3c85810.
+T2 [S2] inline, done: app excludes .tgrep; private vault commit 163af0f versions 9 videos (92,843,146 bytes); push main succeeded, clean main...origin/main, backup timer active. App docs commit pending.
+T3 [S1,S2] inline plus independent verification, in_progress: checks, review if due, and authorized production delivery; commit pending.
+
+## Log
+L1. Original user request: C:\Users\ismar\AppData\Local\Packages\MicrosoftWindows.Client.Core_cw5n1h2txyewy\TempState\ScreenClip\{05C982F6-51AA-413A-91A2-82BBFCDA17C6}.pnglas visualizaciones en la en en el en la aplicación de learning en la bps se ven así no se ven entonces bueno para que arregles eso y arregles todo el tema del git que al parecer conoce necesito que todo esté versionado con git ya tenemos el proy el el cómo se llama el repo hazlo todo
+L2. Both VPS repositories report clean main...origin/main; app HEAD 0156459, content fb71179; backup timer active. Prior SVG support shipped ec3ad5c but screenshot still shows source. RTK exists on VPS at ~/.local/bin/rtk, absent from noninteractive PATH; set PATH for commands. Explorer maps tests and backup policy read-only; parent edits inline (no independent heavy writer units).
+L3. Confirmed rapidos/lstm.md uses an svg fence identical to the screenshot. Browser test failed before the fix and passed afterwards; handlers and forbidden SVG tags remain stripped. Full Node/browser suite started. Coverage gap: 10 excluded lesson videos (~92.9 MB combined; largest ~20.9 MB). VPS ignore policy changes would publish automatically via the hourly timer: require publishing authorization first. Risk: item 2 (SVG fences enter the existing sanitized rendering path); independent verification required.
+L4. Explicit interactive choice: «Sí, publicar y desplegar todo» (publish_deploy_media). Authorized GitHub publishing, integration into main/deployment, and ~93 MB of videos in the existing private content repository. GitHub confirms alesierraalta/learnings is private. Full adapter/studio suite: exit 0, 130 passed, 9 skipped. tsp check scoped to app.js: exit 0, regression test present (no additional TSP owed).
+L5. First media staging attempt exited 1 before mutation: count guard expected 10; exact inventory shows 9 actual MP4 videos and an excluded local backup. Repository stayed clean and timer active. Corrected guard to 9 actual media files; .bak files remain intentionally excluded.
+L6. Content commit 163af0f pushed successfully to private alesierraalta/learnings/main. Nine MP4 files (92,843,146 bytes) and .gitignore only; main...origin/main clean, timer active. Native assess: medium, reviewDue=false (under_budget); security escalation requires independent verifier mvssgxhj-2-8730, running. No native review start is due.
+L7. Independent verifier mvssgxhj-2-8730: S1 PASS in isolated archive+patch copy, focused Chromium test 1/1 exit 0, no blockers; S2 local PASS with remote evidence supplied by parent. Parent repeated focused test: exit 0. VPS read-only recheck: HEAD=origin/main=163af0f, 9 tracked videos, 92,843,146 bytes, no untracked nonignored files, studio and timer active. LSP: no errors; existing style/spelling advisories only. Nine suite skips are existing unavailable Docker Python/GCC images.

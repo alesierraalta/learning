@@ -19,6 +19,39 @@ let playwright;
 for (const id of [process.env.PLAYWRIGHT_MODULE, 'playwright', '/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs'].filter(Boolean)) {
   try { playwright = await import(id); break; } catch {}
 }
+test('the reader draws SVG fences while preserving inline figures and code samples', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { view, topic } = await setup();
+  const diagram = '<svg viewBox="0 0 380 260" role="img" aria-label="Estado de celda"><defs><marker id="fl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><rect x="140" y="24" width="100" height="34" fill="none" stroke="currentColor"/><text x="190" y="46">c t-1 = 2,00</text><line x1="190" y1="58" x2="190" y2="82" stroke="currentColor" marker-end="url(#fl)"/></svg>';
+  const inline = '<svg viewBox="0 0 100 50" role="img" aria-label="Figura inline"><text x="10" y="20">Inline</text></svg>';
+  const unsafe = '<svg viewBox="0 0 100 50" onload="window.svgExecuted=true"><text onclick="window.svgExecuted=true">Seguro</text><foreignObject><div>outside</div></foreignObject><image href="https://evil.example/pixel"/></svg>';
+  writeFileSync(join(topic, 'explicaciones', 'Parte 1 - Claves.md'), [
+    '# Estado de celda', '', '```svg', diagram, '```', '', inline, '',
+    '```text', diagram, '```', '', '```html', inline, '```', '',
+    '```svg', unsafe, '```',
+  ].join('\n'));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  const response = await page.goto(result.structuredContent.url);
+  assert.equal(response.status(), 200);
+  const figure = page.locator('svg[aria-label="Estado de celda"]');
+  await figure.waitFor({ timeout: 10000 });
+  assert.ok(await figure.evaluate(node => node.getBoundingClientRect().height > 0));
+  assert.equal(await figure.locator('text').textContent(), 'c t-1 = 2,00');
+  assert.equal(await figure.locator('marker').getAttribute('id'), 'fl');
+  assert.equal(await figure.locator('line').getAttribute('marker-end'), 'url(#fl)');
+  assert.equal(await page.locator('svg[aria-label="Figura inline"]').count(), 1);
+  assert.equal(await page.locator('code.language-text').textContent(), diagram + '\n');
+  assert.equal(await page.locator('code.language-html').textContent(), inline + '\n');
+  assert.equal(await page.locator('code.language-svg').count(), 0);
+  assert.equal(await page.locator('#app [onload], #app [onclick], #app foreignObject, #app image').count(), 0);
+  assert.equal(await page.evaluate(() => window.svgExecuted), undefined);
+  assert.deepEqual(errors, []);
+});
+
 test('app pages inline shared reasoning and private bridge config', async () => {
   for (const configured of [false, true]) {
     const { view } = await setup(configured ? { transcriber: { url: 'http://127.0.0.1:1', token: 'app-private-token' } } : {});
