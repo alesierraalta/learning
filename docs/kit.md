@@ -116,6 +116,14 @@ sub-lines spilled over the frame. Labels are not boxes: a free label drawn over 
 word is a collision, not a label, so put the identifying words in the box `label`/`sub` and use
 `labels` for what sits in open space.
 
+The renderer is the safety net, not the review. Before publishing a note with decks, run the real
+browser gate over the file and fix what it names; it exits non-zero on any spill, label over a box
+or word over a word, and prints `deck`, `step` and the offending text:
+
+```sh
+node tools/deck-gate.mjs <vault>/rapidos/mi-nota.md
+```
+
 A page with a walkthrough must load the drawing vocabulary first, because `kit.js` takes it from
 `window.LKScene` and throws «Falta scene.js» otherwise:
 
