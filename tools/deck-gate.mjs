@@ -101,6 +101,24 @@ for (const [index, target] of targets.entries()) {
           const runs = pts.filter(p => Math.hypot(p.x - pts[0].x, p.y - pts[0].y) > 5 && Math.hypot(p.x - pts[pts.length - 1].x, p.y - pts[pts.length - 1].y) > 5);
           return runs.length ? { pts: runs } : null;
         }).filter(Boolean);
+        const heads = [...stage.querySelectorAll('path[marker-end], line[marker-end]')].filter(el => shown(el) && !el.closest('marker')).map(el => {
+          const markerId = el.getAttribute('marker-end').match(/#([^)]*)/)?.[1];
+          const marker = [...stage.querySelectorAll('marker')].find(m => m.id === markerId);
+          const m = el.getScreenCTM();
+          if (!marker || !m) return null;
+          const length = el.getTotalLength(), end = el.getPointAtLength(length), prev = el.getPointAtLength(Math.max(0, length - 0.01));
+          const dx = end.x - prev.x, dy = end.y - prev.y, mag = Math.hypot(dx, dy);
+          if (!mag) return null;
+          const ux = dx / mag, uy = dy / mag, vb = marker.viewBox.baseVal;
+          const units = marker.getAttribute('markerUnits') === 'userSpaceOnUse' ? 1 : parseFloat(getComputedStyle(el).strokeWidth);
+          const sx = marker.markerWidth.baseVal.value / vb.width * units, sy = marker.markerHeight.baseVal.value / vb.height * units;
+          const vertices = [[0, 0], [12, 6], [0, 12]].map(([x, y]) => {
+            const a = (x - marker.refX.baseVal.value) * sx, b = (y - marker.refY.baseVal.value) * sy;
+            return point(end.x + ux * a - uy * b, end.y + uy * a + ux * b, m);
+          });
+          const xs = vertices.map(p => p.x), ys = vertices.map(p => p.y);
+          return { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+        }).filter(Boolean);
         const texts = [...stage.querySelectorAll('text')].filter(shown).map(t => ({ el: t, b: t.getBBox(), box: t.getBoundingClientRect(), free: !t.dataset.fit, txt: t.textContent.trim() }));
         const out = [];
         for (const t of texts) {
@@ -121,6 +139,13 @@ for (const [index, target] of targets.entries()) {
           // A label may never sit on the ink of an arrow: the caption would hide the very
           // direction the arrow exists to show.
           const ink = t.box;
+          // Font bounding boxes include empty leading: a graze alone is not a caption on the head.
+          const GLYPH_BAND_FRACTION = 0.35;
+          for (const head of heads) {
+            const x = Math.min(ink.right, head.right) - Math.max(ink.left, head.left);
+            const y = Math.min(ink.bottom, head.bottom) - Math.max(ink.top, head.top);
+            if (x > 2 && y > GLYPH_BAND_FRACTION * ink.height) { out.push({ kind: 'text-over-arrowhead', over: Math.round(y), text: t.txt.slice(0, 28) }); break; }
+          }
           const near = (x, y) => x >= ink.x + 3 && x <= ink.x + ink.width - 3 && y >= ink.y + 3 && y <= ink.y + ink.height - 3;
           for (const a of arrows) {
             if (a.pts.some(p => near(p.x, p.y))) { out.push({ kind: 'text-over-arrow', over: 0, text: t.txt.slice(0, 28) }); break; }
