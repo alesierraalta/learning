@@ -76,6 +76,27 @@ test('compact LSTM walkthrough fits mobile without changing default decks', { sk
   assert.equal(await decks.first().locator('.lk-wt-stage').evaluate(node => getComputedStyle(node).maxWidth), 'none');
 });
 
+test('deck titles leave room for the full-screen button', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { root, view } = await setup();
+  mkdirSync(join(root, 'rapidos'), { recursive: true });
+  const scene = JSON.stringify({ title: 'Prueba', viewBox: '0 0 320 200', steps: [{ title: 'Paso', text: 'Una transición', scene: { boxes: [{ x: 20, y: 20, w: 280, h: 70, label: 'Memoria' }] } }] });
+  const deck = attr => `<lk-walkthrough ${attr}><script type="application/json">${scene}</script></lk-walkthrough>`;
+  writeFileSync(join(root, 'rapidos', 'longtitle.md'), `# Prueba\n\n${deck('class="lk-wt-compact" title="El plural que hay que recordar"')}\n\n${deck('class="lk-wt-compact" title="LSTM"')}\n`);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(base(await view({})) + 'rapidos/longtitle');
+  const deckEl = page.locator('lk-walkthrough');
+  await deckEl.first().locator('svg').waitFor();
+  const gaps = await deckEl.evaluateAll(nodes => nodes.map(node => {
+    const title = node.querySelector(':scope > .lk-title')?.getBoundingClientRect();
+    const button = node.querySelector('.lk-wt-full')?.getBoundingClientRect();
+    return title && button ? Math.round(button.left - title.right) : null;
+  }));
+  assert.ok(gaps[0] >= 8, JSON.stringify(gaps));
+  assert.ok(gaps[1] >= 8, JSON.stringify(gaps));
+});
+
 test('the reader draws SVG fences while preserving inline figures and code samples', { skip: !playwright && 'playwright not installed' }, async t => {
   const { view, topic } = await setup();
   const diagram = '<svg viewBox="0 0 380 260" role="img" aria-label="Estado de celda"><defs><marker id="fl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><rect x="140" y="24" width="100" height="34" fill="none" stroke="currentColor"/><text x="190" y="46">c t-1 = 2,00</text><line x1="190" y1="58" x2="190" y2="82" stroke="currentColor" marker-end="url(#fl)"/></svg>';
