@@ -74,6 +74,10 @@ Microphone capture requires HTTPS remotely (loopback HTTP still works).
   parts, quick notes), viewer, and tutor panel (streamed text, tool activity,
   dialogs, input, stop, new conversation, restart).
 
+The quick-note list is ordered by use: the note edited or opened most recently
+comes first, so the list opens on the thing being written. Ties break by id, which
+keeps the order stable when two notes share a timestamp.
+
 ## Deleting a note
 
 Every note can be deleted from the studio: a quick note or a part from the
