@@ -76,6 +76,41 @@ test('compact LSTM walkthrough fits mobile without changing default decks', { sk
   assert.equal(await decks.first().locator('.lk-wt-stage').evaluate(node => getComputedStyle(node).maxWidth), 'none');
 });
 
+test('an arrow carries its words beside it, never on the line', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { root, view } = await setup();
+  mkdirSync(join(root, 'rapidos'), { recursive: true });
+  const scene = JSON.stringify({ title: 'Flecha', viewBox: '0 0 320 260', steps: [{ title: 'Sube', text: 'Una transición', scene: { boxes: [{ x: 20, y: 20, w: 280, h: 62, label: 'Antes' }, { x: 20, y: 158, w: 280, h: 62, label: 'Después' }], arrows: [{ x1: 160, y1: 82, x2: 160, y2: 158, label: 'se guarda', labelSize: 21 }] } }] });
+  writeFileSync(join(root, 'rapidos', 'flecha.md'), `# Flecha\n\n<lk-walkthrough class="lk-wt-compact"><script type="application/json">${scene}</script></lk-walkthrough>\n`);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await page.goto(base(await view({})) + 'rapidos/flecha');
+  const deck = page.locator('lk-walkthrough').first();
+  await deck.locator('svg').waitFor();
+  // The caption must not sit on the ink: the reader has to see which way the arrow points.
+  const clear = await deck.evaluate(node => {
+    const stage = node.querySelector('.lk-wt-stage');
+    const caption = [...stage.querySelectorAll('text')].find(t => t.textContent.trim() === 'se guarda');
+    const arrows = [...stage.querySelectorAll('path[marker-end]')];
+    const c = caption.getBoundingClientRect();
+    let inside = 0;
+    for (const arrow of stage.querySelectorAll('path')) {
+      const m = arrow.getScreenCTM();
+      const total = arrow.getTotalLength();
+      for (let i = 1; i < 20; i++) {
+        const p = arrow.getPointAtLength(total * i / 20);
+        const x = m.a * p.x + m.c * p.y + m.e, y = m.b * p.x + m.d * p.y + m.f;
+        if (x > c.x + 3 && x < c.x + c.width - 3 && y > c.y + 3 && y < c.y + c.height - 3) inside++;
+      }
+    }
+    return { inside, head: arrows.length, drawn: stage.querySelectorAll('path').length, caption: { x: Math.round(c.x), y: Math.round(c.y), w: Math.round(c.width) } };
+  });
+  // The arrow is cut where its words sit, so no ink ever crosses the caption.
+  assert.equal(clear.inside, 0, `the caption sits on the arrow: ${JSON.stringify(clear)}`);
+  assert.equal(clear.head, 1, `the arrow must keep one head: ${JSON.stringify(clear)}`);
+  assert.ok(clear.drawn >= 2, `the shaft must be cut around the caption: ${JSON.stringify(clear)}`);
+});
+
 test('deck titles leave room for the full-screen button', { skip: !playwright && 'playwright not installed' }, async t => {
   const { root, view } = await setup();
   mkdirSync(join(root, 'rapidos'), { recursive: true });

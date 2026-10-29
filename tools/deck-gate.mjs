@@ -54,13 +54,29 @@ for (let d = 0; d < total; d++) {
       const shown = el => el.closest('[data-step]')?.style.display !== 'none';
       const rects = [...stage.querySelectorAll('rect')].filter(r => shown(r) && r.getBBox().height >= 18)
         .map(r => ({ ...r.getBBox(), rb: r.getBoundingClientRect() }));
-      const arrows = [...stage.querySelectorAll('line')].filter(shown).map(a => {
-        const b = a.getBBox();
-        // Only the shaft matters: the arrowhead is wide and a label beside it is fine.
-        const x1 = Number(a.getAttribute('x1')), x2 = Number(a.getAttribute('x2'));
-        return { shaft: x1 === x2, x: b.x, w: b.width, y: b.y, h: b.height };
-      });
-      const texts = [...stage.querySelectorAll('text')].filter(shown).map(t => ({ el: t, b: t.getBBox(), free: !t.dataset.fit, txt: t.textContent.trim() }));
+      // Every arrow, straight or bent, is measured along its own ink in screen coordinates:
+      // bounding boxes live in each element's user space, so they cannot be compared across
+      // groups.
+      const point = (x, y, m) => ({ x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f });
+      const arrows = [...stage.querySelectorAll('line, path')].filter(el => shown(el) && !el.closest('marker')).map(el => {
+        const m = el.getScreenCTM();
+        if (!m) return null;
+        const pts = [];
+        if (el.tagName.toLowerCase() === 'line') {
+          pts.push(point(Number(el.getAttribute('x1')), Number(el.getAttribute('y1')), m), point(Number(el.getAttribute('x2')), Number(el.getAttribute('y2')), m));
+        } else {
+          let len = 0;
+          try { len = el.getTotalLength(); } catch { return null; }
+          if (!len) return null;
+          for (let at = 0; at <= len; at += 2) { const p = el.getPointAtLength(at); pts.push(point(p.x, p.y, m)); }
+        }
+        if (pts.length < 2) return null;
+        // Both ends land on a box border, where a descender grazing the arrow is not a caption
+        // sitting on it; the run that carries the caption is the middle.
+        const runs = pts.filter(p => Math.hypot(p.x - pts[0].x, p.y - pts[0].y) > 5 && Math.hypot(p.x - pts[pts.length - 1].x, p.y - pts[pts.length - 1].y) > 5);
+        return runs.length ? { pts: runs } : null;
+      }).filter(Boolean);
+      const texts = [...stage.querySelectorAll('text')].filter(shown).map(t => ({ el: t, b: t.getBBox(), box: t.getBoundingClientRect(), free: !t.dataset.fit, txt: t.textContent.trim() }));
       const out = [];
       for (const t of texts) {
         const cx = t.b.x + t.b.width / 2, cy = t.b.y + t.b.height / 2;
@@ -77,12 +93,12 @@ for (let d = 0; d < total; d++) {
             if (hit > 2 && vhit > 2) { out.push({ kind: 'label-over-box', over: Math.round(hit), text: t.txt.slice(0, 28) }); break; }
           }
         }
-        // An arrow's own label must sit clear of the shaft it names.
+        // A label may never sit on the ink of an arrow: the caption would hide the very
+        // direction the arrow exists to show.
+        const ink = t.box;
+        const near = (x, y) => x >= ink.x + 3 && x <= ink.x + ink.width - 3 && y >= ink.y + 3 && y <= ink.y + ink.height - 3;
         for (const a of arrows) {
-          const across = a.shaft ? (a.x >= t.b.x - 1 && a.x <= t.b.x + t.b.width + 1)
-            : Math.min(t.b.x + t.b.width, a.x + a.w) - Math.max(t.b.x, a.x) > 6;
-          const along = Math.min(t.b.y + t.b.height, a.y + a.h) - Math.max(t.b.y, a.y);
-          if (across && along > 2) { out.push({ kind: 'text-over-arrow', over: Math.round(along), text: t.txt.slice(0, 28) }); break; }
+          if (a.pts.some(p => near(p.x, p.y))) { out.push({ kind: 'text-over-arrow', over: 0, text: t.txt.slice(0, 28) }); break; }
         }
       }
       for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
