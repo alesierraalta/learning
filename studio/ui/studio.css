@@ -326,3 +326,61 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .brand b { font-weight: 400; }
 .crumbs { font-family: var(--sans); font-size: 12px; }
 .hero h1 em, h1 em { color: var(--blue); font-style: italic; }
+
+/* ---------- note editor ----------
+   Misma piel: campos con filete, botones en versalita y el lector real al lado.
+   En el móvil la vista previa cae debajo y nada se sale de la pantalla. */
+.section-title.has-action { align-items: center; gap: 20px; }
+.section-heading { flex: 1; min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
+.quick-card { cursor: default; flex-wrap: wrap; }
+.quick-open { display: flex; align-items: center; gap: 14px; flex: 1 1 220px; min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.quick-open h3 { overflow-wrap: anywhere; }
+.quick-open:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.quick-card > .btn { margin-left: auto; align-self: center; }
+
+.editor-page { padding: 34px 48px 70px; }
+.editor-head h1 { font-size: clamp(1.9rem, 3vw, 2.6rem); margin: 10px 0 6px; }
+.editor-head .muted { margin: 0 0 22px; font-size: 1rem; }
+.editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+.editor-form { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.field { display: flex; flex-direction: column; gap: 6px; font-family: var(--sans); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.field input, .field textarea { width: 100%; max-width: 100%; padding: 10px 12px; font-family: var(--mono); font-size: 14px; line-height: 1.5; letter-spacing: 0; text-transform: none; resize: vertical; }
+.field textarea { min-height: 380px; }
+.editor-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+.editor-status { margin: 0; min-height: 1.3em; font-family: var(--sans); font-size: 15px; font-style: italic; color: var(--muted); }
+.editor-problems, .editor-conflict { display: grid; gap: 8px; padding: 12px 14px; border-left: 3px solid var(--red); background: var(--red-s); font-family: var(--sans); font-size: 14px; }
+.editor-problems[hidden], .editor-conflict[hidden] { display: none; }
+.editor-problems .problems-title, .editor-conflict p { margin: 0; font-weight: 600; }
+.editor-problems ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.editor-problems li { overflow-wrap: anywhere; }
+.editor-conflict { border-left-color: var(--amber); background: var(--amber-s); }
+.editor-conflict .btn { justify-self: start; }
+.editor-preview { display: flex; flex-direction: column; min-width: 0; min-height: 520px; border: 1px solid var(--line); }
+.preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.preview-head h2 { font-size: 17px; }
+.preview-head .muted { font-family: var(--sans); font-size: 12px; }
+.editor-preview-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.editor-preview-body .sheet { flex: 1; min-height: 460px; }
+.editor-hint { margin: auto; max-width: 26em; padding: 24px; text-align: center; font-family: var(--sans); font-size: 15px; font-style: italic; color: var(--muted); }
+/* A note that does not exist yet has nothing to show: keep the empty box short. */
+.editor-preview:has(.editor-hint) { min-height: 0; }
+.editor-preview:has(.editor-hint) .editor-preview-body { min-height: 0; }
+
+@media (max-width: 1100px) {
+  .editor-grid { grid-template-columns: minmax(0, 1fr); }
+  .editor-preview { min-height: 420px; }
+  .editor-preview-body .sheet { min-height: 380px; }
+}
+@media (max-width: 720px) {
+  .editor-page { padding: 24px 18px 70px; }
+  /* The preview is the real reader: give the frame the same width the reader has
+     on a phone instead of padding it into a narrower column. */
+  .editor-preview { padding-left: 0; padding-right: 0; }
+  .editor-preview .preview-head { padding-left: 0; padding-right: 0; }
+  .field textarea { min-height: 300px; }
+  .editor-actions { justify-content: stretch; }
+  .editor-actions .btn { flex: 1 1 auto; justify-content: center; }
+  .section-heading { flex: 1 1 100%; flex-direction: column; align-items: flex-start; gap: 2px; }
+  .section-title.has-action { flex-wrap: wrap; }
+  .section-title.has-action > .btn { margin-left: auto; }
+}

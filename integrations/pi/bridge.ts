@@ -12,7 +12,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -164,7 +164,7 @@ interface AnswerFile {
   razonamientos: Record<string, Reasoning>;
 }
 
-class HttpError extends Error {
+export class HttpError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
     super(message);
@@ -599,6 +599,99 @@ export interface TopicSummary {
   parts: PartSummary[];
   exercises: { id: string; titulo: string; lenguaje: string; mejor: string | null }[];
   gaps: TopicGaps;
+}
+
+export interface QuickNote {
+  id: string;
+  title: string;
+  body: string;
+  /** sha256 of the stored bytes; a save has to echo it back. */
+  rev: string;
+}
+
+export interface QuickNoteSave {
+  /** Existing note id; omit it to create one. */
+  quick?: string;
+  title?: string;
+  body: string;
+  rev?: string;
+}
+
+/** The editor read one version and tried to save over another. */
+export class NoteRevMismatch extends Error {
+  readonly status = 409;
+  readonly rev: string;
+  constructor(rev: string) {
+    super("the note changed since you loaded it; reload it before saving");
+    this.rev = rev;
+  }
+}
+
+const QUICK_BODY_MAX = 200_000;
+
+const digest = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
+
+/** A file stem derived from a title, safe on every filesystem the vault travels to. */
+export function quickId(title: string): string {
+  return title
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+const headingOf = (body: string, fallback: string): string => /^#\s+(.+?)\s*$/m.exec(body)?.[1] ?? fallback;
+
+/** Reads one quick note; `rev` lets the editor prove it saves over what it read. */
+export function readQuickNote(root: string, quick: string): QuickNote {
+  if (!safeTopic(quick)) throw new HttpError(400, "invalid quick note id");
+  const file = join(realpathSync(root), "rapidos", `${quick}.md`);
+  if (!existsSync(file)) throw new HttpError(404, `no quick note ${quick}`);
+  const bytes = readFileSync(file);
+  const body = bytes.toString("utf8");
+  return { id: quick, title: headingOf(body, quick), body, rev: digest(bytes) };
+}
+
+/**
+ * Creates or replaces one quick note. The vault rules live here, beside
+ * `deleteNote`: the id is a plain stem, the write can only land in `rapidos/`,
+ * and an update must name the bytes it was built from, so a note edited in the
+ * meantime is refused instead of silently overwritten.
+ */
+export function writeQuickNote(root: string, input: QuickNoteSave): { id: string; rev: string; created: boolean } {
+  const body = input.body;
+  if (typeof body !== "string") throw new HttpError(400, "body must be a string");
+  if (body.length > QUICK_BODY_MAX) throw new HttpError(400, `body must be at most ${QUICK_BODY_MAX} characters`);
+  if (!body.trim()) throw new HttpError(400, "body must not be empty");
+
+  const rootReal = realpathSync(root);
+  const dir = join(rootReal, "rapidos");
+  const created = input.quick === undefined || input.quick === "";
+  const id = created ? quickId(input.title ?? headingOf(body, "")) : String(input.quick);
+  if (!id) throw new HttpError(400, "a title that yields a note id is required");
+  // One plain stem, nothing that can walk out of `rapidos/` once it is joined.
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id) || !safeTopic(id)) throw new HttpError(400, "invalid quick note id");
+  mkdirSync(dir, { recursive: true });
+  // Containment is checked on the folder, because the file itself may not exist yet.
+  const inside = resolveContained(rootReal, dir);
+  if (!inside.ok) throw new HttpError(400, inside.reason);
+  const file = join(inside.targetReal, `${id}.md`);
+
+  if (created) {
+    if (existsSync(file)) throw new HttpError(409, `a quick note named ${id} already exists`);
+  } else {
+    if (!existsSync(file)) throw new HttpError(404, `no quick note ${id}`);
+    const current = digest(readFileSync(file));
+    if (input.rev !== current) throw new NoteRevMismatch(current);
+  }
+
+  // A temp file in the same folder and then a rename: a reader never sees half a note.
+  const temp = join(dir, `.${id}.${randomBytes(6).toString("hex")}.tmp`);
+  writeFileSync(temp, body, "utf8");
+  renameSync(temp, file);
+  return { id, rev: digest(Buffer.from(body, "utf8")), created };
 }
 
 /**
