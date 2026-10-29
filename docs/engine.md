@@ -149,7 +149,7 @@ is the source of truth for paths and checks; this table summarizes it.
 | preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned`; in `pareto` scope, a stated `pareto.criterio`, a nonempty `pareto.descartado`, one `pareto` line per part and at most `maxParts` parts. Optional per-part `demosPlanned` declares an interactive-demo promise |
 | diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | adaptive rounds (`thresholds.diagnostic.mode: adaptive`, see "Adaptive diagnosis") or, for runs whose rules snapshot has fixed counts, 6 prerequisite + 6 topic questions (2/2/2 by level); enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
 | planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part; in `pareto` scope the selection is re-checked because planning rewrites `plan.json` |
-| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step, or scene markup |
+| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step (scene-only markup does not render in the kit) |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
 | quiz | `mini-quiz/{part}.json`, `mini-quiz/{part}.answers.json` | part note has a mini-quiz section, 5 questions with enunciados present in it, complete answers, derived score ≥ 4/5 with no central miss |
 | feedback | `feedback/{part}.json` | matches the part, nonempty notes, `difficultyDetected=false` cannot contradict recorded wrong answers |
@@ -182,16 +182,35 @@ count as an interactive mini demo — `lk-widget` (inline parameter playground)
 and `lk-walkthrough` (stepped deck) today. Same counting rules: closed element,
 at least one child, outside fenced blocks. When the part declared
 `"demosPlanned": true` in `plan.json`, `thresholds.minDemos` (1 today) sets the
-minimum count and each demo needs its own `howToReadLine` guide (M1). The
-declared demo component is what the vault renders — a neural-net playground,
-a stepped SQL deck — so the check certifies the practice promise the plan
-made, not just prose.
+minimum count and each demo needs its own `howToReadLine` guide (M1). Static SVG remains a visual but is not a demo. For walkthroughs the check also
+requires an `application/json` script with a valid payload and at least one
+step; scene-only markup is not a payload.
 
 A part can also fulfil the promise with a page-level demo file, the form the
 vault already serves in its demos panel: `explicaciones/apps/<part>.html` or
-any `explicaciones/demos/<part>-<name>.html`. Such a page satisfies `demo-part`
-without inline elements; inline components are still the choice when the demo
-belongs inside the note's flow.
+any `explicaciones/demos/<part>-<name>.html`. A regular, readable page must
+contain an executable script and either an HTML `button`, `input`, `select` or
+`textarea` outside script text, or a closed `lk-walkthrough` with a valid JSON
+payload. Only JavaScript counts as executable: a script that loads `src=`, or
+carries inline code and declares no `type` or a JavaScript type
+(`text/javascript`, `application/javascript`, `module`, …). A data script —
+`application/json`, `application/ld+json` and any other non-JavaScript type —
+does not make a page interactive, so a page that only stores a payload is
+static markup. HTML comments are ignored. Every walkthrough on the selected
+page still has its payload and arrow rules checked. The page form does not
+require the inline reading-guide line. The explanation stage receipts the page
+it selected (the app page, else the first interactive
+`explicaciones/demos/<part>-*.html`), so replacing that page with static markup
+or deleting it after the stage was accepted leaves the stage stale: `status`,
+`validate` and `advance` block until the part is validated again. A part whose
+note already carries the inline demos selects no page and receipts none. These
+are minimal text-based structural checks, not a browser or JavaScript
+execution: they do not prove scripts load, controls work, a walkthrough
+renders, arrows are meaningful, accessibility, or real user interaction. Some
+working pages with other control patterns can be rejected; static structure
+can also pass without working behavior. Verify the actual reader and
+interaction separately. Quick notes do not pass through this engine
+validation.
 
 ### Adaptive diagnosis
 

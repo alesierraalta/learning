@@ -105,16 +105,22 @@ legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; ma
 .lk-wt-caption p { margin:6px 0 0; font-size:.95rem; line-height:1.6; }
 .lk-walkthrough:focus-visible { outline:3px solid var(--cobalt); outline-offset:4px; }
 .lk-wt-stage { max-width:100%; }
+lk-walkthrough.lk-wt-compact .lk-wt-stage { max-width:320px; margin-inline:auto; }
 .lk-wt-hint { display:none; margin:6px 0 0; font-size:.72rem; letter-spacing:.02em; color:#64748b; }
 @media(max-width:640px) {
   .lk-wt-stage { overflow-x:auto; overflow-y:hidden; padding-bottom:4px; }
   .lk-wt-stage svg { width:auto; min-width:680px; }
   .lk-wt-hint { display:block; }
+  lk-walkthrough.lk-wt-compact .lk-wt-stage { overflow:visible; }
+  lk-walkthrough.lk-wt-compact .lk-wt-stage svg { width:100%; min-width:0; }
+  lk-walkthrough.lk-wt-compact .lk-wt-hint:not(.lk-wt-hint-error) { display:none; }
 }
 /* Full screen: the figure takes the whole screen, letters included */
 .lk-walkthrough:fullscreen, .lk-walkthrough:-webkit-full-screen { display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; width:100%; height:100%; margin:0; border:0; border-radius:0; box-shadow:none; padding:22px 34px; background:#fff; }
 .lk-walkthrough:fullscreen .lk-wt-stage, .lk-walkthrough:-webkit-full-screen .lk-wt-stage { flex:0 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
 .lk-walkthrough:fullscreen .lk-wt-stage svg, .lk-walkthrough:-webkit-full-screen .lk-wt-stage svg { width:100%; height:auto; max-height:74vh; }
+/* A compact deck keeps its narrow column on the page only: full screen lifts the cap so the letters grow. */
+.lk-walkthrough.lk-wt-compact:fullscreen .lk-wt-stage, .lk-walkthrough.lk-wt-compact:-webkit-full-screen .lk-wt-stage { max-width:none; }
 .lk-walkthrough:fullscreen .lk-wt-caption strong, .lk-walkthrough:-webkit-full-screen .lk-wt-caption strong { font-size:1.5rem; }
 .lk-walkthrough:fullscreen .lk-wt-caption p, .lk-walkthrough:-webkit-full-screen .lk-wt-caption p { font-size:1.15rem; max-width:70ch; }
 .lk-walkthrough:fullscreen .lk-wt-hint, .lk-walkthrough:-webkit-full-screen .lk-wt-hint { display:none; }

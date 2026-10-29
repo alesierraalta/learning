@@ -2,82 +2,46 @@ package engine
 
 import (
 	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// demoThroughPlanningParts drives the complete-scope flow to the frontier part
-// with p1 declaring demosPlanned and visualsPlanned, patching plan.json before
-// each advance so its receipt stays fresh.
-func demoThroughPlanningParts(t *testing.T) *fixture {
-	t.Helper()
-	f := newFixture(t)
-	parts := []partCfg{{id: "p1", ex: true, vis: true, title: "Replicación"}}
-	f.initOK(t)
-	f.writePlan(t, parts...)
-	f.setDemosPlanned(t, "p1", true)
-	f.advanceOK(t, "preparation")
-	f.writeDiagQuestions(t, buildDiagQuestions(6, 6, defaultParts()...))
-	f.writeDiagAnswersFor(t, defaultParts(), 2, 6)
-	f.advanceOK(t, "diagnosis")
-	f.writePlanWith(t, "Dificultades detectadas en consenso y en quórums.", []string{"d3"}, parts...)
-	f.setDemosPlanned(t, "p1", true)
-	f.advanceOK(t, "planning")
-	return f
-}
-
-// The gate accepts an inline lk-* demo, or the page-level demo files the vault
-// already uses (explicaciones/apps/<part>.html, explicaciones/demos/<part>-*.html).
 func TestDemoPageFilesSatisfyTheDemoPromise(t *testing.T) {
-	f := demoThroughPlanningParts(t)
-
-	// Nothing yet: the promise is declared but unfulfilled.
-	rep, _ := f.run(t, f.opts("validate", "explanation"))
-	ch, ok := hasCheck(rep, "demo-part")
-	if !ok || ch.Status != "FAIL" {
-		t.Fatalf("declared demo with no file must block, got %s (%s)", ch.Status, ch.Reason)
-	}
-
-	// The app page exists → the promise is fulfilled without inline elements.
-	dir := filepath.Join(f.ws, "explicaciones", "apps")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	example, err := os.ReadFile("../../integrations/pi/kit/examples/rl-parte-3.html")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "p1.html"), []byte("<!doctype html><html><body>demo</body></html>"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rep, _ = f.run(t, f.opts("validate", "explanation"))
-	ch, ok = hasCheck(rep, "demo-part")
-	if !ok || ch.Status != "PASS" {
-		t.Fatalf("demo-part should PASS with apps/p1.html, got %v (%s)", ch.Status, ch.Reason)
-	}
-
-	// Demo pages also count: <part>-<name>.html under explicaciones/demos.
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(err)
-	}
-	demos := filepath.Join(f.ws, "explicaciones", "demos")
-	if err := os.MkdirAll(demos, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(demos, "p1-almacen.html"), []byte("<!doctype html><html><body>demo</body></html>"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rep, _ = f.run(t, f.opts("validate", "explanation"))
-	ch, ok = hasCheck(rep, "demo-part")
-	if !ok || ch.Status != "PASS" {
-		t.Fatalf("demo-part should PASS with demos/p1-almacen.html, got %v (%s)", ch.Status, ch.Reason)
+	for _, tc := range []struct {
+		name, path, body string
+		ok               bool
+	}{
+		{"static app", "explicaciones/apps/p1.html", "<!doctype html><html><body><svg><rect/></svg></body></html>", false},
+		{"static demo", "explicaciones/demos/p1-static.html", "<!doctype html><html><body><svg><rect/></svg></body></html>", false},
+		{"control only inside script", "explicaciones/apps/p1.html", `<script>const sample = "<button>";</script><svg><rect/></svg>`, false},
+		{"standalone control and script", "explicaciones/apps/p1.html", `<button>Next</button><script>document.querySelector('button').onclick = () => {};</script>`, true},
+		{"existing interactive app", "explicaciones/apps/p1.html", string(example), true},
+		{"existing interactive demo", "explicaciones/demos/p1-demo.html", string(example), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := demoThroughPlanning(t)
+			f.writeExplanationWithDemo(t, "p1", "Texto sin demo.")
+			f.write(t, tc.path, tc.body)
+			rep, code := f.run(t, f.opts("validate", "explanation"))
+			ch, found := hasCheck(rep, "demo-part")
+			if !found || (tc.ok && (ch.Status != "PASS" || code != 0 || !strings.Contains(ch.Reason, tc.path))) || (!tc.ok && (ch.Status != "FAIL" || code != 1 || !strings.Contains(ch.Reason, "planned a demo"))) {
+				t.Fatalf("demo-part = %s exit %d reason %q", ch.Status, code, ch.Reason)
+			}
+		})
 	}
 }
 
 func TestInlineDemoStillSatisfiesThePromise(t *testing.T) {
-	f := demoThroughPlanningParts(t)
-
+	f := demoThroughPlanning(t)
 	widget := `<lk-widget title="Prueba la política"><p>Mueve el robot.</p><div class="lab"></div></lk-widget>` + "\nCómo leerlo: mueve el robot y mira el acumulado.\n"
 	f.writeExplanationWithDemo(t, "p1", widget)
-	rep, _ := f.run(t, f.opts("validate", "explanation"))
+	rep, code := f.run(t, f.opts("validate", "explanation"))
 	ch, ok := hasCheck(rep, "demo-part")
-	if !ok || ch.Status != "PASS" {
-		t.Fatalf("inline lk-walkthrough must still satisfy the demo, got %v (%s)", ch.Status, ch.Reason)
+	if !ok || ch.Status != "PASS" || code != 0 {
+		t.Fatalf("demo-part = %s exit %d (%s)", ch.Status, code, ch.Reason)
 	}
 }
