@@ -313,17 +313,38 @@
     }
     for (const a of scene.arrows || []) {
       const color = tone(a.tone).stroke;
-      if (a.bend !== undefined) out += S.curve(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, bend: a.bend });
-      else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed });
-      // An arrow that carries its own words is what makes a step readable: the
-      // reader does not have to infer what moved, the figure says it.
-      if (a.label) {
-        const mid = a.bend === undefined ? { x: (a.x1 + a.x2) / 2, y: (a.y1 + a.y2) / 2 } : { x: (a.x1 + a.x2) / 2, y: (a.y1 + a.y2) / 2 - Math.abs(a.y2 - a.y1) * 0.18 };
-        out += S.lbl(mid.x, mid.y - 14, a.label, {
-          anchor: a.labelAnchor || 'middle',
-          color: tone(a.labelTone || a.tone).color,
-          size: a.labelSize || 22,
+      const size = a.labelSize || 22;
+      const dx = a.x2 - a.x1, dy = a.y2 - a.y1;
+      const len = Math.hypot(dx, dy) || 1;
+      const vertical = Math.abs(dy) > Math.abs(dx) * 1.5;
+      // A caption drawn on the line hides the direction the arrow exists to show. The arrow
+      // is cut where its words sit, the way a labelled arrow is drawn by hand: shaft, words,
+      // shaft with the head. A short arrow has no room to cut, so the words move beside it.
+      const words = a.label ? Math.min((scene.width || 320) - 30, a.label.length * size * 0.54 + 14) : 0;
+      const cut = Math.min(len * 0.62, words);
+      if (a.label && cut > size * 1.2 && cut < len - 14) {
+        const ux = dx / len, uy = dy / len;
+        const half = cut / 2;
+        const midX = a.x1 + ux * (len / 2), midY = a.y1 + uy * (len / 2);
+        const head = { x: midX + ux * half, y: midY + uy * half };
+        out += S.line(a.x1, a.y1, midX - ux * half, midY - uy * half, { color, dashedLine: !!a.dashed, arrow: false });
+        out += S.line(head.x, head.y, a.x2, a.y2, { color, dashedLine: !!a.dashed });
+        out += S.lbl(midX + (vertical ? 0 : 0), midY + size * 0.36, a.label, {
+          anchor: 'middle', color: tone(a.labelTone || a.tone).color, size,
         });
+      } else {
+        if (a.bend !== undefined) out += S.curve(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, bend: a.bend });
+        else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed });
+        if (a.label) {
+          const midX = (a.x1 + a.x2) / 2, midY = (a.y1 + a.y2) / 2 - (a.bend === undefined ? 0 : Math.abs(dy) * 0.18);
+          const side = midX > (scene.width || 320) / 2 ? -1 : 1;
+          const gap = Math.round(size * 0.6) + 5;
+          out += S.lbl(vertical ? midX + side * gap : midX, vertical ? midY : midY - gap - Math.round(size * 0.3), a.label, {
+            anchor: vertical ? (side > 0 ? 'start' : 'end') : a.labelAnchor || 'middle',
+            color: tone(a.labelTone || a.tone).color,
+            size,
+          });
+        }
       }
     }
     for (const b of scene.badges || []) out += S.badge(b.x, b.y, b.n);

@@ -116,9 +116,13 @@ sub-lines spilled over the frame. Labels are not boxes: a free label drawn over 
 word is a collision, not a label, so put the identifying words in the box `label`/`sub` and use
 `labels` for what sits in open space.
 
+An arrow's own `label` is drawn beside the arrow, never on it: a caption on the line hides the very
+direction the arrow exists to show. That placement is the component's job, so an author writes
+`label` and nothing more; the gate fails a free label that lands on the arrow's ink.
+
 The renderer is the safety net, not the review. Before publishing a note with decks, run the real
-browser gate over the file and fix what it names; it exits non-zero on any spill, label over a box
-or word over a word, and prints `deck`, `step` and the offending text:
+browser gate over the file and fix what it names; it exits non-zero on any spill, label over a box,
+caption on an arrow or word over a word, and prints `deck`, `step` and the offending text:
 
 ```sh
 node tools/deck-gate.mjs <vault>/rapidos/mi-nota.md
