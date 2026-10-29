@@ -14,6 +14,8 @@ S4. A save is refused, not silently merged, when the file changed since the edit
 
 S5. A note created from the studio appears first in the library, because quick notes are listed by most recent use.
 
+S6. La vista previa muestra el borrador mientras se escribe, sin guardarlo: no se escribe ningún archivo en el vault, una diapositiva rota se puede previsualizar igual porque la vista previa sirve para escribir y no para aprobar, y el servidor que la genera no acepta cuerpos de otros orígenes ni de más de 200 000 caracteres.
+
 ## Tasks
 
 T1. Promote the deck rules from `scratch/validate-walkthroughs.mjs` into `tools/deck-lint.mjs` (pure, no browser) and have `tools/deck-gate.mjs` run it before measuring. (S2)
@@ -22,6 +24,8 @@ T3. Studio API: `GET /<token>/api/note?quick=<id>` returns `{ id, title, body, r
 T4. Studio UI: an editor view reachable from the library (new note and edit this note), markdown textarea, live preview through the real reader, save/cancel, and the server's problems shown verbatim. (S1, S2)
 T5. Browser test: create a note in the studio, see it at the top of the library, open it in the reader, edit it, and confirm the change; plus a refused save showing the deck problem. (S1, S2, S4, S5)
 T6. Docs: `docs/studio.md` describes the editor, the rev rule and that the vault stays the source of truth.
+T8. Vista previa del borrador: una ruta renderiza un cuerpo enviado con el mismo lector y el editor apunta el marco a esa vista mientras se escribe. Pruebas: render sin escribir archivo, cuerpo enorme rechazado, origen ajeno rechazado, y una prueba de navegador que teclea una diapositiva y la ve sin guardar. (S6) Risk: item 3 and item 2 — the route renders submitted content and adds an HTTP surface.
+T9. Mover «Pantalla completa» a su propia fila para que un título largo de diapositiva no se parta en cuatro líneas en columnas estrechas. (S2) Risk: item 3 — shared reader contract.
 T7. Verify and deliver: full suite, gate on a generated note, PR, CI, deploy, live check that creates and deletes its own scratch note.
 
 ## Log
