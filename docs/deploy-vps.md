@@ -77,6 +77,18 @@ that failed. The content stays on the machine and the run exits nonzero, so a br
 reaches the pushed history. `LEARNINGS_SKIP_DECK_LINT=1` publishes anyway, for the case where the
 note must be saved and fixed later — never as the normal path.
 
+The VPS also measures the ink, not only the structure: a word that leaves its box or a caption on an arrow needs a browser, so the backup script runs `tools/deck-gate.mjs` on every changed note when a browser is available, with the same grandfather rule (a note that already failed before the edit is named but published). The pieces it needs, all installed once:
+
+```bash
+# Node: Debian's build cannot read the TypeScript the gate imports
+curl -fsSL https://nodejs.org/dist/v24.11.1/node-v24.11.1-linux-x64.tar.xz | tar -xJ -C /tmp
+mv /tmp/node-v24.11.1-linux-x64 ~/node24
+# Playwright and its browser
+npm i -g playwright && ~/.npm-global/bin/playwright install --with-deps chromium
+```
+
+The script finds them by itself (`~/node24/bin/node`, `~/.npm-global/lib/node_modules/playwright`, `~/.cache/ms-playwright`) and overrides them with `LEARNING_GATE_NODE`, `LEARNING_PLAYWRIGHT_MODULE` and `LEARNING_PLAYWRIGHT_BROWSERS`. If the browser cannot run, it says so and publishes: a broken tool must never stop the backup.
+
 Two layers, on purpose: the VPS checks structure, because it has no browser; the real-ink
 measurement (`tools/deck-gate.mjs`, which also catches a word leaving its box or a label sitting
 on an arrow) runs where a browser exists: on the authoring machine before publishing a note, and
