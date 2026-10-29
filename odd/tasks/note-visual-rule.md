@@ -17,7 +17,7 @@ S3. «en notas rapidas debe ordenarse por orden de uso» / «las mas recientes»
 | T3 | S3 | inline: quick notes sorted newest first | pending |
 | T4 | S1 | inline: real-browser gate over the installed note, retune what it flags | pending |
 | T5 | S1-S3 | inline: checks, delivery, memory | pending |
-T10. Auditar en vivo si alguna leyenda cae sobre una punta de flecha (la punta es un `marker`, no tinta del `path`, así que la puerta no la muestrea) y, si aparece, medirla y corregir el componente con su prueba. `Risk: item 3`.
+T10. [done] Auditar si alguna leyenda cae sobre una punta de flecha (la punta es un `marker`, no tinta del `path`) y corregir el componente con su prueba. `Risk: item 3`.
 
 ## Log
 
@@ -60,3 +60,4 @@ T8. Medir la tinta en la publicación. Risk: item 5 (instala una dependencia pes
 
 T9. Rehacer las 8 diapositivas de las 4 notas viejas, conservando prosa, ejemplos y números, y dejarlas pasando `deck-lint` y `deck-gate` a 390 px. Risk: item 3 (contrato de lo que ve el lector) y contenido existente que no se debe perder.
 L11. Las cuatro notas viejas quedaron conformes y publicadas: funcion-hash 14→0, flujo-de-ramas-y-feature-flags 19→0, plan-ramas-dev-main-automatizado 18→0, acid-y-control-de-concurrencia 26→0 (sus dos tablas de 940 px pasaron a decks verticales de 320 px con una flecha por paso). Instaladas con guarda de sha e inmune a carreras; el publicador del VPS aceptó las cuatro con la capa de tinta activa. La bóveda entera lint-ea limpia (`5 note(s) pass the deck rules`).
+L12. La punta sí se comía las leyendas: en LSTM cuatro diapositivas («olvido × 0,90», «añadir candidato», «resultado de la suma», «tanh y salida × 0,70») tenían el triángulo encima de las palabras. La auditoría midió 129 flechas y 531 textos: 107 roces de caja y, con la banda de glifos al 35 %, 102 defectos reales en dos corpus. Arreglo en el componente: se mide el retroceso real de la punta (36,67 unidades con `refX=10`, ancho 11, trazo 4) y el corte solo se usa si quedan tramos de trazo más largos que la punta; si no, la leyenda va al lado y se ajusta con `fit`. Prueba de navegador en rojo antes (`inside: false`, la leyenda se salía) y verde después; suite 56/55/0. La puerta gana `text-over-arrowhead` y sigue mordiendo en el fixture construido (`over: 30`). PR 36 mergeado como 253a85bd; VPS en 253a85b con la puerta sobre `~/Learnings/rapidos`: `{notes:5, decks:21, problems:0}` GATE PASSED; captura en vivo `scratch/live-arrowhead-deck4-step3.png` con las cuatro leyendas legibles al lado de sus flechas y 0 errores de página. Límite anotado en `docs/kit.md`: una flecha diagonal o de borde a borde puede no dejar sitio a ninguno de los dos lados.
