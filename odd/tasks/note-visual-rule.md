@@ -17,6 +17,7 @@ S3. «en notas rapidas debe ordenarse por orden de uso» / «las mas recientes»
 | T3 | S3 | inline: quick notes sorted newest first | pending |
 | T4 | S1 | inline: real-browser gate over the installed note, retune what it flags | pending |
 | T5 | S1-S3 | inline: checks, delivery, memory | pending |
+T10. Auditar en vivo si alguna leyenda cae sobre una punta de flecha (la punta es un `marker`, no tinta del `path`, así que la puerta no la muestrea) y, si aparece, medirla y corregir el componente con su prueba. `Risk: item 3`.
 
 ## Log
 
@@ -58,3 +59,4 @@ S6. «las 2 cosas en paralelo» (m04151) — (a) que la publicación mida la tin
 T8. Medir la tinta en la publicación. Risk: item 5 (instala una dependencia pesada en el VPS y toca el publicador) y item 3.
 
 T9. Rehacer las 8 diapositivas de las 4 notas viejas, conservando prosa, ejemplos y números, y dejarlas pasando `deck-lint` y `deck-gate` a 390 px. Risk: item 3 (contrato de lo que ve el lector) y contenido existente que no se debe perder.
+L11. Las cuatro notas viejas quedaron conformes y publicadas: funcion-hash 14→0, flujo-de-ramas-y-feature-flags 19→0, plan-ramas-dev-main-automatizado 18→0, acid-y-control-de-concurrencia 26→0 (sus dos tablas de 940 px pasaron a decks verticales de 320 px con una flecha por paso). Instaladas con guarda de sha e inmune a carreras; el publicador del VPS aceptó las cuatro con la capa de tinta activa. La bóveda entera lint-ea limpia (`5 note(s) pass the deck rules`).
