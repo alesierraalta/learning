@@ -598,17 +598,41 @@
     const saveBtn = btn("Guardar", save, "btn primary", "check");
     const frame = h("iframe", { class: "sheet", title: "Vista previa de la nota", allow: "microphone; fullscreen", allowfullscreen: "" });
     const preview = h("div", { class: "editor-preview-body" });
-    // Be explicit: the frame shows what the vault holds, never the unsaved textarea.
-    const previewNote = h("span", { class: "muted" }, "lo guardado");
+    // The frame shows the reader; while the author types it shows the draft.
+    const previewNote = h("span", { class: "muted" }, isNew ? "borrador" : "lo guardado");
     const hint = h(
       "p",
       { class: "editor-hint" },
-      "La vista previa es el lector real y solo puede mostrar una nota guardada. Al guardar, la nota se abre ahí mismo.",
+      "Escribe y el borrador aparece aquí, dibujado por el lector real. Guardar es lo que lo escribe en rapidos/.",
     );
+    let draftTimer = 0;
     // The version the fields were built from: a save must name it, so a note
     // changed elsewhere is refused instead of silently overwritten.
     let rev = "";
     let saving = false;
+
+    /** The draft is never written: the bridge draws it from memory and hands back a URL. */
+    async function refreshDraft() {
+      try {
+        const response = await fetch(base + "api/draft", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: title.value.trim(), body: titled(body.value, title.value) }),
+        });
+        const answer = await response.json().catch(() => ({}));
+        if (seq !== editSeq || !response.ok || typeof answer.url !== "string") return;
+        frame.src = answer.url;
+        preview.replaceChildren(frame);
+        previewNote.textContent = "tu borrador";
+      } catch {
+        // A draft that cannot be drawn leaves the last preview in place; saving reports real errors.
+      }
+    }
+
+    function scheduleDraft() {
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(refreshDraft, 600);
+    }
 
     async function refreshPreview() {
       if (!quickId) return;
@@ -743,10 +767,11 @@
         ),
       ),
     );
+    body.addEventListener("input", scheduleDraft);
+    title.addEventListener("input", scheduleDraft);
     if (isNew) {
       preview.replaceChildren(hint);
     } else {
-      previewNote.textContent = "lo guardado; tus cambios al guardar";
       await load();
     }
   }

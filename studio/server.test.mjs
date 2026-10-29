@@ -4,7 +4,6 @@ import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { request, createServer } from "node:http";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,13 +17,16 @@ test('configured studio bridge reaches the transcriber from its framed origin', 
     if (req.method === 'DELETE') { res.writeHead(204); return res.end(); }
     if (req.method === 'PUT') uploads++;
     assert.equal(req.headers.authorization, 'Bearer studio-transcriber-secret');
-    res.end(req.method === 'PUT' ? JSON.stringify({ id: 'studio-job' }) : req.url.endsWith('/txt') ? 'desde estudio' : JSON.stringify({ status: 'done' }));
+    let answer = JSON.stringify({ status: 'done' });
+    if (req.method === 'PUT') answer = JSON.stringify({ id: 'studio-job' });
+    else if (req.url.endsWith('/txt')) answer = 'desde estudio';
+    res.end(answer);
   });
   await new Promise(resolve => fake.listen(0, '127.0.0.1', resolve));
   t.after(() => { fake.closeAllConnections(); fake.close(); });
   const { studio } = await setup({ transcriberUrl: `http://127.0.0.1:${fake.address().port}`, transcriberToken: 'studio-transcriber-secret' });
   const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
-  const endpoint = view.url.replace(/redes\/p1$/, '') + 'api/transcribe';
+  const endpoint = `${view.url.replace(/redes\/p1$/, '')}api/transcribe`;
   const response = await http(endpoint, { method: 'POST', headers: { origin: new URL(view.url).origin, 'content-type': 'audio/webm' }, body: 'audio' });
   assert.equal(response.status, 200);
   assert.deepEqual(JSON.parse(response.body), { text: 'desde estudio' });
@@ -82,14 +84,15 @@ function sse(url) {
     res.setEncoding("utf8");
     res.on("data", (chunk) => {
       buffer += chunk;
-      let end;
-      while ((end = buffer.indexOf("\n\n")) >= 0) {
+      let end = buffer.indexOf("\n\n");
+      while (end >= 0) {
         const frame = buffer.slice(0, end);
         buffer = buffer.slice(end + 2);
         const name = /^event: (.+)$/m.exec(frame)?.[1];
         const data = /^data: (.+)$/m.exec(frame)?.[1];
         if (name) events.push({ name, data: JSON.parse(data) });
         for (const w of [...waiters]) w();
+        end = buffer.indexOf("\n\n");
       }
     });
   });
@@ -460,6 +463,37 @@ test("the delete route refuses foreign origins, weak bodies and paths outside th
   assert.equal(existsSync(join(root, "rapidos", "hash.md")), true);
   assert.equal(existsSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md")), true);
   assert.equal(existsSync(join(root, ".papelera")), false);
+});
+
+test('the studio draws a draft without writing it', async () => {
+  const { studio, root } = await setup();
+  const body = [
+    '# Borrador vivo',
+    '',
+    'Un párrafo que todavía no se guardó.',
+    '',
+    '<lk-walkthrough class="lk-wt-compact" title="El borrador se dibuja"><script type="application/json">{"viewBox":"0 0 320 240","title":"El borrador se dibuja","steps":[{"title":"Paso uno","text":"Texto","scene":{"boxes":[{"x":20,"y":40,"w":280,"h":60,"label":"El borrador"}],"arrows":[{"x1":160,"y1":100,"x2":160,"y2":160,"label":"sigue"}]}},{"title":"Paso dos","text":"Más","scene":{"boxes":[{"x":20,"y":40,"w":280,"h":60,"label":"El borrador"}],"arrows":[{"x1":160,"y1":100,"x2":160,"y2":160,"label":"sigue"}]}},{"title":"Paso tres","text":"Fin","scene":{"boxes":[{"x":20,"y":40,"w":280,"h":60,"label":"El borrador"}],"arrows":[{"x1":160,"y1":100,"x2":160,"y2":160,"label":"sigue"}]}}]}</script></lk-walkthrough>',
+    '',
+  ].join('\n');
+
+  const draft = await post(studio, 'api/draft', { title: 'Borrador vivo', body });
+  assert.equal(draft.status, 200, draft.body);
+  const { url } = JSON.parse(draft.body);
+  assert.match(url, /\/borrador\/[0-9a-f]{32}$/);
+
+  // The same reader draws it: the deck and the heading travel inside the page.
+  const drawn = await http(url);
+  assert.equal(drawn.status, 200);
+  assert.match(drawn.body, /Borrador vivo/);
+  assert.match(drawn.body, /lk-walkthrough/);
+
+  // Nothing reached the vault, and the note is not in the library.
+  assert.equal(existsSync(join(root, 'rapidos', 'borrador-vivo.md')), false);
+  assert.equal(JSON.parse((await http(`${studio.url}api/library`)).body).quick.some((note) => note.id === 'borrador-vivo'), false);
+
+  // A foreign page and an oversized draft are refused.
+  assert.equal((await post(studio, 'api/draft', { body }, { origin: 'http://evil.test' })).status, 403);
+  assert.equal((await post(studio, 'api/draft', { body: 'x'.repeat(70_000) })).status, 413);
 });
 
 test('a note saved from the studio reads back with its rev and lands first', async () => {

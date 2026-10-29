@@ -37,6 +37,8 @@ const REPO = join(HERE, "..");
 const UI_DIR = join(HERE, "ui");
 const CANONICAL_ROOT = "/mnt/c/Users/ismar/Documents/obsidian/ale/notes/04-RECURSOS/Learnings";
 const MAX_BODY_BYTES = 64 * 1024;
+/** A draft preview is bounded like a saved note; the reader refuses anything longer. */
+const DRAFT_MAX_CHARS = 200_000;
 const MAX_PROMPT_CHARS = 20000;
 /** A configured token keeps the shape of a generated one, so a weak secret is refused. */
 const TOKEN_SHAPE = /^[a-f0-9]{64}$/;
@@ -510,6 +512,22 @@ ${scripts}
       case "abort":
         await call({ type: "abort" }, 60000);
         break;
+      case "api/draft": {
+        const written = (value: unknown) => (typeof value === "string" ? value : "");
+        const markdown = body.body;
+        if (typeof markdown !== "string") throw new HttpError(400, "body must be a string");
+        if (markdown.length > DRAFT_MAX_CHARS) throw new HttpError(413, "draft too long");
+        const readerBase = String((await view()).base);
+        const answer = await fetch(new URL("api/draft", readerBase), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: written(body.title), body: markdown }),
+        });
+        if (!answer.ok) throw new HttpError(answer.status === 413 ? 413 : 502, "the reader refused the draft");
+        const draft = (await answer.json()) as { url?: unknown };
+        if (typeof draft.url !== "string") throw new HttpError(502, "the reader returned no draft url");
+        return sendJson(res, 200, { url: new URL(draft.url, readerBase).href });
+      }
       case "save-note": {
         const text = (value: unknown) => (typeof value === "string" ? value : undefined);
         const body_ = body.body;

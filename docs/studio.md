@@ -113,6 +113,22 @@ and from the «Tutorial» button. Open it at **http://127.0.0.1:4747/**: that st
 redirects to the current run's token URL. The studio listens on port 4747 (`STUDIO_PORT`; a taken
 port falls back to a free one) so the browser remembers that it was seen.
 
+## Writing notes
+
+The studio writes quick notes itself, so the vault does not need an external
+editor. «Nueva nota» and «Editar» open `#/editar` and `#/editar/<id>`: a title,
+the Markdown with its guided decks, and a preview that is the real reader.
+
+The preview draws the **draft**: while the author types, the studio posts the
+body to `api/draft`, the bridge renders it with the same page builder and keeps
+it in memory for a while, and the frame loads that URL. Nothing is written, so a
+deck that still breaks the rules can be previewed; only «Guardar» writes.
+
+Saving runs the deck rules first (`tools/deck-lint.mjs`) and answers 400 with the
+problems, which the editor shows verbatim. An update names the revision it was
+built from; if the file changed underneath, the answer is 409 with the current
+revision, the editor never adopts it, and the other editor's bytes stay.
+
 ## Contract and security
 
 The server ↔ UI API is the contract in `odd/tasks/learning-studio.md`. Every
@@ -120,7 +136,9 @@ route needs the token; the Host header must be loopback or the configured public
 host; a POST must come from
 the studio origin with a JSON body of at most 64 KiB (prompts up to 20 000
 characters). The bridge allows only the studio origin to frame its pages
-(`frameAncestors`). The shell page frames nothing but that bridge.
+(`frameAncestors`). The shell page frames nothing but that bridge. A draft is a
+capability URL with a random key that expires: it renders submitted content and
+never touches the vault.
 
 ## Tests
 

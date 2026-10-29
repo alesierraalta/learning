@@ -891,7 +891,7 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
     }
   };
 
-  const page = (res: ServerResponse, title: string, data: Record<string, unknown>) => {
+  const pageHtml = (title: string, data: Record<string, unknown>) => {
     const prefix = `/${token}/`;
     const json = JSON.stringify({ ...data, ...transcribeConfig(), submitUrl: `${prefix}submit`, home: prefix }).replace(/</g, "\\u003c");
     const scripts = CDN_SCRIPTS.map(([src, sri]) => `<script src="${src}" integrity="${sri}" crossorigin="anonymous"></script>`).join("\n");
@@ -918,8 +918,11 @@ ${scripts}
 </body>
 </html>
 `;
-    send(res, 200, "text/html; charset=utf-8", html, { "content-security-policy": pageCsp });
+    return html;
   };
+
+  const page = (res: ServerResponse, title: string, data: Record<string, unknown>) =>
+    send(res, 200, "text/html; charset=utf-8", pageHtml(title, data), { "content-security-policy": pageCsp });
 
   const indexPage = (res: ServerResponse) => {
     page(res, "Learnings", { kind: "index", topics: listTopics(rootReal, loadRunners(options.runnersFile)).map(({ id, title }) => ({ id, title })) });
@@ -1275,6 +1278,49 @@ ${scripts}
     sendJson(res, 200, { results, score: `${results.filter((r) => r.ok).length}/${results.length}`, saved });
   };
 
+  // A draft preview draws what the author is typing without touching the vault: the
+  // studio posts the body, gets a URL, and points its preview frame at it. Keys are
+  // random capabilities that expire, and nothing here is ever written to disk. The
+  // author sees the same reader page, so a broken deck still previews and only
+  // «Guardar» can write.
+  const drafts = new Map<string, { html: string; at: number }>();
+  const DRAFT_TTL_MS = 2 * 60 * 60 * 1000;
+  const DRAFT_MAX_CHARS = 200_000;
+  const pruneDrafts = () => {
+    const now = Date.now();
+    for (const [key, entry] of drafts) if (now - entry.at > DRAFT_TTL_MS) drafts.delete(key);
+  };
+  const draftPost = async (req: IncomingMessage, res: ServerResponse) => {
+    // A browser always sends Origin on a POST, so a missing one is the studio's own
+    // server call; anything from a page must still come from an allowed origin.
+    if (req.headers.origin !== undefined && !allowedOrigins().has(String(req.headers.origin))) throw new HttpError(403, "foreign origin");
+    if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
+    let payload: unknown;
+    try { payload = JSON.parse(await readBody(req)); } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(400, "body is not JSON");
+    }
+    if (!isRecord(payload) || Object.keys(payload).some((k) => !["title", "body"].includes(k))) throw new HttpError(400, "unknown field");
+    const markdown = payload.body;
+    if (typeof markdown !== "string") throw new HttpError(400, "body must be a string");
+    if (markdown.length > DRAFT_MAX_CHARS) throw new HttpError(413, "draft too long");
+    const written = typeof payload.title === "string" ? payload.title.trim() : "";
+    const title = written || /^#\s+(.+)$/m.exec(markdown)?.[1]?.trim() || "Borrador";
+    pruneDrafts();
+    const key = randomBytes(16).toString("hex");
+    drafts.set(key, {
+      html: pageHtml(title, { kind: "part", topic: "rapidos", part: "", title, topicTitle: "Rápidos", topicBase: `/${token}/`, markdown, quiz: null, answered: null, demos: [], app: null, verdicts: null }),
+      at: Date.now(),
+    });
+    sendJson(res, 200, { url: `/${token}/borrador/${key}` });
+  };
+  const draftPage = (res: ServerResponse, key: string) => {
+    pruneDrafts();
+    const entry = drafts.get(key);
+    if (!entry) throw new HttpError(404, "no draft");
+    send(res, 200, "text/html; charset=utf-8", entry.html, { "content-security-policy": pageCsp, "cache-control": "no-store" });
+  };
+
   const route = async (req: IncomingMessage, res: ServerResponse) => {
     if (!allowedHosts().has(String(req.headers.host ?? ""))) throw new HttpError(403, "host not allowed");
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -1292,12 +1338,14 @@ ${scripts}
       if (rest.join("/") === "api/transcribe") return transcribe(req, res);
       if (rest.join("/") === "api/code/run") return codeRun(req, res);
       if (rest.length === 1 && rest[0] === "submit") return submit(req, res);
+      if (rest.length === 2 && rest[0] === "api" && rest[1] === "draft") return draftPost(req, res);
       throw new HttpError(404, "not found");
     }
     if (req.method !== "GET" && req.method !== "HEAD") throw new HttpError(405, "method not allowed");
     if (rest.length === 0) return indexPage(res);
     if (rest[0] === "kit" && rest.length >= 2) return kitFile(res, rest.slice(1).join("/"));
     if (rest.length === 2 && rest[0] === "api" && rest[1] === "quiz") return quizApi(res, url);
+    if (rest.length === 2 && rest[0] === "borrador") return draftPage(res, rest[1]);
     if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css" || rest[0] === "math.js" || rest[0] === "favicon.svg")) {
       return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])), { "cache-control": "no-cache" });
     }
