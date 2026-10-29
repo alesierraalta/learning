@@ -80,21 +80,28 @@ test('deck titles leave room for the full-screen button', { skip: !playwright &&
   const { root, view } = await setup();
   mkdirSync(join(root, 'rapidos'), { recursive: true });
   const scene = JSON.stringify({ title: 'Prueba', viewBox: '0 0 320 200', steps: [{ title: 'Paso', text: 'Una transición', scene: { boxes: [{ x: 20, y: 20, w: 280, h: 70, label: 'Memoria' }] } }] });
-  const deck = attr => `<lk-walkthrough ${attr}><script type="application/json">${scene}</script></lk-walkthrough>`;
-  writeFileSync(join(root, 'rapidos', 'longtitle.md'), `# Prueba\n\n${deck('class="lk-wt-compact" title="El plural que hay que recordar"')}\n\n${deck('class="lk-wt-compact" title="LSTM"')}\n`);
+  const deck = title => `<lk-walkthrough class="lk-wt-compact"><script type="application/json">${scene.replace('Prueba', title)}</script></lk-walkthrough>`;
+  writeFileSync(join(root, 'rapidos', 'longtitle.md'), `# Prueba\n\n${deck('El plural que hay que recordar')}\n\n${deck('LSTM')}\n`);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.goto(base(await view({})) + 'rapidos/longtitle');
   const deckEl = page.locator('lk-walkthrough');
   await deckEl.first().locator('svg').waitFor();
-  const gaps = await deckEl.evaluateAll(nodes => nodes.map(node => {
-    const title = node.querySelector(':scope > .lk-title')?.getBoundingClientRect();
-    const button = node.querySelector('.lk-wt-full')?.getBoundingClientRect();
-    return title && button ? Math.round(button.left - title.right) : null;
+  const measurements = await deckEl.evaluateAll(nodes => nodes.map(node => {
+    const title = node.querySelector(':scope > .lk-title').getBoundingClientRect();
+    const button = node.querySelector(':scope > .lk-wt-full').getBoundingClientRect();
+    const style = getComputedStyle(node);
+    const contentWidth = node.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    return {
+      overlaps: title.left < button.right && button.left < title.right && title.top < button.bottom && button.top < title.bottom,
+      widthRatio: title.width / contentWidth,
+    };
   }));
-  assert.ok(gaps[0] >= 8, JSON.stringify(gaps));
-  assert.ok(gaps[1] >= 8, JSON.stringify(gaps));
+  for (const measured of measurements) {
+    assert.equal(measured.overlaps, false, JSON.stringify(measured));
+    assert.ok(measured.widthRatio >= 0.9, JSON.stringify(measured));
+  }
 });
 
 test('a long word never leaves its walkthrough box', { skip: !playwright && 'playwright not installed' }, async t => {

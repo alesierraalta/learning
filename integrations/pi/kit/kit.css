@@ -236,3 +236,8 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
 
 /* Casillas inertes de las demos (muro, hueco): fondo plano y texto legible. */
 [class*="wall"], .wall, .inert, [aria-disabled="true"] { background: #EAEDED !important; color: #4A5E69 !important; border-color: rgba(15, 46, 61, .28) !important; }
+
+.lk-walkthrough { padding-top: 54px; }
+.lk-walkthrough>.lk-wt-full { top: 12px; right: 12px; }
+.lk-walkthrough>.lk-title { max-width: 100%; }
+.lk-walkthrough:fullscreen, .lk-walkthrough:-webkit-full-screen { padding-top: 60px; }
