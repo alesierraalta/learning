@@ -1,5 +1,6 @@
-// Real-browser gate for guided decks: every word must sit inside its container
-// and no free label may cross a box or another word. Run before publishing a note:
+// Real-browser gate for guided decks: every word must sit inside its container,
+// no free label may cross a box, and an arrow's label must clear its shaft.
+// Run before publishing a note:
 //   node tools/deck-gate.mjs <note.md>
 import { mkdtempSync, mkdirSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -44,6 +45,12 @@ for (let d = 0; d < total; d++) {
       const shown = el => el.closest('[data-step]')?.style.display !== 'none';
       const rects = [...stage.querySelectorAll('rect')].filter(r => shown(r) && r.getBBox().height >= 18)
         .map(r => ({ ...r.getBBox(), rb: r.getBoundingClientRect() }));
+      const arrows = [...stage.querySelectorAll('line')].filter(shown).map(a => {
+        const b = a.getBBox();
+        // Only the shaft matters: the arrowhead is wide and a label beside it is fine.
+        const x1 = Number(a.getAttribute('x1')), x2 = Number(a.getAttribute('x2'));
+        return { shaft: x1 === x2, x: b.x, w: b.width, y: b.y, h: b.height };
+      });
       const texts = [...stage.querySelectorAll('text')].filter(shown).map(t => ({ el: t, b: t.getBBox(), free: !t.dataset.fit, txt: t.textContent.trim() }));
       const out = [];
       for (const t of texts) {
@@ -60,6 +67,13 @@ for (let d = 0; d < total; d++) {
             const vhit = Math.min(t.b.y + t.b.height, r.y + r.height) - Math.max(t.b.y, r.y);
             if (hit > 2 && vhit > 2) { out.push({ kind: 'label-over-box', over: Math.round(hit), text: t.txt.slice(0, 28) }); break; }
           }
+        }
+        // An arrow's own label must sit clear of the shaft it names.
+        for (const a of arrows) {
+          const across = a.shaft ? (a.x >= t.b.x - 1 && a.x <= t.b.x + t.b.width + 1)
+            : Math.min(t.b.x + t.b.width, a.x + a.w) - Math.max(t.b.x, a.x) > 6;
+          const along = Math.min(t.b.y + t.b.height, a.y + a.h) - Math.max(t.b.y, a.y);
+          if (across && along > 2) { out.push({ kind: 'text-over-arrow', over: Math.round(along), text: t.txt.slice(0, 28) }); break; }
         }
       }
       for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
