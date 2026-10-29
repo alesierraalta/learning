@@ -14,8 +14,8 @@
 
   // ---------- illustrations (ported from illus.py) ----------
 
-  const txt = (x, y, t, { size = 28, color = C.ink, bold = true, anchor = "middle", italic = false } = {}) =>
-    `<text x="${f(x)}" y="${f(y)}" font-size="${size}" fill="${color}" text-anchor="${anchor}"${bold ? ' font-weight="700"' : ""}${italic ? ' font-style="italic"' : ""}>${esc(t)}</text>`;
+  const txt = (x, y, t, { size = 28, color = C.ink, bold = true, anchor = "middle", italic = false, fit = 0 } = {}) =>
+    `<text x="${f(x)}" y="${f(y)}" font-size="${size}" fill="${color}" text-anchor="${anchor}"${bold ? ' font-weight="700"' : ""}${italic ? ' font-style="italic"' : ""}${fit ? ` data-fit="${f(fit)}"` : ""}>${esc(t)}</text>`;
 
   const lbl = (x, y, t, o = {}) => txt(x, y, t, { size: 26, color: C.slate, bold: false, italic: true, ...o });
 
@@ -50,8 +50,8 @@
 
   const box = (x, y, w, h, label, { stroke = C.ink, fill = "#ffffff", color = C.ink, size = 28, sub = "", rx = 0 } = {}) =>
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="2"/>` +
-    txt(x + w / 2, y + h / 2 + (sub ? -2 : size * 0.35), label, { size, color }) +
-    (sub ? txt(x + w / 2, y + h / 2 + 30, sub, { size: 22, color: C.slate, bold: false, italic: true }) : "");
+    txt(x + w / 2, y + h / 2 + (sub ? -2 : size * 0.35), label, { size, color, fit: w - 12 }) +
+    (sub ? txt(x + w / 2, y + h / 2 + 30, sub, { size: 22, color: C.slate, bold: false, italic: true, fit: w - 12 }) : "");
 
   const node = (cx, cy, label, { fill = "#ffffff", stroke = C.ink, color = C.ink, r = 30 } = {}) =>
     `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2"/>` + txt(cx, cy + 9, label, { size: 24, color });
@@ -74,14 +74,14 @@
     }
     if (header) {
       out += `<rect x="${x + 2}" y="${y + 2}" width="${w - 4}" height="${rowH - 1}" rx="0" fill="none"/>`;
-      cols.forEach((c, i) => { out += txt(x + colW * (i + 0.5), f(y + rowH * 0.66), c, { size: size - 2, color: C.slate }); });
+      cols.forEach((c, i) => { out += txt(x + colW * (i + 0.5), f(y + rowH * 0.66), c, { size: size - 2, color: C.slate, fit: colW - 10 }); });
       out += `<path d="M ${x + 2} ${y + rowH + 1} H ${f(x + w - 2)}" stroke="${C.line}" stroke-width="2"/>`;
     }
     rows.forEach((row, r) => {
       if (r) out += `<path d="M ${x + 2} ${f(y + rowH * (r + header) + 1)} H ${f(x + w - 2)}" stroke="${C.line}" stroke-width="1.5"/>`;
       row.forEach((cell, c) => {
         const t = (o.cellTone || {})[`${r},${c}`];
-        out += txt(x + colW * (c + 0.5), f(y + rowH * (r + header) + rowH / 2 + size * 0.36), cell, { size, color: t ? ink(t) : C.ink, bold: !!t || c === 0 });
+        out += txt(x + colW * (c + 0.5), f(y + rowH * (r + header) + rowH / 2 + size * 0.36), cell, { size, color: t ? ink(t) : C.ink, bold: !!t || c === 0, fit: colW - 10 });
       });
     });
     return out;

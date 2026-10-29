@@ -108,6 +108,14 @@ scroll hint is hidden. This does not reflow SVG contents; authors must keep text
 large enough and verify every scene on a phone. Decks without the attribute keep
 existing horizontal scrolling.
 
+A word never leaves the box that holds it. `scene.js` stamps every box and grid text with the room
+it has (`data-fit`), and `kit.js` measures the real glyphs once the deck is in the page: it shrinks
+the type in up to four passes down to 55% of the authored size and, only as a last resort, squeezes
+the glyph spacing. A character count is not a measurement — an earlier gate passed decks whose
+sub-lines spilled over the frame. Labels are not boxes: a free label drawn over a box or another
+word is a collision, not a label, so put the identifying words in the box `label`/`sub` and use
+`labels` for what sits in open space.
+
 A page with a walkthrough must load the drawing vocabulary first, because `kit.js` takes it from
 `window.LKScene` and throws «Falta scene.js» otherwise:
 
