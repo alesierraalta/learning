@@ -223,6 +223,7 @@
     if (view === "leer" && a) return readerView({ topicId: a, part: b, mode: "page" });
     if (view === "app" && a) return readerView({ topicId: a, part: b, mode: "app" });
     if (view === "rapido" && a) return readerView({ quickId: a });
+    if (view === "editar") return editorView(a);
     return homeView();
   }
 
@@ -305,13 +306,28 @@
             ),
           )
         : h("p", { class: "empty" }, "Aquí aparecerán tus temas universitarios."),
-      h("div", { class: "section-title" }, h("h2", {}, "Notas rápidas"), h("p", {}, "Explicaciones breves, sin plan")),
+      h(
+        "div",
+        { class: "section-title has-action" },
+        h("div", { class: "section-heading" }, h("h2", {}, "Notas rápidas"), h("p", {}, "Explicaciones breves, sin plan")),
+        btn("Nueva nota", () => go("#/editar"), "btn small", "fresh"),
+      ),
       library.quick.length
         ? h(
             "div",
             { class: "cards" },
             library.quick.map((q, i) =>
-              h("button", { class: "card quick-card reveal", type: "button", style: `--i:${i + 3}`, onclick: () => go(`#/rapido/${q.id}`) }, h("span", { class: "icon" }, noteIcon()), h("div", {}, h("h3", {}, q.title), h("span", { class: "muted" }, "Nota rápida"))),
+              h(
+                "div",
+                { class: "card quick-card reveal", style: `--i:${i + 3}` },
+                h(
+                  "button",
+                  { class: "quick-open", type: "button", onclick: () => go(`#/rapido/${q.id}`) },
+                  h("span", { class: "icon" }, noteIcon()),
+                  h("div", {}, h("h3", {}, q.title), h("span", { class: "muted" }, "Nota rápida")),
+                ),
+                btn("Editar", () => go(`#/editar/${encodeURIComponent(q.id)}`), "btn small ghost", "doc"),
+              ),
             ),
           )
         : h("p", { class: "empty" }, "Cuando pidas algo en modo rápido, la nota aparecerá aquí."),
@@ -548,6 +564,181 @@
     } catch (error) {
       if (seq === readSeq) frame.replaceWith(h("p", { class: "empty" }, error.message));
     }
+  }
+
+  // ---------- note editor ----------
+  // The editor only calls the two routes the bridge owns: `api/note` to read and
+  // `save-note` to write. It never touches the vault itself, and it never turns
+  // user text into HTML: the preview is the real reader page in its own frame.
+  let editSeq = 0;
+
+  /**
+   * The title field is the note's name: creation derives the file id from it and
+   * the reader takes the body's first heading as the title, so saving keeps that
+   * heading in step with the field instead of letting two titles disagree.
+   */
+  function titled(source, heading) {
+    const name = heading.trim();
+    if (!name) return source;
+    const first = source.replace(/^\s+/, "");
+    if (/^#(?!#)\s/.test(first)) return source.replace(/^(\s*)#(?!#)[^\n]*/, (_, lead) => `${lead}# ${name}`);
+    return `# ${name}${first ? `\n\n${first}` : "\n"}`;
+  }
+
+  async function editorView(quickId) {
+    const seq = ++editSeq;
+    const isNew = !quickId;
+    setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Notas rápidas", href: "#/" }, { text: isNew ? "Nueva nota" : "Editar nota" }]);
+
+    const title = h("input", { id: "note-title", name: "title", type: "text", autocomplete: "off", placeholder: "Por ejemplo: qué es una función hash" });
+    const body = h("textarea", { id: "note-body", name: "body", rows: "16", spellcheck: "false", placeholder: "# Título\n\nEscribe la nota. Las diapositivas guiadas van dentro de su bloque (lk-walkthrough)." });
+    const problems = h("div", { class: "editor-problems", role: "alert", hidden: true });
+    const conflict = h("div", { class: "editor-conflict", role: "alert", hidden: true });
+    const status = h("p", { class: "editor-status", role: "status" });
+    const saveBtn = btn("Guardar", save, "btn primary", "check");
+    const frame = h("iframe", { class: "sheet", title: "Vista previa de la nota", allow: "microphone; fullscreen", allowfullscreen: "" });
+    const preview = h("div", { class: "editor-preview-body" });
+    const hint = h("p", { class: "editor-hint" }, "La vista previa es el lector real: mostrará la nota en cuanto exista. Al guardar, la nota se abre ahí mismo.");
+    // The version the fields were built from: a save must name it, so a note
+    // changed elsewhere is refused instead of silently overwritten.
+    let rev = "";
+    let saving = false;
+
+    async function refreshPreview() {
+      if (!quickId) return;
+      try {
+        const data = await request(`api/view?quick=${encodeURIComponent(quickId)}`);
+        if (seq !== editSeq) return;
+        frame.src = `${data.url}${data.url.includes("?") ? "&" : "?"}v=${encodeURIComponent(rev)}`;
+        preview.replaceChildren(frame);
+      } catch (error) {
+        if (seq === editSeq) preview.replaceChildren(h("p", { class: "empty" }, `No se pudo abrir la vista previa: ${error.message}`));
+      }
+    }
+
+    async function load() {
+      try {
+        const note = await request(`api/note?quick=${encodeURIComponent(quickId)}`);
+        if (seq !== editSeq) return false;
+        rev = note.rev;
+        title.value = note.title;
+        body.value = note.body;
+        headingNode.textContent = note.title;
+        await refreshPreview();
+        return true;
+      } catch (error) {
+        if (seq === editSeq) status.textContent = `No se pudo abrir la nota: ${error.message}`;
+        return false;
+      }
+    }
+
+    /** A refused save keeps the typed text: only the server's own words change. */
+    function showProblems(list) {
+      problems.replaceChildren(
+        h("p", { class: "problems-title" }, list.length === 1 ? "La nota no se guardó: una diapositiva tiene un problema." : `La nota no se guardó: sus diapositivas tienen ${list.length} problemas.`),
+        h("ul", {}, list.map((item) => h("li", {}, typeof item === "string" ? item : String(item?.text ?? "")))),
+      );
+      problems.hidden = false;
+      problems.scrollIntoView({ block: "nearest" });
+    }
+
+    /** The answer's `rev` is never adopted: that would let the next click overwrite the other edit. */
+    function showConflict() {
+      conflict.replaceChildren(
+        h("p", {}, "La nota cambió en otro sitio desde que la abriste. No se guardó nada."),
+        btn("Recargar", reload, "btn small", "restart"),
+      );
+      conflict.hidden = false;
+    }
+
+    async function reload() {
+      conflict.hidden = true;
+      problems.hidden = true;
+      status.textContent = "Recargando…";
+      const ok = await load();
+      if (ok && seq === editSeq) status.textContent = "";
+    }
+
+    async function save(event) {
+      event?.preventDefault();
+      if (saving) return;
+      saving = true;
+      saveBtn.disabled = true;
+      problems.hidden = true;
+      conflict.hidden = true;
+      status.textContent = "Guardando…";
+      const payload = { body: titled(body.value, title.value) };
+      if (quickId) {
+        payload.quick = quickId;
+        payload.rev = rev;
+      } else {
+        payload.title = title.value.trim();
+      }
+      try {
+        const response = await fetch(base + "save-note", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+        const answer = await response.json().catch(() => ({}));
+        if (seq !== editSeq) return;
+        if (response.ok) {
+          toast("Nota guardada");
+          await loadLibrary();
+          go(`#/rapido/${encodeURIComponent(answer.id)}`);
+          return;
+        }
+        if (response.status === 400 && Array.isArray(answer.problems) && answer.problems.length) {
+          status.textContent = "";
+          showProblems(answer.problems);
+          return;
+        }
+        if (response.status === 409) {
+          status.textContent = "";
+          showConflict();
+          return;
+        }
+        status.textContent = answer.error || `No se pudo guardar (error ${response.status}).`;
+      } catch (error) {
+        status.textContent = `No se pudo guardar: ${error.message}`;
+      } finally {
+        saving = false;
+        saveBtn.disabled = false;
+      }
+    }
+
+    const headingNode = h("h1", {}, isNew ? "Nueva nota" : library.quick.find((q) => q.id === quickId)?.title || "Editar nota");
+    stage.replaceChildren(
+      h(
+        "div",
+        { class: "page editor-page" },
+        h(
+          "header",
+          { class: "editor-head" },
+          h("span", { class: "tag" }, isNew ? "Nueva nota" : "Editar"),
+          headingNode,
+          h("p", { class: "muted" }, "El archivo sigue siendo la verdad: se guarda en rapidos/ y el lector lo muestra al instante."),
+        ),
+        h(
+          "div",
+          { class: "editor-grid" },
+          h(
+            "form",
+            { class: "editor-form", onsubmit: save },
+            h("label", { class: "field" }, h("span", {}, "Título"), title),
+            h("label", { class: "field" }, h("span", {}, "Texto (Markdown, diapositivas incluidas)"), body),
+            problems,
+            conflict,
+            status,
+            h("div", { class: "editor-actions" }, btn("Cancelar", () => go(quickId ? `#/rapido/${encodeURIComponent(quickId)}` : "#/"), "btn ghost"), saveBtn),
+          ),
+          h(
+            "section",
+            { class: "editor-preview" },
+            h("header", { class: "preview-head" }, h("h2", {}, "Vista previa"), h("span", { class: "muted" }, "lector real")),
+            preview,
+          ),
+        ),
+      ),
+    );
+    if (isNew) preview.replaceChildren(hint);
+    else await load();
   }
 
   // ---------- tutor ----------
@@ -822,7 +1013,8 @@
       toast(`No se pudo leer la biblioteca: ${error.message}`);
     }
     const [, view] = location.hash.split("/");
-    if (view !== "leer" && view !== "app" && view !== "rapido") render();
+    // Never re-render the editor from a library change: it would drop typed text.
+    if (view !== "leer" && view !== "app" && view !== "rapido" && view !== "editar") render();
   }
   root.replaceChildren(
     h(
