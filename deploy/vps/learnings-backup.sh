@@ -10,6 +10,14 @@ lint=${LEARNING_DECK_LINT:-$HOME/learning/tools/deck-lint.mjs}
 cd "$root"
 git add -A
 if git diff --cached --quiet; then
+  # A commit can exist without being published: a push that failed, or a hand-made commit.
+  # Without this the timer would report «no changes» forever and never retry the push.
+  ahead=$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)
+  if [ "$ahead" != "0" ]; then
+    git push -q origin HEAD
+    echo "learnings-backup: pushed $ahead pending commit(s) $(git rev-parse --short HEAD)"
+    exit 0
+  fi
   echo "learnings-backup: no changes"
   exit 0
 fi
