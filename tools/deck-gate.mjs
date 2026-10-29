@@ -2,10 +2,11 @@
 // no free label may cross a box, and an arrow's label must clear its shaft.
 // Run before publishing a note:
 //   node tools/deck-gate.mjs <note.md>
-import { mkdtempSync, mkdirSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, copyFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { registerBridge } from '../integrations/pi/bridge.ts';
+import { lintMarkdown, countDecks } from './deck-lint.mjs';
 
 let playwright;
 for (const id of [process.env.PLAYWRIGHT_MODULE, 'playwright', '/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs'].filter(Boolean)) {
@@ -19,6 +20,14 @@ const { chromium } = playwright;
 
 const file = process.argv[2];
 if (!file) { console.log('usage: node tools/deck-gate.mjs <note.md>'); process.exit(2); }
+// The structural rules come first: they are the same ones the studio enforces on save.
+const noteText = readFileSync(file, 'utf8');
+const structural = lintMarkdown(noteText);
+if (structural.length) {
+  console.log(JSON.stringify({ decks: countDecks(noteText), problems: structural.length, bad: structural }, null, 1));
+  console.log('GATE FAILED');
+  process.exit(1);
+}
 const browser = await chromium.launch();
 const root = mkdtempSync(join(tmpdir(), 'gate-'));
 mkdirSync(join(root, 'rapidos'), { recursive: true });

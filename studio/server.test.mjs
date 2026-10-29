@@ -461,3 +461,90 @@ test("the delete route refuses foreign origins, weak bodies and paths outside th
   assert.equal(existsSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md")), true);
   assert.equal(existsSync(join(root, ".papelera")), false);
 });
+
+test('a note saved from the studio reads back with its rev and lands first', async () => {
+  const { studio, root } = await setup();
+  const body = '# Nota nueva\n\nUn párrafo escrito desde el estudio.\n';
+  const saved = await post(studio, 'save-note', { title: 'Nota nueva', body });
+  assert.equal(saved.status, 200);
+  const answer = JSON.parse(saved.body);
+  assert.equal(answer.ok, true);
+  assert.equal(answer.id, 'nota-nueva');
+  assert.equal(answer.created, true);
+  assert.match(answer.rev, /^[0-9a-f]{64}$/);
+
+  const read = await http(`${studio.url}api/note?quick=nota-nueva`);
+  assert.equal(read.status, 200);
+  assert.deepEqual(JSON.parse(read.body), { id: 'nota-nueva', title: 'Nota nueva', body, rev: answer.rev });
+  assert.equal(readFileSync(join(root, 'rapidos', 'nota-nueva.md'), 'utf8'), body);
+
+  const library = JSON.parse((await http(`${studio.url}api/library`)).body);
+  assert.equal(library.quick[0].id, 'nota-nueva');
+});
+
+test('an update with the current rev replaces the note', async () => {
+  const { studio } = await setup();
+  const first = JSON.parse((await post(studio, 'save-note', { title: 'Cambiante', body: '# Cambiante\n\nuno\n' })).body);
+  const second = await post(studio, 'save-note', { quick: 'cambiante', body: '# Cambiante\n\ndos\n', rev: first.rev });
+  assert.equal(second.status, 200);
+  const answer = JSON.parse(second.body);
+  assert.equal(answer.created, false);
+  assert.notEqual(answer.rev, first.rev);
+  assert.equal(JSON.parse((await http(`${studio.url}api/note?quick=cambiante`)).body).body, '# Cambiante\n\ndos\n');
+});
+
+test('a save over a note that changed underneath is refused with the current rev', async () => {
+  const { studio, root } = await setup();
+  const first = JSON.parse((await post(studio, 'save-note', { title: 'Peleada', body: '# Peleada\n\nuno\n' })).body);
+  const other = '# Peleada\n\nescrito por otro editor\n';
+  writeFileSync(join(root, 'rapidos', 'peleada.md'), other);
+  const refused = await post(studio, 'save-note', { quick: 'peleada', body: '# Peleada\n\nmío\n', rev: first.rev });
+  assert.equal(refused.status, 409);
+  const answer = JSON.parse(refused.body);
+  assert.match(answer.rev, /^[0-9a-f]{64}$/);
+  assert.notEqual(answer.rev, first.rev);
+  // The other editor's bytes survive, and the library still lists the note once.
+  assert.equal(readFileSync(join(root, 'rapidos', 'peleada.md'), 'utf8'), other);
+  const library = JSON.parse((await http(`${studio.url}api/library`)).body);
+  assert.equal(library.quick.filter((note) => note.id === 'peleada').length, 1);
+});
+
+test('a note with a deck whose word does not fit is refused and nothing is stored', async () => {
+  const { studio, root } = await setup();
+  const body = [
+    '# Rota',
+    '',
+    '<lk-walkthrough class="lk-wt-compact" title="Rota">',
+    '<script type="application/json">',
+    JSON.stringify({
+      viewBox: '0 0 320 400',
+      title: 'Rota',
+      steps: [{ title: 'Uno', text: 'Texto', scene: { boxes: [{ x: 20, y: 40, w: 280, h: 60, label: 'sin corrección, la primera palabra no aparece', size: 26 }], arrows: [{ x1: 160, y1: 100, x2: 160, y2: 160, label: 'sigue' }] } }],
+    }),
+    '</script>',
+    '</lk-walkthrough>',
+    '',
+  ].join('\n');
+  const refused = await post(studio, 'save-note', { title: 'Rota', body });
+  assert.equal(refused.status, 400);
+  const answer = JSON.parse(refused.body);
+  assert.ok(answer.problems.length > 0);
+  assert.ok(answer.problems.some((p) => /does not fit|needs \d+px/.test(p.text)));
+  assert.equal(existsSync(join(root, 'rapidos', 'rota.md')), false);
+  const library = JSON.parse((await http(`${studio.url}api/library`)).body);
+  assert.equal(library.quick.some((note) => note.id === 'rota'), false);
+});
+
+test('the save route refuses ids that escape rapidos and foreign origins', async () => {
+  const { studio, root } = await setup();
+  for (const quick of ['../escape', 'a/b', '..', '.hidden']) {
+    const refused = await post(studio, 'save-note', { quick, body: '# Escape\n\nx\n', rev: '0'.repeat(64) });
+    assert.ok(refused.status === 400 || refused.status === 404, `expected a refusal for ${JSON.stringify(quick)}, got ${refused.status}`);
+    assert.equal(existsSync(join(root, '..', 'escape.md')), false);
+  }
+  const foreign = await post(studio, 'save-note', { title: 'Intrusa', body: '# Intrusa\n\nx\n' }, { origin: 'http://evil.example' });
+  assert.equal(foreign.status, 403);
+  assert.equal(existsSync(join(root, 'rapidos', 'intrusa.md')), false);
+  const missing = await http(`${studio.url}api/note?quick=nope`);
+  assert.equal(missing.status, 404);
+});
