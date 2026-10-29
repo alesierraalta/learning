@@ -814,6 +814,10 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   const allowedHosts = () => new Set([`127.0.0.1:${port}`, `localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.host)]);
   const allowedOrigins = () => new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.origin)]);
   const base = () => `${publicOrigins?.[0]?.origin ?? `http://127.0.0.1:${port}`}/${token}/`;
+  // Server-to-server calls (the studio's draft preview) must not travel through the
+  // public TLS proxy: a self-signed certificate would fail a fetch that never
+  // leaves the machine.
+  const localBase = () => `http://127.0.0.1:${port}/${token}/`;
 
   const tokenMatches = (candidate: string) => {
     const a = Buffer.from(candidate);
@@ -1456,7 +1460,7 @@ ${scripts}
       return {
         content: [{ type: "text" as const, text: appUrl ? `Aplicación interactiva: ${appUrl}\nVista HTML: ${url}` : `Vista HTML: ${url}` }],
         details: { url, appUrl },
-        structuredContent: { url, base: base(), ...(appUrl ? { appUrl } : {}) } as Record<string, unknown>,
+        structuredContent: { url, base: base(), localBase: localBase(), ...(appUrl ? { appUrl } : {}) } as Record<string, unknown>,
         isError: false,
       };
     },

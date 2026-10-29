@@ -172,6 +172,18 @@ test("public studio origins route views and authorize only the configured proxy"
   await assert.rejects(() => startStudio({ root: makeRoot().root, port: studio.port, publicOrigin, bridgePublicOrigin }), /EADDRINUSE/);
 });
 
+test("a draft reaches the reader over loopback and comes back with the public url", async () => {
+  // A published studio reaches its reader through a TLS proxy with a certificate this
+  // machine does not trust. The draft must still be drawn, so the server-to-server call
+  // uses loopback; the browser still gets a public url, because the frame loads it.
+  const publicOrigin = "https://box.tail0.ts.net:8445";
+  const bridgePublicOrigin = "https://box.tail0.ts.net:8446";
+  const { studio } = await setup({ publicOrigin, bridgePublicOrigin, bridgePort: 0 });
+  const answer = await post(studio, "api/draft", { title: "Público", body: "# Público\n\nhola.\n" }, { origin: publicOrigin });
+  assert.equal(answer.status, 200, answer.body);
+  assert.match(JSON.parse(answer.body).url, /^https:\/\/box\.tail0\.ts\.net:8446\/[0-9a-f]{64}\/borrador\/[0-9a-f]{32}$/);
+});
+
 test("a second public studio origin is authorized while the first stays canonical", async () => {
   const canonical = "https://learnings.infra.local";
   const fallback = "https://10.154.59.151:8445";
