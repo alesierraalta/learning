@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -118,11 +119,78 @@ func hasVitalHeading(body, heading string) bool {
 	return false
 }
 
-// demoPageExists reports whether the part-level demo page exists in the vault
-// (explicaciones/apps/<part>.html).
+var pageComment = regexp.MustCompile(`(?s)<!--.*?-->`)
+var pageScript = regexp.MustCompile(`(?is)<script\b([^>]*)>(.*?)</script\s*>`)
+var pageControl = regexp.MustCompile(`(?i)<(?:button|input|select|textarea)\b[^>]*>`)
+var pageAttr = regexp.MustCompile(`(?is)([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))`)
+
+// jsScriptTypes are the script types a browser executes. Any other declared
+// type carries data (application/json, application/ld+json) or a template the
+// page never runs, so it cannot drive the learner's interaction.
+var jsScriptTypes = map[string]bool{
+	"module":                   true,
+	"text/javascript":          true,
+	"application/javascript":   true,
+	"application/x-javascript": true,
+	"text/ecmascript":          true,
+	"application/ecmascript":   true,
+	"text/x-javascript":        true,
+	"text/jscript":             true,
+}
+
+// scriptAttr reads one attribute of a script tag, honoring quoted values.
+func scriptAttr(attrs, name string) (string, bool) {
+	for _, m := range pageAttr.FindAllStringSubmatch(attrs, -1) {
+		if !strings.EqualFold(m[1], name) {
+			continue
+		}
+		for _, v := range m[2:] {
+			if v != "" {
+				return v, true
+			}
+		}
+		return "", true
+	}
+	return "", false
+}
+
+// scriptExecutable reports whether a script tag runs code: it loads a source
+// file, or it carries inline code and declares no type or a JavaScript type.
+func scriptExecutable(attrs, body string) bool {
+	if _, ok := scriptAttr(attrs, "src"); ok {
+		return true
+	}
+	if strings.TrimSpace(body) == "" {
+		return false
+	}
+	typ, ok := scriptAttr(attrs, "type")
+	if !ok {
+		return true
+	}
+	return jsScriptTypes[strings.ToLower(strings.TrimSpace(strings.Split(typ, ";")[0]))]
+}
+
+// demoPageExists checks for executable script and a control, or a kit walkthrough.
+// This is structural evidence, not proof that the page works in a browser.
 func demoPageExists(ws, rel string) bool {
 	info, err := os.Stat(absPath(ws, rel))
-	return err == nil && info.Mode().IsRegular()
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	raw, err := os.ReadFile(absPath(ws, rel))
+	if err != nil {
+		return false
+	}
+	page := pageComment.ReplaceAllString(string(raw), "")
+	executable := false
+	for _, script := range pageScript.FindAllStringSubmatch(page, -1) {
+		if scriptExecutable(script[1], script[2]) {
+			executable = true
+		}
+	}
+	markup := pageScript.ReplaceAllString(page, "")
+	walkthrough := countDemos(page, []string{"lk-walkthrough"}) > 0 && len(walkthroughProblems(page)) == 0
+	return executable && (pageControl.MatchString(markup) || walkthrough)
 }
 
 // demoPageExistsPrefixed reports the first demo page whose name starts with
@@ -134,11 +202,48 @@ func demoPageExistsPrefixed(ws, dir, prefix string) (string, bool) {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".html") {
+		if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".html") && demoPageExists(ws, dir+name) {
 			return name, true
 		}
 	}
 	return "", false
+}
+
+// demoPartPage resolves the page-level demo that proves a part's hands-on work:
+// explicaciones/apps/<part>.html, else the first interactive page under
+// explicaciones/demos/<part>-*.html. evalDemoPart counts that page as the
+// part's demo and buildReceipts receipts it, so the page that proves the demo
+// is the page whose replacement or deletion invalidates that proof. A part
+// that plans no demo, or whose note already carries the minimum inline demos,
+// has no page-level demo to bind.
+func demoPartPage(r *rules.Rules, ws string, plan *planDoc, part string) string {
+	if part == "" || plan == nil || r.Thresholds.MinDemos <= 0 {
+		return ""
+	}
+	planned := false
+	for i := range plan.Parts {
+		if plan.Parts[i].ID == part {
+			planned = plan.Parts[i].DemosPlanned != nil && *plan.Parts[i].DemosPlanned
+			break
+		}
+	}
+	if !planned {
+		return ""
+	}
+	if rel, err := partRel(plan, declPathByKind(r, "explanation", "part_file"), part); err == nil {
+		if countDemos(readArtifact(ws, rel), r.Thresholds.DemoElements) >= r.Thresholds.MinDemos {
+			return ""
+		}
+	}
+	appRel := "explicaciones/apps/" + part + ".html"
+	if demoPageExists(ws, appRel) {
+		return appRel
+	}
+	demoRel := "explicaciones/demos/"
+	if name, ok := demoPageExistsPrefixed(ws, demoRel, part+"-"); ok {
+		return demoRel + name
+	}
+	return ""
 }
 
 // evalDemoPart proves a part that planned hands-on work delivers it: the note
@@ -176,17 +281,13 @@ func evalDemoPart(c *evalCtx, decl rules.CheckDecl) Check {
 		// embeds: explicaciones/apps/<part>.html or
 		// explicaciones/demos/<part>-<name>.html. Those pages hand the part its
 		// demo too, so they satisfy the same promise without inline elements.
-		appRel := "explicaciones/apps/" + c.part + ".html"
-		demoRel := "explicaciones/demos/"
-		if demoPageExists(c.ws, appRel) {
-			count, missing, guideRel = c.r.Thresholds.MinDemos, 0, appRel
-		} else if name, ok := demoPageExistsPrefixed(c.ws, demoRel, c.part+"-"); ok {
-			count, missing, guideRel = c.r.Thresholds.MinDemos, 0, demoRel+name
+		if page := demoPartPage(c.r, c.ws, c.plan, c.part); page != "" {
+			count, missing, guideRel = c.r.Thresholds.MinDemos, 0, page
 		}
 	}
 	if count < c.r.Thresholds.MinDemos {
 		return failCheck(decl.ID, fmt.Sprintf(
-			"part %s planned a demo but %s has only %d demo(s), below the minimum of %d (a closed %s element or an %s page)",
+			"part %s planned a demo but %s has only %d demo(s), below the minimum of %d (a closed %s element or an interactive-structure %s page)",
 			c.part, guideRel, count, c.r.Thresholds.MinDemos, strings.Join(demoElements, ", "), "explicaciones/apps/<part>.html"))
 	}
 	if missing > 0 {
@@ -204,5 +305,5 @@ func evalDemoPart(c *evalCtx, decl rules.CheckDecl) Check {
 			guideRel, strings.Join(gaps, "; ")))
 	}
 	return passCheck(decl.ID, fmt.Sprintf(
-		"%s hands on its demo (%d checked with how-to note)", guideRel, count))
+		"%s has demo structure (%d checked; inline demos require a how-to note)", guideRel, count))
 }

@@ -135,11 +135,7 @@ func walkthroughProblems(markup string) []string {
 		}
 		payload := strings.Index(block, open)
 		if payload < 0 {
-			// A deck may also be written as scene markup the kit draws directly;
-			// only a walkthrough with nothing to draw is a broken promise.
-			if !strings.Contains(block, `class="scene"`) {
-				problems = append(problems, "a walkthrough has nothing to draw")
-			}
+			problems = append(problems, "a walkthrough needs a JSON deck payload")
 			continue
 		}
 		body := block[payload+len(open):]

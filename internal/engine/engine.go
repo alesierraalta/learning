@@ -1284,7 +1284,11 @@ func buildReceipts(r *rules.Rules, ws, stage, part string) (map[string]string, e
 	out := map[string]string{}
 	planRel := declPathByKind(r, "preparation", "file_exists")
 	plan, _ := loadPlan(ws, planRel)
+	demoStage := false
 	for _, decl := range r.ChecksFor(stage) {
+		if decl.Kind == "demo_part" {
+			demoStage = true
+		}
 		if !decl.WantsReceipt() {
 			continue
 		}
@@ -1327,6 +1331,18 @@ func buildReceipts(r *rules.Rules, ws, stage, part string) (map[string]string, e
 				return nil, fmt.Errorf("cannot hash planning receipt artifact %s: %w", rel, err)
 			}
 			out[rel] = h
+		}
+	}
+	// The page that proves a part's demo is part of the proof the stage
+	// records: replacing it with static markup or deleting it must stale the
+	// stage, not only the moment the demo check first passed.
+	if demoStage {
+		if page := demoPartPage(r, ws, &plan, part); page != "" {
+			h, err := hashFile(absPath(ws, page))
+			if err != nil {
+				return nil, fmt.Errorf("cannot hash demo page %s: %w", page, err)
+			}
+			out[page] = h
 		}
 	}
 	return out, nil

@@ -69,7 +69,9 @@ func TestPlannedDemoNeedsInteractiveComponents(t *testing.T) {
 		ok   bool
 	}{
 		{"widget with reading guide", `<lk-widget title="Prueba la política"><p>Mueve el robot.</p><div class="lab"></div></lk-widget>` + "\nCómo leerlo: mueve el robot y mira el acumulado.\n", true},
-		{"walkthrough with reading guide", "<lk-walkthrough title=\"Paso a paso\">\n  <div class=\"scene\"></div>\n</lk-walkthrough>\nCómo leerlo: avanza escena por escena.\n", true},
+		{"walkthrough with reading guide", deck(t, `{"boxes":[{}],"arrows":[{}]}`), true},
+		{"scene-only walkthrough", "<lk-walkthrough><div class=\"scene\"></div></lk-walkthrough>\nCómo leerlo: avanza.\n", false},
+		{"static svg", "<svg><rect/></svg>\nCómo leerlo: observa.\n", false},
 		{"widget without reading guide", `<lk-widget title="Prueba la política"><p>Mueve el robot.</p></lk-widget>`, false},
 		{"unclosed widget", `<lk-widget title="Prueba la política"><p>Mueve el robot.</p>`, false},
 		{"widget inside a code block is markup", "```html\n<lk-widget><p>x</p></lk-widget>\n```", false},
@@ -88,6 +90,12 @@ func TestPlannedDemoNeedsInteractiveComponents(t *testing.T) {
 			}
 			if !tc.ok && (check.Status != "FAIL" || code != 1) {
 				t.Fatalf("demo %q accepted: %s (exit %d)", tc.demo, check.Reason, code)
+			}
+			if tc.name == "scene-only walkthrough" && !strings.Contains(check.Reason, "JSON deck payload") {
+				t.Fatalf("missing payload reason: %s", check.Reason)
+			}
+			if tc.name == "static svg" && !strings.Contains(check.Reason, "planned a demo") {
+				t.Fatalf("missing demo reason: %s", check.Reason)
 			}
 		})
 	}
