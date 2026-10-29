@@ -126,7 +126,12 @@ caption on an arrow or word over a word, and prints `deck`, `step` and the offen
 
 ```sh
 node tools/deck-gate.mjs <vault>/rapidos/mi-nota.md
+node tools/deck-gate.mjs <vault>        # every note in the tree
 ```
+
+The content backup enforces the structural half on its own before it publishes: a note whose decks
+break the rules is not pushed, and the run names the note and the rule. See
+[Content backup](deploy-vps.md#content-backup).
 
 A page with a walkthrough must load the drawing vocabulary first, because `kit.js` takes it from
 `window.LKScene` and throws «Falta scene.js» otherwise:

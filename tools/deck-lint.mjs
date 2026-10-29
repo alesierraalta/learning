@@ -2,6 +2,13 @@
 // studio save path. It reads text only: no browser, no filesystem, no writes.
 // The real-browser gate (tools/deck-gate.mjs) measures the same decks; this
 // module is the fast check that can run on every save.
+//
+// As a command it lints whole trees, which is how the content backup refuses to
+// publish a note whose decks break the rules:
+//   node tools/deck-lint.mjs <note.md | directory>...
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const CHAR = 0.56; // rough advance width of the deck font at 1em
 const ARROW_LABEL_MAX = 30;
@@ -117,4 +124,43 @@ export function lintMarkdown(text) {
 // The decks a note declares, for callers that need to say how many were checked.
 export function countDecks(text) {
   return [...String(text ?? '').matchAll(/<lk-walkthrough[\s>]/g)].length;
+}
+
+// The command form keeps the exit code meaningful for scripts: 0 clean, 1 a note
+// breaks the rules, 2 nothing to check or a bad argument.
+function runCli(args) {
+  const files = [];
+  const skipped = new Set(['node_modules', '.git', '.tgrep', '.codegraph', '.pi', '.atl']);
+  const collect = dir => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) { if (!skipped.has(entry.name)) collect(join(dir, entry.name)); continue; }
+      if (entry.name.endsWith('.md')) files.push(join(dir, entry.name));
+    }
+  };
+  for (const arg of args) {
+    const info = statSync(arg, { throwIfNoEntry: false });
+    if (!info) { console.error(`deck-lint: no such file or directory: ${arg}`); return 2; }
+    if (info.isDirectory()) collect(arg); else if (arg.endsWith('.md')) files.push(arg);
+  }
+  let failed = 0;
+  let checked = 0;
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8');
+    if (!text.includes('<lk-walkthrough')) continue;
+    checked++;
+    for (const item of lintMarkdown(text)) {
+      failed++;
+      console.error(`${file}: deck ${item.deck} step ${item.step}: ${item.kind}: ${item.text}`);
+    }
+  }
+  if (!checked) { console.log(`deck-lint: no note with a guided deck in ${args.join(', ')}`); return 0; }
+  if (failed) { console.error(`deck-lint: ${failed} problem(s) in ${checked} note(s)`); return 1; }
+  console.log(`deck-lint: ${checked} note(s) pass the deck rules`);
+  return 0;
+}
+
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
+  if (process.argv.length < 3) { console.error('usage: node tools/deck-lint.mjs <note.md | directory>...'); process.exit(2); }
+  process.exit(runCli(process.argv.slice(2)));
 }
