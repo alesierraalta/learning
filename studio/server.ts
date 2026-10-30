@@ -116,23 +116,31 @@ function toolLabel(name: string, args: unknown): string {
   }
 }
 
+/** A note the studio can open: a part of a topic, or a quick note. */
+export type Note = { topic: string; index: number } | { quick: string };
+
 /**
- * `explicaciones/Parte N - <slug>.md` inside a topic folder: the studio can open that note, so a
- * write that produced it comes back with the topic and part number the reader routes on.
+ * `explicaciones/Parte N - <slug>.md` (or its rich `.html` page) inside a topic folder, or
+ * `rapidos/<id>.md`: the studio can open that note, so a write that produced it comes back with
+ * what the reader routes on.
  */
-export function noteFromPath(path: unknown): { topic: string; index: number } | null {
+export function noteFromPath(path: unknown): Note | null {
   if (typeof path !== "string") return null;
   const segments = path.split(/[\\/]+/).filter((segment) => segment !== "" && segment !== ".");
+  if (segments.at(-2) === "rapidos") {
+    const quick = /^([\w-]+)\.md$/.exec(segments.at(-1) ?? "");
+    return quick === null ? null : { quick: quick[1] };
+  }
   const folder = segments.lastIndexOf("explicaciones");
   const topic = folder < 1 ? undefined : segments[folder - 1];
   if (topic === undefined) return null;
-  const name = /^Parte (\d+) - .+\.md$/.exec(segments[folder + 1] ?? "");
+  const name = /^Parte (\d+) - .+\.(md|html)$/.exec(segments[folder + 1] ?? "");
   const index = name === null ? 0 : Number(name[1]);
   return index < 1 ? null : { topic, index };
 }
 
 /** The note a write or edit produced, when the tutor is working on a part of a topic. */
-function toolNote(name: string, args: unknown): { topic: string; index: number } | null {
+function toolNote(name: string, args: unknown): Note | null {
   if (name !== "write" && name !== "edit") return null;
   return isRecord(args) ? noteFromPath(args.path) : null;
 }
@@ -141,9 +149,9 @@ function toolNote(name: string, args: unknown): { topic: string; index: number }
  * The last part note the conversation wrote or edited: a reloaded tab still knows which note the
  * tutor was talking about, so the chat keeps the way back to it.
  */
-export function noteFromMessages(messages: unknown): { topic: string; index: number } | null {
+export function noteFromMessages(messages: unknown): Note | null {
   if (!Array.isArray(messages)) return null;
-  let found: { topic: string; index: number } | null = null;
+  let found: Note | null = null;
   for (const message of messages) {
     if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) continue;
     for (const part of message.content) {
@@ -587,7 +595,7 @@ ${scripts}
     sendJson(res, 200, { ok: true });
   };
 
-  const history = async (): Promise<{ messages: Json[]; note: { topic: string; index: number } | null }> => {
+  const history = async (): Promise<{ messages: Json[]; note: Note | null }> => {
     if (!alive) return { messages: [], note: null };
     try {
       const reply = await call({ type: "get_messages" }, 10000);

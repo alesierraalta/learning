@@ -6,13 +6,15 @@ const log = process.env.FAKE_PI_LOG;
 const out = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
 const record = (command) => log && appendFileSync(log, `${JSON.stringify({ ...command, interactiveHost: process.env.GENTLE_SHELL_INTERACTIVE_HOST, cwd: process.cwd() })}\n`);
 let pendingDialog = null;
+// The note the scripted turn writes; a test points it at a note of its own root.
+const written = process.env.FAKE_PI_WRITE || "tema/explicaciones/Parte 1 - Algo.md";
 
 const run = (message) => {
   out({ type: "agent_start" });
   out({ type: "message_start", message: { role: "user", content: message } });
   out({ type: "message_start", message: { role: "assistant", content: [] } });
   out({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Hola, " } });
-  out({ type: "tool_execution_start", toolCallId: "t1", toolName: "write", args: { path: "tema/explicaciones/Parte 1 - Algo.md" } });
+  out({ type: "tool_execution_start", toolCallId: "t1", toolName: "write", args: { path: written } });
   out({ type: "tool_execution_end", toolCallId: "t1", toolName: "write", isError: false });
   out({ type: "extension_ui_request", id: "set-status", method: "setStatus", statusKey: "x", statusText: "y" });
   out({ type: "extension_ui_request", id: "n1", method: "notify", message: "Aviso del tutor", notifyType: "info" });
