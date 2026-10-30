@@ -88,9 +88,13 @@ table {
   border-top: 1.3px solid var(--ink); border-bottom: 1.3px solid var(--ink);
   font-size: 16px; display: block; overflow-x: auto;
 }
-th, td { border: 0; padding: 9px 14px 9px 0; text-align: left; vertical-align: top; }
+/* A cell keeps whole words: the table scrolls instead of breaking them. */
+th, td { border: 0; padding: 9px 14px 9px 0; text-align: left; vertical-align: top; overflow-wrap: normal; }
 th { font-size: 15px; font-weight: 700; border-bottom: 1px solid var(--rule); background: none; }
 td { font-family: var(--serif); font-size: 16px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+
+/* KaTeX lays a display formula out without wrapping: it scrolls in its block. */
+.math-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
 
 pre { margin: 18px 0; padding: 0 0 0 1.2em; overflow-x: auto; background: none; border: 0; font-size: 15px; line-height: 1.55; }
 code { font-family: var(--mono); font-size: .85em; color: var(--warm); }
