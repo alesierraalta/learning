@@ -2,6 +2,8 @@
   "use strict";
   const app = document.getElementById("app");
   const CONFIDENCE = { seguro: "seguro", dudo: "dudo", adivine: "adiviné" };
+  // The text column of a 320 px phone: a graphic this narrow is never squeezed.
+  const PHONE_COLUMN = 280;
   let data;
   try {
     data = JSON.parse(document.getElementById("view-data").textContent);
@@ -81,11 +83,18 @@
     // keeps the page from ever handing note text straight to innerHTML.
     node.append(...new DOMParser().parseFromString(clean, "text/html").body.childNodes);
     // A diagram drawn for a desktop canvas shrinks its words with it on a phone:
-    // its box keeps the authored width so CSS can hold a legible scale and scroll.
+    // its box keeps the authored width (the width attribute, else the viewBox)
+    // so CSS can hold a legible scale and scroll.
+    const insideKit = (svg) => {
+      for (let el = svg.parentElement; el && el !== node; el = el.parentElement) if (el.tagName.startsWith("LK-")) return true;
+      return false;
+    };
     for (const svg of node.querySelectorAll("svg[viewBox]")) {
-      const width = svg.viewBox.baseVal?.width;
-      // Nested SVGs and kit components lay themselves out.
-      if (!width || svg.parentElement.closest("svg") || [...node.querySelectorAll("*")].some((el) => el.tagName.startsWith("LK-") && el.contains(svg))) continue;
+      const given = svg.getAttribute("width")?.trim() ?? "";
+      const width = /^\d+(\.\d+)?(px)?$/.test(given) ? parseFloat(given) : svg.viewBox.baseVal?.width;
+      // Nested SVGs and kit components lay themselves out, and a graphic that
+      // fits the narrowest phone column (an icon in a sentence) needs no box.
+      if (!width || width <= PHONE_COLUMN || svg.parentElement.closest("svg") || insideKit(svg)) continue;
       const box = element("div", undefined, "diagram");
       box.style.setProperty("--diagram-width", `${width}px`);
       svg.replaceWith(box);

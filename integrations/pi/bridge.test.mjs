@@ -324,12 +324,15 @@ test('an inline icon inside a sentence stays on the line of its words', { skip: 
   await svg.waitFor({ timeout: 10000 });
   const seen = await svg.evaluate(node => {
     const paragraph = node.closest('p');
-    const words = document.createRange();
-    words.selectNodeContents(paragraph);
-    const lines = new Set([...words.getClientRects()].map(r => Math.round(r.top)));
-    return { lines: lines.size, text: paragraph.textContent.trim() };
+    const texts = [...paragraph.childNodes].filter(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+    const box = n => { const r = document.createRange(); r.selectNodeContents(n); return r.getBoundingClientRect(); };
+    const before = box(texts[0]), after = box(texts.at(-1)), icon = node.getBoundingClientRect();
+    return {
+      sameLine: Math.abs(before.top - after.top) < 2,
+      iconOnLine: icon.top < before.bottom && icon.bottom > before.top && icon.left > before.right - 1 && icon.right < after.left + 1,
+    };
   });
-  assert.equal(seen.lines, 1, `the icon breaks its sentence: ${JSON.stringify(seen)}`);
+  assert.ok(seen.sameLine && seen.iconOnLine, `the icon breaks its sentence: ${JSON.stringify(seen)}`);
 });
 
 test('a diagram the author sized is not enlarged on a phone', { skip: !playwright && 'playwright not installed' }, async t => {

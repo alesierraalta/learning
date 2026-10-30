@@ -283,17 +283,22 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
   .page { padding: 30px 18px 80px; }
   .part-row { grid-template-columns: 42px minmax(0, 1fr); }
   .part-row .row-actions { grid-column: 2; justify-content: flex-start; }
-  /* One row of icons beside a whole title; the format switch, when there is
-     one, takes the second row. */
-  .reader-bar { flex-wrap: wrap; gap: 6px; padding: 6px 10px; }
-  .reader-bar .title { font-size: 1.05rem; line-height: 1.25; white-space: normal; overflow: visible; }
+  /* A whole title beside back, ask and delete; the format switch and the
+     previous/next arrows, when there are any, take the second row. */
+  .reader-bar { flex-wrap: wrap; gap: 0 6px; padding: 6px 10px; }
+  .reader-bar::after { content: ""; order: 1; flex-basis: 100%; height: 0; }
+  .reader-bar .nav, .reader-bar .switch { order: 2; margin-top: 6px; }
+  .reader-bar .title { font-size: 1.05rem; line-height: 1.25; white-space: normal; overflow: visible; overflow-wrap: anywhere; hyphens: auto; }
   .reader-bar .title small { display: block; font-size: .8rem; margin: 0; }
   .reader-bar .btn { min-width: 38px; min-height: 38px; justify-content: center; padding: 6px; }
   .reader-bar .btn .label { display: none; }
-  .reader-bar .switch { order: 1; flex: 1 0 100%; }
+  .reader-bar .switch { flex: 1 1 auto; }
   .reader-bar .switch button { flex: 1; min-height: 34px; padding: 5px 8px; }
-  /* The slide stays as a picture; its words read in the caption below and the
-     controls stack: dots, then back and forward, then skip. */
+}
+/* A phone, upright or sideways: the slide stays as a picture; its words read
+   in the caption below and the controls stack: dots, then back and forward,
+   then skip. tutorial.js places the final choices with the same query. */
+@media (max-width: 720px), (max-height: 500px) {
   .deck { justify-content: flex-start; gap: 14px; padding: 24px 12px; background: rgba(15, 23, 42, .95); overflow-y: auto; }
   .deck-frame { width: 100%; flex: none; }
   .deck-caption { display: block; margin: 0; max-width: 32em; min-height: 3.2em; color: #fff; font-size: 1rem; line-height: 1.5; text-align: center; }
@@ -304,6 +309,15 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
   .deck-dots { order: -1; grid-column: 1 / -1; justify-content: center; }
   .deck-controls .btn { justify-content: center; }
   .deck-skip { grid-column: 1 / -1; min-height: 40px; }
+}
+/* Sideways, the slide takes the left column and its words and controls the right. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .deck { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); grid-auto-rows: min-content; align-content: center; align-items: center; justify-items: center; column-gap: 16px; row-gap: 10px; padding: 12px 16px; }
+  .deck-frame { grid-column: 1; grid-row: 1 / span 3; }
+  .deck-caption, .deck > .finale, .deck-controls { grid-column: 2; }
+  .deck-caption { min-height: 0; }
+  .deck-controls { gap: 6px; }
+  .deck > .finale .btn, .deck-controls .btn, .deck-skip { min-height: 36px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } .reveal { opacity: 1; transform: none; } }
 
