@@ -19,6 +19,7 @@ const usage = `learning — deep-learning validation engine (structured rules, d
 Usage:
   learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode MODE] [--scope SCOPE] [--stage STAGE] [--json]
   learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
+  learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
   learning help
 
 Commands:
@@ -40,6 +41,9 @@ Commands:
   status     Side-effect-free recheck: receipt freshness, recorded reviews,
              conditional obligations, the next required stage and fail-closed
              completion. Never writes.
+  method     Record the learner's explanation method (pareto or preferencias)
+             once, right after the diagnosis, in a strict-flow run. Refused
+             choices write nothing.
 
 Review flow (the chat, optionally via subagents, is the reviewer):
   validate <stage>  ->  read evidence.pendingReviews (rubric instruction + context)
@@ -56,6 +60,9 @@ Flags:
   --scope     init only: complete (default) teaches the whole topic; pareto
               teaches only the vital slice and requires the plan to declare
               what it dropped. Later commands read the scope from state.
+  --method    method only: the learner's explanation method, chosen once
+              right after the diagnosis in a strict-flow run: pareto (the
+              vital 20%; sets the pareto scope) or preferencias.
   --stage     Stage name; required for advance and review, optional for
               validate, rejected for init and status.
   --rule      review only: rubric id receiving the verdict.
@@ -151,14 +158,14 @@ func emit(rep engine.Report, code int, jsonMode bool, out io.Writer) int {
 // names, values for every value-flag, no duplicates, no stray tokens.
 func parseArgs(args []string) (engine.Options, bool, error) {
 	if len(args) == 0 {
-		return engine.Options{}, false, fmt.Errorf("missing command: expected init, validate, advance, status or review (see: learning help)")
+		return engine.Options{}, false, fmt.Errorf("missing command: expected init, validate, advance, status, review or method (see: learning help)")
 	}
 	switch args[0] {
 	case "help", "--help", "-h":
 		return engine.Options{}, true, nil
-	case "init", "validate", "advance", "status", "review":
+	case "init", "validate", "advance", "status", "review", "method":
 	default:
-		return engine.Options{}, false, fmt.Errorf("unknown command %q: expected init, validate, advance, status or review", args[0])
+		return engine.Options{}, false, fmt.Errorf("unknown command %q: expected init, validate, advance, status, review or method", args[0])
 	}
 	opts := engine.Options{Command: args[0], Mode: "deep"}
 	seen := map[string]bool{}
@@ -176,7 +183,7 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 		}
 		name := strings.TrimPrefix(tok, "--")
 		switch name {
-		case "root", "workspace", "rules", "mode", "scope", "stage",
+		case "root", "workspace", "rules", "mode", "scope", "method", "stage",
 			"rule", "verdict", "reason", "reviewer":
 		default:
 			return engine.Options{}, false, fmt.Errorf("unknown flag --%s", name)
@@ -200,6 +207,8 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 			opts.Mode = args[i]
 		case "scope":
 			opts.Scope = args[i]
+		case "method":
+			opts.Method = args[i]
 		case "stage":
 			opts.Stage = args[i]
 		case "rule":

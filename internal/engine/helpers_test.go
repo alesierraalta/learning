@@ -679,6 +679,25 @@ func (f *fixture) readyThroughPlanning(t *testing.T, wrong ...int) {
 
 func (f *fixture) readyParts(t *testing.T, parts []partCfg, wrong ...int) {
 	t.Helper()
+	f.diagnosed(t, parts, wrong...)
+	f.methodIfAsked(t)
+	f.writePlanWith(t, "Dificultades detectadas en consenso y en quórums.", []string{"d3"}, parts...)
+	f.advanceOK(t, "planning")
+}
+
+// methodIfAsked answers the strict flow's method question with preferencias.
+func (f *fixture) methodIfAsked(t *testing.T) {
+	t.Helper()
+	if rep, _ := f.run(t, f.opts("status", "")); rep.NextStage == "method" {
+		if rep, code := f.method(t, "preferencias"); code != ExitOK {
+			t.Fatalf("method preferencias = exit %d %+v", code, rep)
+		}
+	}
+}
+
+// diagnosed enrolls the topic and records preparation and the diagnosis.
+func (f *fixture) diagnosed(t *testing.T, parts []partCfg, wrong ...int) {
+	t.Helper()
 	f.initOK(t)
 	f.writePlan(t, parts...)
 	f.advanceOK(t, "preparation")
@@ -688,8 +707,6 @@ func (f *fixture) readyParts(t *testing.T, parts []partCfg, wrong ...int) {
 		f.writeDiagAnswersFor(t, parts, wrong...)
 	}
 	f.advanceOK(t, "diagnosis")
-	f.writePlanWith(t, "Dificultades detectadas en consenso y en quórums.", []string{"d3"}, parts...)
-	f.advanceOK(t, "planning")
 }
 
 // advanceExpectBlocked records any pending reviews first, runs advance and
