@@ -173,6 +173,7 @@
       finally { submit.disabled = false; }
     });
   });
+  const dontKnow = text => /^no se\.?$/i.test(String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').trim());
   define('lk-quiz', async function () {
     const b = config();
     if (!b) { this.append(el('p', offline)); return; }
@@ -192,6 +193,13 @@
       for (const [value, title] of Object.entries({ seguro: 'Seguro', dudo: 'Dudo', adivine: 'Adiviné' })) {
         const label = el('label'); label.append(el('input', undefined, { type: 'radio', name: `${q.id}-confianza`, value }), document.createTextNode(title)); confidence.append(label);
       }
+      // «No sé» already says how sure the learner is: its confidence hides and is not sent.
+      box.addEventListener('change', event => {
+        if (event.target.name !== q.id) return;
+        const skip = dontKnow(q.options[event.target.value]);
+        confidence.style.display = skip ? 'none' : '';
+        if (skip) confidence.querySelectorAll('input').forEach(n => { n.checked = false; });
+      });
       box.append(confidence); boxes.set(q.id, box); form.append(box);
     }
     const ownWords = textField('Vuelco con tus palabras (opcional)', 'ownWords');
@@ -247,9 +255,22 @@
       try {
         const payload = { kind: 'mini-quiz', answers, reasoning };
         for (const key of ['ownWords', 'exercises']) if (form.elements[key].value.trim()) payload[key] = form.elements[key].value.trim();
-        showResults(await post(payload));
+        const graded = await post(payload);
+        showResults(graded);
+        notifyStudio(graded);
       } catch (e) { out.textContent = e.message; submit.disabled = false; }
     });
+    // Inside the studio the page is a frame: the studio takes the learner to the results
+    // and shows the tutor reading them. The bridge's frame-ancestors limit who can listen.
+    function notifyStudio(graded) {
+      if (window.parent === window) return;
+      const byId = new Map(data.questions.map(q => [q.id, q]));
+      const results = (graded.results || []).map(r => {
+        const q = byId.get(r.id) || { options: {} };
+        return { id: r.id, enunciado: q.enunciado || q.stem || '', chosen: r.chosen, chosenText: q.options[r.chosen] ?? '', correct: r.correct, correctText: q.options[r.correct] ?? '', ok: r.ok };
+      });
+      window.parent.postMessage({ type: 'learning:submitted', kind: 'mini-quiz', topic: b.topic, part: b.part, score: graded.score, results }, '*');
+    }
   });
   async function decorate() {
     const main = document.querySelector('main') || document.body;

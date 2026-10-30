@@ -2,6 +2,8 @@
   "use strict";
   const app = document.getElementById("app");
   const CONFIDENCE = { seguro: "seguro", dudo: "dudo", adivine: "adiviné" };
+  // «No sé» already says how sure the learner is: it asks for no confidence.
+  const dontKnow = (text) => /^no se\.?$/i.test(String(text ?? "").normalize("NFD").replace(/\p{M}/gu, "").trim());
   // The text column of a 320 px phone: a graphic this narrow is never squeezed.
   const PHONE_COLUMN = 280;
   let data;
@@ -287,7 +289,15 @@
           return radio;
         });
         field.append(confidence);
-        pending.push({ question, field, choices, razonamiento, sure });
+        const item = { question, field, choices, razonamiento, sure, skipsConfidence: false };
+        for (const radio of choices) {
+          radio.addEventListener("change", () => {
+            item.skipsConfidence = dontKnow(question.options[radio.value]);
+            confidence.style.display = item.skipsConfidence ? "none" : "";
+            if (item.skipsConfidence) sure.forEach((input) => { input.checked = false; });
+          });
+        }
+        pending.push(item);
       }
       container.append(field);
     }
@@ -308,7 +318,7 @@
           missing.choices[0]?.focus();
           return;
         }
-        const unsure = pending.find((item) => !item.sure.some((input) => input.checked));
+        const unsure = pending.find((item) => !item.skipsConfidence && !item.sure.some((input) => input.checked));
         if (unsure) {
           message.className = "error";
           message.textContent = "Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.";
@@ -319,10 +329,9 @@
         const reasoning = Object.fromEntries(
           pending.map((item) => [
             item.question.id,
-            {
-              razonamiento: item.razonamiento.value.trim(),
-              confianza: item.sure.find((input) => input.checked).value,
-            },
+            item.skipsConfidence
+              ? { razonamiento: item.razonamiento.value.trim() }
+              : { razonamiento: item.razonamiento.value.trim(), confianza: item.sure.find((input) => input.checked).value },
           ]),
         );
         const payload = { kind: diagnosis ? "diagnosis" : "mini-quiz", topic: data.topic, answers, reasoning };
@@ -342,6 +351,7 @@
           showScore(section, response.score, response.saved);
           form.querySelectorAll("input, textarea, button").forEach((input) => { input.disabled = true; });
           message.textContent = "";
+          notifyStudio(payload, response, (id) => data.quiz.questions.find((question) => question.id === id));
         } catch (error) {
           message.className = "error";
           message.textContent = error.message;
@@ -353,6 +363,20 @@
     app.append(section);
     decorate(section);
     verdicts();
+  }
+  // Inside the studio the page is a frame: the studio takes the learner to the results
+  // and shows the tutor reading them. The bridge's frame-ancestors limit who can listen.
+  function notifyStudio(payload, response, questionById) {
+    if (window.parent === window) return;
+    const results = response.results.map((result) => {
+      const question = questionById(result.id) || { enunciado: "", options: {} };
+      return {
+        id: result.id, enunciado: question.enunciado, chosen: result.chosen, chosenText: question.options[result.chosen] ?? "",
+        correct: result.correct, correctText: question.options[result.correct] ?? "", ok: result.ok,
+      };
+    });
+    const message = { type: "learning:submitted", kind: payload.kind, topic: payload.topic, ...(payload.part ? { part: payload.part } : {}), score: response.score, results };
+    window.parent.postMessage(message, "*");
   }
   function verdicts() {
     if (!data.verdicts?.length) return;
