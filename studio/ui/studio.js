@@ -756,25 +756,44 @@
     const cam = { x: 0, y: 0, k: 1 };
     let moved = false;
     let drag = null;
+    // Fingers on the canvas, by pointer id: two of them pinch.
+    const fingers = new Map();
+    let pinch = null;
+    // Below this scale a concept's words are too small to read on a tablet.
+    const READABLE = 0.85;
     const apply = () => camera.setAttribute("transform", `translate(${cam.x.toFixed(1)},${cam.y.toFixed(1)}) scale(${cam.k.toFixed(3)})`);
-    const fit = () => {
+    /**
+     * `whole` shows the entire map. Otherwise a map that would only fit by shrinking
+     * its words opens at a readable size on its first column, ready to be dragged.
+     */
+    let showWhole = false;
+    const fit = (whole = showWhole) => {
+      showWhole = whole;
       const box = canvas.getBoundingClientRect();
       if (!box.width || !box.height) return;
-      cam.k = Math.min(box.width / layout.width, box.height / layout.height, 1.15);
-      cam.x = (box.width - layout.width * cam.k) / 2;
-      cam.y = (box.height - layout.height * cam.k) / 2;
+      const all = Math.min(box.width / layout.width, box.height / layout.height, 1.15);
+      if (whole || all >= READABLE) {
+        cam.k = all;
+        cam.x = (box.width - layout.width * cam.k) / 2;
+        cam.y = (box.height - layout.height * cam.k) / 2;
+      } else {
+        cam.k = READABLE;
+        cam.x = 0;
+        cam.y = Math.max(0, (box.height - layout.height * cam.k) / 2);
+      }
       apply();
     };
-    const zoom = (factor, px, py) => {
+    const zoomTo = (target, px, py) => {
       const box = canvas.getBoundingClientRect();
       const x = px ?? box.width / 2;
       const y = py ?? box.height / 2;
-      const k = Math.min(2.6, Math.max(0.25, cam.k * factor));
+      const k = Math.min(2.6, Math.max(0.25, target));
       cam.x = x - ((x - cam.x) * k) / cam.k;
       cam.y = y - ((y - cam.y) * k) / cam.k;
       cam.k = k;
       apply();
     };
+    const zoom = (factor, px, py) => zoomTo(cam.k * factor, px, py);
 
     const shapes = new Map();
     const detail = h("div", { class: "pano-detail" });
@@ -888,12 +907,31 @@
       },
       { passive: false },
     );
+    // Two fingers zoom around the point between them, as on any picture on a tablet.
+    const spread = () => {
+      const [a, b] = [...fingers.values()];
+      const box = canvas.getBoundingClientRect();
+      return { distance: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2 - box.left, y: (a.y + b.y) / 2 - box.top };
+    };
     canvas.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
+      fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (fingers.size === 2) {
+        pinch = { ...spread(), k: cam.k };
+        drag = null;
+        moved = true;
+        return;
+      }
       drag = { x: event.clientX, y: event.clientY, camX: cam.x, camY: cam.y };
       moved = false;
     });
     canvas.addEventListener("pointermove", (event) => {
+      if (fingers.has(event.pointerId)) fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (pinch && fingers.size >= 2) {
+        const now = spread();
+        if (pinch.distance > 0) zoomTo((pinch.k * now.distance) / pinch.distance, now.x, now.y);
+        return;
+      }
       if (!drag) return;
       const dx = event.clientX - drag.x;
       const dy = event.clientY - drag.y;
@@ -903,7 +941,9 @@
       cam.y = drag.camY + dy;
       apply();
     });
-    const release = () => {
+    const release = (event) => {
+      fingers.delete(event.pointerId);
+      if (fingers.size < 2) pinch = null;
       drag = null;
     };
     canvas.addEventListener("pointerup", release);
@@ -913,7 +953,7 @@
       h("p", { class: "eyebrow" }, "Cómo leer el mapa"),
       h("p", { class: "pano-lead" }, "Cada caja es un concepto y cada flecha, lo que necesita para entenderse. Abre una caja: verás con qué se conecta y qué parte de tu ruta lo explica."),
     );
-    requestAnimationFrame(fit);
+    requestAnimationFrame(() => fit());
     // The canvas changes size when the chat opens or the window moves: the map
     // re-fits instead of sliding under the detail the reader is reading.
     const resize = new ResizeObserver(() => {
@@ -921,7 +961,7 @@
         resize.disconnect();
         return;
       }
-      requestAnimationFrame(fit);
+      requestAnimationFrame(() => fit());
     });
     resize.observe(canvas);
     return h(
@@ -933,13 +973,13 @@
         h(
           "div",
           { class: "pano-map-bar" },
-          h("p", { class: "pano-lead" }, "Arrastra para recorrerlo, usa la rueda para acercarte y abre cualquier caja."),
+          h("p", { class: "pano-lead" }, "Arrastra para recorrerlo, acércate con la rueda o con dos dedos y abre cualquier caja."),
           h(
             "div",
             { class: "pano-controls" },
             h("button", { class: "icon-btn", type: "button", title: "Alejar", "aria-label": "Alejar", onclick: () => zoom(1 / 1.2) }, "−"),
             h("button", { class: "icon-btn", type: "button", title: "Acercar", "aria-label": "Acercar", onclick: () => zoom(1.2) }, "+"),
-            h("button", { class: "icon-btn", type: "button", title: "Ajustar a la ventana", "aria-label": "Ajustar a la ventana", onclick: fit }, icon("fit")),
+            h("button", { class: "icon-btn", type: "button", title: "Ajustar a la ventana", "aria-label": "Ajustar a la ventana", onclick: () => fit(true) }, icon("fit")),
           ),
         ),
         canvas,
@@ -1633,6 +1673,9 @@
       h("div", { class: "top-actions" }, btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
     ),
     h("div", { class: "app" }, stage),
+    // Where the tutor lies over the page (a tablet or a phone), the page behind it
+    // dims and a tap on it closes the tutor, instead of a page cut mid-word.
+    h("div", { class: "scrim", "aria-hidden": "true", onclick: () => closeDrawer() }),
     drawer,
   );
   document.addEventListener("keydown", (event) => {
