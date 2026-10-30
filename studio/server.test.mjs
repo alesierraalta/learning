@@ -266,6 +266,15 @@ test("a part note path resolves to the topic and part the reader routes on", () 
   assert.equal(noteFromPath("/home/ale/Learnings/redes/plan.json"), null);
   assert.equal(noteFromPath("explicaciones/Parte 1 - Sin tema.md"), null, "a note without its topic folder has no route");
   assert.equal(noteFromPath(undefined), null);
+  assert.deepEqual(noteFromPath("/home/ale/Learnings/redes/explicaciones/Parte 2 - TCP.html"), { topic: "redes", index: 2 }, "the rich page of a part opens that part");
+  assert.equal(noteFromPath("/home/ale/Learnings/redes/explicaciones/apps/p1.html"), null, "an app page is not a part note");
+});
+
+test("a quick note path resolves to the quick note the reader opens", () => {
+  assert.deepEqual(noteFromPath("/home/ale/Learnings/rapidos/hash.md"), { quick: "hash" });
+  assert.deepEqual(noteFromPath("C:\\Users\\ismar\\Learnings\\rapidos\\que-es-dns.md"), { quick: "que-es-dns" });
+  assert.equal(noteFromPath("/home/ale/Learnings/rapidos/notas.txt"), null);
+  assert.equal(noteFromPath("/home/ale/Learnings/rapidos/con espacio.md"), null, "only ids the reader routes on");
 });
 
 test("the conversation remembers the last part note the tutor wrote", () => {

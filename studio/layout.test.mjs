@@ -177,6 +177,47 @@ test("the home ask field and section headings fit a phone", { skip: browser ? fa
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
 });
 
+// The tutorial slides are a 1920-wide canvas: on a phone they shrink to a few
+// pixels of text, so each step also reads as a caption and every control stays
+// a real touch target outside the scaled slide.
+test("the tutorial reads and works on a phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 360, height: 760 } }));
+  t.after(() => page.context().browser().close());
+
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  const deck = page.locator(".deck");
+  await deck.waitFor();
+  const controls = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll(".deck button")]
+        .filter((b) => !b.closest(".deck-slide") && b.getBoundingClientRect().width > 0)
+        .map((b) => {
+          const r = b.getBoundingClientRect();
+          return { name: b.getAttribute("aria-label") || b.textContent.trim(), w: Math.round(r.width), h: Math.round(r.height), font: parseFloat(getComputedStyle(b).fontSize), inside: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight };
+        }),
+    );
+  const caption = page.locator(".deck-caption");
+  const first = (await caption.textContent()).trim();
+  assert.ok(first.length > 0, "the first step has no caption");
+  assert.ok(parseFloat(await caption.evaluate((n) => getComputedStyle(n).fontSize)) >= 14, "the caption is too small to read");
+  for (const c of await controls()) {
+    assert.ok(c.w >= 32 && c.h >= 32 && c.inside, `undersized or off-screen tutorial control: ${JSON.stringify(c)}`);
+  }
+  await page.locator(".deck-controls .btn.primary").click();
+  assert.notEqual((await caption.textContent()).trim(), first, "the caption does not follow the steps");
+
+  // The last slide ends with its two choices: they must be usable, not a scaled drawing.
+  await page.locator(".deck-dots button").last().click();
+  for (let i = 0; i < 10 && (await page.locator(".deck-controls .btn.primary").textContent()) !== "Terminar"; i++) await page.locator(".deck-controls .btn.primary").click();
+  const finale = (await controls()).filter((c) => c.name === "Empezar un tema" || c.name === "Ver mis temas");
+  assert.equal(finale.length, 2, JSON.stringify(await controls()));
+  for (const c of finale) assert.ok(c.h >= 32 && c.font >= 12 && c.inside, JSON.stringify(c));
+});
+
 test("a topic that still owes parts says so instead of looking finished", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
@@ -357,3 +398,38 @@ test("a deck whose word does not fit is refused and the typed text stays", { ski
   assert.match(await page.evaluate(() => location.hash), /^#\/editar/, "the editor stays open");
   assert.equal(existsSync(join(root, "rapidos", "nota-rota.md")), false, "nothing was stored");
 });
+
+// After the tutor builds an explanation, its reply ends with the way to the note it wrote.
+for (const [kind, written, hash] of [
+  ["part", "redes/explicaciones/Parte 1 - Capas.html", "#/leer/redes/p1"],
+  ["quick note", "rapidos/hash.md", "#/rapido/hash"],
+]) {
+  test(`the chat offers the ${kind} the tutor just wrote and opens it`, { skip: browser ? false : "playwright not installed" }, async (t) => {
+    const { root, engine, log } = makeRoot();
+    process.env.FAKE_PI_LOG = log;
+    process.env.FAKE_PI_WRITE = join(root, written);
+    t.after(() => delete process.env.FAKE_PI_WRITE);
+    const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+    open.push(studio);
+    const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+    t.after(() => page.context().browser().close());
+    await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+    await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+    await page.locator(".tutor-pill").click();
+    await page.getByLabel("Mensaje para el tutor").fill("Explícame algo.");
+    await page.getByLabel("Mensaje para el tutor").press("Enter");
+    await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).click();
+
+    const offer = page.locator(".thread .note-cta");
+    await offer.waitFor({ timeout: 10000 });
+    assert.equal(await offer.count(), 1, "one offer per turn");
+    assert.ok(
+      await page.evaluate(() => document.querySelector(".thread")?.lastElementChild?.matches(".note-cta")),
+      "the offer closes the turn, under the tutor's reply",
+    );
+    await offer.getByRole("button", { name: "Ir a la nota" }).click();
+    await page.waitForFunction((expected) => location.hash === expected, hash, { timeout: 5000 });
+    assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "the note is not hidden behind the tutor");
+  });
+}

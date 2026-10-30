@@ -212,7 +212,7 @@
 
   function open({ onClose, onStart } = {}) {
     document.querySelector(".deck")?.remove();
-    let index = 0, at = 1, node, refit;
+    let index = 0, at = 1, node, refit, finale;
     const overlay = el("div", "deck");
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("aria-modal", "true");
@@ -223,6 +223,10 @@
     const next = el("button", "btn primary", "Siguiente ▶");
     const dots = el("div", "deck-dots");
     const skip = el("button", "deck-skip", "Saltar el tutorial");
+    // On a phone the scaled slide is a picture; its words for the current step
+    // read here instead (CSS shows it only on narrow screens).
+    const caption = el("p", "deck-caption");
+    caption.setAttribute("aria-live", "polite");
     [prev, next, skip].forEach((b) => (b.type = "button"));
     SLIDES.forEach((_, i) => {
       const dot = el("button");
@@ -232,7 +236,7 @@
       dots.append(dot);
     });
     controls.append(prev, dots, next, skip);
-    overlay.append(frame, controls);
+    overlay.append(frame, caption, controls);
 
     const close = (start = false) => {
       overlay.remove();
@@ -249,21 +253,26 @@
       prev.disabled = index === 0 && at === 1;
       next.textContent = index === SLIDES.length - 1 && at >= total ? "Terminar" : "Siguiente ▶";
       [...dots.children].forEach((d, i) => d.setAttribute("aria-current", String(i === index)));
-      node.querySelector(".finale")?.toggleAttribute("hidden", at < total);
+      finale?.toggleAttribute("hidden", at < total);
+      caption.textContent = [...node.querySelectorAll(`[data-step="${at}"] text`)].map((t) => t.textContent.trim()).filter(Boolean).join(" · ");
     }
     function show(i, stepAt) {
       index = i;
       node = slideNode(i);
       node.append(el("div", "count"));
+      finale?.remove();
+      finale = null;
       if (SLIDES[i].finale) {
-        const finale = el("div", "finale");
+        finale = el("div", "finale");
         const start = el("button", "btn primary", "Empezar un tema");
         const mine = el("button", "btn", "Ver mis temas");
         start.type = mine.type = "button";
         start.addEventListener("click", () => close(true));
         mine.addEventListener("click", () => close(false));
         finale.append(start, mine);
-        node.append(finale);
+        // Inside a slide scaled to a phone the buttons would be a few pixels tall.
+        if (matchMedia("(max-width: 720px)").matches) overlay.insertBefore(finale, controls);
+        else node.append(finale);
       }
       frame.replaceChildren(node);
       refit = fit(frame, node);
