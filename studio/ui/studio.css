@@ -257,11 +257,15 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 .deck-slide .finale { position: absolute; left: 96px; bottom: 120px; display: flex; gap: 24px; }
 .deck-slide .finale .btn { font-size: 30px; padding: 18px 34px; border-width: 3px; }
 .deck-controls { display: flex; align-items: center; gap: 12px; color: #fff; }
-.deck-controls .btn { border-color: #fff; }
-.deck-controls .btn.primary { border-color: var(--blue); }
-.deck-dots { display: flex; gap: 8px; margin: 0 10px; }
-.deck-dots button { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: transparent; padding: 0; cursor: pointer; }
-.deck-dots button[aria-current="true"] { background: #fff; }
+.deck-controls .btn, .deck > .finale .btn { border-color: #fff; color: #fff; }
+.deck-controls .btn.primary, .deck > .finale .btn.primary { border-color: #fff; background: #fff; color: var(--ink); }
+.deck-controls .btn:disabled { opacity: .4; }
+/* A 12 px dot drawn inside a 32 px touch target. */
+.deck-dots { display: flex; gap: 0; margin: 0 4px; }
+.deck-dots button { width: 32px; height: 32px; display: grid; place-items: center; border: 0; background: transparent; padding: 0; cursor: pointer; }
+.deck-dots button::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-sizing: border-box; }
+.deck-dots button[aria-current="true"]::before { background: #fff; }
+.deck-caption, .deck > .finale { display: none; }
 .deck-skip { color: #cbd5e1; background: none; border: 0; cursor: pointer; font-style: italic; text-decoration: underline; }
 
 @media (max-width: 1100px) {
@@ -286,7 +290,18 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
   .reader-bar .btn .label { display: none; }
   .reader-bar .switch { order: 1; flex: 1 0 100%; }
   .reader-bar .switch button { flex: 1; min-height: 34px; padding: 5px 8px; }
-  .deck-controls { flex-wrap: wrap; justify-content: center; }
+  /* The slide stays as a picture; its words read in the caption below and the
+     controls stack: dots, then back and forward, then skip. */
+  .deck { justify-content: flex-start; gap: 14px; padding: 24px 12px; background: rgba(15, 23, 42, .95); overflow-y: auto; }
+  .deck-frame { width: 100%; flex: none; }
+  .deck-caption { display: block; margin: 0; max-width: 32em; min-height: 3.2em; color: #fff; font-size: 1rem; line-height: 1.5; text-align: center; }
+  .deck > .finale { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .deck > .finale[hidden] { display: none; }
+  .deck > .finale .btn, .deck-controls .btn { min-height: 40px; font-size: 13px; }
+  .deck-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 420px; }
+  .deck-dots { order: -1; grid-column: 1 / -1; justify-content: center; }
+  .deck-controls .btn { justify-content: center; }
+  .deck-skip { grid-column: 1 / -1; min-height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } .reveal { opacity: 1; transform: none; } }
 
