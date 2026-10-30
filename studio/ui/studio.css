@@ -448,3 +448,95 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 @media (max-width: 640px) {
   .results h1 { font-size: 1.8rem; }
 }
+
+/* ---------- panorama: the plan and the map as one picture ---------- */
+.pano-head { display: flex; flex-direction: column; gap: 4px; }
+.pano-head h1 { font-size: clamp(2.2rem, 3.8vw, 3.2rem); line-height: 1.06; margin: 0 0 8px; }
+.pano-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.pano-tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); margin-bottom: 32px; }
+.pano-tab { border: 0; border-bottom: 3px solid transparent; background: transparent; padding: 10px 18px; margin-bottom: -2px; font-weight: 700; color: var(--slate); cursor: pointer; }
+.pano-tab:hover { color: var(--ink); background: var(--soft); }
+.pano-tab.on { color: var(--ink); border-bottom-color: var(--ink); }
+.pano-body { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 48px; align-items: start; }
+.pano-main { min-width: 0; display: flex; flex-direction: column; gap: 34px; }
+.pano-block-title { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding-bottom: 8px; border-bottom: 2px solid var(--line); margin-bottom: 8px; }
+.pano-block-title h2 { font-size: 1.6rem; }
+.pano-block-title p { margin: 0; color: var(--muted); font-style: italic; }
+.pano-why { margin: 4px 0 0; color: var(--slate); font-size: 1rem; }
+.pano-entry { display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+.pano-entry-note { font-size: .95rem; color: var(--muted); font-style: italic; }
+/* the tutor's own prose is folded, so the route leads and the plan follows */
+.pano-section { border: 2px solid var(--line); border-radius: 10px; background: var(--soft2); }
+.pano-section + .pano-section { margin-top: 12px; }
+.pano-section[open] { background: var(--paper); border-color: var(--ink); }
+.pano-section summary { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 14px 20px; cursor: pointer; list-style: none; }
+.pano-section summary::-webkit-details-marker { display: none; }
+.pano-section summary .title { display: flex; align-items: baseline; gap: 10px; font-weight: 700; font-size: 1.15rem; }
+.pano-section summary .title::before { content: "+"; font-family: var(--sans); font-size: .9rem; color: var(--slate2); }
+.pano-section[open] summary .title::before { content: "−"; }
+.pano-section summary .hint { font-weight: 400; font-size: .95rem; color: var(--muted); font-style: italic; }
+.pano-section .prose { padding: 0 20px 18px; }
+.prose :is(h3, h4) { font-size: 1.15rem; margin: 18px 0 6px; }
+.prose p { margin: 0 0 12px; }
+.prose ul, .prose ol { margin: 0 0 12px; padding-left: 24px; }
+.prose li { margin-bottom: 4px; }
+.prose table { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: .95rem; }
+.prose th, .prose td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.prose th { background: var(--soft); font-weight: 700; }
+.prose code { font-family: var(--mono); font-size: .88em; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+.prose pre { background: var(--soft); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+.prose pre code { background: none; padding: 0; }
+.pano-ask { padding: 22px 24px; border: 3px dashed var(--slate2); border-radius: 14px; background: var(--soft2); display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.pano-ask h2 { font-size: 1.5rem; }
+.pano-ask p { margin: 0; color: var(--slate); }
+.pano-aside { min-width: 0; }
+.pano-note { margin: 16px 0 0; font-size: .95rem; color: var(--muted); font-style: italic; }
+
+/* the map: a sheet of paper that travels and zooms */
+.pano-map-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.pano-map-bar .pano-lead { flex: 1; min-width: 220px; margin: 0; }
+.pano-lead { color: var(--slate); font-size: 1rem; }
+.pano-controls { display: flex; gap: 4px; margin-left: auto; }
+.pano-controls .icon-btn { font-size: 1.3rem; font-weight: 700; border-color: var(--line); background: var(--paper); }
+.pano-canvas { position: relative; overflow: hidden; height: clamp(420px, 60vh, 700px); border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); cursor: grab; touch-action: none; }
+.pano-canvas:active { cursor: grabbing; }
+.pano-svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.pano-frame rect { fill: var(--soft); stroke: var(--line); stroke-width: 2; stroke-dasharray: 6 5; }
+.pano-frame text { fill: var(--slate); font-family: var(--sans); font-size: 13px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
+.pano-edge { fill: none; stroke: var(--slate2); stroke-width: 1.6; opacity: .75; }
+.pano-node { cursor: pointer; }
+.pano-node rect { fill: var(--paper); stroke: var(--ink); stroke-width: 2; }
+.pano-node.loose rect { stroke-dasharray: 5 4; }
+.pano-node-title { fill: var(--ink); font-family: var(--serif); font-size: 14px; }
+.pano-node-meta { fill: var(--slate); font-family: var(--sans); font-size: 11.5px; font-style: italic; }
+.pano-node:hover rect, .pano-node:focus-visible rect { stroke: var(--blue); stroke-width: 3; }
+.pano-node.on rect { stroke: var(--blue); stroke-width: 3.5; }
+.pano-node.on .pano-node-title { font-weight: 700; }
+.pano-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: .95rem; color: var(--slate); }
+.pano-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.pano-legend i { width: 16px; height: 16px; border: 2px solid var(--line); border-radius: 4px; }
+/* the opened dependency: what it needs, and which part of the route explains it */
+.pano-detail { padding: 24px 24px 22px; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); }
+.pano-detail h3 { font-size: 1.5rem; line-height: 1.15; margin-bottom: 10px; }
+.pano-meta-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.pano-chip { display: inline-block; padding: 2px 10px; border: 2px solid var(--line); background: var(--fill); color: var(--text); font-size: .88rem; font-weight: 700; border-radius: 999px; }
+.pano-deps { margin-bottom: 16px; }
+.pano-deps h4 { font-family: var(--sans); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; color: var(--slate2); margin-bottom: 6px; }
+.pano-deps ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pano-deps p { margin: 0; font-size: .95rem; }
+.pano-link { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--blue); cursor: pointer; font-size: 1rem; }
+.pano-link:hover { background: var(--blue-s); }
+.pano-link .n { font-family: var(--mono); font-size: .82rem; color: var(--slate2); flex: none; }
+.pano-part { margin-top: 18px; padding-top: 16px; border-top: 2px solid var(--line); display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.pano-part-name { margin: 0; font-size: 1.05rem; }
+
+@media (max-width: 1100px) {
+  .pano-body { grid-template-columns: minmax(0, 1fr); gap: 30px; }
+  .pano-aside .aside-sticky { position: static; }
+  .pano-canvas { height: clamp(360px, 52vh, 560px); }
+}
+@media (max-width: 720px) {
+  .pano-tab { padding: 9px 12px; font-size: .95rem; }
+  .pano-canvas { height: 58vh; border-radius: 10px; }
+  .pano-detail { padding: 18px 16px; }
+}

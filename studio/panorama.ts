@@ -44,13 +44,21 @@ export type MapGraph = {
   classes: Record<string, { fill: string; stroke: string; color: string }>;
 };
 
+/**
+ * A line of the label, already placed: the studio draws text exactly where the
+ * layout put it, so the picture cannot drift when the browser measures fonts.
+ */
+export type PlacedLine = { text: string; y: number };
+
 /** A node with a place on the picture and the part of the route that explains it. */
 export type PlacedNode = MapNode & {
   x: number;
   y: number;
   w: number;
   h: number;
-  lines: string[];
+  lines: PlacedLine[];
+  /** Baseline of the status line, when the label has one. */
+  metaY: number;
   part: { id: string; number: number; title: string; written: boolean } | null;
   /** The subtema a person would ask the tutor to write when no part covers this node yet. */
   request: string | null;
@@ -92,7 +100,7 @@ const FLOWCHART = /^\s*(?:flowchart|graph)\s+(TB|TD|BT|LR|RL)\b/;
 const SUBGRAPH = /^\s*subgraph\s+([\w-]+)\s*(?:\[\s*"([^"]*)"\s*\])?/;
 const CLASSDEF = /^\s*classDef\s+([\w-]+)\s+(.+)$/;
 const CLASS = /^\s*class\s+([\w,-]+)\s+([\w-]+)\s*$/;
-const NODE_REF = /^([\w-]+)\s*(?:\[\s*"((?:[^"\\]|\\.)*)"\s*\])?\s*(?:::([\w-]+))?/;
+const NODE_REF = /^([\w-]+)\s*(?:\[\s*"((?:[^"\\]|\\.)*)"\s*\])?\s*(?:[:]{3}([\w-]+))?/;
 /** `1.1.1 Algo`, `P0.1 Algo`, `1.2.1a Algo`: a numbered concept of the map. */
 const NUMBERED = /^((?:P\d+(?:\.\d+)*)|\d+(?:\.\d+)*[a-z]?)\s+(.+)$/;
 const FENCE_MERMAID = /```mermaid[^\n]*\n([\s\S]*?)```/g;
@@ -156,23 +164,32 @@ const splitSections = (markdown: string): { title: string; markdown: string }[] 
  * repeating it as text would be the same content twice. Any diagram of a kept section is
  * removed too, and only its count survives, so the browser never has to render Mermaid here.
  */
+/** A section heading without its numbering: `11. Bitácora` reads as `Bitácora`. */
+const heading = (title: string) => title.replace(/^\d+\.\s*/, "").trim();
+
+/** Sections the panorama draws itself: the map has its own view, the table is the route. */
+const SELF_RENDERED = /^(?:mapa\s+de\s+dependencias|tabla\s+de\s+plan)$/i;
+
 export function parsePlan(markdown: string): PlanDoc {
   const meta = frontmatter(markdown);
   const title = /^\s*#\s+(.+)$/m.exec(markdown)?.[1]?.trim() || meta.tema || "";
+  const raw = splitSections(markdown);
+  const table = raw.find((section) => /tabla\s+de\s+plan/i.test(section.title));
+  const rows: PlanRow[] = table
+    ? tableRows(table.markdown)
+        .filter((cells) => cells.length >= 4 && cells[0])
+        .map(([subtema, knows, depth, why]) => ({ subtema, knows, depth, why }))
+    : [];
   const sections: PlanSection[] = [];
-  for (const section of splitSections(markdown)) {
-    if (/^mapa\s+de\s+dependencias$/i.test(section.title.replace(/^\d+\.\s*/, "").trim())) continue;
+  for (const section of raw) {
+    // The map has its own view and the table already is the route: neither is
+    // prose the reader needs to read twice.
+    if (SELF_RENDERED.test(heading(section.title))) continue;
     const diagrams = [...section.markdown.matchAll(FENCE_MERMAID)].length;
     const text = section.markdown.replace(FENCE_MERMAID, "").trim();
     if (!text) continue;
     sections.push({ id: slug(section.title), title: section.title, markdown: text, diagrams });
   }
-  const aim = sections.find((section) => /tabla\s+de\s+plan/i.test(section.title));
-  const rows: PlanRow[] = aim
-    ? tableRows(aim.markdown)
-        .filter((cells) => cells.length >= 4 && cells[0])
-        .map(([subtema, knows, depth, why]) => ({ subtema, knows, depth, why }))
-    : [];
   return { title, date: meta.fecha ?? "", score: meta.diagnostico_puntaje ?? null, rows, sections };
 }
 
@@ -232,7 +249,7 @@ export function planRoute(plan: PlanPart[], doc: PlanDoc | null, written: (id: s
  * `1.2.1.3`, because the tutor wrote that part for the `1.2.1` branch). The most specific
  * part wins, so `1.1.2` goes to the part written for it and not to the `1.1` overview.
  */
-export function partFor(number: string, parts: PlanPart[]): PlanPart | null {
+export function partFor<T extends PlanPart>(number: string, parts: T[]): T | null {
   const covers = (subtema: string) => {
     if (!subtema) return false;
     const base = baseSubtema(subtema);
@@ -288,7 +305,13 @@ export function parseMap(source: string): MapGraph {
       for (const id of assign[1].split(",")) pending.push({ id: id.trim(), status: assign[2] });
       continue;
     }
-    if (!line.includes("-->")) continue;
+    if (!line.includes("-->")) {
+      // A concept can be declared on its own line: no arrow, but still a box the
+      // learner can open, so the map keeps it. A line that names neither a label nor
+      // a class is another Mermaid directive and stays out.
+      const alone = NODE_REF.exec(line);
+      if (!alone || (alone[2] === undefined && alone[3] === undefined)) continue;
+    }
     const refs: { id: string; label?: string; status?: string }[] = [];
     for (const chunk of line.split("-->")) {
       for (const segment of chunk.split("&")) {
@@ -465,7 +488,7 @@ export function layoutMap(graph: MapGraph, route: RoutePart[]): MapLayout {
   for (const column of columns) {
     for (const node of column.nodes) {
       const spot = placed.get(node.id)!;
-      const lines = wrap(node.title, WRAP);
+      const lines = wrap(node.title, WRAP).map((text, row) => ({ text, y: PAD_Y + 12 + row * LINE_H }));
       const part = node.number ? partFor(node.number, route) : null;
       nodes.push({
         ...node,
@@ -474,6 +497,7 @@ export function layoutMap(graph: MapGraph, route: RoutePart[]): MapLayout {
         w: NODE_W,
         h: spot.h,
         lines,
+        metaY: PAD_Y + 12 + lines.length * LINE_H,
         part: part ? { id: part.id, number: part.number, title: part.title, written: part.written } : null,
         request: part ? null : requestSubtema(node.number),
       });

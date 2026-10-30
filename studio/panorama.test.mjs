@@ -76,7 +76,7 @@ const TOPIC = {
   ],
 };
 
-test("the plan keeps its prose, its score and its focus table without the map section", () => {
+test("the plan keeps its prose and its table without the sections the panorama draws itself", () => {
   const plan = parsePlan(PLAN);
   assert.equal(plan.title, "Planificador de Estudio: Paradigma Relacional");
   assert.equal(plan.date, "2026-10-14");
@@ -88,8 +88,8 @@ test("the plan keeps its prose, its score and its focus table without the map se
   assert.equal(plan.rows[1].why, "Falló d1");
   assert.deepEqual(
     plan.sections.map((section) => section.title),
-    ["Resultado", "Tabla de plan", "Ruta"],
-    "the dependency map is a view of its own, so the plan does not repeat it as text",
+    ["Resultado", "Ruta"],
+    "the map has its own view and the table already is the route, so neither is prose here",
   );
   assert.ok(!JSON.stringify(plan.sections).includes("flowchart"), "no diagram survives in a prose section");
   assert.equal(plan.sections[0].id, "resultado");
@@ -126,6 +126,27 @@ test("the map reads its subgraphs, its own node labels and its status classes", 
   );
   assert.equal(graph.edges.length, 4);
   assert.deepEqual(graph.classes.neu, { fill: "#eceef1", stroke: "#8b95a7", color: "#3d4451" });
+});
+
+test("a concept the tutor declares without an edge still belongs to the map", () => {
+  const graph = parseMap(`flowchart LR
+  subgraph M1_3 ["1.3 Puertos"]
+    N1_3_1["1.3.1 Qué es un puerto<br/>⚪ no evaluado"]:::neu
+  end
+  N1_3_1 --> N1_3_2["1.3.2 Puerto efímero<br/>⚪ no evaluado"]:::neu
+  N1_3_9["1.3.9 Puerto reservado<br/>⚪ no evaluado"]:::neu
+  classDef neu fill:#eceef1,stroke:#8b95a7,color:#3d4451;
+`);
+  assert.deepEqual(
+    graph.nodes.map((node) => node.id),
+    ["N1_3_1", "N1_3_2", "N1_3_9"],
+    "a concept with no arrows is still a concept to open and read",
+  );
+  const loner = graph.nodes[2];
+  assert.equal(loner.number, "1.3.9");
+  assert.equal(loner.title, "Puerto reservado");
+  assert.equal(loner.status, "neu");
+  assert.equal(graph.edges.length, 1);
 });
 
 test("the map lays its subgraphs out as columns the route can be read through", () => {

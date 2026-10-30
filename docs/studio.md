@@ -24,7 +24,48 @@ remembered per browser, so it survives a reload and a studio restart; below 1080
 the text stays in one column even with the mode on. Interactive apps and the
 mini-quiz are not affected: only the explanation text is a reading surface.
 
-## HTTPS reverse proxy
+## Panorama del tema
+
+Every topic page carries **Panorama del tema**: the whole picture of one topic,
+in two views that share one header.
+
+- `#/panorama/<topic>` is **Planificación**: the route built from `plan.json` and
+the tutor's `planificador.md` — one row per part with its `subtema`, what the
+diagnosis knew, the depth the plan asked for and the reason it gave, then the
+plan's own sections as openable blocks (the first one open). A part the tutor
+still owes is a request («Escribir esta parte»), not a dead label.
+- `#/panorama/<topic>/mapa` is **Mapa de dependencias**: `mapa.mmd` drawn by the
+studio itself, one column and frame per `subgraph` (that is, per subtema),
+`classDef` colours as the node tone, drag to travel and the wheel to zoom. Any
+box opens: what it needs, what it unlocks, and the part of the route that
+explains it, with the button that reads it or asks for it.
+
+The two views never repeat each other: `parsePlan` drops the
+table under the /^tabla de plan$/i. heading (it already is the route) and the
+/^mapa de dependencias$/i. section, whose Mermaid diagram is replaced by the map
+view, and counts it so the section can say «su diagrama vive en el mapa».
+
+### Which part explains a concept
+
+A concept's number and a part's `subtema` do not always have the same depth: the
+map writes `1.2.1.3`, while a part may carry `1.2.1a`.
+
+The rule is one function, `partFor`, and it is covered by tests:
+
+1. strip the trailing letters of the `subtema` (`1.2.1a` → `1.2.1`);
+2. a number belongs to a `subtema` when it equals it or starts with it plus a
+dot (`1.2.1` covers `1.2.1`, `1.2.1.3`; it does not cover `1.2.10`);
+3. when several `subtemas` cover it, the longest one wins.
+
+A concept no part covers is not a dead end: the box says so and offers
+«Pedir la parte de (subtema)», a request whose text names the subtema the tutor
+should write. The request names the number itself when the subtema stops at three
+segments, and its parent when the concept sits four levels deep.
+
+The map is drawn by the studio, not by Mermaid: the shell page loads marked and
+DOMPurify only, and a picture whose boxes must open, follow a pointer and hold
+their own detail panel needs geometry the client owns.
+
 
 For HTTPS on a private network through a TLS reverse proxy (the VPS uses Caddy on
 its ZeroTier address, see `docs/deploy-vps.md`), keep both listeners on loopback
