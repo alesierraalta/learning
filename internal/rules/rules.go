@@ -95,6 +95,15 @@ var canonicalOrder = []string{
 
 var canonicalPartStages = []string{"explanation", "own_words", "quiz", "feedback", "adaptation"}
 
+// The strict university flow takes the mini-quiz before the learner's own words.
+var strictOrder = []string{
+	"preparation", "diagnosis", "planning",
+	"explanation", "quiz", "own_words", "feedback", "adaptation",
+	"exercises", "final_quiz", "final",
+}
+
+var strictPartStages = []string{"explanation", "quiz", "own_words", "feedback", "adaptation"}
+
 // CheckDecl is a simple, closed check declaration: id, kind and artifact
 // paths. There is no general expression language to misread.
 type CheckDecl struct {
@@ -295,11 +304,15 @@ func (r *Rules) validate() error {
 	if r.Version != 1 {
 		return fmt.Errorf("unsupported rules version %d (want 1)", r.Version)
 	}
-	if !slices.Equal(r.StageOrder, canonicalOrder) {
-		return fmt.Errorf("stageOrder must be exactly %v", canonicalOrder)
+	wantOrder, wantParts := canonicalOrder, canonicalPartStages
+	if r.Thresholds.StrictFlow {
+		wantOrder, wantParts = strictOrder, strictPartStages
 	}
-	if !slices.Equal(r.PartStages, canonicalPartStages) {
-		return fmt.Errorf("partStages must be exactly %v", canonicalPartStages)
+	if !slices.Equal(r.StageOrder, wantOrder) {
+		return fmt.Errorf("stageOrder must be exactly %v", wantOrder)
+	}
+	if !slices.Equal(r.PartStages, wantParts) {
+		return fmt.Errorf("partStages must be exactly %v", wantParts)
 	}
 	if err := r.validateThresholds(); err != nil {
 		return err

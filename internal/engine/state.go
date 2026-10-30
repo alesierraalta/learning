@@ -41,6 +41,9 @@ type PartState struct {
 	// FailedExplanationHash is the explanation snapshot taken when an attempt
 	// failed; the next attempt requires a genuinely changed explanation (B4).
 	FailedExplanationHash string `json:"failedExplanationHash,omitempty"`
+	// Failed closes a strict-flow part as failed: it owes a remedial part.
+	Failed        bool   `json:"failed,omitempty"`
+	FailedBecause string `json:"failedBecause,omitempty"`
 }
 
 // SemanticReceipt binds a recorded review to artifact, rules and context

@@ -22,6 +22,31 @@ func strictRulesFile(t *testing.T) string {
 		t.Fatal(err)
 	}
 	doc["thresholds"].(map[string]any)["strictFlow"] = true
+	// The strict part order is the production one: mini-quiz before own words.
+	prodRaw, err := os.ReadFile(productionRulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prod map[string]any
+	if err := json.Unmarshal(prodRaw, &prod); err != nil {
+		t.Fatal(err)
+	}
+	doc["stageOrder"], doc["partStages"] = prod["stageOrder"], prod["partStages"]
+	// The quiz comes first, so its reviews cannot read the own words written after it.
+	for _, raw := range doc["rubrics"].([]any) {
+		rub := raw.(map[string]any)
+		if rub["stage"] != "quiz" {
+			continue
+		}
+		ctx, _ := rub["context"].([]any)
+		var keep []any
+		for _, c := range ctx {
+			if c != "own-words" {
+				keep = append(keep, c)
+			}
+		}
+		rub["context"] = keep
+	}
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		t.Fatal(err)

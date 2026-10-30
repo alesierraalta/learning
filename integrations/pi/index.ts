@@ -424,6 +424,22 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     // the gate's custom message. Only the correction budget bounds the gate.
     // Parts without pauses: an unwritten explanation is owed by the chat, not
     // by the learner, so the turn does not end before the part exists.
+    if (passing && outcome.report.nextStage === "remedial") {
+      const failed = outcome.report.part ?? "";
+      if (!push(`remedial:${failed}`)) return undefined;
+      return {
+        entries: [{
+          type: "custom_message",
+          customType: GATE_TYPE,
+          display: true,
+          content:
+            `Learning engine: part ${failed} failed. Read the learner's quiz answers, reasoning and own words, work out why they failed and what they did understand, ` +
+            `then add a remedial part right after it in plan.json with "remedia" (the planned part it remedies) and "analisis" (that diagnosis). ` +
+            "Write its explanation for exactly that gap and a mini-quiz with new questions (never one asked before), validate and advance, then present it.",
+        }],
+        continue: true,
+      };
+    }
     const method = typeof outcome.report.method === "string" ? outcome.report.method : "";
     if (passing && method && outcome.report.nextStage === "planning" && outcome.report.status !== "waiting") {
       if (!push("planning")) return undefined;

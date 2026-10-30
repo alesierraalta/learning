@@ -329,6 +329,10 @@ func runStatus(ws string, r *rules.Rules) (Report, int) {
 		return report(Report{Status: "completed", Stage: "final", NextStage: "", Checks: checks}, ExitOK)
 	}
 
+	if fStage == stageRemedial {
+		checks = append(checks, skipCheck("remedial-part", "part "+fPart+" failed: analyse why and declare its remedial part in plan.json"))
+		return report(Report{Status: "accepted", Stage: fStage, NextStage: fStage, Part: fPart, Checks: checks}, ExitOK)
+	}
 	if fStage == stageMethod {
 		// The chat owes the question, not the learner: the settle gate makes it ask.
 		checks = append(checks, skipCheck("method-chosen", "ask the learner how to be taught (pareto or preferencias) and record it with the method command"))
@@ -435,6 +439,9 @@ func runStage(opts Options, ws string, r *rules.Rules) (Report, int) {
 	if fStage == stageMethod {
 		return blocked([]Check{methodPending()}, stageMethod, stageMethod, "", ExitFailedCheck)
 	}
+	if fStage == stageRemedial {
+		return blocked([]Check{remedialPending(fPart)}, stageRemedial, stageRemedial, fPart, ExitFailedCheck)
+	}
 	requested := opts.Stage
 	if requested == "" { // validate without --stage targets the frontier
 		if complete {
@@ -530,6 +537,10 @@ func runFrontierStage(_ bool, requested, fStage, fPart string, stale []staleRef,
 
 	res := evalStage(r, st, ws, requested, part)
 	checks = append(checks, res.checks...)
+	if res.evidence == nil {
+		res.evidence = map[string]any{}
+	}
+	checks = append(checks, strictChecks(r, st, ws, requested, part, res.evidence)...)
 	if hasFAIL(checks) {
 		if hasCheckID(checks, "rules-invalid") {
 			return errorReport(checkReason(checks, "rules-invalid")), ExitOperational
@@ -569,6 +580,11 @@ func runFrontierStage(_ bool, requested, fStage, fPart string, stale []staleRef,
 		return blocked(checks, requested, fStage, fPart, ExitFailedCheck)
 	}
 
+	// Strict flow: a failed part is closed and owes a remedial part, without a cap.
+	if failure := strictFailure(r, st, requested, part, res.evidence); failure != "" {
+		return failPart(r, st, ws, requested, part, failure, res, checks)
+	}
+
 	// Bounded re-teaching: a failing mini-quiz, or a central gap in the
 	// learner's own words, routes the part back to explanation.
 	if requested == "quiz" && !evidenceBool(res.evidence, "quizPassed") {
@@ -591,6 +607,11 @@ func runFrontierStage(_ bool, requested, fStage, fPart string, stale []staleRef,
 		if err := enrollParts(r, st, ws); err != nil {
 			return errorReport(err.Error()), ExitOperational
 		}
+	}
+
+	// A remedial part declared in the plan joins the recorded order when it is taught.
+	if r.Thresholds.StrictFlow && part != "" {
+		st.PartOrder = loadStrictPlan(r, st, ws).order
 	}
 
 	receipts, err := buildReceipts(r, ws, requested, part)
@@ -688,7 +709,14 @@ func frontier(r *rules.Rules, st *State, ws string) (stage, part string, complet
 			return s, "", false
 		}
 	}
-	for _, p := range st.PartOrder {
+	sp := loadStrictPlan(r, st, ws)
+	for at, p := range sp.order {
+		if ps := st.Parts[p]; ps != nil && ps.Failed {
+			if sp.remedialOwed(at) {
+				return stageRemedial, p, false
+			}
+			continue
+		}
 		for _, s := range r.PartStages {
 			ps := st.Parts[p]
 			if ps == nil {

@@ -852,6 +852,23 @@ test("settle walks from the chosen method through planning to part 1", async () 
   assert.notEqual((await settle(host))?.continue, true, "each stage stays bounded");
 });
 
+// S6: a failed part is not left waiting for the learner to ask: the tutor analyses the
+// failure and writes the remedial part right away.
+test("settle makes the tutor write the remedial part a failed part owes", async () => {
+  const env = { root: REPO_ROOT, topic: join(REPO_ROOT, "internal"), engine: fileURLToPath(import.meta.url) };
+  const report = { status: "accepted", stage: "remedial", checks: [passCheck], nextStage: "remedial", part: "p1", method: "preferencias" };
+  const { host } = install(env, async () => ({ code: 0, stdout: JSON.stringify(report), stderr: "" }));
+  await enroll(host);
+  const result = await settle(host);
+  assert.equal(result?.continue, true);
+  assert.match(result.entries[0].content, /p1/);
+  assert.match(result.entries[0].content, /remedia/);
+  assert.match(result.entries[0].content, /analisis/);
+  assert.match(result.entries[0].content, /new questions/i);
+  assert.equal((await settle(host))?.continue, true);
+  assert.notEqual((await settle(host))?.continue, true, "bounded");
+});
+
 test("settle does not plan on its own for a run without a chosen method", async () => {
   const env = tempEnv();
   const { host } = install(env, async () => ({

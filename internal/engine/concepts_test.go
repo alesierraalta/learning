@@ -245,9 +245,16 @@ func throughConceptPlanning(t *testing.T) *fixture {
 	f.advanceOK(t, "planning")
 	f.writeExplanation(t, "p1", true, "v1")
 	f.advanceOK(t, "explanation")
-	f.writeOwnWords(t, "p1")
-	f.advanceOK(t, "own_words")
 	return f
+}
+
+// ownWordsUnderstood closes the own words of a part the tutor judged understood
+// (production rules take the mini-quiz first, then the own words).
+func (f *fixture) ownWordsUnderstood(t *testing.T, part string) {
+	t.Helper()
+	f.writeOwnWords(t, part)
+	f.writeVuelco(t, part, true, "Explica el caso con su propio ejemplo y conecta cada paso.")
+	f.advanceOK(t, "own_words")
 }
 
 func conceptQuiz(n int) []quizQuestionWire {
@@ -337,6 +344,7 @@ func TestConceptVerdictsRefuseSilence(t *testing.T) {
 	f.writeConceptQuiz(t, qs)
 	f.writeConceptAnswers(t, qs, nil, "q1")
 	f.advanceOK(t, "quiz")
+	f.ownWordsUnderstood(t, "p1")
 	f.writeConceptFeedback(t, verdict("T.p1", "claro", "q1", "el valor existe"))
 	f.advanceExpectBlocked(t, "feedback", "concept-verdicts", "no reasoning to quote")
 }
@@ -370,22 +378,22 @@ func TestConceptMiniQuizPassesAtTwoThirds(t *testing.T) {
 	f.writeConceptQuiz(t, qs)
 	f.writeConceptAnswers(t, qs, reasonsFor("q1", "q2", "q3"), "q1")
 	rep := f.advanceOK(t, "quiz")
-	if rep.NextStage != "explanation" {
-		t.Fatalf("1/3 re-teaches the part: nextStage %q", rep.NextStage)
+	if rep.NextStage != "remedial" {
+		t.Fatalf("1/3 fails the part and owes a remedial part: nextStage %q", rep.NextStage)
 	}
 
 	f = throughConceptPlanning(t)
 	f.writeConceptQuiz(t, qs)
 	f.writeConceptAnswers(t, qs, reasonsFor("q1", "q2", "q3"), "q1", "q2")
 	rep = f.advanceOK(t, "quiz")
-	if rep.Evidence["quizPassed"] != true || rep.NextStage != "feedback" {
-		t.Fatalf("2/3 without a central miss passes: passed=%v next=%q", rep.Evidence["quizPassed"], rep.NextStage)
+	if rep.Evidence["quizPassed"] != true || rep.NextStage != "own_words" {
+		t.Fatalf("2/3 without a central miss passes to the own words: passed=%v next=%q", rep.Evidence["quizPassed"], rep.NextStage)
 	}
 }
 
-// A laguna on a concept of a central question re-teaches the part; on a
-// non-central question it is recorded without blocking.
-func TestConceptLagunaOnACentralQuestionReteaches(t *testing.T) {
+// A laguna on a concept of a central question fails the part (it owes a remedial
+// part); on a non-central question it is recorded without blocking.
+func TestConceptLagunaOnACentralQuestionFailsThePart(t *testing.T) {
 	qs := conceptQuiz(3)
 	r := reasonsFor("q1", "q2", "q3")
 	pass := func(t *testing.T) *fixture {
@@ -393,6 +401,7 @@ func TestConceptLagunaOnACentralQuestionReteaches(t *testing.T) {
 		f.writeConceptQuiz(t, qs)
 		f.writeConceptAnswers(t, qs, r, "q1", "q2", "q3")
 		f.advanceOK(t, "quiz")
+		f.ownWordsUnderstood(t, "p1")
 		return f
 	}
 
@@ -401,22 +410,22 @@ func TestConceptLagunaOnACentralQuestionReteaches(t *testing.T) {
 	f.advanceExpectBlocked(t, "feedback", "concept-verdicts", "conceptos")
 
 	f.writeConceptFeedback(t, quizVerdicts(qs, r, "q3/P0.1")...)
-	if rep := f.advanceOK(t, "feedback"); rep.NextStage == "explanation" {
-		t.Fatal("a laguna on a non-central question must not re-teach")
+	if rep := f.advanceOK(t, "feedback"); rep.NextStage == "remedial" {
+		t.Fatal("a laguna on a non-central question must not fail the part")
 	}
 
 	f = pass(t)
 	f.writeConceptFeedback(t, quizVerdicts(qs, r, "q1/P0.1")...)
 	rep := f.advanceOK(t, "feedback")
-	if rep.NextStage != "explanation" || rep.Part != "p1" {
-		t.Fatalf("a central laguna re-teaches: next %q part %q", rep.NextStage, rep.Part)
+	if rep.NextStage != "remedial" || rep.Part != "p1" {
+		t.Fatalf("a central laguna fails the part: next %q part %q", rep.NextStage, rep.Part)
 	}
 	p1 := f.state(t)["parts"].(map[string]any)["p1"].(map[string]any)
-	if rounds := p1["reteachRounds"].(float64); rounds != 1 {
-		t.Fatalf("reteachRounds = %v, want 1", rounds)
+	if p1["failed"] != true {
+		t.Fatalf("p1 = %v, want failed", p1)
 	}
 	if _, ok := p1["stages"].(map[string]any)["feedback"]; ok {
-		t.Fatal("feedback must not be recorded when a central laguna re-teaches")
+		t.Fatal("feedback must not be recorded when a central laguna fails the part")
 	}
 }
 
@@ -446,6 +455,7 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	}
 	prod := load(productionRulesPath)
 	delete(prod["thresholds"].(map[string]any), "concepts")
+	undoStrictFlow(prod)
 	delete(prod["thresholds"].(map[string]any), "strictFlow")
 	checks := prod["checks"].(map[string]any)
 	for stage, list := range checks {
@@ -469,5 +479,19 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	prod["rubrics"] = rubrics
 	if !reflect.DeepEqual(load(adaptiveRulesPath), prod) {
 		t.Fatal("testdata/rules-adaptive-diagnosis.json drifted from rules/deep.json outside the concept-diagnosis additions")
+	}
+}
+
+// undoStrictFlow maps the production rules back to the classic flow the fixture
+// keeps: no strictFlow, own words before the mini-quiz, and the quiz review
+// reading the own words again.
+func undoStrictFlow(doc map[string]any) {
+	delete(doc["thresholds"].(map[string]any), "strictFlow")
+	doc["stageOrder"] = []any{"preparation", "diagnosis", "planning", "explanation", "own_words", "quiz", "feedback", "adaptation", "exercises", "final_quiz", "final"}
+	doc["partStages"] = []any{"explanation", "own_words", "quiz", "feedback", "adaptation"}
+	for _, raw := range doc["rubrics"].([]any) {
+		if rub := raw.(map[string]any); rub["id"] == "distractor-quality" {
+			rub["context"] = append(rub["context"].([]any), "own-words")
+		}
 	}
 }

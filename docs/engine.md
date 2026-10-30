@@ -129,8 +129,35 @@ Every `status` report carries `method` once chosen. Rules snapshots without
 `strictFlow` (topics enrolled before it) go from the diagnosis straight to
 planning, and `method` refuses to run for them (exit 2).
 
+### Part loop (strict flow)
+
+Strict-flow rules take each part as explanation → `quiz` → `own_words` →
+`feedback` → `adaptation` (the mini-quiz comes before the learner's own words,
+so the quiz review no longer reads them). A part passes only when the mini-quiz
+passes **and** the tutor judged the own words understood:
+
+- `own_words` requires `vuelco/<part>.json` =
+  `{"entendio": true|false, "evidencia": "<what in the learner's words shows it>"}`
+  (check `own-words-verdict`); missing evidence blocks.
+- A failed mini-quiz, `entendio: false`, or a central gap/laguna at `feedback`
+  closes the part as failed (`state.parts[part].failed`, with `failedBecause`).
+  There is no re-teach budget: every failure owes a remedial part.
+- While a failed part owes it, the frontier is the pseudo-stage `remedial`
+  (`status` accepted; `validate`/`advance` blocked with `remedial-part`). The
+  tutor declares it right after the failed part in `plan.json`:
+  `{"id": "p1r1", ..., "remedia": "p1", "analisis": "<why the learner failed and what they did understand>"}`.
+  A failed remedial part owes another one with the same `remedia` (the planned
+  part), until one passes.
+- A remedial part is a normal part with two extra checks: `remedial-analysis`
+  at `explanation` (at least 40 characters of `analisis`) and `fresh-quiz` at
+  `quiz` (no question repeats an enunciado of an earlier attempt of the same
+  planned part). It joins `state.partOrder` when it is taught.
+- Remedial parts and their index lines do not stale the planning receipts:
+  the plan and index receipts leave them out.
+
 The Pi adapter's settle gate chains the strict flow without a learner prompt:
-it asks for the method, then plans and writes part 1, with a bounded number
+it asks for the method, then plans and writes part 1, and after a failed part
+makes the tutor analyse it and write the remedial part, with a bounded number
 of pushes per stage. It also refuses to write `plan.json` or `quiz.json` in a
 topic folder that has no engine run (`.learning/state.json`): the tutor
 enrolls the topic with `learning_stage` action `init` first.
