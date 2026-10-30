@@ -3,7 +3,7 @@
 // scrolling compose. Geometry is asserted, not eyeballed.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -37,6 +37,17 @@ async function topicPage(page, studio, width, height = 800) {
   await page.setViewportSize({ width, height });
   await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
   await page.waitForTimeout(400);
+}
+
+/** The prompts the fake Pi received, waiting for the first send to land. */
+async function sentPrompts(log) {
+  for (let i = 0; i < 50; i++) {
+    const lines = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean) : [];
+    const prompts = lines.map((line) => JSON.parse(line)).filter((c) => c.type === "prompt").map((c) => c.message);
+    if (prompts.length) return prompts;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return [];
 }
 
 const geometry = (page) =>
@@ -90,6 +101,72 @@ test("topic page does not overflow a phone viewport", { skip: browser ? false : 
   assert.ok(seen, "the topic page renders the continue card");
   assert.equal(seen.position, "static", "on a narrow screen nothing is pinned");
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
+});
+
+// The route is the page a learner lands on after the diagnosis, and a part the
+// tutor still owes is not a label: it is the next request, one per part.
+test("every part a topic still owes can be asked for from the route", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+  await topicPage(page, studio, 1280);
+  const pending = page.locator("li.part-row", { hasText: "TCP" });
+  assert.match(await pending.innerText(), /Todavía no escrita/);
+  await pending.getByRole("button", { name: "Escribir esta parte" }).click();
+
+  const sent = await sentPrompts(log);
+  assert.equal(sent.length, 1, "one request for the part the learner chose");
+  assert.match(sent[0], /Parte 2/);
+  assert.match(sent[0], /TCP/);
+  assert.match(sent[0], /redes/, "the tutor needs the folder");
+  assert.ok(await page.evaluate(() => document.body.classList.contains("drawer-open")), "the request lands in the chat the learner can follow");
+
+  // A topic the engine does not track still has parts the tutor can write.
+  rmSync(join(root, "redes", ".learning"), { recursive: true });
+  await page.reload({ waitUntil: "networkidle" });
+  assert.equal(await page.locator("li.part-row", { hasText: "TCP" }).getByRole("button", { name: "Escribir esta parte" }).count(), 1, "the action survives a topic without engine tracking");
+  assert.equal((await page.locator("article.continue .actions button").first().textContent()).trim(), "Escribir la Parte 2", "and it is the card's next step too");
+});
+
+// After the diagnosis the engine can sit on an explanation stage whose part has no
+// file yet: the card must ask for that part, not send the learner back to itself.
+test("the next step asks the tutor to write the part the engine names", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot({ status: { status: "waiting", stage: "explanation", nextStage: "explanation", part: "p2" } });
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+  await topicPage(page, studio, 1280);
+  const card = page.locator("article.continue");
+  assert.match(await card.innerText(), /La Parte 2 todavía no está escrita/);
+  const cta = card.locator(".actions button").first();
+  assert.notEqual((await cta.innerText()).trim(), "Ver el tema", "the card offers the action, not the page it is on");
+  await cta.click();
+  assert.match((await sentPrompts(log))[0], /Parte 2/);
+});
+
+// The engine may not name a part at all; the first one missing is still the one owed.
+test("the next step asks for the first missing part when the engine names none", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot({ status: { status: "waiting", stage: "explanation", nextStage: "explanation" } });
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+  await topicPage(page, studio, 1280);
+  const card = page.locator("article.continue");
+  await card.locator(".actions button").first().click();
+  assert.match((await sentPrompts(log))[0], /Parte 2/, "the missing part, not a vague follow-up");
 });
 
 // The bridge serves the part from another port, so the sheet is a cross-origin
@@ -687,4 +764,84 @@ test("results without a submission go back to the topic", { skip: browser ? fals
   const { studio, page } = await studioPage(t);
   await page.goto(`${studio.url}#/resultados/redes/p1`, { waitUntil: "networkidle" });
   await page.waitForFunction(() => location.hash === "#/tema/redes", null, { timeout: 5000 });
+});
+
+// The panorama is the wide surface for the whole topic: the plan the tutor wrote
+// and the map of concepts, each readable on its own, both openable.
+test("the panorama shows the plan as a route the learner can walk", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+  await page.goto(`${studio.url}#/panorama/redes`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".pano-head", { timeout: 5000 });
+
+  const chips = await page.locator(".pano-chips").textContent();
+  assert.match(chips, /1 de 2 partes escritas/, "the chips count what is written");
+  assert.match(chips, /3\/5/, "the diagnosis score comes from the plan's own header");
+  assert.match(chips, /4 conceptos en el mapa/, "and the map is part of the same picture");
+
+  const route = page.locator("ol.route li.part-row");
+  assert.equal(await route.count(), 2, "one row per part of the route");
+  assert.match(await route.first().innerText(), /Capas/);
+  assert.match(await route.first().innerText(), /1\.1/, "the row names the subtema the plan assigned");
+  assert.equal(await route.first().getByRole("button", { name: "Leer" }).count(), 1, "a written part opens");
+  assert.match(await route.nth(1).innerText(), /TCP/);
+  assert.equal(await route.nth(1).getByRole("button", { name: "Escribir esta parte" }).count(), 1, "an unwritten part is a request");
+
+  const titles = await page.locator("details.pano-section > summary .title").allInnerTexts();
+  assert.deepEqual(titles, ["Resultado", "Ruta"], "the prose sections stay, the map section does not");
+  assert.match(await page.locator("details.pano-section").first().innerText(), /Puntaje 3\/5/, "the first section is open with its own words");
+  const ruta = page.locator("details.pano-section").last();
+  await ruta.locator("summary").click();
+  assert.match(await ruta.innerText(), /Primero las capas, después el transporte/, "a closed section opens when the learner asks");
+  await page.locator(".pano-tabs").getByRole("tab", { name: "Mapa de dependencias" }).click();
+  await page.waitForFunction(() => location.hash === "#/panorama/redes/mapa", null, { timeout: 5000 });
+
+  // Without a map the panorama asks for one instead of showing an empty frame.
+  rmSync(join(root, "redes", "mapa.mmd"));
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForSelector(".pano-ask", { timeout: 5000 });
+  await page.locator(".pano-ask").getByRole("button", { name: "Pedir el mapa de dependencias" }).click();
+  const sent = await sentPrompts(log);
+  assert.match(sent[0], /mapa\.mmd/, "the missing piece is one request away");
+});
+
+// A concept is not a label: opening it says what it needs, what it unlocks and
+// which part of the route explains it, even when no part covers it yet.
+test("the panorama map opens a concept and reaches the part that explains it", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+  await page.goto(`${studio.url}#/panorama/redes/mapa`, { waitUntil: "networkidle" });
+  await page.waitForSelector("svg.pano-svg", { timeout: 5000 });
+  assert.equal(await page.locator("g.pano-node").count(), 4, "every concept the map declares is drawn");
+  assert.equal(await page.locator("g.pano-frame").count(), 2, "each subtema keeps its own frame");
+
+  const columns = await page.evaluate(() => [...document.querySelectorAll("g.pano-frame")].map((frame) => Math.round(frame.getBoundingClientRect().left)));
+  assert.ok(columns[1] > columns[0] + 100, "the subtemas sit side by side, not stacked in one column");
+
+  await page.locator('[data-node="N1_2_1_1"]').click();
+  const detail = page.locator(".pano-detail");
+  assert.match(await detail.innerText(), /Concepto 1\.2\.1\.1/);
+  assert.match(await detail.innerText(), /Puerto/);
+  assert.equal(await detail.getByRole("button", { name: /1\.1\.2/ }).count(), 1, "what the concept needs is a link to it");
+  assert.match(await detail.innerText(), /Parte 2 · TCP/, "the part that explains it is named");
+  await detail.getByRole("button", { name: "Escribir esta parte" }).click();
+  const sent = await sentPrompts(log);
+  assert.match(sent[0], /Parte 2/);
+  assert.match(sent[0], /TCP/);
+
+  await page.locator('[data-node="N1_9_1"]').click();
+  assert.match(await page.locator(".pano-detail").innerText(), /no tiene una parte para el subtema 1\.9\.1/, "a concept outside the route says so");
+  assert.equal(await page.locator(".pano-detail").getByRole("button", { name: "Pedir la parte de 1.9.1" }).count(), 1, "and the learner can ask for it");
 });

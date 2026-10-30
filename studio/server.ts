@@ -32,6 +32,7 @@ import {
 } from "../integrations/pi/bridge.ts";
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { resolveContained } from "../integrations/pi/paths.ts";
+import { buildPanorama } from "./panorama.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -43,6 +44,12 @@ const DRAFT_MAX_CHARS = 200_000;
 const MAX_PROMPT_CHARS = 20000;
 /** A configured token keeps the shape of a generated one, so a weak secret is refused. */
 const TOKEN_SHAPE = /^[a-f0-9]{64}$/;
+/**
+ * Notices the harness writes about its own plumbing (review authority, RDD
+ * status, swarms). They are for the operator driving Pi, not for someone
+ * studying: the chat keeps the tutor's notices and the studio log keeps these.
+ */
+const HARNESS_NOTICE = /^(?:gentle\s*ai|el\s+gentleman|gentle-ai)\b/i;
 const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
 /** The slides' serif: Tinos is metric-compatible with the Liberation Serif the decks render with. */
 const FONT_STYLESHEETS = [
@@ -303,7 +310,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           dialogs.set(record.id, dialog);
           emit("dialog", dialog);
         } else if (method === "notify" && typeof record.message === "string") {
-          emit("notice", { level: record.notifyType ?? "info", message: record.message });
+          if (!HARNESS_NOTICE.test(record.message.trim())) emit("notice", { level: record.notifyType ?? "info", message: record.message });
+          else process.stderr.write(`estudio: aviso del arnés fuera del chat · ${record.message}\n`);
         }
         return;
       }
@@ -713,6 +721,32 @@ ${scripts}
         return events(res);
       case "api/library":
         return sendJson(res, 200, await library());
+      case "api/panorama": {
+        const id = url.searchParams.get("topic") ?? "";
+        const summary = listTopics(root).find((topic) => topic.id === id);
+        if (!summary) throw new HttpError(404, `no such topic ${id}`);
+        const report = await engineStatus(join(root, summary.id));
+        const text = (name: string) => {
+          const found = resolveContained(root, join(root, summary.id, name));
+          return found.ok && existsSync(found.targetReal) ? readFileSync(found.targetReal, "utf8") : undefined;
+        };
+        return sendJson(
+          res,
+          200,
+          buildPanorama(
+            {
+              id: summary.id,
+              title: summary.title,
+              status: String(report.status ?? ""),
+              stage: String(report.stage ?? ""),
+              nextStage: String(report.nextStage ?? ""),
+              part: String(report.part ?? ""),
+              parts: summary.parts.map((part) => ({ id: part.id, title: part.title, written: part.written })),
+            },
+            { planJson: text("plan.json"), plan: text("planificador.md"), map: text("mapa.mmd") },
+          ),
+        );
+      }
       case "api/note": {
         const quick = url.searchParams.get("quick") ?? "";
         return sendJson(res, 200, readQuickNote(root, quick));

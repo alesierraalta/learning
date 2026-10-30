@@ -304,6 +304,27 @@ test("the conversation remembers the last part note the tutor wrote", () => {
   assert.equal(noteFromMessages(undefined), null);
 });
 
+// The chat is the learner's. The harness warns the operator through the same
+// channel (RDD status, review mode); a warning about the agent's plumbing in the
+// middle of a lesson is noise, so it stays in the studio's log.
+test("the chat hides the harness's own notices and keeps the tutor's", async (t) => {
+  process.env.FAKE_PI_NOTICES = JSON.stringify([
+    "Gentle AI: receipt-driven-development status is unavailable: native status could not be read. The parent prompt keeps the last known status.",
+    "Aviso del tutor",
+  ]);
+  t.after(() => {
+    delete process.env.FAKE_PI_NOTICES;
+  });
+  const { studio } = await setup();
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await post(studio, "prompt", { text: "hola" });
+  assert.deepEqual(await stream.next("notice"), { level: "info", message: "Aviso del tutor" }, "the tutor's notice is the first one the learner sees");
+  await stream.next("dialog");
+  assert.equal(stream.events.filter((e) => e.name === "notice").length, 1, "the harness notice never reaches the chat");
+  stream.close();
+});
+
 test("a prompt streams text, tool activity and a dialog whose answer goes back to Pi", async () => {
   const { studio, received } = await setup();
   const stream = sse(`${studio.url}events`);
@@ -641,4 +662,48 @@ test("opening a topic is remembered outside the vault and reported by the librar
   open.push(again);
   const kept = JSON.parse((await http(`${again.url}api/library`)).body);
   assert.equal(kept.topics.find((t) => t.id === "redes").opened, opened);
+});
+
+test("the panorama reaches the browser as one picture: plan, route and map", async () => {
+  const { studio, root } = await setup();
+  const topic = join(root, "redes");
+  writeFileSync(
+    join(topic, "plan.json"),
+    JSON.stringify({
+      topic: "Redes",
+      parts: [
+        { id: "p1", title: "Capas", slug: "Capas", subtema: "1.1", examplesPlanned: true, visualsPlanned: true },
+        { id: "p2", title: "TCP", slug: "TCP", subtema: "1.2.1a", examplesPlanned: true, visualsPlanned: false },
+      ],
+    }),
+  );
+  writeFileSync(
+    join(topic, "planificador.md"),
+    ["---", "tema: Redes", "fecha: 2026-10-30", "diagnostico_puntaje: 2/5", "---", "", "# Ruta de redes", "", "## Resultado", "", "- **Puntaje global**: **2/5**.", "", "## Tabla de plan", "", "| Subtema | Qué sabes | Profundidad | Por qué |", "|---|---|---|---|", "| `1.1` | 1/1 | Desde su base | Falló d1 |", "| `1.2.1` | ⚪ No evaluado | Completo | No evaluado |", ""].join("\n"),
+  );
+  writeFileSync(
+    join(topic, "mapa.mmd"),
+    ["flowchart TD", '  subgraph M1 ["1.1 Capas"]', '    N1["1.1.1 Qué es una capa<br/>⚪ no evaluado"]:::neu --> N2["1.1.2 Encapsulado<br/>evaluado en d1"]:::neu', "  end", '  subgraph M2 ["1.2.1 Transporte"]', '    N1 --> N3["1.2.1.1 TCP frente a UDP<br/>⚪ no evaluado"]:::neu', "  end", "  classDef neu fill:#eceef1,stroke:#8b95a7,color:#3d4451;", ""].join("\n"),
+  );
+
+  const answer = await http(`${studio.url}api/panorama?topic=redes`);
+  assert.equal(answer.status, 200);
+  const panorama = JSON.parse(answer.body);
+  assert.deepEqual(panorama.sources, { plan: true, planJson: true, map: true });
+  assert.equal(panorama.topic.title, "Redes");
+  assert.equal(panorama.plan.score, "2/5");
+  assert.deepEqual(
+    panorama.route.map((part) => [part.number, part.subtema, part.written, part.depth]),
+    [
+      [1, "1.1", true, "Desde su base"],
+      [2, "1.2.1a", false, "Completo"],
+    ],
+  );
+  const map = panorama.map.layout;
+  assert.equal(map.nodes.length, 3);
+  assert.equal(map.groups.length, 2);
+  assert.equal(map.nodes.find((node) => node.id === "N3").part.id, "p2", "a concept points at the part the tutor wrote for its branch");
+  assert.equal(map.nodes.find((node) => node.id === "N2").part.id, "p1");
+  assert.equal((await http(`${studio.url}api/panorama?topic=nope`)).status, 404);
+  assert.equal((await http(`${studio.url}api/panorama?topic=../etc`)).status, 404, "a topic id never leaves the root");
 });

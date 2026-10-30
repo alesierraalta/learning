@@ -21,6 +21,18 @@ const scriptedWrites = () => {
   }
 };
 const writes = scriptedWrites();
+// The notices a turn emits; the harness writes its own warnings through the same
+// channel, and a test needs both in the stream to tell the chat what to keep.
+const notices = () => {
+  if (!process.env.FAKE_PI_NOTICES) return ["Aviso del tutor"];
+  try {
+    return JSON.parse(process.env.FAKE_PI_NOTICES);
+  } catch (error) {
+    process.stderr.write(`FAKE_PI_NOTICES is not JSON: ${error.message}\n`);
+    process.exit(2);
+  }
+};
+const spoken = notices();
 
 const run = (message) => {
   out({ type: "agent_start" });
@@ -36,7 +48,7 @@ const run = (message) => {
     out({ type: "tool_execution_end", toolCallId: `t${i + 1}`, toolName: "write", isError });
   });
   out({ type: "extension_ui_request", id: "set-status", method: "setStatus", statusKey: "x", statusText: "y" });
-  out({ type: "extension_ui_request", id: "n1", method: "notify", message: "Aviso del tutor", notifyType: "info" });
+  spoken.forEach((message, i) => out({ type: "extension_ui_request", id: `n${i + 1}`, method: "notify", message, notifyType: "info" }));
   pendingDialog = "d1";
   out({ type: "extension_ui_request", id: "d1", method: "select", title: "¿Cómo quieres aprender?", options: ["Universitario", "Rápido con quiz"] });
 };
