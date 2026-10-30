@@ -973,7 +973,7 @@
   });
   // The tutor writes notes inside the vault: the chat hands back the way to the one it wrote.
   const noteRoute = (note) => {
-    if (note?.quick) return `#/rapido/${encodeURIComponent(note.quick)}`;
+    if (note?.quick) return library.quick.some((q) => q.id === note.quick) ? `#/rapido/${encodeURIComponent(note.quick)}` : null;
     const topic = note ? topicById(note.topic) : null;
     const part = topic ? topic.parts[note.index - 1] : null;
     return part ? `#/leer/${note.topic}/${part.id}` : null;
@@ -986,9 +986,14 @@
   };
   const noteButton = (note) => (noteRoute(note) ? btn("Ir a la nota", () => openNote(note), "btn small ghost", "book") : null);
   // A turn that wrote a note ends with the way to it, right under the explanation.
-  const offerNote = () => {
-    const button = noteButton(tutor.turnNote);
+  // The turn may have created the note's topic, so the library is read again before deciding.
+  const offerNote = async () => {
+    const note = tutor.turnNote;
     tutor.turnNote = null;
+    if (!note) return;
+    await loadLibrary();
+    showNote(note);
+    const button = noteButton(note);
     if (button) append(h("div", { class: "note-cta" }, button));
   };
   // The head keeps the way back to the last note the tutor wrote, so a reloaded tab still has it.

@@ -496,36 +496,79 @@ test("a deck whose word does not fit is refused and the typed text stays", { ski
 });
 
 // After the tutor builds an explanation, its reply ends with the way to the note it wrote.
-for (const [kind, written, hash] of [
-  ["part", "redes/explicaciones/Parte 1 - Capas.html", "#/leer/redes/p1"],
-  ["quick note", "rapidos/hash.md", "#/rapido/hash"],
-]) {
-  test(`the chat offers the ${kind} the tutor just wrote and opens it`, { skip: browser ? false : "playwright not installed" }, async (t) => {
-    const { root, engine, log } = makeRoot();
-    process.env.FAKE_PI_LOG = log;
-    process.env.FAKE_PI_WRITE = join(root, written);
-    t.after(() => delete process.env.FAKE_PI_WRITE);
-    const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
-    open.push(studio);
-    const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
-    t.after(() => page.context().browser().close());
-    await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+// `writes(root)` scripts the turn's writes (see FAKE_PI_WRITES in testdata/fake-pi.mjs).
+async function tutorTurn(t, writes) {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  process.env.FAKE_PI_WRITES = JSON.stringify(writes(root));
+  t.after(() => delete process.env.FAKE_PI_WRITES);
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
 
-    await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
-    await page.locator(".tutor-pill").click();
-    await page.getByLabel("Mensaje para el tutor").fill("Explícame algo.");
-    await page.getByLabel("Mensaje para el tutor").press("Enter");
-    await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).click();
-
-    const offer = page.locator(".thread .note-cta");
-    await offer.waitFor({ timeout: 10000 });
-    assert.equal(await offer.count(), 1, "one offer per turn");
-    assert.ok(
-      await page.evaluate(() => document.querySelector(".thread")?.lastElementChild?.matches(".note-cta")),
-      "the offer closes the turn, under the tutor's reply",
-    );
-    await offer.getByRole("button", { name: "Ir a la nota" }).click();
-    await page.waitForFunction((expected) => location.hash === expected, hash, { timeout: 5000 });
-    assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "the note is not hidden behind the tutor");
-  });
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.getByLabel("Mensaje para el tutor").fill("Explícame algo.");
+  await page.getByLabel("Mensaje para el tutor").press("Enter");
+  await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).click();
+  // The turn is over once the tutor is idle again and the library it changed is loaded.
+  await page.waitForFunction(() => /Listo/.test(document.querySelector(".drawer-head h2")?.textContent ?? ""), null, { timeout: 10000 });
+  await page.waitForLoadState("networkidle");
+  return { root, page, studio };
 }
+
+async function offersAndOpens(t, written, hash) {
+  const { page } = await tutorTurn(t, (root) => [{ path: join(root, written) }]);
+
+  const offer = page.locator(".thread .note-cta");
+  await offer.waitFor({ timeout: 10000 });
+  assert.equal(await offer.count(), 1, "one offer per turn");
+  assert.ok(
+    await page.evaluate(() => document.querySelector(".thread")?.lastElementChild?.matches(".note-cta")),
+    "the offer closes the turn, under the tutor's reply",
+  );
+  await offer.getByRole("button", { name: "Ir a la nota" }).click();
+  await page.waitForFunction((expected) => location.hash === expected, hash, { timeout: 5000 });
+  assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "the note is not hidden behind the tutor");
+}
+
+test("the chat offers the part the tutor just wrote and opens it", { skip: browser ? false : "playwright not installed" }, (t) =>
+  offersAndOpens(t, "redes/explicaciones/Parte 1 - Capas.html", "#/leer/redes/p1"));
+
+test("the chat offers the quick note the tutor just wrote and opens it", { skip: browser ? false : "playwright not installed" }, (t) =>
+  offersAndOpens(t, "rapidos/hash.md", "#/rapido/hash"));
+
+// The main flow: the first part of a topic that did not exist when the turn began.
+test("the chat offers the first part of a topic the tutor just created", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await tutorTurn(t, (root) => [
+    { path: join(root, "nuevo", "plan.json"), content: JSON.stringify({ topic: "Nuevo", parts: [{ id: "p1", title: "Intro", slug: "Intro" }] }) },
+    { path: join(root, "nuevo", "explicaciones", "Parte 1 - Intro.md"), content: "# Parte 1 — Intro\n" },
+  ]);
+  const library = await (await fetch(`${studio.url}api/library`)).json();
+  assert.ok(library.topics.some((topic) => topic.id === "nuevo"), "the library lists the new topic once the turn is over");
+  const offer = page.locator(".thread .note-cta");
+  assert.equal(await offer.count(), 1, "the new topic's part is offered");
+  await offer.getByRole("button", { name: "Ir a la nota" }).click();
+  await page.waitForFunction(() => location.hash === "#/leer/nuevo/p1", null, { timeout: 5000 });
+});
+
+test("a turn with several notes offers the last one written", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await tutorTurn(t, (root) => [{ path: join(root, "redes", "explicaciones", "Parte 1 - Capas.md") }, { path: join(root, "rapidos", "hash.md") }]);
+  const offer = page.locator(".thread .note-cta");
+  assert.equal(await offer.count(), 1, "one offer per turn");
+  await offer.getByRole("button", { name: "Ir a la nota" }).click();
+  await page.waitForFunction(() => location.hash === "#/rapido/hash", null, { timeout: 5000 });
+});
+
+async function offersNothing(t, writes) {
+  const { page } = await tutorTurn(t, writes);
+  assert.equal(await page.locator(".thread .note-cta").count(), 0, "no way to a note that is not there");
+}
+
+test("the chat offers no note for a write that failed", { skip: browser ? false : "playwright not installed" }, (t) =>
+  offersNothing(t, (root) => [{ path: join(root, "rapidos", "hash.md"), isError: true }]));
+
+test("the chat offers no note for a path the reader cannot open", { skip: browser ? false : "playwright not installed" }, (t) =>
+  offersNothing(t, (root) => [{ path: join(root, "redes", "explicaciones", "rapidos", "hash.md") }]));
