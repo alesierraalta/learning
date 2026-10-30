@@ -151,6 +151,32 @@ test("the reader bar stays compact and readable on a phone", { skip: browser ? f
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
 });
 
+test("the home ask field and section headings fit a phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 360, height: 760 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".ask-big input");
+  const seen = await page.evaluate(() => {
+    const form = document.querySelector(".ask-big");
+    const input = form.querySelector("input");
+    const lines = (node) => { const r = document.createRange(); r.selectNodeContents(node); return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size; };
+    return {
+      inputShare: input.getBoundingClientRect().width / form.clientWidth,
+      wrapped: [...document.querySelectorAll(".section-title h2")].filter((h2) => lines(h2) > 1).map((h2) => h2.textContent),
+      pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
+    };
+  });
+  assert.ok(seen.inputShare >= 0.85, `the ask field gets ${Math.round(seen.inputShare * 100)}% of its form`);
+  assert.deepEqual(seen.wrapped, [], "section titles break into several lines");
+  assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
+});
+
 // The tutorial slides are a 1920-wide canvas: on a phone they shrink to a few
 // pixels of text, so each step also reads as a caption and every control stays
 // a real touch target outside the scaled slide.
