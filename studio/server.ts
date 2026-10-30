@@ -32,6 +32,7 @@ import {
 } from "../integrations/pi/bridge.ts";
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { resolveContained } from "../integrations/pi/paths.ts";
+import { buildPanorama } from "./panorama.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -720,6 +721,32 @@ ${scripts}
         return events(res);
       case "api/library":
         return sendJson(res, 200, await library());
+      case "api/panorama": {
+        const id = url.searchParams.get("topic") ?? "";
+        const summary = listTopics(root).find((topic) => topic.id === id);
+        if (!summary) throw new HttpError(404, `no such topic ${id}`);
+        const report = await engineStatus(join(root, summary.id));
+        const text = (name: string) => {
+          const found = resolveContained(root, join(root, summary.id, name));
+          return found.ok && existsSync(found.targetReal) ? readFileSync(found.targetReal, "utf8") : undefined;
+        };
+        return sendJson(
+          res,
+          200,
+          buildPanorama(
+            {
+              id: summary.id,
+              title: summary.title,
+              status: String(report.status ?? ""),
+              stage: String(report.stage ?? ""),
+              nextStage: String(report.nextStage ?? ""),
+              part: String(report.part ?? ""),
+              parts: summary.parts.map((part) => ({ id: part.id, title: part.title, written: part.written })),
+            },
+            { planJson: text("plan.json"), plan: text("planificador.md"), map: text("mapa.mmd") },
+          ),
+        );
+      }
       case "api/note": {
         const quick = url.searchParams.get("quick") ?? "";
         return sendJson(res, 200, readQuickNote(root, quick));
