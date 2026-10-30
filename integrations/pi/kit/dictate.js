@@ -28,7 +28,7 @@
       const forget = () => { try { sessionStorage.removeItem(kept); } catch {} };
       try {
         const data = sessionStorage.getItem(kept);
-        const parts = data && /^data:([^;,]*)(?:;[^,]*)?;base64,(.*)$/.exec(data);
+        const parts = data && /^data:([^,]*?);base64,(.*)$/.exec(data);
         if (parts) {
           const bytes = Uint8Array.from(atob(parts[2]), c => c.charCodeAt(0));
           resting('Tienes una grabación sin transcribir: reenvíala.', new Blob([bytes], { type: parts[1] }));

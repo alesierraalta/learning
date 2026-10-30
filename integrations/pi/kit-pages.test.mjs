@@ -45,10 +45,12 @@ async function dictateAgainst(t, answers) {
   t.after(() => browser.close());
   const page = await browser.newPage();
   const bodies = [];
+  const types = [];
   await page.route('http://localhost:45678/**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/audio') {
       bodies.push(route.request().postDataBuffer());
+      types.push(route.request().headers()['content-type']);
       const [status, json] = answers[bodies.length - 1];
       return route.fulfill({ status, json });
     }
@@ -64,11 +66,11 @@ async function dictateAgainst(t, answers) {
   await page.waitForTimeout(400);
   await mic.click();
   await page.waitForFunction(() => ['Dictar', 'Reenviar audio'].includes(document.querySelector('.lk-mic')?.textContent) && !document.querySelector('.lk-mic').disabled);
-  return { page, mic, bodies };
+  return { page, mic, bodies, types };
 }
 
 test('a dictation sent to an expired page says to reload and keeps the recording for the reloaded page', { skip: !playwright && 'playwright not installed' }, async t => {
-  const { page, bodies } = await dictateAgainst(t, [[404, { error: 'not found' }], [200, { text: 'tras recargar' }]]);
+  const { page, bodies, types } = await dictateAgainst(t, [[404, { error: 'not found' }], [200, { text: 'tras recargar' }]]);
   const note = await page.locator('.lk-mic-note').textContent();
   assert.match(note, /recárgala/);
   assert.doesNotMatch(note, /not found/);
@@ -81,6 +83,7 @@ test('a dictation sent to an expired page says to reload and keeps the recording
   await page.waitForFunction(() => document.querySelector('textarea')?.value.endsWith('tras recargar'));
   assert.equal(bodies.length, 2);
   assert.ok(bodies[1].equals(bodies[0]), 'the reloaded page sent the same recording');
+  assert.equal(types[1], types[0], 'with the same audio type, codecs included');
   assert.equal(await mic.textContent(), 'Dictar');
 
   await page.reload();
