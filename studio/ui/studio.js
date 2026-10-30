@@ -781,7 +781,7 @@
   }
 
   // ---------- tutor ----------
-  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null };
+  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null, turnNote: null };
   const thread = h("div", { class: "thread", "aria-live": "polite" });
   const composerText = h("textarea", { rows: "1", "aria-label": "Mensaje para el tutor", placeholder: "Escribe al tutor…" });
   const stateLine = h("span", { class: "state" }, "Conectando…");
@@ -949,12 +949,16 @@
     thread.scrollTop = thread.scrollHeight;
   });
   on("state", (s) => {
+    if (tutor.busy && !s.busy) offerNote();
     tutor.busy = s.busy;
     tutor.alive = s.alive;
     if (!s.busy) tutor.activity = "";
     updatePill();
   });
-  on("user", ({ text }) => append(h("div", { class: "msg user" }, text)));
+  on("user", ({ text }) => {
+    tutor.turnNote = null;
+    append(h("div", { class: "msg user" }, text));
+  });
   on("assistant_delta", ({ id, delta }) => {
     const entry = assistantEntry(id);
     entry.text += delta;
@@ -968,24 +972,32 @@
     noteUnread();
   });
   // The tutor writes notes inside the vault: the chat hands back the way to the one it wrote.
-  const notePart = (note) => {
+  const noteRoute = (note) => {
+    if (note?.quick) return `#/rapido/${encodeURIComponent(note.quick)}`;
     const topic = note ? topicById(note.topic) : null;
-    return topic ? topic.parts[note.index - 1] || null : null;
+    const part = topic ? topic.parts[note.index - 1] : null;
+    return part ? `#/leer/${note.topic}/${part.id}` : null;
   };
   const openNote = (note) => {
-    const part = notePart(note);
-    if (!part) return;
+    const route = noteRoute(note);
+    if (!route) return;
     closeDrawer();
-    go(`#/leer/${note.topic}/${part.id}`);
+    go(route);
   };
-  const noteButton = (note) => (notePart(note) ? btn("Ir a la nota", () => openNote(note), "btn small ghost", "book") : null);
+  const noteButton = (note) => (noteRoute(note) ? btn("Ir a la nota", () => openNote(note), "btn small ghost", "book") : null);
+  // A turn that wrote a note ends with the way to it, right under the explanation.
+  const offerNote = () => {
+    const button = noteButton(tutor.turnNote);
+    tutor.turnNote = null;
+    if (button) append(h("div", { class: "note-cta" }, button));
+  };
   // The head keeps the way back to the last note the tutor wrote, so a reloaded tab still has it.
   const noteBtn = btn("Ir a la nota", () => openNote(tutor.note), "btn small ghost", "book");
   noteBtn.style.display = "none";
   const showNote = (note) => {
-    tutor.note = notePart(note) ? note : null;
+    tutor.note = noteRoute(note) ? note : null;
     noteBtn.style.display = tutor.note ? "" : "none";
-    noteBtn.title = tutor.note ? `Ir a la nota: Parte ${tutor.note.index}` : "";
+    noteBtn.title = !tutor.note ? "" : tutor.note.quick ? "Ir a la nota rápida" : `Ir a la nota: Parte ${tutor.note.index}`;
   };
   on("tool", ({ phase, id, label, ok, note }) => {
     if (phase === "start") {
@@ -998,6 +1010,7 @@
       if (row) row.replaceChildren(...[icon(ok ? "check" : "x"), label, noteButton(note)].filter((child) => child !== null));
       row?.classList.remove("running");
       tutor.activity = "";
+      if (ok && note) tutor.turnNote = note;
     }
     if (note) showNote(note);
     updatePill();
