@@ -33,7 +33,7 @@ Milestone #2 "Strict university learning flow", issues #62-#66. Base branch `fea
 
 | ID | Issue | Specs | Route | Allowed edit surfaces | Commit |
 |---|---|---|---|---|---|
-| T1 | #62 | S1-S3, S9 (engine side) | worker A, worktree `learning-strict-flow` | `internal/**`, `rules/**`, `cmd/**`, `integrations/pi/index.ts`, `integrations/pi/*.test.mjs`, `docs/engine.md` | |
+| T1 | #62 | S1-S3, S9 (engine side) | worker A, worktree `learning-strict-flow` | `internal/**`, `rules/**`, `cmd/**`, `integrations/pi/index.ts`, `integrations/pi/*.test.mjs`, `docs/engine.md` | c1330e0 |
 | T2 | #63 | S4-S8 | worker A, after T1, same worktree | same as T1 plus `integrations/pi/bridge.ts`, `integrations/pi/view/**`, `integrations/pi/kit/**` | |
 | T3 | #64 | S10, S11 | worker B, worktree `learning-preferences` | `studio/**` (preferences page and API only), `docs/**` | |
 | T4 | #65 | S12-S14 | worker C, worktree `learning-panorama` | `studio/**` (panorama, map) | |
