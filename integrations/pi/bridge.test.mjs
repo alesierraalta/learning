@@ -240,6 +240,57 @@ test('the reader draws SVG fences while preserving inline figures and code sampl
   assert.deepEqual(errors, []);
 });
 
+// A phone reader of a part. KaTeX comes from the pinned CDN with SRI, like
+// marked, so it cannot be stubbed.
+async function phonePart(t, markdown) {
+  const { view, topic } = await setup();
+  writeFileSync(join(topic, 'explicaciones', 'Parte 1 - Claves.md'), markdown);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 360, height: 760 } });
+  await page.goto((await view({ topic: TOPIC, part: 'p1' })).structuredContent.url);
+  return page;
+}
+
+test('display math scrolls inside its block and never scrolls a phone reader sideways', { skip: !playwright && 'playwright not installed' }, async t => {
+  const page = await phonePart(t, '# Valor\n\nAntes\n\n$$V^{\\pi}(s) = \\sum_a \\pi(a|s) \\sum_{s\',r} p(s\',r|s,a)[r + \\gamma V^{\\pi}(s\')]$$\n\ndespués\n');
+  const math = page.locator('.math-display');
+  await math.locator('.katex').waitFor({ timeout: 15000 });
+  const measured = await math.evaluate(node => ({
+    page: document.documentElement.scrollWidth - window.innerWidth,
+    scrolls: node.scrollWidth > node.clientWidth,
+    right: Math.round(node.getBoundingClientRect().right),
+    viewport: window.innerWidth,
+  }));
+  assert.equal(measured.page, 0, JSON.stringify(measured));
+  assert.ok(measured.scrolls, `the formula is not wider than its block: ${JSON.stringify(measured)}`);
+  assert.ok(measured.right <= measured.viewport, JSON.stringify(measured));
+});
+
+test('a wide table keeps whole words on a phone and scrolls inside itself', { skip: !playwright && 'playwright not installed' }, async t => {
+  const page = await phonePart(t, [
+    '# Capas', '',
+    '| Capa | Protocolo | Puerto | Encabezado | Responsabilidad | Dispositivo |',
+    '|---|---|---|---|---|---|',
+    '| Aplicación | HTTPS | 443 | Cabecera | Semántica | Navegador |',
+    '| Transporte | TCP | efímero | Segmento | Fiabilidad | Kernel |', '',
+  ].join('\n'));
+  const table = page.locator('#app table');
+  await table.waitFor({ timeout: 10000 });
+  const measured = await table.evaluate(node => ({
+    page: document.documentElement.scrollWidth - window.innerWidth,
+    scrolls: node.scrollWidth > node.clientWidth,
+    broken: [...node.querySelectorAll('th, td')].filter(cell => {
+      const range = document.createRange();
+      range.selectNodeContents(cell);
+      return range.getClientRects().length > 1;
+    }).map(cell => cell.textContent),
+  }));
+  assert.deepEqual(measured.broken, [], 'single-word cells must stay on one line');
+  assert.ok(measured.scrolls, JSON.stringify(measured));
+  assert.equal(measured.page, 0, JSON.stringify(measured));
+});
+
 test('app pages inline shared reasoning and private bridge config', async () => {
   for (const configured of [false, true]) {
     const { view } = await setup(configured ? { transcriber: { url: 'http://127.0.0.1:1', token: 'app-private-token' } } : {});
