@@ -304,6 +304,27 @@ test("the conversation remembers the last part note the tutor wrote", () => {
   assert.equal(noteFromMessages(undefined), null);
 });
 
+// The chat is the learner's. The harness warns the operator through the same
+// channel (RDD status, review mode); a warning about the agent's plumbing in the
+// middle of a lesson is noise, so it stays in the studio's log.
+test("the chat hides the harness's own notices and keeps the tutor's", async (t) => {
+  process.env.FAKE_PI_NOTICES = JSON.stringify([
+    "Gentle AI: receipt-driven-development status is unavailable: native status could not be read. The parent prompt keeps the last known status.",
+    "Aviso del tutor",
+  ]);
+  t.after(() => {
+    delete process.env.FAKE_PI_NOTICES;
+  });
+  const { studio } = await setup();
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await post(studio, "prompt", { text: "hola" });
+  assert.deepEqual(await stream.next("notice"), { level: "info", message: "Aviso del tutor" }, "the tutor's notice is the first one the learner sees");
+  await stream.next("dialog");
+  assert.equal(stream.events.filter((e) => e.name === "notice").length, 1, "the harness notice never reaches the chat");
+  stream.close();
+});
+
 test("a prompt streams text, tool activity and a dialog whose answer goes back to Pi", async () => {
   const { studio, received } = await setup();
   const stream = sse(`${studio.url}events`);

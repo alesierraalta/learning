@@ -43,6 +43,12 @@ const DRAFT_MAX_CHARS = 200_000;
 const MAX_PROMPT_CHARS = 20000;
 /** A configured token keeps the shape of a generated one, so a weak secret is refused. */
 const TOKEN_SHAPE = /^[a-f0-9]{64}$/;
+/**
+ * Notices the harness writes about its own plumbing (review authority, RDD
+ * status, swarms). They are for the operator driving Pi, not for someone
+ * studying: the chat keeps the tutor's notices and the studio log keeps these.
+ */
+const HARNESS_NOTICE = /^(?:gentle\s*ai|el\s+gentleman|gentle-ai)\b/i;
 const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
 /** The slides' serif: Tinos is metric-compatible with the Liberation Serif the decks render with. */
 const FONT_STYLESHEETS = [
@@ -303,7 +309,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           dialogs.set(record.id, dialog);
           emit("dialog", dialog);
         } else if (method === "notify" && typeof record.message === "string") {
-          emit("notice", { level: record.notifyType ?? "info", message: record.message });
+          if (!HARNESS_NOTICE.test(record.message.trim())) emit("notice", { level: record.notifyType ?? "info", message: record.message });
+          else process.stderr.write(`estudio: aviso del arnés fuera del chat · ${record.message}\n`);
         }
         return;
       }
