@@ -270,10 +270,8 @@
         start.addEventListener("click", () => close(true));
         mine.addEventListener("click", () => close(false));
         finale.append(start, mine);
-        // Inside a slide scaled to a phone the buttons would be a few pixels tall.
-        if (matchMedia("(max-width: 720px)").matches) overlay.insertBefore(finale, controls);
-        else node.append(finale);
       }
+      placeFinale();
       frame.replaceChildren(node);
       refit = fit(frame, node);
       at = stepAt === "all" ? stepsOf(node) : stepAt;
@@ -288,7 +286,15 @@
       if (at > 1) { at--; reveal(); }
       else if (index > 0) show(index - 1, "all");
     };
-    const onResize = () => refit && refit();
+    // Inside a slide scaled to a phone the buttons would be a few pixels tall,
+    // so on a phone they sit outside it; turning the phone moves them again.
+    const phone = matchMedia("(max-width: 720px), (max-height: 500px)");
+    function placeFinale() {
+      if (!finale) return;
+      if (phone.matches) overlay.insertBefore(finale, controls);
+      else node.append(finale);
+    }
+    const onResize = () => { if (refit) refit(); placeFinale(); };
     const onKey = (event) => {
       if (event.key === "ArrowRight" || event.key === " " || event.key === "PageDown") { event.preventDefault(); forward(); }
       else if (event.key === "ArrowLeft" || event.key === "PageUp") { event.preventDefault(); backward(); }
