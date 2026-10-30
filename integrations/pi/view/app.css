@@ -206,10 +206,11 @@ button.secondary { background: transparent; color: var(--ink); }
 .reading-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .reading-toggle[aria-pressed="true"] { background: var(--ink); color: #fff; }
 .reading-toggle .mark { font-size: 11px; line-height: 1; }
-@media (max-width: 899px) { .reading-toggle { position: absolute; top: 8px; right: 16px; } }
+/* Wide mode only applies from 1080 px: below that the toggle would do nothing. */
+@media (max-width: 1079px) { .reading-toggle { display: none; } }
 
-body.wide #app { max-width: min(1352px, 94vw); }
 @media (min-width: 1080px) {
+  body.wide #app { max-width: min(1352px, 94vw); }
   body.wide .prose { column-count: 2; column-gap: 56px; }
   body.wide .prose > * { break-inside: avoid; }
   /* Las secciones de una nota envuelven sus títulos: sin esto el h2 de dentro
@@ -256,7 +257,7 @@ body.wide #app { max-width: min(1352px, 94vw); }
 
 @media (max-width: 700px) {
   :root { font-size: 17px; }
-  #app { padding: 44px 20px 72px; }
+  #app { padding: 28px 20px 72px; }
   h1 { font-size: 26px; }
   h2 { font-size: 22px; }
   iframe { height: 360px; }

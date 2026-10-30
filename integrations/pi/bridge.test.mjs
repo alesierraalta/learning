@@ -30,11 +30,11 @@ test('mobile reader control does not cover walkthrough content', { skip: !playwr
   const url = base(await view({})) + 'rapidos/lstm';
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.goto(url);
-  const mobileToggle = page.locator('.reading-toggle');
-  await mobileToggle.click();
-  assert.equal(await mobileToggle.getAttribute('aria-pressed'), 'true');
-  await mobileToggle.click();
-  assert.equal(await mobileToggle.getAttribute('aria-pressed'), 'false');
+  // Wide mode only applies from 1080 px: on a phone the toggle would do nothing.
+  assert.equal(await page.locator('.reading-toggle').isVisible(), false, 'wide mode is offered on a phone');
+  await page.setViewportSize({ width: 1000, height: 900 });
+  assert.equal(await page.locator('.reading-toggle').isVisible(), false, 'wide mode is offered below 1080 px');
+  await page.setViewportSize({ width: 390, height: 844 });
   const caption = page.locator('lk-walkthrough .lk-wt-caption').first();
   await caption.waitFor();
   await caption.evaluate(node => window.scrollBy(0, node.getBoundingClientRect().bottom - (window.innerHeight - 20)));
