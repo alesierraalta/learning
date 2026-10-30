@@ -266,4 +266,6 @@ button.secondary { background: transparent; color: var(--ink); }
   .diagram > svg { min-width: calc(var(--diagram-width) * .5); }
   iframe { height: 360px; }
   figure:has(svg), .mermaid { width: 100%; margin-left: 0; transform: none; }
+  /* A narrow line justified around a long token stretches into gaps. */
+  .prose p { text-align: left; }
 }

@@ -314,6 +314,20 @@ test('a wide diagram keeps legible text on a phone and scrolls inside its box', 
   assert.equal(measured.page, 0, JSON.stringify(measured));
 });
 
+test('prose next to a long inline code keeps normal word gaps on a phone', { skip: !playwright && 'playwright not installed' }, async t => {
+  const page = await phonePart(t, '# Capas\n\nTexto con `una_columna_de_nombre_muy_largo_department_id_employee_identifier` en línea.\n');
+  const paragraph = page.locator('#app p', { hasText: 'Texto con' });
+  await paragraph.waitFor({ timeout: 10000 });
+  const gap = await paragraph.evaluate(node => {
+    const text = node.firstChild;
+    const word = (start, end) => { const r = document.createRange(); r.setStart(text, start); r.setEnd(text, end); return r.getBoundingClientRect(); };
+    const first = word(0, 5), second = word(6, 9);
+    return { sameLine: Math.abs(first.top - second.top) < 2, gap: Math.round(second.left - first.right) };
+  });
+  assert.ok(gap.sameLine, JSON.stringify(gap));
+  assert.ok(gap.gap <= 12, `the words are stretched ${gap.gap}px apart`);
+});
+
 test('app pages inline shared reasoning and private bridge config', async () => {
   for (const configured of [false, true]) {
     const { view } = await setup(configured ? { transcriber: { url: 'http://127.0.0.1:1', token: 'app-private-token' } } : {});
