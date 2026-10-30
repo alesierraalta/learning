@@ -23,7 +23,7 @@ test('recorded dictation uploads audio and appends the transcript', { skip: !pla
       return route.fulfill({ json: { text: 'hola mundo' } });
     }
     if (path === '/quiz') return route.fulfill({ json: { questions: [{ id: 'q1', stem: 'Pregunta', options: { a: 'A' } }] } });
-    if (path === '/dictate.js') return route.fulfill({ contentType: 'text/javascript', body: readFileSync(join(KIT, 'dictate.js'), 'utf8') });
+    if (path === '/dictate.js') return route.fulfill({ contentType: 'text/javascript; charset=utf-8', body: readFileSync(join(KIT, 'dictate.js'), 'utf8') });
     if (path === '/kit.js') return route.fulfill({ contentType: 'text/javascript', body: readFileSync(join(KIT, 'kit.js'), 'utf8') });
     return route.fulfill({ contentType: 'text/html', body: '<script>window.LEARNING_BRIDGE={quizUrl:"/quiz",transcribeUrl:"/audio"}</script><script src="/dictate.js"></script><script src="/kit.js"></script><lk-quiz></lk-quiz>' });
   });
@@ -37,6 +37,53 @@ test('recorded dictation uploads audio and appends the transcript', { skip: !pla
   assert.equal(await mic.textContent(), 'Dictar');
   assert.match(uploaded.headers()['content-type'], /^audio\//);
   assert.ok(uploaded.postDataBuffer().length > 0);
+});
+
+// The transcriber answers each upload in turn; returns the page and every body it received.
+async function dictateAgainst(t, answers) {
+  const browser = await playwright.chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const bodies = [];
+  await page.route('http://localhost:45678/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/audio') {
+      bodies.push(route.request().postDataBuffer());
+      const [status, json] = answers[bodies.length - 1];
+      return route.fulfill({ status, json });
+    }
+    if (path === '/quiz') return route.fulfill({ json: { questions: [{ id: 'q1', stem: 'Pregunta', options: { a: 'A' } }] } });
+    if (path === '/dictate.js') return route.fulfill({ contentType: 'text/javascript; charset=utf-8', body: readFileSync(join(KIT, 'dictate.js'), 'utf8') });
+    if (path === '/kit.js') return route.fulfill({ contentType: 'text/javascript', body: readFileSync(join(KIT, 'kit.js'), 'utf8') });
+    return route.fulfill({ contentType: 'text/html', body: '<script>window.LEARNING_BRIDGE={quizUrl:"/quiz",transcribeUrl:"/audio"}</script><script src="/dictate.js"></script><script src="/kit.js"></script><lk-quiz></lk-quiz>' });
+  });
+  await page.goto('http://localhost:45678/');
+  const mic = page.locator('.lk-mic');
+  await mic.click();
+  await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Detener');
+  await page.waitForTimeout(400);
+  await mic.click();
+  await page.waitForFunction(() => ['Dictar', 'Reenviar audio'].includes(document.querySelector('.lk-mic')?.textContent) && !document.querySelector('.lk-mic').disabled);
+  return { page, mic, bodies };
+}
+
+test('a dictation sent to an expired page says to reload instead of «not found»', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { page, mic } = await dictateAgainst(t, [[404, { error: 'not found' }]]);
+  const note = await page.locator('.lk-mic-note').textContent();
+  assert.match(note, /recárgala/);
+  assert.doesNotMatch(note, /not found/);
+  assert.equal(await mic.textContent(), 'Dictar', 'resending to an expired page cannot work');
+});
+
+test('a dictation that failed can be sent again without recording it again', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { page, mic, bodies } = await dictateAgainst(t, [[502, { error: 'No se pudo transcribir el audio.' }], [200, { text: 'segunda vez' }]]);
+  assert.equal(await mic.textContent(), 'Reenviar audio');
+  assert.match(await page.locator('.lk-mic-note').textContent(), /No se pudo transcribir/);
+  await mic.click();
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.endsWith('segunda vez'));
+  assert.equal(bodies.length, 2);
+  assert.ok(bodies[1].equals(bodies[0]), 'the same recording was sent again');
+  assert.equal(await mic.textContent(), 'Dictar');
 });
 const pages = ["sql-parte-1.html", "sql-parte-2.html", "sql-parte-3.html"];
 
