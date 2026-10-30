@@ -520,10 +520,14 @@
     const at = info ? neighbours.indexOf(info) : -1;
     const prev = at > 0 ? neighbours[at - 1] : null;
     const next = at >= 0 && at < neighbours.length - 1 ? neighbours[at + 1] : null;
+    // On a phone the label hides and the icon carries the action, so the name
+    // lives in aria-label too.
+    const barBtn = (label, onclick, cls, iconName) =>
+      h("button", { class: cls, type: "button", onclick, "aria-label": label, title: label }, icon(iconName), h("span", { class: "label" }, label));
     const bar = h(
       "div",
       { class: "reader-bar" },
-      btn("", () => go(quick ? "#/" : `#/tema/${topicId}`), "icon-btn", "back"),
+      h("button", { class: "icon-btn", type: "button", "aria-label": "Volver", title: "Volver", onclick: () => go(quick ? "#/" : `#/tema/${topicId}`) }, icon("back")),
       h("div", { class: "title" }, h("small", {}, kicker), title),
       info && info.hasApp
         ? h(
@@ -533,11 +537,11 @@
             h("button", { type: "button", "aria-pressed": String(mode === "app"), onclick: () => go(`#/app/${topicId}/${part}`) }, "App interactiva"),
           )
         : null,
-      prev ? btn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost", "back") : null,
-      next ? btn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost", "next") : null,
-      btn("Preguntar", () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `), "btn small", "chat"),
+      prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost", "back") : null,
+      next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost", "next") : null,
+      barBtn("Preguntar", () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `), "btn small", "chat"),
       quick || info
-        ? btn(
+        ? barBtn(
             "Borrar",
             () =>
               askDelete({
