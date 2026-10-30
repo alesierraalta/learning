@@ -519,25 +519,26 @@ async function tutorTurn(t, writes) {
   return { root, page, studio };
 }
 
-for (const [kind, written, hash] of [
-  ["part", "redes/explicaciones/Parte 1 - Capas.html", "#/leer/redes/p1"],
-  ["quick note", "rapidos/hash.md", "#/rapido/hash"],
-]) {
-  test(`the chat offers the ${kind} the tutor just wrote and opens it`, { skip: browser ? false : "playwright not installed" }, async (t) => {
-    const { page } = await tutorTurn(t, (root) => [{ path: join(root, written) }]);
+async function offersAndOpens(t, written, hash) {
+  const { page } = await tutorTurn(t, (root) => [{ path: join(root, written) }]);
 
-    const offer = page.locator(".thread .note-cta");
-    await offer.waitFor({ timeout: 10000 });
-    assert.equal(await offer.count(), 1, "one offer per turn");
-    assert.ok(
-      await page.evaluate(() => document.querySelector(".thread")?.lastElementChild?.matches(".note-cta")),
-      "the offer closes the turn, under the tutor's reply",
-    );
-    await offer.getByRole("button", { name: "Ir a la nota" }).click();
-    await page.waitForFunction((expected) => location.hash === expected, hash, { timeout: 5000 });
-    assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "the note is not hidden behind the tutor");
-  });
+  const offer = page.locator(".thread .note-cta");
+  await offer.waitFor({ timeout: 10000 });
+  assert.equal(await offer.count(), 1, "one offer per turn");
+  assert.ok(
+    await page.evaluate(() => document.querySelector(".thread")?.lastElementChild?.matches(".note-cta")),
+    "the offer closes the turn, under the tutor's reply",
+  );
+  await offer.getByRole("button", { name: "Ir a la nota" }).click();
+  await page.waitForFunction((expected) => location.hash === expected, hash, { timeout: 5000 });
+  assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "the note is not hidden behind the tutor");
 }
+
+test("the chat offers the part the tutor just wrote and opens it", { skip: browser ? false : "playwright not installed" }, (t) =>
+  offersAndOpens(t, "redes/explicaciones/Parte 1 - Capas.html", "#/leer/redes/p1"));
+
+test("the chat offers the quick note the tutor just wrote and opens it", { skip: browser ? false : "playwright not installed" }, (t) =>
+  offersAndOpens(t, "rapidos/hash.md", "#/rapido/hash"));
 
 // The main flow: the first part of a topic that did not exist when the turn began.
 test("the chat offers the first part of a topic the tutor just created", { skip: browser ? false : "playwright not installed" }, async (t) => {
@@ -561,12 +562,13 @@ test("a turn with several notes offers the last one written", { skip: browser ? 
   await page.waitForFunction(() => location.hash === "#/rapido/hash", null, { timeout: 5000 });
 });
 
-for (const [kind, writes] of [
-  ["a write that failed", (root) => [{ path: join(root, "rapidos", "hash.md"), isError: true }]],
-  ["a path the reader cannot open", (root) => [{ path: join(root, "redes", "explicaciones", "rapidos", "hash.md") }]],
-]) {
-  test(`the chat offers no note for ${kind}`, { skip: browser ? false : "playwright not installed" }, async (t) => {
-    const { page } = await tutorTurn(t, writes);
-    assert.equal(await page.locator(".thread .note-cta").count(), 0, "no way to a note that is not there");
-  });
+async function offersNothing(t, writes) {
+  const { page } = await tutorTurn(t, writes);
+  assert.equal(await page.locator(".thread .note-cta").count(), 0, "no way to a note that is not there");
 }
+
+test("the chat offers no note for a write that failed", { skip: browser ? false : "playwright not installed" }, (t) =>
+  offersNothing(t, (root) => [{ path: join(root, "rapidos", "hash.md"), isError: true }]));
+
+test("the chat offers no note for a path the reader cannot open", { skip: browser ? false : "playwright not installed" }, (t) =>
+  offersNothing(t, (root) => [{ path: join(root, "redes", "explicaciones", "rapidos", "hash.md") }]));
