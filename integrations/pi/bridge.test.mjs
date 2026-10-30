@@ -291,6 +291,29 @@ test('a wide table keeps whole words on a phone and scrolls inside itself', { sk
   assert.equal(measured.page, 0, JSON.stringify(measured));
 });
 
+test('a wide diagram keeps legible text on a phone and scrolls inside its box', { skip: !playwright && 'playwright not installed' }, async t => {
+  const wide = label => `<svg viewBox="0 0 1200 400" role="img" aria-label="${label}"><rect width="1200" height="400" fill="none" stroke="currentColor"/><text x="20" y="60" font-size="28">Diagrama ancho</text></svg>`;
+  const page = await phonePart(t, ['# Capas', '', '```svg', wide('Bloque'), '```', '', `Antes ${wide('En línea')} después`, ''].join('\n'));
+  await page.locator('svg[aria-label="Bloque"]').waitFor({ timeout: 10000 });
+  const measured = await page.evaluate(() => ({
+    page: document.documentElement.scrollWidth - window.innerWidth,
+    diagrams: [...document.querySelectorAll('#app svg[aria-label]')].map(svg => {
+      const box = svg.parentElement;
+      return {
+        label: svg.getAttribute('aria-label'),
+        text: Math.round(svg.querySelector('text').getBoundingClientRect().height),
+        scrolls: box.scrollWidth > box.clientWidth && getComputedStyle(box).overflowX === 'auto',
+      };
+    }),
+  }));
+  assert.equal(measured.diagrams.length, 2, JSON.stringify(measured));
+  for (const diagram of measured.diagrams) {
+    assert.ok(diagram.text >= 12, `diagram text is ${diagram.text}px: ${JSON.stringify(diagram)}`);
+    assert.ok(diagram.scrolls, JSON.stringify(diagram));
+  }
+  assert.equal(measured.page, 0, JSON.stringify(measured));
+});
+
 test('app pages inline shared reasoning and private bridge config', async () => {
   for (const configured of [false, true]) {
     const { view } = await setup(configured ? { transcriber: { url: 'http://127.0.0.1:1', token: 'app-private-token' } } : {});

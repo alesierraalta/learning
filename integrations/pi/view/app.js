@@ -80,6 +80,17 @@
     // The sanitizer has already spoken; parsing the result in an inert document
     // keeps the page from ever handing note text straight to innerHTML.
     node.append(...new DOMParser().parseFromString(clean, "text/html").body.childNodes);
+    // A diagram drawn for a desktop canvas shrinks its words with it on a phone:
+    // its box keeps the authored width so CSS can hold a legible scale and scroll.
+    for (const svg of node.querySelectorAll("svg[viewBox]")) {
+      const width = svg.viewBox.baseVal?.width;
+      // Nested SVGs and kit components lay themselves out.
+      if (!width || svg.parentElement.closest("svg") || [...node.querySelectorAll("*")].some((el) => el.tagName.startsWith("LK-") && el.contains(svg))) continue;
+      const box = element("div", undefined, "diagram");
+      box.style.setProperty("--diagram-width", `${width}px`);
+      svg.replaceWith(box);
+      box.append(svg);
+    }
     globalThis.lkMath?.render(node, math.blocks);
     return node;
   };
