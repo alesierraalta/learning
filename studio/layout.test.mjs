@@ -218,6 +218,27 @@ test("the tutorial reads and works on a phone", { skip: browser ? false : "playw
   for (const c of finale) assert.ok(c.h >= 32 && c.font >= 12 && c.inside, JSON.stringify(c));
 });
 
+test("top bar and tutor controls are touch targets on a phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 360, height: 760 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.click(".tutor-pill");
+  await page.waitForTimeout(400);
+  const small = await page.evaluate(() =>
+    [...document.querySelectorAll(".topbar a, .topbar button, .drawer button, .drawer a")]
+      .filter((n) => n.getBoundingClientRect().width > 0 && getComputedStyle(n).visibility !== "hidden")
+      .map((n) => { const r = n.getBoundingClientRect(); return { name: n.getAttribute("aria-label") || n.textContent.trim(), w: Math.round(r.width), h: Math.round(r.height) }; })
+      .filter((c) => c.w < 32 || c.h < 32),
+  );
+  assert.deepEqual(small, [], "controls under 32px");
+});
+
 test("a topic that still owes parts says so instead of looking finished", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
