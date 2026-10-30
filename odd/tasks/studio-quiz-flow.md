@@ -33,9 +33,9 @@ window.parent.postMessage({
 
 | ID | Specs | Route | Commit |
 |---|---|---|---|
-| T1 | S4, S5 (emitter) | worker A: `integrations/pi/view/app.js`, `integrations/pi/kit/kit.js` + their tests | |
-| T2 | S1, S2, S3, S5, S6 | worker B: `studio/server.ts`, `studio/ui/*`, studio tests | |
-| T3 | all | parent: integrate, run full suites, Risk line | |
+| T1 | S4, S5 (emitter) | inline (worker A failed: provider_unavailable): `integrations/pi/view/app.js`, `integrations/pi/kit/kit.js` + bridge.test.mjs | 236ce39 |
+| T2 | S1, S2, S3, S5, S6 | inline (worker B failed: provider_unavailable): `studio/server.ts`, `studio/ui/*`, studio tests | 53bcc34 |
+| T3 | all | parent: integrate, run full suites, Risk line | this commit |
 
 ## Log
 
@@ -46,3 +46,5 @@ window.parent.postMessage({
   [23:04, 10/29/2026] alesierraalta: y al terminar el quiz debe mandarte a otra página mostrándote los resultados mientras hay un mensaje de "el agente está leyendo tus análisis" y al terminar dé un botón para ir a lo siguiente
   [23:06, 10/29/2026] alesierraalta: luego del quiz no se genera nada ni se ve al agente trabajandl
 - **L2** Another session works in `~/documents/learning` (PR #56, VPS deploy); this feature uses its own worktree to avoid collisions.
+- **L3** Both workers failed with provider_unavailable before writing anything; T1 and T2 were done inline, test-first (each new test observed RED for the expected reason, then GREEN).
+- **L4** Evidence: `node --test integrations/pi/*.test.mjs studio/*.test.mjs` (the CI command) → 184 tests, 174 pass, 0 fail, 10 skipped (Docker images and the engine binary absent on this machine; unrelated). S3 state lives in `$XDG_STATE_HOME` or `~/.local/state/learning-studio/opened.json`; tests point XDG_STATE_HOME at a temp dir.
