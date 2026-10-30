@@ -93,6 +93,20 @@ h3 { font-weight: 700; }
 .btn svg, .chip svg { width: 18px; height: 18px; flex: none; }
 .btn:disabled { opacity: .45; cursor: default; }
 
+/* ---------- preferences ---------- */
+.preferences-page { max-width: 860px; }
+.preferences-form { display: grid; gap: 20px; }
+.preference { min-width: 0; margin: 0; padding: 16px 20px 20px; border: 2px solid var(--line); border-radius: 6px; }
+.preference legend { padding: 0 6px; font-weight: 700; }
+.preference p { margin: 0 0 12px; }
+.preference-levels { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+.preference-levels label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.preferences-form > button { justify-self: start; }
+@media (max-width: 660px) {
+  .settings-btn { padding: 6px; }
+  .settings-btn span { display: none; }
+}
+
 /* ---------- home ---------- */
 .hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 56px; align-items: center; }
 .hero h1 { font-size: clamp(2.8rem, 5vw, 4.2rem); line-height: 1.04; }
