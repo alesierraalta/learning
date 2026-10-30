@@ -314,6 +314,32 @@ test('a wide diagram keeps legible text on a phone and scrolls inside its box', 
   assert.equal(measured.page, 0, JSON.stringify(measured));
 });
 
+// TSP pins for the diagram box: a small icon inside a sentence stays in the
+// sentence, and an author-sized diagram is never blown past the size it was given.
+test('an inline icon inside a sentence stays on the line of its words', { skip: !playwright && 'playwright not installed' }, async t => {
+  const icon = '<svg viewBox="0 0 24 24" width="16" height="16" role="img" aria-label="guardar"><circle cx="12" cy="12" r="10"/></svg>';
+  const page = await phonePart(t, `# Capas\n\nPulsa ${icon} para guardar.\n`);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const svg = page.locator('svg[aria-label="guardar"]');
+  await svg.waitFor({ timeout: 10000 });
+  const seen = await svg.evaluate(node => {
+    const paragraph = node.closest('p');
+    const words = document.createRange();
+    words.selectNodeContents(paragraph);
+    const lines = new Set([...words.getClientRects()].map(r => Math.round(r.top)));
+    return { lines: lines.size, text: paragraph.textContent.trim() };
+  });
+  assert.equal(seen.lines, 1, `the icon breaks its sentence: ${JSON.stringify(seen)}`);
+});
+
+test('a diagram the author sized is not enlarged on a phone', { skip: !playwright && 'playwright not installed' }, async t => {
+  const page = await phonePart(t, '# Capas\n\n```svg\n<svg viewBox="0 0 1200 400" width="300" height="100" role="img" aria-label="tamaño fijo"><text x="10" y="200" font-size="120">S</text></svg>\n```\n');
+  const svg = page.locator('svg[aria-label="tamaño fijo"]');
+  await svg.waitFor({ timeout: 10000 });
+  const width = await svg.evaluate(node => Math.round(node.getBoundingClientRect().width));
+  assert.ok(width <= 300, `the 300 px diagram renders ${width} px wide`);
+});
+
 test('prose next to a long inline code keeps normal word gaps on a phone', { skip: !playwright && 'playwright not installed' }, async t => {
   const page = await phonePart(t, '# Capas\n\nTexto con `una_columna_de_nombre_muy_largo_department_id_employee_identifier` en línea.\n');
   const paragraph = page.locator('#app p', { hasText: 'Texto con' });

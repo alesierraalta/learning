@@ -3,7 +3,7 @@
 // scrolling compose. Geometry is asserted, not eyeballed.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -237,6 +237,81 @@ test("top bar and tutor controls are touch targets on a phone", { skip: browser 
       .filter((c) => c.w < 32 || c.h < 32),
   );
   assert.deepEqual(small, [], "controls under 32px");
+});
+
+// TSP pins for the responsive milestone: the tutorial's two final choices and its
+// words must survive the phone being turned, and a phone held sideways is still a
+// phone; the reader bar keeps a long one-word title whole at 320 px.
+async function tutorialAtEnd(t, width, height) {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width, height } }));
+  t.after(() => page.context().browser().close());
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".deck");
+  await page.locator(".deck-dots button").last().click();
+  for (let i = 0; i < 10 && (await page.locator(".deck-controls .btn.primary").textContent()) !== "Terminar"; i++) await page.locator(".deck-controls .btn.primary").click();
+  return page;
+}
+const finaleChoices = (page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll(".deck button")]
+      .filter((b) => /^(Empezar un tema|Ver mis temas)$/.test(b.textContent.trim()))
+      .map((b) => {
+        const r = b.getBoundingClientRect();
+        const scale = b.offsetHeight ? r.height / b.offsetHeight : 0;
+        return { name: b.textContent.trim(), h: Math.round(r.height), font: Math.round(parseFloat(getComputedStyle(b).fontSize) * scale), inside: r.width > 0 && r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight };
+      }),
+  );
+
+test("the tutorial's final choices survive turning the phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const page = await tutorialAtEnd(t, 360, 760);
+  await page.setViewportSize({ width: 760, height: 360 });
+  await page.waitForTimeout(300);
+  const choices = await finaleChoices(page);
+  assert.equal(choices.length, 2, JSON.stringify(choices));
+  for (const c of choices) assert.ok(c.inside && c.h >= 32 && c.font >= 12, `unusable after turning: ${JSON.stringify(c)}`);
+});
+
+test("a phone held sideways gets a readable, usable tutorial", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const page = await tutorialAtEnd(t, 844, 390);
+  const choices = await finaleChoices(page);
+  assert.equal(choices.length, 2, JSON.stringify(choices));
+  for (const c of choices) assert.ok(c.inside && c.h >= 32 && c.font >= 12, `unusable sideways: ${JSON.stringify(c)}`);
+  const caption = await page.locator(".deck-caption").evaluate((n) => ({ text: n.textContent.trim(), visible: n.getBoundingClientRect().height > 0, font: parseFloat(getComputedStyle(n).fontSize) }));
+  assert.ok(caption.visible && caption.text && caption.font >= 14, `the step's words are not readable sideways: ${JSON.stringify(caption)}`);
+});
+
+test("the reader bar keeps a long one-word title whole at 320 px", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  const topic = join(root, "redes");
+  writeFileSync(join(topic, "plan.json"), JSON.stringify({ topic: "Redes", parts: [{ id: "p1", title: "Capas", slug: "Capas" }, { id: "p2", title: "Retropropagación", slug: "Retro" }, { id: "p3", title: "TCP", slug: "TCP" }] }));
+  writeFileSync(join(topic, "explicaciones", "Parte 2 - Retro.md"), "# Parte 2\n");
+  writeFileSync(join(topic, "explicaciones", "Parte 3 - TCP.md"), "# Parte 3\n");
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 320, height: 700 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/leer/redes/p2`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".reader-bar .title");
+  const seen = await page.evaluate(() => {
+    const title = document.querySelector(".reader-bar .title");
+    const range = document.createRange();
+    range.selectNodeContents(title);
+    const text = [...range.getClientRects()];
+    const right = Math.max(...text.map((r) => r.right));
+    const covered = [...document.querySelectorAll(".reader-bar button")].filter((b) => {
+      const r = b.getBoundingClientRect();
+      return text.some((x) => x.left < r.right && x.right > r.left && x.top < r.bottom && x.bottom > r.top);
+    }).map((b) => b.getAttribute("aria-label") || b.textContent.trim());
+    return { clipped: title.scrollWidth > title.clientWidth + 1, right: Math.round(right), covered };
+  });
+  assert.deepEqual(seen.covered, [], `the title runs under the reader controls: ${JSON.stringify(seen)}`);
+  assert.equal(seen.clipped, false, `the title overflows its box: ${JSON.stringify(seen)}`);
 });
 
 test("a topic that still owes parts says so instead of looking finished", { skip: browser ? false : "playwright not installed" }, async (t) => {
