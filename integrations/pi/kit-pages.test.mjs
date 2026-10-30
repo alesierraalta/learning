@@ -67,12 +67,25 @@ async function dictateAgainst(t, answers) {
   return { page, mic, bodies };
 }
 
-test('a dictation sent to an expired page says to reload instead of «not found»', { skip: !playwright && 'playwright not installed' }, async t => {
-  const { page, mic } = await dictateAgainst(t, [[404, { error: 'not found' }]]);
+test('a dictation sent to an expired page says to reload and keeps the recording for the reloaded page', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { page, bodies } = await dictateAgainst(t, [[404, { error: 'not found' }], [200, { text: 'tras recargar' }]]);
   const note = await page.locator('.lk-mic-note').textContent();
   assert.match(note, /recárgala/);
   assert.doesNotMatch(note, /not found/);
-  assert.equal(await mic.textContent(), 'Dictar', 'resending to an expired page cannot work');
+
+  await page.reload();
+  const mic = page.locator('.lk-mic');
+  await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Reenviar audio');
+  assert.match(await page.locator('.lk-mic-note').textContent(), /grabación sin transcribir/);
+  await mic.click();
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.endsWith('tras recargar'));
+  assert.equal(bodies.length, 2);
+  assert.ok(bodies[1].equals(bodies[0]), 'the reloaded page sent the same recording');
+  assert.equal(await mic.textContent(), 'Dictar');
+
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Dictar');
+  assert.equal(await page.locator('.lk-mic-note').textContent(), '', 'a sent recording is not offered again');
 });
 
 test('a dictation that failed can be sent again without recording it again', { skip: !playwright && 'playwright not installed' }, async t => {
