@@ -1,5 +1,5 @@
 // Temporary Learnings root used by the studio tests: one topic with two parts,
-// one app, one quick note, and a fake engine that always reports "waiting".
+// one app, one quick note, and a fake engine that reports the stage the test is about.
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,11 @@ import { join } from "node:path";
 // The studio remembers opened topics in the user's state directory: tests never touch the real one.
 process.env.XDG_STATE_HOME = realpathSync(mkdtempSync(join(tmpdir(), "studio-state-")));
 
-export function makeRoot() {
+/**
+ * @param {{status?: Record<string, unknown>}} [options] `status` is what the fake engine
+ *   answers, so a test can put the topic in the stage it studies.
+ */
+export function makeRoot(options = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "studio-")));
   const topic = join(root, "redes");
   mkdirSync(join(topic, "explicaciones", "apps"), { recursive: true });
@@ -19,7 +23,8 @@ export function makeRoot() {
   mkdirSync(join(root, "rapidos"));
   writeFileSync(join(root, "rapidos", "hash.md"), "---\ntipo: rapido\n---\n# Qué es un hash\n");
   const engine = join(root, "fake-engine.sh");
-  writeFileSync(engine, '#!/bin/sh\necho \'{"status":"waiting","stage":"diagnosis","nextStage":"diagnosis"}\'\n');
+  const status = JSON.stringify(options.status ?? { status: "waiting", stage: "diagnosis", nextStage: "diagnosis" }).replace(/'/g, `'\\''`);
+  writeFileSync(engine, `#!/bin/sh\necho '${status}'\n`);
   chmodSync(engine, 0o755);
   return { root, engine, log: join(root, "pi.log") };
 }

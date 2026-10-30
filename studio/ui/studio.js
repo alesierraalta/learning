@@ -158,9 +158,23 @@
   const partIndex = (topic, id) => topic.parts.findIndex((p) => p.id === id);
   const partName = (topic, id) => (partIndex(topic, id) >= 0 ? `la Parte ${partIndex(topic, id) + 1}` : "la parte actual");
   const written = (topic) => topic.parts.filter((p) => p.written).length;
+  /** The part the tutor owes next: the one the engine points at, else the first one missing. */
+  function owedPart(topic) {
+    const at = topic.part ? topic.parts[partIndex(topic, topic.part)] : undefined;
+    return at && !at.written ? at : topic.parts.find((p) => !p.written);
+  }
+  /** Asking for one part by name, with the folder the tutor works in. */
+  const partNumber = (topic, part) => topic.parts.indexOf(part) + 1;
+  const writePrompt = (topic, part) =>
+    `Escribe la Parte ${partNumber(topic, part)} «${part.title}» de ${topic.title} (carpeta ${topic.id}): con sus visuales, sus ejemplos y su mini-quiz.`;
+  const askWrite = (topic, part) => ({
+    tone: "tutor",
+    label: "Siguiente paso",
+    text: `La Parte ${partNumber(topic, part)} todavía no está escrita: el tutor puede prepararla.`,
+    cta: [`Escribir la Parte ${partNumber(topic, part)}`, () => say(writePrompt(topic, part))],
+  });
   const prompts = {
     resume: (t) => `Sigamos con ${t.title} (carpeta ${t.id}).`,
-    next: (t) => `Escribe la siguiente parte de ${t.title} (carpeta ${t.id}).`,
     gaps: (t) => `Repasa mis lagunas de ${t.title} (carpeta ${t.id}).`,
     fill: (t) => {
       const ids = ((t.gaps && t.gaps.missing) || []).join(", ");
@@ -175,6 +189,8 @@
     const part = topic.part ? partName(topic, topic.part) : "";
     const read = (id) => Object.assign(() => go(`#/leer/${topic.id}/${id}`), { route: `#/leer/${topic.id}/${id}` });
     if (topic.status === "sin inscribir") {
+      const owed = owedPart(topic);
+      if (owed) return { ...askWrite(topic, owed), tone: "test", label: "Sin seguimiento del motor" };
       return { tone: "test", label: "Tema de prueba", text: "Este tema no lleva seguimiento del motor: puedes leer sus partes y probar sus apps.", cta: ["Ver el tema", () => go(`#/tema/${topic.id}`)] };
     }
     if (topic.status === "completed") {
@@ -182,6 +198,14 @@
     }
     if (topic.status === "waiting") {
       if (stage === "diagnosis") return { tone: "you", label: "Te toca a ti", text: "Responde el diagnóstico inicial: con tus respuestas el tutor entiende qué sabes y enfoca el plan de tu ruta.", cta: ["Responder el diagnóstico", read("quiz")] };
+      // A part with no file yet cannot be read, quizzed or poured into own words:
+      // the tutor writes it first, and that is the step the learner asks for.
+      const current = topic.part ? topic.parts[partIndex(topic, topic.part)] : undefined;
+      if (current && !current.written) return askWrite(topic, current);
+      if (stage === "explanation") {
+        const owed = owedPart(topic);
+        if (owed) return askWrite(topic, owed);
+      }
       if (stage === "quiz" && topic.part) return { tone: "you", label: "Te toca a ti", text: `Responde el mini-quiz de ${part}.`, cta: ["Ir al quiz", read(topic.part)] };
       if (stage === "own_words") return { tone: "you", label: "Te toca a ti", text: `Escribe con tus palabras lo que entendiste de ${part}.`, cta: ["Escribírselo al tutor", () => openDrawer(`Mi vuelco de ${part} de ${topic.title}: `)] };
       return { tone: "you", label: "Te toca a ti", text: `El tutor espera tu respuesta (${where}).`, cta: ["Abrir el tutor", () => openDrawer()] };
@@ -192,7 +216,10 @@
     if (stage === "explanation" && topic.part) {
       const p = topic.parts[partIndex(topic, topic.part)];
       if (p && p.written) return { tone: "tutor", label: "Sigue leyendo", text: `Lee ${part}: ${p.title}.`, cta: ["Leer ahora", read(p.id)] };
-      return { tone: "tutor", label: "Siguiente paso", text: `${part[0]?.toUpperCase()}${part.slice(1)} todavía no está escrita: el tutor puede prepararla.`, cta: ["Pedir esa parte", () => say(prompts.next(topic))] };
+    }
+    if (stage === "explanation") {
+      const owed = owedPart(topic);
+      if (owed) return askWrite(topic, owed);
     }
     return { tone: "tutor", label: "Siguiente paso", text: `El tutor puede seguir con ${where || "el tema"}.`, cta: ["Seguir", () => say(prompts.resume(topic))] };
   }
@@ -432,7 +459,7 @@
             { class: "row-actions" },
             p.written ? btn("Leer", () => go(`#/leer/${topic.id}/${p.id}`), state === "current" ? "btn small primary" : "btn small", "book") : null,
             p.hasApp ? btn("App", () => go(`#/app/${topic.id}/${p.id}`), "btn small", "app") : null,
-            !p.written && p === firstPending && topic.status !== "sin inscribir" ? btn("Pedir esta parte", () => say(prompts.next(topic)), "btn small ghost", "spark") : null,
+            !p.written ? btn("Escribir esta parte", () => say(writePrompt(topic, p)), p === firstPending ? "btn small primary" : "btn small", "spark") : null,
           ),
         ),
       );
@@ -455,7 +482,7 @@
             h("span", { class: `tag reveal${step.tone === "test" ? " test" : ""}`, style: "--i:0" }, step.tone === "test" ? "Prueba" : "Universitario"),
             h("h1", { class: "reveal", style: "--i:0" }, topic.title),
             h("div", { class: "reveal", style: "--i:1;max-width:520px" }, progress(topic)),
-            gaps.missing.length > 0 && topic.status !== "sin inscribir"
+            gaps.missing.length > 0
               ? h(
                   "div",
                   { class: "empty reveal", style: "--i:1" },
