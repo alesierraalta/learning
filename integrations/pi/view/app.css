@@ -262,4 +262,6 @@ button.secondary { background: transparent; color: var(--ink); }
   h2 { font-size: 22px; }
   iframe { height: 360px; }
   figure:has(svg), .mermaid { width: 100%; margin-left: 0; transform: none; }
+  /* A narrow line justified around a long token stretches into gaps. */
+  .prose p { text-align: left; }
 }
