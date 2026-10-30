@@ -53,6 +53,35 @@ func parseOne(t *testing.T, out *bytes.Buffer) map[string]any {
 	return doc
 }
 
+func TestCLIMethodRejectsInvalidAndPrematureChoicesWithoutChangingState(t *testing.T) {
+	c := newCLIFixture(t)
+	var out bytes.Buffer
+	if code := run(c.args("init", "--json"), &out); code != 0 {
+		t.Fatalf("init exit = %d: %s", code, out.String())
+	}
+	state := filepath.Join(c.ws, ".learning", "state.json")
+	before, err := os.ReadFile(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, choice := range []string{"other", "pareto"} {
+		out.Reset()
+		code := run(c.args("method", "--method", choice, "--json"), &out)
+		doc := parseOne(t, &out)
+		if choice == "other" {
+			if code != 2 || !strings.Contains(strings.ToLower(doc["detail"].(string)), "pareto") {
+				t.Fatalf("invalid choice: exit %d, report %v", code, doc)
+			}
+		} else if code != 1 || doc["status"] != "blocked" {
+			t.Fatalf("choice before diagnosis: exit %d, report %v", code, doc)
+		}
+		after, err := os.ReadFile(state)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("rejected %q changed state: %v", choice, err)
+		}
+	}
+}
+
 func TestCLIJSONBoundaryOnHappyPath(t *testing.T) {
 	c := newCLIFixture(t)
 

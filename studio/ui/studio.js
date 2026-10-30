@@ -133,6 +133,8 @@
   const STAGE_IN = {
     preparation: "la preparación del plan",
     diagnosis: "el diagnóstico inicial",
+    method: "la elección del método",
+    remedial: "la parte de refuerzo",
     planning: "la planificación",
     explanation: "la explicación",
     own_words: "tu vuelco",
@@ -146,6 +148,8 @@
   const STAGE = {
     preparation: "preparando el plan",
     diagnosis: "diagnóstico inicial",
+    method: "elección del método",
+    remedial: "parte de refuerzo",
     planning: "planificando la ruta",
     explanation: "explicación",
     own_words: "tu vuelco con tus palabras",

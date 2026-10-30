@@ -458,7 +458,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const topics = await Promise.all(
       listTopics(root).map(async (t) => {
         const report = await engineStatus(join(root, t.id));
-        return { ...t, status: report.status ?? "", stage: report.stage ?? "", nextStage: report.nextStage ?? "", part: report.part ?? "", opened: opened[t.id] ?? 0 };
+        return { ...t, status: report.status ?? "", stage: report.stage ?? "", nextStage: report.nextStage ?? "", part: report.part ?? "", method: report.method ?? "", opened: opened[t.id] ?? 0 };
       }),
     );
     const quickDir = join(root, "rapidos");
