@@ -41,6 +41,8 @@ a { color: var(--blue); }
 .crumbs a { color: var(--slate); text-decoration: none; overflow: hidden; text-overflow: ellipsis; }
 .crumbs a:hover { color: var(--blue); text-decoration: underline; }
 .crumbs .sep { color: var(--line); }
+/* The way home and the page you are on keep their words; the topic between them gives way. */
+.crumbs > :first-child, .crumbs > :last-child { flex: none; }
 .top-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .tutor-pill { display: flex; align-items: center; gap: 10px; padding: 7px 14px 7px 12px; border: 2px solid var(--ink); border-radius: 6px; background: var(--paper); cursor: pointer; max-width: 380px; font-weight: 700; font-size: .95rem; font-family: var(--serif); }
 .tutor-pill:hover { border-color: var(--blue); color: var(--blue); }
@@ -56,7 +58,7 @@ a { color: var(--blue); }
 
 /* ---------- layout ---------- */
 .app { display: flex; min-height: calc(100vh - var(--topbar)); }
-.stage { flex: 1; min-width: 0; transition: margin-right .28s ease; }
+.stage { flex: 1; min-width: 0; transition: margin-right .28s ease; container: stage / inline-size; }
 body.drawer-open .stage { margin-right: var(--drawer); }
 .page { max-width: 1180px; margin: 0 auto; padding: 56px 48px 110px; }
 .reveal { opacity: 0; transform: translateY(8px); animation: rise .45s ease forwards; animation-delay: calc(var(--i, 0) * 55ms); }
@@ -272,8 +274,14 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 .deck-caption, .deck > .finale { display: none; }
 .deck-skip { color: #cbd5e1; background: none; border: 0; cursor: pointer; font-style: italic; text-decoration: underline; }
 
+/* Below 1100px the tutor lies over the page instead of pushing it. */
 @media (max-width: 1100px) {
   body.drawer-open .stage { margin-right: 0; }
+  body.drawer-open .scrim { display: block; }
+}
+/* Layouts answer to the room the stage has, not to the screen: an iPad held
+   sideways is wide, but with the tutor open the page gets about 740px. */
+@container stage (max-width: 1000px) {
   .hero, .topic-head, .how { grid-template-columns: minmax(0, 1fr); }
   .hero > *, .topic-head > *, .how > * { min-width: 0; }
   .topic-head aside .aside-sticky { position: static; }
@@ -408,7 +416,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .editor-preview:has(.editor-hint) { min-height: 0; }
 .editor-preview:has(.editor-hint) .editor-preview-body { min-height: 0; }
 
-@media (max-width: 1100px) {
+@container stage (max-width: 1000px) {
   .editor-grid { grid-template-columns: minmax(0, 1fr); }
   .editor-preview { min-height: 420px; }
   .editor-preview-body .sheet { min-height: 380px; }
@@ -476,6 +484,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .pano-section[open] summary .title::before { content: "−"; }
 .pano-section summary .hint { font-weight: 400; font-size: .95rem; color: var(--muted); font-style: italic; }
 .pano-section .prose { padding: 0 20px 18px; }
+/* A wide table of the plan scrolls inside its section instead of pushing the page. */
+.pano-section .prose > div { overflow-x: auto; }
 .prose :is(h3, h4) { font-size: 1.15rem; margin: 18px 0 6px; }
 .prose p { margin: 0 0 12px; }
 .prose ul, .prose ol { margin: 0 0 12px; padding-left: 24px; }
@@ -530,7 +540,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .pano-part { margin-top: 18px; padding-top: 16px; border-top: 2px solid var(--line); display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .pano-part-name { margin: 0; font-size: 1.05rem; }
 
-@media (max-width: 1100px) {
+@container stage (max-width: 1000px) {
   .pano-body { grid-template-columns: minmax(0, 1fr); gap: 30px; }
   .pano-aside .aside-sticky { position: static; }
   .pano-canvas { height: clamp(360px, 52vh, 560px); }
@@ -539,4 +549,17 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   .pano-tab { padding: 9px 12px; font-size: .95rem; }
   .pano-canvas { height: 58vh; border-radius: 10px; }
   .pano-detail { padding: 18px 16px; }
+}
+
+/* ---------- the tutor over the page, and a finger as the pointer ---------- */
+.scrim { display: none; position: fixed; inset: var(--topbar) 0 0 0; z-index: 14; background: rgba(15, 46, 61, .28); }
+/* A finger needs 44px (Apple's minimum); a mouse keeps the compact controls. */
+@media (pointer: coarse) {
+  .btn, .btn.small, .tutor-pill, .chip, .pano-tab, .pano-link, .menu button, .switch button, .pano-section summary { min-height: 44px; }
+  .btn.small { padding-block: 9px; }
+  .icon-btn, .composer .send { width: 44px; height: 44px; }
+  .composer .stop { min-height: 44px; padding-inline: 10px; }
+  .brand { align-items: center; min-height: 44px; }
+  /* Line height, not flex: a long topic still ends in «…» instead of being cut at both sides. */
+  .crumbs a { min-height: 44px; line-height: 44px; min-width: 44px; text-align: center; }
 }

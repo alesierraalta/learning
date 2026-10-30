@@ -158,6 +158,26 @@ and from the «Tutorial» button. Open it at **http://127.0.0.1:4747/**: that st
 redirects to the current run's token URL. The studio listens on port 4747 (`STUDIO_PORT`; a taken
 port falls back to a free one) so the browser remembers that it was seen.
 
+## Tablets and touch
+
+Layouts answer to the room the page has, not to the screen. The stage is a CSS
+container (`container: stage / inline-size`), and the two-column layouts (home,
+topic page, panorama, note editor) stack below 1000px **of stage**. That matters on
+an iPad held sideways: the screen is 1133–1366px wide, but with the tutor open the
+page gets about 700–930px, so it stacks; with the tutor closed it keeps both columns.
+
+Below 1100px of screen the tutor lies over the page instead of pushing it. The
+page behind it dims, and a tap on the dimmed page closes the tutor.
+
+On a touch screen (`pointer: coarse`) every control is at least 44px, the minimum
+Apple sets for a finger; a mouse keeps the compact controls. The breadcrumb keeps
+«Inicio» and the current page whole, and a long topic between them ends in «…».
+
+The dependency map opens at a readable size (scale 0.85) when fitting it whole
+would shrink its words, starting at its first column so the learner drags right.
+«Ajustar a la ventana» still shows the whole map. Two fingers zoom around the point
+between them; the wheel does the same with a mouse.
+
 ## Writing notes
 
 The studio writes quick notes itself, so the vault does not need an external

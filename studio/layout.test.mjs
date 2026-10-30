@@ -845,3 +845,132 @@ test("the panorama map opens a concept and reaches the part that explains it", {
   assert.match(await page.locator(".pano-detail").innerText(), /no tiene una parte para el subtema 1\.9\.1/, "a concept outside the route says so");
   assert.equal(await page.locator(".pano-detail").getByRole("button", { name: "Pedir la parte de 1.9.1" }).count(), 1, "and the learner can ask for it");
 });
+
+// ---------- iPad ----------
+// An iPad is neither a phone nor a desktop: upright it is 744–1024 px wide, sideways
+// 1133–1366 px, it has no hover and a finger is the pointer. The open tutor takes 440 px
+// out of that, so a layout has to answer to the room it is given, not to the screen.
+async function ipadPage(t, width, height, prepare = () => {}) {
+  const { root, engine, log } = makeRoot();
+  prepare(root);
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const context = await (browser.chromium ?? browser.default).launch().then((b) => b.newContext({ viewport: { width, height }, hasTouch: true }));
+  t.after(() => context.browser().close());
+  await context.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const page = await context.newPage();
+  return { page, studio, log, root };
+}
+
+const tracks = (page, selector) => page.evaluate((s) => getComputedStyle(document.querySelector(s)).gridTemplateColumns.split(" ").length, selector);
+
+test("an iPad held sideways with the tutor open gives the topic one readable column", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await ipadPage(t, 1180, 820);
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(400);
+  assert.equal(await tracks(page, ".topic-head"), 1, "beside the tutor the route and its card stack instead of squeezing side by side");
+  const title = await page.locator(".topic-head h1").boundingBox();
+  assert.ok(title.width >= 560, `the title keeps a line long enough to read: ${Math.round(title.width)}px`);
+
+  await page.goto(`${studio.url}#/panorama/redes`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".pano-body");
+  assert.equal(await tracks(page, ".pano-body"), 1, "the panorama stacks too");
+  const row = await page.locator("ol.route li.part-row h3").first().boundingBox();
+  assert.ok(row.width >= 360, `a route row is not one word per line: ${Math.round(row.width)}px`);
+});
+
+test("an iPad held sideways with the tutor closed keeps the two columns", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await ipadPage(t, 1180, 820);
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  assert.equal(await tracks(page, ".topic-head"), 2, "with the whole screen the card sits beside the route");
+});
+
+test("on an upright iPad the open tutor dims the page and a tap outside closes it", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await ipadPage(t, 820, 1180);
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(400);
+  const scrim = page.locator(".scrim");
+  assert.equal(await scrim.isVisible(), true, "the page behind the tutor is dimmed, not cut mid-word");
+  await page.mouse.click(120, 700);
+  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "a tap on the page closes the tutor");
+  assert.equal(await scrim.isVisible(), false);
+});
+
+test("every control on an iPad is a finger-sized target", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await ipadPage(t, 820, 1180);
+  const small = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll(".topbar a, .topbar button, .stage button, .stage a, .stage summary, .drawer button")]
+        .filter((n) => !n.closest("svg") && n.getBoundingClientRect().width > 0 && getComputedStyle(n).visibility !== "hidden")
+        .map((n) => { const r = n.getBoundingClientRect(); return { name: (n.getAttribute("aria-label") || n.textContent).trim().slice(0, 24), w: Math.round(r.width), h: Math.round(r.height) }; })
+        .filter((c) => c.h < 44 || c.w < 44),
+    );
+  for (const hash of ["#/", "#/tema/redes", "#/panorama/redes", "#/panorama/redes/mapa"]) {
+    await page.goto(`${studio.url}${hash}`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(300);
+    assert.deepEqual(await small(), [], `targets under 44px on ${hash}`);
+  }
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(400);
+  assert.deepEqual(await small(), [], "targets under 44px in the tutor");
+
+  await page.goto(`${studio.url}#/panorama/redes`, { waitUntil: "networkidle" });
+  const home = page.locator(".crumbs a").first();
+  assert.equal((await home.textContent()).trim(), "Inicio");
+  assert.equal(await home.evaluate((a) => a.scrollWidth <= a.clientWidth), true, "the way home is never cut to «I…»");
+  const clipped = await page.evaluate(() =>
+    [...document.querySelectorAll(".crumbs a")].filter((a) => {
+      const range = document.createRange();
+      range.setStart(a.firstChild, 0);
+      range.setEnd(a.firstChild, 1);
+      return range.getBoundingClientRect().left < a.getBoundingClientRect().left - 1;
+    }).map((a) => a.textContent),
+  );
+  assert.deepEqual(clipped, [], "a long topic ends in «…», it never loses its first letters");
+});
+
+// A real map has five or six subtemas side by side; fitted whole into an upright
+// iPad its words shrink to a few pixels. It opens at a readable size instead, and
+// two fingers zoom it like any picture.
+const WIDE_MAP = [
+  "flowchart TB",
+  ...[1, 2, 3, 4, 5, 6].flatMap((g) => [
+    `  subgraph M${g} ["1.${g} Subtema ${g}"]`,
+    `    N${g}_1["1.${g}.1 Primer concepto del subtema ${g}<br/>⚪ no evaluado"]:::neu --> N${g}_2["1.${g}.2 Segundo concepto<br/>⚪ no evaluado"]:::neu`,
+    "  end",
+  ]),
+  "  classDef neu fill:#eceef1,stroke:#8b95a7,color:#3d4451;",
+  "",
+].join("\n");
+
+test("on an upright iPad the map opens readable and two fingers zoom it", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await ipadPage(t, 820, 1180, (root) => writeFileSync(join(root, "redes", "mapa.mmd"), WIDE_MAP));
+  await page.goto(`${studio.url}#/panorama/redes/mapa`, { waitUntil: "networkidle" });
+  await page.waitForSelector("g.pano-node");
+  await page.waitForTimeout(300);
+  const letters = () => page.evaluate(() => document.querySelector("text.pano-node-title").getBoundingClientRect().height);
+  const first = await letters();
+  assert.ok(first >= 12, `a concept's words are readable when the map opens: ${first.toFixed(1)}px`);
+
+  const scale = () => page.evaluate(() => Number(/scale\(([\d.]+)\)/.exec(document.querySelector(".pano-cam").getAttribute("transform"))[1]));
+  const before = await scale();
+  await page.evaluate(() => {
+    const canvas = document.querySelector(".pano-canvas");
+    const box = canvas.getBoundingClientRect();
+    const at = (id, x, y, type) => canvas.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: "touch", isPrimary: id === 1, clientX: box.left + x, clientY: box.top + y, bubbles: true, button: 0, buttons: 1 }));
+    at(1, 300, 250, "pointerdown");
+    at(2, 400, 250, "pointerdown");
+    at(1, 250, 250, "pointermove");
+    at(2, 450, 250, "pointermove");
+    at(1, 250, 250, "pointerup");
+    at(2, 450, 250, "pointerup");
+  });
+  const after = await scale();
+  assert.ok(after > before * 1.5, `spreading two fingers zooms in: ${before.toFixed(2)} → ${after.toFixed(2)}`);
+  await page.locator(".pano-controls").getByRole("button", { name: "Ajustar a la ventana" }).click();
+  assert.ok((await scale()) < before, "«Ajustar a la ventana» still shows the whole map");
+});
