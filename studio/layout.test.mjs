@@ -573,6 +573,26 @@ test("the chat offers no note for a write that failed", { skip: browser ? false 
 test("the chat offers no note for a path the reader cannot open", { skip: browser ? false : "playwright not installed" }, (t) =>
   offersNothing(t, (root) => [{ path: join(root, "redes", "explicaciones", "rapidos", "hash.md") }]));
 
+// The learner never has to guess what the tutor's reply means: a turn that worked on a topic
+// ends with that topic's next step as a button (the fake engine has «redes» waiting at the diagnosis).
+test("a turn that worked on a topic ends with its next step as a button", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await tutorTurn(t, (root) => [{ path: join(root, "redes", "diagnostico-conceptos.json"), content: "{}" }]);
+  const next = page.locator(".thread .next-cta");
+  await next.waitFor({ timeout: 10000 });
+  assert.equal(await next.count(), 1, "one next step per turn");
+  assert.match(await next.innerText(), /Responde el diagnóstico inicial/);
+  assert.equal(await page.locator(".thread .note-cta").count(), 0, "no note was written");
+  await next.getByRole("button", { name: "Responder el diagnóstico" }).click();
+  await page.waitForFunction(() => location.hash === "#/leer/redes/quiz", null, { timeout: 5000 });
+  assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "the next step is not hidden behind the tutor");
+});
+
+test("a turn that touched no topic offers no next step", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await tutorTurn(t, (root) => [{ path: join(root, "rapidos", "hash.md") }]);
+  await page.locator(".thread .note-cta").waitFor({ timeout: 10000 });
+  assert.equal(await page.locator(".thread .next-cta").count(), 0);
+});
+
 // A plain studio page for the flows below: the fake Pi runs one turn per prompt.
 async function studioPage(t, prepare = () => {}) {
   const { root, engine, log } = makeRoot();
