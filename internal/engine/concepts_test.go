@@ -188,6 +188,7 @@ func TestConceptDiagnosisRoundsAreChosenByTheModel(t *testing.T) {
 	}
 
 	// Planning must focus on a wrong answer or a laguna question.
+	f.methodIfAsked(t)
 	f.writePlanWith(t, "Base P0.1 por reforzar.", nil, defaultParts()...)
 	f.advanceExpectBlocked(t, "planning", "planning-link", "laguna")
 	f.writePlanWith(t, "Base P0.1 por reforzar.", []string{"a1"}, defaultParts()...)
@@ -240,6 +241,7 @@ func throughConceptPlanning(t *testing.T) *fixture {
 	f.writeDiagVerdicts(t, coverAll(qs, r, nil)...)
 	f.advanceOK(t, "diagnosis")
 	f.writePlanWith(t, "Dificultades en T.p1.", []string{"a1"}, defaultParts()...)
+	f.methodIfAsked(t)
 	f.advanceOK(t, "planning")
 	f.writeExplanation(t, "p1", true, "v1")
 	f.advanceOK(t, "explanation")
@@ -444,6 +446,7 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	}
 	prod := load(productionRulesPath)
 	delete(prod["thresholds"].(map[string]any), "concepts")
+	delete(prod["thresholds"].(map[string]any), "strictFlow")
 	checks := prod["checks"].(map[string]any)
 	for stage, list := range checks {
 		var keep []any

@@ -213,17 +213,21 @@ type OptionThresholds struct {
 }
 
 type Thresholds struct {
-	Diagnostic     DiagnosticThresholds `json:"diagnostic"`
-	Quiz           QuizThresholds       `json:"quiz"`
-	Concepts       *ConceptThresholds   `json:"concepts,omitempty"`
-	Pareto         *ParetoThresholds    `json:"pareto,omitempty"`
-	Options        OptionThresholds     `json:"options"`
-	Niveles        []string             `json:"niveles"`
-	NivelByLevel   map[string]string    `json:"nivelByLevel"`
-	PiezaTipos     []string             `json:"piezaTipos"`
-	MisPalabrasHdr string               `json:"misPalabrasHeader"`
-	PlanVisualHead string               `json:"planVisualHeading"`
-	PlanSections   []string             `json:"planSections"`
+	Diagnostic DiagnosticThresholds `json:"diagnostic"`
+	Quiz       QuizThresholds       `json:"quiz"`
+	Concepts   *ConceptThresholds   `json:"concepts,omitempty"`
+	Pareto     *ParetoThresholds    `json:"pareto,omitempty"`
+	// StrictFlow asks the learner, once the diagnosis settles, how to be taught
+	// (pareto or preferencias) before anything is planned. Snapshots without it
+	// keep going straight from the diagnosis to planning.
+	StrictFlow     bool              `json:"strictFlow,omitempty"`
+	Options        OptionThresholds  `json:"options"`
+	Niveles        []string          `json:"niveles"`
+	NivelByLevel   map[string]string `json:"nivelByLevel"`
+	PiezaTipos     []string          `json:"piezaTipos"`
+	MisPalabrasHdr string            `json:"misPalabrasHeader"`
+	PlanVisualHead string            `json:"planVisualHeading"`
+	PlanSections   []string          `json:"planSections"`
 	// VisualBlocks are fenced code-block languages that render a visual in
 	// the vault (native mermaid and installed Obsidian plugins). Embeds
 	// (![...]) always count as visuals.

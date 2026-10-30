@@ -414,6 +414,19 @@ test("POSTs refuse foreign origins, non-JSON, empty or oversize prompts, and rea
   assert.ok(received().length >= before);
 });
 
+// C2: the learner's explanation method travels with the library once the engine records it.
+test("the library carries the explanation method the engine recorded", async () => {
+  const { root, engine, log } = makeRoot({ status: { status: "accepted", stage: "planning", nextStage: "planning", method: "pareto" } });
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine });
+  open.push(studio);
+  const [topic] = JSON.parse((await http(`${studio.url}api/library`)).body).topics;
+  assert.equal(topic.method, "pareto");
+  const { studio: plain } = await setup();
+  const [before] = JSON.parse((await http(`${plain.url}api/library`)).body).topics;
+  assert.equal(before.method, "", "no method before the learner chooses one");
+});
+
 test("the library lists topics with engine status, parts and quick notes; api/view returns framable bridge URLs", async () => {
   const { studio } = await setup();
   const library = JSON.parse((await http(`${studio.url}api/library`)).body);

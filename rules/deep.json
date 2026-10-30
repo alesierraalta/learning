@@ -22,6 +22,7 @@
     "adaptation"
   ],
   "thresholds": {
+    "strictFlow": true,
     "diagnostic": {
       "mode": "adaptive",
       "roundSize": 3,

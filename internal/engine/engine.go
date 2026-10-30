@@ -19,12 +19,13 @@ import (
 
 // Options is the complete engine input for one CLI invocation.
 type Options struct {
-	Command   string // init | validate | advance | status | review
+	Command   string // init | validate | advance | status | review | method
 	Root      string
 	Workspace string
 	RulesPath string
 	Mode      string // deep (default) | conceptual
 	Scope     string // init only: complete (default) | pareto
+	Method    string // method only: pareto | preferencias
 	Stage     string // required for advance and review, optional for validate
 	Rule      string // review: rubric id receiving the verdict
 	Verdict   string // review: PASS or FAIL
@@ -47,6 +48,7 @@ type Report struct {
 	Checks    []Check        `json:"checks"`
 	NextStage string         `json:"nextStage"`
 	Scope     string         `json:"scope,omitempty"`
+	Method    string         `json:"method,omitempty"`
 	Part      string         `json:"part,omitempty"`
 	Evidence  map[string]any `json:"evidence,omitempty"`
 	Detail    string         `json:"detail,omitempty"`
@@ -63,11 +65,18 @@ const (
 // Run executes one engine command and returns the report plus exit code.
 func Run(opts Options) (Report, int) {
 	switch opts.Command {
-	case "init", "validate", "advance", "status", "review":
+	case "init", "validate", "advance", "status", "review", "method":
 	case "":
-		return errorReport("missing command: expected init, validate, advance, status or review"), ExitOperational
+		return errorReport("missing command: expected init, validate, advance, status, review or method"), ExitOperational
 	default:
-		return errorReport("unknown command " + opts.Command + ": expected init, validate, advance, status or review"), ExitOperational
+		return errorReport("unknown command " + opts.Command + ": expected init, validate, advance, status, review or method"), ExitOperational
+	}
+	if opts.Command == "method" {
+		if opts.Method != methodPareto && opts.Method != methodPreferencias {
+			return errorReport("method requires --method " + methodPareto + " or " + methodPreferencias), ExitOperational
+		}
+	} else if opts.Method != "" {
+		return errorReport("--method is only accepted by the method command"), ExitOperational
 	}
 	if opts.Mode == "" {
 		opts.Mode = "deep"
@@ -98,7 +107,7 @@ func Run(opts Options) (Report, int) {
 	if (opts.Command == "advance" || opts.Command == "review") && opts.Stage == "" {
 		return errorReport(opts.Command + " requires an explicit --stage"), ExitOperational
 	}
-	if (opts.Command == "init" || opts.Command == "status") && opts.Stage != "" {
+	if (opts.Command == "init" || opts.Command == "status" || opts.Command == "method") && opts.Stage != "" {
 		return errorReport(opts.Command + " does not accept --stage"), ExitOperational
 	}
 	if opts.Command == "review" {
@@ -169,6 +178,8 @@ func Run(opts Options) (Report, int) {
 		return runInit(wsReal, r, opts.Scope)
 	case "status":
 		return runStatus(wsReal, r)
+	case "method":
+		return runMethod(wsReal, r, opts.Method)
 	default:
 		return runStage(opts, wsReal, r)
 	}
@@ -274,6 +285,7 @@ func runStatus(ws string, r *rules.Rules) (Report, int) {
 	// adapter and the chat read it to know how much the run teaches.
 	report := func(rep Report, code int) (Report, int) {
 		rep.Scope = scope
+		rep.Method = st.Method
 		return rep, code
 	}
 
@@ -317,6 +329,11 @@ func runStatus(ws string, r *rules.Rules) (Report, int) {
 		return report(Report{Status: "completed", Stage: "final", NextStage: "", Checks: checks}, ExitOK)
 	}
 
+	if fStage == stageMethod {
+		// The chat owes the question, not the learner: the settle gate makes it ask.
+		checks = append(checks, skipCheck("method-chosen", "ask the learner how to be taught (pareto or preferencias) and record it with the method command"))
+		return report(Report{Status: "accepted", Stage: fStage, NextStage: fStage, Checks: checks}, ExitOK)
+	}
 	if detectWait(r, ws, fStage, fPart) {
 		// With concept diagnosis a learner wait never hides a chat obligation,
 		// such as a round written before the previous round's verdicts.
@@ -415,6 +432,9 @@ func runStage(opts Options, ws string, r *rules.Rules) (Report, int) {
 	}
 
 	fStage, fPart, complete := frontier(r, st, ws)
+	if fStage == stageMethod {
+		return blocked([]Check{methodPending()}, stageMethod, stageMethod, "", ExitFailedCheck)
+	}
 	requested := opts.Stage
 	if requested == "" { // validate without --stage targets the frontier
 		if complete {
@@ -656,6 +676,9 @@ func frontier(r *rules.Rules, st *State, ws string) (stage, part string, complet
 	for _, s := range r.StageOrder {
 		if s == "final" || s == "exercises" || s == "final_quiz" || r.IsPartStage(s) {
 			continue
+		}
+		if s == "planning" && r.Thresholds.StrictFlow && st.Method == "" {
+			return stageMethod, "", false
 		}
 		rec, ok := st.Global[s]
 		if !ok {

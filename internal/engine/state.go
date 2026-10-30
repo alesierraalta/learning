@@ -71,7 +71,10 @@ type State struct {
 	// Scope is the learning scope chosen at init: complete (the whole topic)
 	// or pareto (only the vital slice). Runs created before scope existed
 	// carry no value and are resolved as complete.
-	Scope     string                 `json:"scope,omitempty"`
+	Scope string `json:"scope,omitempty"`
+	// Method is the learner's explanation method, chosen after the diagnosis
+	// in a strict-flow run: pareto or preferencias.
+	Method    string                 `json:"method,omitempty"`
 	Workspace string                 `json:"workspace"`
 	CreatedAt time.Time              `json:"createdAt"`
 	RulesHash string                 `json:"rulesHash"`
