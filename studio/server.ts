@@ -14,7 +14,7 @@ import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -122,11 +122,15 @@ export type Note = { topic: string; index: number } | { quick: string };
 /**
  * `explicaciones/Parte N - <slug>.md` (or its rich `.html` page) inside a topic folder, or
  * `rapidos/<id>.md`: the studio can open that note, so a write that produced it comes back with
- * what the reader routes on.
+ * what the reader routes on. With the Learnings `root`, only the notes the reader serves count:
+ * `<root>/rapidos/<id>.md` and `<root>/<topic>/explicaciones/Parte N - <slug>.(md|html)`.
  */
-export function noteFromPath(path: unknown): Note | null {
+export function noteFromPath(path: unknown, root?: string): Note | null {
   if (typeof path !== "string") return null;
-  const segments = path.split(/[\\/]+/).filter((segment) => segment !== "" && segment !== ".");
+  const inRoot = root === undefined ? path : relative(root, resolve(root, path));
+  if (root !== undefined && (inRoot.startsWith("..") || isAbsolute(inRoot))) return null;
+  const segments = inRoot.split(/[\\/]+/).filter((segment) => segment !== "" && segment !== ".");
+  if (root !== undefined && segments.length !== (segments[0] === "rapidos" ? 2 : 3)) return null;
   if (segments.at(-2) === "rapidos") {
     const quick = /^([\w-]+)\.md$/.exec(segments.at(-1) ?? "");
     return quick === null ? null : { quick: quick[1] };
@@ -140,23 +144,23 @@ export function noteFromPath(path: unknown): Note | null {
 }
 
 /** The note a write or edit produced, when the tutor is working on a part of a topic. */
-function toolNote(name: string, args: unknown): Note | null {
+function toolNote(name: string, args: unknown, root?: string): Note | null {
   if (name !== "write" && name !== "edit") return null;
-  return isRecord(args) ? noteFromPath(args.path) : null;
+  return isRecord(args) ? noteFromPath(args.path, root) : null;
 }
 
 /**
  * The last part note the conversation wrote or edited: a reloaded tab still knows which note the
  * tutor was talking about, so the chat keeps the way back to it.
  */
-export function noteFromMessages(messages: unknown): Note | null {
+export function noteFromMessages(messages: unknown, root?: string): Note | null {
   if (!Array.isArray(messages)) return null;
   let found: Note | null = null;
   for (const message of messages) {
     if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) continue;
     for (const part of message.content) {
       if (!isRecord(part) || part.type !== "toolCall") continue;
-      const note = toolNote(String(part.name), part.arguments);
+      const note = toolNote(String(part.name), part.arguments, root);
       if (note !== null) found = note;
     }
   }
@@ -246,7 +250,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         const name = String(record.toolName);
         const id = String(record.toolCallId);
         toolArgs.set(id, record.args);
-        const note = toolNote(name, record.args);
+        const note = toolNote(name, record.args, root);
         emit("tool", { phase: "start", id: record.toolCallId, name: record.toolName, label: toolLabel(name, record.args), ok: true, ...(note === null ? {} : { note }) });
         return;
       }
@@ -255,7 +259,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         const id = String(record.toolCallId);
         const args = record.args ?? toolArgs.get(id);
         toolArgs.delete(id);
-        const note = toolNote(name, args);
+        const note = toolNote(name, args, root);
         emit("tool", { phase: "end", id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }) });
         return;
       }
@@ -604,7 +608,7 @@ ${scripts}
         .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
         .map((m) => ({ role: m.role, text: messageText(m) }))
         .filter((m) => m.text);
-      return { messages, note: noteFromMessages(raw) };
+      return { messages, note: noteFromMessages(raw, root) };
     } catch {
       return { messages: [], note: null };
     }
