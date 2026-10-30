@@ -236,6 +236,8 @@
 
   // ---------- routing ----------
   let library = { topics: [], quick: [] };
+  let panoramaBack = "#/";
+  const openPanorama = (id, from) => { panoramaBack = from; go(`#/panorama/${id}`); };
   const go = (hash) => {
     if (location.hash === hash) render();
     else location.hash = hash;
@@ -336,13 +338,16 @@
             "div",
             { class: "cards" },
             byOpened.map(({ t, s }, i) =>
-              h(
-                "button",
-                { class: "card reveal", type: "button", style: `--i:${i + 2};--tone:${TONE[s.tone]}`, onclick: () => go(`#/tema/${t.id}`) },
-                h("span", { class: `tag${s.tone === "test" ? " test" : ""}` }, s.tone === "test" ? "Prueba" : "Universitario"),
-                h("h3", {}, t.title),
-                h("span", { class: "status" }, s.label),
-                h("div", { class: "foot" }, progress(t)),
+              h("div", {},
+                h(
+                  "button",
+                  { class: "card reveal", type: "button", style: `--i:${i + 2};--tone:${TONE[s.tone]}`, onclick: () => go(`#/tema/${t.id}`) },
+                  h("span", { class: `tag${s.tone === "test" ? " test" : ""}` }, s.tone === "test" ? "Prueba" : "Universitario"),
+                  h("h3", {}, t.title),
+                  h("span", { class: "status" }, s.label),
+                  h("div", { class: "foot" }, progress(t)),
+                ),
+                btn("Panorama del tema", () => openPanorama(t.id, "#/"), "btn small ghost", "map"),
               ),
             ),
           )
@@ -444,7 +449,7 @@
         ),
       );
     }
-    topic.parts.forEach((p, i) => {
+    topic.parts.filter((p) => p.written).forEach((p, i) => {
       const current = topic.part === p.id && topic.status !== "sin inscribir";
       const state = p.answered && !current ? "done" : current ? "current" : p.written ? "ready" : "pending";
       const meta = {
@@ -498,7 +503,7 @@
             h(
               "div",
               { class: "pano-entry reveal", style: "--i:1" },
-              btn("Panorama del tema", () => go(`#/panorama/${topic.id}`), "btn small soft", "map"),
+              btn("Panorama del tema", () => openPanorama(topic.id, `#/tema/${topic.id}`), "btn small soft", "map"),
               h("span", { class: "pano-entry-note" }, "La planificación y el mapa de dependencias, en una vista completa"),
             ),
             gaps.missing.length > 0
@@ -567,7 +572,13 @@
     return node;
   };
   /** The map's own class names, in the words the plan uses. */
-  const MAP_STATUS = { ok: "evaluado", frag: "frágil", gap: "hueco", neu: "sin evaluar", ext: "externo" };
+  const MAP_STATUS = { claro: "claro", dudoso: "dudoso", laguna: "laguna", no_visto: "no visto" };
+  const MAP_TONES = {
+    claro: { fill: "#d4edda", stroke: "#28a745", color: "#14532d" },
+    dudoso: { fill: "#fff3cd", stroke: "#ffc107", color: "#664d03" },
+    laguna: { fill: "#f8d7da", stroke: "#dc3545", color: "#842029" },
+    no_visto: { fill: "#dbeafe", stroke: "#2563eb", color: "#1e3a8a" },
+  };
   const statusText = (status) => MAP_STATUS[status] || status || "sin evaluar";
   const panoTab = (label, on, hash) =>
     h("button", { class: `pano-tab${on ? " on" : ""}`, type: "button", role: "tab", "aria-selected": String(on), onclick: () => go(hash) }, label);
@@ -591,7 +602,7 @@
       setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Panorama" }]);
       return stage.replaceChildren(h("div", { class: "page" }, h("p", { class: "empty" }, "No encuentro ese tema. Vuelve al inicio.")));
     }
-    setCrumbs([{ text: "Inicio", href: "#/" }, { text: topic.title, href: `#/tema/${id}` }, { text: "Panorama" }]);
+    setCrumbs([{ text: "Inicio", href: "#/" }, ...(panoramaBack === "#/" ? [] : [{ text: topic.title, href: `#/tema/${id}` }]), { text: "Panorama" }]);
     stage.replaceChildren(h("div", { class: "page" }, h("p", { class: "empty" }, "Reuniendo el plan y el mapa del tema…")));
     let panorama;
     try {
@@ -608,6 +619,7 @@
         h(
           "header",
           { class: "pano-head reveal", style: "--i:0" },
+          btn("Volver", () => go(panoramaBack), "btn small ghost", "back"),
           h("p", { class: "eyebrow" }, "Panorama del tema"),
           h("h1", {}, topic.title),
           h(
@@ -653,15 +665,8 @@
       ),
     );
     const sections = (panorama.plan?.sections ?? []).map((section, i) =>
-      h(
-        "details",
-        { class: "pano-section reveal", style: `--i:${i + 2}`, open: i === 0 },
-        h(
-          "summary",
-          {},
-          h("span", { class: "title" }, section.title),
-          diagramHint(section.diagrams),
-        ),
+      h("details", { class: "pano-section reveal", style: `--i:${i + 2}`, open: i === 0 },
+        h("summary", {}, h("span", { class: "title" }, section.title), diagramHint(section.diagrams)),
         h("div", { class: "prose" }, markdown(section.markdown)),
       ),
     );
@@ -690,14 +695,10 @@
               ),
           h("ol", { class: "route", "aria-label": "Ruta del tema" }, chapters),
         ),
-        sections.length
-          ? h(
-              "section",
-              { class: "pano-block" },
-              h("div", { class: "pano-block-title" }, h("h2", {}, "El plan del tutor")),
-              h("div", { class: "pano-sections" }, sections),
-            )
-          : null,
+        sections.length ? h("section", { class: "pano-block" },
+          h("div", { class: "pano-block-title" }, h("h2", {}, "El plan del tutor")),
+          h("div", { class: "pano-sections" }, sections),
+        ) : null,
         panorama.map
           ? null
           : h(
@@ -749,7 +750,7 @@
     const at = new Map(layout.nodes.map((node) => [node.id, node]));
     const needs = (id) => graph.edges.filter((edge) => edge.to === id).map((edge) => at.get(edge.from)).filter(Boolean);
     const opens = (id) => graph.edges.filter((edge) => edge.from === id).map((edge) => at.get(edge.to)).filter(Boolean);
-    const tone = (status) => graph.classes[status] || {};
+    const tone = (status) => MAP_TONES[status] || MAP_TONES.no_visto;
 
     const camera = svgEl("g", { class: "pano-cam" });
     const canvas = h("div", { class: "pano-canvas" });
@@ -828,21 +829,22 @@
     const open = part.written
       ? btn("Leer esta parte", () => go(`#/leer/${topic.id}/${part.id}`), "btn small", "book")
       : btn("Escribir esta parte", () => say(writePromptOf(topic, part.number, part.title)), "btn small primary", "spark");
-    return [h("p", { class: "pano-part-name" }, h("b", {}, `Parte ${part.number}`), ` · ${part.title}`), open];
+    return [h("p", { class: "pano-part-name" }, part.written ? "Aprendido en " : "Lo aprenderás en ", h("b", {}, `Parte ${part.number}`), ` · ${part.title}`), open];
   }
   function select(node) {
     for (const [id, shape] of shapes) shape.classList.toggle("on", id === node.id);
     detail.replaceChildren(
         h("p", { class: "eyebrow" }, node.number ? `Concepto ${node.number}` : "Concepto"),
         h("h3", {}, node.title),
-        h("div", { class: "pano-meta-row" }, chip(node), node.meta ? h("span", { class: "muted" }, node.meta) : null),
+        h("div", { class: "pano-meta-row" }, chip(node)),
+        node.evidence ? h("p", {}, node.evidence) : null,
         depBlock("Necesita", needs(node.id), "Nada: arranca el mapa."),
         depBlock("Abre paso a", opens(node.id), "Nada todavía: es una hoja del mapa."),
         h("div", { class: "pano-part" }, closing(topic, node)),
       );
     }
 
-    const used = [...new Set(layout.nodes.map((node) => node.status))].filter(Boolean);
+    const used = ["claro", "dudoso", "laguna", "no_visto"];
     const legend = h(
       "div",
       { class: "pano-legend", "aria-label": "Colores del mapa" },
@@ -881,7 +883,7 @@
         },
         svgEl("rect", { width: node.w, height: node.h, rx: 10, style: paint.fill ? `fill:${paint.fill};stroke:${paint.stroke}` : null }),
         node.lines.map((line) => svgEl("text", { x: 14, y: line.y, class: "pano-node-title" }, line.text)),
-        node.meta ? svgEl("text", { x: 14, y: node.metaY, class: "pano-node-meta", style: paint.color ? `fill:${paint.color}` : null }, node.meta) : null,
+        svgEl("text", { x: 14, y: node.metaY, class: "pano-node-meta", style: `fill:${paint.color}` }, statusText(node.status)),
       );
       shapes.set(node.id, shape);
       return shape;
