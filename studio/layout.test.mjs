@@ -331,3 +331,38 @@ test("a deck whose word does not fit is refused and the typed text stays", { ski
   assert.match(await page.evaluate(() => location.hash), /^#\/editar/, "the editor stays open");
   assert.equal(existsSync(join(root, "rapidos", "nota-rota.md")), false, "nothing was stored");
 });
+
+// After the tutor builds an explanation, its reply ends with the way to the note it wrote.
+for (const [kind, written, hash] of [
+  ["part", "redes/explicaciones/Parte 1 - Capas.html", "#/leer/redes/p1"],
+  ["quick note", "rapidos/hash.md", "#/rapido/hash"],
+]) {
+  test(`the chat offers the ${kind} the tutor just wrote and opens it`, { skip: browser ? false : "playwright not installed" }, async (t) => {
+    const { root, engine, log } = makeRoot();
+    process.env.FAKE_PI_LOG = log;
+    process.env.FAKE_PI_WRITE = join(root, written);
+    t.after(() => delete process.env.FAKE_PI_WRITE);
+    const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+    open.push(studio);
+    const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+    t.after(() => page.context().browser().close());
+    await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+    await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+    await page.locator(".tutor-pill").click();
+    await page.getByLabel("Mensaje para el tutor").fill("Explícame algo.");
+    await page.getByLabel("Mensaje para el tutor").press("Enter");
+    await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).click();
+
+    const offer = page.locator(".thread .note-cta");
+    await offer.waitFor({ timeout: 10000 });
+    assert.equal(await offer.count(), 1, "one offer per turn");
+    assert.ok(
+      await page.evaluate(() => document.querySelector(".thread")?.lastElementChild?.matches(".note-cta")),
+      "the offer closes the turn, under the tutor's reply",
+    );
+    await offer.getByRole("button", { name: "Ir a la nota" }).click();
+    await page.waitForFunction((expected) => location.hash === expected, hash, { timeout: 5000 });
+    assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "the note is not hidden behind the tutor");
+  });
+}
