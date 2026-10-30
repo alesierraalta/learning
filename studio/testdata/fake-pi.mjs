@@ -11,7 +11,7 @@ let pendingDialog = null;
 // FAKE_PI_WRITES is a JSON list of {path, isError?, content?}: with content the file
 // is really written, as the tutor would, before the tool reports it.
 const scriptedWrites = () => {
-  if (!process.env.FAKE_PI_WRITES) return [{ path: process.env.FAKE_PI_WRITE || "tema/explicaciones/Parte 1 - Algo.md" }];
+  if (!process.env.FAKE_PI_WRITES) return [{ path: "tema/explicaciones/Parte 1 - Algo.md" }];
   try {
     return JSON.parse(process.env.FAKE_PI_WRITES);
   } catch (error) {
