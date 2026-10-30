@@ -113,6 +113,44 @@ test("the reading sheet may use the microphone for dictation", { skip: browser ?
   assert.equal(await frame.evaluate(() => document.featurePolicy.allowsFeature("fullscreen")), true);
 });
 
+// On a phone the chrome above a part must leave the screen to the reading: the
+// title stays whole, every control is a touch target with a name, and the sheet
+// starts high.
+test("the reader bar stays compact and readable on a phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 360, height: 760 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForSelector("iframe.sheet[src]");
+  const seen = await page.evaluate(() => {
+    const title = document.querySelector(".reader-bar .title");
+    const controls = [...document.querySelectorAll(".reader-bar button")].map((b) => {
+      const r = b.getBoundingClientRect();
+      return { name: b.getAttribute("aria-label") || b.textContent.trim(), w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right) };
+    });
+    return {
+      clipped: title.scrollWidth > title.clientWidth + 1 || title.scrollHeight > title.clientHeight + 1,
+      controls,
+      sheetTop: Math.round(document.querySelector("iframe.sheet").getBoundingClientRect().top),
+      pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
+    };
+  });
+  assert.equal(seen.clipped, false, "the part title is cut");
+  for (const c of seen.controls) {
+    assert.ok(c.name, `a reader control has no name: ${JSON.stringify(c)}`);
+    assert.ok(c.w >= 32 && c.h >= 32, `undersized control: ${JSON.stringify(c)}`);
+    assert.ok(c.right <= 360, `control off screen: ${JSON.stringify(c)}`);
+  }
+  assert.deepEqual(seen.controls.map((c) => c.name), ["Volver", "Explicación", "App interactiva", "Preguntar", "Borrar"]);
+  assert.ok(seen.sheetTop <= 150, `the sheet starts at ${seen.sheetTop}px`);
+  assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
+});
+
 test("a topic that still owes parts says so instead of looking finished", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;

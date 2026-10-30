@@ -24,6 +24,7 @@
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: "Liberation Mono", "DejaVu Sans Mono", Consolas, monospace;
   --drawer: 440px;
+  --topbar: 64px;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -32,7 +33,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 a { color: var(--blue); }
 
 /* ---------- top bar ---------- */
-.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 20px; height: 64px; padding: 0 32px; background: var(--paper); border-bottom: 2px solid var(--line); }
+.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 20px; height: var(--topbar); padding: 0 32px; background: var(--paper); border-bottom: 2px solid var(--line); }
 .brand { display: flex; align-items: baseline; gap: 10px; text-decoration: none; color: var(--ink); }
 .brand b { font-weight: 400; font-size: 1.7rem; line-height: 1; }
 .brand span { font-size: 1rem; color: var(--meta); }
@@ -54,7 +55,7 @@ a { color: var(--blue); }
 @keyframes pulse { 50% { opacity: .3; transform: scale(.75); } }
 
 /* ---------- layout ---------- */
-.app { display: flex; min-height: calc(100vh - 64px); }
+.app { display: flex; min-height: calc(100vh - var(--topbar)); }
 .stage { flex: 1; min-width: 0; transition: margin-right .28s ease; }
 body.drawer-open .stage { margin-right: var(--drawer); }
 .page { max-width: 1180px; margin: 0 auto; padding: 56px 48px 110px; }
@@ -166,7 +167,7 @@ h3 { font-weight: 700; }
 .side-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
 
 /* ---------- reader ---------- */
-.reader { display: flex; flex-direction: column; height: calc(100vh - 64px); }
+.reader { display: flex; flex-direction: column; height: calc(100vh - var(--topbar)); }
 .reader-bar { display: flex; align-items: center; gap: 12px; padding: 10px 26px; border-bottom: 2px solid var(--line); }
 .reader-bar .title { flex: 1; min-width: 0; font-size: 1.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .reader-bar .title small { font-size: 1rem; color: var(--meta); margin-right: 12px; }
@@ -178,7 +179,7 @@ h3 { font-weight: 700; }
 .sheet { width: 100%; height: 100%; border: 0; background: var(--paper); }
 
 /* ---------- tutor drawer ---------- */
-.drawer { position: fixed; top: 64px; right: 0; bottom: 0; width: var(--drawer); z-index: 15; display: flex; flex-direction: column; background: var(--paper); border-left: 2px solid var(--line); transform: translateX(100%); visibility: hidden; transition: transform .28s ease, visibility 0s linear .28s; }
+.drawer { position: fixed; top: var(--topbar); right: 0; bottom: 0; width: var(--drawer); z-index: 15; display: flex; flex-direction: column; background: var(--paper); border-left: 2px solid var(--line); transform: translateX(100%); visibility: hidden; transition: transform .28s ease, visibility 0s linear .28s; }
 body.drawer-open .drawer { transform: none; visibility: visible; transition: transform .28s ease; }
 .drawer-head { position: relative; display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 2px solid var(--line); }
 .drawer-head h2 { font-size: 1.6rem; flex: 1; line-height: 1.1; }
@@ -270,13 +271,21 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
   .topic-head aside .aside-sticky { position: static; }
 }
 @media (max-width: 720px) {
-  :root { --drawer: 100vw; }
+  :root { --drawer: 100vw; --topbar: 54px; }
   .topbar { padding: 0 14px; gap: 10px; }
   .brand span, .crumbs, .top-actions .tutorial-btn { display: none; }
   .page { padding: 30px 18px 80px; }
   .part-row { grid-template-columns: 42px minmax(0, 1fr); }
   .part-row .row-actions { grid-column: 2; justify-content: flex-start; }
-  .reader-bar { flex-wrap: wrap; padding: 10px 14px; }
+  /* One row of icons beside a whole title; the format switch, when there is
+     one, takes the second row. */
+  .reader-bar { flex-wrap: wrap; gap: 6px; padding: 6px 10px; }
+  .reader-bar .title { font-size: 1.05rem; line-height: 1.25; white-space: normal; overflow: visible; }
+  .reader-bar .title small { display: block; font-size: .8rem; margin: 0; }
+  .reader-bar .btn { min-width: 38px; min-height: 38px; justify-content: center; padding: 6px; }
+  .reader-bar .btn .label { display: none; }
+  .reader-bar .switch { order: 1; flex: 1 0 100%; }
+  .reader-bar .switch button { flex: 1; min-height: 34px; padding: 5px 8px; }
   .deck-controls { flex-wrap: wrap; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } .reveal { opacity: 1; transform: none; } }
