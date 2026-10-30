@@ -1,21 +1,40 @@
 // A stand-in for `pi --mode rpc`: JSONL on stdin/stdout, scripted events, and a
 // log of every command received (FAKE_PI_LOG) for the studio tests.
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 const log = process.env.FAKE_PI_LOG;
 const out = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
 const record = (command) => log && appendFileSync(log, `${JSON.stringify({ ...command, interactiveHost: process.env.GENTLE_SHELL_INTERACTIVE_HOST, cwd: process.cwd() })}\n`);
 let pendingDialog = null;
-// The note the scripted turn writes; a test points it at a note of its own root.
-const written = process.env.FAKE_PI_WRITE || "tema/explicaciones/Parte 1 - Algo.md";
+// The writes the scripted turn makes; a test points them at notes of its own root.
+// FAKE_PI_WRITES is a JSON list of {path, isError?, content?}: with content the file
+// is really written, as the tutor would, before the tool reports it.
+const scriptedWrites = () => {
+  if (!process.env.FAKE_PI_WRITES) return [{ path: process.env.FAKE_PI_WRITE || "tema/explicaciones/Parte 1 - Algo.md" }];
+  try {
+    return JSON.parse(process.env.FAKE_PI_WRITES);
+  } catch (error) {
+    // A malformed script is a broken test: stop loudly instead of scripting nothing.
+    process.stderr.write(`FAKE_PI_WRITES is not JSON: ${error.message}\n`);
+    process.exit(2);
+  }
+};
+const writes = scriptedWrites();
 
 const run = (message) => {
   out({ type: "agent_start" });
   out({ type: "message_start", message: { role: "user", content: message } });
   out({ type: "message_start", message: { role: "assistant", content: [] } });
   out({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Hola, " } });
-  out({ type: "tool_execution_start", toolCallId: "t1", toolName: "write", args: { path: written } });
-  out({ type: "tool_execution_end", toolCallId: "t1", toolName: "write", isError: false });
+  writes.forEach(({ path, isError = false, content }, i) => {
+    out({ type: "tool_execution_start", toolCallId: `t${i + 1}`, toolName: "write", args: { path } });
+    if (content !== undefined && !isError) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, content);
+    }
+    out({ type: "tool_execution_end", toolCallId: `t${i + 1}`, toolName: "write", isError });
+  });
   out({ type: "extension_ui_request", id: "set-status", method: "setStatus", statusKey: "x", statusText: "y" });
   out({ type: "extension_ui_request", id: "n1", method: "notify", message: "Aviso del tutor", notifyType: "info" });
   pendingDialog = "d1";
