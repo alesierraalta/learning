@@ -146,6 +146,26 @@ export function noteFromPath(path: unknown, root?: string): Note | null {
   return index < 1 ? null : { topic, index };
 }
 
+/**
+ * The topic folder a path lies in: `<root>/<topic>/...`, any file of it. Quick notes and hidden
+ * folders belong to no topic. Without a root the first folder is the topic.
+ */
+export function topicFromPath(path: unknown, root?: string): string | null {
+  if (typeof path !== "string") return null;
+  const inRoot = root === undefined ? path : relative(root, resolve(root, path));
+  if (root !== undefined && (inRoot.startsWith("..") || isAbsolute(inRoot))) return null;
+  const segments = inRoot.split(/[\\/]+/).filter((segment) => segment !== "" && segment !== ".");
+  const topic = segments[0];
+  if (segments.length < 2 || topic === undefined || topic === "rapidos" || topic.startsWith(".")) return null;
+  return topic;
+}
+
+/** The topic a write or edit worked on, so the end of the turn can offer its next step. */
+function toolTopic(name: string, args: unknown, root?: string): string | null {
+  if (name !== "write" && name !== "edit") return null;
+  return isRecord(args) ? topicFromPath(args.path, root) : null;
+}
+
 /** The note a write or edit produced, when the tutor is working on a part of a topic. */
 function toolNote(name: string, args: unknown, root?: string): Note | null {
   if (name !== "write" && name !== "edit") return null;
@@ -255,7 +275,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         const id = String(record.toolCallId);
         toolArgs.set(id, record.args);
         const note = toolNote(name, record.args, root);
-        emit("tool", { phase: "start", id: record.toolCallId, name: record.toolName, label: toolLabel(name, record.args), ok: true, ...(note === null ? {} : { note }) });
+        const topic = toolTopic(name, record.args, root);
+        emit("tool", { phase: "start", id: record.toolCallId, name: record.toolName, label: toolLabel(name, record.args), ok: true, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
       }
       case "tool_execution_end": {
@@ -264,7 +285,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         const args = record.args ?? toolArgs.get(id);
         toolArgs.delete(id);
         const note = toolNote(name, args, root);
-        emit("tool", { phase: "end", id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }) });
+        const topic = toolTopic(name, args, root);
+        emit("tool", { phase: "end", id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
       }
       case "extension_ui_request": {

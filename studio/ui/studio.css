@@ -206,6 +206,8 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 .activity.running { color: var(--blue); }
 .activity svg { width: 15px; height: 15px; }
 .note-cta { align-self: flex-start; }
+.next-cta { align-self: stretch; border: 2px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--paper); display: flex; flex-direction: column; align-items: flex-start; gap: 10px; animation: rise .35s ease forwards; }
+.next-cta p { margin: 0; font-size: .98rem; line-height: 1.4; }
 .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--blue-s); border-top-color: var(--blue); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .notice { align-self: center; font-size: .92rem; font-style: italic; color: var(--muted); text-align: center; }

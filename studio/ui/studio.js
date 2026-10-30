@@ -173,7 +173,7 @@
     const stage = topic.nextStage || topic.stage;
     const where = STAGE_IN[stage] || stage || "";
     const part = topic.part ? partName(topic, topic.part) : "";
-    const read = (id) => () => go(`#/leer/${topic.id}/${id}`);
+    const read = (id) => Object.assign(() => go(`#/leer/${topic.id}/${id}`), { route: `#/leer/${topic.id}/${id}` });
     if (topic.status === "sin inscribir") {
       return { tone: "test", label: "Tema de prueba", text: "Este tema no lleva seguimiento del motor: puedes leer sus partes y probar sus apps.", cta: ["Ver el tema", () => go(`#/tema/${topic.id}`)] };
     }
@@ -865,7 +865,7 @@
   }
 
   // ---------- tutor ----------
-  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null, turnNote: null };
+  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null, turnNote: null, turnTopic: null };
   const thread = h("div", { class: "thread", "aria-live": "polite" });
   const composerText = h("textarea", { rows: "1", "aria-label": "Mensaje para el tutor", placeholder: "Escribe al tutor…" });
   const stateLine = h("span", { class: "state" }, "Conectando…");
@@ -1034,7 +1034,7 @@
     thread.scrollTop = thread.scrollHeight;
   });
   on("state", (s) => {
-    if (tutor.busy && !s.busy) offerNote();
+    if (tutor.busy && !s.busy) offerTurnEnd();
     tutor.busy = s.busy;
     tutor.alive = s.alive;
     if (!s.busy) tutor.activity = "";
@@ -1042,6 +1042,7 @@
   });
   on("user", ({ text }) => {
     tutor.turnNote = null;
+    tutor.turnTopic = null;
     append(h("div", { class: "msg user" }, text));
   });
   on("assistant_delta", ({ id, delta }) => {
@@ -1070,13 +1071,28 @@
     go(route);
   };
   const noteButton = (note) => (noteRoute(note) ? btn("Ir a la nota", () => openNote(note), "btn small ghost", "book") : null);
-  // A turn that wrote a note ends with the way to it, right under the explanation.
-  // The turn may have created the note's topic, so the library is read again before deciding.
-  const offerNote = async () => {
+  // A turn ends with what to do next, right under the explanation: the topic it worked on
+  // offers its next step (the learner never has to guess it from the reply), and a turn that
+  // wrote a note offers the way to it. The turn may have created the topic, so the library is
+  // read again before deciding.
+  const offerTurnEnd = async () => {
     const note = tutor.turnNote;
+    const topicId = tutor.turnTopic;
     tutor.turnNote = null;
-    if (!note) return;
+    tutor.turnTopic = null;
+    if (!note && !topicId) return;
     await loadLibrary();
+    const topic = topicId ? topicById(topicId) : null;
+    const step = topic ? nextStep(topic) : null;
+    const [label, action] = step ? step.cta : [];
+    if (step && !(note && action.route && action.route === noteRoute(note))) {
+      const run = () => {
+        closeDrawer();
+        action();
+      };
+      append(h("div", { class: "next-cta" }, h("p", {}, h("strong", {}, `${step.label}: `), step.text), btn(label, run, "btn small primary", "next")));
+    }
+    if (!note) return;
     showNote(note);
     const button = noteButton(note);
     if (button) append(h("div", { class: "note-cta" }, button));
@@ -1089,7 +1105,7 @@
     noteBtn.style.display = tutor.note ? "" : "none";
     noteBtn.title = !tutor.note ? "" : tutor.note.quick ? "Ir a la nota rápida" : `Ir a la nota: Parte ${tutor.note.index}`;
   };
-  on("tool", ({ phase, id, label, ok, note }) => {
+  on("tool", ({ phase, id, label, ok, note, topic }) => {
     if (phase === "start") {
       const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), label);
       activities.set(id, row);
@@ -1100,8 +1116,9 @@
       if (row) row.replaceChildren(icon(ok ? "check" : "x"), label);
       row?.classList.remove("running");
       tutor.activity = "";
-      // The way to the note comes only once the turn is over (offerNote), never mid-turn.
+      // The way to the note and the next step come only once the turn is over (offerTurnEnd), never mid-turn.
       if (ok && note) tutor.turnNote = note;
+      if (ok && topic) tutor.turnTopic = topic;
     }
     updatePill();
   });
