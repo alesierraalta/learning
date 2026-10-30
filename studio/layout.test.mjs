@@ -3,7 +3,7 @@
 // scrolling compose. Geometry is asserted, not eyeballed.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -572,3 +572,99 @@ test("the chat offers no note for a write that failed", { skip: browser ? false 
 
 test("the chat offers no note for a path the reader cannot open", { skip: browser ? false : "playwright not installed" }, (t) =>
   offersNothing(t, (root) => [{ path: join(root, "redes", "explicaciones", "rapidos", "hash.md") }]));
+
+// A plain studio page for the flows below: the fake Pi runs one turn per prompt.
+async function studioPage(t, prepare = () => {}) {
+  const { root, engine, log } = makeRoot();
+  prepare(root);
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine, openedFile: join(root, "..", `${root.split("/").pop()}-opened.json`) });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  return { root, studio, page };
+}
+
+test("tool activity never carries the way to a note: only the end of the turn does", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await tutorTurn(t, (root) => [{ path: join(root, "redes", "explicaciones", "Parte 1 - Capas.md") }]);
+  await page.locator(".thread .note-cta").waitFor({ timeout: 10000 });
+  assert.equal(await page.locator(".thread .activity").count() > 0, true, "the write is shown as activity");
+  assert.equal(await page.locator(".thread .activity button").count(), 0, "no button inside an activity row");
+});
+
+test("a quick note the library does not list yet opens as a quick note, never as topic undefined", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, studio, page } = await studioPage(t);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  writeFileSync(join(root, "rapidos", "nueva.md"), "# Nueva\n");
+  const views = [];
+  page.on("request", (request) => { if (request.url().includes("api/view")) views.push(request.url()); });
+  await page.evaluate(() => { location.hash = "#/rapido/nueva"; });
+  await page.waitForFunction(() => document.querySelector("iframe.sheet")?.getAttribute("src"), null, { timeout: 5000 });
+  assert.ok(views.some((url) => url.endsWith("api/view?quick=nueva")), views.join("\n"));
+  assert.equal(views.some((url) => url.includes("topic=")), false, views.join("\n"));
+});
+
+test("topics are listed by the last time they were opened", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t, (root) => {
+    mkdirSync(join(root, "algebra", ".learning"), { recursive: true });
+    writeFileSync(join(root, "algebra", "plan.json"), JSON.stringify({ topic: "Álgebra", parts: [{ id: "p1", title: "Grupos", slug: "Grupos" }] }));
+  });
+  const titles = () => page.locator(".cards .card h3").allTextContents();
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  assert.deepEqual((await titles()).slice(0, 2), ["Álgebra", "Redes"], "never opened: the usual order");
+  await page.evaluate(() => { location.hash = "#/tema/redes"; });
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => { location.hash = "#/"; });
+  await page.waitForLoadState("networkidle");
+  assert.deepEqual((await titles()).slice(0, 2), ["Redes", "Álgebra"], "the topic just opened comes first");
+  await page.reload({ waitUntil: "networkidle" });
+  assert.deepEqual((await titles()).slice(0, 2), ["Redes", "Álgebra"], "the order survives a reload");
+});
+
+const SUBMITTED = {
+  type: "learning:submitted", kind: "mini-quiz", topic: "redes", part: "p1", score: "1/2",
+  results: [
+    { id: "q1", enunciado: "¿Qué capa enruta?", chosen: "E", chosenText: "No sé", correct: "B", correctText: "Red", ok: false },
+    { id: "q2", enunciado: "¿Qué capa entrega?", chosen: "A", chosenText: "Transporte", correct: "A", correctText: "Transporte", ok: true },
+  ],
+};
+
+test("a submitted quiz opens its results while the tutor reads them, then offers the next step", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => document.querySelector("iframe.sheet")?.getAttribute("src"), null, { timeout: 5000 });
+  // Only the reading frame may announce a submission.
+  await page.evaluate((message) => postMessage(message, "*"), SUBMITTED);
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => location.hash), "#/leer/redes/p1", "a message from elsewhere is ignored");
+  const frame = await (await page.locator("iframe.sheet").elementHandle()).contentFrame();
+  await frame.evaluate((message) => parent.postMessage(message, "*"), SUBMITTED);
+  await page.waitForFunction(() => location.hash === "#/resultados/redes/p1", null, { timeout: 5000 });
+  const results = page.locator(".results");
+  await results.getByText("1/2").first().waitFor();
+  await results.getByText("¿Qué capa enruta?").waitFor();
+  await results.getByText("No sé").first().waitFor();
+  await results.getByText("El agente está leyendo tus análisis").waitFor();
+  assert.equal(await results.getByRole("button", { name: "Ir a lo siguiente" }).count(), 0);
+  // The bridge sends the submission to the tutor as a prompt; here the page sends it.
+  await page.evaluate(async () => {
+    const response = await fetch("prompt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "[Vista HTML · redes · p1] respuestas" }) });
+    if (!response.ok) throw new Error(`prompt ${response.status}`);
+  });
+  await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).waitFor({ timeout: 5000 });
+  assert.equal(await results.getByText("El agente está leyendo tus análisis").count(), 1, "still reading while the tutor works");
+  await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).click();
+  const next = results.getByRole("button", { name: "Ir a lo siguiente" });
+  await next.waitFor({ timeout: 10000 });
+  assert.equal(await results.getByText("El agente está leyendo tus análisis").count(), 0);
+  await next.click();
+  // The fake engine waits for the diagnosis: that is the topic's next step.
+  await page.waitForFunction(() => location.hash === "#/leer/redes/quiz", null, { timeout: 5000 });
+});
+
+test("results without a submission go back to the topic", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await page.goto(`${studio.url}#/resultados/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => location.hash === "#/tema/redes", null, { timeout: 5000 });
+});

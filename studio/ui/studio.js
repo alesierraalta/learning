@@ -223,6 +223,7 @@
     if (view === "leer" && a) return readerView({ topicId: a, part: b, mode: "page" });
     if (view === "app" && a) return readerView({ topicId: a, part: b, mode: "app" });
     if (view === "rapido" && a) return readerView({ quickId: a });
+    if (view === "resultados" && a) return resultsView(a, b);
     if (view === "editar") return editorView(a);
     return homeView();
   }
@@ -259,6 +260,8 @@
     const order = { you: 0, tutor: 1, alert: 2, done: 4, test: 5 };
     const ranked = library.topics.map((t) => ({ t, s: nextStep(t) })).sort((x, y) => order[x.s.tone] - order[y.s.tone]);
     const focus = ranked.find((r) => r.s.tone !== "test" && r.s.tone !== "done") || ranked[0];
+    // The cards follow the last time each topic was opened; never-opened ones keep the order above.
+    const byOpened = [...ranked].sort((x, y) => (y.t.opened || 0) - (x.t.opened || 0));
     const input = h("input", { type: "text", name: "topic", "aria-label": "¿Qué quieres aprender?", placeholder: "Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…", autocomplete: "off" });
     const start = (event) => {
       event.preventDefault();
@@ -294,7 +297,7 @@
         ? h(
             "div",
             { class: "cards" },
-            ranked.map(({ t, s }, i) =>
+            byOpened.map(({ t, s }, i) =>
               h(
                 "button",
                 { class: "card reveal", type: "button", style: `--i:${i + 2};--tone:${TONE[s.tone]}`, onclick: () => go(`#/tema/${t.id}`) },
@@ -378,6 +381,7 @@
       return stage.replaceChildren(h("div", { class: "page" }, h("p", { class: "empty" }, "No encuentro ese tema. Vuelve al inicio.")));
     }
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: topic.title }]);
+    markOpened(topic);
     const step = nextStep(topic);
     const firstPending = topic.parts.find((p) => !p.written);
     const gaps = topic.gaps || { missing: [], noVisuals: [], noQuiz: [] };
@@ -502,7 +506,9 @@
   async function readerView({ topicId, part, quickId, mode }) {
     const seq = ++readSeq;
     const topic = topicId ? topicById(topicId) : null;
-    const quick = quickId ? library.quick.find((q) => q.id === quickId) : null;
+    // A quick note the library does not list yet (just written) is still a quick note.
+    const quick = quickId ? library.quick.find((q) => q.id === quickId) || { id: quickId, title: quickId } : null;
+    if (topic) markOpened(topic);
     const index = topic && part !== "quiz" ? partIndex(topic, part) : -1;
     const info = index >= 0 ? topic.parts[index] : null;
     const exercise = topic?.exercises?.find((e) => part === `codigo/${e.id}`);
@@ -568,6 +574,84 @@
     } catch (error) {
       if (seq === readSeq) frame.replaceWith(h("p", { class: "empty" }, error.message));
     }
+  }
+
+  // ---------- results of a submitted quiz ----------
+  // The reading frame announces a graded submission; the learner lands on its results
+  // and watches the tutor read them until it is done, then goes on to the next step.
+  let submitted = null;
+  let showResultsStatus = () => {};
+  window.addEventListener("message", (event) => {
+    const data = event.data;
+    if (!data || data.type !== "learning:submitted" || typeof data.topic !== "string" || !Array.isArray(data.results)) return;
+    const frame = stage.querySelector("iframe.sheet");
+    if (!frame || event.source !== frame.contentWindow) return;
+    submitted = { ...data, sawBusy: tutor.busy, done: false };
+    go(`#/resultados/${encodeURIComponent(data.topic)}/${encodeURIComponent(data.part || "quiz")}`);
+  });
+  // Called on every tutor change: the turn that reads the answers is over once the tutor
+  // has been busy and is idle again (the prompt may still be queued when the page opens).
+  function watchResults() {
+    if (!submitted || submitted.done) return;
+    if (tutor.busy) submitted.sawBusy = true;
+    else if (submitted.sawBusy || !tutor.alive) {
+      submitted.done = true;
+      loadLibrary().then(() => showResultsStatus());
+    }
+    showResultsStatus();
+  }
+  function resultsView(topicId, part) {
+    if (!submitted || submitted.topic !== topicId || (submitted.part || "quiz") !== part) return go(`#/tema/${encodeURIComponent(topicId)}`);
+    const topic = topicById(topicId);
+    const kicker = part === "quiz" ? "Diagnóstico" : topic ? `Parte ${partIndex(topic, part) + 1}` : part;
+    setCrumbs([{ text: "Inicio", href: "#/" }, { text: topic ? topic.title : topicId, href: `#/tema/${topicId}` }, { text: "Resultados" }]);
+    const [points, total] = String(submitted.score).split("/").map(Number);
+    const status = h("div", { class: "results-status", role: "status", "aria-live": "polite" });
+    showResultsStatus = () => {
+      if (!status.isConnected || !submitted) return;
+      if (!submitted.done) {
+        status.replaceChildren(
+          h("span", { class: "spinner" }),
+          h("div", {}, h("p", { class: "reading" }, "El agente está leyendo tus análisis…"), tutor.activity ? h("p", { class: "muted" }, tutor.activity) : null),
+        );
+        return;
+      }
+      const fresh = topicById(topicId);
+      const step = fresh ? nextStep(fresh) : null;
+      status.replaceChildren(
+        step ? h("p", {}, step.text) : h("p", {}, "El tutor ya leyó tus respuestas."),
+        btn("Ir a lo siguiente", () => (step ? step.cta[1]() : go(`#/tema/${encodeURIComponent(topicId)}`)), "btn primary", "next"),
+      );
+    };
+    stage.replaceChildren(
+      h(
+        "div",
+        { class: "page results" },
+        h("p", { class: "eyebrow" }, `${kicker} · resultados`),
+        h("h1", {}, `Puntaje ${submitted.score}`, h("span", { class: "pct" }, ` — ${total ? Math.round((points / total) * 100) : 0} %`)),
+        status,
+        h(
+          "ol",
+          { class: "results-list" },
+          submitted.results.map((r) =>
+            h(
+              "li",
+              { class: r.ok ? "ok" : "miss" },
+              h("p", { class: "question" }, r.enunciado || r.id),
+              h("p", {}, h("strong", {}, r.ok ? "✔ Correcta" : "✘ Incorrecta"), ` — elegiste ${r.chosen}: ${r.chosenText}`),
+              r.ok ? null : h("p", { class: "muted" }, `La correcta es ${r.correct}: ${r.correctText}`),
+            ),
+          ),
+        ),
+      ),
+    );
+    showResultsStatus();
+  }
+
+  // Opening a topic (its page or any of its sheets) moves it to the front of the home cards.
+  function markOpened(topic) {
+    topic.opened = Date.now();
+    post("opened", { topic: topic.id }).catch(() => {});
   }
 
   // ---------- note editor ----------
@@ -816,6 +900,7 @@
   );
 
   function updatePill() {
+    watchResults();
     const asking = asks.size > 0;
     pill.className = `tutor-pill${!tutor.alive ? " dead" : asking ? " asking" : tutor.busy ? " working" : ""}`;
     const text = !tutor.alive ? "Tutor detenido" : asking ? "El tutor te pregunta algo" : tutor.busy ? `Trabajando · ${tutor.activity || "pensando"}` : "Tutor listo";
@@ -1006,18 +1091,18 @@
   };
   on("tool", ({ phase, id, label, ok, note }) => {
     if (phase === "start") {
-      const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), label, noteButton(note));
+      const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), label);
       activities.set(id, row);
       append(row);
       tutor.activity = label;
     } else {
       const row = activities.get(id);
-      if (row) row.replaceChildren(...[icon(ok ? "check" : "x"), label, noteButton(note)].filter((child) => child !== null));
+      if (row) row.replaceChildren(icon(ok ? "check" : "x"), label);
       row?.classList.remove("running");
       tutor.activity = "";
+      // The way to the note comes only once the turn is over (offerNote), never mid-turn.
       if (ok && note) tutor.turnNote = note;
     }
-    if (note) showNote(note);
     updatePill();
   });
   on("dialog", (dialog) => {
@@ -1071,7 +1156,8 @@
     }
     const [, view] = location.hash.split("/");
     // Never re-render the editor from a library change: it would drop typed text.
-    if (view !== "leer" && view !== "app" && view !== "rapido" && view !== "editar") render();
+    // The results page refreshes its own status instead of being drawn again.
+    if (view !== "leer" && view !== "app" && view !== "rapido" && view !== "editar" && view !== "resultados") render();
   }
   root.replaceChildren(
     h(

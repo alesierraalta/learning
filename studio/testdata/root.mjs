@@ -4,6 +4,9 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// The studio remembers opened topics in the user's state directory: tests never touch the real one.
+process.env.XDG_STATE_HOME = realpathSync(mkdtempSync(join(tmpdir(), "studio-state-")));
+
 export function makeRoot() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "studio-")));
   const topic = join(root, "redes");

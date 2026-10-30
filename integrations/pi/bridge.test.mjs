@@ -454,6 +454,94 @@ test('plain part and diagnosis share optional dictable reasoning', { skip: !play
   assert.match(asset.headers['content-type'], /javascript/);
 });
 
+test('«No sé» needs no confidence and a framed submit notifies the studio', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { view } = await setup();
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  // The page allows 'self' as embedder: frame it from the bridge's own index, as the studio frames it.
+  await page.goto(base(result));
+  await page.evaluate(url => {
+    window.received = [];
+    addEventListener('message', event => window.received.push(event.data));
+    const frame = document.createElement('iframe');
+    frame.src = url;
+    frame.style.cssText = 'width:1000px;height:2000px';
+    document.body.append(frame);
+  }, result.structuredContent.url);
+  const frame = page.frameLocator('iframe');
+  const fields = frame.locator('fieldset.quiz-question');
+  await fields.first().waitFor();
+  const [first, second] = [fields.nth(0), fields.nth(1)];
+  await first.locator('input[value=A]').check();
+  assert.equal(await first.locator('.confidence').isVisible(), true);
+  await first.locator('.confidence input').first().check();
+  await first.locator('input[value=E]').check();
+  assert.equal(await first.locator('.confidence').isVisible(), false);
+  await second.locator('input[value=B]').check();
+  await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
+  await frame.getByText('Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.').waitFor();
+  await second.locator('.confidence input').first().check();
+  const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
+  await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
+  const payload = (await sent).postDataJSON();
+  assert.deepEqual(payload.reasoning.q1, { razonamiento: '' });
+  assert.deepEqual(payload.reasoning.q2, { razonamiento: '', confianza: 'seguro' });
+  await page.waitForFunction(() => window.received.length > 0);
+  assert.deepEqual(await page.evaluate(() => window.received), [{
+    type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
+    results: [
+      { id: 'q1', enunciado: 'Pregunta q1', chosen: 'E', chosenText: 'No sé', correct: 'B', correctText: 'b', ok: false },
+      { id: 'q2', enunciado: 'Pregunta q2', chosen: 'B', chosenText: 'b', correct: 'B', correctText: 'b', ok: true },
+    ],
+  }]);
+});
+
+test('rich-page quiz: «No sé» hides confidence and a framed submit notifies the studio', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { view, topic } = await setup();
+  writeFileSync(
+    join(topic, 'explicaciones', 'Parte 1 - Claves.html'),
+    '<!doctype html><html lang="es"><head><link rel="stylesheet" href="../kit/kit.css"><script src="../kit/kit.js" defer></script></head><body><main><h1>Rica</h1><lk-quiz></lk-quiz></main></body></html>',
+  );
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  await page.goto(base(result));
+  await page.evaluate(url => {
+    window.received = [];
+    addEventListener('message', event => window.received.push(event.data));
+    const frame = document.createElement('iframe');
+    frame.src = url;
+    frame.style.cssText = 'width:1000px;height:2000px';
+    document.body.append(frame);
+  }, result.structuredContent.url);
+  const frame = page.frameLocator('iframe');
+  const boxes = frame.locator('fieldset.lk-question');
+  await boxes.first().waitFor();
+  const [first, second] = [boxes.nth(0), boxes.nth(1)];
+  await first.locator('input[value=A]').check();
+  await first.locator('.lk-controls input').first().check();
+  assert.equal(await first.locator('.lk-controls').isVisible(), true);
+  await first.locator('input[value=E]').check();
+  assert.equal(await first.locator('.lk-controls').isVisible(), false);
+  await first.locator('textarea').fill('ni idea');
+  await second.locator('input[value=B]').check();
+  const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
+  await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
+  const payload = (await sent).postDataJSON();
+  assert.deepEqual(payload.reasoning.q1, { razonamiento: 'ni idea' });
+  await page.waitForFunction(() => window.received.length > 0);
+  assert.deepEqual(await page.evaluate(() => window.received), [{
+    type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
+    results: [
+      { id: 'q1', enunciado: 'Pregunta q1', chosen: 'E', chosenText: 'No sé', correct: 'B', correctText: 'b', ok: false },
+      { id: 'q2', enunciado: 'Pregunta q2', chosen: 'B', chosenText: 'b', correct: 'B', correctText: 'b', ok: true },
+    ],
+  }]);
+});
+
 test("dictation uploads audio privately, rejects invalid input and deletes failed jobs", async (t) => {
   const seen = []; let failed = false; let polls = 0;
   const fake = httpServer(async (req, res) => {
