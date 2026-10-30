@@ -12,7 +12,8 @@
  */
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,6 +66,8 @@ export interface StudioOptions {
   rulesPath?: string;
   /** A fixed 64-hex token, so restarts never invalidate an open tab; random per run when absent. */
   token?: string;
+  /** When each topic was last opened; kept outside the vault. Default: the user's state directory. */
+  openedFile?: string;
 }
 
 export interface Studio {
@@ -185,6 +188,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const enginePath = options.enginePath ?? join(REPO, "bin", "learning");
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
   const token = options.token ?? randomBytes(32).toString("hex");
+  const openedFile = options.openedFile ?? join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "learning-studio", "opened.json");
   let port = 0;
 
   // ---- Server-Sent Events ------------------------------------------------
@@ -401,11 +405,30 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       );
     });
 
+  // ---- opened topics ---------------------------------------------------------
+  // Topic id -> epoch ms of its last open in the studio; shared by every browser of this studio.
+  const readOpened = (): Record<string, number> => {
+    try {
+      const stored = JSON.parse(readFileSync(openedFile, "utf8"));
+      return isRecord(stored) ? Object.fromEntries(Object.entries(stored).filter(([, at]) => typeof at === "number")) as Record<string, number> : {};
+    } catch {
+      return {};
+    }
+  };
+  const recordOpened = (topic: string) => {
+    const opened = { ...readOpened(), [topic]: Date.now() };
+    mkdirSync(dirname(openedFile), { recursive: true });
+    const temporary = `${openedFile}.${process.pid}.tmp`;
+    writeFileSync(temporary, JSON.stringify(opened));
+    renameSync(temporary, openedFile);
+  };
+
   const library = async () => {
+    const opened = readOpened();
     const topics = await Promise.all(
       listTopics(root).map(async (t) => {
         const report = await engineStatus(join(root, t.id));
-        return { ...t, status: report.status ?? "", stage: report.stage ?? "", nextStage: report.nextStage ?? "", part: report.part ?? "" };
+        return { ...t, status: report.status ?? "", stage: report.stage ?? "", nextStage: report.nextStage ?? "", part: report.part ?? "", opened: opened[t.id] ?? 0 };
       }),
     );
     const quickDir = join(root, "rapidos");
@@ -582,6 +605,13 @@ ${scripts}
         }
         emit("library_changed", {});
         return sendJson(res, 200, { ok: true, ...result });
+      }
+      case "opened": {
+        const topic = body.topic;
+        if (typeof topic !== "string") throw new HttpError(400, "topic must be a string");
+        if (!listTopics(root).some((t) => t.id === topic)) throw new HttpError(404, `unknown topic: ${topic}`);
+        recordOpened(topic);
+        break;
       }
       case "new-session": {
         const reply = await call({ type: "new_session" });

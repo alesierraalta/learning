@@ -2,7 +2,8 @@
 // child (testdata/fake-pi.mjs) and a temporary Learnings root.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { request, createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -602,4 +603,30 @@ test('the save route refuses ids that escape rapidos and foreign origins', async
   assert.equal(existsSync(join(root, 'rapidos', 'intrusa.md')), false);
   const missing = await http(`${studio.url}api/note?quick=nope`);
   assert.equal(missing.status, 404);
+});
+
+test("opening a topic is remembered outside the vault and reported by the library", async () => {
+  const openedFile = join(mkdtempSync(join(tmpdir(), "opened-")), "state", "opened.json");
+  const { studio, root } = await setup({ openedFile });
+  const before = JSON.parse((await http(`${studio.url}api/library`)).body);
+  assert.equal(before.topics.find((t) => t.id === "redes").opened, 0, "never opened");
+  const ok = await post(studio, "opened", { topic: "redes" });
+  assert.equal(ok.status, 200);
+  const after = JSON.parse((await http(`${studio.url}api/library`)).body);
+  const opened = after.topics.find((t) => t.id === "redes").opened;
+  assert.ok(opened > 0 && opened <= Date.now(), "the open time is reported");
+  assert.deepEqual(JSON.parse(readFileSync(openedFile, "utf8")), { redes: opened });
+  const unknown = await post(studio, "opened", { topic: "no-existe" });
+  assert.equal(unknown.status, 404);
+  const malformed = await post(studio, "opened", { topic: 3 });
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(JSON.parse(readFileSync(openedFile, "utf8")), { redes: opened }, "a refused open stores nothing");
+  assert.equal(existsSync(join(root, "opened.json")), false, "nothing is written in the vault");
+  // A restarted studio keeps the order.
+  open.splice(open.indexOf(studio), 1);
+  await studio.close();
+  const again = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: join(root, "fake-engine.sh"), openedFile });
+  open.push(again);
+  const kept = JSON.parse((await http(`${again.url}api/library`)).body);
+  assert.equal(kept.topics.find((t) => t.id === "redes").opened, opened);
 });
