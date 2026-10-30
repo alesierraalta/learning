@@ -260,6 +260,10 @@ button.secondary { background: transparent; color: var(--ink); }
   #app { padding: 28px 20px 72px; }
   h1 { font-size: 26px; }
   h2 { font-size: 22px; }
+  /* A diagram keeps at least half its authored scale and scrolls in its box,
+     so its words never shrink below legibility. */
+  .diagram { overflow-x: auto; }
+  .diagram > svg { min-width: calc(var(--diagram-width) * .5); }
   iframe { height: 360px; }
   figure:has(svg), .mermaid { width: 100%; margin-left: 0; transform: none; }
   /* A narrow line justified around a long token stretches into gaps. */
