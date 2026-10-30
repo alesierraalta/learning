@@ -743,7 +743,11 @@ ${scripts}
               part: String(report.part ?? ""),
               parts: summary.parts.map((part) => ({ id: part.id, title: part.title, written: part.written })),
             },
-            { planJson: text("plan.json"), plan: text("planificador.md"), map: text("mapa.mmd") },
+            {
+              planJson: text("plan.json"), plan: text("planificador.md"), map: text("mapa.mmd"),
+              diagnosis: text("diagnostico-conceptos.json"),
+              feedback: Object.fromEntries(summary.parts.map((part) => [part.id, text(`feedback/${part.id}.json`)])),
+            },
           ),
         );
       }

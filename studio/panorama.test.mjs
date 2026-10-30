@@ -76,6 +76,36 @@ const TOPIC = {
   ],
 };
 
+test("map uses the latest recorded concept verdict in part order", () => {
+  const panorama = buildPanorama(TOPIC, {
+    planJson: PLAN_JSON, map: MAP,
+    diagnosis: JSON.stringify({ conceptos: [{ codigo: "1.1.1", estado: "claro", evidencia: "diagnóstico" }] }),
+    feedback: { p1: JSON.stringify({ conceptos: [{ codigo: "1.1.1", estado: "laguna", evidencia: "quiz" }] }) },
+  });
+  const node = panorama.map.layout.nodes.find((item) => item.number === "1.1.1");
+  assert.equal(node.status, "laguna");
+  assert.equal(node.evidence, "quiz");
+  assert.equal(panorama.map.layout.nodes.find((item) => item.number === "1.1.2").status, "no_visto");
+});
+
+test("remedial feedback follows its part and malformed verdicts do not override valid ones", () => {
+  const parts = [
+    { id: "p1", title: "Uno", subtema: "1.1" },
+    { id: "p1r1", title: "Refuerzo", subtema: "1.1", remedia: "p1" },
+    { id: "p2", title: "Dos", subtema: "1.2" },
+  ];
+  const feedback = {
+    p1: JSON.stringify({ conceptos: [{ codigo: "1.1.1", estado: "laguna", evidencia: "primero" }] }),
+    p1r1: JSON.stringify({ conceptos: [{ codigo: "1.1.1", estado: "dudoso", evidencia: "refuerzo" }] }),
+    p2: "{",
+  };
+  const panorama = buildPanorama(TOPIC, { planJson: JSON.stringify({ parts }), map: MAP, feedback });
+  const node = panorama.map.layout.nodes.find((item) => item.number === "1.1.1");
+  assert.equal(node.status, "dudoso");
+  assert.equal(node.evidence, "refuerzo");
+  assert.ok(panorama.map.layout.edges.length > 0);
+});
+
 test("the plan keeps its prose and its table without the sections the panorama draws itself", () => {
   const plan = parsePlan(PLAN);
   assert.equal(plan.title, "Planificador de Estudio: Paradigma Relacional");
