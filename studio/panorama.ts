@@ -103,6 +103,9 @@ const CLASS = /^\s*class\s+([\w,-]+)\s+([\w-]+)\s*$/;
 const NODE_REF = /^([\w-]+)\s*(?:\[\s*"((?:[^"\\]|\\.)*)"\s*\])?\s*(?:[:]{3}([\w-]+))?/;
 /** `1.1.1 Algo`, `P0.1 Algo`, `1.2.1a Algo`: a numbered concept of the map. */
 const NUMBERED = /^((?:P\d+(?:\.\d+)*)|\d+(?:\.\d+)*[a-z]?)\s+(.+)$/;
+/** Some maps write the subtema after a dot, not before the name: `Frase base · 1.1 · verde`. */
+const SEGMENT = /\s*[·|—]\s*/;
+const NUMBER_ONLY = /^(?:P\d+(?:\.\d+)*|\d+(?:\.\d+)*[a-z]?)$/;
 const FENCE_MERMAID = /```mermaid[^\n]*\n([\s\S]*?)```/g;
 const HEADING = /^\s*(#{1,6})\s+(.+?)\s*$/;
 
@@ -343,10 +346,19 @@ export function parseMap(source: string): MapGraph {
   graph.direction = direction ?? (graph.groups.length > 1 ? "TB" : "LR");
   for (const node of graph.nodes) {
     const [first = "", ...rest] = node.label.split(/<br\s*\/?>/i).map((piece) => piece.trim()).filter(Boolean);
-    const numbered = NUMBERED.exec(first);
-    node.number = numbered?.[1] ?? null;
-    node.title = numbered?.[2] ?? (first || node.id);
-    node.meta = rest.join(" · ");
+    const atStart = NUMBERED.exec(first);
+    if (atStart) {
+      node.number = atStart[1] ?? null;
+      node.title = atStart[2] ?? (first || node.id);
+      node.meta = rest.join(" · ");
+      continue;
+    }
+    const pieces = first.split(SEGMENT).map((piece) => piece.trim()).filter(Boolean);
+    const number = pieces.find((piece) => NUMBER_ONLY.test(piece)) ?? null;
+    const words = pieces.filter((piece) => piece !== number);
+    node.number = number;
+    node.title = words[0] ?? (first || node.id);
+    node.meta = [...words.slice(1), ...rest].join(" · ");
   }
   return graph;
 }

@@ -48,7 +48,11 @@ view, and counts it so the section can say «su diagrama vive en el mapa».
 ### Which part explains a concept
 
 A concept's number and a part's `subtema` do not always have the same depth: the
-map writes `1.2.1.3`, while a part may carry `1.2.1a`.
+map writes `1.2.1.3`, while a part may carry `1.2.1a`. The map also writes the
+number in two places: before the name (`1.1.1 Qué es una capa`) or after a dot
+(`Frase base · 1.1 · pregunta 1 · verde`). Both are read; when the number is not
+first, its segment becomes the number, the first segment stays the name and the
+rest becomes the note under it.
 
 The rule is one function, `partFor`, and it is covered by tests:
 

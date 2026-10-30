@@ -233,3 +233,49 @@ test("a topic still being planned shows its route and says what the tutor has no
   assert.equal(empty.map, null, "a map without nodes is no map");
   assert.equal(empty.sources.map, false);
 });
+
+// The tutor also writes flat maps whose labels carry the subtema after a dot:
+// `Frase base · 1.1 · pregunta 1 · verde`. The concept is numbered all the same.
+const DOTTED = `flowchart LR
+  A["Frase base · 1.1 · pregunta 1 · verde"] --> B["Tiempos para hablar · 1.2 · preguntas 2–3 · verde"]
+  A --> C["Preguntar y conectar · 1.3 · pregunta 4 · verde"]
+  A --> D["Negación estándar · P0.5 · R5 · rojo"]
+  A --> E["Phrasal verbs · 2.1 · preguntas 5–6 · ámbar"]
+  D --> F["Respuestas conversacionales claras"]
+  E --> F
+  classDef ok fill:#d4edda,stroke:#28a745,color:#14532d
+  classDef gap fill:#f8d7da,stroke:#dc3545,color:#58151c
+  class A,B,C ok
+  class D gap
+  class E frag
+  class F ext
+`;
+
+test("a map that writes its subtema after a dot still links every concept to its part", () => {
+  const graph = parseMap(DOTTED);
+  assert.deepEqual(
+    graph.nodes.map((node) => node.number),
+    ["1.1", "1.2", "1.3", "P0.5", "2.1", null],
+    "the dot-separated subtema is the concept's number",
+  );
+  assert.equal(graph.nodes[0].title, "Frase base", "the name stays the name");
+  assert.equal(graph.nodes[0].meta, "pregunta 1 · verde", "the rest of the line is the note under it");
+  assert.equal(graph.nodes[5].title, "Respuestas conversacionales claras", "an unnumbered concept keeps its whole name");
+  assert.equal(graph.nodes[5].meta, "");
+  assert.equal(graph.groups.length, 0, "a flat map has no frames");
+
+  const parts = [
+    { id: "p1", title: "Frase base", slug: "Frase base", subtema: "1.1" },
+    { id: "p2", title: "Tiempos para hablar", slug: "Tiempos", subtema: "1.2" },
+    { id: "p3", title: "Preguntar y conectar", slug: "Preguntar", subtema: "1.3" },
+    { id: "p4", title: "Phrasal verbs", slug: "Phrasal", subtema: "2.1" },
+  ];
+  const pano = buildPanorama({ id: "g", title: "Gramática", status: "waiting", stage: "diagnosis", nextStage: "diagnosis", part: null, parts: [] }, { planJson: JSON.stringify({ parts }), map: DOTTED });
+  const linked = (pano.map?.layout.nodes ?? []).filter((node) => node.part);
+  assert.deepEqual(
+    linked.map((node) => `${node.number}->${node.part?.id}`),
+    ["1.1->p1", "1.2->p2", "1.3->p3", "2.1->p4"],
+    "four concepts open the part that explains them",
+  );
+  assert.equal(pano.map?.layout.nodes[3].request, "P0.5", "the prerequisite names itself when no part covers it");
+});
