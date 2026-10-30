@@ -784,7 +784,8 @@ ${scripts}
   });
   port = (server.address() as { port: number }).port;
 
-  registerBridge(fakePi as never, { root, transcriber: options.transcriberUrl === undefined ? undefined : { url: options.transcriberUrl, token: options.transcriberToken! }, port: options.bridgePort, publicOrigin: options.bridgePublicOrigin, publicEmbedder: options.publicOrigin, frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] });
+  // The reader's token follows the studio's: a configured studio token keeps open pages working across restarts.
+  registerBridge(fakePi as never, { root, tokenSeed: token, transcriber: options.transcriberUrl === undefined ? undefined : { url: options.transcriberUrl, token: options.transcriberToken! }, port: options.bridgePort, publicOrigin: options.bridgePublicOrigin, publicEmbedder: options.publicOrigin, frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] });
   try {
     bridgeOrigin = new URL(String((await view()).base)).origin;
   } catch {

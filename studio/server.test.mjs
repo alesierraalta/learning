@@ -228,6 +228,22 @@ test("a configured studio token survives a restart so open tabs keep working", a
   assert.equal((await http(`http://127.0.0.1:${second.studio.port}/${token.slice(1)}/api/library`)).status, 404);
 });
 
+test("a configured studio token keeps the reader's URLs across a restart, so an open quiz can still dictate and submit", async () => {
+  const token = "0123456789abcdef".repeat(4);
+  const readerBase = async (studio) => JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body).url.replace(/redes\/p1$/, "");
+  const probe = createServer();
+  await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const bridgePort = probe.address().port;
+  await new Promise((resolve) => probe.close(resolve));
+  const first = await setup({ token, bridgePort });
+  const before = await readerBase(first.studio);
+  await first.studio.close();
+  const second = await setup({ token, bridgePort });
+  assert.equal(await readerBase(second.studio), before, "the reader keeps its whole URL");
+  assert.doesNotMatch(new URL(before).pathname, new RegExp(token), "the reader token is not the studio token");
+  assert.equal((await http(`${before}redes/p1`)).status, 200, "the URL an open tab still holds keeps working");
+});
+
 test("a weak studio token is refused", async () => {
   await assert.rejects(() => startStudio({ root: makeRoot().root, token: "short" }), /64 lowercase hex/);
 });

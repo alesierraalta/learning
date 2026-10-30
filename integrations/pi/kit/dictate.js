@@ -2,28 +2,76 @@
 (() => {
   window.learningDictate = function dictate(area, button, note, config) {
     if (config?.transcribeUrl && navigator.mediaDevices?.getUserMedia && window.MediaRecorder) {
-      let recorder, stream;
+      let recorder, stream, pending = null;
+      const resting = (text, retry = null) => {
+        pending = retry;
+        button.disabled = false;
+        button.textContent = retry ? 'Reenviar audio' : 'Dictar';
+        button.dataset.state = '';
+        note.textContent = text;
+      };
+      // An unsent recording outlives a reload of this tab: the page token is not part of the key,
+      // so the reloaded page (new address) finds it under the same field.
+      const kept = `learning-dictation:${location.pathname.split('/').slice(2).join('/')}#${area.id}`;
+      const keep = async (blob) => {
+        try {
+          const data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          sessionStorage.setItem(kept, data);
+          return true;
+        } catch { return false; }
+      };
+      const forget = () => { try { sessionStorage.removeItem(kept); } catch {} };
+      try {
+        const data = sessionStorage.getItem(kept);
+        const parts = data && /^data:([^,]*?);base64,(.*)$/.exec(data);
+        if (parts) {
+          const bytes = Uint8Array.from(atob(parts[2]), c => c.charCodeAt(0));
+          resting('Tienes una grabación sin transcribir: reenvíala.', new Blob([bytes], { type: parts[1] }));
+        } else if (data) forget();
+      } catch { forget(); }
+      // A failed upload keeps its recording so it can be sent again; an expired page cannot
+      // take it (its address is gone), so it asks for a reload instead of saying «not found».
+      const send = async (blob) => {
+        button.disabled = true;
+        button.textContent = 'Transcribiendo…';
+        try {
+          const response = await fetch(config.transcribeUrl, { method: 'POST', headers: { 'content-type': blob.type }, body: blob });
+          const data = await response.json().catch(() => ({}));
+          if (response.status === 404) {
+            // This address is gone, so resending from here cannot work: the reloaded page sends it.
+            const saved = await keep(blob);
+            return resting(saved
+              ? 'Esta página caducó porque el Estudio se actualizó: recárgala y reenvía tu grabación.'
+              : 'Esta página caducó porque el Estudio se actualizó: recárgala para volver a dictar.');
+          }
+          if (!response.ok) { await keep(blob); return resting(data.error || 'No se pudo transcribir el audio.', blob); }
+          area.value = [area.value.trim(), String(data.text ?? '').trim()].filter(Boolean).join(' ');
+          forget();
+          resting('');
+        } catch {
+          await keep(blob);
+          resting('No se pudo enviar el audio; revisa la conexión y reenvíalo.', blob);
+        }
+      };
       button.addEventListener('click', async () => {
         if (recorder?.state === 'recording') { recorder.stop(); return; }
+        if (pending) { send(pending); return; }
         button.disabled = true;
         try {
           stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           recorder = new MediaRecorder(stream);
           const chunks = [];
           recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
-          recorder.onstop = async () => {
+          recorder.onstop = () => {
             stream.getTracks().forEach(track => track.stop());
-            button.disabled = true;
-            button.textContent = 'Transcribiendo…';
-            try {
-              const blob = new Blob(chunks, { type: recorder.mimeType });
-              const response = await fetch(config.transcribeUrl, { method: 'POST', headers: { 'content-type': blob.type }, body: blob });
-              const data = await response.json();
-              if (!response.ok) throw new Error(data.error || 'No se pudo transcribir el audio.');
-              area.value = [area.value.trim(), data.text.trim()].filter(Boolean).join(' ');
-              note.textContent = '';
-            } catch (error) { note.textContent = error.message; }
-            finally { recorder = null; button.disabled = false; button.textContent = 'Dictar'; button.dataset.state = ''; }
+            const blob = new Blob(chunks, { type: recorder.mimeType });
+            recorder = null;
+            send(blob);
           };
           recorder.start();
           button.textContent = 'Detener';

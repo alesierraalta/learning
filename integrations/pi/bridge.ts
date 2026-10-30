@@ -12,7 +12,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -773,6 +773,11 @@ export interface BridgeOptions {
   transcriber?: { url: string; token: string; deadlineMs?: number };
   /** Directory of kit.css / kit.js (tests). */
   kitDir?: string;
+  /**
+   * A secret the URL token is derived from, so a restart keeps the token and open pages keep
+   * working; the token is a keyed hash, never the secret itself. Random per start when absent.
+   */
+  tokenSeed?: string;
 }
 
 export function validatePublicOrigin(option: string, value: string | undefined): URL | undefined {
@@ -1377,7 +1382,7 @@ ${scripts}
       const contained = resolveContained(options.root, options.root);
       if (!contained.ok) return reject(new Error(contained.reason));
       rootReal = contained.rootReal;
-      token = randomBytes(32).toString("hex");
+      token = options.tokenSeed === undefined ? randomBytes(32).toString("hex") : createHmac("sha256", options.tokenSeed).update("learning-bridge-token").digest("hex");
       const candidate = createServer((req, res) => {
         route(req, res).catch((err: unknown) => {
           const status = err instanceof HttpError ? err.status : err instanceof CodeRunError ? 422 : 500;

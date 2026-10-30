@@ -897,6 +897,22 @@ test("learning_view returns a loopback URL with a token; index lists topics; wro
   await shutdown();
 });
 
+test("a seeded bridge keeps its token across restarts; an unseeded one draws a new token each start", async () => {
+  const token = async (options) => {
+    const { view, shutdown } = await setup(options);
+    const found = new URL(base(await view({}))).pathname.split("/")[1];
+    await shutdown();
+    return found;
+  };
+  const seed = "ab".repeat(32);
+  const seeded = await token({ tokenSeed: seed });
+  assert.match(seeded, /^[0-9a-f]{64}$/);
+  assert.equal(await token({ tokenSeed: seed }), seeded, "same seed, same token after a restart");
+  assert.notEqual(seeded, seed, "the seed itself is never the token");
+  assert.notEqual(await token({ tokenSeed: "cd".repeat(32) }), seeded, "another seed, another token");
+  assert.notEqual(await token({}), await token({}), "without a seed every start is new");
+});
+
 test("a second learning_view call reuses the same server and token", async () => {
   const { view, shutdown } = await setup();
   const first = await view({});
