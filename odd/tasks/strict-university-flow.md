@@ -27,7 +27,7 @@ Milestone #2 "Strict university learning flow", issues #62-#66. Base branch `fea
 - **C2 Method** (T1): recorded in engine state after the diagnosis, values `pareto` or `preferencias`; `pareto` reuses the existing pareto scope rules (odd/tasks/pareto-scope.md). Studio library exposes it as `topic.method` (absent before it is chosen).
 - **C3 Knowledge verdicts** (T1/T2 write, T4 reads): concept verdicts keep the existing shape `{"conceptos": [{"codigo", "estado", "pregunta", "evidencia"}]}` in `diagnostico-conceptos.json` and `feedback/<part>.json`; estados `claro` (green), `dudoso` (yellow), `laguna` (red); a code with no verdict is "not seen" (blue). The latest verdict per code wins (diagnosis < part 1 < part 2 ...). The own-words verdict of a part is recorded by the tutor in `vuelco/<part>.json` = `{"entendio": true|false, "evidencia": "..."}` (L7).
 - **C4 Remedial parts** (T2 writes, T4/T5 read): a remedial part is a `plan.json` part inserted right after the part it remedies, `{"id": "p1r1", "remedia": "p1", ...}`; it is a normal part for the reader.
-- **C5 Reached parts** (T5): a part is reached when it is written; unreached parts are not listed by the studio.
+- **C5 Reached parts** (T5): a part is reached when it is written; unreached parts are not listed on the topic page, but remain visible in the panorama.
 
 ## Tasks
 
