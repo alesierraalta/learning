@@ -27,6 +27,7 @@ rtk go build -o bin/learning ./cmd/learning
 ```text
 learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--stage STAGE] [--json]
 learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
+learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
 learning help
 ```
 
@@ -79,6 +80,7 @@ The adapter may only treat the first group as passing.
 | `advance` | state (only on full success) | requires fresh recorded reviews after all deterministic checks | blocked while any review is missing, stale or a gate FAIL; rejected transitions write nothing |
 | `review` | `state.semantic[]` receipt | records one verdict | frontier stage only, objective checks must pass first |
 | `status` | none | never records | freshness + conditional recheck, next stage, completion |
+| `method` | `state.method` (and `state.scope` for pareto) | none | strict-flow runs only, once, right after the diagnosis; refused choices write nothing |
 
 `--mode conceptual` reports `skipped` (exit 0) before anything else: no rules
 are read, no state exists, no review is requested or recorded. The conceptual
@@ -105,6 +107,60 @@ exactly as before.
   those thresholds fails to load.
 - Measurement is never trimmed: the quiz, its answer key, the diagnosis and
   the learner dump keep their full checks in both scopes.
+
+## Explanation method (strict flow)
+
+Rules with `thresholds.strictFlow: true` ask the learner how to be taught once
+the diagnosis settles. Until the answer is recorded the frontier is the
+pseudo-stage `method`: `status` reports `nextStage: "method"` (status
+`accepted`: the chat owes the question) and `validate`, `advance` and `review`
+are blocked with the `method-chosen` check, writing nothing.
+
+`learning method --method pareto|preferencias` records the answer once:
+
+- `pareto` sets `state.method` and the pareto scope, so the pareto checks of
+  planning and every part apply from then on.
+- `preferencias` sets `state.method` and keeps the complete scope; the tutor
+  teaches with the learner's stored preferences (`preferencias.json`).
+
+Any other value is an argument error (exit 2); a choice before the diagnosis
+settles or a second choice is `blocked` (exit 1). Neither changes the state.
+Every `status` report carries `method` once chosen. Rules snapshots without
+`strictFlow` (topics enrolled before it) go from the diagnosis straight to
+planning, and `method` refuses to run for them (exit 2).
+
+### Part loop (strict flow)
+
+Strict-flow rules take each part as explanation → `quiz` → `own_words` →
+`feedback` → `adaptation` (the mini-quiz comes before the learner's own words,
+so the quiz review no longer reads them). A part passes only when the mini-quiz
+passes **and** the tutor judged the own words understood:
+
+- `own_words` requires `vuelco/<part>.json` =
+  `{"entendio": true|false, "evidencia": "<what in the learner's words shows it>"}`
+  (check `own-words-verdict`); missing evidence blocks.
+- A failed mini-quiz, `entendio: false`, or a central gap/laguna at `feedback`
+  closes the part as failed (`state.parts[part].failed`, with `failedBecause`).
+  There is no re-teach budget: every failure owes a remedial part.
+- While a failed part owes it, the frontier is the pseudo-stage `remedial`
+  (`status` accepted; `validate`/`advance` blocked with `remedial-part`). The
+  tutor declares it right after the failed part in `plan.json`:
+  `{"id": "p1r1", ..., "remedia": "p1", "analisis": "<why the learner failed and what they did understand>"}`.
+  A failed remedial part owes another one with the same `remedia` (the planned
+  part), until one passes.
+- A remedial part is a normal part with two extra checks: `remedial-analysis`
+  at `explanation` (at least 40 characters of `analisis`) and `fresh-quiz` at
+  `quiz` (no question repeats an enunciado of an earlier attempt of the same
+  planned part). It joins `state.partOrder` when it is taught.
+- Remedial parts and their index lines do not stale the planning receipts:
+  the plan and index receipts leave them out.
+
+The Pi adapter's settle gate chains the strict flow without a learner prompt:
+it asks for the method, then plans and writes part 1, and after a failed part
+makes the tutor analyse it and write the remedial part, with a bounded number
+of pushes per stage. It also refuses to write `plan.json` or `quiz.json` in a
+topic folder that has no engine run (`.learning/state.json`): the tutor
+enrolls the topic with `learning_stage` action `init` first.
 
 ## Stage flow
 

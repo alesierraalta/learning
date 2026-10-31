@@ -12,12 +12,21 @@ import (
 // A shared learner note has independently mutable areas. Bind planning to
 // its skeleton and each submission to its own area, not to other responses.
 func receiptHash(r *rules.Rules, ws, rel, stage, part string) (string, error) {
+	// Strict flow: remedial parts join the plan after planning; they do not
+	// change the plan that was recorded, so its receipt leaves them out.
+	if r.Thresholds.StrictFlow && rel == declPathByKind(r, "preparation", "file_exists") {
+		return planReceipt(ws, rel)
+	}
 	if stage == "planning" && rel == declPathByKind(r, "planning", "index_note") {
 		raw, err := os.ReadFile(absPath(ws, rel))
 		if err != nil {
 			return "", err
 		}
-		return hashBytes([]byte(indexSkeleton(string(raw)))), nil
+		skeleton := indexSkeleton(string(raw))
+		if r.Thresholds.StrictFlow {
+			skeleton = withoutPartLines(skeleton)
+		}
+		return hashBytes([]byte(skeleton)), nil
 	}
 	if rel != "mis-palabras.md" || (stage != "planning" && stage != "own_words") {
 		return hashFile(absPath(ws, rel))
@@ -91,6 +100,21 @@ func indexSkeleton(text string) string {
 		line = strings.Join(strings.Fields(indexMarkers.Replace(line)), " ")
 		for _, w := range []string{"pendiente", "abierta", "cerrada"} {
 			line = strings.TrimSuffix(line, " — "+w)
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// withoutPartLines drops the index's part list: in the strict flow remedial
+// parts join it after planning, and the explanation's index check, not the
+// planning receipt, keeps the list complete.
+func withoutPartLines(skeleton string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(skeleton, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "- Parte ") {
+			continue
 		}
 		b.WriteString(line)
 		b.WriteByte('\n')

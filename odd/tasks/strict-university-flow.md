@@ -25,17 +25,17 @@ Milestone #2 "Strict university learning flow", issues #62-#66. Base branch `fea
 
 - **C1 Preferences file** (T3 writes, tutor reads): `<LEARNING_ROOT>/preferencias.json` = `{"version": 1, "aspectos": [{"id": "texto", "titulo": "Cantidad de texto", "descripcion": "...", "nivel": "menos" | "medio" | "más"}, ...]}`. `preferencias.md` stays as the human history; the JSON levels win when both exist.
 - **C2 Method** (T1): recorded in engine state after the diagnosis, values `pareto` or `preferencias`; `pareto` reuses the existing pareto scope rules (odd/tasks/pareto-scope.md). Studio library exposes it as `topic.method` (absent before it is chosen).
-- **C3 Knowledge verdicts** (T1/T2 write, T4 reads): concept verdicts keep the existing shape `{"conceptos": [{"codigo", "estado", "pregunta", "evidencia"}]}` in `diagnostico-conceptos.json` and `feedback/<part>.json`; estados `claro` (green), `dudoso` (yellow), `laguna` (red); a code with no verdict is "not seen" (blue). The latest verdict per code wins (diagnosis < part 1 < part 2 ...). The own-words verdict of a part is recorded by T2 in the same `feedback/<part>.json` under `"vuelco": {"entendio": true|false, "evidencia": "..."}`.
+- **C3 Knowledge verdicts** (T1/T2 write, T4 reads): concept verdicts keep the existing shape `{"conceptos": [{"codigo", "estado", "pregunta", "evidencia"}]}` in `diagnostico-conceptos.json` and `feedback/<part>.json`; estados `claro` (green), `dudoso` (yellow), `laguna` (red); a code with no verdict is "not seen" (blue). The latest verdict per code wins (diagnosis < part 1 < part 2 ...). The own-words verdict of a part is recorded by the tutor in `vuelco/<part>.json` = `{"entendio": true|false, "evidencia": "..."}` (L7).
 - **C4 Remedial parts** (T2 writes, T4/T5 read): a remedial part is a `plan.json` part inserted right after the part it remedies, `{"id": "p1r1", "remedia": "p1", ...}`; it is a normal part for the reader.
-- **C5 Reached parts** (T5): a part is reached when it is written; unreached parts are not listed on the topic page, but remain visible in the panorama.
+- **C5 Reached parts** (T5): a part is reached when it is written; unreached parts are not listed by the studio.
 
 ## Tasks
 
 | ID | Issue | Specs | Route | Allowed edit surfaces | Commit |
 |---|---|---|---|---|---|
-| T1 | #62 | S1-S3, S9 (engine side) | worker A, worktree `learning-strict-flow` | `internal/**`, `rules/**`, `cmd/**`, `integrations/pi/index.ts`, `integrations/pi/*.test.mjs`, `docs/engine.md` | |
-| T2 | #63 | S4-S8 | worker A, after T1, same worktree | same as T1 plus `integrations/pi/bridge.ts`, `integrations/pi/view/**`, `integrations/pi/kit/**` | |
-| T3 | #64 | S10, S11 | worker B, worktree `learning-preferences` | `studio/**` (preferences page and API only), `docs/**` | |
+| T1 | #62 | S1-S3, S9 (engine side) | worker A, worktree `learning-strict-flow` | `internal/**`, `rules/**`, `cmd/**`, `integrations/pi/index.ts`, `integrations/pi/*.test.mjs`, `docs/engine.md` | c1330e0 |
+| T2 | #63 | S4-S8 | worker A, after T1, same worktree | same as T1 plus `integrations/pi/bridge.ts`, `integrations/pi/view/**`, `integrations/pi/kit/**` | d539c31 |
+| T3 | #64 | S10, S11 | worker B, worktree `learning-preferences` | `studio/**` (preferences page and API only), `docs/**` | 12569a6 |
 | T4 | #65 | S12-S14 | worker C, worktree `learning-panorama` | `studio/**` (panorama, map) | 4c8e044, 1c22679 |
 | T5 | #66 | S9 (studio side), S15 | worker C, after T4 | `studio/**` (navigation, topic page) | 1c22679 |
 | T6 | all | — | parent: tutor skill `~/.claude/skills/explicacion-interactiva` (needs consent), integrate, deploy, enroll the liquidity topic on the VPS | | |
@@ -48,3 +48,4 @@ Milestone #2 "Strict university learning flow", issues #62-#66. Base branch `fea
 - **L4** (user, verbatim): "Sí, hazlo utilizando las skills de las issues, de los word trees, todo eso. Así que lo puedes ir haciendo en paralelo, creería yo."
 - **L5** Explore evidence (2026-10-30): the liquidity topic has no `.learning/`; engine order today is explanation → own_words → quiz; a failed quiz reopens the part with a changed explanation, retries capped at 2; own words checked for presence only; the studio lists every plan part; the pareto scope is chosen at `init`, before the diagnosis.
 - **L6** (parent, 2026-10-30): S9/C5 scope corrected — the plan stays hidden in the flow (topic page lists only written parts); the panorama shows the whole route and says where each concept will be learned (L3).
+- **L7** (parent, 2026-10-30): T1/T2 were implemented inline by the parent (the writer subagent cannot run tests that delete their temp dirs). C3 changed: the own-words verdict lives in `vuelco/<part>.json`, a file per part, because a review bound to the shared `mis-palabras.md` goes stale whenever a later part adds its own words. Remedial parts carry `remedia` and `analisis` in plan.json (C4); the plan and index receipts leave remedial parts out so declaring one does not reopen planning.

@@ -29,6 +29,7 @@
     spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/>',
     map: '<circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="12" cy="18" r="2.6"/><path d="M8.6 6h6.8M7.3 8.3l3.5 7.1M16.7 8.3l-3.5 7.1"/>',
     fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
   };
   const svgParser = new DOMParser();
   const icon = (name) =>
@@ -133,6 +134,8 @@
   const STAGE_IN = {
     preparation: "la preparación del plan",
     diagnosis: "el diagnóstico inicial",
+    method: "la elección del método",
+    remedial: "la parte de refuerzo",
     planning: "la planificación",
     explanation: "la explicación",
     own_words: "tu vuelco",
@@ -146,6 +149,8 @@
   const STAGE = {
     preparation: "preparando el plan",
     diagnosis: "diagnóstico inicial",
+    method: "elección del método",
+    remedial: "parte de refuerzo",
     planning: "planificando la ruta",
     explanation: "explicación",
     own_words: "tu vuelco con tus palabras",
@@ -265,7 +270,36 @@
     if (view === "rapido" && a) return readerView({ quickId: a });
     if (view === "resultados" && a) return resultsView(a, b);
     if (view === "editar") return editorView(a);
+    if (view === "preferencias") return preferencesView();
     return homeView();
+  }
+
+  async function preferencesView() {
+    setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Configuración" }, { text: "Preferencias" }]);
+    const status = h("p", { role: "status", class: "muted" }, "Cargando…");
+    const page = h("div", { class: "page preferences-page" }, h("header", { class: "editor-head" }, h("span", { class: "tag" }, "Configuración"), h("h1", {}, "Preferencias"), h("p", { class: "muted" }, "Elige cómo prefieres que te expliquen.")), status);
+    stage.replaceChildren(page);
+    try {
+      const data = await request("api/preferences");
+      if (!page.isConnected) return;
+      status.textContent = "";
+      const save = h("button", { class: "btn primary", type: "submit" }, "Guardar preferencias");
+      const form = h("form", { class: "preferences-form", onsubmit: async (event) => {
+        event.preventDefault();
+        save.disabled = true;
+        status.textContent = "Guardando…";
+        try {
+          await post("api/preferences", data);
+          status.textContent = "Preferencias guardadas";
+        } catch (error) { status.textContent = `No se pudo guardar: ${error.message}`; }
+        finally { save.disabled = false; }
+      } }, data.aspectos.map((aspect) => h("fieldset", { class: "preference" },
+        h("legend", {}, aspect.titulo), h("p", { class: "muted" }, aspect.descripcion),
+        h("div", { class: "preference-levels" }, ["menos", "medio", "más"].map((level) => h("label", {},
+          h("input", { type: "radio", name: aspect.id, value: level, checked: aspect.nivel === level, onchange: () => { aspect.nivel = level; status.textContent = ""; } }), level))),
+      )), save);
+      page.append(form);
+    } catch (error) { if (page.isConnected) status.textContent = `No se pudieron cargar las preferencias: ${error.message}`; }
   }
 
   // ---------- home ----------
@@ -1664,7 +1698,7 @@
     const [, view] = location.hash.split("/");
     // Never re-render the editor from a library change: it would drop typed text.
     // The results page refreshes its own status instead of being drawn again.
-    if (view !== "leer" && view !== "app" && view !== "rapido" && view !== "editar" && view !== "resultados") render();
+    if (view !== "leer" && view !== "app" && view !== "rapido" && view !== "editar" && view !== "resultados" && view !== "preferencias") render();
   }
   root.replaceChildren(
     h(
@@ -1672,7 +1706,7 @@
       { class: "topbar" },
       h("a", { class: "brand", href: "#/" }, h("b", {}, "Estudio"), h("span", {}, "Learnings")),
       crumbs,
-      h("div", { class: "top-actions" }, btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
+      h("div", { class: "top-actions" }, h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
     ),
     h("div", { class: "app" }, stage),
     // Where the tutor lies over the page (a tablet or a phone), the page behind it
