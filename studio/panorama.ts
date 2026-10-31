@@ -62,6 +62,7 @@ export type PlacedNode = MapNode & {
   part: { id: string; number: number; title: string; written: boolean } | null;
   /** The subtema a person would ask the tutor to write when no part covers this node yet. */
   request: string | null;
+  evidence: string;
 };
 
 /** What the browser needs to draw the map without measuring anything itself. */
@@ -85,7 +86,7 @@ export type PanoramaTopic = {
 };
 
 /** The three files of a topic, as read from disk (a missing file is `undefined`). */
-export type PanoramaFiles = { planJson?: string; plan?: string; map?: string };
+export type PanoramaFiles = { planJson?: string; plan?: string; map?: string; diagnosis?: string; feedback?: Record<string, string | undefined> };
 
 /** The whole panorama of one topic. */
 export type Panorama = {
@@ -512,6 +513,7 @@ export function layoutMap(graph: MapGraph, route: RoutePart[]): MapLayout {
         metaY: PAD_Y + 12 + lines.length * LINE_H,
         part: part ? { id: part.id, number: part.number, title: part.title, written: part.written } : null,
         request: part ? null : requestSubtema(node.number),
+        evidence: "",
       });
     }
   }
@@ -594,6 +596,28 @@ export function buildPanorama(topic: PanoramaTopic, files: PanoramaFiles): Panor
   const route = planRoute(fromPlan, plan, written);
   const graph = files.map === undefined ? null : parseMap(files.map);
   const map = graph && graph.nodes.length ? { graph, layout: layoutMap(graph, route) } : null;
+  if (map) {
+    const verdicts = new Map<string, { estado: string; evidencia: string }>();
+    const consume = (text?: string) => {
+      if (!text) return;
+      try {
+        const parsed = JSON.parse(text);
+        if (!Array.isArray(parsed.conceptos)) return;
+        for (const item of parsed.conceptos) {
+          if (typeof item?.codigo === "string" && ["claro", "dudoso", "laguna"].includes(item.estado)) {
+            verdicts.set(item.codigo, { estado: item.estado, evidencia: typeof item.evidencia === "string" ? item.evidencia : "" });
+          }
+        }
+      } catch { /* A missing or malformed verdict contributes no state. */ }
+    };
+    consume(files.diagnosis);
+    for (const part of route) consume(files.feedback?.[part.id]);
+    for (const node of map.layout.nodes) {
+      const verdict = node.number ? verdicts.get(node.number) : undefined;
+      node.status = verdict?.estado ?? "no_visto";
+      node.evidence = verdict?.evidencia ?? "";
+    }
+  }
   return {
     topic: { id: topic.id, title: topic.title, status: topic.status, stage: topic.stage, nextStage: topic.nextStage, part: topic.part },
     sources: { plan: files.plan !== undefined, planJson: files.planJson !== undefined, map: Boolean(map) },

@@ -50,6 +50,50 @@ async function sentPrompts(log) {
   return [];
 }
 
+test("panorama verdict colors and detail link follow recorded evidence (S12-S14)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  writeFileSync(join(root, "redes", "diagnostico-conceptos.json"), JSON.stringify({ conceptos: [
+    { codigo: "1.1.1", estado: "claro", evidencia: "Explicó las capas" },
+    { codigo: "1.1.2", estado: "dudoso", evidencia: "Parcial" },
+    { codigo: "1.2.1.1", estado: "laguna", evidencia: "Falta" },
+  ] }));
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem('estudio.tutorial', 'visto'));
+  await page.goto(`${studio.url}#/panorama/redes/mapa`, { waitUntil: "networkidle" });
+  await page.locator('[data-node="N1_1_1"]').click();
+  assert.match(await page.locator('.pano-detail').innerText(), /Explicó las capas/);
+  for (const [id, fill] of [['N1_1_1', '#d4edda'], ['N1_1_2', '#fff3cd'], ['N1_2_1_1', '#f8d7da'], ['N1_9_1', '#dbeafe']]) {
+    assert.match(await page.locator(`[data-node="${id}"] rect`).getAttribute('style'), new RegExp(fill));
+  }
+  await page.getByRole('button', { name: 'Leer esta parte' }).click();
+  assert.match(page.url(), /#\/leer\/redes\/p1/);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+});
+
+test("panorama navigation and routes hide unreached parts (S9, S15)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem('estudio.tutorial', 'visto'));
+  await page.goto(`${studio.url}#/`, { waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: 'Panorama del tema' }).first().click();
+  await page.getByRole('button', { name: 'Volver' }).click();
+  assert.ok(page.url().endsWith('#/'));
+  await topicPage(page, studio, 1280);
+  assert.equal(await page.locator('.route').getByText('TCP', { exact: true }).count(), 0);
+  await page.getByRole('button', { name: 'Panorama del tema' }).click();
+  await page.waitForFunction(() => location.hash.startsWith('#/panorama/'));
+  await page.locator('.route').getByText('TCP', { exact: true }).waitFor({ timeout: 10000 });
+  assert.equal(await page.locator('.route').getByText('TCP', { exact: true }).count(), 1);
+  await page.getByRole('button', { name: 'Volver' }).click();
+  assert.ok(page.url().endsWith('#/tema/redes'));
+});
+
 const geometry = (page) =>
   page.evaluate(() => {
     const card = document.querySelector("article.continue");
@@ -125,9 +169,8 @@ test("topic page does not overflow a phone viewport", { skip: browser ? false : 
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
 });
 
-// The route is the page a learner lands on after the diagnosis, and a part the
-// tutor still owes is not a label: it is the next request, one per part.
-test("every part a topic still owes can be asked for from the route", { skip: browser ? false : "playwright not installed" }, async (t) => {
+// The flow lists only written parts, including when the engine does not track the topic.
+test("the topic route hides unwritten parts and their requests", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
@@ -137,21 +180,13 @@ test("every part a topic still owes can be asked for from the route", { skip: br
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
 
   await topicPage(page, studio, 1280);
-  const pending = page.locator("li.part-row", { hasText: "TCP" });
-  assert.match(await pending.innerText(), /Todavía no escrita/);
-  await pending.getByRole("button", { name: "Escribir esta parte" }).click();
+  assert.equal(await page.locator("li.part-row", { hasText: "TCP" }).count(), 0);
+  assert.equal(await page.locator("li.part-row").getByRole("button", { name: "Escribir esta parte" }).count(), 0);
 
-  const sent = await sentPrompts(log);
-  assert.equal(sent.length, 1, "one request for the part the learner chose");
-  assert.match(sent[0], /Parte 2/);
-  assert.match(sent[0], /TCP/);
-  assert.match(sent[0], /redes/, "the tutor needs the folder");
-  assert.ok(await page.evaluate(() => document.body.classList.contains("drawer-open")), "the request lands in the chat the learner can follow");
-
-  // A topic the engine does not track still has parts the tutor can write.
+  // The same rule holds without engine tracking.
   rmSync(join(root, "redes", ".learning"), { recursive: true });
   await page.reload({ waitUntil: "networkidle" });
-  assert.equal(await page.locator("li.part-row", { hasText: "TCP" }).getByRole("button", { name: "Escribir esta parte" }).count(), 1, "the action survives a topic without engine tracking");
+  assert.equal(await page.locator("li.part-row", { hasText: "TCP" }).count(), 0, "unwritten parts remain hidden without engine tracking");
   assert.equal((await page.locator("article.continue .actions button").first().textContent()).trim(), "Escribir la Parte 2", "and it is the card's next step too");
 });
 

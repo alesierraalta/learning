@@ -40,24 +40,15 @@ mini-quiz are not affected: only the explanation text is a reading surface.
 
 ## Panorama del tema
 
-Every topic page carries **Panorama del tema**: the whole picture of one topic,
-in two views that share one header.
+Topic cards and topic pages offer **Panorama del tema**, with a back control to
+the entry point. The topic page lists written parts only; the panorama shows
+the whole planned route and the tutor's plan prose.
 
-- `#/panorama/<topic>` is **Planificación**: the route built from `plan.json` and
-the tutor's `planificador.md` — one row per part with its `subtema`, what the
-diagnosis knew, the depth the plan asked for and the reason it gave, then the
-plan's own sections as openable blocks (the first one open). A part the tutor
-still owes is a request («Escribir esta parte»), not a dead label.
-- `#/panorama/<topic>/mapa` is **Mapa de dependencias**: `mapa.mmd` drawn by the
-studio itself, one column and frame per `subgraph` (that is, per subtema),
-`classDef` colours as the node tone, drag to travel and the wheel to zoom. Any
-box opens: what it needs, what it unlocks, and the part of the route that
-explains it, with the button that reads it or asks for it.
-
-The two views never repeat each other: `parsePlan` drops the
-table under the /^tabla de plan$/i. heading (it already is the route) and the
-/^mapa de dependencias$/i. section, whose Mermaid diagram is replaced by the map
-view, and counts it so the section can say «su diagrama vive en el mapa».
+The dependency map draws the connections from `mapa.mmd`. Node colours come
+from the most recent recorded concept verdict: claro green, dudoso yellow,
+laguna red, and no verdict blue. Diagnosis comes first, then feedback files in
+plan order, including remedial parts. Select a node to see its evidence and the
+part that explains it, or where it will be learned. Drag and zoom to explore the map.
 
 ### Which part explains a concept
 
@@ -75,10 +66,10 @@ The rule is one function, `partFor`, and it is covered by tests:
 dot (`1.2.1` covers `1.2.1`, `1.2.1.3`; it does not cover `1.2.10`);
 3. when several `subtemas` cover it, the longest one wins.
 
-A concept no part covers is not a dead end: the box says so and offers
-«Pedir la parte de (subtema)», a request whose text names the subtema the tutor
-should write. The request names the number itself when the subtema stops at three
-segments, and its parent when the concept sits four levels deep.
+A concept no part covers is not a dead end: when its subtema is known, the box
+offers «Pedir la parte de (subtema)». The request names the number itself when
+the subtema stops at three segments, and its parent when the concept sits four
+levels deep. The panorama names unwritten parts without showing their content.
 
 The map is drawn by the studio, not by Mermaid: the shell page loads marked and
 DOMPurify only, and a picture whose boxes must open, follow a pointer and hold
