@@ -69,6 +69,38 @@ function http(url, { method = "GET", headers = {}, body } = {}) {
   });
 }
 
+test("preferences API seeds, saves, and rejects invalid changes without modifying the file", async () => {
+  const { studio, root } = await setup();
+  const file = join(root, "preferencias.json");
+  const initial = await http(`${studio.url}api/preferences`);
+  assert.equal(initial.status, 200);
+  const data = JSON.parse(initial.body);
+  assert.equal(data.version, 1);
+  assert.ok(data.aspectos.length > 0);
+  assert.equal(data.aspectos.find((a) => a.id === "texto").nivel, "menos");
+  assert.equal(existsSync(file), false);
+  data.aspectos[0].nivel = "medio";
+  const saved = await post(studio, "api/preferences", data);
+  assert.equal(saved.status, 200, saved.body);
+  assert.deepEqual(JSON.parse(saved.body), data);
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/preferences`)).body), data);
+  const before = readFileSync(file, "utf8");
+  for (const bad of [
+    { ...data, extra: true },
+    { ...data, version: 2 },
+    { ...data, aspectos: [data.aspectos[0], ...data.aspectos.slice(0, -1)] },
+    { ...data, aspectos: data.aspectos.map((a, i) => i ? a : { ...a, nivel: "mucho" }) },
+    { ...data, aspectos: data.aspectos.map((a, i) => i ? a : { ...a, id: "desconocido" }) },
+    { ...data, aspectos: data.aspectos.map((a, i) => i ? a : { ...a, extra: true }) },
+    { ...data, aspectos: data.aspectos.slice(1) },
+  ]) {
+    const response = await post(studio, "api/preferences", bad);
+    assert.equal(response.status, 400, response.body);
+    assert.ok(JSON.parse(response.body).error);
+    assert.equal(readFileSync(file, "utf8"), before);
+  }
+});
+
 const post = (studio, path, payload, headers = {}) =>
   http(`${studio.url}${path}`, {
     method: "POST",

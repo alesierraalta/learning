@@ -33,6 +33,7 @@ import {
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
+import { readPreferences, savePreferences } from "./preferences.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -553,6 +554,8 @@ ${scripts}
     if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
     const body = await readBody(req);
     switch (action) {
+      case "api/preferences":
+        return sendJson(res, 200, savePreferences(root, body));
       case "prompt": {
         const text = body.text;
         if (typeof text !== "string" || !text.trim() || text.length > MAX_PROMPT_CHARS) {
@@ -721,6 +724,8 @@ ${scripts}
         return events(res);
       case "api/library":
         return sendJson(res, 200, await library());
+      case "api/preferences":
+        return sendJson(res, 200, readPreferences(root));
       case "api/panorama": {
         const id = url.searchParams.get("topic") ?? "";
         const summary = listTopics(root).find((topic) => topic.id === id);

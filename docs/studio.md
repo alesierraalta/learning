@@ -1,8 +1,8 @@
 # Learning studio
 
 A local study app: browse every Learnings content and drive the study from the
-browser while Pi works in the background with the unchanged skill, engine,
-preferences and mode choice (spec: `odd/tasks/learning-studio.md`).
+browser while Pi works in the background with the skill and engine
+(spec: `odd/tasks/learning-studio.md`).
 
 ## Start
 
@@ -13,6 +13,20 @@ estudio --no-open  # print the URL only
 
 `node studio/server.ts` is the same without the engine rebuild. `LEARNING_ROOT`
 overrides the Learnings folder. Ctrl+C stops the studio and its Pi.
+
+## Configuración › Preferencias
+
+The header opens the preferences page, where each aspect has a menos, medio or más
+choice. Saving writes `<LEARNING_ROOT>/preferencias.json` in C1 format; the human
+history in `preferencias.md` is not changed. JSON levels take precedence over the
+history when the tutor uses the preferences method. Before a JSON file exists,
+the page starts from the seeded defaults without creating a file.
+
+The token-gated `GET api/preferences` returns the full `{version: 1, aspectos}`
+document. `POST api/preferences` accepts that same document with changed levels,
+validates the exact aspect IDs and fields, and atomically replaces the file. It
+requires the same origin and JSON content type as the studio's other POSTs;
+invalid input returns 400 without changing the existing file.
 
 ## Wide reading mode
 

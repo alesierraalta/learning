@@ -66,6 +66,28 @@ const geometry = (page) =>
     };
   });
 
+test("preferences are reachable, editable and fit a phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(studio.url, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Configuración" }).click();
+  await page.getByRole("heading", { name: "Preferencias" }).waitFor();
+  const group = page.getByRole("group", { name: "Cantidad de texto" });
+  await group.getByRole("radio", { name: "medio" }).check();
+  await page.getByRole("button", { name: "Guardar preferencias" }).click();
+  await page.getByText("Preferencias guardadas").waitFor();
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "Preferencias" }).waitFor();
+  assert.equal(await group.getByRole("radio", { name: "medio" }).isChecked(), true);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+});
+
 test("topic column keeps the card above its actions while scrolling", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
