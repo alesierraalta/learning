@@ -126,15 +126,17 @@ const (
 // figureGeom keeps the size of a drawn figure; the kit's own defaults fill in
 // what the author left out.
 type figureGeom struct {
-	W, H, R, Width, RowH float64
-	Rows                 []json.RawMessage
-	Header               *bool
+	X, Y, W, H, R, Width, RowH float64
+	Rows                       []json.RawMessage
+	Header                     *bool
 }
 
 func parseGeoms(raw []json.RawMessage) []figureGeom {
 	out := make([]figureGeom, 0, len(raw))
 	for _, item := range raw {
 		var g struct {
+			X      float64           `json:"x"`
+			Y      float64           `json:"y"`
 			W      float64           `json:"w"`
 			H      float64           `json:"h"`
 			R      float64           `json:"r"`
@@ -144,13 +146,13 @@ func parseGeoms(raw []json.RawMessage) []figureGeom {
 			Header *bool             `json:"header"`
 		}
 		_ = json.Unmarshal(item, &g)
-		out = append(out, figureGeom{W: g.W, H: g.H, R: g.R, Width: g.Width, RowH: g.RowH, Rows: g.Rows, Header: g.Header})
+		out = append(out, figureGeom{X: g.X, Y: g.Y, W: g.W, H: g.H, R: g.R, Width: g.Width, RowH: g.RowH, Rows: g.Rows, Header: g.Header})
 	}
 	return out
 }
 
-// gridArea mirrors scene.js: 560 wide, 48 per row, plus the header row.
-func gridArea(g figureGeom) float64 {
+// gridSize mirrors scene.js: 560 wide, 48 per row, plus the header row.
+func gridSize(g figureGeom) (w, h float64) {
 	w, rowH := g.Width, g.RowH
 	if w <= 0 {
 		w = 560
@@ -162,7 +164,27 @@ func gridArea(g figureGeom) float64 {
 	if g.Header == nil || *g.Header {
 		rows++
 	}
-	return w * rowH * rows
+	return w, rowH * rows
+}
+
+// pointsAtTable reports an arrow whose head lands on the table (with a small
+// margin for the head drawn just outside the frame).
+func pointsAtTable(arrows []json.RawMessage, g figureGeom) bool {
+	const margin = 12.0
+	w, h := gridSize(g)
+	for _, raw := range arrows {
+		var a struct {
+			X2 float64 `json:"x2"`
+			Y2 float64 `json:"y2"`
+		}
+		if json.Unmarshal(raw, &a) != nil {
+			continue
+		}
+		if a.X2 >= g.X-margin && a.X2 <= g.X+w+margin && a.Y2 >= g.Y-margin && a.Y2 <= g.Y+h+margin {
+			return true
+		}
+	}
+	return false
 }
 
 // sceneProblem names what keeps one step from drawing the example, or "".
@@ -185,19 +207,24 @@ func sceneProblem(s deckScene) string {
 		}
 		largestShape = max(largestShape, 4*r*r)
 	}
-	largestTable := 0.0
+	// A table may be the scene only when the data is the example (rows of a
+	// relation): then an arrow points into it, at the row or cell that matters.
+	// A table no arrow touches is the rejected shape, a grid of icons with the
+	// explanation happening somewhere else.
+	var largestTable figureGeom
+	largestTableArea := 0.0
 	for _, g := range parseGeoms(s.Grids) {
-		largestTable = max(largestTable, gridArea(g))
+		if w, h := gridSize(g); w*h > largestTableArea {
+			largestTable, largestTableArea = g, w*h
+		}
 	}
 	switch {
-	case shapes == 0 && len(s.Grids) > 0:
-		return "only draws a table: draw the example itself (boxes, nodes) and keep a table as a complement"
-	case shapes == 0:
+	case shapes == 0 && len(s.Grids) == 0:
 		return "draws nothing: draw the example itself (boxes, nodes)"
-	case largestTable > largestShape:
-		return "its largest figure is a table: draw the example itself as the scene and keep the table smaller, as a complement"
 	case len(s.Arrows) == 0:
 		return "has no arrow: point at what changes, the way the tutorial does"
+	case largestTableArea > largestShape && !pointsAtTable(s.Arrows, largestTable):
+		return "its largest figure is a table that no arrow points at: draw the example itself as the scene, or point at the row or cell that matters"
 	}
 	return ""
 }

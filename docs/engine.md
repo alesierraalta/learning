@@ -417,12 +417,15 @@ receipts stay valid.
 - The note carries at least one closed `<lk-walkthrough>` with a JSON deck; an
   `lk-widget` or a page under `explicaciones/apps/` does not replace it.
 - Every walkthrough in the note has 3 to 6 steps.
-- Every step draws the example itself (at least one box, node, sheet or gear),
-  draws at least one arrow, and its largest figure is not a table. A table may
-  sit beside the scene as a complement, never as the scene.
+- Every step draws something and at least one arrow. When its largest figure is
+  a table, an arrow must point into that table, at the row or cell that matters:
+  a table is the scene only when the data is the example (rows of a relation).
+  A table no arrow touches, with the explanation happening in captions around
+  it, fails.
 - A failure names the walkthrough, the step and the fix, for example
-  `walkthrough 1 step 2 (Sube) its largest figure is a table: draw the example
-  itself as the scene and keep the table smaller, as a complement`.
+  `walkthrough 1 step 2 (Sube) its largest figure is a table that no arrow points
+  at: draw the example itself as the scene, or point at the row or cell that
+  matters`.
 
 Whether the steps actually teach is a judgment: runs started with the current
 rules also owe the `walkthrough-progression` review for every part. Layout

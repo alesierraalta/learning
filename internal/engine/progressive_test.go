@@ -18,6 +18,10 @@ import (
 // where to look.
 const sceneStep = `{"boxes":[{"x":40,"y":60,"w":120,"h":90,"label":"(0,2)"}],"nodes":[{"x":100,"y":105,"r":26,"label":"R"}],"arrows":[{"x1":100,"y1":60,"x2":100,"y2":20,"label":"sube"}]}`
 
+// sqlStep is a table that is the example itself (rows of data) with the arrow
+// pointing at the row that matters: allowed, the table is the scene.
+const sqlStep = `{"grids":[{"x":20,"y":24,"width":320,"rowH":48,"cols":["id","salary"],"rows":[["7782","2450"],["7999","mucho"]]}],"boxes":[{"x":20,"y":220,"w":160,"h":60,"label":"NUMBER"}],"arrows":[{"x1":100,"y1":215,"x2":250,"y2":140,"label":"no cabe"}]}`
+
 // tableStep is the rejected shape: a table on top and caption boxes below.
 const tableStep = `{"grids":[{"x":20,"y":24,"width":320,"rowH":48,"cols":["x=0","x=1","x=2","x=3"],"rows":[["·","·","·","Puerta"],["·","Columna","·","Charco"],["Robot","·","·","·"]]}],"boxes":[{"x":12,"y":290,"w":116,"h":62,"label":"(0,2)"},{"x":232,"y":290,"w":116,"h":62,"label":"(0,1)"}],"arrows":[{"x1":136,"y1":321,"x2":224,"y2":321,"label":"subir"}]}`
 
@@ -59,7 +63,8 @@ func TestPartNeedsProgressiveWalkthrough(t *testing.T) {
 		{"a widget does not replace the walkthrough", `<lk-widget title="Prueba"><p>Mueve el robot.</p><div class="lab"></div></lk-widget>` + "\nCómo leerlo: mueve el robot.\n", false, "needs a progressive walkthrough"},
 		{"two steps are too few", deck(t, repeatSteps(sceneStep, 2)...), false, "3 to 6 steps"},
 		{"seven steps are too many", deck(t, repeatSteps(sceneStep, 7)...), false, "3 to 6 steps"},
-		{"a table as the scene", deck(t, sceneStep, tableStep, sceneStep), false, "table"},
+		{"a table no arrow points at", deck(t, sceneStep, tableStep, sceneStep), false, "table"},
+		{"a table of data with the arrow on its row", deck(t, sqlStep, sqlStep, sqlStep), true, ""},
 		{"a step without an arrow", deck(t, sceneStep, `{"boxes":[{"x":40,"y":60,"w":120,"h":90,"label":"(0,2)"}]}`, sceneStep), false, "arrow"},
 		{"a step that only draws a table", deck(t, sceneStep, `{"grids":[{"x":20,"y":24,"width":320,"rowH":48,"cols":["a"],"rows":[["1"]]}],"arrows":[{"x1":10,"y1":10,"x2":60,"y2":10,"label":"mira"}]}`, sceneStep), false, "table"},
 		{"a deck that cannot render", "<lk-walkthrough>\n<script type=\"application/json\">{\"title\": \"roto\", \"steps\": [</script>\n</lk-walkthrough>\nCómo leerlo: un recorrido.", false, "needs a progressive walkthrough"},
