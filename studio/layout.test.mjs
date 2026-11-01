@@ -1031,3 +1031,34 @@ test("on an upright iPad the map opens readable and two fingers zoom it", { skip
   await page.locator(".pano-controls").getByRole("button", { name: "Ajustar a la ventana" }).click();
   assert.ok((await scale()) < before, "«Ajustar a la ventana» still shows the whole map");
 });
+
+// ---------- reading with no connection ----------
+// The saved copy of a part is read in a browser that may reach nothing: the only
+// request is the file itself, and the text, its formula and its demo still draw.
+test("a saved part draws its text, formula and demo without asking for anything else", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), "# Parte 1 — Capas\n\nUna red en capas. Una fórmula: $a^2 + b^2$\n");
+  mkdirSync(join(root, "redes", "explicaciones", "demos"), { recursive: true });
+  writeFileSync(join(root, "redes", "explicaciones", "demos", "p1-capas.html"), "<!doctype html><html><body><p id=\"demo\">capas</p><script>document.getElementById('demo').textContent = 'demo viva';</script></body></html>");
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine, offlineCacheDir: join(root, "..", `${root.split("/").pop()}-cdn`) });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  const asked = [];
+  page.on("request", (request) => asked.push(request.url()));
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+
+  await page.goto(`${studio.url}api/offline?topic=redes&part=p1`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".katex", { timeout: 10000 });
+  assert.deepEqual(asked.filter((url) => !url.startsWith("data:")), [`${studio.url}api/offline?topic=redes&part=p1`], "the file asks for nothing");
+  assert.match(await page.locator("main").innerText(), /Una red en capas/);
+  assert.equal(await page.locator(".katex").count() > 0, true, "the formula is drawn by the KaTeX the file carries");
+  const demo = page.frameLocator("iframe").first().locator("#demo");
+  assert.equal(await demo.textContent(), "demo viva", "the demo runs inside the file");
+  const tutor = page.locator("form.tutor");
+  assert.match(await tutor.innerText(), /Necesita conexión/, "asking the tutor says it needs a connection");
+  assert.equal(await tutor.getByRole("button", { name: "Enviar pregunta" }).isDisabled(), true);
+  assert.deepEqual(errors, []);
+});

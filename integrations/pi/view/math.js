@@ -9,10 +9,10 @@
  */
 (() => {
   "use strict";
-  const KATEX_VERSION = "0.19.1";
-  const KATEX_JS = `https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist/katex.min.js`;
+  // Literal URLs, each pinned by the hash after it: a saved part finds them by name.
+  const KATEX_JS = "https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.js";
   const KATEX_JS_INTEGRITY = "sha384-a1WQdjRj162i159OYq041X6I4K8NenkrI09LlPmiHg0YOb7CR+wJOraXwK9abpnE";
-  const KATEX_CSS = `https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist/katex.min.css`;
+  const KATEX_CSS = "https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.css";
   const KATEX_CSS_INTEGRITY = "sha384-WwGtaC6ywCHxA5cstpj/3+xIZvTez8dq2IcBQaXRkenHZ7FVVq1ZROtURwfbtTlG";
   const TOKEN = /LKMATHD(\d+)LKEND|LKMATHS(\d+)LKEND/g;
 
@@ -82,6 +82,17 @@
   let katexRequest;
   const loadKatex = () => {
     katexRequest ??= new Promise((resolve, reject) => {
+      // A saved copy carries KaTeX itself, keyed by the URL it would come from.
+      const saved = globalThis.learningOffline;
+      if (saved?.[KATEX_JS] !== undefined && saved?.[KATEX_CSS] !== undefined) {
+        const inlineStyle = document.createElement("style");
+        inlineStyle.textContent = saved[KATEX_CSS];
+        const inlineScript = document.createElement("script");
+        inlineScript.textContent = saved[KATEX_JS];
+        document.head.append(inlineStyle, inlineScript);
+        resolve(globalThis.katex);
+        return;
+      }
       const style = document.createElement("link");
       style.rel = "stylesheet";
       style.href = KATEX_CSS;

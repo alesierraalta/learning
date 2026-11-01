@@ -768,3 +768,26 @@ test("the panorama reaches the browser as one picture: plan, route and map", asy
   assert.equal((await http(`${studio.url}api/panorama?topic=nope`)).status, 404);
   assert.equal((await http(`${studio.url}api/panorama?topic=../etc`)).status, 404, "a topic id never leaves the root");
 });
+
+// A part saved for reading with no connection is one file: it names nothing of the
+// bridge, reaches nothing, and runs in an origin of its own (docs/studio.md).
+test("a written part is served as one isolated file that reads with no connection", async () => {
+  const { studio, root } = await setup({ offlineCacheDir: mkdtempSync(join(tmpdir(), "offline-cdn-")) });
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), "# Parte 1 — Capas\n\nUna red en capas. Una fórmula: $a^2 + b^2$\n");
+  const answer = await http(`${studio.url}api/offline?topic=redes&part=p1`);
+  assert.equal(answer.status, 200, answer.body);
+  const csp = answer.headers["content-security-policy"];
+  assert.match(csp, /sandbox allow-scripts(;|$)/, "the copy runs in an opaque origin");
+  assert.doesNotMatch(csp, /allow-same-origin/, "it never shares the studio's origin");
+  assert.match(csp, /connect-src 'none'/, "and may fetch nothing");
+  const bridge = new URL(JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body).url);
+  const token = bridge.pathname.split("/")[1];
+  assert.equal(answer.body.includes(token), false, "the bridge's run token never reaches the device");
+  assert.equal(answer.body.includes(studio.url.split("/")[3]), false, "nor the studio's");
+  assert.match(answer.body, /"offline":true/);
+  assert.match(answer.body, /Una red en capas/);
+
+  assert.equal((await http(`${studio.url}api/offline?topic=redes&part=p2`)).status, 404, "a part not written yet has nothing to save");
+  assert.equal((await http(`${studio.url}api/offline?topic=../etc&part=p1`)).status, 404, "a topic never leaves the vault");
+  assert.equal((await http(`${studio.url.replace(/[0-9a-f]{64}\/$/, `${"0".repeat(64)}/`)}api/offline?topic=redes&part=p1`)).status, 404, "the route needs the studio's token");
+});
