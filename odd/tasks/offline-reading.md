@@ -26,7 +26,7 @@ S8 — Online, the studio always loads its latest version: a deploy never leaves
 | T3 | S3, S4, S5 | Studio UI: offline notice, saved marks, save-topic action, reader falls back to the saved copy | `30af877` |
 | T4 | S1–S8 | Docs, full suites, real-vault check, iPad prerequisite (trusted Infra Root CA) | `8df28c8` |
 | T5 | S6, S7 | Hardening from the independent verification (L12): token checked per document and the studio's token too, pins only within one statement, stylesheets bring only fonts and pictures (also inside `<style>`), no redirects in the loader or the worker's store | `82841b7`, `f00ad4f` |
-| T6 | S7 | Hardening from the second independent verification (L14): base64 `data:` URLs decoded before the token check, stylesheet assets judged by path (no query) and by answer type, reader data kept by an allow-list of 10 keys, pins never cross any JavaScript line terminator | pending |
+| T6 | S7 | Hardening from the second independent verification (L14): base64 `data:` URLs decoded before the token check, stylesheet assets judged by path (no query) and by answer type, reader data kept by an allow-list of 10 keys, pins never cross any JavaScript line terminator | `ed85e29` |
 
 ## Log
 
