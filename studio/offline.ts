@@ -43,14 +43,18 @@ export const OFFLINE_CSP = [
 ].join("; ");
 
 const CDN_ORIGIN = "https://cdn.jsdelivr.net";
-/** A CDN URL followed, within the same statement, by the hash that pins it. */
-const PINNED = /(https:\/\/cdn\.jsdelivr\.net\/npm\/[^\s"'`)]+)(?:(?!https:\/\/cdn\.jsdelivr\.net)[\s\S]){0,200}?(sha384-[A-Za-z0-9+/]+={0,2})/g;
+/**
+ * A CDN URL followed, in its own statement, by the hash that pins it: no `;`, no line
+ * break and no other CDN URL in between, so a hash never pins a neighbour's URL.
+ */
+const PINNED = /(https:\/\/cdn\.jsdelivr\.net\/npm\/[^\s"'`)]+)(?:(?!https:\/\/cdn\.jsdelivr\.net)[^;\n]){0,80}?(sha384-[A-Za-z0-9+/]+={0,2})/g;
 /** Libraries a part needs only when it uses them; everything else on the CDN is always needed. */
 const ON_DEMAND: Record<string, (content: string) => boolean> = {
   katex: (content) => /<lk-math\b|\$/.test(content),
   mermaid: (content) => /mermaid/i.test(content),
 };
-const FONT_FALLBACK = /\.(?:woff|ttf|eot|otf)(?:[?#].*)?$/i;
+/** What a stylesheet may bring inside it: a WOFF2 font or a picture, never code or another stylesheet. */
+const STYLE_ASSET = /\.(?:woff2|png|jpe?g|gif|svg|webp|avif)(?:[?#].*)?$/i;
 const NOTE_VIDEO = /<video\b[^>]*>[\s\S]*?<\/video>/gi;
 const VIDEO_NOTE = '<p class="offline-note">🎬 El video de esta parte necesita conexión.</p>';
 /** The reader's data: the note, its quiz and its demos, as JSON in a script element. */
@@ -100,20 +104,21 @@ class Snapshot {
   private readonly page: string;
   private readonly load: Load;
   private readonly bridge: string;
+  /** Run tokens that must never reach the device: the bridge's, and any the caller names. */
+  private readonly secrets: string[];
   private readonly pins = new Map<string, string>();
   private readonly cache = new Map<string, Promise<{ bytes: Buffer; type: string }>>();
 
-  constructor(page: string, load: Load) {
+  constructor(page: string, load: Load, secrets: string[]) {
     this.page = page;
     this.load = load;
     this.bridge = resolve(page, page).origin;
+    const [, bridgeToken] = resolve(page, page).pathname.split("/");
+    this.secrets = [bridgeToken, ...secrets].filter((secret) => secret && secret.length >= 16);
   }
 
-  async build(): Promise<string> {
-    const html = await this.document(this.page, 0);
-    const [, token] = resolve(this.page, this.page).pathname.split("/");
-    if (token && html.includes(token)) throw new Error("the saved copy still names the bridge's run token");
-    return html;
+  build(): Promise<string> {
+    return this.document(this.page, 0);
   }
 
   /** One request per URL, and only to the bridge or the CDN. */
@@ -148,6 +153,8 @@ class Snapshot {
     const html = await this.html(source, url, depth, page);
     const libraries = Object.fromEntries([...page.libraries].filter(([library]) => !page.inlined.has(library)));
     const shim = `<script>window.learningOffline = ${scriptJson(libraries)};</script>`;
+    // Checked per document, before a demo is encoded into its page where no search would see it.
+    if (this.secrets.some((secret) => html.includes(secret))) throw new Error(`the saved copy of ${url} still names a run token`);
     return /<head\b[^>]*>/i.test(html) ? html.replace(/<head\b[^>]*>/i, (head) => `${head}\n${shim}`) : `${shim}\n${html}`;
   }
 
@@ -169,7 +176,11 @@ class Snapshot {
     // The reader's data is JSON: it is folded on its own, never edited as markup.
     const data = VIEW_DATA.exec(source);
     let html = this.config(data ? source.replace(data[0], VIEW_DATA_SLOT) : source);
-    html = html.replace(/(<(script|style)\b[^>]*>)([\s\S]*?)(<\/\2>)/gi, (_, open: string, _tag, body: string, close: string) => `${open}${slot(body)}${close}`);
+    html = await this.replaceAsync(html, /(<(script|style)\b[^>]*>)([\s\S]*?)(<\/\2>)/gi, async ([, open, tag, body, close]) => {
+      // A page's own <style> brings its pictures and fonts like any stylesheet.
+      const kept = tag.toLowerCase() === "style" ? inStyle(await this.css(body, base)) : body;
+      return `${open}${slot(kept)}${close}`;
+    });
     html = html.replace(NOTE_VIDEO, VIDEO_NOTE);
     html = await this.replaceAsync(html, /<link\b[^>]*>/gi, async ([tag]) => {
       const href = attr(tag, "href");
@@ -218,8 +229,9 @@ class Snapshot {
     return this.replaceAsync(text, /url\(\s*(["']?)([^"')]+)\1\s*\)/g, async ([whole, , ref]) => {
       if (ref.startsWith("data:") || ref.startsWith("#")) return whole;
       const url = resolve(ref, base).href;
-      // The browser takes the first font it can read: WOFF2 travels, the older formats are left empty.
-      if (FONT_FALLBACK.test(url)) return "url(data:,)";
+      // The browser takes the first font it can read: WOFF2 travels, older formats and
+      // anything that is not a font or a picture (an @import, a script) are left empty.
+      if (!STYLE_ASSET.test(url)) return "url(data:,)";
       const found = await this.fetch(url);
       return `url(${dataUrl(found.bytes, found.type)})`;
     });
@@ -290,9 +302,9 @@ class Snapshot {
   }
 }
 
-/** The page at `page`, folded into one file that reads with no network. */
-export function snapshotPage(page: string, load: Load): Promise<string> {
-  return new Snapshot(page, load).build();
+/** The page at `page`, folded into one file that reads with no network and names none of `secrets`. */
+export function snapshotPage(page: string, load: Load, secrets: string[] = []): Promise<string> {
+  return new Snapshot(page, load, secrets).build();
 }
 
 /**
@@ -303,7 +315,8 @@ export function snapshotPage(page: string, load: Load): Promise<string> {
 export function partLoader(bridge: string, cacheDir: string): Load {
   const bridgeOrigin = resolve(bridge, bridge).origin;
   const get = async (url: string) => {
-    const response = await fetch(url);
+    // A redirect is refused: the URL checked against the bridge and the CDN is the one fetched.
+    const response = await fetch(url, { redirect: "error" });
     if (!response.ok) throw new Error(`${url} answered HTTP ${response.status}`);
     return { bytes: Buffer.from(await response.arrayBuffer()), type: response.headers.get("content-type") ?? "application/octet-stream" };
   };

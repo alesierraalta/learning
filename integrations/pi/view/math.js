@@ -9,11 +9,10 @@
  */
 (() => {
   "use strict";
-  // Literal URLs, each pinned by the hash after it: a saved part finds them by name.
-  const KATEX_JS = "https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.js";
-  const KATEX_JS_INTEGRITY = "sha384-a1WQdjRj162i159OYq041X6I4K8NenkrI09LlPmiHg0YOb7CR+wJOraXwK9abpnE";
-  const KATEX_CSS = "https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.css";
-  const KATEX_CSS_INTEGRITY = "sha384-WwGtaC6ywCHxA5cstpj/3+xIZvTez8dq2IcBQaXRkenHZ7FVVq1ZROtURwfbtTlG";
+  // Each literal URL shares its statement with the hash that pins it: a saved part
+  // (studio/offline.ts) finds the pair by reading this code.
+  const KATEX_JS = "https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.js", KATEX_JS_INTEGRITY = "sha384-a1WQdjRj162i159OYq041X6I4K8NenkrI09LlPmiHg0YOb7CR+wJOraXwK9abpnE";
+  const KATEX_CSS = "https://cdn.jsdelivr.net/npm/katex@0.19.1/dist/katex.min.css", KATEX_CSS_INTEGRITY = "sha384-WwGtaC6ywCHxA5cstpj/3+xIZvTez8dq2IcBQaXRkenHZ7FVVq1ZROtURwfbtTlG";
   const TOKEN = /LKMATHD(\d+)LKEND|LKMATHS(\d+)LKEND/g;
 
   const token = (display, index) => `${display ? "LKMATHD" : "LKMATHS"}${index}LKEND`;

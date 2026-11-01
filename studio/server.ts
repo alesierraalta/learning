@@ -783,7 +783,7 @@ ${scripts}
         const page = new URL(String(reader.url).slice(publicBase.length), localBase).href;
         let html: string;
         try {
-          html = await snapshotPage(page, partLoader(localBase, offlineCacheDir));
+          html = await snapshotPage(page, partLoader(localBase, offlineCacheDir), [token]);
         } catch (err) {
           throw new HttpError(502, `could not save the part: ${(err as Error).message}`);
         }

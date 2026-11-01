@@ -210,7 +210,15 @@ How it works:
   `~/.cache/learning-studio/cdn` (`offlineCacheDir`).
 - The file names nothing of the bridge (address, run token, routes to the tutor)
   and is served with `sandbox allow-scripts` and `connect-src 'none'`: its scripts
-  run in an opaque origin that can reach nothing.
+  run in an opaque origin that can reach nothing. Every document of the copy (the
+  part and each demo) is refused if it still names the bridge's or the studio's
+  run token. A stylesheet may bring only WOFF2 fonts and pictures; CDN downloads
+  never follow a redirect.
+- Two limits are deliberate. Pictures a note links from elsewhere on the internet
+  (`https://…`) do not travel: fetching them would mean the server asks any host
+  the note names. And a script of the copy can navigate its own frame, but the
+  studio frames only the bridge and its own origin, where every route but `/` and
+  `/sw.js` needs a token the copy does not have.
 - A service worker (`studio/ui/sw.js`, served at `/sw.js` with scope `/`) answers
   every studio request from the network first and keeps each good answer, so
   online the studio always shows what the server has now. With no network it

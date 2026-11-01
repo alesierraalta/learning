@@ -5,7 +5,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
-import { snapshotPage } from "./offline.ts";
+import { createServer } from "node:http";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { partLoader, snapshotPage } from "./offline.ts";
 
 const BRIDGE = "http://127.0.0.1:9999";
 const TOKEN = "a".repeat(64);
@@ -180,4 +185,65 @@ test("a demo that uses the kit carries its own libraries, and none is shipped tw
   const frameMap = offlineMap(frame);
   assert.equal(frameMap[`${CDN}/mermaid@11.6.0/dist/mermaid.min.js`], MERMAID, "the demo is its own document and carries the Mermaid it draws with");
   assert.equal(`${CDN}/katex@0.16.22/dist/katex.min.js` in frameMap, false, "and nothing it does not use");
+});
+
+// Hardening found by the independent verification (odd/tasks/offline-reading.md L12).
+test("a run token hidden inside a demo frame refuses the copy", async () => {
+  const demo = `<html><body><script>const leak = "/${TOKEN}/prompt";</script></body></html>`;
+  const page = `<!doctype html><html><head></head><body><iframe src="file/explicaciones/demos/p1-capas.html"></iframe></body></html>`;
+  const { load } = bridge({ [PAGE]: page, [`${BRIDGE}/${TOKEN}/redes/file/explicaciones/demos/p1-capas.html`]: demo });
+  await assert.rejects(() => snapshotPage(PAGE, load), /run token/, "a token never travels base64-encoded inside a demo");
+});
+
+test("the studio's own token refuses the copy too", async () => {
+  const studioToken = "c".repeat(64);
+  const page = `<!doctype html><html><head></head><body><p>${studioToken}</p></body></html>`;
+  const { load } = bridge({ [PAGE]: page });
+  await assert.rejects(() => snapshotPage(PAGE, load, [studioToken]), /run token/);
+});
+
+test("a CDN URL is pinned only by the hash in its own statement", async () => {
+  const unpinned = `${CDN}/evil@1.0.0/dist/evil.min.js`;
+  const code = [
+    `const A = '${unpinned}';`,
+    `const B = 'x', C = '${sri(MARKED)}';`,
+    `library('a', '${unpinned}', 'x');`,
+  ].join("\n");
+  const page = `<!doctype html><html><head><script src="/${TOKEN}/kit/kit.js?v=1"></script></head><body></body></html>`;
+  const { load, asked } = bridge({ [PAGE]: page, [`${BRIDGE}/${TOKEN}/kit/kit.js?v=1`]: code, [unpinned]: MARKED });
+  await snapshotPage(PAGE, load);
+  assert.equal(asked.includes(unpinned), false, "a hash in the next statement never pins a URL");
+});
+
+test("a stylesheet brings only its fonts and pictures, never another stylesheet or script", async () => {
+  const css = `@import url(${CDN}/evil@1.0.0/x.css); .a { background: url(${CDN}/evil@1.0.0/x.js); } .b { background: url(fonts/paper.woff2); }`;
+  const page = `<!doctype html><html><head><link rel="stylesheet" href="/${TOKEN}/kit/kit.css?v=1"></head><body></body></html>`;
+  const { load, asked } = bridge({ [PAGE]: page, [`${BRIDGE}/${TOKEN}/kit/kit.css?v=1`]: css });
+  const html = await snapshotPage(PAGE, load);
+  assert.deepEqual(asked.filter((url) => url.includes("evil")), [], "no stylesheet or script is fetched through url()");
+  assert.match(html, /data:font\/woff2;base64,AQID/, "a font still travels");
+});
+
+test("a redirect is refused: what was checked is what is fetched", async (t) => {
+  const server = createServer((req, res) => {
+    if (req.url === "/moved") {
+      res.writeHead(302, { location: "http://example.invalid/elsewhere.js" });
+      return res.end();
+    }
+    res.end("ok");
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const load = partLoader(`${base}/`, mkdtempSync(join(tmpdir(), "offline-cdn-")));
+  assert.equal((await load(`${base}/fine`)).bytes.toString(), "ok");
+  await assert.rejects(() => load(`${base}/moved`), "the bridge's redirect is not followed");
+});
+
+test("a picture named inside a page's own <style> travels with it", async () => {
+  const page = `<!doctype html><html><head><style>.hero { background: url(file/explicaciones/red.png); }</style></head><body><div class="hero"></div></body></html>`;
+  const { load, asked } = bridge({ [PAGE]: page });
+  const html = await snapshotPage(PAGE, load);
+  assert.ok(asked.includes(`${BRIDGE}/${TOKEN}/redes/file/explicaciones/red.png`), "the picture is fetched from the bridge");
+  assert.match(html, /\.hero \{ background: url\(data:image\/png;base64,iVBORw==\); \}/, "and folded into the style");
 });

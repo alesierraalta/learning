@@ -1197,3 +1197,27 @@ test("where the browser cannot keep parts, saving a topic says why instead of fa
   await toast.waitFor({ timeout: 5000 });
   assert.match(await toast.innerText(), /certificado de confianza/);
 });
+
+// A saved copy runs author scripts; it must not be able to take the reader anywhere else.
+// Online, so only the studio's frame-src can be what stops it.
+test("a saved part cannot navigate the reader away from itself", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, page, studio } = await controlledStudio(t);
+  // A rich page: the one kind of part whose author scripts run as written.
+  writeFileSync(
+    join(root, "redes", "explicaciones", "Parte 1 - Capas.html"),
+    "<!doctype html><html><head><meta charset=\"utf-8\"></head><body><main><h1>Capas</h1><p>Texto.</p></main><script>console.log('trying to leave'); setTimeout(() => { location.href = 'https://example.com/?leak=1'; }, 300);</script></body></html>",
+  );
+  const attempted = [];
+  page.on("console", (message) => attempted.push(message.text()));
+  await page.evaluate((src) => {
+    const frame = document.createElement("iframe");
+    frame.className = "probe";
+    frame.src = src;
+    document.body.append(frame);
+  }, `${studio.url}api/offline?topic=redes&part=p1`);
+  await page.waitForTimeout(2500);
+  const urls = page.frames().map((frame) => frame.url());
+  assert.equal(urls.some((url) => url.includes("example.com")), false, `no frame reached the outside: ${urls.join(", ")}`);
+  assert.ok(attempted.includes("trying to leave"), `the author's script ran and tried: ${attempted.join(" | ")}`);
+  assert.ok(attempted.some((text) => /frame-src|Content Security Policy/i.test(text)), `the browser refused it by policy: ${attempted.join(" | ")}`);
+});
