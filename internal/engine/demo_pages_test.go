@@ -28,7 +28,9 @@ func TestDemoPageFilesSatisfyTheDemoPromise(t *testing.T) {
 			f.write(t, tc.path, tc.body)
 			rep, code := f.run(t, f.opts("validate", "explanation"))
 			ch, found := hasCheck(rep, "demo-part")
-			if !found || (tc.ok && (ch.Status != "PASS" || code != 0 || !strings.Contains(ch.Reason, tc.path))) || (!tc.ok && (ch.Status != "FAIL" || code != 1 || !strings.Contains(ch.Reason, "planned a demo"))) {
+			// The note carries no walkthrough, so explanation-content fails the
+			// stage (exit 1) whatever the page does; demo-part is judged alone.
+			if !found || code != 1 || (tc.ok && (ch.Status != "PASS" || !strings.Contains(ch.Reason, tc.path))) || (!tc.ok && (ch.Status != "FAIL" || code != 1 || !strings.Contains(ch.Reason, "planned a demo"))) {
 				t.Fatalf("demo-part = %s exit %d reason %q", ch.Status, code, ch.Reason)
 			}
 		})
@@ -41,7 +43,8 @@ func TestInlineDemoStillSatisfiesThePromise(t *testing.T) {
 	f.writeExplanationWithDemo(t, "p1", widget)
 	rep, code := f.run(t, f.opts("validate", "explanation"))
 	ch, ok := hasCheck(rep, "demo-part")
-	if !ok || ch.Status != "PASS" || code != 0 {
+	// Without its walkthrough the part still fails explanation-content (exit 1).
+	if !ok || ch.Status != "PASS" || code != 1 {
 		t.Fatalf("demo-part = %s exit %d (%s)", ch.Status, code, ch.Reason)
 	}
 }

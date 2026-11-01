@@ -577,9 +577,18 @@ func (f *fixture) canonicalPartFile(t *testing.T, part string) string {
 	return rel
 }
 
+// fixtureWalkthrough is the progressive walkthrough every part owes: three
+// steps that draw the example and point at what changes.
+const fixtureWalkthrough = "<lk-walkthrough class=\"lk-wt-compact\">\n<script type=\"application/json\">\n" +
+	`{"title":"El robot sube","viewBox":"0 0 360 380","steps":[` +
+	`{"title":"La salida","text":"El robot empieza en (0,2).","scene":{"boxes":[{"x":40,"y":200,"w":120,"h":90,"label":"(0,2)"}],"nodes":[{"x":100,"y":245,"r":26,"label":"R"}],"arrows":[{"x1":250,"y1":245,"x2":170,"y2":245,"label":"aquí"}]}},` +
+	`{"title":"Sube","text":"Sube a (0,1).","scene":{"boxes":[{"x":40,"y":200,"w":120,"h":90,"label":"(0,2)"},{"x":40,"y":60,"w":120,"h":90,"label":"(0,1)"}],"nodes":[{"x":100,"y":105,"r":26,"label":"R"}],"arrows":[{"x1":100,"y1":200,"x2":100,"y2":155,"label":"sube"}]}},` +
+	`{"title":"Paga","text":"Cada paso cuesta −0,04.","scene":{"boxes":[{"x":40,"y":60,"w":120,"h":90,"label":"(0,1)"}],"nodes":[{"x":100,"y":105,"r":26,"label":"R"}],"arrows":[{"x1":250,"y1":105,"x2":170,"y2":105,"label":"−0,04"}]}}]}` +
+	"\n</script>\n</lk-walkthrough>\nCómo leerlo: avanza y mira la flecha."
+
 func (f *fixture) writeExplanation(t *testing.T, part string, vis bool, marker string) {
 	t.Helper()
-	body := "---\ntipo: explicacion\nnodo: T." + part + "\nnivel: medio\n---\n# " + part + "\n\nExplicación de la parte con ejemplos concretos. " + marker + "\n\n## Ejemplo\n\nCaso numérico paso a paso.\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
+	body := "---\ntipo: explicacion\nnodo: T." + part + "\nnivel: medio\n---\n# " + part + "\n\nExplicación de la parte con ejemplos concretos. " + marker + "\n\n## Ejemplo\n\nCaso numérico paso a paso.\n\n" + fixtureWalkthrough + "\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
 	if vis {
 		// two visuals: the fixture rules demand a minimum of two, each with
 		// its reading-guide line
