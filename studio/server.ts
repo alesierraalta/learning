@@ -706,6 +706,11 @@ ${scripts}
       res.end();
       return;
     }
+    // The service worker that keeps the studio readable with no connection. It is static
+    // code with no secret, served at the root so its scope covers the root address too.
+    if (url.pathname === "/sw.js" && req.method === "GET") {
+      return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(UI_DIR, "sw.js")), { "cache-control": "no-cache" });
+    }
     const [first = "", ...rest] = url.pathname.split("/").slice(1);
     if (!tokenMatches(first)) throw new HttpError(404, "not found");
     const path = rest.join("/");

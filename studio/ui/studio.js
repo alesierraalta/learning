@@ -1719,6 +1719,10 @@
   });
   window.addEventListener("hashchange", render);
   updatePill();
+  // Keeps the studio and its saved parts readable with no connection (studio/ui/sw.js).
+  // Browsers allow it only on loopback or a trusted HTTPS certificate; elsewhere the
+  // studio simply works online, as before.
+  navigator.serviceWorker?.register("/sw.js", { scope: "/" }).catch(() => {});
   loadLibrary().then(() => {
     render();
     if (window.StudioTutorial && !window.StudioTutorial.seen()) openTutorial();

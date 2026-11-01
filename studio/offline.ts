@@ -111,7 +111,7 @@ class Snapshot {
 
   async build(): Promise<string> {
     const html = await this.document(this.page, 0);
-    const token = resolve(this.page, this.page).pathname.split("/")[1];
+    const [, token] = resolve(this.page, this.page).pathname.split("/");
     if (token && html.includes(token)) throw new Error("the saved copy still names the bridge's run token");
     return html;
   }
@@ -301,14 +301,14 @@ export function snapshotPage(page: string, load: Load): Promise<string> {
  * against their pin again, so a damaged file in it refuses the copy instead of shipping.
  */
 export function partLoader(bridge: string, cacheDir: string): Load {
-  const bridgeOrigin = new URL(bridge).origin;
+  const bridgeOrigin = resolve(bridge, bridge).origin;
   const get = async (url: string) => {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`${url} answered HTTP ${response.status}`);
     return { bytes: Buffer.from(await response.arrayBuffer()), type: response.headers.get("content-type") ?? "application/octet-stream" };
   };
   return async (url) => {
-    if (new URL(url).origin === bridgeOrigin) return get(url);
+    if (resolve(url, url).origin === bridgeOrigin) return get(url);
     const key = createHash("sha256").update(url).digest("hex");
     const body = join(cacheDir, `${key}.bin`);
     const kind = join(cacheDir, `${key}.type`);

@@ -1062,3 +1062,57 @@ test("a saved part draws its text, formula and demo without asking for anything 
   assert.equal(await tutor.getByRole("button", { name: "Enviar pregunta" }).isDisabled(), true);
   assert.deepEqual(errors, []);
 });
+
+// The studio keeps opening with no connection: a service worker serves the last
+// studio and library it saw. Online it always asks the server first (S3, S8).
+async function controlledStudio(t, options = {}) {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine, offlineCacheDir: join(root, "..", `${root.split("/").pop()}-cdn`), ...options });
+  open.push(studio);
+  const context = await (browser.chromium ?? browser.default).launch().then((b) => b.newContext());
+  t.after(() => context.browser().close());
+  await context.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const page = await context.newPage();
+  await page.goto(studio.url, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => navigator.serviceWorker?.controller, null, { timeout: 10000 });
+  // Once in control, the worker sees every request the studio makes.
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".card", { hasText: "Redes" }).first().waitFor();
+  const stop = async () => {
+    open.splice(open.indexOf(studio), 1);
+    await studio.close();
+    await context.setOffline(true);
+  };
+  return { root, studio, page, context, stop, origin: new URL(studio.url).origin };
+}
+
+test("with no server and no network the studio still opens at its address with its library", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, stop, origin } = await controlledStudio(t);
+  await stop();
+  await page.goto(`${origin}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".card", { hasText: "Redes" }).first().waitFor({ timeout: 10000 });
+  assert.match(await page.locator(".cards").first().innerText(), /Redes/, "the library the studio last saw");
+});
+
+test("online the studio always shows what the server has now, not what it saved", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, page } = await controlledStudio(t);
+  mkdirSync(join(root, "nuevo"));
+  writeFileSync(join(root, "nuevo", "plan.json"), JSON.stringify({ topic: "Tema nuevo", parts: [{ id: "p1", title: "Intro", slug: "Intro" }] }));
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".card", { hasText: "Tema nuevo" }).first().waitFor({ timeout: 5000 });
+});
+
+test("what was saved under one run's token still answers after a restart changes it", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio, stop, origin } = await controlledStudio(t);
+  const saved = await page.evaluate(async (url) => (await fetch(url)).status, `${studio.url}api/offline?topic=redes&part=p1`);
+  assert.equal(saved, 200, "the part was saved while online");
+  await stop();
+  const answer = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    return { status: response.status, csp: response.headers.get("content-security-policy"), body: await response.text() };
+  }, `${origin}/${"b".repeat(64)}/api/offline?topic=redes&part=p1`);
+  assert.equal(answer.status, 200, "a new token finds the copy saved under the old one");
+  assert.match(answer.csp, /sandbox allow-scripts/, "and it keeps its isolation when served from the cache");
+  assert.match(answer.body, /Capas/);
+});
