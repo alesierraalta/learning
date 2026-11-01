@@ -45,24 +45,32 @@ export const OFFLINE_CSP = [
 const CDN_ORIGIN = "https://cdn.jsdelivr.net";
 /**
  * A CDN URL followed, in its own statement, by the hash that pins it: no `;`, no line
- * break and no other CDN URL in between, so a hash never pins a neighbour's URL.
+ * terminator JavaScript knows (LF, CR, U+2028, U+2029) and no other CDN URL in
+ * between, so a hash never pins a neighbour's URL.
  */
-const PINNED = /(https:\/\/cdn\.jsdelivr\.net\/npm\/[^\s"'`)]+)(?:(?!https:\/\/cdn\.jsdelivr\.net)[^;\n]){0,80}?(sha384-[A-Za-z0-9+/]+={0,2})/g;
+const PINNED = /(https:\/\/cdn\.jsdelivr\.net\/npm\/[^\s"'`)]+)(?:(?!https:\/\/cdn\.jsdelivr\.net)[^;\r\n\u2028\u2029]){0,80}?(sha384-[A-Za-z0-9+/]+={0,2})/g;
 /** Libraries a part needs only when it uses them; everything else on the CDN is always needed. */
 const ON_DEMAND: Record<string, (content: string) => boolean> = {
   katex: (content) => /<lk-math\b|\$/.test(content),
   mermaid: (content) => /mermaid/i.test(content),
 };
-/** What a stylesheet may bring inside it: a WOFF2 font or a picture, never code or another stylesheet. */
-const STYLE_ASSET = /\.(?:woff2|png|jpe?g|gif|svg|webp|avif)(?:[?#].*)?$/i;
+/** What a stylesheet may bring inside it, by the path's own extension: a WOFF2 font or a picture. */
+const STYLE_ASSET = /\.(?:woff2|png|jpe?g|gif|svg|webp|avif)$/i;
+/** ...and by what the answer says it is, so a stylesheet named like a picture stays out. */
+const STYLE_ASSET_TYPE = /^(?:image\/|font\/woff2)/i;
+/** A base64 `data:` URL anywhere in a document, whoever wrote it. */
+const BASE64_DATA = /data:[^,"'()\s]*;base64,([A-Za-z0-9+/=]+)/g;
 const NOTE_VIDEO = /<video\b[^>]*>[\s\S]*?<\/video>/gi;
 const VIDEO_NOTE = '<p class="offline-note">🎬 El video de esta parte necesita conexión.</p>';
 /** The reader's data: the note, its quiz and its demos, as JSON in a script element. */
 const VIEW_DATA = /(<script type="application\/json" id="view-data">)([\s\S]*?)(<\/script>)/;
 /** Where the reader's data waits while the markup around it is folded. */
 const VIEW_DATA_SLOT = "<!--learning-offline:view-data-->";
-/** Keys of the reader's data that point at the bridge or the tutor. */
-const BRIDGE_KEYS = ["submitUrl", "runUrl", "home", "topicBase", "transcribeUrl", "app", "quizUrl", "video"];
+/**
+ * The reader's data a saved copy keeps: what the reader shows. Anything else (routes to the
+ * bridge or the tutor, a key added tomorrow) stays out, so nothing travels by being new.
+ */
+const READER_KEYS = new Set(["kind", "topic", "part", "title", "topicTitle", "markdown", "quiz", "answered", "demos", "verdicts"]);
 
 const dataUrl = (bytes: Buffer, type: string) => `data:${type.split(";")[0].trim() || "application/octet-stream"};base64,${bytes.toString("base64")}`;
 const sha384 = (bytes: Buffer) => `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
@@ -153,9 +161,14 @@ class Snapshot {
     const html = await this.html(source, url, depth, page);
     const libraries = Object.fromEntries([...page.libraries].filter(([library]) => !page.inlined.has(library)));
     const shim = `<script>window.learningOffline = ${scriptJson(libraries)};</script>`;
-    // Checked per document, before a demo is encoded into its page where no search would see it.
-    if (this.secrets.some((secret) => html.includes(secret))) throw new Error(`the saved copy of ${url} still names a run token`);
-    return /<head\b[^>]*>/i.test(html) ? html.replace(/<head\b[^>]*>/i, (head) => `${head}\n${shim}`) : `${shim}\n${html}`;
+    const delivered = /<head\b[^>]*>/i.test(html) ? html.replace(/<head\b[^>]*>/i, (head) => `${head}\n${shim}`) : `${shim}\n${html}`;
+    // Checked as delivered, before it is encoded into its page: its text, and every base64
+    // data: URL in it (the author's or ours), decoded. A nested demo was checked the same way.
+    const decoded = [...delivered.matchAll(BASE64_DATA)].map(([, payload]) => Buffer.from(payload, "base64").toString("latin1"));
+    if ([delivered, ...decoded].some((text) => this.secrets.some((secret) => text.includes(secret)))) {
+      throw new Error(`the saved copy of ${url} still names a run token`);
+    }
+    return delivered;
   }
 
   /** A CDN script or stylesheet, taken only when its bytes match its pin. */
@@ -228,11 +241,12 @@ class Snapshot {
   private css(text: string, base: string): Promise<string> {
     return this.replaceAsync(text, /url\(\s*(["']?)([^"')]+)\1\s*\)/g, async ([whole, , ref]) => {
       if (ref.startsWith("data:") || ref.startsWith("#")) return whole;
-      const url = resolve(ref, base).href;
+      const url = resolve(ref, base);
       // The browser takes the first font it can read: WOFF2 travels, older formats and
       // anything that is not a font or a picture (an @import, a script) are left empty.
-      if (!STYLE_ASSET.test(url)) return "url(data:,)";
-      const found = await this.fetch(url);
+      if (!STYLE_ASSET.test(url.pathname)) return "url(data:,)";
+      const found = await this.fetch(url.href);
+      if (!STYLE_ASSET_TYPE.test(found.type)) return "url(data:,)";
       return `url(${dataUrl(found.bytes, found.type)})`;
     });
   }
@@ -270,7 +284,7 @@ class Snapshot {
     } catch {
       throw new Error(`the reader's data on ${base} is not JSON`);
     }
-    for (const key of BRIDGE_KEYS) delete data[key];
+    for (const key of Object.keys(data)) if (!READER_KEYS.has(key)) delete data[key];
     data.offline = true;
     if (typeof data.markdown === "string") {
       let markdown = data.markdown.replace(NOTE_VIDEO, VIDEO_NOTE);

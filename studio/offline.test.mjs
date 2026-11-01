@@ -247,3 +247,47 @@ test("a picture named inside a page's own <style> travels with it", async () => 
   assert.ok(asked.includes(`${BRIDGE}/${TOKEN}/redes/file/explicaciones/red.png`), "the picture is fetched from the bridge");
   assert.match(html, /\.hero \{ background: url\(data:image\/png;base64,iVBORw==\); \}/, "and folded into the style");
 });
+
+// Second verification round (odd/tasks/offline-reading.md L14).
+test("a run token hidden in base64 inside the copy refuses it", async () => {
+  const encoded = Buffer.from(`<p>${TOKEN}</p>`).toString("base64");
+  const page = `<!doctype html><html><head></head><body><iframe src="data:text/html;base64,${encoded}"></iframe></body></html>`;
+  await assert.rejects(() => snapshotPage(PAGE, bridge({ [PAGE]: page }).load), /run token/, "an author's own data: URL is read too");
+  const picture = `<!doctype html><html><head></head><body><img src="file/explicaciones/logo.svg"></body></html>`;
+  const { load } = bridge({ [PAGE]: picture, [`${BRIDGE}/${TOKEN}/redes/file/explicaciones/logo.svg`]: `<svg><text>${TOKEN}</text></svg>` });
+  await assert.rejects(() => snapshotPage(PAGE, load), /run token/, "a fetched picture is read before it is encoded");
+});
+
+test("a stylesheet cannot pass for a picture by its query or its name", async () => {
+  const sneaky = `${CDN}/normalize.css@8.0.1/normalize.css?x=.png`;
+  const fake = `${BRIDGE}/${TOKEN}/kit/fonts/fake.woff2`;
+  const css = `@import url('${sneaky}'); .a { background: url(fonts/fake.woff2); }`;
+  const page = `<!doctype html><html><head><link rel="stylesheet" href="/${TOKEN}/kit/kit.css?v=1"></head><body></body></html>`;
+  const files = { [PAGE]: page, [`${BRIDGE}/${TOKEN}/kit/kit.css?v=1`]: css, [sneaky]: "body { color: red }", [fake]: "body { color: blue }" };
+  const { load, asked } = bridge(files);
+  const typed = async (url) => ({ ...(await load(url)), type: url === fake ? "text/css" : (await load(url)).type });
+  const html = await snapshotPage(PAGE, typed);
+  assert.equal(asked.includes(sneaky), false, "a query that ends in .png does not make a stylesheet a picture");
+  assert.equal(html.includes("Y29sb3I6IGJsdWU"), false, "a file named .woff2 that answers as CSS is left out");
+});
+
+test("the reader's data keeps only what the reader reads", async () => {
+  const data = {
+    kind: "part", topic: "redes", part: "p1", title: "Capas", topicTitle: "Redes", markdown: "# Capas\n",
+    quiz: { questions: [] }, answered: null, demos: [], verdicts: null,
+    surprise: Buffer.from(`/${TOKEN}/prompt`).toString("hex"),
+    exercises: [{ id: "e1", titulo: "Ejercicio", lenguaje: "python", mejor: null }],
+  };
+  const page = `<!doctype html><html><head></head><body><script type="application/json" id="view-data">${JSON.stringify(data)}</script></body></html>`;
+  const html = await snapshotPage(PAGE, bridge({ [PAGE]: page }).load);
+  assert.deepEqual(Object.keys(viewData(html)).sort(), ["answered", "demoNames", "demos", "kind", "markdown", "offline", "part", "quiz", "title", "topic", "topicTitle", "verdicts"]);
+});
+
+test("a carriage return ends a statement for the pins too", async () => {
+  const unpinned = `${CDN}/evil@1.0.0/dist/evil.min.js`;
+  const code = `const A = '${unpinned}'\rconst B = '${sri(MARKED)}';\nlibrary('a', '${unpinned}', 'x');`;
+  const page = `<!doctype html><html><head><script src="/${TOKEN}/kit/kit.js?v=1"></script></head><body></body></html>`;
+  const { load, asked } = bridge({ [PAGE]: page, [`${BRIDGE}/${TOKEN}/kit/kit.js?v=1`]: code, [unpinned]: MARKED });
+  await snapshotPage(PAGE, load);
+  assert.equal(asked.includes(unpinned), false);
+});
