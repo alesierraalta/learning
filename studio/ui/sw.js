@@ -17,6 +17,8 @@ const TOKEN = /^\/[0-9a-f]{64}(?=\/)/;
 /** Live or private streams that must never be kept or replayed. */
 const NEVER = /^\/(?:events|api\/view|api\/note)(?:[/?]|$)/;
 const CDN = "https://cdn.jsdelivr.net";
+/** Copies still being written: a question about what is saved waits for them. */
+const writing = new Set();
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
@@ -41,15 +43,24 @@ function keyOf(request) {
   return `${self.location.origin}${path}${url.search}`;
 }
 
-async function networkFirst(request, key) {
-  const store = await caches.open(STORE);
+/**
+ * The network first, and its answer handed over at once: keeping a copy happens after,
+ * in the background, so no request of the studio ever waits on the device's store.
+ */
+async function networkFirst(event, key) {
   try {
-    const answer = await fetch(request);
-    // Only a complete answer is kept: never a redirect, an error page or an opaque reply.
-    if (answer.ok && (answer.type === "basic" || answer.type === "cors")) await store.put(key, answer.clone());
+    const answer = await fetch(event.request);
+    // Only a complete answer is kept: never a redirect (followed or not), an error page or an opaque reply.
+    if (answer.ok && !answer.redirected && (answer.type === "basic" || answer.type === "cors")) {
+      const copy = answer.clone();
+      const kept = caches.open(STORE).then((store) => store.put(key, copy));
+      writing.add(kept);
+      kept.finally(() => writing.delete(kept));
+      event.waitUntil(kept);
+    }
     return answer;
   } catch (error) {
-    const kept = await store.match(key);
+    const kept = await (await caches.open(STORE)).match(key);
     if (!kept) throw error;
     // Marked, so the studio can say it is showing what this device kept.
     const headers = new Headers(kept.headers);
@@ -59,18 +70,17 @@ async function networkFirst(request, key) {
 }
 
 self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  if (request.method !== "GET") return;
-  const key = keyOf(request);
+  if (event.request.method !== "GET") return;
+  const key = keyOf(event.request);
   if (!key) return;
-  event.respondWith(networkFirst(request, key));
+  event.respondWith(networkFirst(event, key));
 });
 
 /** Asked by the studio: which saved parts this device can open with no connection. */
 self.addEventListener("message", (event) => {
   if (event.data?.type !== "saved-parts") return;
   event.waitUntil(
-    caches.open(STORE).then(async (store) => {
+    Promise.allSettled([...writing]).then(() => caches.open(STORE)).then(async (store) => {
       const parts = [];
       for (const request of await store.keys()) {
         const url = parse(request.url);
