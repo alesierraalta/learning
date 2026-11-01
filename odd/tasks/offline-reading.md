@@ -22,8 +22,8 @@ S8 — Online, the studio always loads its latest version: a deploy never leaves
 | # | Spec | Deliverable | Commit |
 |---|------|-------------|--------|
 | T1 | S6, S7 | `studio/offline.ts`: self-contained snapshot of a part (local assets, pinned CDN libraries verified by SRI, demos, images) served at `api/offline` under a sandbox CSP | `d89d1be` |
-| T2 | S3, S8 | Service worker on the studio origin: shell, assets and library cached; network first online | — |
-| T3 | S3, S4, S5 | Studio UI: offline notice, saved marks, save-topic action, reader falls back to the saved copy | — |
+| T2 | S3, S8 | Service worker on the studio origin: shell, assets and library cached; network first online | `8c15555` |
+| T3 | S3, S4, S5 | Studio UI: offline notice, saved marks, save-topic action, reader falls back to the saved copy | `30af877` |
 | T4 | S1–S8 | Docs, full suites, real-vault check, iPad prerequisite (trusted Infra Root CA) | — |
 
 ## Log
@@ -36,3 +36,6 @@ L5 — prerequisite: Safari registers a service worker only on a certificate the
 L6 — evidence: `~/documents/learning` was found on an old branch (`fix/responsive-tsp-followups`) with four stray copies of `main` files, likely a sync from another machine; left untouched, this work uses its own worktree.
 L7 — evidence (T1): all seven written parts of the real vault save and read in a browser with no request beyond the file (2.9–3.9 MB each, Mermaid being most of it). Two defects found that way and fixed: demos shared one library map with their page (a demo with KaTeX or Mermaid would have drawn nothing offline), and the kit loaded a library the page already had by tag, so every Markdown note with diagrams downloaded Mermaid twice, online too.
 L8 — decision (T2): `deploy/vps/learning-studio.env.example` sets no `STUDIO_TOKEN`, so the token changes on every deploy, and deploys follow every merge. The service worker is therefore served at `/sw.js` (no token, static code) with scope `/`, and caches responses under keys with the token segment removed; a part saved before a deploy still opens after it. Offline, `/` is answered with the saved studio, because the redirect to the token URL needs the server.
+L9 — evidence (T3): real vault on an upright iPad (820×1180): «Guardar el tema sin conexión» saved the 3 written SQL parts, each row then read «Guardada en este dispositivo»; with the server stopped and the browser offline, Parte 2 opened in the same reader under the notice «Sin conexión · estás viendo lo guardado en este dispositivo», with «🎬 El video de esta parte necesita conexión.» where its video was.
+L10 — evidence (T3): the full suite caught a real defect: saving a part fetched the copy without reading its body, so the request stayed open, its megabytes stayed held and the reader never went idle (5 reader tests timed out). Fixed by reading the body to the end. The shell's `frame-src` now admits `'self'` for the saved copy; the three shell CSP tests pin exactly the bridge plus `'self'`.
+L11 — evidence (T4): `node --test studio/*.test.mjs integrations/pi/*.test.mjs` → 242 tests, 233 pass, 0 fail, 9 skipped (code-exercise tests that need Docker images, unrelated). Docs: `docs/studio.md` «Reading with no connection»; `docs/deploy-vps.md` no longer calls the Infra Root CA optional for devices that read offline.

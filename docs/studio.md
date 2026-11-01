@@ -183,6 +183,51 @@ would shrink its words, starting at its first column so the learner drags right.
 «Ajustar a la ventana» still shows the whole map. Two fingers zoom around the point
 between them; the wheel does the same with a mouse.
 
+## Reading with no connection
+
+A part can be read with no connection, inside the studio itself.
+
+- **Saving.** Every part opened with a connection is saved on the device. The
+  topic page saves all its written parts at once with **Guardar el tema sin
+  conexión**, and each saved part says *Guardada en este dispositivo*.
+- **Reading.** With no connection the studio still opens at its usual address, with
+  the library as it last saw it and a notice: *Sin conexión · estás viendo lo
+  guardado en este dispositivo*. A saved part opens in the same reader; one never
+  saved says to open it once with a connection.
+- **What travels.** The text, its figures, formulas (KaTeX), diagrams (Mermaid),
+  walkthroughs and demos. What needs the tutor or the network says so where it
+  would be: the video, the mini-quiz (the tutor grades it) and questions to the
+  tutor.
+
+How it works:
+
+- `GET api/offline?topic=&part=` asks the bridge for the part once and folds it
+  into one HTML file (`studio/offline.ts`): stylesheets and scripts inline,
+  pictures and demos as `data:` URLs, and the CDN libraries the kit loads on
+  demand in `window.learningOffline`. Only the bridge and `cdn.jsdelivr.net` are
+  asked, and a CDN library is taken only when its bytes match the SHA-384 pinned
+  next to its URL in the code that loads it. A library downloaded once stays in
+  `~/.cache/learning-studio/cdn` (`offlineCacheDir`).
+- The file names nothing of the bridge (address, run token, routes to the tutor)
+  and is served with `sandbox allow-scripts` and `connect-src 'none'`: its scripts
+  run in an opaque origin that can reach nothing.
+- A service worker (`studio/ui/sw.js`, served at `/sw.js` with scope `/`) answers
+  every studio request from the network first and keeps each good answer, so
+  online the studio always shows what the server has now. With no network it
+  serves what it kept, marked `x-learning-saved: 1` so the studio can say so.
+  Answers are filed without the run token, which changes on every restart, so a
+  part saved before a deploy still opens after it. `events`, `api/view` and
+  `api/note` are never kept.
+
+On an iPad (Safari), a service worker runs only on a certificate the device
+trusts: install the Infra Root CA once (`docs/deploy-vps.md`). Without it the
+studio works online exactly as before and **Guardar el tema sin conexión** says
+why it cannot save. Each address is its own store: parts saved through
+`https://learnings.infra.local/` are not seen from `https://10.154.59.151:8445`, and
+a web app added to the home screen keeps its own store apart from Safari. Safari
+may clear a site's store after weeks without visiting it; opening the studio
+once with a connection saves again what is opened.
+
 ## Writing notes
 
 The studio writes quick notes itself, so the vault does not need an external
