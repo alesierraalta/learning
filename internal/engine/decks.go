@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -110,6 +111,175 @@ func readArtifact(ws, rel string) string {
 		return ""
 	}
 	return string(raw)
+}
+
+// A part teaches its example by drawing it: the person asked for the scene the
+// studio tutorial shows, with the arrow that says where to look, not "una tabla e
+// iconos que se van actualizando abajo". The engine holds every part it has not
+// certified yet to that shape, whatever rules snapshot the run froze, because
+// the rule is about the person, not about one version of the rules.
+const (
+	progressiveMinSteps = 3
+	progressiveMaxSteps = 6
+)
+
+// figureGeom keeps the size of a drawn figure; the kit's own defaults fill in
+// what the author left out.
+type figureGeom struct {
+	X, Y, W, H, R, Width, RowH float64
+	Rows                       []json.RawMessage
+	Header                     *bool
+}
+
+func parseGeoms(raw []json.RawMessage) []figureGeom {
+	out := make([]figureGeom, 0, len(raw))
+	for _, item := range raw {
+		var g struct {
+			X      float64           `json:"x"`
+			Y      float64           `json:"y"`
+			W      float64           `json:"w"`
+			H      float64           `json:"h"`
+			R      float64           `json:"r"`
+			Width  float64           `json:"width"`
+			RowH   float64           `json:"rowH"`
+			Rows   []json.RawMessage `json:"rows"`
+			Header *bool             `json:"header"`
+		}
+		_ = json.Unmarshal(item, &g)
+		out = append(out, figureGeom{X: g.X, Y: g.Y, W: g.W, H: g.H, R: g.R, Width: g.Width, RowH: g.RowH, Rows: g.Rows, Header: g.Header})
+	}
+	return out
+}
+
+// gridSize mirrors scene.js: 560 wide, 48 per row, plus the header row.
+func gridSize(g figureGeom) (w, h float64) {
+	w, rowH := g.Width, g.RowH
+	if w <= 0 {
+		w = 560
+	}
+	if rowH <= 0 {
+		rowH = 48
+	}
+	rows := float64(len(g.Rows))
+	if g.Header == nil || *g.Header {
+		rows++
+	}
+	return w, rowH * rows
+}
+
+// pointsAtTable reports an arrow whose head lands on the table (with a small
+// margin for the head drawn just outside the frame).
+func pointsAtTable(arrows []json.RawMessage, g figureGeom) bool {
+	const margin = 12.0
+	w, h := gridSize(g)
+	for _, raw := range arrows {
+		var a struct {
+			X2 float64 `json:"x2"`
+			Y2 float64 `json:"y2"`
+		}
+		if json.Unmarshal(raw, &a) != nil {
+			continue
+		}
+		if a.X2 >= g.X-margin && a.X2 <= g.X+w+margin && a.Y2 >= g.Y-margin && a.Y2 <= g.Y+h+margin {
+			return true
+		}
+	}
+	return false
+}
+
+// sceneProblem names what keeps one step from drawing the example, or "".
+func sceneProblem(s deckScene) string {
+	largestShape := 0.0
+	shapes := 0
+	for _, g := range parseGeoms(s.Boxes) {
+		shapes++
+		largestShape = max(largestShape, g.W*g.H)
+	}
+	for _, g := range parseGeoms(s.Sheets) {
+		shapes++
+		largestShape = max(largestShape, g.W*g.H)
+	}
+	for _, g := range append(parseGeoms(s.Nodes), parseGeoms(s.Gears)...) {
+		shapes++
+		r := g.R
+		if r <= 0 {
+			r = 30
+		}
+		largestShape = max(largestShape, 4*r*r)
+	}
+	// A table may be the scene only when the data is the example (rows of a
+	// relation): then an arrow points into it, at the row or cell that matters.
+	// A table no arrow touches is the rejected shape, a grid of icons with the
+	// explanation happening somewhere else.
+	var largestTable figureGeom
+	largestTableArea := 0.0
+	for _, g := range parseGeoms(s.Grids) {
+		if w, h := gridSize(g); w*h > largestTableArea {
+			largestTable, largestTableArea = g, w*h
+		}
+	}
+	switch {
+	case shapes == 0 && len(s.Grids) == 0:
+		return "draws nothing: draw the example itself (boxes, nodes)"
+	case len(s.Arrows) == 0:
+		return "has no arrow: point at what changes, the way the tutorial does"
+	case largestTableArea > largestShape && !pointsAtTable(s.Arrows, largestTable):
+		return "its largest figure is a table that no arrow points at: draw the example itself as the scene, or point at the row or cell that matters"
+	}
+	return ""
+}
+
+// progressiveProblems checks every walkthrough of a part note. It returns how
+// many walkthroughs the note declares and what keeps them from teaching the
+// example step by step.
+func progressiveProblems(markup string) (int, []string) {
+	const open = `<script type="application/json">`
+	const close = `</script>`
+	var problems []string
+	count := 0
+	rest := markup
+	for {
+		at := strings.Index(rest, "<lk-walkthrough")
+		if at < 0 {
+			return count, problems
+		}
+		count++
+		name := "walkthrough " + itoa(count)
+		rest = rest[at:]
+		end := strings.Index(rest, "</lk-walkthrough>")
+		if end < 0 {
+			return count, append(problems, name+" is not closed")
+		}
+		block := rest[:end]
+		rest = rest[end+len("</lk-walkthrough>"):]
+		payload := strings.Index(block, open)
+		if payload < 0 {
+			problems = append(problems, name+" has no JSON deck payload")
+			continue
+		}
+		body := block[payload+len(open):]
+		if cut := strings.Index(body, close); cut >= 0 {
+			body = body[:cut]
+		}
+		var spec deckSpec
+		if err := json.Unmarshal([]byte(body), &spec); err != nil {
+			problems = append(problems, name+" has a deck payload that is not valid JSON")
+			continue
+		}
+		if n := len(spec.Steps); n < progressiveMinSteps || n > progressiveMaxSteps {
+			problems = append(problems, fmt.Sprintf("%s has %d steps; build the example in %d to %d steps", name, n, progressiveMinSteps, progressiveMaxSteps))
+			continue
+		}
+		for i, step := range spec.Steps {
+			if p := sceneProblem(step.Scene); p != "" {
+				where := name + " step " + itoa(i+1)
+				if title := strings.TrimSpace(step.Title); title != "" {
+					where += " (" + title + ")"
+				}
+				problems = append(problems, where+" "+p)
+			}
+		}
+	}
 }
 
 // walkthroughProblems reports declared walkthrough decks that cannot render: a

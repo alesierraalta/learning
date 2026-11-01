@@ -80,7 +80,7 @@ func (f *fixture) writeFreshQuiz(t *testing.T, part, variant string) {
 	}
 	f.writeJSON(t, "mini-quiz/"+part+".json", map[string]any{"questions": qs})
 	body := "---\ntipo: explicacion\nnodo: T." + part + "\nnivel: medio\n---\n# " + part + "\n\nRefuerzo de la carencia detectada con un caso nuevo. " + variant +
-		"\n\n## Ejemplo\n\nCaso numérico paso a paso.\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n" +
+		"\n\n## Ejemplo\n\nCaso numérico paso a paso.\n\n" + fixtureWalkthrough + "\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n" +
 		"\n![diagrama](diagrama-" + part + ".png)\nCómo leerlo: sigue los pasos de izquierda a derecha.\n\n![detalle](detalle-" + part + ".png)\nCómo leerlo: compara las dos barras.\n"
 	for _, q := range qs {
 		body += "\n" + q.Enunciado + "\n"

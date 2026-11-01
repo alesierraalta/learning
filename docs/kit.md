@@ -87,8 +87,13 @@ tutorial's primitives (`grids`, `sheets`, `boxes`, `arrows`, `labels`, `badges`,
 later ones, and «Ver todo» shows the last scene. Reach it with «Siguiente», «Anterior», the dots
 or the arrow keys, and press «Pantalla completa» when you need the letters big.
 
-Try to draw data, not prose: a `grids` entry paints a real table with its values, so a figure can
-show the row that violates the rule instead of describing it.
+Draw the example itself, not a description of it: a robot on a floor is tiles and the robot's
+tile, a network is nodes, and every step points at what changed with a labelled arrow. A table
+whose icons change while captions below tell the story is not a scene, and the engine rejects it.
+When the data is the example, a `grids` entry paints a real table with its values, so a figure can
+show the row that violates the rule instead of describing it, with an arrow pointing into that row.
+The engine requires at least one such deck of 3 to 6 steps in every part (see
+[Progressive walkthroughs](engine.md#progressive-walkthroughs)).
 
 ```json
 {"step": "...", "scene": {

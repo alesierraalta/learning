@@ -440,7 +440,8 @@ func TestOldRunsKeepTheirQuizRules(t *testing.T) {
 }
 
 // Runs started before concept diagnosis keep testdata/rules-adaptive-diagnosis.json;
-// production differs only by the concept-diagnosis additions.
+// production differs only by the concept-diagnosis additions and the later
+// walkthrough-progression review.
 func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	load := func(path string) map[string]any {
 		raw, err := os.ReadFile(path)
@@ -472,7 +473,7 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	}
 	var rubrics []any
 	for _, item := range prod["rubrics"].([]any) {
-		if item.(map[string]any)["id"] != "diagnosis-sufficiency" {
+		if id := item.(map[string]any)["id"]; id != "diagnosis-sufficiency" && id != "walkthrough-progression" {
 			rubrics = append(rubrics, item)
 		}
 	}

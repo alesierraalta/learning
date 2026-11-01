@@ -85,7 +85,9 @@ func TestPlannedDemoNeedsInteractiveComponents(t *testing.T) {
 			if !found {
 				t.Fatalf("demo-part check missing: %+v", rep.Checks)
 			}
-			if tc.ok && (check.Status != "PASS" || code != 0) {
+			// These notes carry no progressive walkthrough, so the stage itself
+			// fails (exit 1); demo-part is judged on its own verdict.
+			if tc.ok && (check.Status != "PASS" || code != 1) {
 				t.Fatalf("demo %q rejected: %s (exit %d)", tc.demo, check.Reason, code)
 			}
 			if !tc.ok && (check.Status != "FAIL" || code != 1) {
@@ -120,7 +122,7 @@ func TestUnplannedDemoSkips(t *testing.T) {
 	if !found {
 		t.Fatalf("demo-part check missing: %+v", rep.Checks)
 	}
-	if check.Status != "SKIP" || code != 0 {
+	if check.Status != "SKIP" || code != 1 { // exit 1: no progressive walkthrough
 		t.Fatalf("unplanned demo-part = %s (exit %d, reason %s)", check.Status, code, check.Reason)
 	}
 }
@@ -165,7 +167,7 @@ func TestDeckStepsWithoutArrowsAreRejected(t *testing.T) {
 			if !found {
 				t.Fatalf("demo-part check missing: %+v", rep.Checks)
 			}
-			if tc.ok && (check.Status != "PASS" || code != 0) {
+			if tc.ok && (check.Status != "PASS" || code != 1) { // one-step decks fail explanation-content
 				t.Fatalf("deck rejected: %s (exit %d)", check.Reason, code)
 			}
 			if !tc.ok && (check.Status != "FAIL" || code != 1) {
