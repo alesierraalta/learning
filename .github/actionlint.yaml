@@ -1,5 +1,0 @@
-self-hosted-runner:
-  # Repository-scoped runner installed on the VPS by
-  # deploy/vps/install-runner.sh; only deploy.yml targets it.
-  labels:
-    - learning-vps

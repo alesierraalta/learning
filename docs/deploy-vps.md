@@ -110,37 +110,30 @@ Update fast-forwards Git, rebuilds and verifies the engine, restarts the service
 
 `.github/workflows/ci.yml` runs on GitHub-hosted runners for every pull request and every push to `main`: `gofmt`, `go vet`, `go test ./...`, `go test -race ./...`, the engine build, the digest-pinned sandbox images, Playwright Chromium, and the adapter and studio suites. A second job, `Deploy scripts`, runs on pull requests only: it checks every script under `deploy/vps` with `bash -n` and `shellcheck --severity=warning`, so a broken deploy script fails review instead of the next merge. Reproduce it locally with the commands in [README](../README.md#verification); set `PLAYWRIGHT_MODULE` to the global Playwright entry point when the module is installed globally.
 
-`.github/workflows/deploy.yml` runs on the VPS itself, through a repository-scoped self-hosted runner labelled `learning-vps`. It triggers on `push` to `main` and on manual `workflow_dispatch`; pull requests never target it. The job calls `deploy/vps/update.sh`, so delivery follows the same path as a manual update: fast-forward, rebuild, restart, health. The script re-executes itself after the fast-forward, so a merge that changes it takes effect in that same deploy. A failed build stops before the restart and marks the run red; the service keeps serving the previous binary.
+### Automatic delivery via pull-based timer
 
-### Install or re-register the runner
+Delivery runs strictly through a pull model on the VPS: GitHub never executes workflows or commands directly on the host. This eliminates the security risks of self-hosted runners in public repositories sharing host environments with internal services.
 
-On the VPS, as `ale`:
+On the VPS, the systemd user timer `learning-autodeploy.timer` polls `origin/main` every minute. When `origin/main` advances past the last deployed commit:
 
-```sh
-token=$(gh api -X POST \
-  repos/alesierraalta/learning/actions/runners/registration-token --jq .token)
-RUNNER_TOKEN="$token" bash ~/learning/deploy/vps/install-runner.sh
-```
+1. It verifies that `origin/main` fast-forwards cleanly from local `main`.
+2. It executes `deploy/vps/update.sh` (fast-forward, rebuild binary, restart user service, verify health).
+3. On success, it records the deployed commit in `~/.local/state/learning-autodeploy/deployed`.
+4. On failure, it records the failure and retries after a 15-minute cooldown without affecting the running service.
 
-`gh` is only needed to mint the token; Settings → Actions → Runners → New self-hosted runner in the GitHub UI prints an equivalent `config.sh` command. The installer downloads the latest runner, verifies its SHA-256, registers it with the label `learning-vps`, and enables the `github-runner` user unit (lingering is already enabled for `ale`). The runner needs outbound HTTPS to GitHub only.
-
-Check it:
+Check autodeploy status:
 
 ```sh
-systemctl --user status github-runner
-journalctl --user -u github-runner -f
-gh api repos/alesierraalta/learning/actions/runners \
-  --jq '.runners[] | {name,status,busy}'
+systemctl --user status learning-autodeploy.timer
+systemctl --user status learning-autodeploy.service
+journalctl --user -u learning-autodeploy -f
 ```
 
-Re-register after deleting the runner in GitHub: `systemctl --user disable --now github-runner`, delete `~/actions-runner`, and run the installer again.
+Manual deployment remains available at any time over SSH as `ale`:
 
-### Operating delivery
-
-- A failed deploy is visible in the repository's Actions tab and in `journalctl --user -u learning-studio`.
-- Retry from Actions → **Deploy studio** → **Run workflow**, or run `bash ~/learning/deploy/vps/update.sh` over SSH as `ale`.
-- To stop automatic delivery, disable the workflow in the Actions tab or stop the runner (`systemctl --user disable --now github-runner`); manual updates keep working.
-- The runner runs as `ale`, the same account that owns the vault, the studio token and Pi's credentials. The repository is public, so never approve a fork workflow run that targets the self-hosted runner; the deploy workflow only uses `push` to `main` and `workflow_dispatch`.
+```sh
+bash ~/learning/deploy/vps/update.sh
+```
 
 After editing the environment file, run `systemctl --user restart learning-studio`. After changing the unit, rerun the installer and restart the service (enabling an already active unit does not restart it).
 
