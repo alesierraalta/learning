@@ -12,7 +12,7 @@ Branch: feat/progressive-walkthroughs · Milestone #3 (issues #73, #74) · Deliv
 ## Tasks
 
 - T1 S1-S3 engine rule, tests, docs — inline — done, commit 32f32d6 (RED: 3 new tests failed before the rule; GREEN: go test ./... ok, node --test 216/0/9; S3 rubric test written after the rubric, no RED)
-- T2 S4-S5 skill guidance, reference deck, live Part 3 — inline — pending
+- T2 S4-S5 skill guidance, reference deck, live Part 3 — inline — done: skill v1.40 (`references/recorridos-progresivos.md`, `assets/recorrido_rejilla.py`, rules in SKILL.md, learning-validation.md, metodo-explicame.md) synced to the VPS (hashes match); VPS AGENTS.md aligned; `docs/kit.md` updated in this branch; live Part 3 replaced (L8). Skill files live in the home skills folder, outside this repo.
 
 ## Log
 
