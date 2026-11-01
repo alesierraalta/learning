@@ -24,7 +24,7 @@ S8 — Online, the studio always loads its latest version: a deploy never leaves
 | T1 | S6, S7 | `studio/offline.ts`: self-contained snapshot of a part (local assets, pinned CDN libraries verified by SRI, demos, images) served at `api/offline` under a sandbox CSP | `d89d1be` |
 | T2 | S3, S8 | Service worker on the studio origin: shell, assets and library cached; network first online | `8c15555` |
 | T3 | S3, S4, S5 | Studio UI: offline notice, saved marks, save-topic action, reader falls back to the saved copy | `30af877` |
-| T4 | S1–S8 | Docs, full suites, real-vault check, iPad prerequisite (trusted Infra Root CA) | — |
+| T4 | S1–S8 | Docs, full suites, real-vault check, iPad prerequisite (trusted Infra Root CA) | `8df28c8` |
 
 ## Log
 
