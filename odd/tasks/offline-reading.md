@@ -21,7 +21,7 @@ S8 — Online, the studio always loads its latest version: a deploy never leaves
 
 | # | Spec | Deliverable | Commit |
 |---|------|-------------|--------|
-| T1 | S6, S7 | `studio/offline.ts`: self-contained snapshot of a part (local assets, pinned CDN libraries verified by SRI, demos, images) served at `api/offline` under a sandbox CSP | — |
+| T1 | S6, S7 | `studio/offline.ts`: self-contained snapshot of a part (local assets, pinned CDN libraries verified by SRI, demos, images) served at `api/offline` under a sandbox CSP | `d89d1be` |
 | T2 | S3, S8 | Service worker on the studio origin: shell, assets and library cached; network first online | — |
 | T3 | S3, S4, S5 | Studio UI: offline notice, saved marks, save-topic action, reader falls back to the saved copy | — |
 | T4 | S1–S8 | Docs, full suites, real-vault check, iPad prerequisite (trusted Infra Root CA) | — |
@@ -34,3 +34,5 @@ L3 — decision: offline reading lives in the studio origin. A service worker ca
 L4 — evidence: every page loads marked, DOMPurify, Tinos, KaTeX (0.16.22 in `kit.js`, 0.19.1 in `view/math.js`) and Mermaid 11.6.0 from cdn.jsdelivr.net; Markdown parts render client-side from `view/app.js`; demos are iframes on the bridge's `file/` route; videos are vault attachments.
 L5 — prerequisite: Safari registers a service worker only on a certificate the device trusts. The iPad has to trust the Infra Root CA once (today `docs/deploy-vps.md` calls it optional). Loopback (`http://127.0.0.1:4747`) needs nothing.
 L6 — evidence: `~/documents/learning` was found on an old branch (`fix/responsive-tsp-followups`) with four stray copies of `main` files, likely a sync from another machine; left untouched, this work uses its own worktree.
+L7 — evidence (T1): all seven written parts of the real vault save and read in a browser with no request beyond the file (2.9–3.9 MB each, Mermaid being most of it). Two defects found that way and fixed: demos shared one library map with their page (a demo with KaTeX or Mermaid would have drawn nothing offline), and the kit loaded a library the page already had by tag, so every Markdown note with diagrams downloaded Mermaid twice, online too.
+L8 — decision (T2): `deploy/vps/learning-studio.env.example` sets no `STUDIO_TOKEN`, so the token changes on every deploy, and deploys follow every merge. The service worker is therefore served at `/sw.js` (no token, static code) with scope `/`, and caches responses under keys with the token segment removed; a part saved before a deploy still opens after it. Offline, `/` is answered with the saved studio, because the redirect to the token URL needs the server.
