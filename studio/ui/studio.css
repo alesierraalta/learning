@@ -577,3 +577,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   /* Line height, not flex: a long topic still ends in «…» instead of being cut at both sides. */
   .crumbs a { min-height: 44px; line-height: 44px; min-width: 44px; text-align: center; }
 }
+
+/* ---------- with no connection ---------- */
+/* Says the studio is showing what this device kept; the rest of the page stays as it was. */
+.offline-banner { position: sticky; top: var(--topbar); z-index: 19; padding: 8px 32px; background: var(--amber-s); border-bottom: 2px solid var(--amber); color: var(--amber); font-family: var(--sans); font-size: .9rem; font-weight: 700; }
+.offline-banner[hidden] { display: none; }
+@media (max-width: 720px) { .offline-banner { padding: 8px 14px; } }

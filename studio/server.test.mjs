@@ -157,7 +157,7 @@ const until = async (pred, timeout = 5000) => {
   throw new Error("condition not met");
 };
 
-test("the shell page is token-gated, loopback-only and allows framing only the hosted bridge", async () => {
+test("the shell page is token-gated, loopback-only and frames only the hosted bridge and its own saved parts", async () => {
   const { studio, received } = await setup();
   const page = await http(studio.url);
   assert.equal(page.status, 200);
@@ -165,7 +165,8 @@ test("the shell page is token-gated, loopback-only and allows framing only the h
   const data = JSON.parse(page.body.match(/id="studio-data">(.*?)<\/script>/)[1]);
   assert.equal(data.base, new URL(studio.url).pathname);
   const csp = page.headers["content-security-policy"];
-  assert.match(csp, /frame-src http:\/\/127\.0\.0\.1:\d+(;|$)/);
+  // The bridge, and the studio itself for a part saved on the device: nothing else may be framed.
+  assert.match(csp, /frame-src http:\/\/127\.0\.0\.1:\d+ 'self'(;|$)/);
   assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net(;|$)/);
   assert.equal((await http(`${new URL(studio.url).origin}/${"0".repeat(64)}/`)).status, 404);
   const entry = await http(`${new URL(studio.url).origin}/`);
@@ -192,7 +193,7 @@ test("public studio origins route views and authorize only the configured proxy"
   const { studio, received } = await setup({ publicOrigin, bridgePublicOrigin, bridgePort: 0 });
   const page = await http(studio.url, { headers: { host: "box.tail0.ts.net:8445" } });
   assert.equal(page.status, 200);
-  assert.match(page.headers["content-security-policy"], /frame-src https:\/\/box\.tail0\.ts\.net:8446(;|$)/);
+  assert.match(page.headers["content-security-policy"], /frame-src https:\/\/box\.tail0\.ts\.net:8446 'self'(;|$)/);
   const view = await http(`${studio.url}api/view?topic=redes&part=p1`);
   assert.equal(view.status, 200, view.body);
   assert.ok(JSON.parse(view.body).url.startsWith(`${bridgePublicOrigin}/`));
@@ -226,7 +227,7 @@ test("a second public studio origin is authorized while the first stays canonica
   for (const host of ["learnings.infra.local", "10.154.59.151:8445"]) {
     const page = await http(studio.url, { headers: { host } });
     assert.equal(page.status, 200, host);
-    assert.match(page.headers["content-security-policy"], /frame-src https:\/\/learnings\.infra\.local:8446(;|$)/);
+    assert.match(page.headers["content-security-policy"], /frame-src https:\/\/learnings\.infra\.local:8446 'self'(;|$)/);
     assert.match(page.headers["content-security-policy"], /frame-ancestors 'none'/);
   }
   const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);

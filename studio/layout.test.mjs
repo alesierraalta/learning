@@ -1037,7 +1037,11 @@ test("on an upright iPad the map opens readable and two fingers zoom it", { skip
 // request is the file itself, and the text, its formula and its demo still draw.
 test("a saved part draws its text, formula and demo without asking for anything else", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
-  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), "# Parte 1 — Capas\n\nUna red en capas. Una fórmula: $a^2 + b^2$\n");
+  const deck = JSON.stringify({ title: "Capas", viewBox: "0 0 600 300", steps: [{ title: "Una capa", text: "La primera.", scene: { boxes: [{ x: 40, y: 40, w: 220, h: 80, label: "Aplicación", sub: "capa 7" }] } }] });
+  writeFileSync(
+    join(root, "redes", "explicaciones", "Parte 1 - Capas.md"),
+    `# Parte 1 — Capas\n\nUna red en capas. Una fórmula: $a^2 + b^2$\n\n<lk-walkthrough>\n<script type="application/json">\n${deck}\n</script>\n</lk-walkthrough>\n`,
+  );
   mkdirSync(join(root, "redes", "explicaciones", "demos"), { recursive: true });
   writeFileSync(join(root, "redes", "explicaciones", "demos", "p1-capas.html"), "<!doctype html><html><body><p id=\"demo\">capas</p><script>document.getElementById('demo').textContent = 'demo viva';</script></body></html>");
   process.env.FAKE_PI_LOG = log;
@@ -1055,6 +1059,8 @@ test("a saved part draws its text, formula and demo without asking for anything 
   assert.deepEqual(asked.filter((url) => !url.startsWith("data:")), [`${studio.url}api/offline?topic=redes&part=p1`], "the file asks for nothing");
   assert.match(await page.locator("main").innerText(), /Una red en capas/);
   assert.equal(await page.locator(".katex").count() > 0, true, "the formula is drawn by the KaTeX the file carries");
+  await page.locator("lk-walkthrough svg").first().waitFor({ timeout: 10000 });
+  assert.match(await page.locator("lk-walkthrough").innerText(), /Aplicación/, "a guided walkthrough draws its scene");
   const demo = page.frameLocator("iframe").first().locator("#demo");
   assert.equal(await demo.textContent(), "demo viva", "the demo runs inside the file");
   const tutor = page.locator("form.tutor");
@@ -1115,4 +1121,79 @@ test("what was saved under one run's token still answers after a restart changes
   assert.equal(answer.status, 200, "a new token finds the copy saved under the old one");
   assert.match(answer.csp, /sandbox allow-scripts/, "and it keeps its isolation when served from the cache");
   assert.match(answer.body, /Capas/);
+});
+
+// What the learner sees: a part read once with a connection opens again without one,
+// in the same reader; one never read says how to get it; a topic saves all its parts.
+const savedParts = (page) =>
+  page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = (event) => resolve(event.data.map((p) => `${p.topic}/${p.part}`).sort());
+        navigator.serviceWorker.controller.postMessage({ type: "saved-parts" }, [channel.port2]);
+      }),
+  );
+
+test("a part read with a connection opens again without one, in the same reader", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, stop, origin, studio } = await controlledStudio(t);
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  for (let i = 0; i < 60 && !(await savedParts(page)).includes("redes/p1"); i++) await page.waitForTimeout(250);
+  assert.deepEqual(await savedParts(page), ["redes/p1"], "reading the part saved it on the device");
+  assert.equal(await page.locator(".offline-banner").isVisible(), false, "online there is no offline notice");
+  await stop();
+
+  await page.goto(`${origin}/#/leer/redes/p1`, { waitUntil: "domcontentloaded" });
+  const banner = page.locator(".offline-banner");
+  await banner.waitFor({ timeout: 10000 });
+  assert.match(await banner.innerText(), /Sin conexión/);
+  const sheet = page.frameLocator("iframe.sheet");
+  await sheet.locator("main").waitFor({ timeout: 10000 });
+  assert.match(await sheet.locator("main").innerText(), /Capas/, "the saved part reads in the same reader");
+  assert.match(await page.locator(".reader-bar .title").innerText(), /Capas/, "with its own title bar");
+});
+
+test("with no connection, a part that was never saved says how to get it", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, page, stop, origin, studio } = await controlledStudio(t);
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 2 - TCP.md"), "# Parte 2 — TCP\n\nEl transporte.\n");
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await stop();
+  await page.goto(`${origin}/#/leer/redes/p2`, { waitUntil: "domcontentloaded" });
+  const note = page.locator(".reader .empty");
+  await note.waitFor({ timeout: 10000 });
+  assert.match(await note.innerText(), /no está guardada en este dispositivo/, "it says the part is not on the device");
+  assert.match(await note.innerText(), /con conexión/, "and how to get it there");
+});
+
+test("a topic saves every written part at once and marks each one", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, page, stop, origin, studio } = await controlledStudio(t);
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 2 - TCP.md"), "# Parte 2 — TCP\n\nEl transporte.\n");
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Guardar el tema sin conexión" }).click();
+  await page.locator(".toast", { hasText: "2 partes guardadas" }).waitFor({ timeout: 20000 });
+  assert.deepEqual(await savedParts(page), ["redes/p1", "redes/p2"]);
+  for (const title of ["Capas", "TCP"]) {
+    assert.match(await page.locator("li.part-row", { hasText: title }).innerText(), /Guardada en este dispositivo/, `${title} is marked as saved`);
+  }
+  await stop();
+  await page.goto(`${origin}/#/leer/redes/p2`, { waitUntil: "domcontentloaded" });
+  await page.frameLocator("iframe.sheet").locator("main", { hasText: "El transporte" }).waitFor({ timeout: 10000 });
+});
+
+test("where the browser cannot keep parts, saving a topic says why instead of failing quietly", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  // An untrusted certificate is the real case; a blocked worker is the same for the studio.
+  const context = await (browser.chromium ?? browser.default).launch().then((b) => b.newContext({ serviceWorkers: "block" }));
+  t.after(() => context.browser().close());
+  await context.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const page = await context.newPage();
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Guardar el tema sin conexión" }).click();
+  const toast = page.locator(".toast");
+  await toast.waitFor({ timeout: 5000 });
+  assert.match(await toast.innerText(), /certificado de confianza/);
 });

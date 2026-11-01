@@ -526,7 +526,8 @@ ${scripts}
       "font-src https://cdn.jsdelivr.net",
       "img-src 'self' data:",
       "connect-src 'self'",
-      `frame-src ${bridgeOrigin}`,
+      // The reader frames the bridge, or a part saved on this device when there is no connection.
+      `frame-src ${bridgeOrigin} 'self'`,
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'none'",

@@ -50,8 +50,11 @@ async function networkFirst(request, key) {
     return answer;
   } catch (error) {
     const kept = await store.match(key);
-    if (kept) return kept;
-    throw error;
+    if (!kept) throw error;
+    // Marked, so the studio can say it is showing what this device kept.
+    const headers = new Headers(kept.headers);
+    headers.set("x-learning-saved", "1");
+    return new Response(kept.body, { status: kept.status, statusText: kept.statusText, headers });
   }
 }
 

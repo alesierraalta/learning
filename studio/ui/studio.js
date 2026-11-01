@@ -71,9 +71,87 @@
     toastTimer = setTimeout(() => node.remove(), 4200);
   };
 
+  // ---------- with no connection ----------
+  // The service worker (sw.js) answers from what this device kept when the server is
+  // out of reach, and marks those answers; the studio says so instead of pretending.
+  let offline = false;
+  const offlineBanner = h("div", { class: "offline-banner", role: "status", hidden: true }, "Sin conexión · estás viendo lo guardado en este dispositivo");
+  const setOffline = (value) => {
+    if (offline === value) return;
+    offline = value;
+    offlineBanner.hidden = !value;
+  };
+  /** Parts this device can open with no connection, as `topic/part`. */
+  let saved = new Set();
+  const savedKey = (topicId, partId) => `${topicId}/${partId}`;
+  const refreshSaved = () =>
+    new Promise((resolve) => {
+      const worker = navigator.serviceWorker?.controller;
+      if (!worker) return resolve(saved);
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => {
+        saved = new Set(event.data.map((p) => savedKey(p.topic, p.part)));
+        resolve(saved);
+      };
+      worker.postMessage({ type: "saved-parts" }, [channel.port2]);
+    });
+  /** What this device had saved when the studio opened: the reader waits for it with no connection. */
+  const savedReady = refreshSaved();
+  const offlineCopy = (topicId, partId) => `${base}api/offline?${new URLSearchParams({ topic: topicId, part: partId })}`;
+  /** Fetching the copy is saving it: the worker keeps the answer. */
+  async function savePart(topicId, partId) {
+    try {
+      const response = await fetch(offlineCopy(topicId, partId));
+      // Read to the end: an unread body keeps the request open and its bytes held.
+      await response.arrayBuffer();
+      if (!response.ok || response.headers.get("x-learning-saved")) return false;
+      saved.add(savedKey(topicId, partId));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Saves every written part of a topic, one after another, and says how many made it. */
+  function saveTopicButton(topic) {
+    const parts = topic.parts.filter((p) => p.written);
+    const button = btn(
+      "Guardar el tema sin conexión",
+      async () => {
+        if (!navigator.serviceWorker?.controller) {
+          toast("Este navegador no deja guardar partes en esta dirección: abre el estudio desde una con certificado de confianza.");
+          return;
+        }
+        button.disabled = true;
+        let done = 0;
+        for (const [index, p] of parts.entries()) {
+          button.lastChild.textContent = `Guardando ${index + 1} de ${parts.length}…`;
+          if (await savePart(topic.id, p.id)) done += 1;
+        }
+        await refreshSaved();
+        toast(
+          done === parts.length
+            ? `${done} ${done === 1 ? "parte guardada" : "partes guardadas"} para leer sin conexión`
+            : `Se guardaron ${done} de ${parts.length} partes: vuelve a intentarlo con conexión.`,
+        );
+        if (location.hash === `#/tema/${topic.id}`) render();
+      },
+      "btn",
+      "doc",
+    );
+    return button;
+  }
+
   // ---------- server ----------
   const request = async (path, options) => {
-    const response = await fetch(base + path, options);
+    let response;
+    try {
+      response = await fetch(base + path, options);
+    } catch (error) {
+      setOffline(true);
+      throw Object.assign(new Error("Sin conexión con el estudio."), { offline: true, cause: error });
+    }
+    setOffline(response.headers.get("x-learning-saved") === "1");
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `Error ${response.status}`);
     return body;
@@ -497,6 +575,7 @@
       if (p.written && gaps.noVisuals.includes(p.id)) owed.push("sin visuales");
       if (p.written && gaps.noQuiz.includes(p.id)) owed.push("sin mini-quiz");
       if (p.written && p.visuals > 0) owed.push(`${p.visuals} visual${p.visuals === 1 ? "" : "es"}`);
+      if (saved.has(savedKey(topic.id, p.id))) owed.push("Guardada en este dispositivo");
       const metaText = owed.length ? `${meta} · ${owed.join(" · ")}` : meta;
       rows.push(
         h(
@@ -566,6 +645,7 @@
                                         { class: "side-actions reveal", style: "--i:2" },
                                         topic.status !== "sin inscribir" ? btn("Repasar mis lagunas", () => say(prompts.gaps(topic)), "btn", "spark") : null,
                                         btn("Preguntar sobre este tema", () => openDrawer(`Sobre ${topic.title}: `), "btn", "chat"),
+                                        topic.parts.some((p) => p.written) ? saveTopicButton(topic) : null,
                                         btn(
                                           "Borrar el tema",
                                           () =>
@@ -1095,8 +1175,18 @@
       const url = mode === "app" ? data.appUrl : data.url;
       if (!url) throw new Error("Esta parte no tiene aplicación interactiva.");
       frame.src = url;
+      // A part read with a connection is kept on the device for reading without one.
+      if (info?.written && mode !== "app" && !saved.has(savedKey(topicId, part))) savePart(topicId, part);
     } catch (error) {
-      if (seq === readSeq) frame.replaceWith(h("p", { class: "empty" }, error.message));
+      if (seq !== readSeq) return;
+      if (!error.offline || !info) return frame.replaceWith(h("p", { class: "empty" }, error.message));
+      await savedReady;
+      if (seq !== readSeq) return;
+      if (mode !== "app" && saved.has(savedKey(topicId, part))) frame.src = offlineCopy(topicId, part);
+      else
+        frame.replaceWith(
+          h("p", { class: "empty" }, "Esta parte no está guardada en este dispositivo. Ábrela una vez con conexión y quedará guardada para leerla sin ella."),
+        );
     }
   }
 
@@ -1708,6 +1798,7 @@
       crumbs,
       h("div", { class: "top-actions" }, h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
     ),
+    offlineBanner,
     h("div", { class: "app" }, stage),
     // Where the tutor lies over the page (a tablet or a phone), the page behind it
     // dims and a tap on it closes the tutor, instead of a page cut mid-word.
@@ -1723,6 +1814,12 @@
   // Browsers allow it only on loopback or a trusted HTTPS certificate; elsewhere the
   // studio simply works online, as before.
   navigator.serviceWorker?.register("/sw.js", { scope: "/" }).catch(() => {});
+  addEventListener("offline", () => setOffline(true));
+  addEventListener("online", () => loadLibrary());
+  // The marks of saved parts arrive from the worker after the first drawing.
+  savedReady.then(() => {
+    if (location.hash.startsWith("#/tema/")) render();
+  });
   loadLibrary().then(() => {
     render();
     if (window.StudioTutorial && !window.StudioTutorial.seen()) openTutorial();
