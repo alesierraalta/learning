@@ -255,34 +255,40 @@ func sceneProblem(s deckScene) string {
 	return ""
 }
 
-// fenceRun returns the fence character and run length a line opens with (three
-// or more backticks or tildes), or 0 when the line is not a fence.
-func fenceRun(trimmed string) (byte, int) {
-	if len(trimmed) < 3 || (trimmed[0] != '`' && trimmed[0] != '~') {
-		return 0, 0
+// fenceRun reads a CommonMark fence line: at most three spaces of indentation,
+// then three or more backticks or tildes. It returns the character, the run
+// length and what follows the run, or 0 when the line is not a fence.
+func fenceRun(line string) (ch byte, n int, rest string) {
+	indent := 0
+	for indent < len(line) && line[indent] == ' ' {
+		indent++
 	}
-	n := 0
-	for n < len(trimmed) && trimmed[n] == trimmed[0] {
+	if indent > 3 || indent == len(line) || (line[indent] != '`' && line[indent] != '~') {
+		return 0, 0, ""
+	}
+	ch = line[indent]
+	for indent+n < len(line) && line[indent+n] == ch {
 		n++
 	}
 	if n < 3 {
-		return 0, 0
+		return 0, 0, ""
 	}
-	return trimmed[0], n
+	return ch, n, line[indent+n:]
 }
 
 // withoutCodeFences drops fenced code blocks (``` and ~~~): markup inside them
-// is shown as code, never rendered as a walkthrough. As in CommonMark, a fence
-// closes only with the same character, at least as long, and nothing after it.
+// is shown as code, never rendered as a walkthrough. It follows CommonMark: a
+// backtick opener's info string has no backtick, and a fence closes only with
+// the same character, at least as long, followed by spaces or tabs alone.
 func withoutCodeFences(text string) string {
 	var out strings.Builder
 	var fenceChar byte
 	fenceLen := 0
 	for line := range strings.SplitSeq(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		ch, n := fenceRun(trimmed)
+		line = strings.TrimSuffix(line, "\r")
+		ch, n, rest := fenceRun(line)
 		if fenceLen == 0 {
-			if n > 0 {
+			if n > 0 && !(ch == '`' && strings.ContainsRune(rest, '`')) {
 				fenceChar, fenceLen = ch, n
 				continue
 			}
@@ -290,7 +296,7 @@ func withoutCodeFences(text string) string {
 			out.WriteByte('\n')
 			continue
 		}
-		if ch == fenceChar && n >= fenceLen && n == len(trimmed) {
+		if ch == fenceChar && n >= fenceLen && strings.Trim(rest, " \t") == "" {
 			fenceLen = 0
 		}
 	}
