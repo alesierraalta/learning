@@ -67,6 +67,16 @@ func TestPartNeedsProgressiveWalkthrough(t *testing.T) {
 		{"a table of data with the arrow on its row", deck(t, sqlStep, sqlStep, sqlStep), true, ""},
 		{"a step without an arrow", deck(t, sceneStep, `{"boxes":[{"x":40,"y":60,"w":120,"h":90,"label":"(0,2)"}]}`, sceneStep), false, "arrow"},
 		{"a step that only draws a table", deck(t, sceneStep, `{"grids":[{"x":20,"y":24,"width":320,"rowH":48,"cols":["a"],"rows":[["1"]]}],"arrows":[{"x1":10,"y1":10,"x2":60,"y2":10,"label":"mira"}]}`, sceneStep), false, "table"},
+		{"a walkthrough inside a tilde code fence is code", "~~~html\n" + deck(t, repeatSteps(sceneStep, 3)...) + "\n~~~", false, "needs a progressive walkthrough"},
+		{"a shorter inner fence does not close a longer one", "~~~~markdown\n~~~\n" + deck(t, repeatSteps(sceneStep, 3)...) + "\n~~~~", false, "needs a progressive walkthrough"},
+		{"a closer indented four spaces is code, not a closer", "~~~\n    ~~~\n" + deck(t, repeatSteps(sceneStep, 3)...) + "\n~~~", false, "needs a progressive walkthrough"},
+		{"a closer followed by a no-break space is not a closer", "~~~\n~~~\u00a0\n" + deck(t, repeatSteps(sceneStep, 3)...) + "\n~~~", false, "needs a progressive walkthrough"},
+		{"a backtick run with a backtick in its info string opens nothing", "``` a`b\n" + deck(t, repeatSteps(sceneStep, 3)...), true, ""},
+		{"a backtick line does not close a tilde fence", "~~~\n```\n" + deck(t, repeatSteps(sceneStep, 3)...) + "\n~~~", false, "needs a progressive walkthrough"},
+		{"an arrow without coordinates draws nothing", deck(t, sceneStep, `{"boxes":[{"x":40,"y":60,"w":120,"h":90,"label":"(0,2)"}],"arrows":[{"label":"sube"}]}`, sceneStep), false, "arrow"},
+		{"a dashed frame with its arrow is a scene", deck(t, sceneStep, `{"dashed":[{"x":20,"y":20,"w":300,"h":200,"label":"almacén"}],"arrows":[{"x1":160,"y1":300,"x2":160,"y2":230,"label":"entra"}]}`, sceneStep), true, ""},
+		{"a gear keeps the size the kit draws", deck(t, sceneStep, `{"gears":[{"x":200,"y":200}],"grids":[{"x":10,"y":10,"width":100,"rowH":48,"cols":["a"],"rows":[["1"]]}],"arrows":[{"x1":300,"y1":300,"x2":250,"y2":250,"label":"gira"}]}`, sceneStep), true, ""},
+		{"an unclosed walkthrough does not swallow the next one", strings.TrimSuffix(strings.Split(deck(t, repeatSteps(sceneStep, 3)...), "</lk-walkthrough>")[0], "\n") + "\n\n" + deck(t, tableStep, tableStep, tableStep), false, "walkthrough 2 step 1"},
 		{"a deck that cannot render", "<lk-walkthrough>\n<script type=\"application/json\">{\"title\": \"roto\", \"steps\": [</script>\n</lk-walkthrough>\nCómo leerlo: un recorrido.", false, "needs a progressive walkthrough"},
 	}
 	for _, tc := range cases {
@@ -132,6 +142,11 @@ func TestNewRunsJudgeTheWalkthroughProgression(t *testing.T) {
 	}
 	if !strings.Contains(found.Instruction, "table") || !strings.Contains(found.Instruction, "arrow") {
 		t.Fatalf("instruction does not name the table and arrow criteria: %s", found.Instruction)
+	}
+	// The review must not fail what the deterministic rule accepts on purpose:
+	// a table of data that is the example, with the arrow on its row.
+	if !strings.Contains(found.Instruction, "data is the example") {
+		t.Fatalf("instruction contradicts the data-table exception: %s", found.Instruction)
 	}
 }
 

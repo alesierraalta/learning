@@ -167,24 +167,49 @@ func gridSize(g figureGeom) (w, h float64) {
 	return w, rowH * rows
 }
 
-// pointsAtTable reports an arrow whose head lands on the table (with a small
-// margin for the head drawn just outside the frame).
-func pointsAtTable(arrows []json.RawMessage, g figureGeom) bool {
-	const margin = 12.0
-	w, h := gridSize(g)
+type arrowEnds struct{ X2, Y2 float64 }
+
+// drawnArrows keeps the arrows the kit can draw: both ends given as numbers.
+// An entry without them renders nothing, so it guides nothing.
+func drawnArrows(arrows []json.RawMessage) []arrowEnds {
+	var out []arrowEnds
 	for _, raw := range arrows {
 		var a struct {
-			X2 float64 `json:"x2"`
-			Y2 float64 `json:"y2"`
+			X1, Y1, X2, Y2 *float64
 		}
-		if json.Unmarshal(raw, &a) != nil {
+		if json.Unmarshal(raw, &a) != nil || a.X1 == nil || a.Y1 == nil || a.X2 == nil || a.Y2 == nil {
 			continue
 		}
+		out = append(out, arrowEnds{*a.X2, *a.Y2})
+	}
+	return out
+}
+
+// pointsAtTable reports an arrow whose head lands on the table (with a small
+// margin for the head drawn just outside the frame).
+func pointsAtTable(arrows []arrowEnds, g figureGeom) bool {
+	const margin = 12.0
+	w, h := gridSize(g)
+	for _, a := range arrows {
 		if a.X2 >= g.X-margin && a.X2 <= g.X+w+margin && a.Y2 >= g.Y-margin && a.Y2 <= g.Y+h+margin {
 			return true
 		}
 	}
 	return false
+}
+
+// circleArea is the bounding square of a node or gear, with the kit's default
+// radius when the author left it out (scene.js: node 30, gear 60).
+func circleArea(gs []figureGeom, fallback float64) (n int, largest float64) {
+	for _, g := range gs {
+		r := g.R
+		if r <= 0 {
+			r = fallback
+		}
+		n++
+		largest = max(largest, 4*r*r)
+	}
+	return n, largest
 }
 
 // sceneProblem names what keeps one step from drawing the example, or "".
@@ -195,18 +220,19 @@ func sceneProblem(s deckScene) string {
 		shapes++
 		largestShape = max(largestShape, g.W*g.H)
 	}
-	for _, g := range parseGeoms(s.Sheets) {
+	for _, g := range append(parseGeoms(s.Sheets), parseGeoms(s.Dashed)...) {
 		shapes++
 		largestShape = max(largestShape, g.W*g.H)
 	}
-	for _, g := range append(parseGeoms(s.Nodes), parseGeoms(s.Gears)...) {
-		shapes++
-		r := g.R
-		if r <= 0 {
-			r = 30
-		}
-		largestShape = max(largestShape, 4*r*r)
+	for _, c := range []struct {
+		raw      []json.RawMessage
+		fallback float64
+	}{{s.Nodes, 30}, {s.Gears, 60}} {
+		n, area := circleArea(parseGeoms(c.raw), c.fallback)
+		shapes += n
+		largestShape = max(largestShape, area)
 	}
+	arrows := drawnArrows(s.Arrows)
 	// A table may be the scene only when the data is the example (rows of a
 	// relation): then an arrow points into it, at the row or cell that matters.
 	// A table no arrow touches is the rejected shape, a grid of icons with the
@@ -221,12 +247,60 @@ func sceneProblem(s deckScene) string {
 	switch {
 	case shapes == 0 && len(s.Grids) == 0:
 		return "draws nothing: draw the example itself (boxes, nodes)"
-	case len(s.Arrows) == 0:
-		return "has no arrow: point at what changes, the way the tutorial does"
-	case largestTableArea > largestShape && !pointsAtTable(s.Arrows, largestTable):
+	case len(arrows) == 0:
+		return "has no arrow with both ends (x1, y1, x2, y2): point at what changes, the way the tutorial does"
+	case largestTableArea > largestShape && !pointsAtTable(arrows, largestTable):
 		return "its largest figure is a table that no arrow points at: draw the example itself as the scene, or point at the row or cell that matters"
 	}
 	return ""
+}
+
+// fenceRun reads a CommonMark fence line: at most three spaces of indentation,
+// then three or more backticks or tildes. It returns the character, the run
+// length and what follows the run, or 0 when the line is not a fence.
+func fenceRun(line string) (ch byte, n int, rest string) {
+	indent := 0
+	for indent < len(line) && line[indent] == ' ' {
+		indent++
+	}
+	if indent > 3 || indent == len(line) || (line[indent] != '`' && line[indent] != '~') {
+		return 0, 0, ""
+	}
+	ch = line[indent]
+	for indent+n < len(line) && line[indent+n] == ch {
+		n++
+	}
+	if n < 3 {
+		return 0, 0, ""
+	}
+	return ch, n, line[indent+n:]
+}
+
+// withoutCodeFences drops fenced code blocks (``` and ~~~): markup inside them
+// is shown as code, never rendered as a walkthrough. It follows CommonMark: a
+// backtick opener's info string has no backtick, and a fence closes only with
+// the same character, at least as long, followed by spaces or tabs alone.
+func withoutCodeFences(text string) string {
+	var out strings.Builder
+	var fenceChar byte
+	fenceLen := 0
+	for line := range strings.SplitSeq(text, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		ch, n, rest := fenceRun(line)
+		if fenceLen == 0 {
+			if n > 0 && !(ch == '`' && strings.ContainsRune(rest, '`')) {
+				fenceChar, fenceLen = ch, n
+				continue
+			}
+			out.WriteString(line)
+			out.WriteByte('\n')
+			continue
+		}
+		if ch == fenceChar && n >= fenceLen && strings.Trim(rest, " \t") == "" {
+			fenceLen = 0
+		}
+	}
+	return out.String()
 }
 
 // progressiveProblems checks every walkthrough of a part note. It returns how
@@ -247,6 +321,13 @@ func progressiveProblems(markup string) (int, []string) {
 		name := "walkthrough " + itoa(count)
 		rest = rest[at:]
 		end := strings.Index(rest, "</lk-walkthrough>")
+		// The next opening before this closing means this deck never closed:
+		// it must not borrow the next deck's closing tag and hide that deck.
+		if next := strings.Index(rest[1:], "<lk-walkthrough"); next >= 0 && (end < 0 || next+1 < end) {
+			problems = append(problems, name+" is not closed")
+			rest = rest[next+1:]
+			continue
+		}
 		if end < 0 {
 			return count, append(problems, name+" is not closed")
 		}
