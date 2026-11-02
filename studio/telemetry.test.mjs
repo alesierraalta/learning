@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { HttpError } from "../integrations/pi/bridge.ts";
 
 import {
   readGlobalTelemetry,
@@ -10,6 +11,7 @@ import {
   readTopicTelemetry,
   saveTopicTelemetry,
   recordQuizTelemetry,
+  validateGlobalTelemetry,
   defaultGlobalTelemetry,
 } from "./telemetry.ts";
 
@@ -168,6 +170,86 @@ test("adaptive categorization dynamically learns trends across any domain (gramm
 
     // Check topic telemetry recommendations include category prefix
     assert.ok(res1.topic?.resumen.recomendaciones_refuerzo.some((r) => r.includes("[gramatica]")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("recordQuizTelemetry does not pollute Object.prototype when categoria is __proto__ or Object properties", () => {
+  const root = mkdtempSync(join(tmpdir(), "telemetry-proto-test-"));
+  try {
+    recordQuizTelemetry(root, { pregunta: "¿Seguridad?", categoria: "__proto__", ok: true });
+    assert.equal(Object.prototype.hasOwnProperty("total"), false, "Object.prototype.total must not be polluted");
+    assert.equal(Object.prototype.hasOwnProperty("aciertos"), false, "Object.prototype.aciertos must not be polluted");
+    assert.equal(({}).total, undefined, "plain object must not have total property");
+  } finally {
+    delete Object.prototype.total;
+    delete Object.prototype.aciertos;
+    delete Object.prototype.fallos;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("saveTopicTelemetry and readTopicTelemetry reject symlinks escaping the Learnings root", () => {
+  const root = mkdtempSync(join(tmpdir(), "telemetry-escape-root-"));
+  const outside = mkdtempSync(join(tmpdir(), "telemetry-escape-outside-"));
+  try {
+    symlinkSync(outside, join(root, "symlink-topic"));
+    assert.throws(
+      () => saveTopicTelemetry(root, "symlink-topic", { tema: "symlink-topic", quizzes: [], resumen: {} }),
+      (err) => err instanceof HttpError && err.status === 400
+    );
+    assert.equal(existsSync(join(outside, "telemetria.json")), false, "must not write outside root");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("validateGlobalTelemetry rejects malformed telemetry with missing or non-object tendencias or por_categoria", () => {
+  const invalid1 = {
+    version: 1,
+    ultima_actualizacion: new Date().toISOString(),
+    perfil_alumno: {
+      fortalezas: [],
+      puntos_a_reforzar: [],
+    },
+    estadisticas_globales: {
+      total_quizzes: 0,
+      total_aciertos: 0,
+      total_fallos: 0,
+      por_categoria: {},
+    },
+    directrices_tutor: [],
+    historial_reciente: [],
+  };
+  assert.throws(() => validateGlobalTelemetry(invalid1), (err) => err instanceof HttpError && err.status === 400);
+
+  const invalid2 = {
+    version: 1,
+    ultima_actualizacion: new Date().toISOString(),
+    perfil_alumno: {
+      tendencias: {},
+      fortalezas: [],
+      puntos_a_reforzar: [],
+    },
+    estadisticas_globales: {
+      total_quizzes: 0,
+    },
+    directrices_tutor: [],
+    historial_reciente: [],
+  };
+  assert.throws(() => validateGlobalTelemetry(invalid2), (err) => err instanceof HttpError && err.status === 400);
+});
+
+test("recordQuizTelemetry normalizes category diacritics so accented and unaccented categories update the same profile", () => {
+  const root = mkdtempSync(join(tmpdir(), "telemetry-accent-test-"));
+  try {
+    recordQuizTelemetry(root, { pregunta: "¿Cuánto es 1 + 1?", categoria: "Matemáticas", ok: false });
+    const global = readGlobalTelemetry(root);
+    assert.equal(global.perfil_alumno.tendencias.hasOwnProperty("matemáticas"), false, "must not create duplicate accented key");
+    assert.ok(global.estadisticas_globales.por_categoria.matematicas, "must record in unaccented slug category");
+    assert.equal(global.estadisticas_globales.por_categoria.matematicas.fallos, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
