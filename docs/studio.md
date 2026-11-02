@@ -75,6 +75,13 @@ The map is drawn by the studio, not by Mermaid: the shell page loads marked and
 DOMPurify only, and a picture whose boxes must open, follow a pointer and hold
 their own detail panel needs geometry the client owns.
 
+## Student telemetry and adaptive profile
+
+The studio and the bridge maintain student telemetry to adapt explanations dynamically:
+- In every explanatory point, an embedded quick-quiz evaluates understanding immediately.
+- Results (right/wrong, confidence, and diagnostic 'por qué') are recorded locally per explanation (`<topic>/telemetria.json`) and globally (`telemetria.json` in the root).
+- `api/telemetry` (GET/POST) serves and persists the student profile: cognitive tendencies (e.g. reinforcing mathematical parts, visual anchors), statistics per category, and tutor adaptation directives.
+
 
 For HTTPS on a private network through a TLS reverse proxy (the VPS uses Caddy on
 its ZeroTier address, see `docs/deploy-vps.md`), keep both listeners on loopback

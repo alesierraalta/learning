@@ -35,6 +35,7 @@ import { resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
+import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -561,6 +562,13 @@ ${scripts}
     switch (action) {
       case "api/preferences":
         return sendJson(res, 200, savePreferences(root, body));
+      case "api/telemetry": {
+        if (isRecord(body) && body.entry) {
+          const result = recordQuizTelemetry(root, body.entry);
+          return sendJson(res, 200, { ok: true, ...result });
+        }
+        return sendJson(res, 200, { ok: true, global: saveGlobalTelemetry(root, body) });
+      }
       case "prompt": {
         const text = body.text;
         if (typeof text !== "string" || !text.trim() || text.length > MAX_PROMPT_CHARS) {
@@ -736,6 +744,16 @@ ${scripts}
         return sendJson(res, 200, await library());
       case "api/preferences":
         return sendJson(res, 200, readPreferences(root));
+      case "api/telemetry": {
+        const topic = url.searchParams.get("topic");
+        if (topic) {
+          return sendJson(res, 200, {
+            global: readGlobalTelemetry(root),
+            topic: readTopicTelemetry(root, topic),
+          });
+        }
+        return sendJson(res, 200, readGlobalTelemetry(root));
+      }
       case "api/panorama": {
         const id = url.searchParams.get("topic") ?? "";
         const summary = listTopics(root).find((topic) => topic.id === id);

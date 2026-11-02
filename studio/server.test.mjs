@@ -101,6 +101,49 @@ test("preferences API seeds, saves, and rejects invalid changes without modifyin
   }
 });
 
+test("telemetry API reads, records quiz entries, and serves global and topic telemetry", async () => {
+  const { studio, root } = await setup();
+  const file = join(root, "telemetria.json");
+  const initial = await http(`${studio.url}api/telemetry`);
+  assert.equal(initial.status, 200);
+  const data = JSON.parse(initial.body);
+  assert.equal(data.version, 1);
+  assert.equal(data.estadisticas_globales.total_quizzes, 0);
+  assert.ok(data.perfil_alumno.tendencias.matematicas);
+  assert.equal(existsSync(file), false);
+
+  const entry = {
+    punto: "1. Por qué existe",
+    tema: "sql-demo",
+    categoria: "matematicas",
+    pregunta: "¿Por qué el índice reduce operaciones?",
+    respuesta_alumno: "B",
+    respuesta_correcta: "B",
+    ok: true,
+    por_que: "Comprensión sólida de reducción logarítmica",
+  };
+  const recorded = await post(studio, "api/telemetry", { entry });
+  assert.equal(recorded.status, 200, recorded.body);
+  const res = JSON.parse(recorded.body);
+  assert.ok(res.ok);
+  assert.equal(res.global.estadisticas_globales.total_quizzes, 1);
+  assert.equal(res.global.estadisticas_globales.total_aciertos, 1);
+  assert.ok(existsSync(file));
+
+  // Query by topic
+  const byTopic = await http(`${studio.url}api/telemetry?topic=sql-demo`);
+  assert.equal(byTopic.status, 200);
+  const topicData = JSON.parse(byTopic.body);
+  assert.ok(topicData.global);
+  assert.ok(topicData.topic);
+  assert.equal(topicData.topic.quizzes.length, 1);
+  assert.equal(topicData.topic.resumen.aciertos, 1);
+
+  // Rejection of invalid global telemetry update
+  const bad = await post(studio, "api/telemetry", { version: 99 });
+  assert.equal(bad.status, 400);
+});
+
 const post = (studio, path, payload, headers = {}) =>
   http(`${studio.url}${path}`, {
     method: "POST",
