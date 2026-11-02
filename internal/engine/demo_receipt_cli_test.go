@@ -13,7 +13,7 @@ import (
 
 func TestDemoPageReceiptAndJavaScriptMIME(t *testing.T) {
 	bin := buildCLI(t)
-	setup := func(t *testing.T) (*fixture, cliRunner) {
+	setup := func(t *testing.T, note string) (*fixture, cliRunner) {
 		t.Helper()
 		f := newFixture(t)
 		c := cliRunner{t: t, bin: bin, f: f}
@@ -28,7 +28,7 @@ func TestDemoPageReceiptAndJavaScriptMIME(t *testing.T) {
 		f.writePlanWith(t, "Dificultades detectadas en consenso y en quórums.", []string{"d3"}, p)
 		f.setDemosPlanned(t, "p1", true)
 		c.ok("advance", "planning", "accepted")
-		f.writeExplanationWithDemo(t, "p1", "Texto sin demo.")
+		f.writeExplanationWithDemo(t, "p1", note)
 		return f, c
 	}
 	run := func(t *testing.T, c cliRunner, command, stage, status string, exit int, check string) Report {
@@ -74,7 +74,9 @@ func TestDemoPageReceiptAndJavaScriptMIME(t *testing.T) {
 		return rep
 	}
 	t.Run("mime", func(t *testing.T) {
-		f, c := setup(t)
+		// No walkthrough in the note: the page is the only demo, so demo-part
+		// judges it, and explanation-content blocks the stage either way.
+		f, c := setup(t, "Texto sin demo.")
 		path := "explicaciones/demos/p1-mime.html"
 		for _, tc := range []struct {
 			name, script string
@@ -91,7 +93,10 @@ func TestDemoPageReceiptAndJavaScriptMIME(t *testing.T) {
 				f.write(t, path, "<button>Next</button>"+tc.script)
 				before := f.tryReadState(t)
 				if tc.valid {
-					run(t, c, "validate", "explanation", "accepted", 0, "")
+					rep := run(t, c, "validate", "explanation", "blocked", 1, "explanation-content")
+					if ch, ok := hasCheck(rep, "demo-part"); !ok || ch.Status != "PASS" {
+						t.Fatalf("valid page rejected: %+v", ch)
+					}
 				} else {
 					run(t, c, "validate", "explanation", "blocked", 1, "demo-part")
 					run(t, c, "advance", "explanation", "blocked", 1, "demo-part")
@@ -105,13 +110,13 @@ func TestDemoPageReceiptAndJavaScriptMIME(t *testing.T) {
 	for _, path := range []string{"explicaciones/demos/p1-z-interactive.html"} {
 		for _, mutation := range []string{"replace", "delete"} {
 			t.Run(path+"/"+mutation, func(t *testing.T) {
-				f, c := setup(t)
+				f, c := setup(t, fixtureWalkthrough)
 				f.write(t, path, `<button>Next</button><script>let x = 1</script>`)
 				run(t, c, "validate", "explanation", "accepted", 0, "")
 				c.ok("advance", "explanation", "accepted")
 				before := f.tryReadState(t)
-				if !strings.Contains(string(before), path) {
-					t.Errorf("receipt does not contain selected page %s", path)
+				if strings.Contains(string(before), path) {
+					t.Errorf("receipt binds page %s although the note carries the walkthrough", path)
 				}
 				if mutation == "delete" {
 					if err := os.Remove(filepath.Join(f.ws, path)); err != nil {
@@ -120,15 +125,12 @@ func TestDemoPageReceiptAndJavaScriptMIME(t *testing.T) {
 				} else {
 					f.write(t, path, "<svg><rect/></svg>")
 				}
-				for _, cmd := range []string{"status", "validate", "advance"} {
-					stage := ""
-					if cmd != "status" {
-						stage = "own_words"
-					}
-					run(t, c, cmd, stage, "blocked", 1, "receipts-fresh")
-					if !bytes.Equal(before, f.tryReadState(t)) {
-						t.Fatal("rejected operation changed state")
-					}
+				rep := run(t, c, "status", "", "accepted", 0, "")
+				if ch, ok := hasCheck(rep, "receipts-fresh"); !ok || ch.Status != "PASS" {
+					t.Fatalf("page change staled the part: %+v", rep.Checks)
+				}
+				if !bytes.Equal(before, f.tryReadState(t)) {
+					t.Fatal("status changed state")
 				}
 			})
 		}

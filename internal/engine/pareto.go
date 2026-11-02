@@ -210,11 +210,10 @@ func demoPageExistsPrefixed(ws, dir, prefix string) (string, bool) {
 }
 
 // demoPartPage resolves the page-level demo that proves a part's hands-on work:
-// the first interactive page under explicaciones/demos/<part>-*.html. The
-// retired explicaciones/apps/<part>.html form is no longer vault content, so it
-// never satisfies the promise.
-// part's demo and buildReceipts receipts it, so the page that proves the demo
-// is the page whose replacement or deletion invalidates that proof. A part
+// explicaciones/apps/<part>.html while a legacy project still relies on it, else
+// the first interactive page under explicaciones/demos/<part>-*.html. That page
+// is the part's demo and buildReceipts receipts it, so the page that proves the
+// demo is the page whose replacement or deletion invalidates that proof. A part
 // that plans no demo, or whose note already carries the minimum inline demos,
 // has no page-level demo to bind.
 func demoPartPage(r *rules.Rules, ws string, plan *planDoc, part string) string {
@@ -235,6 +234,10 @@ func demoPartPage(r *rules.Rules, ws string, plan *planDoc, part string) string 
 		if countDemos(readArtifact(ws, rel), r.Thresholds.DemoElements) >= r.Thresholds.MinDemos {
 			return ""
 		}
+	}
+	appRel := "explicaciones/apps/" + part + ".html"
+	if demoPageExists(ws, appRel) {
+		return appRel
 	}
 	demoRel := "explicaciones/demos/"
 	if name, ok := demoPageExistsPrefixed(ws, demoRel, part+"-"); ok {

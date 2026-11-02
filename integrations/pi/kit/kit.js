@@ -1,6 +1,7 @@
 /* Shared, light-DOM learning components. No build step. */
 (async () => {
-  if (!window.learningThoughtField) {
+  // A kit inlined in a saved copy has no address to find dictate.js by, and sends nothing.
+  if (!window.learningThoughtField && document.currentScript?.src) {
     const source = new URL('dictate.js', document.currentScript.src);
     await new Promise((resolve, reject) => {
       const script = document.createElement('script');
@@ -12,6 +13,9 @@
   }
   const offline = 'Abre esta página desde Pi para enviarla al tutor';
   const config = () => window.LEARNING_BRIDGE;
+  // A part saved for reading with no connection: what reaches the tutor or the network says so.
+  const away = 'Necesita conexión: hazlo cuando vuelvas a estar en línea';
+  const unreachable = () => { const b = config(); return !b ? offline : b.offline ? away : null; };
   const el = (tag, text, attrs = {}) => {
     const n = document.createElement(tag);
     if (text !== undefined) n.textContent = text;
@@ -24,8 +28,8 @@
   };
   const status = () => el('p', '', { role: 'status', 'aria-live': 'polite' });
   async function post(payload) {
-    const b = config();
-    if (!b) throw new Error(offline);
+    const b = config(), reason = unreachable();
+    if (reason) throw new Error(reason);
     const response = await fetch(b.submitUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ topic: b.topic, part: b.part, ...payload }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
@@ -34,7 +38,15 @@
   const thoughtField = (id, index) => window.learningThoughtField(id, index, config());
   const loaded = new Map();
   function library(name, url, integrity, css = false) {
+    // A library the page already loaded by its own tag (window.mermaid, window.katex) is not loaded twice.
+    if (!css && !loaded.has(name) && window[name]) loaded.set(name, Promise.resolve());
     if (!loaded.has(name)) loaded.set(name, new Promise((resolve, reject) => {
+      // A saved copy carries the library itself, keyed by the URL it would come from.
+      const saved = window.learningOffline?.[url];
+      if (saved !== undefined) {
+        const inline = el(css ? 'style' : 'script'); inline.textContent = saved;
+        document.head.append(inline); resolve(); return;
+      }
       const n = el(css ? 'link' : 'script');
       if (css) { n.rel = 'stylesheet'; n.href = url; } else n.src = url;
       n.integrity = integrity; n.crossOrigin = 'anonymous';
@@ -132,7 +144,7 @@
   });
   define('lk-video', async function () {
     const b = config();
-    if (!b) { this.append(el('p', offline)); return; }
+    if (unreachable()) { this.append(el('p', b?.offline ? '🎬 El video de esta parte necesita conexión.' : offline)); return; }
     const out = status();
     const generate = button('🎬 Generar video', async () => {
       generate.disabled = true;
@@ -164,7 +176,8 @@
     const form = el('form'), field = textField('Pregunta al tutor', 'text', true), out = status();
     const submit = el('button', 'Enviar pregunta', { type: 'submit' });
     form.append(field, submit, out); this.append(form);
-    if (!config()) { out.textContent = offline; submit.disabled = true; }
+    const reason = unreachable();
+    if (reason) { out.textContent = reason; submit.disabled = true; }
     form.addEventListener('submit', async event => {
       event.preventDefault(); const text = form.elements.text.value.trim(); if (!text) return;
       submit.disabled = true;
@@ -173,62 +186,10 @@
       finally { submit.disabled = false; }
     });
   });
-  define('lk-checkpoint', function () {
-    const source = this.querySelector('script[type="application/json"]')?.textContent ?? this.textContent;
-    let questions;
-    try {
-      questions = JSON.parse(source.trim());
-    } catch {
-      this.append(el('p', 'Checkpoint con JSON inválido', { role: 'alert' }));
-      return;
-    }
-    const form = el('form', undefined, { class: 'lk-checkpoint' }), out = status(), fieldsets = [];
-    for (const [index, q] of questions.entries()) {
-      const box = el('fieldset', undefined, { class: 'lk-question' });
-      box.append(el('legend', `${index + 1}. ${q.q}`));
-      for (const [value, text] of q.options.entries()) {
-        const label = el('label', undefined, { class: 'lk-option' });
-        label.append(el('input', undefined, { type: 'radio', name: `c${index}`, value: String(value), required: '' }), el('span', text));
-        box.append(label);
-      }
-      box.append(el('p', '', { class: 'lk-why', hidden: '' }));
-      fieldsets.push(box); form.append(box);
-    }
-    const submit = el('button', 'Comprobar', { type: 'submit' });
-    form.append(submit, out);
-    const title = this.getAttribute('title');
-    this.replaceChildren(...(title ? [el('strong', title, { class: 'lk-title' })] : []), form);
-    let graded = false;
-    form.addEventListener('submit', event => {
-      event.preventDefault();
-      if (graded) {
-        form.reset(); graded = false; submit.textContent = 'Comprobar'; out.textContent = ''; out.className = '';
-        for (const box of fieldsets) {
-          const why = box.querySelector('.lk-why');
-          why.hidden = true; why.textContent = ''; why.className = 'lk-why';
-          box.querySelectorAll('input').forEach(input => { input.disabled = false; });
-        }
-        return;
-      }
-      const answers = new FormData(form);
-      let score = 0;
-      fieldsets.forEach((box, index) => {
-        const q = questions[index], chosen = Number(answers.get(`c${index}`)), ok = chosen === q.answer;
-        if (ok) score++;
-        const why = box.querySelector('.lk-why');
-        why.hidden = false;
-        why.textContent = `${ok ? '✔' : '✘'} ${q.why || ''}`;
-        why.className = `lk-why ${ok ? 'lk-correct' : 'lk-error'}`;
-        box.querySelectorAll('input').forEach(input => { input.disabled = true; });
-      });
-      out.textContent = `${score} de ${questions.length} correctas`;
-      out.className = 'lk-reward';
-      submit.textContent = 'Reintentar'; graded = true;
-    });
-  });
+  const dontKnow = text => /^no se\.?$/i.test(String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').trim());
   define('lk-quiz', async function () {
     const b = config();
-    if (!b) { this.append(el('p', offline)); return; }
+    if (unreachable()) { this.append(el('p', b?.offline ? 'El mini-quiz se responde con conexión: el tutor lo corrige.' : offline)); return; }
     const response = await fetch(b.quizUrl);
     if (!response.ok) throw new Error(`No se pudo cargar el mini-quiz (HTTP ${response.status})`);
     const data = await response.json(), form = el('form'), out = status();
@@ -245,6 +206,13 @@
       for (const [value, title] of Object.entries({ seguro: 'Seguro', dudo: 'Dudo', adivine: 'Adiviné' })) {
         const label = el('label'); label.append(el('input', undefined, { type: 'radio', name: `${q.id}-confianza`, value }), document.createTextNode(title)); confidence.append(label);
       }
+      // «No sé» already says how sure the learner is: its confidence hides and is not sent.
+      box.addEventListener('change', event => {
+        if (event.target.name !== q.id) return;
+        const skip = dontKnow(q.options[event.target.value]);
+        confidence.style.display = skip ? 'none' : '';
+        if (skip) confidence.querySelectorAll('input').forEach(n => { n.checked = false; });
+      });
       box.append(confidence); boxes.set(q.id, box); form.append(box);
     }
     const ownWords = textField('Vuelco con tus palabras (opcional)', 'ownWords');
@@ -300,8 +268,100 @@
       try {
         const payload = { kind: 'mini-quiz', answers, reasoning };
         for (const key of ['ownWords', 'exercises']) if (form.elements[key].value.trim()) payload[key] = form.elements[key].value.trim();
-        showResults(await post(payload));
+        const graded = await post(payload);
+        showResults(graded);
+        notifyStudio(graded);
       } catch (e) { out.textContent = e.message; submit.disabled = false; }
+    });
+    // Inside the studio the page is a frame: the studio takes the learner to the results
+    // and shows the tutor reading them. The bridge's frame-ancestors limit who can listen.
+    function notifyStudio(graded) {
+      if (window.parent === window) return;
+      const byId = new Map(data.questions.map(q => [q.id, q]));
+      const results = (graded.results || []).map(r => {
+        const q = byId.get(r.id) || { options: {} };
+        return { id: r.id, enunciado: q.enunciado || q.stem || '', chosen: r.chosen, chosenText: q.options[r.chosen] ?? '', correct: r.correct, correctText: q.options[r.correct] ?? '', ok: r.ok };
+      });
+      window.parent.postMessage({ type: 'learning:submitted', kind: 'mini-quiz', topic: b.topic, part: b.part, score: graded.score, results }, '*');
+    }
+  });
+  define('lk-quick-quiz', async function () {
+    const raw = this.querySelector('script[type="application/json"]');
+    if (!raw) return;
+    let spec;
+    try { spec = JSON.parse(raw.textContent); } catch (e) { throw new Error(`Quiz rápido mal formado: ${e.message}`); }
+    const point = this.getAttribute('point') || '';
+    const tag = this.getAttribute('categoria') || this.getAttribute('category') || this.getAttribute('tag') || spec.categoria || spec.category || spec.tag || 'conceptual';
+    const form = el('form', undefined, { class: 'lk-quick-quiz-form' });
+    const box = el('fieldset', undefined, { class: 'lk-question lk-qq-box' });
+    const tagLabel = el('span', `Quiz rápido · ${point || 'Punto clave'}`, { class: 'lk-qq-badge' });
+    const legend = el('legend');
+    legend.append(tagLabel, document.createElement('br'), document.createTextNode(spec.pregunta || spec.enunciado || ''));
+    box.append(legend);
+
+    const qId = spec.id || `qq-${Math.random().toString(36).slice(2, 8)}`;
+    const options = spec.opciones || spec.options || {};
+    for (const [letter, text] of Object.entries(options)) {
+      const label = el('label', undefined, { class: 'lk-option' });
+      label.append(
+        el('input', undefined, { type: 'radio', name: qId, value: letter, required: '' }),
+        el('span', `${letter}. ${text}`)
+      );
+      box.append(label);
+    }
+
+    const submit = el('button', 'Comprobar respuesta', { type: 'submit', class: 'lk-qq-submit' });
+    const resultBox = el('div', undefined, { class: 'lk-qq-result', hidden: '' });
+    form.append(box, submit, resultBox);
+    this.append(form);
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const chosen = form.elements[qId]?.value;
+      if (!chosen) return;
+      submit.disabled = true;
+      form.querySelectorAll('input').forEach(i => { i.disabled = true; });
+
+      const correcta = spec.correcta || spec.correct || spec.answer || '';
+      const ok = chosen.toUpperCase() === correcta.toUpperCase();
+      const explicacion = spec.explicacion || spec.explanation || '';
+      const por_que = ok ? (explicacion ? `Acierto: ${explicacion}` : 'Respuesta correcta.') : `Fallo (eligió ${chosen}, correcta: ${correcta}): ${explicacion || 'No consolidó el concepto.'}`;
+
+      resultBox.hidden = false;
+      resultBox.className = `lk-qq-result ${ok ? 'lk-correct' : 'lk-error'}`;
+      resultBox.textContent = ok
+        ? `✔ ¡Correcto! ${explicacion}`
+        : `✘ Incorrecto. Elegiste ${chosen}; la correcta es ${correcta}. ${explicacion}`;
+
+      const b = config();
+      const entry = {
+        id: qId,
+        punto: point || 'Punto explicable',
+        categoria: tag,
+        pregunta: spec.pregunta || spec.enunciado || '',
+        respuesta_alumno: chosen,
+        respuesta_correcta: correcta,
+        ok,
+        por_que,
+        timestamp: new Date().toISOString()
+      };
+
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+          type: 'learning:quick-quiz',
+          topic: b?.topic,
+          part: b?.part,
+          entry
+        }, '*');
+      }
+
+      if (b?.submitUrl) {
+        try {
+          await post({ kind: 'quick-quiz', entry });
+        } catch {
+          /* best effort delivery */
+        }
+      }
     });
   });
   async function decorate() {

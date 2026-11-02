@@ -1,8 +1,8 @@
 # Learning studio
 
 A local study app: browse every Learnings content and drive the study from the
-browser while Pi works in the background with the unchanged skill, engine,
-preferences and mode choice (spec: `odd/tasks/learning-studio.md`).
+browser while Pi works in the background with the skill and engine
+(spec: `odd/tasks/learning-studio.md`).
 
 ## Start
 
@@ -14,6 +14,20 @@ estudio --no-open  # print the URL only
 `node studio/server.ts` is the same without the engine rebuild. `LEARNING_ROOT`
 overrides the Learnings folder. Ctrl+C stops the studio and its Pi.
 
+## Configuración › Preferencias
+
+The header opens the preferences page, where each aspect has a menos, medio or más
+choice. Saving writes `<LEARNING_ROOT>/preferencias.json` in C1 format; the human
+history in `preferencias.md` is not changed. JSON levels take precedence over the
+history when the tutor uses the preferences method. Before a JSON file exists,
+the page starts from the seeded defaults without creating a file.
+
+The token-gated `GET api/preferences` returns the full `{version: 1, aspectos}`
+document. `POST api/preferences` accepts that same document with changed levels,
+validates the exact aspect IDs and fields, and atomically replaces the file. It
+requires the same origin and JSON content type as the studio's other POSTs;
+invalid input returns 400 without changing the existing file.
+
 ## Wide reading mode
 
 Every part page carries a **Modo ancho** toggle in its top-right corner. Off by
@@ -23,7 +37,50 @@ remembered per browser, so it survives a reload and a studio restart; below 1080
 the text stays in one column even with the mode on. The video block and the
 mini-quiz are not affected: only the explanation text is a reading surface.
 
-## HTTPS reverse proxy
+## Panorama del tema
+
+Topic cards and topic pages offer **Panorama del tema**, with a back control to
+the entry point. The topic page lists written parts only; the panorama shows
+the whole planned route and the tutor's plan prose.
+
+The dependency map draws the connections from `mapa.mmd`. Node colours come
+from the most recent recorded concept verdict: claro green, dudoso yellow,
+laguna red, and no verdict blue. Diagnosis comes first, then feedback files in
+plan order, including remedial parts. Select a node to see its evidence and the
+part that explains it, or where it will be learned. Drag and zoom to explore the map.
+
+### Which part explains a concept
+
+A concept's number and a part's `subtema` do not always have the same depth: the
+map writes `1.2.1.3`, while a part may carry `1.2.1a`. The map also writes the
+number in two places: before the name (`1.1.1 Qué es una capa`) or after a dot
+(`Frase base · 1.1 · pregunta 1 · verde`). Both are read; when the number is not
+first, its segment becomes the number, the first segment stays the name and the
+rest becomes the note under it.
+
+The rule is one function, `partFor`, and it is covered by tests:
+
+1. strip the trailing letters of the `subtema` (`1.2.1a` → `1.2.1`);
+2. a number belongs to a `subtema` when it equals it or starts with it plus a
+dot (`1.2.1` covers `1.2.1`, `1.2.1.3`; it does not cover `1.2.10`);
+3. when several `subtemas` cover it, the longest one wins.
+
+A concept no part covers is not a dead end: when its subtema is known, the box
+offers «Pedir la parte de (subtema)». The request names the number itself when
+the subtema stops at three segments, and its parent when the concept sits four
+levels deep. The panorama names unwritten parts without showing their content.
+
+The map is drawn by the studio, not by Mermaid: the shell page loads marked and
+DOMPurify only, and a picture whose boxes must open, follow a pointer and hold
+their own detail panel needs geometry the client owns.
+
+## Student telemetry and adaptive profile
+
+The studio and the bridge maintain student telemetry to adapt explanations dynamically:
+- In every explanatory point, an embedded quick-quiz evaluates understanding immediately.
+- Results (right/wrong, confidence, and diagnostic 'por qué') are recorded locally per explanation (`<topic>/telemetria.json`) and globally (`telemetria.json` in the root).
+- `api/telemetry` (GET/POST) serves and persists the student profile: cognitive tendencies (e.g. reinforcing mathematical parts, visual anchors), statistics per category, and tutor adaptation directives.
+
 
 For HTTPS on a private network through a TLS reverse proxy (the VPS uses Caddy on
 its ZeroTier address, see `docs/deploy-vps.md`), keep both listeners on loopback
@@ -111,6 +168,79 @@ port instead of starting a second one), `learning chat` opens the study chat, an
 and from the «Tutorial» button. Open it at **http://127.0.0.1:4747/**: that stable address
 redirects to the current run's token URL. The studio listens on port 4747 (`STUDIO_PORT`; a taken
 port falls back to a free one) so the browser remembers that it was seen.
+
+## Tablets and touch
+
+Layouts answer to the room the page has, not to the screen. The stage is a CSS
+container (`container: stage / inline-size`), and the two-column layouts (home,
+topic page, panorama, note editor) stack below 1000px **of stage**. That matters on
+an iPad held sideways: the screen is 1133–1366px wide, but with the tutor open the
+page gets about 700–930px, so it stacks; with the tutor closed it keeps both columns.
+
+Below 1100px of screen the tutor lies over the page instead of pushing it. The
+page behind it dims, and a tap on the dimmed page closes the tutor.
+
+On a touch screen (`pointer: coarse`) every control is at least 44px, the minimum
+Apple sets for a finger; a mouse keeps the compact controls. The breadcrumb keeps
+«Inicio» and the current page whole, and a long topic between them ends in «…».
+
+The dependency map opens at a readable size (scale 0.85) when fitting it whole
+would shrink its words, starting at its first column so the learner drags right.
+«Ajustar a la ventana» still shows the whole map. Two fingers zoom around the point
+between them; the wheel does the same with a mouse.
+
+## Reading with no connection
+
+A part can be read with no connection, inside the studio itself.
+
+- **Saving.** Every part opened with a connection is saved on the device. The
+  topic page saves all its written parts at once with **Guardar el tema sin
+  conexión**, and each saved part says *Guardada en este dispositivo*. The reader also offers **Descargar para ver sin conexión**, changing to *Guardada en este dispositivo* when saved.
+- **Reading.** With no connection the studio still opens at its usual address, with
+  the library as it last saw it and a notice: *Sin conexión · estás viendo lo
+  guardado en este dispositivo*. A saved part opens in the same reader; one never
+  saved says to open it once with a connection.
+- **What travels.** The text, its figures, formulas (KaTeX), diagrams (Mermaid),
+  walkthroughs and demos. What needs the tutor or the network says so where it
+  would be: the video, the mini-quiz (the tutor grades it) and questions to the
+  tutor.
+
+How it works:
+
+- `GET api/offline?topic=&part=` asks the bridge for the part once and folds it
+  into one HTML file (`studio/offline.ts`): stylesheets and scripts inline,
+  pictures and demos as `data:` URLs, and the CDN libraries the kit loads on
+  demand in `window.learningOffline`. Only the bridge and `cdn.jsdelivr.net` are
+  asked, and a CDN library is taken only when its bytes match the SHA-384 pinned
+  next to its URL in the code that loads it. A library downloaded once stays in
+  `~/.cache/learning-studio/cdn` (`offlineCacheDir`).
+- The file names nothing of the bridge (address, run token, routes to the tutor)
+  and is served with `sandbox allow-scripts` and `connect-src 'none'`: its scripts
+  run in an opaque origin that can reach nothing. Every document of the copy (the
+  part and each demo) is refused if it still names the bridge's or the studio's
+  run token. A stylesheet may bring only WOFF2 fonts and pictures; CDN downloads
+  never follow a redirect.
+- Two limits are deliberate. Pictures a note links from elsewhere on the internet
+  (`https://…`) do not travel: fetching them would mean the server asks any host
+  the note names. And a script of the copy can navigate its own frame, but the
+  studio frames only the bridge and its own origin, where every route but `/` and
+  `/sw.js` needs a token the copy does not have.
+- A service worker (`studio/ui/sw.js`, served at `/sw.js` with scope `/`) answers
+  every studio request from the network first and keeps each good answer, so
+  online the studio always shows what the server has now. With no network it
+  serves what it kept, marked `x-learning-saved: 1` so the studio can say so.
+  Answers are filed without the run token, which changes on every restart, so a
+  part saved before a deploy still opens after it. `events`, `api/view` and
+  `api/note` are never kept.
+
+On an iPad (Safari), a service worker runs only on a certificate the device
+trusts: install the Infra Root CA once (`docs/deploy-vps.md`). Without it the
+studio works online exactly as before and **Guardar el tema sin conexión** says
+why it cannot save. Each address is its own store: parts saved through
+`https://learnings.infra.local/` are not seen from `https://10.154.59.151:8445`, and
+a web app added to the home screen keeps its own store apart from Safari. Safari
+may clear a site's store after weeks without visiting it; opening the studio
+once with a connection saves again what is opened.
 
 ## Writing notes
 

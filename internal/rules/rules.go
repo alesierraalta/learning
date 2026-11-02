@@ -95,6 +95,15 @@ var canonicalOrder = []string{
 
 var canonicalPartStages = []string{"explanation", "own_words", "quiz", "feedback", "adaptation"}
 
+// The strict university flow takes the mini-quiz before the learner's own words.
+var strictOrder = []string{
+	"preparation", "diagnosis", "planning",
+	"explanation", "quiz", "own_words", "feedback", "adaptation",
+	"exercises", "final_quiz", "final",
+}
+
+var strictPartStages = []string{"explanation", "quiz", "own_words", "feedback", "adaptation"}
+
 // CheckDecl is a simple, closed check declaration: id, kind and artifact
 // paths. There is no general expression language to misread.
 type CheckDecl struct {
@@ -213,17 +222,21 @@ type OptionThresholds struct {
 }
 
 type Thresholds struct {
-	Diagnostic     DiagnosticThresholds `json:"diagnostic"`
-	Quiz           QuizThresholds       `json:"quiz"`
-	Concepts       *ConceptThresholds   `json:"concepts,omitempty"`
-	Pareto         *ParetoThresholds    `json:"pareto,omitempty"`
-	Options        OptionThresholds     `json:"options"`
-	Niveles        []string             `json:"niveles"`
-	NivelByLevel   map[string]string    `json:"nivelByLevel"`
-	PiezaTipos     []string             `json:"piezaTipos"`
-	MisPalabrasHdr string               `json:"misPalabrasHeader"`
-	PlanVisualHead string               `json:"planVisualHeading"`
-	PlanSections   []string             `json:"planSections"`
+	Diagnostic DiagnosticThresholds `json:"diagnostic"`
+	Quiz       QuizThresholds       `json:"quiz"`
+	Concepts   *ConceptThresholds   `json:"concepts,omitempty"`
+	Pareto     *ParetoThresholds    `json:"pareto,omitempty"`
+	// StrictFlow asks the learner, once the diagnosis settles, how to be taught
+	// (pareto or preferencias) before anything is planned. Snapshots without it
+	// keep going straight from the diagnosis to planning.
+	StrictFlow     bool              `json:"strictFlow,omitempty"`
+	Options        OptionThresholds  `json:"options"`
+	Niveles        []string          `json:"niveles"`
+	NivelByLevel   map[string]string `json:"nivelByLevel"`
+	PiezaTipos     []string          `json:"piezaTipos"`
+	MisPalabrasHdr string            `json:"misPalabrasHeader"`
+	PlanVisualHead string            `json:"planVisualHeading"`
+	PlanSections   []string          `json:"planSections"`
 	// VisualBlocks are fenced code-block languages that render a visual in
 	// the vault (native mermaid and installed Obsidian plugins). Embeds
 	// (![...]) always count as visuals.
@@ -291,11 +304,15 @@ func (r *Rules) validate() error {
 	if r.Version != 1 {
 		return fmt.Errorf("unsupported rules version %d (want 1)", r.Version)
 	}
-	if !slices.Equal(r.StageOrder, canonicalOrder) {
-		return fmt.Errorf("stageOrder must be exactly %v", canonicalOrder)
+	wantOrder, wantParts := canonicalOrder, canonicalPartStages
+	if r.Thresholds.StrictFlow {
+		wantOrder, wantParts = strictOrder, strictPartStages
 	}
-	if !slices.Equal(r.PartStages, canonicalPartStages) {
-		return fmt.Errorf("partStages must be exactly %v", canonicalPartStages)
+	if !slices.Equal(r.StageOrder, wantOrder) {
+		return fmt.Errorf("stageOrder must be exactly %v", wantOrder)
+	}
+	if !slices.Equal(r.PartStages, wantParts) {
+		return fmt.Errorf("partStages must be exactly %v", wantParts)
 	}
 	if err := r.validateThresholds(); err != nil {
 		return err

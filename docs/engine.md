@@ -27,6 +27,7 @@ rtk go build -o bin/learning ./cmd/learning
 ```text
 learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--stage STAGE] [--json]
 learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
+learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
 learning help
 ```
 
@@ -79,6 +80,7 @@ The adapter may only treat the first group as passing.
 | `advance` | state (only on full success) | requires fresh recorded reviews after all deterministic checks | blocked while any review is missing, stale or a gate FAIL; rejected transitions write nothing |
 | `review` | `state.semantic[]` receipt | records one verdict | frontier stage only, objective checks must pass first |
 | `status` | none | never records | freshness + conditional recheck, next stage, completion |
+| `method` | `state.method` (and `state.scope` for pareto) | none | strict-flow runs only, once, right after the diagnosis; refused choices write nothing |
 
 `--mode conceptual` reports `skipped` (exit 0) before anything else: no rules
 are read, no state exists, no review is requested or recorded. The conceptual
@@ -105,6 +107,60 @@ exactly as before.
   those thresholds fails to load.
 - Measurement is never trimmed: the quiz, its answer key, the diagnosis and
   the learner dump keep their full checks in both scopes.
+
+## Explanation method (strict flow)
+
+Rules with `thresholds.strictFlow: true` ask the learner how to be taught once
+the diagnosis settles. Until the answer is recorded the frontier is the
+pseudo-stage `method`: `status` reports `nextStage: "method"` (status
+`accepted`: the chat owes the question) and `validate`, `advance` and `review`
+are blocked with the `method-chosen` check, writing nothing.
+
+`learning method --method pareto|preferencias` records the answer once:
+
+- `pareto` sets `state.method` and the pareto scope, so the pareto checks of
+  planning and every part apply from then on.
+- `preferencias` sets `state.method` and keeps the complete scope; the tutor
+  teaches with the learner's stored preferences (`preferencias.json`).
+
+Any other value is an argument error (exit 2); a choice before the diagnosis
+settles or a second choice is `blocked` (exit 1). Neither changes the state.
+Every `status` report carries `method` once chosen. Rules snapshots without
+`strictFlow` (topics enrolled before it) go from the diagnosis straight to
+planning, and `method` refuses to run for them (exit 2).
+
+### Part loop (strict flow)
+
+Strict-flow rules take each part as explanation → `quiz` → `own_words` →
+`feedback` → `adaptation` (the mini-quiz comes before the learner's own words,
+so the quiz review no longer reads them). A part passes only when the mini-quiz
+passes **and** the tutor judged the own words understood:
+
+- `own_words` requires `vuelco/<part>.json` =
+  `{"entendio": true|false, "evidencia": "<what in the learner's words shows it>"}`
+  (check `own-words-verdict`); missing evidence blocks.
+- A failed mini-quiz, `entendio: false`, or a central gap/laguna at `feedback`
+  closes the part as failed (`state.parts[part].failed`, with `failedBecause`).
+  There is no re-teach budget: every failure owes a remedial part.
+- While a failed part owes it, the frontier is the pseudo-stage `remedial`
+  (`status` accepted; `validate`/`advance` blocked with `remedial-part`). The
+  tutor declares it right after the failed part in `plan.json`:
+  `{"id": "p1r1", ..., "remedia": "p1", "analisis": "<why the learner failed and what they did understand>"}`.
+  A failed remedial part owes another one with the same `remedia` (the planned
+  part), until one passes.
+- A remedial part is a normal part with two extra checks: `remedial-analysis`
+  at `explanation` (at least 40 characters of `analisis`) and `fresh-quiz` at
+  `quiz` (no question repeats an enunciado of an earlier attempt of the same
+  planned part). It joins `state.partOrder` when it is taught.
+- Remedial parts and their index lines do not stale the planning receipts:
+  the plan and index receipts leave them out.
+
+The Pi adapter's settle gate chains the strict flow without a learner prompt:
+it asks for the method, then plans and writes part 1, and after a failed part
+makes the tutor analyse it and write the remedial part, with a bounded number
+of pushes per stage. It also refuses to write `plan.json` or `quiz.json` in a
+topic folder that has no engine run (`.learning/state.json`): the tutor
+enrolls the topic with `learning_stage` action `init` first.
 
 ## Stage flow
 
@@ -149,7 +205,7 @@ is the source of truth for paths and checks; this table summarizes it.
 | preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned`; in `pareto` scope, a stated `pareto.criterio`, a nonempty `pareto.descartado`, one `pareto` line per part and at most `maxParts` parts. Optional per-part `demosPlanned` declares an interactive-demo promise |
 | diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | adaptive rounds (`thresholds.diagnostic.mode: adaptive`, see "Adaptive diagnosis") or, for runs whose rules snapshot has fixed counts, 6 prerequisite + 6 topic questions (2/2/2 by level); enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
 | planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part; in `pareto` scope the selection is re-checked because planning rewrites `plan.json` |
-| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step (scene-only markup does not render in the kit) |
+| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step (scene-only markup does not render in the kit); always, whatever the run's frozen rules: at least one progressive walkthrough (see [Progressive walkthroughs](#progressive-walkthroughs)) |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
 | quiz | `mini-quiz/{part}.json`, `mini-quiz/{part}.answers.json` | part note has a mini-quiz section, 5 questions with enunciados present in it, complete answers, derived score ≥ 4/5 with no central miss |
 | feedback | `feedback/{part}.json` | matches the part, nonempty notes, `difficultyDetected=false` cannot contradict recorded wrong answers |
@@ -350,6 +406,41 @@ múltiple) are scored against `respuesta` and produce `puntaje` as
 auto-graded: grading them needs interpretation, and string matching would be
 noise. The count of recorded open answers is reported as evidence.
 
+## Progressive walkthroughs
+
+Every part teaches its running example with a guided walkthrough, the way the
+studio tutorial draws the thing itself and points at it step by step. The
+`explanation-content` check enforces it for the part at the frontier, in every
+run, including runs whose frozen `.learning/rules.json` predates the rule: the
+rule lives in the engine, and certified parts are never re-evaluated, so their
+receipts stay valid.
+
+- The note carries at least one closed `<lk-walkthrough>` with a JSON deck; an
+  `lk-widget` or a page under `explicaciones/apps/` does not replace it.
+- Every walkthrough in the note has 3 to 6 steps.
+- Markup inside a fenced code block (```` ``` ```` or `~~~`) is code, not a walkthrough. Fences are
+  read as CommonMark does, including fences inside list items and blockquotes; a
+  fence-looking line inside an HTML block is plain text. An opening tag followed
+  by another opening before its closing tag is reported as not closed, so it
+  cannot hide the next deck.
+- Every step draws something the kit can place (a box, sheet or dashed frame
+  with `x`, `y` and a positive `w` and `h`; a node or gear with `x` and `y`; a
+  table with `x` and `y`, sized with the kit's own defaults) and at least one arrow with both ends
+  (`x1`, `y1`, `x2`, `y2`): an arrow entry without coordinates renders nothing. When its largest figure is
+  a table, an arrow must end inside that table, at the row or cell that matters:
+  a table is the scene only when the data is the example (rows of a relation).
+  A table no arrow touches, with the explanation happening in captions around
+  it, fails.
+- A failure names the walkthrough, the step and the fix, for example
+  `walkthrough 1 step 2 (Sube) its largest figure is a table that no arrow points
+  at: draw the example itself as the scene, or point at the row or cell that
+  matters`.
+
+Whether the steps actually teach is a judgment: runs started with the current
+rules also owe the `walkthrough-progression` review for every part. Layout
+(text inside its box, labels off the arrow, compact width) remains the job of
+`tools/deck-gate.mjs`.
+
 ## Conditional obligations (S4)
 
 `rules/deep.json` declares two:
@@ -447,8 +538,9 @@ no review request at all):
   binding `context`. The chat evaluates each rubric — delegating to a subagent
   when useful — and records one verdict with
   `learning review --stage S --rule R --verdict PASS|FAIL --reason TEXT [--reviewer ID]`.
-- Rubrics (`rules/deep.json`): `explanation-adapted`, `visual-value` (and, in scope `pareto`, `pareto-value`) at
-  explanation (`visual-value` applies only when the part planned a visual),
+- Rubrics (`rules/deep.json`): `explanation-adapted`, `visual-value`, `walkthrough-progression` (and, in scope `pareto`, `pareto-value`) at
+  explanation (`visual-value` applies only when the part planned a visual; `walkthrough-progression`
+  applies to every part of runs started with it and judges whether the decks teach the example step by step),
   `distractor-quality` (plausible, unambiguous, no cue leakage) at quiz,
   `central-gap` assessment at feedback.
 - Instruction: the rubric text plus the fixed wording is the evaluator's whole

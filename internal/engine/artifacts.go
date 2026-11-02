@@ -68,6 +68,10 @@ type planPartDoc struct {
 	Pareto string `json:"pareto,omitempty"`
 	// DemosPlanned marks the part as owing a hands-on demo.
 	DemosPlanned *bool `json:"demosPlanned,omitempty"`
+	// Remedia names the part a remedial part remedies (strict flow), and
+	// Analisis why the learner failed it and what they did understand.
+	Remedia  string `json:"remedia,omitempty"`
+	Analisis string `json:"analisis,omitempty"`
 }
 
 func loadPlan(ws, rel string) (planDoc, error) {

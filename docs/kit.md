@@ -69,14 +69,11 @@ use light DOM: normal page CSS and accessible native controls still work.
 </lk-widget>
 <!-- Add page-authored inline JS to wire the demo's native controls. -->
 
-<lk-checkpoint>
-[
-  {"q": "¿Qué estima la evaluación de política?",
-   "options": ["La recompensa inmediata", "El valor esperado de seguir la política", "La mejor acción posible"],
-   "answer": 1,
-   "why": "Estima v(s): lo que se espera ganar siguiéndola desde ese estado."}
-]
-</lk-checkpoint>
+<lk-quick-quiz point="1. Por qué existe" tag="matematicas">
+<script type="application/json">
+{"id": "qq-1", "pregunta": "¿Por qué...?", "opciones": {"A":"...", "B":"...", "E":"No sé"}, "correcta": "A", "explicacion": "..."}
+</script>
+</lk-quick-quiz>
 
 <lk-video></lk-video>
 <lk-quiz></lk-quiz>
@@ -96,8 +93,13 @@ tutorial's primitives (`grids`, `sheets`, `boxes`, `arrows`, `labels`, `badges`,
 later ones, and «Ver todo» shows the last scene. Reach it with «Siguiente», «Anterior», the dots
 or the arrow keys, and press «Pantalla completa» when you need the letters big.
 
-Try to draw data, not prose: a `grids` entry paints a real table with its values, so a figure can
-show the row that violates the rule instead of describing it.
+Draw the example itself, not a description of it: a robot on a floor is tiles and the robot's
+tile, a network is nodes, and every step points at what changed with a labelled arrow. A table
+whose icons change while captions below tell the story is not a scene, and the engine rejects it.
+When the data is the example, a `grids` entry paints a real table with its values, so a figure can
+show the row that violates the rule instead of describing it, with an arrow pointing into that row.
+The engine requires at least one such deck of 3 to 6 steps in every part (see
+[Progressive walkthroughs](engine.md#progressive-walkthroughs)).
 
 ```json
 {"step": "...", "scene": {
@@ -164,6 +166,12 @@ before either client; standalone kit pages load it automatically beside `kit.js`
 Plain quizzes still require confidence, but never require reasoning; saved legacy
 answers retain their old explanation when no `razonamiento` is present.
 
+`lk-quick-quiz` embeds an inline checkpoint within each section/point of the explanation.
+It takes attributes `point="<section title>"` and `categoria="<category>"` (or `tag="<category>"`, e.g. `matematicas`, `conceptual`, `terminologia`, `gramatica`, `fisiologia`, `finanzas`, `cronologia`, etc.) with an
+inner JSON script holding `{id, pregunta, opciones, correcta, explicacion}`. When answered, it grades
+instantly in-page and reports telemetry (verdict, correct/wrong, and the explanation why) to the parent
+studio and the bridge backend (`telemetria.json`), feeding the tutor's adaptive model across any discipline.
+
 `lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
 the learner drains what they are thinking, typed or dictated with the microphone button — and
 `confianza` (`seguro`, `dudo`, `adivine`) are optional extras that show the tutor how the learner
@@ -176,8 +184,7 @@ It displays server grading and restored read-only answers
 and concept verdicts. Never put answer keys in the page. Exercise instructions
 remain page-authored content. `lk-video` is present on every part node — author it, or the
 bridge injects it with the kit assets; it checks availability with HEAD and polls every 30
-seconds after requesting generation. `lk-checkpoint` renders inline JSON questions with
-immediate local feedback and a retry, and never calls the engine. `lk-ask` sends a question.
+seconds after requesting generation. `lk-ask` sends a question.
 Without bridge config these three show the instruction to open the page in Pi;
 all local demos, diagrams, steps, and mathematics remain usable.
 

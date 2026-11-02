@@ -7,7 +7,7 @@ import "testing"
 func (f *fixture) writeExplanationWithVisual(t *testing.T, part, visual string) {
 	t.Helper()
 	body := "---\ntipo: explicacion\nnodo: T." + part + "\nnivel: medio\n---\n# " + part +
-		"\n\nExplicación con ejemplos concretos.\n\n## Ejemplo\n\nCaso numérico paso a paso.\n\n" +
+		"\n\nExplicación con ejemplos concretos.\n\n## Ejemplo\n\nCaso numérico paso a paso.\n\n" + fixtureWalkthrough + "\n\n" +
 		"**Fuente**: Sutton & Barto, verificación de fixture.\n\n" + visual + "\n\n## Mini-quiz\n"
 	for _, q := range buildQuizQuestions(part) {
 		body += "\n" + q.Enunciado + "\n"

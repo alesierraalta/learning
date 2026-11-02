@@ -2,6 +2,8 @@
   "use strict";
   const app = document.getElementById("app");
   const CONFIDENCE = { seguro: "seguro", dudo: "dudo", adivine: "adiviné" };
+  // «No sé» already says how sure the learner is: it asks for no confidence.
+  const dontKnow = (text) => /^no se\.?$/i.test(String(text ?? "").normalize("NFD").replace(/\p{M}/gu, "").trim());
   // The text column of a 320 px phone: a graphic this narrow is never squeezed.
   const PHONE_COLUMN = 280;
   let data;
@@ -118,7 +120,16 @@
     parent.append(label);
     return input;
   };
+  // A part saved for reading with no connection keeps everything to read and
+  // nothing that reaches the tutor: what would be sent says it needs a connection.
+  const AWAY = "Necesita conexión: envíalo cuando vuelvas a estar en línea.";
+  const away = (button, message) => {
+    if (!data.offline) return;
+    button.disabled = true;
+    message.textContent = AWAY;
+  };
   const post = async (payload) => {
+    if (data.offline) throw new Error(AWAY);
     const response = await fetch(data.submitUrl, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
     });
@@ -287,7 +298,15 @@
           return radio;
         });
         field.append(confidence);
-        pending.push({ question, field, choices, razonamiento, sure });
+        const item = { question, field, choices, razonamiento, sure, skipsConfidence: false };
+        for (const radio of choices) {
+          radio.addEventListener("change", () => {
+            item.skipsConfidence = dontKnow(question.options[radio.value]);
+            confidence.style.display = item.skipsConfidence ? "none" : "";
+            if (item.skipsConfidence) sure.forEach((input) => { input.checked = false; });
+          });
+        }
+        pending.push(item);
       }
       container.append(field);
     }
@@ -299,6 +318,7 @@
       button.type = "submit";
       const message = status();
       form.append(button, message);
+      away(button, message);
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const missing = pending.find((item) => !item.choices.some((input) => input.checked));
@@ -308,7 +328,7 @@
           missing.choices[0]?.focus();
           return;
         }
-        const unsure = pending.find((item) => !item.sure.some((input) => input.checked));
+        const unsure = pending.find((item) => !item.skipsConfidence && !item.sure.some((input) => input.checked));
         if (unsure) {
           message.className = "error";
           message.textContent = "Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.";
@@ -319,10 +339,9 @@
         const reasoning = Object.fromEntries(
           pending.map((item) => [
             item.question.id,
-            {
-              razonamiento: item.razonamiento.value.trim(),
-              confianza: item.sure.find((input) => input.checked).value,
-            },
+            item.skipsConfidence
+              ? { razonamiento: item.razonamiento.value.trim() }
+              : { razonamiento: item.razonamiento.value.trim(), confianza: item.sure.find((input) => input.checked).value },
           ]),
         );
         const payload = { kind: diagnosis ? "diagnosis" : "mini-quiz", topic: data.topic, answers, reasoning };
@@ -342,6 +361,7 @@
           showScore(section, response.score, response.saved);
           form.querySelectorAll("input, textarea, button").forEach((input) => { input.disabled = true; });
           message.textContent = "";
+          notifyStudio(payload, response, (id) => data.quiz.questions.find((question) => question.id === id));
         } catch (error) {
           message.className = "error";
           message.textContent = error.message;
@@ -353,6 +373,20 @@
     app.append(section);
     decorate(section);
     verdicts();
+  }
+  // Inside the studio the page is a frame: the studio takes the learner to the results
+  // and shows the tutor reading them. The bridge's frame-ancestors limit who can listen.
+  function notifyStudio(payload, response, questionById) {
+    if (window.parent === window) return;
+    const results = response.results.map((result) => {
+      const question = questionById(result.id) || { enunciado: "", options: {} };
+      return {
+        id: result.id, enunciado: question.enunciado, chosen: result.chosen, chosenText: question.options[result.chosen] ?? "",
+        correct: result.correct, correctText: question.options[result.correct] ?? "", ok: result.ok,
+      };
+    });
+    const message = { type: "learning:submitted", kind: payload.kind, topic: payload.topic, ...(payload.part ? { part: payload.part } : {}), score: response.score, results };
+    window.parent.postMessage(message, "*");
   }
   function verdicts() {
     if (!data.verdicts?.length) return;
@@ -563,10 +597,12 @@
   if (data.demos?.length) {
     const section = element("section");
     section.append(element("h2", "Demos interactivas"));
-    data.demos.forEach((path) => {
-      const name = path.split("/").pop();
+    data.demos.forEach((path, index) => {
+      // A saved part carries each demo as its own bytes, with the name it had.
+      const saved = path.startsWith("data:");
+      const name = saved ? data.demoNames?.[index] ?? `Demo ${index + 1}` : path.split("/").pop();
       const frame = element("iframe");
-      frame.src = path.split("/").map(encodeURIComponent).join("/");
+      frame.src = saved ? path : path.split("/").map(encodeURIComponent).join("/");
       frame.setAttribute("sandbox", "allow-scripts");
       // Fullscreen must be allowed explicitly, or the demo's own
       // "Pantalla completa" button is denied and looks dead.
@@ -586,6 +622,7 @@
   send.type = "submit";
   const questionStatus = status();
   questionForm.append(send, questionStatus);
+  away(send, questionStatus);
   app.append(questionForm);
   let demo;
   window.addEventListener("message", (event) => {

@@ -2,12 +2,13 @@
 // child (testdata/fake-pi.mjs) and a temporary Learnings root.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { request, createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { entryUrl, noteFromMessages, noteFromPath, startStudio } from "./server.ts";
+import { entryUrl, noteFromMessages, noteFromPath, startStudio, topicFromPath } from "./server.ts";
 import { makeRoot } from "./testdata/root.mjs";
 
 test('configured studio bridge reaches the transcriber from its framed origin', async t => {
@@ -68,6 +69,81 @@ function http(url, { method = "GET", headers = {}, body } = {}) {
   });
 }
 
+test("preferences API seeds, saves, and rejects invalid changes without modifying the file", async () => {
+  const { studio, root } = await setup();
+  const file = join(root, "preferencias.json");
+  const initial = await http(`${studio.url}api/preferences`);
+  assert.equal(initial.status, 200);
+  const data = JSON.parse(initial.body);
+  assert.equal(data.version, 1);
+  assert.ok(data.aspectos.length > 0);
+  assert.equal(data.aspectos.find((a) => a.id === "texto").nivel, "menos");
+  assert.equal(existsSync(file), false);
+  data.aspectos[0].nivel = "medio";
+  const saved = await post(studio, "api/preferences", data);
+  assert.equal(saved.status, 200, saved.body);
+  assert.deepEqual(JSON.parse(saved.body), data);
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/preferences`)).body), data);
+  const before = readFileSync(file, "utf8");
+  for (const bad of [
+    { ...data, extra: true },
+    { ...data, version: 2 },
+    { ...data, aspectos: [data.aspectos[0], ...data.aspectos.slice(0, -1)] },
+    { ...data, aspectos: data.aspectos.map((a, i) => i ? a : { ...a, nivel: "mucho" }) },
+    { ...data, aspectos: data.aspectos.map((a, i) => i ? a : { ...a, id: "desconocido" }) },
+    { ...data, aspectos: data.aspectos.map((a, i) => i ? a : { ...a, extra: true }) },
+    { ...data, aspectos: data.aspectos.slice(1) },
+  ]) {
+    const response = await post(studio, "api/preferences", bad);
+    assert.equal(response.status, 400, response.body);
+    assert.ok(JSON.parse(response.body).error);
+    assert.equal(readFileSync(file, "utf8"), before);
+  }
+});
+
+test("telemetry API reads, records quiz entries, and serves global and topic telemetry", async () => {
+  const { studio, root } = await setup();
+  const file = join(root, "telemetria.json");
+  const initial = await http(`${studio.url}api/telemetry`);
+  assert.equal(initial.status, 200);
+  const data = JSON.parse(initial.body);
+  assert.equal(data.version, 1);
+  assert.equal(data.estadisticas_globales.total_quizzes, 0);
+  assert.ok(data.perfil_alumno.tendencias.matematicas);
+  assert.equal(existsSync(file), false);
+
+  const entry = {
+    punto: "1. Por qué existe",
+    tema: "sql-demo",
+    categoria: "matematicas",
+    pregunta: "¿Por qué el índice reduce operaciones?",
+    respuesta_alumno: "B",
+    respuesta_correcta: "B",
+    ok: true,
+    por_que: "Comprensión sólida de reducción logarítmica",
+  };
+  const recorded = await post(studio, "api/telemetry", { entry });
+  assert.equal(recorded.status, 200, recorded.body);
+  const res = JSON.parse(recorded.body);
+  assert.ok(res.ok);
+  assert.equal(res.global.estadisticas_globales.total_quizzes, 1);
+  assert.equal(res.global.estadisticas_globales.total_aciertos, 1);
+  assert.ok(existsSync(file));
+
+  // Query by topic
+  const byTopic = await http(`${studio.url}api/telemetry?topic=sql-demo`);
+  assert.equal(byTopic.status, 200);
+  const topicData = JSON.parse(byTopic.body);
+  assert.ok(topicData.global);
+  assert.ok(topicData.topic);
+  assert.equal(topicData.topic.quizzes.length, 1);
+  assert.equal(topicData.topic.resumen.aciertos, 1);
+
+  // Rejection of invalid global telemetry update
+  const bad = await post(studio, "api/telemetry", { version: 99 });
+  assert.equal(bad.status, 400);
+});
+
 const post = (studio, path, payload, headers = {}) =>
   http(`${studio.url}${path}`, {
     method: "POST",
@@ -124,7 +200,7 @@ const until = async (pred, timeout = 5000) => {
   throw new Error("condition not met");
 };
 
-test("the shell page is token-gated, loopback-only and allows framing only the hosted bridge", async () => {
+test("the shell page is token-gated, loopback-only and frames only the hosted bridge and its own saved parts", async () => {
   const { studio, received } = await setup();
   const page = await http(studio.url);
   assert.equal(page.status, 200);
@@ -132,7 +208,8 @@ test("the shell page is token-gated, loopback-only and allows framing only the h
   const data = JSON.parse(page.body.match(/id="studio-data">(.*?)<\/script>/)[1]);
   assert.equal(data.base, new URL(studio.url).pathname);
   const csp = page.headers["content-security-policy"];
-  assert.match(csp, /frame-src http:\/\/127\.0\.0\.1:\d+(;|$)/);
+  // The bridge, and the studio itself for a part saved on the device: nothing else may be framed.
+  assert.match(csp, /frame-src http:\/\/127\.0\.0\.1:\d+ 'self'(;|$)/);
   assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net(;|$)/);
   assert.equal((await http(`${new URL(studio.url).origin}/${"0".repeat(64)}/`)).status, 404);
   const entry = await http(`${new URL(studio.url).origin}/`);
@@ -159,7 +236,7 @@ test("public studio origins route views and authorize only the configured proxy"
   const { studio, received } = await setup({ publicOrigin, bridgePublicOrigin, bridgePort: 0 });
   const page = await http(studio.url, { headers: { host: "box.tail0.ts.net:8445" } });
   assert.equal(page.status, 200);
-  assert.match(page.headers["content-security-policy"], /frame-src https:\/\/box\.tail0\.ts\.net:8446(;|$)/);
+  assert.match(page.headers["content-security-policy"], /frame-src https:\/\/box\.tail0\.ts\.net:8446 'self'(;|$)/);
   const view = await http(`${studio.url}api/view?topic=redes&part=p1`);
   assert.equal(view.status, 200, view.body);
   assert.ok(JSON.parse(view.body).url.startsWith(`${bridgePublicOrigin}/`));
@@ -193,7 +270,7 @@ test("a second public studio origin is authorized while the first stays canonica
   for (const host of ["learnings.infra.local", "10.154.59.151:8445"]) {
     const page = await http(studio.url, { headers: { host } });
     assert.equal(page.status, 200, host);
-    assert.match(page.headers["content-security-policy"], /frame-src https:\/\/learnings\.infra\.local:8446(;|$)/);
+    assert.match(page.headers["content-security-policy"], /frame-src https:\/\/learnings\.infra\.local:8446 'self'(;|$)/);
     assert.match(page.headers["content-security-policy"], /frame-ancestors 'none'/);
   }
   const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
@@ -227,6 +304,22 @@ test("a configured studio token survives a restart so open tabs keep working", a
   assert.equal((await http(`http://127.0.0.1:${second.studio.port}/${token.slice(1)}/api/library`)).status, 404);
 });
 
+test("a configured studio token keeps the reader's URLs across a restart, so an open quiz can still dictate and submit", async () => {
+  const token = "0123456789abcdef".repeat(4);
+  const readerBase = async (studio) => JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body).url.replace(/redes\/p1$/, "");
+  const probe = createServer();
+  await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const bridgePort = probe.address().port;
+  await new Promise((resolve) => probe.close(resolve));
+  const first = await setup({ token, bridgePort });
+  const before = await readerBase(first.studio);
+  await first.studio.close();
+  const second = await setup({ token, bridgePort });
+  assert.equal(await readerBase(second.studio), before, "the reader keeps its whole URL");
+  assert.doesNotMatch(new URL(before).pathname, new RegExp(token), "the reader token is not the studio token");
+  assert.equal((await http(`${before}redes/p1`)).status, 200, "the URL an open tab still holds keeps working");
+});
+
 test("a weak studio token is refused", async () => {
   await assert.rejects(() => startStudio({ root: makeRoot().root, token: "short" }), /64 lowercase hex/);
 });
@@ -255,6 +348,18 @@ test("Pi runs in the Learnings folder as an interactive RPC host and the history
   assert.equal(first.interactiveHost, "1");
   assert.equal(first.cwd, root);
   stream.close();
+});
+
+test("a path inside a topic folder names that topic, whatever file it is", () => {
+  const root = "/home/ale/Learnings";
+  assert.equal(topicFromPath("/home/ale/Learnings/redes/diagnostico-conceptos.json", root), "redes");
+  assert.equal(topicFromPath("/home/ale/Learnings/redes/explicaciones/Parte 1 - Capas.md", root), "redes");
+  assert.equal(topicFromPath("/home/ale/Learnings/rapidos/hash.md", root), null, "quick notes belong to no topic");
+  assert.equal(topicFromPath("/home/ale/Learnings/.atl/skill-registry.md", root), null, "hidden folders are not topics");
+  assert.equal(topicFromPath("/home/ale/Learnings/notas.md", root), null, "a file at the root is in no topic");
+  assert.equal(topicFromPath("/home/ale/otra/redes/plan.json", root), null, "outside the Learnings root");
+  assert.equal(topicFromPath("tema/explicaciones/Parte 1 - Algo.md"), "tema", "without a root the first folder is the topic");
+  assert.equal(topicFromPath(undefined, root), null);
 });
 
 test("a part note path resolves to the topic and part the reader routes on", () => {
@@ -291,6 +396,27 @@ test("the conversation remembers the last part note the tutor wrote", () => {
   assert.equal(noteFromMessages(undefined), null);
 });
 
+// The chat is the learner's. The harness warns the operator through the same
+// channel (RDD status, review mode); a warning about the agent's plumbing in the
+// middle of a lesson is noise, so it stays in the studio's log.
+test("the chat hides the harness's own notices and keeps the tutor's", async (t) => {
+  process.env.FAKE_PI_NOTICES = JSON.stringify([
+    "Gentle AI: receipt-driven-development status is unavailable: native status could not be read. The parent prompt keeps the last known status.",
+    "Aviso del tutor",
+  ]);
+  t.after(() => {
+    delete process.env.FAKE_PI_NOTICES;
+  });
+  const { studio } = await setup();
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await post(studio, "prompt", { text: "hola" });
+  assert.deepEqual(await stream.next("notice"), { level: "info", message: "Aviso del tutor" }, "the tutor's notice is the first one the learner sees");
+  await stream.next("dialog");
+  assert.equal(stream.events.filter((e) => e.name === "notice").length, 1, "the harness notice never reaches the chat");
+  stream.close();
+});
+
 test("a prompt streams text, tool activity and a dialog whose answer goes back to Pi", async () => {
   const { studio, received } = await setup();
   const stream = sse(`${studio.url}events`);
@@ -302,8 +428,8 @@ test("a prompt streams text, tool activity and a dialog whose answer goes back t
   assert.deepEqual(await stream.next("state", (s) => s.busy), { busy: true, alive: true });
   const delta = await stream.next("assistant_delta");
   assert.equal(delta.delta, "Hola, ");
-  assert.deepEqual(await stream.next("tool", (t) => t.phase === "start"), { phase: "start", id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true, note: { topic: "tema", index: 1 } });
-  assert.deepEqual(await stream.next("tool", (t) => t.phase === "end"), { phase: "end", id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true, note: { topic: "tema", index: 1 } }, "the end keeps the arguments its start carried");
+  assert.deepEqual(await stream.next("tool", (t) => t.phase === "start"), { phase: "start", id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true, note: { topic: "tema", index: 1 }, topic: "tema" });
+  assert.deepEqual(await stream.next("tool", (t) => t.phase === "end"), { phase: "end", id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true, note: { topic: "tema", index: 1 }, topic: "tema" }, "the end keeps the arguments its start carried");
   assert.deepEqual(await stream.next("notice"), { level: "info", message: "Aviso del tutor" });
   const dialog = await stream.next("dialog");
   assert.deepEqual(dialog, { id: "d1", method: "select", title: "¿Cómo quieres aprender?", message: "", options: ["Universitario", "Rápido con quiz"], placeholder: "" });
@@ -362,6 +488,19 @@ test("POSTs refuse foreign origins, non-JSON, empty or oversize prompts, and rea
   for (const [res, status] of cases) assert.equal(res.status, status, res.body);
   assert.equal(received().filter((c) => c.type === "prompt").length, 0);
   assert.ok(received().length >= before);
+});
+
+// C2: the learner's explanation method travels with the library once the engine records it.
+test("the library carries the explanation method the engine recorded", async () => {
+  const { root, engine, log } = makeRoot({ status: { status: "accepted", stage: "planning", nextStage: "planning", method: "pareto" } });
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine });
+  open.push(studio);
+  const [topic] = JSON.parse((await http(`${studio.url}api/library`)).body).topics;
+  assert.equal(topic.method, "pareto");
+  const { studio: plain } = await setup();
+  const [before] = JSON.parse((await http(`${plain.url}api/library`)).body).topics;
+  assert.equal(before.method, "", "no method before the learner chooses one");
 });
 
 test("the library lists topics with engine status, parts and quick notes; api/view returns framable bridge URLs", async () => {
@@ -601,4 +740,97 @@ test('the save route refuses ids that escape rapidos and foreign origins', async
   assert.equal(existsSync(join(root, 'rapidos', 'intrusa.md')), false);
   const missing = await http(`${studio.url}api/note?quick=nope`);
   assert.equal(missing.status, 404);
+});
+
+test("opening a topic is remembered outside the vault and reported by the library", async () => {
+  const openedFile = join(mkdtempSync(join(tmpdir(), "opened-")), "state", "opened.json");
+  const { studio, root } = await setup({ openedFile });
+  const before = JSON.parse((await http(`${studio.url}api/library`)).body);
+  assert.equal(before.topics.find((t) => t.id === "redes").opened, 0, "never opened");
+  const ok = await post(studio, "opened", { topic: "redes" });
+  assert.equal(ok.status, 200);
+  const after = JSON.parse((await http(`${studio.url}api/library`)).body);
+  const opened = after.topics.find((t) => t.id === "redes").opened;
+  assert.ok(opened > 0 && opened <= Date.now(), "the open time is reported");
+  assert.deepEqual(JSON.parse(readFileSync(openedFile, "utf8")), { redes: opened });
+  const unknown = await post(studio, "opened", { topic: "no-existe" });
+  assert.equal(unknown.status, 404);
+  const malformed = await post(studio, "opened", { topic: 3 });
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(JSON.parse(readFileSync(openedFile, "utf8")), { redes: opened }, "a refused open stores nothing");
+  assert.equal(existsSync(join(root, "opened.json")), false, "nothing is written in the vault");
+  // A restarted studio keeps the order.
+  open.splice(open.indexOf(studio), 1);
+  await studio.close();
+  const again = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: join(root, "fake-engine.sh"), openedFile });
+  open.push(again);
+  const kept = JSON.parse((await http(`${again.url}api/library`)).body);
+  assert.equal(kept.topics.find((t) => t.id === "redes").opened, opened);
+});
+
+test("the panorama reaches the browser as one picture: plan, route and map", async () => {
+  const { studio, root } = await setup();
+  const topic = join(root, "redes");
+  writeFileSync(
+    join(topic, "plan.json"),
+    JSON.stringify({
+      topic: "Redes",
+      parts: [
+        { id: "p1", title: "Capas", slug: "Capas", subtema: "1.1", examplesPlanned: true, visualsPlanned: true },
+        { id: "p2", title: "TCP", slug: "TCP", subtema: "1.2.1a", examplesPlanned: true, visualsPlanned: false },
+      ],
+    }),
+  );
+  writeFileSync(
+    join(topic, "planificador.md"),
+    ["---", "tema: Redes", "fecha: 2026-10-30", "diagnostico_puntaje: 2/5", "---", "", "# Ruta de redes", "", "## Resultado", "", "- **Puntaje global**: **2/5**.", "", "## Tabla de plan", "", "| Subtema | Qué sabes | Profundidad | Por qué |", "|---|---|---|---|", "| `1.1` | 1/1 | Desde su base | Falló d1 |", "| `1.2.1` | ⚪ No evaluado | Completo | No evaluado |", ""].join("\n"),
+  );
+  writeFileSync(
+    join(topic, "mapa.mmd"),
+    ["flowchart TD", '  subgraph M1 ["1.1 Capas"]', '    N1["1.1.1 Qué es una capa<br/>⚪ no evaluado"]:::neu --> N2["1.1.2 Encapsulado<br/>evaluado en d1"]:::neu', "  end", '  subgraph M2 ["1.2.1 Transporte"]', '    N1 --> N3["1.2.1.1 TCP frente a UDP<br/>⚪ no evaluado"]:::neu', "  end", "  classDef neu fill:#eceef1,stroke:#8b95a7,color:#3d4451;", ""].join("\n"),
+  );
+
+  const answer = await http(`${studio.url}api/panorama?topic=redes`);
+  assert.equal(answer.status, 200);
+  const panorama = JSON.parse(answer.body);
+  assert.deepEqual(panorama.sources, { plan: true, planJson: true, map: true });
+  assert.equal(panorama.topic.title, "Redes");
+  assert.equal(panorama.plan.score, "2/5");
+  assert.deepEqual(
+    panorama.route.map((part) => [part.number, part.subtema, part.written, part.depth]),
+    [
+      [1, "1.1", true, "Desde su base"],
+      [2, "1.2.1a", false, "Completo"],
+    ],
+  );
+  const map = panorama.map.layout;
+  assert.equal(map.nodes.length, 3);
+  assert.equal(map.groups.length, 2);
+  assert.equal(map.nodes.find((node) => node.id === "N3").part.id, "p2", "a concept points at the part the tutor wrote for its branch");
+  assert.equal(map.nodes.find((node) => node.id === "N2").part.id, "p1");
+  assert.equal((await http(`${studio.url}api/panorama?topic=nope`)).status, 404);
+  assert.equal((await http(`${studio.url}api/panorama?topic=../etc`)).status, 404, "a topic id never leaves the root");
+});
+
+// A part saved for reading with no connection is one file: it names nothing of the
+// bridge, reaches nothing, and runs in an origin of its own (docs/studio.md).
+test("a written part is served as one isolated file that reads with no connection", async () => {
+  const { studio, root } = await setup({ offlineCacheDir: mkdtempSync(join(tmpdir(), "offline-cdn-")) });
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), "# Parte 1 — Capas\n\nUna red en capas. Una fórmula: $a^2 + b^2$\n");
+  const answer = await http(`${studio.url}api/offline?topic=redes&part=p1`);
+  assert.equal(answer.status, 200, answer.body);
+  const csp = answer.headers["content-security-policy"];
+  assert.match(csp, /sandbox allow-scripts(;|$)/, "the copy runs in an opaque origin");
+  assert.doesNotMatch(csp, /allow-same-origin/, "it never shares the studio's origin");
+  assert.match(csp, /connect-src 'none'/, "and may fetch nothing");
+  const bridge = new URL(JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body).url);
+  const token = bridge.pathname.split("/")[1];
+  assert.equal(answer.body.includes(token), false, "the bridge's run token never reaches the device");
+  assert.equal(answer.body.includes(studio.url.split("/")[3]), false, "nor the studio's");
+  assert.match(answer.body, /"offline":true/);
+  assert.match(answer.body, /Una red en capas/);
+
+  assert.equal((await http(`${studio.url}api/offline?topic=redes&part=p2`)).status, 404, "a part not written yet has nothing to save");
+  assert.equal((await http(`${studio.url}api/offline?topic=../etc&part=p1`)).status, 404, "a topic never leaves the vault");
+  assert.equal((await http(`${studio.url.replace(/[0-9a-f]{64}\/$/, `${"0".repeat(64)}/`)}api/offline?topic=redes&part=p1`)).status, 404, "the route needs the studio's token");
 });

@@ -33,11 +33,7 @@ button:disabled { opacity:.6; cursor:default; }
 textarea { display:block; width:100%; resize:vertical; margin-top:8px; padding:12px; border:1px solid #cbd5e1; border-radius:5px; background:white; color:var(--ink); }
 input { accent-color:var(--cobalt); }
 [hidden] { display:none !important; }
-lk-callout,lk-widget,lk-steps,lk-step,lk-diagram,lk-video,lk-quiz,lk-ask,lk-checkpoint { display:block; margin:24px 0; }
-lk-checkpoint { padding:20px 22px; border:1px solid var(--rule); border-left:4px solid var(--cobalt); border-radius:6px; background:#f8fafc; }
-lk-checkpoint .lk-question { margin:18px 0; padding:0; border:0; }
-lk-checkpoint .lk-why { margin:6px 0 0; font-size:.95rem; }
-lk-checkpoint .lk-reward { margin-top:12px; }
+lk-callout,lk-widget,lk-steps,lk-step,lk-diagram,lk-video,lk-quiz,lk-ask { display:block; margin:24px 0; }
 lk-callout { padding:16px 20px; border:1px solid var(--rule); border-left:4px solid var(--cobalt); border-radius:5px; background:#f8fafc; }
 lk-callout[type=warning] { border-left-color:var(--amber); }
 lk-callout[type=success],lk-callout[type=tip] { border-left-color:var(--emerald); }
@@ -86,6 +82,15 @@ legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; ma
 .lk-reward { border:1px solid var(--emerald); border-left-width:4px; padding:20px; border-radius:6px; background:#ecfdf5; font-weight:700; }
 .lk-verdict { border:1px solid var(--rule); padding:16px; margin:12px 0; }
 .lk-verdict blockquote { margin-bottom:0; }
+
+/* Quiz rápido en cada punto */
+.lk-quick-quiz { display:block; margin:28px 0; padding:18px 20px; border:1px dashed var(--rule); border-radius:8px; background:#fafafa; }
+.lk-qq-badge { display:inline-block; font-size:.74rem; text-transform:uppercase; letter-spacing:.08em; font-weight:700; color:var(--cobalt); margin-bottom:8px; }
+.lk-qq-box { min-width:0; margin:0 0 16px; border:none; padding:0; }
+.lk-qq-submit { border-radius:6px; padding:8px 18px; font-size:.9rem; font-weight:600; cursor:pointer; }
+.lk-qq-result { margin-top:14px; padding:12px 14px; border-radius:6px; font-size:.95rem; line-height:1.5; }
+.lk-qq-result.lk-correct { background:#ecfdf5; border:1px solid var(--emerald); color:#065f46; font-weight:600; }
+.lk-qq-result.lk-error { background:#fef2f2; border:1px solid var(--crimson); color:#991b1b; }
 @media(max-width:560px) { :root { font-size:17px; } main { padding:28px 16px 60px; } h1 { font-size:1.8rem; } lk-widget,.lk-question { padding:12px; } th,td { padding:10px; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; animation:none !important; } }
 @media print { .lk-progress,.lk-toc { display:none; } main { max-width:none; } lk-step[hidden] { display:block !important; } }

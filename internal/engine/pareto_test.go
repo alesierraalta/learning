@@ -97,7 +97,7 @@ func (f *fixture) writeVitalExplanation(t *testing.T, part string, heading bool,
 	if heading {
 		body += "\n## El 20% que rinde el 80%\n\nEsta parte entrega la pregunta que más se usa en el examen.\n"
 	}
-	body += "\n" + padding + "\n\n## Ejemplo\n\nCaso numérico paso a paso.\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
+	body += "\n" + padding + "\n\n## Ejemplo\n\nCaso numérico paso a paso.\n\n" + fixtureWalkthrough + "\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
 	body += "\n![diagrama](diagrama-" + part + ".png)\nCómo leerlo: sigue los pasos de izquierda a derecha.\n\n![detalle](detalle-" + part + ".png)\nCómo leerlo: compara las dos barras.\n"
 	for _, q := range buildQuizQuestions(part) {
 		body += "\n" + q.Enunciado + "\n"

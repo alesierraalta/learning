@@ -403,6 +403,94 @@ test('plain part and diagnosis share optional dictable reasoning', { skip: !play
   assert.match(asset.headers['content-type'], /javascript/);
 });
 
+test('«No sé» needs no confidence and a framed submit notifies the studio', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { view } = await setup();
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  // The page allows 'self' as embedder: frame it from the bridge's own index, as the studio frames it.
+  await page.goto(base(result));
+  await page.evaluate(url => {
+    window.received = [];
+    addEventListener('message', event => window.received.push(event.data));
+    const frame = document.createElement('iframe');
+    frame.src = url;
+    frame.style.cssText = 'width:1000px;height:2000px';
+    document.body.append(frame);
+  }, result.structuredContent.url);
+  const frame = page.frameLocator('iframe');
+  const fields = frame.locator('fieldset.quiz-question');
+  await fields.first().waitFor();
+  const [first, second] = [fields.nth(0), fields.nth(1)];
+  await first.locator('input[value=A]').check();
+  assert.equal(await first.locator('.confidence').isVisible(), true);
+  await first.locator('.confidence input').first().check();
+  await first.locator('input[value=E]').check();
+  assert.equal(await first.locator('.confidence').isVisible(), false);
+  await second.locator('input[value=B]').check();
+  await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
+  await frame.getByText('Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.').waitFor();
+  await second.locator('.confidence input').first().check();
+  const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
+  await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
+  const payload = (await sent).postDataJSON();
+  assert.deepEqual(payload.reasoning.q1, { razonamiento: '' });
+  assert.deepEqual(payload.reasoning.q2, { razonamiento: '', confianza: 'seguro' });
+  await page.waitForFunction(() => window.received.length > 0);
+  assert.deepEqual(await page.evaluate(() => window.received), [{
+    type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
+    results: [
+      { id: 'q1', enunciado: 'Pregunta q1', chosen: 'E', chosenText: 'No sé', correct: 'B', correctText: 'b', ok: false },
+      { id: 'q2', enunciado: 'Pregunta q2', chosen: 'B', chosenText: 'b', correct: 'B', correctText: 'b', ok: true },
+    ],
+  }]);
+});
+
+test('rich-page quiz: «No sé» hides confidence and a framed submit notifies the studio', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { view, topic } = await setup();
+  writeFileSync(
+    join(topic, 'explicaciones', 'Parte 1 - Claves.html'),
+    '<!doctype html><html lang="es"><head><link rel="stylesheet" href="../kit/kit.css"><script src="../kit/kit.js" defer></script></head><body><main><h1>Rica</h1><lk-quiz></lk-quiz></main></body></html>',
+  );
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  await page.goto(base(result));
+  await page.evaluate(url => {
+    window.received = [];
+    addEventListener('message', event => window.received.push(event.data));
+    const frame = document.createElement('iframe');
+    frame.src = url;
+    frame.style.cssText = 'width:1000px;height:2000px';
+    document.body.append(frame);
+  }, result.structuredContent.url);
+  const frame = page.frameLocator('iframe');
+  const boxes = frame.locator('fieldset.lk-question');
+  await boxes.first().waitFor();
+  const [first, second] = [boxes.nth(0), boxes.nth(1)];
+  await first.locator('input[value=A]').check();
+  await first.locator('.lk-controls input').first().check();
+  assert.equal(await first.locator('.lk-controls').isVisible(), true);
+  await first.locator('input[value=E]').check();
+  assert.equal(await first.locator('.lk-controls').isVisible(), false);
+  await first.locator('textarea').fill('ni idea');
+  await second.locator('input[value=B]').check();
+  const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
+  await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
+  const payload = (await sent).postDataJSON();
+  assert.deepEqual(payload.reasoning.q1, { razonamiento: 'ni idea' });
+  await page.waitForFunction(() => window.received.length > 0);
+  assert.deepEqual(await page.evaluate(() => window.received), [{
+    type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
+    results: [
+      { id: 'q1', enunciado: 'Pregunta q1', chosen: 'E', chosenText: 'No sé', correct: 'B', correctText: 'b', ok: false },
+      { id: 'q2', enunciado: 'Pregunta q2', chosen: 'B', chosenText: 'b', correct: 'B', correctText: 'b', ok: true },
+    ],
+  }]);
+});
+
 test("dictation uploads audio privately, rejects invalid input and deletes failed jobs", async (t) => {
   const seen = []; let failed = false; let polls = 0;
   const fake = httpServer(async (req, res) => {
@@ -755,6 +843,22 @@ test("learning_view returns a loopback URL with a token; index lists topics; wro
   await shutdown();
 });
 
+test("a seeded bridge keeps its token across restarts; an unseeded one draws a new token each start", async () => {
+  const token = async (options) => {
+    const { view, shutdown } = await setup(options);
+    const found = new URL(base(await view({}))).pathname.split("/")[1];
+    await shutdown();
+    return found;
+  };
+  const seed = "ab".repeat(32);
+  const seeded = await token({ tokenSeed: seed });
+  assert.match(seeded, /^[0-9a-f]{64}$/);
+  assert.equal(await token({ tokenSeed: seed }), seeded, "same seed, same token after a restart");
+  assert.notEqual(seeded, seed, "the seed itself is never the token");
+  assert.notEqual(await token({ tokenSeed: "cd".repeat(32) }), seeded, "another seed, another token");
+  assert.notEqual(await token({}), await token({}), "without a seed every start is new");
+});
+
 test("a second learning_view call reuses the same server and token", async () => {
   const { view, shutdown } = await setup();
   const first = await view({});
@@ -976,7 +1080,7 @@ test("a video request reaches the chat as a fixed message", async () => {
   const { view, host, shutdown } = await setup();
   const url = base(await view({}));
   const res = await submit(url, { kind: "video", topic: TOPIC, part: "p1" });
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 200, res.body);
   assert.equal(
     host.sent[0].content,
     "[Vista HTML · sql-demo · p1 · video]\nLa persona pide el video de esta parte: prodúcelo con el pipeline de learnings-video (video-distill.md) y guárdalo en explicaciones/adjuntos/Parte 1 - Claves.mp4.",
@@ -1028,7 +1132,7 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
     ownWords: "Una clave identifica una fila.",
     exercises: "SELECT * FROM t;",
   });
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 200, res.body);
   const body = JSON.parse(res.body);
   assert.deepEqual(body.results, [
     { id: "q1", chosen: "B", correct: "B", ok: true },
@@ -1067,7 +1171,7 @@ test("reasoning written by the old two-prompt form still submits and is normaliz
       q2: { entendi: "otra", porque: "razón", confianza: "seguro" },
     },
   });
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 200, res.body);
   assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")).razonamientos, {
     q1: { razonamiento: "primer\n\nsegundo", confianza: "dudo" },
     q2: { razonamiento: "otra\n\nrazón", confianza: "seguro" },
@@ -1112,7 +1216,7 @@ test("diagnosis submit adds only new ids of the current round and keeps recorded
   assert.deepEqual(data.quiz.questions.map((q) => q.id), ["d1", "d2", "d3"]);
   assert.deepEqual(data.answered, [{ id: "d1", chosen: "B", correct: "B", ok: true }]);
   const res = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d2: "E" }, reasoning: why("d2") });
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 200, res.body);
   assert.deepEqual(JSON.parse(readFileSync(join(topic, "quiz.answers.json"), "utf8")), {
     answers: { d1: "B", d2: "E" },
     razonamientos: why("d2"),
@@ -1152,12 +1256,37 @@ test("a question to the tutor is sent with its context and writes no file", asyn
   const { view, topic, host, shutdown } = await setup();
   const url = base(await view({}));
   const res = await submit(url, { kind: "question", topic: TOPIC, part: "p1", text: "¿Por qué la PK no admite NULL?", demo: "p1-claves.html" });
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 200, res.body);
   assert.equal(
     host.sent[0].content,
     '[Vista HTML · sql-demo · p1 · pregunta · demo p1-claves.html]\nPregunta de la persona:\n"""\n¿Por qué la PK no admite NULL?\n"""',
   );
   assert.equal(existsSync(join(topic, "mini-quiz", "p1.answers.json")), false);
+  await shutdown();
+});
+
+test("quick-quiz submit records telemetry and delivers notification to chat", async () => {
+  const { view, root, topic, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, {
+    kind: "quick-quiz",
+    topic: TOPIC,
+    part: "p1",
+    entry: {
+      punto: "1. Por qué existe",
+      pregunta: "¿Qué problema resuelve la PK?",
+      respuesta_alumno: "B",
+      respuesta_correcta: "B",
+      ok: true,
+      categoria: "conceptual",
+      por_que: "Acierto: identifica unicidad",
+    },
+  });
+  assert.equal(res.status, 200, res.body);
+  assert.ok(host.sent[0].content.includes("[Vista HTML · sql-demo · p1 · quiz rápido · 1. Por qué existe]"));
+  assert.ok(host.sent[0].content.includes("✔ Correcto"));
+  assert.ok(existsSync(join(root, "telemetria.json")));
+  assert.ok(existsSync(join(topic, "telemetria.json")));
   await shutdown();
 });
 

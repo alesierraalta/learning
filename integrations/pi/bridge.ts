@@ -12,12 +12,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveContained, safeTopic } from "./paths.ts";
+import { recordQuizTelemetry } from "./telemetry.ts";
 import { CodeRunError, loadRunners, readExercise, publicExercise, forPage, runCode } from "./coderun.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 
@@ -505,6 +506,7 @@ function writeAnswers(file: string, record: AnswerFile): void {
 }
 
 const ALLOWED_KEYS: Record<string, Set<string>> = {
+  "quick-quiz": new Set(["kind", "topic", "part", "entry"]),
   "mini-quiz": new Set(["kind", "topic", "part", "answers", "reasoning", "ownWords", "exercises"]),
   diagnosis: new Set(["kind", "topic", "answers", "reasoning"]),
   question: new Set(["kind", "topic", "part", "text", "demo"]),
@@ -784,6 +786,11 @@ export interface BridgeOptions {
   transcriber?: { url: string; token: string; deadlineMs?: number };
   /** Directory of kit.css / kit.js (tests). */
   kitDir?: string;
+  /**
+   * A secret the URL token is derived from, so a restart keeps the token and open pages keep
+   * working; the token is a keyed hash, never the secret itself. Random per start when absent.
+   */
+  tokenSeed?: string;
 }
 
 export function validatePublicOrigin(option: string, value: string | undefined): URL | undefined {
@@ -1240,6 +1247,32 @@ ${scripts}
       return;
     }
 
+    if (kind === "quick-quiz") {
+      const entry = payload.entry;
+      if (!entry || typeof entry !== "object") throw new HttpError(400, "entry is required for quick-quiz");
+      const punto = typeof entry.punto === "string" ? entry.punto : "";
+      const ok = Boolean(entry.ok);
+      const por_que = typeof entry.por_que === "string" ? entry.por_que : (ok ? "Acierto" : "Fallo");
+      const categoria = typeof entry.categoria === "string" ? entry.categoria : "conceptual";
+      const qEntry = {
+        ...entry,
+        tema: topic,
+        parte: typeof partId === "string" ? partId : undefined,
+      };
+      const tele = recordQuizTelemetry(rootReal, qEntry);
+      const header = ["Vista HTML", topic, partId, "quiz rápido", punto].filter(Boolean).join(" · ");
+      const lines = [
+        `[${header}]`,
+        `Pregunta: ${entry.pregunta ?? ""}`,
+        `Resultado: ${ok ? "✔ Correcto" : "✘ Incorrecto"} (Eligió: ${entry.respuesta_alumno ?? ""}, Correcta: ${entry.respuesta_correcta ?? ""})`,
+        `Categoría: ${categoria}`,
+        `Diagnóstico: ${por_que}`,
+      ];
+      await deliver(lines.join("\n"));
+      sendJson(res, 200, { ok: true, telemetry: tele });
+      return;
+    }
+
     if (kind === "mini-quiz") {
       if (typeof partId !== "string") throw new HttpError(400, "part is required");
       const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
@@ -1374,7 +1407,7 @@ ${scripts}
       const contained = resolveContained(options.root, options.root);
       if (!contained.ok) return reject(new Error(contained.reason));
       rootReal = contained.rootReal;
-      token = randomBytes(32).toString("hex");
+      token = options.tokenSeed === undefined ? randomBytes(32).toString("hex") : createHmac("sha256", options.tokenSeed).update("learning-bridge-token").digest("hex");
       const candidate = createServer((req, res) => {
         route(req, res).catch((err: unknown) => {
           const status = err instanceof HttpError ? err.status : err instanceof CodeRunError ? 422 : 500;

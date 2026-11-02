@@ -43,6 +43,11 @@
 <p>El problema es que la recompensa es <strong>inmediata y miope</strong>: dice qué tan bueno es <em>este</em> paso, no si vas bien encaminado. Para decidir bien, el robot necesita:</p>
 <ul><li>una regla de qué hacer en cada casilla (si no, no actúa),</li><li>una forma de saber <strong>qué tan bien le irá desde cada casilla</strong> (si no, no distingue un camino corto de uno que acaba en el charco),</li><li>y, si quiere pensar antes de moverse, una idea de <strong>qué pasa cuando hace algo</strong> en el almacén.</li></ul>
 <p>Esas tres cosas, más la recompensa que fija la meta, son los cuatro elementos de esta parte.</p></section>
+<lk-quick-quiz point="1. Por qué existe" categoria="conceptual">
+<script type="application/json">
+{"id":"p3-q1","pregunta":"¿Por qué no basta con mirar solo la recompensa del paso siguiente?","opciones":{"A":"Porque el robot no ve la puerta","B":"Porque todos los pasos normales pagan lo mismo y no distingue los caminos","C":"Porque la recompensa llega solo al final","D":"Porque el valor siempre es negativo","E":"No sé"},"correcta":"B","explicacion":"La recompensa inmediata es miope: con −0,04 por paso, ir hacia la puerta o hacia el charco parece igual hasta el último momento. El valor resume lo que viene después."}
+</script>
+</lk-quick-quiz>
 <section><h2>2. Las piezas, con preguntas de todos los días</h2>
 <table><thead><tr><th>Pregunta del robot</th><th>Elemento</th><th>En el almacén</th></tr></thead><tbody>
 <tr><td>¿Qué hago aquí?</td><td><strong>Política</strong> π</td><td>Una flecha por casilla: <code>(0,2) → arriba</code></td></tr>
@@ -55,6 +60,11 @@
 <li><strong>Modelo</strong>: imita al entorno. Dado un estado y una acción, predice el siguiente estado y la recompensa. Es <strong>opcional</strong>: sirve para <strong>planificar</strong>.</li></ul>
 <lk-diagram title="La frontera del agente y el entorno"><script type="application/json">{"width":680,"height":460,"nodes":[{"id":"agent","label":"Agente: robot","sub":"política π · valor V","x":0.5,"y":0.5,"kind":"agent"},{"id":"model","label":"Modelo (opcional)","sub":"predice estado y recompensa","x":5.5,"y":0.5,"kind":"store"},{"id":"env","label":"Entorno: almacén","sub":"entrega la recompensa r","x":0.5,"y":4.5,"kind":"env"}],"edges":[{"from":"agent","to":"env","label":"acción"},{"from":"env","to":"agent","label":"estado + recompensa","dashed":true},{"from":"model","to":"agent","label":"planificación","dashed":true}]}</script></lk-diagram>
 <lk-widget title="La recompensa: conduce el robot"><p>Mueve el robot. Cada paso normal entrega −0,04, tanto si te acerca a la puerta como al charco.</p><div class="lab"><div class="grid" id="g2"></div><div class="side"><div class="pad"><span></span><button data-move="up" aria-label="Arriba">↑</button><span></span><button data-move="left" aria-label="Izquierda">←</button><button data-move="down" aria-label="Abajo">↓</button><button data-move="right" aria-label="Derecha">→</button></div><p>Último paso: <span id="r2last">—</span><br>Acumulado: <span id="r2sum">0,00</span> · Pasos: <span id="r2steps">0</span></p><button id="r2reset">Volver a empezar</button><p id="r2msg" role="status"></p></div></div></lk-widget></section>
+<lk-quick-quiz point="2. Las piezas, con preguntas de todos los días" categoria="conceptual">
+<script type="application/json">
+{"id":"p3-q2","pregunta":"¿Qué elemento responde «¿qué pasará si hago esto?»?","opciones":{"A":"La política","B":"La señal de recompensa","C":"El modelo del entorno","D":"La función de valor","E":"No sé"},"correcta":"C","explicacion":"El modelo imita al entorno: dado un estado y una acción, predice el siguiente estado y la recompensa. La política dice qué hacer; el valor, cuánto se espera ganar."}
+</script>
+</lk-quick-quiz>
 <section><h2>3. Paso a paso</h2>
 <p>Política inicial de la demo: en la fila de arriba todas las flechas apuntan →; en el resto, ↑. Modelo determinista, γ = 0,9 (cuánto pesa el futuro: lo verás en la Parte 6).</p>
 <lk-steps>
@@ -66,15 +76,12 @@
 <lk-step label="Otra casilla" mark="bloqueo"><p>Ahora mira la casilla <code>(1,2)</code>, justo debajo de la columna. Su política dice <strong>↑</strong>, pero arriba está la columna: el robot choca y se queda en el sitio, paso tras paso. Nunca llega a ninguna salida y su valor es <strong>−0,40</strong>, aunque cada paso individual solo cueste −0,04.</p></lk-step>
 </lk-steps>
 <lk-callout type="warning" title="Lo que muestra el bloqueo"><p>La recompensa de cada paso de <code>(1,2)</code> y de <code>(0,2)</code> es la misma (−0,04). Lo que las distingue es el <strong>valor</strong>: <code>V(0,2) = +0,52</code> porque su política lleva a la puerta; <code>V(1,2) = −0,40</code> porque su política lo deja atascado.</p></lk-callout>
-<lk-checkpoint title="Comprueba el paso a paso">
-<script type="application/json">
-[
-  {"q":"¿Qué recibe el robot en cada paso normal del camino a la puerta?","options":["Solo +1 al final","−0,04, también si se aleja o choca","El valor V de la casilla"],"answer":1,"why":"La recompensa llega paso a paso; el valor, en cambio, es una estimación a la larga."},
-  {"q":"¿Por qué V(1,2) vale −0,40 si cada paso cuesta −0,04?","options":["Porque esa casilla paga una recompensa distinta","Porque su política lo deja atascado y los −0,04 se acumulan descontados","Porque el descuento se aplica al revés"],"answer":1,"why":"El valor suma la cadena de costes descontados: −0,04 · 1/(1−0,9) = −0,40."}
-]
-</script>
-</lk-checkpoint>
 <lk-widget title="Dibuja y ejecuta la política"><p>Pulsa una casilla para girar su flecha. Para ver el BLOQUEO, empieza debajo de la columna.</p><div class="lab"><div class="grid" id="g3"></div><div class="side"><div class="row"><button id="p3run">Ejecutar la política</button><button id="p3reset">Política inicial</button></div><label>Empezar en: <select id="p3start"><option value="0,2">la salida (0,2)</option><option value="1,2">debajo de la columna (1,2)</option><option value="3,2">esquina (3,2)</option></select></label><pre class="log" id="p3log"></pre><p id="p3msg" role="status"></p></div></div></lk-widget></section>
+<lk-quick-quiz point="3. Paso a paso" categoria="matematicas">
+<script type="application/json">
+{"id":"p3-q3","pregunta":"¿Por qué V(1,2) vale −0,40 si cada paso cuesta −0,04?","opciones":{"A":"Porque esa casilla paga una recompensa distinta","B":"Porque su política lo deja atascado y los −0,04 se acumulan descontados","C":"Porque el descuento se aplica al revés","D":"Porque el valor de una casilla libre siempre es negativo","E":"No sé"},"correcta":"B","explicacion":"El valor suma la cadena de costes descontados: −0,04 · 1/(1 − 0,9) = −0,40."}
+</script>
+</lk-quick-quiz>
 <section id="value-section"><h2>4. De la intuición a la fórmula</h2>
 <p><strong>Intuición</strong>: el valor de una casilla es «lo que gano en el próximo paso, más lo que valga la casilla a la que llego (un poco descontado)».</p>
 <p><strong>Tabla de decisión</strong> desde <code>(1,0)</code> con modelo determinista:</p>
@@ -99,20 +106,22 @@
 <lk-math display>\begin{aligned}V(1,2)&amp;=-0{,}04\,(1+0{,}9+0{,}81+\cdots)\\&amp;=-0{,}04\cdot\frac{1}{1-0{,}9}\\&amp;=-0{,}04\cdot10\\&amp;=-0{,}40\end{aligned}</lk-math>
 <figure><svg viewBox="0 0 660 190" role="img" aria-label="El valor se propaga hacia atrás desde la puerta"><defs><marker id="back" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#059669"/></marker></defs><g fill="white" stroke="#e2e8f0"><rect x="10" y="40" width="140" height="80" rx="8"/><rect x="180" y="40" width="140" height="80" rx="8"/><rect x="350" y="40" width="140" height="80" rx="8"/><rect x="520" y="40" width="130" height="80" rx="8"/></g><g stroke="#059669" marker-end="url(#back)"><path d="M520 80H493"/><path d="M350 80H323"/><path d="M180 80H153"/></g><g fill="#0f172a" font-family="DejaVu Sans" font-size="17" text-anchor="middle"><text x="80" y="70">(0,0)</text><text x="80" y="100">+0,73</text><text x="250" y="70">(1,0)</text><text x="250" y="100">+0,86</text><text x="420" y="70">(2,0)</text><text x="420" y="100">+1,00</text><text x="585" y="70">Puerta</text><text x="585" y="100">r = +1</text><text x="330" y="165">Cada barrido lleva la consecuencia un paso hacia atrás.</text></g></svg><figcaption>La puerta es terminal: V(puerta) = 0; +1 es la recompensa de entrar.</figcaption></figure>
 <lk-widget title="Evalúa el valor, barrido a barrido"><p>Pulsa una casilla para ver su fórmula. Los bordes ámbar indican valores que cambiaron.</p><div class="lab"><div class="grid" id="g4"></div><div class="side"><div class="row"><button id="v4first" aria-label="Primer barrido">⏮</button><button id="v4prev" aria-label="Barrido anterior">◀</button><button id="v4next">▶ siguiente barrido</button><button id="v4last" aria-label="Último barrido">⏭</button></div><p>Barrido <span id="v4k">0</span> · casillas que cambiaron: <span id="v4changed">0</span></p><pre class="formula" id="v4formula"></pre></div></div></lk-widget></section>
+<lk-quick-quiz point="4. De la intuición a la fórmula" categoria="matematicas">
+<script type="application/json">
+{"id":"p3-q4","pregunta":"¿Qué expresa la ecuación de Bellman para el valor de un estado?","opciones":{"A":"V(s) = r + γ · V(s′)","B":"V(s) = r − γ","C":"V(s) = π(a|s)","D":"V(s) = P(s′|s,a)","E":"No sé"},"correcta":"A","explicacion":"El valor es «lo que gano en el próximo paso, más lo que valga la casilla a la que llego, descontado». Por eso V(s) = r + γV(s′)."}
+</script>
+</lk-quick-quiz>
 <section><h2>5. Distinciones críticas</h2>
 <p><strong>Recompensa ≠ Valor.</strong> La recompensa es lo que el entorno paga <strong>ahora</strong>; el valor es lo que el agente <strong>estima</strong> que acumulará desde ahí. Las recompensas son lo primario; los valores son predicciones de recompensas, pero el agente <strong>elige sus acciones mirando los valores</strong>.</p>
 <p><strong>Política ≠ Modelo.</strong> La política dice <strong>qué hacer</strong>; el modelo dice <strong>qué pasará si lo haces</strong>. Un robot puede tener una política excelente sin modelo alguno.</p>
 <p><strong>Con modelo ≠ Sin modelo.</strong> Los métodos <strong>basados en modelo</strong> planifican imaginando resultados antes de vivirlos; los métodos <strong>sin modelo</strong> aprenden solo por prueba y error.</p>
 <p><strong>Señal de recompensa ≠ Algo que el agente decide.</strong> La recompensa forma parte del entorno: el agente no puede cambiarla a su antojo; lo que sí cambia es su política.</p>
-<lk-checkpoint title="Comprueba las distinciones">
-<script type="application/json">
-[
-  {"q":"La política dice ___ y el modelo dice ___.","options":["qué pasará / qué hacer","qué hacer / qué pasará si lo haces","cuánto vale / qué recompensa llega"],"answer":1,"why":"La política elige la acción; el modelo predice la consecuencia."},
-  {"q":"¿Quién define la señal de recompensa?","options":["El agente con su política","El entorno","La función de valor"],"answer":1,"why":"La recompensa es parte del entorno: el agente no la elige."}
-]
-</script>
-</lk-checkpoint>
 <lk-widget title="Planificar frente a vivir episodios"><p>El suelo resbaloso permite comparar una predicción exacta con un promedio de experiencias. La política es la que dibujaste arriba.</p><div class="lab"><div class="grid" id="g5"></div><div class="side"><label><input type="checkbox" id="m5slip"> Suelo resbaloso: 80 % va donde apunta, 10 % a cada lado</label><pre class="formula" id="m5model"></pre><div class="row"><button id="m5plan">Planificar con el modelo</button><button id="m5try1">Vivir 1 episodio</button><button id="m5try50">Vivir 50</button><button id="m5clear">Borrar</button></div><p>Con modelo: V(salida) = <span id="m5exact">—</span><br>Sin modelo (promedio de <span id="m5n">0</span> episodios): <span id="m5est">—</span></p></div></div><svg class="chart" id="m5chart" viewBox="0 0 600 170" role="img" aria-label="Valor exacto y promedio de episodios"></svg><p>Los episodios se cortan a los 60 pasos: el promedio tiene un pequeño error de truncamiento si el robot queda atascado.</p></lk-widget></section>
+<lk-quick-quiz point="5. Distinciones críticas" categoria="conceptual">
+<script type="application/json">
+{"id":"p3-q5","pregunta":"La política dice ___ y el modelo dice ___.","opciones":{"A":"qué pasará / qué hacer","B":"qué hacer / qué pasará si lo haces","C":"cuánto vale / qué recompensa llega","D":"qué recompensa llega / cuánto vale","E":"No sé"},"correcta":"B","explicacion":"La política elige la acción; el modelo predice la consecuencia de esa acción."}
+</script>
+</lk-quick-quiz>
 <section><h2>6. Dónde se rompe la analogía</h2>
 <ul><li>El robot del ejemplo <strong>ve todo el almacén</strong> y la demo calcula V exactamente con el modelo. Un agente real normalmente <strong>no conoce</strong> P ni las recompensas: tiene que <strong>estimar</strong> el valor a partir de lo que vive, con error.</li>
 <li>En el almacén hay 9 casillas y cabe una tabla. En problemas grandes (un videojuego, un brazo robótico) hay demasiados estados: el valor y la política se <strong>aproximan</strong> con funciones (por ejemplo, redes neuronales).</li>
@@ -120,6 +129,11 @@
 <li>La «batería» como recompensa por paso es una decisión de diseño: si la cambias, cambia lo que el robot considera bueno (pruébalo en la demo con −0,5).</li></ul>
 <p>Las 9 casillas citadas son los estados no terminales: la cuadrícula contiene además dos terminales y una columna.</p>
 <label>Coste de batería por paso (decisión del diseñador): <select id="step-cost"><option value="-0.04">−0,04</option><option value="-0.5">−0,5</option></select></label></section>
+<lk-quick-quiz point="6. Dónde se rompe la analogía" categoria="conceptual">
+<script type="application/json">
+{"id":"p3-q6","pregunta":"¿Qué supuesto cómodo del almacén no se cumple en un problema real grande?","opciones":{"A":"Que existe una señal de recompensa","B":"Que el agente conoce el modelo y la tabla de valores cabe entera","C":"Que hay estados y acciones","D":"Que se aplica un descuento","E":"No sé"},"correcta":"B","explicacion":"En el almacén el robot ve todo y V se calcula exactamente. Un agente real no conoce P ni las recompensas: estima el valor viviendo, y en problemas grandes lo aproxima con funciones."}
+</script>
+</lk-quick-quiz>
 <section><h2>7. El mapa mental más importante</h2>
 <pre class="mermaid">flowchart TD
   A[Un número o una regla del agente] --&gt; B{¿Lo entrega el entorno&lt;br/&gt;en cada paso?}
@@ -129,20 +143,21 @@
   C --&gt;|No| D{¿Predice qué pasa&lt;br/&gt;si hago una acción?}
   D --&gt;|Sí| M[Modelo del entorno&lt;br/&gt;opcional, para planificar]
   D --&gt;|No| V[Función de valor&lt;br/&gt;lo que espero ganar a la larga]</pre>
-<lk-checkpoint title="Comprueba el mapa">
-<script type="application/json">
-[
-  {"q":"«Si hago ↑ en (0,1), llego a (0,0) con −0,04» es…","options":["Modelo","Política","Valor"],"answer":0,"why":"Predice la consecuencia de una acción: eso es el modelo."},
-  {"q":"«En (0,1) conviene ↑» es…","options":["Modelo","Política","Recompensa"],"answer":1,"why":"Dice qué acción tomar: eso es la política."},
-  {"q":"«Desde (0,2) espero +0,52» es…","options":["Modelo","Valor","Política"],"answer":1,"why":"Estima lo que se acumula a la larga desde un estado: eso es el valor."}
-]
-</script>
-</lk-checkpoint>
 <lk-widget title="Clasifica los elementos"><p>Clasifica cada cosa que guarda o recibe el robot. La explicación aparece al elegir.</p><div class="cards" id="sort"></div></lk-widget></section>
+<lk-quick-quiz point="7. El mapa mental más importante" categoria="conceptual">
+<script type="application/json">
+{"id":"p3-q7","pregunta":"«Si hago ↑ en (0,1), llego a (0,0) con −0,04» es…","opciones":{"A":"Una política","B":"Una función de valor","C":"Un modelo del entorno","D":"Una señal de recompensa","E":"No sé"},"correcta":"C","explicacion":"Predice la consecuencia de una acción: eso es el modelo. La política diría qué acción tomar; el valor, cuánto se espera ganar."}
+</script>
+</lk-quick-quiz>
 <section><h2>8. Cierre</h2>
 <p><strong>Entrada ➔ Proceso ➔ Salida</strong>: el robot recibe un <strong>estado</strong> y la <strong>recompensa</strong> del paso ➔ usa su <strong>función de valor</strong> (y, si tiene, su <strong>modelo</strong>) para juzgar las opciones ➔ su <strong>política</strong> entrega la <strong>acción</strong> que maximiza lo que espera ganar a la larga.</p>
 <table><thead><tr><th>Concepto</th><th>En una línea</th></tr></thead><tbody><tr><td>Política π</td><td>Qué acción tomo en cada estado.</td></tr><tr><td>Señal de recompensa r</td><td>Lo que el entorno paga ahora; define la meta.</td></tr><tr><td>Función de valor V(s)</td><td>Lo que espero acumular desde s siguiendo π.</td></tr><tr><td>Modelo P(s′ | s, a)</td><td>Qué estado y recompensa vendrán si hago a en s; opcional.</td></tr></tbody></table>
 <lk-callout type="success" title="Resumen para guardar"><ul><li>La recompensa dice qué es bueno <strong>ya</strong>; el valor, qué es bueno <strong>a la larga</strong>, y el agente decide mirando el valor.</li><li>La política dice qué hacer; el modelo, qué pasará si lo haces; tener modelo permite planificar, pero no es obligatorio.</li><li>V(s) = Σ P(s′ | s, π(s)) · [r + γ · V(s′)]: lo inmediato más lo que vale el sitio al que llegas, descontado.</li></ul></lk-callout></section>
+<lk-quick-quiz point="8. Cierre" categoria="conceptual">
+<script type="application/json">
+{"id":"p3-q8","pregunta":"¿Cuál es la relación entre recompensa y valor?","opciones":{"A":"Son lo mismo expresado de dos formas","B":"La recompensa es inmediata; el valor acumula lo que se espera a la larga","C":"El valor se recibe al final y la recompensa se estima","D":"Ambos los fija la política del agente","E":"No sé"},"correcta":"B","explicacion":"La recompensa dice qué es bueno ahora; el valor dice qué es bueno a la larga, sumando recompensas futuras descontadas."}
+</script>
+</lk-quick-quiz>
 <section><h2>Mini-quiz</h2><p>Responde las preguntas q1–q4 con tus dos razonamientos y tu confianza. El tutor recibe tu respuesta y revisa los conceptos.</p><lk-quiz></lk-quiz></section>
 <section><h2>Ejercicios</h2>
 <p><strong>Fácil.</strong> Con la política inicial y el modelo determinista, calcula a mano <code>V(2,2)</code> renglón a renglón, como en la sección 4 (pista: su política es ↑). Comprueba tu resultado en la demo.</p>

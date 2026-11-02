@@ -27,6 +27,9 @@
     doc: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 11h7M9 15h7"/>',
     deck: '<rect x="3" y="5" width="18" height="12" rx="1.5"/><path d="M8 21h8M12 17v4"/>',
     spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/>',
+    map: '<circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="12" cy="18" r="2.6"/><path d="M8.6 6h6.8M7.3 8.3l3.5 7.1M16.7 8.3l-3.5 7.1"/>',
+    fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
   };
   const svgParser = new DOMParser();
   const icon = (name) =>
@@ -68,9 +71,90 @@
     toastTimer = setTimeout(() => node.remove(), 4200);
   };
 
+  // ---------- with no connection ----------
+  // The service worker (sw.js) answers from what this device kept when the server is
+  // out of reach, and marks those answers; the studio says so instead of pretending.
+  let offline = false;
+  const offlineBanner = h("div", { class: "offline-banner", role: "status", hidden: true }, "Sin conexión · estás viendo lo guardado en este dispositivo");
+  const setOffline = (value) => {
+    if (offline === value) return;
+    offline = value;
+    offlineBanner.hidden = !value;
+  };
+  /** Parts this device can open with no connection, as `topic/part`. */
+  let saved = new Set();
+  const savedKey = (topicId, partId) => `${topicId}/${partId}`;
+  const refreshSaved = () =>
+    new Promise((resolve) => {
+      const worker = navigator.serviceWorker?.controller;
+      if (!worker) return resolve(saved);
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => {
+        saved = new Set(event.data.map((p) => savedKey(p.topic, p.part)));
+        resolve(saved);
+      };
+      worker.postMessage({ type: "saved-parts" }, [channel.port2]);
+    });
+  /** What this device had saved when the studio opened: the reader waits for it with no connection. */
+  const savedReady = refreshSaved();
+  const offlineCopy = (topicId, partId) => `${base}api/offline?${new URLSearchParams({ topic: topicId, part: partId })}`;
+  /** Fetching the copy is saving it: the worker keeps the answer. */
+  async function savePart(topicId, partId) {
+    try {
+      const response = await fetch(offlineCopy(topicId, partId));
+      // Read to the end: an unread body keeps the request open and its bytes held.
+      await response.arrayBuffer();
+      if (!response.ok || response.headers.get("x-learning-saved")) return false;
+      saved.add(savedKey(topicId, partId));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function canSaveParts() {
+    if (navigator.serviceWorker?.controller) return true;
+    toast("Este navegador no deja guardar partes en esta dirección: abre el estudio desde una con certificado de confianza.");
+    return false;
+  }
+
+  /** Saves every written part of a topic, one after another, and says how many made it. */
+  function saveTopicButton(topic) {
+    const parts = topic.parts.filter((p) => p.written);
+    const button = btn(
+      "Guardar el tema sin conexión",
+      async () => {
+        if (!canSaveParts()) return;
+        button.disabled = true;
+        let done = 0;
+        for (const [index, p] of parts.entries()) {
+          button.lastChild.textContent = `Guardando ${index + 1} de ${parts.length}…`;
+          if (await savePart(topic.id, p.id)) done += 1;
+        }
+        await refreshSaved();
+        toast(
+          done === parts.length
+            ? `${done} ${done === 1 ? "parte guardada" : "partes guardadas"} para leer sin conexión`
+            : `Se guardaron ${done} de ${parts.length} partes: vuelve a intentarlo con conexión.`,
+        );
+        if (location.hash === `#/tema/${topic.id}`) render();
+      },
+      "btn",
+      "doc",
+    );
+    return button;
+  }
+
   // ---------- server ----------
   const request = async (path, options) => {
-    const response = await fetch(base + path, options);
+    let response;
+    try {
+      response = await fetch(base + path, options);
+    } catch (error) {
+      setOffline(true);
+      throw Object.assign(new Error("Sin conexión con el estudio."), { offline: true, cause: error });
+    }
+    setOffline(response.headers.get("x-learning-saved") === "1");
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || `Error ${response.status}`);
     return body;
@@ -131,6 +215,8 @@
   const STAGE_IN = {
     preparation: "la preparación del plan",
     diagnosis: "el diagnóstico inicial",
+    method: "la elección del método",
+    remedial: "la parte de refuerzo",
     planning: "la planificación",
     explanation: "la explicación",
     own_words: "tu vuelco",
@@ -144,6 +230,8 @@
   const STAGE = {
     preparation: "preparando el plan",
     diagnosis: "diagnóstico inicial",
+    method: "elección del método",
+    remedial: "parte de refuerzo",
     planning: "planificando la ruta",
     explanation: "explicación",
     own_words: "tu vuelco con tus palabras",
@@ -158,9 +246,31 @@
   const partIndex = (topic, id) => topic.parts.findIndex((p) => p.id === id);
   const partName = (topic, id) => (partIndex(topic, id) >= 0 ? `la Parte ${partIndex(topic, id) + 1}` : "la parte actual");
   const written = (topic) => topic.parts.filter((p) => p.written).length;
+  /** The part the tutor owes next: the one the engine points at, else the first one missing. */
+  function owedPart(topic) {
+    const at = topic.part ? topic.parts[partIndex(topic, topic.part)] : undefined;
+    return at && !at.written ? at : topic.parts.find((p) => !p.written);
+  }
+  /** Asking for one part by name, with the folder the tutor works in. */
+  const partNumber = (topic, part) => topic.parts.indexOf(part) + 1;
+  const writePromptOf = (topic, number, title) =>
+    `Escribe la Parte ${number} «${title}» de ${topic.title} (carpeta ${topic.id}): con sus visuales, sus ejemplos y su mini-quiz.`;
+  const writePrompt = (topic, part) => writePromptOf(topic, partNumber(topic, part), part.title);
+  /** The panorama is built from two files the tutor writes: the plan and the map. */
+  const planPrompt = (topic) =>
+    `Escribe la planificación de ${topic.title} (carpeta ${topic.id}) en planificador.md: el diagnóstico, la tabla de plan por subtema, la ruta numerada y el mapa de dependencias.`;
+  const mapPrompt = (topic) =>
+    `Dibuja el mapa de dependencias de ${topic.title} (carpeta ${topic.id}) en mapa.mmd: un subgrupo por subtema y una flecha por cada dependencia entre conceptos.`;
+  const subtemaPrompt = (topic, subtema) =>
+    `Escribe la parte que explica el subtema ${subtema} de ${topic.title} (carpeta ${topic.id}): con sus visuales, sus ejemplos y su mini-quiz.`;
+  const askWrite = (topic, part) => ({
+    tone: "tutor",
+    label: "Siguiente paso",
+    text: `La Parte ${partNumber(topic, part)} todavía no está escrita: el tutor puede prepararla.`,
+    cta: [`Escribir la Parte ${partNumber(topic, part)}`, () => say(writePrompt(topic, part))],
+  });
   const prompts = {
     resume: (t) => `Sigamos con ${t.title} (carpeta ${t.id}).`,
-    next: (t) => `Escribe la siguiente parte de ${t.title} (carpeta ${t.id}).`,
     gaps: (t) => `Repasa mis lagunas de ${t.title} (carpeta ${t.id}).`,
     fill: (t) => {
       const ids = ((t.gaps && t.gaps.missing) || []).join(", ");
@@ -173,8 +283,10 @@
     const stage = topic.nextStage || topic.stage;
     const where = STAGE_IN[stage] || stage || "";
     const part = topic.part ? partName(topic, topic.part) : "";
-    const read = (id) => () => go(`#/leer/${topic.id}/${id}`);
+    const read = (id) => Object.assign(() => go(`#/leer/${topic.id}/${id}`), { route: `#/leer/${topic.id}/${id}` });
     if (topic.status === "sin inscribir") {
+      const owed = owedPart(topic);
+      if (owed) return { ...askWrite(topic, owed), tone: "test", label: "Sin seguimiento del motor" };
       return { tone: "test", label: "Tema de prueba", text: "Este tema no lleva seguimiento del motor: puedes leer sus partes y sus explicaciones.", cta: ["Ver el tema", () => go(`#/tema/${topic.id}`)] };
     }
     if (topic.status === "completed") {
@@ -182,6 +294,14 @@
     }
     if (topic.status === "waiting") {
       if (stage === "diagnosis") return { tone: "you", label: "Te toca a ti", text: "Responde el diagnóstico inicial: con tus respuestas el tutor entiende qué sabes y enfoca el plan de tu ruta.", cta: ["Responder el diagnóstico", read("quiz")] };
+      // A part with no file yet cannot be read, quizzed or poured into own words:
+      // the tutor writes it first, and that is the step the learner asks for.
+      const current = topic.part ? topic.parts[partIndex(topic, topic.part)] : undefined;
+      if (current && !current.written) return askWrite(topic, current);
+      if (stage === "explanation") {
+        const owed = owedPart(topic);
+        if (owed) return askWrite(topic, owed);
+      }
       if (stage === "quiz" && topic.part) return { tone: "you", label: "Te toca a ti", text: `Responde el mini-quiz de ${part}.`, cta: ["Ir al quiz", read(topic.part)] };
       if (stage === "own_words") return { tone: "you", label: "Te toca a ti", text: `Escribe con tus palabras lo que entendiste de ${part}.`, cta: ["Escribírselo al tutor", () => openDrawer(`Mi vuelco de ${part} de ${topic.title}: `)] };
       return { tone: "you", label: "Te toca a ti", text: `El tutor espera tu respuesta (${where}).`, cta: ["Abrir el tutor", () => openDrawer()] };
@@ -192,13 +312,18 @@
     if (stage === "explanation" && topic.part) {
       const p = topic.parts[partIndex(topic, topic.part)];
       if (p && p.written) return { tone: "tutor", label: "Sigue leyendo", text: `Lee ${part}: ${p.title}.`, cta: ["Leer ahora", read(p.id)] };
-      return { tone: "tutor", label: "Siguiente paso", text: `${part[0]?.toUpperCase()}${part.slice(1)} todavía no está escrita: el tutor puede prepararla.`, cta: ["Pedir esa parte", () => say(prompts.next(topic))] };
+    }
+    if (stage === "explanation") {
+      const owed = owedPart(topic);
+      if (owed) return askWrite(topic, owed);
     }
     return { tone: "tutor", label: "Siguiente paso", text: `El tutor puede seguir con ${where || "el tema"}.`, cta: ["Seguir", () => say(prompts.resume(topic))] };
   }
 
   // ---------- routing ----------
   let library = { topics: [], quick: [] };
+  let panoramaBack = "#/";
+  const openPanorama = (id, from) => { panoramaBack = from; go(`#/panorama/${id}`); };
   const go = (hash) => {
     if (location.hash === hash) render();
     else location.hash = hash;
@@ -220,10 +345,41 @@
     const [, view, a, b] = location.hash.split("/").map(decodeURIComponent);
     window.scrollTo(0, 0);
     if (view === "tema" && a) return topicView(a);
+    if (view === "panorama" && a) return panoramaView(a, b);
     if (view === "leer" && a) return readerView({ topicId: a, part: b, mode: "page" });
     if (view === "rapido" && a) return readerView({ quickId: a });
+    if (view === "resultados" && a) return resultsView(a, b);
     if (view === "editar") return editorView(a);
+    if (view === "preferencias") return preferencesView();
     return homeView();
+  }
+
+  async function preferencesView() {
+    setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Configuración" }, { text: "Preferencias" }]);
+    const status = h("p", { role: "status", class: "muted" }, "Cargando…");
+    const page = h("div", { class: "page preferences-page" }, h("header", { class: "editor-head" }, h("span", { class: "tag" }, "Configuración"), h("h1", {}, "Preferencias"), h("p", { class: "muted" }, "Elige cómo prefieres que te expliquen.")), status);
+    stage.replaceChildren(page);
+    try {
+      const data = await request("api/preferences");
+      if (!page.isConnected) return;
+      status.textContent = "";
+      const save = h("button", { class: "btn primary", type: "submit" }, "Guardar preferencias");
+      const form = h("form", { class: "preferences-form", onsubmit: async (event) => {
+        event.preventDefault();
+        save.disabled = true;
+        status.textContent = "Guardando…";
+        try {
+          await post("api/preferences", data);
+          status.textContent = "Preferencias guardadas";
+        } catch (error) { status.textContent = `No se pudo guardar: ${error.message}`; }
+        finally { save.disabled = false; }
+      } }, data.aspectos.map((aspect) => h("fieldset", { class: "preference" },
+        h("legend", {}, aspect.titulo), h("p", { class: "muted" }, aspect.descripcion),
+        h("div", { class: "preference-levels" }, ["menos", "medio", "más"].map((level) => h("label", {},
+          h("input", { type: "radio", name: aspect.id, value: level, checked: aspect.nivel === level, onchange: () => { aspect.nivel = level; status.textContent = ""; } }), level))),
+      )), save);
+      page.append(form);
+    } catch (error) { if (page.isConnected) status.textContent = `No se pudieron cargar las preferencias: ${error.message}`; }
   }
 
   // ---------- home ----------
@@ -258,6 +414,8 @@
     const order = { you: 0, tutor: 1, alert: 2, done: 4, test: 5 };
     const ranked = library.topics.map((t) => ({ t, s: nextStep(t) })).sort((x, y) => order[x.s.tone] - order[y.s.tone]);
     const focus = ranked.find((r) => r.s.tone !== "test" && r.s.tone !== "done") || ranked[0];
+    // The cards follow the last time each topic was opened; never-opened ones keep the order above.
+    const byOpened = [...ranked].sort((x, y) => (y.t.opened || 0) - (x.t.opened || 0));
     const input = h("input", { type: "text", name: "topic", "aria-label": "¿Qué quieres aprender?", placeholder: "Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…", autocomplete: "off" });
     const start = (event) => {
       event.preventDefault();
@@ -293,14 +451,17 @@
         ? h(
             "div",
             { class: "cards" },
-            ranked.map(({ t, s }, i) =>
-              h(
-                "button",
-                { class: "card reveal", type: "button", style: `--i:${i + 2};--tone:${TONE[s.tone]}`, onclick: () => go(`#/tema/${t.id}`) },
-                h("span", { class: `tag${s.tone === "test" ? " test" : ""}` }, s.tone === "test" ? "Prueba" : "Universitario"),
-                h("h3", {}, t.title),
-                h("span", { class: "status" }, s.label),
-                h("div", { class: "foot" }, progress(t)),
+            byOpened.map(({ t, s }, i) =>
+              h("div", {},
+                h(
+                  "button",
+                  { class: "card reveal", type: "button", style: `--i:${i + 2};--tone:${TONE[s.tone]}`, onclick: () => go(`#/tema/${t.id}`) },
+                  h("span", { class: `tag${s.tone === "test" ? " test" : ""}` }, s.tone === "test" ? "Prueba" : "Universitario"),
+                  h("h3", {}, t.title),
+                  h("span", { class: "status" }, s.label),
+                  h("div", { class: "foot" }, progress(t)),
+                ),
+                btn("Panorama del tema", () => openPanorama(t.id, "#/"), "btn small ghost", "map"),
               ),
             ),
           )
@@ -377,6 +538,7 @@
       return stage.replaceChildren(h("div", { class: "page" }, h("p", { class: "empty" }, "No encuentro ese tema. Vuelve al inicio.")));
     }
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: topic.title }]);
+    markOpened(topic);
     const step = nextStep(topic);
     const firstPending = topic.parts.find((p) => !p.written);
     const gaps = topic.gaps || { missing: [], noVisuals: [], noQuiz: [] };
@@ -401,7 +563,7 @@
         ),
       );
     }
-    topic.parts.forEach((p, i) => {
+    topic.parts.filter((p) => p.written).forEach((p, i) => {
       const current = topic.part === p.id && topic.status !== "sin inscribir";
       const state = p.answered && !current ? "done" : current ? "current" : p.written ? "ready" : "pending";
       const meta = {
@@ -415,6 +577,7 @@
       if (p.written && gaps.noVisuals.includes(p.id)) owed.push("sin visuales");
       if (p.written && gaps.noQuiz.includes(p.id)) owed.push("sin mini-quiz");
       if (p.written && p.visuals > 0) owed.push(`${p.visuals} visual${p.visuals === 1 ? "" : "es"}`);
+      if (saved.has(savedKey(topic.id, p.id))) owed.push("Guardada en este dispositivo");
       const metaText = owed.length ? `${meta} · ${owed.join(" · ")}` : meta;
       rows.push(
         h(
@@ -426,7 +589,7 @@
             "div",
             { class: "row-actions" },
             p.written ? btn("Leer", () => go(`#/leer/${topic.id}/${p.id}`), state === "current" ? "btn small primary" : "btn small", "book") : null,
-            !p.written && p === firstPending && topic.status !== "sin inscribir" ? btn("Pedir esta parte", () => say(prompts.next(topic)), "btn small ghost", "spark") : null,
+            !p.written ? btn("Escribir esta parte", () => say(writePrompt(topic, p)), p === firstPending ? "btn small primary" : "btn small", "spark") : null,
           ),
         ),
       );
@@ -449,7 +612,15 @@
             h("span", { class: `tag reveal${step.tone === "test" ? " test" : ""}`, style: "--i:0" }, step.tone === "test" ? "Prueba" : "Universitario"),
             h("h1", { class: "reveal", style: "--i:0" }, topic.title),
             h("div", { class: "reveal", style: "--i:1;max-width:520px" }, progress(topic)),
-            gaps.missing.length > 0 && topic.status !== "sin inscribir"
+            // The plan and the map are one picture of the whole topic, not two
+            // more notes: the entry sits with the progress it explains.
+            h(
+              "div",
+              { class: "pano-entry reveal", style: "--i:1" },
+              btn("Panorama del tema", () => openPanorama(topic.id, `#/tema/${topic.id}`), "btn small soft", "map"),
+              h("span", { class: "pano-entry-note" }, "La planificación y el mapa de dependencias, en una vista completa"),
+            ),
+            gaps.missing.length > 0
               ? h(
                   "div",
                   { class: "empty reveal", style: "--i:1" },
@@ -475,6 +646,7 @@
                                         { class: "side-actions reveal", style: "--i:2" },
                                         topic.status !== "sin inscribir" ? btn("Repasar mis lagunas", () => say(prompts.gaps(topic)), "btn", "spark") : null,
                                         btn("Preguntar sobre este tema", () => openDrawer(`Sobre ${topic.title}: `), "btn", "chat"),
+                                        topic.parts.some((p) => p.written) ? saveTopicButton(topic) : null,
                                         btn(
                                           "Borrar el tema",
                                           () =>
@@ -495,12 +667,453 @@
 );
 }
 
+  // ---------- panorama ----------
+  // The plan and the dependency map arrive from the server as one picture: it
+  // joins plan.json with planificador.md and mapa.mmd, and it lays the map out
+  // there too. The studio only draws what it gets, so no diagram library is
+  // loaded here and no geometry is computed twice.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const svgEl = (tag, props, ...children) => {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(props || {})) {
+      if (value === undefined || value === null || value === false) continue;
+      if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+      else node.setAttribute(key, value === true ? "" : String(value));
+    }
+    for (const child of children.flat()) {
+      if (child === undefined || child === null || child === false) continue;
+      node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return node;
+  };
+  /** The map's own class names, in the words the plan uses. */
+  const MAP_STATUS = { claro: "claro", dudoso: "dudoso", laguna: "laguna", no_visto: "no visto" };
+  const MAP_TONES = {
+    claro: { fill: "#d4edda", stroke: "#28a745", color: "#14532d" },
+    dudoso: { fill: "#fff3cd", stroke: "#ffc107", color: "#664d03" },
+    laguna: { fill: "#f8d7da", stroke: "#dc3545", color: "#842029" },
+    no_visto: { fill: "#dbeafe", stroke: "#2563eb", color: "#1e3a8a" },
+  };
+  const statusText = (status) => MAP_STATUS[status] || status || "sin evaluar";
+  const panoTab = (label, on, hash) =>
+    h("button", { class: `pano-tab${on ? " on" : ""}`, type: "button", role: "tab", "aria-selected": String(on), onclick: () => go(hash) }, label);
+  /** The plan's own row, in the words its table uses. */
+  const routeMeta = (part) =>
+    [
+      part.subtema ? `subtema ${part.subtema}` : null,
+      part.knows ? `sabes ${part.knows}` : null,
+      part.depth || null,
+      part.written ? "escrita" : "pendiente",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  let panoSeq = 0;
+
+  async function panoramaView(id, tab) {
+    const seq = ++panoSeq;
+    const topic = topicById(id);
+    const view = tab === "mapa" ? "mapa" : "plan";
+    if (!topic) {
+      setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Panorama" }]);
+      return stage.replaceChildren(h("div", { class: "page" }, h("p", { class: "empty" }, "No encuentro ese tema. Vuelve al inicio.")));
+    }
+    setCrumbs([{ text: "Inicio", href: "#/" }, ...(panoramaBack === "#/" ? [] : [{ text: topic.title, href: `#/tema/${id}` }]), { text: "Panorama" }]);
+    stage.replaceChildren(h("div", { class: "page" }, h("p", { class: "empty" }, "Reuniendo el plan y el mapa del tema…")));
+    let panorama;
+    try {
+      panorama = await request(`api/panorama?topic=${encodeURIComponent(id)}`);
+    } catch (error) {
+      if (seq !== panoSeq) return;
+      return stage.replaceChildren(h("div", { class: "page" }, h("p", { class: "empty" }, `No pude reunir el panorama: ${error.message}`)));
+    }
+    if (seq !== panoSeq) return;
+    stage.replaceChildren(
+      h(
+        "div",
+        { class: "page pano" },
+        h(
+          "header",
+          { class: "pano-head reveal", style: "--i:0" },
+          btn("Volver", () => go(panoramaBack), "btn small ghost", "back"),
+          h("p", { class: "eyebrow" }, "Panorama del tema"),
+          h("h1", {}, topic.title),
+          h(
+            "div",
+            { class: "pano-chips" },
+            h("span", { class: `tag${written(topic) === topic.parts.length ? "" : " test"}` }, `${written(topic)} de ${topic.parts.length} partes escritas`),
+            panorama.plan?.score ? h("span", { class: "tag test" }, `Diagnóstico ${panorama.plan.score}`) : null,
+            topic.status === "sin inscribir" ? h("span", { class: "tag test" }, "Sin seguimiento del motor") : null,
+            panorama.map ? h("span", { class: "tag test" }, `${panorama.map.graph.nodes.length} conceptos en el mapa`) : null,
+          ),
+          h(
+            "div",
+            { class: "pano-tabs", role: "tablist", "aria-label": "Vistas del panorama" },
+            panoTab("Planificación", view === "plan", `#/panorama/${id}`),
+            panoTab("Mapa de dependencias", view === "mapa", `#/panorama/${id}/mapa`),
+          ),
+        ),
+        view === "plan" ? planPanel(topic, panorama) : mapPanel(topic, panorama),
+      ),
+    );
+  }
+
+  /** A section that only draws in the map says so, so nothing looks missing. */
+  function diagramHint(count) {
+    if (!count) return null;
+    return h("span", { class: "hint" }, count === 1 ? "su diagrama vive en el mapa" : `${count} diagramas, en el mapa`);
+  }
+  /** The plan as a reader walks it: the route first, then what the tutor wrote. */
+  function planPanel(topic, panorama) {
+    const chapters = panorama.route.map((part, i) =>
+      h(
+        "li",
+        { class: `part-row reveal ${part.written ? "ready" : "pending"}`, style: `--i:${i + 1}`, "data-part": part.id },
+        h("span", { class: "node" }, String(part.number)),
+        h("div", {}, h("h3", {}, part.title), h("div", { class: "meta" }, routeMeta(part)), part.why ? h("p", { class: "pano-why" }, part.why) : null),
+        h(
+          "div",
+          { class: "row-actions" },
+          part.written
+            ? btn("Leer", () => go(`#/leer/${topic.id}/${part.id}`), "btn small", "book")
+            : btn("Escribir esta parte", () => say(writePromptOf(topic, part.number, part.title)), "btn small primary", "spark"),
+        ),
+      ),
+    );
+    const sections = (panorama.plan?.sections ?? []).map((section, i) =>
+      h("details", { class: "pano-section reveal", style: `--i:${i + 2}`, open: i === 0 },
+        h("summary", {}, h("span", { class: "title" }, section.title), diagramHint(section.diagrams)),
+        h("div", { class: "prose" }, markdown(section.markdown)),
+      ),
+    );
+    return h(
+      "div",
+      { class: "pano-body" },
+      h(
+        "main",
+        { class: "pano-main" },
+        h(
+          "section",
+          { class: "pano-block" },
+          h(
+            "div",
+            { class: "pano-block-title" },
+            h("h2", {}, "La ruta"),
+            h("p", {}, `${panorama.route.filter((part) => part.written).length} de ${panorama.route.length} escritas`),
+          ),
+          panorama.plan
+            ? null
+            : h(
+                "div",
+                { class: "pano-ask reveal" },
+                h("p", {}, "Falta la planificación: el tutor todavía no escribió planificador.md."),
+                btn("Pedir la planificación", () => say(planPrompt(topic)), "btn small", "spark"),
+              ),
+          h("ol", { class: "route", "aria-label": "Ruta del tema" }, chapters),
+        ),
+        sections.length ? h("section", { class: "pano-block" },
+          h("div", { class: "pano-block-title" }, h("h2", {}, "El plan del tutor")),
+          h("div", { class: "pano-sections" }, sections),
+        ) : null,
+        panorama.map
+          ? null
+          : h(
+              "div",
+              { class: "pano-ask reveal" },
+              h("p", {}, "Falta el mapa de dependencias: el tutor todavía no lo dibujó."),
+              btn("Pedir el mapa", () => say(mapPrompt(topic)), "btn small", "spark"),
+            ),
+      ),
+      h(
+        "aside",
+        { class: "pano-aside" },
+        h(
+          "div",
+          { class: "aside-sticky" },
+          continueCard(topic, nextStep(topic), true),
+          h(
+            "div",
+            { class: "side-actions" },
+            btn("Ver el tema", () => go(`#/tema/${topic.id}`), "btn ghost", "deck"),
+            panorama.map ? btn("Abrir el mapa", () => go(`#/panorama/${topic.id}/mapa`), "btn", "map") : null,
+          ),
+          h("p", { class: "pano-note" }, "En el mapa, cada caja se abre: dice qué necesita, a qué abre paso y qué parte de tu ruta lo explica."),
+        ),
+      ),
+    );
+  }
+
+  /** The map the tutor drew, drawn again here: columns per subtema, and a card per concept. */
+  function mapPanel(topic, panorama) {
+    if (!panorama.map) {
+      return h(
+        "div",
+        { class: "pano-body" },
+        h(
+          "main",
+          { class: "pano-main" },
+          h(
+            "div",
+            { class: "pano-ask reveal" },
+            h("h2", {}, "Todavía no hay mapa"),
+            h("p", {}, "El mapa de dependencias es un archivo mapa.mmd: el tutor dibuja ahí cada subtema con sus conceptos y las flechas de qué necesita a qué."),
+            btn("Pedir el mapa de dependencias", () => say(mapPrompt(topic)), "btn primary", "spark"),
+          ),
+        ),
+      );
+    }
+    const { layout, graph } = panorama.map;
+    const at = new Map(layout.nodes.map((node) => [node.id, node]));
+    const needs = (id) => graph.edges.filter((edge) => edge.to === id).map((edge) => at.get(edge.from)).filter(Boolean);
+    const opens = (id) => graph.edges.filter((edge) => edge.from === id).map((edge) => at.get(edge.to)).filter(Boolean);
+    const tone = (status) => MAP_TONES[status] || MAP_TONES.no_visto;
+
+    const camera = svgEl("g", { class: "pano-cam" });
+    const canvas = h("div", { class: "pano-canvas" });
+    const cam = { x: 0, y: 0, k: 1 };
+    let moved = false;
+    let drag = null;
+    // Fingers on the canvas, by pointer id: two of them pinch.
+    const fingers = new Map();
+    let pinch = null;
+    // Below this scale a concept's words are too small to read on a tablet.
+    const READABLE = 0.85;
+    const apply = () => camera.setAttribute("transform", `translate(${cam.x.toFixed(1)},${cam.y.toFixed(1)}) scale(${cam.k.toFixed(3)})`);
+    /**
+     * `whole` shows the entire map. Otherwise a map that would only fit by shrinking
+     * its words opens at a readable size on its first column, ready to be dragged.
+     */
+    let showWhole = false;
+    const fit = (whole = showWhole) => {
+      showWhole = whole;
+      const box = canvas.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+      const all = Math.min(box.width / layout.width, box.height / layout.height, 1.15);
+      if (whole || all >= READABLE) {
+        cam.k = all;
+        cam.x = (box.width - layout.width * cam.k) / 2;
+        cam.y = (box.height - layout.height * cam.k) / 2;
+      } else {
+        cam.k = READABLE;
+        cam.x = 0;
+        cam.y = Math.max(0, (box.height - layout.height * cam.k) / 2);
+      }
+      apply();
+    };
+    const zoomTo = (target, px, py) => {
+      const box = canvas.getBoundingClientRect();
+      const x = px ?? box.width / 2;
+      const y = py ?? box.height / 2;
+      const k = Math.min(2.6, Math.max(0.25, target));
+      cam.x = x - ((x - cam.x) * k) / cam.k;
+      cam.y = y - ((y - cam.y) * k) / cam.k;
+      cam.k = k;
+      apply();
+    };
+    const zoom = (factor, px, py) => zoomTo(cam.k * factor, px, py);
+
+    const shapes = new Map();
+    const detail = h("div", { class: "pano-detail" });
+    const chip = (node) =>
+      h(
+        "span",
+        { class: "pano-chip", style: `--fill:${tone(node.status).fill || "var(--soft)"};--line:${tone(node.status).stroke || "var(--line)"};--text:${tone(node.status).color || "var(--ink)"}` },
+        statusText(node.status),
+      );
+    const depLink = (node) =>
+      h(
+        "li",
+        {},
+        h("button", { class: "pano-link", type: "button", onclick: () => select(node) }, node.number ? h("span", { class: "n" }, node.number) : null, node.title),
+      );
+  function depBlock(title, items, empty) {
+    const body = items.length ? h("ul", {}, items.map(depLink)) : h("p", { class: "muted" }, empty);
+    return h("div", { class: "pano-deps" }, h("h4", {}, title), body);
+  }
+  /** The part that explains a concept, or the request that would open one. */
+  function closing(topic, node) {
+    const part = node.part;
+    if (!part) {
+      const name = node.request ? `el subtema ${node.request}` : "este concepto";
+      return [
+        h("p", { class: "muted" }, `Tu ruta todavía no tiene una parte para ${name}.`),
+        node.request
+          ? btn(`Pedir la parte de ${node.request}`, () => say(subtemaPrompt(topic, node.request)), "btn small primary", "spark")
+          : null,
+      ];
+    }
+    const open = part.written
+      ? btn("Leer esta parte", () => go(`#/leer/${topic.id}/${part.id}`), "btn small", "book")
+      : btn("Escribir esta parte", () => say(writePromptOf(topic, part.number, part.title)), "btn small primary", "spark");
+    return [h("p", { class: "pano-part-name" }, part.written ? "Aprendido en " : "Lo aprenderás en ", h("b", {}, `Parte ${part.number}`), ` · ${part.title}`), open];
+  }
+  function select(node) {
+    for (const [id, shape] of shapes) shape.classList.toggle("on", id === node.id);
+    detail.replaceChildren(
+        h("p", { class: "eyebrow" }, node.number ? `Concepto ${node.number}` : "Concepto"),
+        h("h3", {}, node.title),
+        h("div", { class: "pano-meta-row" }, chip(node)),
+        node.evidence ? h("p", {}, node.evidence) : null,
+        depBlock("Necesita", needs(node.id), "Nada: arranca el mapa."),
+        depBlock("Abre paso a", opens(node.id), "Nada todavía: es una hoja del mapa."),
+        h("div", { class: "pano-part" }, closing(topic, node)),
+      );
+    }
+
+    const used = ["claro", "dudoso", "laguna", "no_visto"];
+    const legend = h(
+      "div",
+      { class: "pano-legend", "aria-label": "Colores del mapa" },
+      used.map((status) =>
+        h("span", {}, h("i", { style: `background:${tone(status).fill || "var(--paper)"};border-color:${tone(status).stroke || "var(--line)"}` }), statusText(status)),
+      ),
+    );
+    const frames = layout.groups.map((group) =>
+      svgEl(
+        "g",
+        { class: "pano-frame" },
+        svgEl("rect", { x: group.x, y: group.y, width: group.w, height: group.h, rx: 16 }),
+        svgEl("text", { x: group.x + 16, y: group.y + 21 }, group.title),
+      ),
+    );
+    const links = layout.edges.map((edge) => svgEl("path", { class: "pano-edge", d: edge.path, "data-from": edge.from, "data-to": edge.to }));
+    const boxes = layout.nodes.map((node) => {
+      const paint = tone(node.status);
+      const shape = svgEl(
+        "g",
+        {
+          class: `pano-node${node.part?.written ? " read" : ""}${node.part ? "" : " loose"}`,
+          transform: `translate(${node.x},${node.y})`,
+          "data-node": node.id,
+          role: "button",
+          tabindex: "0",
+          "aria-label": `${node.number ? `${node.number}, ` : ""}${node.title}, ${statusText(node.status)}`,
+          onclick: () => {
+            if (!moved) select(node);
+          },
+          onkeydown: (event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            select(node);
+          },
+        },
+        svgEl("rect", { width: node.w, height: node.h, rx: 10, style: paint.fill ? `fill:${paint.fill};stroke:${paint.stroke}` : null }),
+        node.lines.map((line) => svgEl("text", { x: 14, y: line.y, class: "pano-node-title" }, line.text)),
+        svgEl("text", { x: 14, y: node.metaY, class: "pano-node-meta", style: `fill:${paint.color}` }, statusText(node.status)),
+      );
+      shapes.set(node.id, shape);
+      return shape;
+    });
+    camera.append(...frames, ...links, ...boxes);
+    // The canvas is the frame the camera moves inside: the drawing keeps one unit
+    // per CSS pixel, so the fit is exact and nothing is clipped by a smaller box.
+    canvas.append(
+      svgEl(
+        "svg",
+        { class: "pano-svg", role: "img", "aria-label": `Mapa de dependencias de ${topic.title}` },
+        camera,
+      ),
+    );
+    // The map moves like a sheet of paper: drag to travel, the wheel to zoom,
+    // and one button to bring the whole picture back into view.
+    canvas.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        const box = canvas.getBoundingClientRect();
+        zoom(event.deltaY < 0 ? 1.12 : 1 / 1.12, event.clientX - box.left, event.clientY - box.top);
+      },
+      { passive: false },
+    );
+    // Two fingers zoom around the point between them, as on any picture on a tablet.
+    const spread = () => {
+      const [a, b] = [...fingers.values()];
+      const box = canvas.getBoundingClientRect();
+      return { distance: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2 - box.left, y: (a.y + b.y) / 2 - box.top };
+    };
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (fingers.size === 2) {
+        pinch = { ...spread(), k: cam.k };
+        drag = null;
+        moved = true;
+        return;
+      }
+      drag = { x: event.clientX, y: event.clientY, camX: cam.x, camY: cam.y };
+      moved = false;
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (fingers.has(event.pointerId)) fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (pinch && fingers.size >= 2) {
+        const now = spread();
+        if (pinch.distance > 0) zoomTo((pinch.k * now.distance) / pinch.distance, now.x, now.y);
+        return;
+      }
+      if (!drag) return;
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+      if (!moved) return;
+      cam.x = drag.camX + dx;
+      cam.y = drag.camY + dy;
+      apply();
+    });
+    const release = (event) => {
+      fingers.delete(event.pointerId);
+      if (fingers.size < 2) pinch = null;
+      drag = null;
+    };
+    canvas.addEventListener("pointerup", release);
+    canvas.addEventListener("pointercancel", release);
+    canvas.addEventListener("pointerleave", release);
+    detail.replaceChildren(
+      h("p", { class: "eyebrow" }, "Cómo leer el mapa"),
+      h("p", { class: "pano-lead" }, "Cada caja es un concepto y cada flecha, lo que necesita para entenderse. Abre una caja: verás con qué se conecta y qué parte de tu ruta lo explica."),
+    );
+    requestAnimationFrame(() => fit());
+    // The canvas changes size when the chat opens or the window moves: the map
+    // re-fits instead of sliding under the detail the reader is reading.
+    const resize = new ResizeObserver(() => {
+      if (!canvas.isConnected) {
+        resize.disconnect();
+        return;
+      }
+      requestAnimationFrame(() => fit());
+    });
+    resize.observe(canvas);
+    return h(
+      "div",
+      { class: "pano-body pano-body-map" },
+      h(
+        "main",
+        { class: "pano-main" },
+        h(
+          "div",
+          { class: "pano-map-bar" },
+          h("p", { class: "pano-lead" }, "Arrastra para recorrerlo, acércate con la rueda o con dos dedos y abre cualquier caja."),
+          h(
+            "div",
+            { class: "pano-controls" },
+            h("button", { class: "icon-btn", type: "button", title: "Alejar", "aria-label": "Alejar", onclick: () => zoom(1 / 1.2) }, "−"),
+            h("button", { class: "icon-btn", type: "button", title: "Acercar", "aria-label": "Acercar", onclick: () => zoom(1.2) }, "+"),
+            h("button", { class: "icon-btn", type: "button", title: "Ajustar a la ventana", "aria-label": "Ajustar a la ventana", onclick: () => fit(true) }, icon("fit")),
+          ),
+        ),
+        canvas,
+        legend,
+      ),
+      h("aside", { class: "pano-aside" }, h("div", { class: "aside-sticky" }, detail)),
+    );
+  }
+
   // ---------- reader ----------
   let readSeq = 0;
   async function readerView({ topicId, part, quickId, mode }) {
     const seq = ++readSeq;
     const topic = topicId ? topicById(topicId) : null;
-    const quick = quickId ? library.quick.find((q) => q.id === quickId) : null;
+    // A quick note the library does not list yet (just written) is still a quick note.
+    const quick = quickId ? library.quick.find((q) => q.id === quickId) || { id: quickId, title: quickId } : null;
+    if (topic) markOpened(topic);
     const index = topic && part !== "quiz" ? partIndex(topic, part) : -1;
     const info = index >= 0 ? topic.parts[index] : null;
     const exercise = topic?.exercises?.find((e) => part === `codigo/${e.id}`);
@@ -522,11 +1135,37 @@
     // lives in aria-label too.
     const barBtn = (label, onclick, cls, iconName) =>
       h("button", { class: cls, type: "button", onclick, "aria-label": label, title: label }, icon(iconName), h("span", { class: "label" }, label));
+    let saveButton;
+    const setSaveState = (label, disabled, iconName) => {
+      if (seq !== readSeq || !saveButton.isConnected) return;
+      saveButton.disabled = disabled;
+      saveButton.setAttribute("aria-label", label);
+      saveButton.title = label;
+      saveButton.replaceChildren(icon(iconName), h("span", { class: "label" }, label));
+    };
+    const saveReaderPart = async (automatic = false) => {
+      if (!navigator.serviceWorker?.controller) {
+        if (!automatic) canSaveParts();
+        return;
+      }
+      setSaveState("Descargando…", true, "doc");
+      const ok = await savePart(topicId, part);
+      if (seq !== readSeq || !saveButton.isConnected) return;
+      if (ok) setSaveState("Guardada en este dispositivo", true, "check");
+      else {
+        setSaveState("Descargar para ver sin conexión", false, "doc");
+        toast("No se pudo guardar: vuelve a intentarlo con conexión.");
+      }
+    };
+    if (info?.written && mode !== "app") {
+      saveButton = barBtn("Descargar para ver sin conexión", () => saveReaderPart(), "btn small ghost", "doc");
+    }
     const bar = h(
       "div",
       { class: "reader-bar" },
       h("button", { class: "icon-btn", type: "button", "aria-label": "Volver", title: "Volver", onclick: () => go(quick ? "#/" : `#/tema/${topicId}`) }, icon("back")),
       h("div", { class: "title" }, h("small", {}, kicker), title),
+      saveButton,
       prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost nav", "back") : null,
       next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost nav", "next") : null,
       barBtn("Preguntar", () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `), "btn small", "chat"),
@@ -555,9 +1194,111 @@
       const url = data.url;
       if (!url) throw new Error("Esta parte no tiene vista HTML.");
       frame.src = url;
+      // A part read with a connection is kept on the device for reading without one.
+      if (saveButton) {
+        await savedReady;
+        if (seq !== readSeq || !saveButton.isConnected) return;
+        if (saved.has(savedKey(topicId, part))) setSaveState("Guardada en este dispositivo", true, "check");
+        else if (!saveButton.disabled) saveReaderPart(true);
+      }
     } catch (error) {
-      if (seq === readSeq) frame.replaceWith(h("p", { class: "empty" }, error.message));
+      if (seq !== readSeq) return;
+      if (!error.offline || !info) return frame.replaceWith(h("p", { class: "empty" }, error.message));
+      await savedReady;
+      if (seq !== readSeq) return;
+      if (mode !== "app" && saved.has(savedKey(topicId, part))) {
+        setSaveState("Guardada en este dispositivo", true, "check");
+        frame.src = offlineCopy(topicId, part);
+      } else
+        frame.replaceWith(
+          h("p", { class: "empty" }, "Esta parte no está guardada en este dispositivo. Ábrela una vez con conexión y quedará guardada para leerla sin ella."),
+        );
     }
+  }
+
+  // ---------- results of a submitted quiz ----------
+  // The reading frame announces a graded submission; the learner lands on its results
+  // and watches the tutor read them until it is done, then goes on to the next step.
+  let submitted = null;
+  let showResultsStatus = () => {};
+  window.addEventListener("message", (event) => {
+    const data = event.data;
+    if (data && data.type === "learning:quick-quiz" && data.entry) {
+      const frame = stage.querySelector("iframe.sheet");
+      if (frame && event.source === frame.contentWindow) {
+        post("api/telemetry", { entry: data.entry }).catch(() => {});
+      }
+      return;
+    }
+    if (!data || data.type !== "learning:submitted" || typeof data.topic !== "string" || !Array.isArray(data.results)) return;
+    const frame = stage.querySelector("iframe.sheet");
+    if (!frame || event.source !== frame.contentWindow) return;
+    submitted = { ...data, sawBusy: tutor.busy, done: false };
+    go(`#/resultados/${encodeURIComponent(data.topic)}/${encodeURIComponent(data.part || "quiz")}`);
+  });
+  // Called on every tutor change: the turn that reads the answers is over once the tutor
+  // has been busy and is idle again (the prompt may still be queued when the page opens).
+  function watchResults() {
+    if (!submitted || submitted.done) return;
+    if (tutor.busy) submitted.sawBusy = true;
+    else if (submitted.sawBusy || !tutor.alive) {
+      submitted.done = true;
+      loadLibrary().then(() => showResultsStatus());
+    }
+    showResultsStatus();
+  }
+  function resultsView(topicId, part) {
+    if (!submitted || submitted.topic !== topicId || (submitted.part || "quiz") !== part) return go(`#/tema/${encodeURIComponent(topicId)}`);
+    const topic = topicById(topicId);
+    const kicker = part === "quiz" ? "Diagnóstico" : topic ? `Parte ${partIndex(topic, part) + 1}` : part;
+    setCrumbs([{ text: "Inicio", href: "#/" }, { text: topic ? topic.title : topicId, href: `#/tema/${topicId}` }, { text: "Resultados" }]);
+    const [points, total] = String(submitted.score).split("/").map(Number);
+    const status = h("div", { class: "results-status", role: "status", "aria-live": "polite" });
+    showResultsStatus = () => {
+      if (!status.isConnected || !submitted) return;
+      if (!submitted.done) {
+        status.replaceChildren(
+          h("span", { class: "spinner" }),
+          h("div", {}, h("p", { class: "reading" }, "El agente está leyendo tus análisis…"), tutor.activity ? h("p", { class: "muted" }, tutor.activity) : null),
+        );
+        return;
+      }
+      const fresh = topicById(topicId);
+      const step = fresh ? nextStep(fresh) : null;
+      status.replaceChildren(
+        step ? h("p", {}, step.text) : h("p", {}, "El tutor ya leyó tus respuestas."),
+        btn("Ir a lo siguiente", () => (step ? step.cta[1]() : go(`#/tema/${encodeURIComponent(topicId)}`)), "btn primary", "next"),
+      );
+    };
+    stage.replaceChildren(
+      h(
+        "div",
+        { class: "page results" },
+        h("p", { class: "eyebrow" }, `${kicker} · resultados`),
+        h("h1", {}, `Puntaje ${submitted.score}`, h("span", { class: "pct" }, ` — ${total ? Math.round((points / total) * 100) : 0} %`)),
+        status,
+        h(
+          "ol",
+          { class: "results-list" },
+          submitted.results.map((r) =>
+            h(
+              "li",
+              { class: r.ok ? "ok" : "miss" },
+              h("p", { class: "question" }, r.enunciado || r.id),
+              h("p", {}, h("strong", {}, r.ok ? "✔ Correcta" : "✘ Incorrecta"), ` — elegiste ${r.chosen}: ${r.chosenText}`),
+              r.ok ? null : h("p", { class: "muted" }, `La correcta es ${r.correct}: ${r.correctText}`),
+            ),
+          ),
+        ),
+      ),
+    );
+    showResultsStatus();
+  }
+
+  // Opening a topic (its page or any of its sheets) moves it to the front of the home cards.
+  function markOpened(topic) {
+    topic.opened = Date.now();
+    post("opened", { topic: topic.id }).catch(() => {});
   }
 
   // ---------- note editor ----------
@@ -771,7 +1512,7 @@
   }
 
   // ---------- tutor ----------
-  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null, turnNote: null };
+  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null, turnNote: null, turnTopic: null };
   const thread = h("div", { class: "thread", "aria-live": "polite" });
   const composerText = h("textarea", { rows: "1", "aria-label": "Mensaje para el tutor", placeholder: "Escribe al tutor…" });
   const stateLine = h("span", { class: "state" }, "Conectando…");
@@ -806,6 +1547,7 @@
   );
 
   function updatePill() {
+    watchResults();
     const asking = asks.size > 0;
     pill.className = `tutor-pill${!tutor.alive ? " dead" : asking ? " asking" : tutor.busy ? " working" : ""}`;
     const text = !tutor.alive ? "Tutor detenido" : asking ? "El tutor te pregunta algo" : tutor.busy ? `Trabajando · ${tutor.activity || "pensando"}` : "Tutor listo";
@@ -939,7 +1681,7 @@
     thread.scrollTop = thread.scrollHeight;
   });
   on("state", (s) => {
-    if (tutor.busy && !s.busy) offerNote();
+    if (tutor.busy && !s.busy) offerTurnEnd();
     tutor.busy = s.busy;
     tutor.alive = s.alive;
     if (!s.busy) tutor.activity = "";
@@ -947,6 +1689,7 @@
   });
   on("user", ({ text }) => {
     tutor.turnNote = null;
+    tutor.turnTopic = null;
     append(h("div", { class: "msg user" }, text));
   });
   on("assistant_delta", ({ id, delta }) => {
@@ -963,7 +1706,7 @@
   });
   // The tutor writes notes inside the vault: the chat hands back the way to the one it wrote.
   const noteRoute = (note) => {
-    if (note?.quick) return `#/rapido/${encodeURIComponent(note.quick)}`;
+    if (note?.quick) return library.quick.some((q) => q.id === note.quick) ? `#/rapido/${encodeURIComponent(note.quick)}` : null;
     const topic = note ? topicById(note.topic) : null;
     const part = topic ? topic.parts[note.index - 1] : null;
     return part ? `#/leer/${note.topic}/${part.id}` : null;
@@ -975,10 +1718,30 @@
     go(route);
   };
   const noteButton = (note) => (noteRoute(note) ? btn("Ir a la nota", () => openNote(note), "btn small ghost", "book") : null);
-  // A turn that wrote a note ends with the way to it, right under the explanation.
-  const offerNote = () => {
-    const button = noteButton(tutor.turnNote);
+  // A turn ends with what to do next, right under the explanation: the topic it worked on
+  // offers its next step (the learner never has to guess it from the reply), and a turn that
+  // wrote a note offers the way to it. The turn may have created the topic, so the library is
+  // read again before deciding.
+  const offerTurnEnd = async () => {
+    const note = tutor.turnNote;
+    const topicId = tutor.turnTopic;
     tutor.turnNote = null;
+    tutor.turnTopic = null;
+    if (!note && !topicId) return;
+    await loadLibrary();
+    const topic = topicId ? topicById(topicId) : null;
+    const step = topic ? nextStep(topic) : null;
+    const [label, action] = step ? step.cta : [];
+    if (step && !(note && action.route && action.route === noteRoute(note))) {
+      const run = () => {
+        closeDrawer();
+        action();
+      };
+      append(h("div", { class: "next-cta" }, h("p", {}, h("strong", {}, `${step.label}: `), step.text), btn(label, run, "btn small primary", "next")));
+    }
+    if (!note) return;
+    showNote(note);
+    const button = noteButton(note);
     if (button) append(h("div", { class: "note-cta" }, button));
   };
   // The head keeps the way back to the last note the tutor wrote, so a reloaded tab still has it.
@@ -989,20 +1752,21 @@
     noteBtn.style.display = tutor.note ? "" : "none";
     noteBtn.title = !tutor.note ? "" : tutor.note.quick ? "Ir a la nota rápida" : `Ir a la nota: Parte ${tutor.note.index}`;
   };
-  on("tool", ({ phase, id, label, ok, note }) => {
+  on("tool", ({ phase, id, label, ok, note, topic }) => {
     if (phase === "start") {
-      const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), label, noteButton(note));
+      const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), label);
       activities.set(id, row);
       append(row);
       tutor.activity = label;
     } else {
       const row = activities.get(id);
-      if (row) row.replaceChildren(...[icon(ok ? "check" : "x"), label, noteButton(note)].filter((child) => child !== null));
+      if (row) row.replaceChildren(icon(ok ? "check" : "x"), label);
       row?.classList.remove("running");
       tutor.activity = "";
+      // The way to the note and the next step come only once the turn is over (offerTurnEnd), never mid-turn.
       if (ok && note) tutor.turnNote = note;
+      if (ok && topic) tutor.turnTopic = topic;
     }
-    if (note) showNote(note);
     updatePill();
   });
   on("dialog", (dialog) => {
@@ -1056,7 +1820,8 @@
     }
     const [, view] = location.hash.split("/");
     // Never re-render the editor from a library change: it would drop typed text.
-    if (view !== "leer" && view !== "rapido" && view !== "editar") render();
+    // The results page refreshes its own status instead of being drawn again.
+    if (view !== "leer" && view !== "rapido" && view !== "editar" && view !== "resultados" && view !== "preferencias") render();
   }
   root.replaceChildren(
     h(
@@ -1064,9 +1829,13 @@
       { class: "topbar" },
       h("a", { class: "brand", href: "#/" }, h("b", {}, "Estudio"), h("span", {}, "Learnings")),
       crumbs,
-      h("div", { class: "top-actions" }, btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
+      h("div", { class: "top-actions" }, h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
     ),
+    offlineBanner,
     h("div", { class: "app" }, stage),
+    // Where the tutor lies over the page (a tablet or a phone), the page behind it
+    // dims and a tap on it closes the tutor, instead of a page cut mid-word.
+    h("div", { class: "scrim", "aria-hidden": "true", onclick: () => closeDrawer() }),
     drawer,
   );
   document.addEventListener("keydown", (event) => {
@@ -1074,6 +1843,16 @@
   });
   window.addEventListener("hashchange", render);
   updatePill();
+  // Keeps the studio and its saved parts readable with no connection (studio/ui/sw.js).
+  // Browsers allow it only on loopback or a trusted HTTPS certificate; elsewhere the
+  // studio simply works online, as before.
+  navigator.serviceWorker?.register("/sw.js", { scope: "/" }).catch(() => {});
+  addEventListener("offline", () => setOffline(true));
+  addEventListener("online", () => loadLibrary());
+  // The marks of saved parts arrive from the worker after the first drawing.
+  savedReady.then(() => {
+    if (location.hash.startsWith("#/tema/")) render();
+  });
   loadLibrary().then(() => {
     render();
     if (window.StudioTutorial && !window.StudioTutorial.seen()) openTutorial();

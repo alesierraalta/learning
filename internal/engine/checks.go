@@ -57,7 +57,7 @@ func evalStage(r *rules.Rules, st *State, ws, stage, part string) evalResult {
 	return res
 }
 
-func validateReceiptInputs(r *rules.Rules, ws, stage string) []Check {
+func validateReceiptInputs(_ *rules.Rules, ws, stage string) []Check {
 	if stage != "planning" {
 		return nil
 	}
@@ -711,6 +711,16 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 			}
 		}
 	}
+	decks, problems := progressiveProblems(withoutCodeFences(text))
+	if decks == 0 {
+		return failCheck(decl.ID, fmt.Sprintf(
+			"part %s needs a progressive walkthrough in %s and has none: a closed <lk-walkthrough> deck that draws the example and points at what changes (an lk-widget or a separate app does not replace it)",
+			c.part, rel))
+	}
+	if len(problems) > 0 {
+		return failCheck(decl.ID, fmt.Sprintf("part %s needs a progressive walkthrough in %s: %s",
+			c.part, rel, strings.Join(problems, "; ")))
+	}
 	if index := declPathByKind(c.r, "planning", "index_note"); index != "" {
 		raw, err := os.ReadFile(absPath(c.ws, index))
 		target := vaultLinkPrefix(c.ws) + strings.TrimSuffix(rel, ".md")
@@ -731,9 +741,9 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 		}
 	}
 	return passCheck(decl.ID, fmt.Sprintf(
-		"%s: frontmatter joined to %s, Fuente traceability, heading, example %s, visual %s", rel, p.Subtema,
+		"%s: frontmatter joined to %s, Fuente traceability, heading, example %s, visual %s, %d progressive walkthrough(s)", rel, p.Subtema,
 		obligationLabel(p.ExamplesPlanned, "verified", "not planned"),
-		visual))
+		visual, decks))
 }
 
 // hasInlineElement reports a closed element from elements, such as

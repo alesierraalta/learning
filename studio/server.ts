@@ -12,9 +12,10 @@
  */
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -31,6 +32,10 @@ import {
 } from "../integrations/pi/bridge.ts";
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { resolveContained } from "../integrations/pi/paths.ts";
+import { buildPanorama } from "./panorama.ts";
+import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
+import { readPreferences, savePreferences } from "./preferences.ts";
+import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -42,6 +47,12 @@ const DRAFT_MAX_CHARS = 200_000;
 const MAX_PROMPT_CHARS = 20000;
 /** A configured token keeps the shape of a generated one, so a weak secret is refused. */
 const TOKEN_SHAPE = /^[a-f0-9]{64}$/;
+/**
+ * Notices the harness writes about its own plumbing (review authority, RDD
+ * status, swarms). They are for the operator driving Pi, not for someone
+ * studying: the chat keeps the tutor's notices and the studio log keeps these.
+ */
+const HARNESS_NOTICE = /^(?:gentle\s*ai|el\s+gentleman|gentle-ai)\b/i;
 const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
 /** The slides' serif: Tinos is metric-compatible with the Liberation Serif the decks render with. */
 const FONT_STYLESHEETS = [
@@ -65,6 +76,10 @@ export interface StudioOptions {
   rulesPath?: string;
   /** A fixed 64-hex token, so restarts never invalidate an open tab; random per run when absent. */
   token?: string;
+  /** When each topic was last opened; kept outside the vault. Default: the user's state directory. */
+  openedFile?: string;
+  /** Where the CDN libraries of saved parts are kept after the first download. Default: the user's cache directory. */
+  offlineCacheDir?: string;
 }
 
 export interface Studio {
@@ -122,11 +137,15 @@ export type Note = { topic: string; index: number } | { quick: string };
 /**
  * `explicaciones/Parte N - <slug>.md` (or its rich `.html` page) inside a topic folder, or
  * `rapidos/<id>.md`: the studio can open that note, so a write that produced it comes back with
- * what the reader routes on.
+ * what the reader routes on. With the Learnings `root`, only the notes the reader serves count:
+ * `<root>/rapidos/<id>.md` and `<root>/<topic>/explicaciones/Parte N - <slug>.(md|html)`.
  */
-export function noteFromPath(path: unknown): Note | null {
+export function noteFromPath(path: unknown, root?: string): Note | null {
   if (typeof path !== "string") return null;
-  const segments = path.split(/[\\/]+/).filter((segment) => segment !== "" && segment !== ".");
+  const inRoot = root === undefined ? path : relative(root, resolve(root, path));
+  if (root !== undefined && (inRoot.startsWith("..") || isAbsolute(inRoot))) return null;
+  const segments = inRoot.split(/[\\/]+/).filter((segment) => segment !== "" && segment !== ".");
+  if (root !== undefined && segments.length !== (segments[0] === "rapidos" ? 2 : 3)) return null;
   if (segments.at(-2) === "rapidos") {
     const quick = /^([\w-]+)\.md$/.exec(segments.at(-1) ?? "");
     return quick === null ? null : { quick: quick[1] };
@@ -139,24 +158,44 @@ export function noteFromPath(path: unknown): Note | null {
   return index < 1 ? null : { topic, index };
 }
 
-/** The note a write or edit produced, when the tutor is working on a part of a topic. */
-function toolNote(name: string, args: unknown): Note | null {
+/**
+ * The topic folder a path lies in: `<root>/<topic>/...`, any file of it. Quick notes and hidden
+ * folders belong to no topic. Without a root the first folder is the topic.
+ */
+export function topicFromPath(path: unknown, root?: string): string | null {
+  if (typeof path !== "string") return null;
+  const inRoot = root === undefined ? path : relative(root, resolve(root, path));
+  if (root !== undefined && (inRoot.startsWith("..") || isAbsolute(inRoot))) return null;
+  const segments = inRoot.split(/[\\/]+/).filter((segment) => segment !== "" && segment !== ".");
+  const topic = segments[0];
+  if (segments.length < 2 || topic === undefined || topic === "rapidos" || topic.startsWith(".")) return null;
+  return topic;
+}
+
+/** The topic a write or edit worked on, so the end of the turn can offer its next step. */
+function toolTopic(name: string, args: unknown, root?: string): string | null {
   if (name !== "write" && name !== "edit") return null;
-  return isRecord(args) ? noteFromPath(args.path) : null;
+  return isRecord(args) ? topicFromPath(args.path, root) : null;
+}
+
+/** The note a write or edit produced, when the tutor is working on a part of a topic. */
+function toolNote(name: string, args: unknown, root?: string): Note | null {
+  if (name !== "write" && name !== "edit") return null;
+  return isRecord(args) ? noteFromPath(args.path, root) : null;
 }
 
 /**
  * The last part note the conversation wrote or edited: a reloaded tab still knows which note the
  * tutor was talking about, so the chat keeps the way back to it.
  */
-export function noteFromMessages(messages: unknown): Note | null {
+export function noteFromMessages(messages: unknown, root?: string): Note | null {
   if (!Array.isArray(messages)) return null;
   let found: Note | null = null;
   for (const message of messages) {
     if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) continue;
     for (const part of message.content) {
       if (!isRecord(part) || part.type !== "toolCall") continue;
-      const note = toolNote(String(part.name), part.arguments);
+      const note = toolNote(String(part.name), part.arguments, root);
       if (note !== null) found = note;
     }
   }
@@ -181,6 +220,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const enginePath = options.enginePath ?? join(REPO, "bin", "learning");
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
   const token = options.token ?? randomBytes(32).toString("hex");
+  const openedFile = options.openedFile ?? join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "learning-studio", "opened.json");
+  const offlineCacheDir = options.offlineCacheDir ?? join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "learning-studio", "cdn");
   let port = 0;
 
   // ---- Server-Sent Events ------------------------------------------------
@@ -246,8 +287,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         const name = String(record.toolName);
         const id = String(record.toolCallId);
         toolArgs.set(id, record.args);
-        const note = toolNote(name, record.args);
-        emit("tool", { phase: "start", id: record.toolCallId, name: record.toolName, label: toolLabel(name, record.args), ok: true, ...(note === null ? {} : { note }) });
+        const note = toolNote(name, record.args, root);
+        const topic = toolTopic(name, record.args, root);
+        emit("tool", { phase: "start", id: record.toolCallId, name: record.toolName, label: toolLabel(name, record.args), ok: true, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
       }
       case "tool_execution_end": {
@@ -255,8 +297,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         const id = String(record.toolCallId);
         const args = record.args ?? toolArgs.get(id);
         toolArgs.delete(id);
-        const note = toolNote(name, args);
-        emit("tool", { phase: "end", id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }) });
+        const note = toolNote(name, args, root);
+        const topic = toolTopic(name, args, root);
+        emit("tool", { phase: "end", id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
       }
       case "extension_ui_request": {
@@ -273,7 +316,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           dialogs.set(record.id, dialog);
           emit("dialog", dialog);
         } else if (method === "notify" && typeof record.message === "string") {
-          emit("notice", { level: record.notifyType ?? "info", message: record.message });
+          if (!HARNESS_NOTICE.test(record.message.trim())) emit("notice", { level: record.notifyType ?? "info", message: record.message });
+          else process.stderr.write(`estudio: aviso del arnés fuera del chat · ${record.message}\n`);
         }
         return;
       }
@@ -397,11 +441,30 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       );
     });
 
+  // ---- opened topics ---------------------------------------------------------
+  // Topic id -> epoch ms of its last open in the studio; shared by every browser of this studio.
+  const readOpened = (): Record<string, number> => {
+    try {
+      const stored = JSON.parse(readFileSync(openedFile, "utf8"));
+      return isRecord(stored) ? Object.fromEntries(Object.entries(stored).filter(([, at]) => typeof at === "number")) as Record<string, number> : {};
+    } catch {
+      return {};
+    }
+  };
+  const recordOpened = (topic: string) => {
+    const opened = { ...readOpened(), [topic]: Date.now() };
+    mkdirSync(dirname(openedFile), { recursive: true });
+    const temporary = `${openedFile}.${process.pid}.tmp`;
+    writeFileSync(temporary, JSON.stringify(opened));
+    renameSync(temporary, openedFile);
+  };
+
   const library = async () => {
+    const opened = readOpened();
     const topics = await Promise.all(
       listTopics(root).map(async (t) => {
         const report = await engineStatus(join(root, t.id));
-        return { ...t, status: report.status ?? "", stage: report.stage ?? "", nextStage: report.nextStage ?? "", part: report.part ?? "" };
+        return { ...t, status: report.status ?? "", stage: report.stage ?? "", nextStage: report.nextStage ?? "", part: report.part ?? "", method: report.method ?? "", opened: opened[t.id] ?? 0 };
       }),
     );
     const quickDir = join(root, "rapidos");
@@ -464,7 +527,8 @@ ${scripts}
       "font-src https://cdn.jsdelivr.net",
       "img-src 'self' data:",
       "connect-src 'self'",
-      `frame-src ${bridgeOrigin}`,
+      // The reader frames the bridge, or a part saved on this device when there is no connection.
+      `frame-src ${bridgeOrigin} 'self'`,
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'none'",
@@ -496,6 +560,15 @@ ${scripts}
     if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
     const body = await readBody(req);
     switch (action) {
+      case "api/preferences":
+        return sendJson(res, 200, savePreferences(root, body));
+      case "api/telemetry": {
+        if (isRecord(body) && body.entry) {
+          const result = recordQuizTelemetry(root, body.entry);
+          return sendJson(res, 200, { ok: true, ...result });
+        }
+        return sendJson(res, 200, { ok: true, global: saveGlobalTelemetry(root, body) });
+      }
       case "prompt": {
         const text = body.text;
         if (typeof text !== "string" || !text.trim() || text.length > MAX_PROMPT_CHARS) {
@@ -579,6 +652,13 @@ ${scripts}
         emit("library_changed", {});
         return sendJson(res, 200, { ok: true, ...result });
       }
+      case "opened": {
+        const topic = body.topic;
+        if (typeof topic !== "string") throw new HttpError(400, "topic must be a string");
+        if (!listTopics(root).some((t) => t.id === topic)) throw new HttpError(404, `unknown topic: ${topic}`);
+        recordOpened(topic);
+        break;
+      }
       case "new-session": {
         const reply = await call({ type: "new_session" });
         if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused a new session"));
@@ -604,7 +684,7 @@ ${scripts}
         .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
         .map((m) => ({ role: m.role, text: messageText(m) }))
         .filter((m) => m.text);
-      return { messages, note: noteFromMessages(raw) };
+      return { messages, note: noteFromMessages(raw, root) };
     } catch {
       return { messages: [], note: null };
     }
@@ -635,6 +715,11 @@ ${scripts}
       res.end();
       return;
     }
+    // The service worker that keeps the studio readable with no connection. It is static
+    // code with no secret, served at the root so its scope covers the root address too.
+    if (url.pathname === "/sw.js" && req.method === "GET") {
+      return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(UI_DIR, "sw.js")), { "cache-control": "no-cache" });
+    }
     const [first = "", ...rest] = url.pathname.split("/").slice(1);
     if (!tokenMatches(first)) throw new HttpError(404, "not found");
     const path = rest.join("/");
@@ -657,9 +742,70 @@ ${scripts}
         return events(res);
       case "api/library":
         return sendJson(res, 200, await library());
+      case "api/preferences":
+        return sendJson(res, 200, readPreferences(root));
+      case "api/telemetry": {
+        const topic = url.searchParams.get("topic");
+        if (topic) {
+          return sendJson(res, 200, {
+            global: readGlobalTelemetry(root),
+            topic: readTopicTelemetry(root, topic),
+          });
+        }
+        return sendJson(res, 200, readGlobalTelemetry(root));
+      }
+      case "api/panorama": {
+        const id = url.searchParams.get("topic") ?? "";
+        const summary = listTopics(root).find((topic) => topic.id === id);
+        if (!summary) throw new HttpError(404, `no such topic ${id}`);
+        const report = await engineStatus(join(root, summary.id));
+        const text = (name: string) => {
+          const found = resolveContained(root, join(root, summary.id, name));
+          return found.ok && existsSync(found.targetReal) ? readFileSync(found.targetReal, "utf8") : undefined;
+        };
+        return sendJson(
+          res,
+          200,
+          buildPanorama(
+            {
+              id: summary.id,
+              title: summary.title,
+              status: String(report.status ?? ""),
+              stage: String(report.stage ?? ""),
+              nextStage: String(report.nextStage ?? ""),
+              part: String(report.part ?? ""),
+              parts: summary.parts.map((part) => ({ id: part.id, title: part.title, written: part.written })),
+            },
+            {
+              planJson: text("plan.json"), plan: text("planificador.md"), map: text("mapa.mmd"),
+              diagnosis: text("diagnostico-conceptos.json"),
+              feedback: Object.fromEntries(summary.parts.map((part) => [part.id, text(`feedback/${part.id}.json`)])),
+            },
+          ),
+        );
+      }
       case "api/note": {
         const quick = url.searchParams.get("quick") ?? "";
         return sendJson(res, 200, readQuickNote(root, quick));
+      }
+      case "api/offline": {
+        // One written part as a single file that reads with no connection (docs/studio.md).
+        const topic = url.searchParams.get("topic") ?? "";
+        const part = url.searchParams.get("part") ?? "";
+        const entry = listTopics(root).find((t) => t.id === topic)?.parts.find((p) => p.id === part);
+        if (!entry?.written) throw new HttpError(404, `no written part ${part} in ${topic}`);
+        // Over loopback, like the draft preview: the public proxy's certificate is for browsers.
+        const reader = await view(topic, part);
+        const publicBase = String(reader.base);
+        const localBase = String(reader.localBase ?? reader.base);
+        const page = new URL(String(reader.url).slice(publicBase.length), localBase).href;
+        let html: string;
+        try {
+          html = await snapshotPage(page, partLoader(localBase, offlineCacheDir), [token]);
+        } catch (err) {
+          throw new HttpError(502, `could not save the part: ${(err as Error).message}`);
+        }
+        return send(res, 200, "text/html; charset=utf-8", html, { "content-security-policy": OFFLINE_CSP });
       }
       case "api/view": {
         const quick = url.searchParams.get("quick");
@@ -694,7 +840,8 @@ ${scripts}
   });
   port = (server.address() as { port: number }).port;
 
-  registerBridge(fakePi as never, { root, transcriber: options.transcriberUrl === undefined ? undefined : { url: options.transcriberUrl, token: options.transcriberToken! }, port: options.bridgePort, publicOrigin: options.bridgePublicOrigin, publicEmbedder: options.publicOrigin, frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] });
+  // The reader's token follows the studio's: a configured studio token keeps open pages working across restarts.
+  registerBridge(fakePi as never, { root, tokenSeed: token, transcriber: options.transcriberUrl === undefined ? undefined : { url: options.transcriberUrl, token: options.transcriberToken! }, port: options.bridgePort, publicOrigin: options.bridgePublicOrigin, publicEmbedder: options.publicOrigin, frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] });
   try {
     bridgeOrigin = new URL(String((await view()).base)).origin;
   } catch {

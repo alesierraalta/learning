@@ -760,6 +760,126 @@ test("settle continues when the next stage is an unwritten explanation", async (
 
 });
 
+test("method action forwards only the two allowed choices", async () => {
+  const env = { root: REPO_ROOT, topic: join(REPO_ROOT, "internal"), engine: fileURLToPath(import.meta.url) };
+  const { host, engine } = install(env, async () => ({ code: 0, stdout: reportJson("accepted"), stderr: "" }));
+  await enroll(host);
+  for (const method of ["pareto", "preferencias"]) {
+    const result = await executeTool(host, { action: "method", method });
+    assert.notEqual(result.isError, true);
+    const argv = engine.calls.at(-1).args;
+    assert.equal(argv[0], "method");
+    assert.equal(argv[argv.indexOf("--method") + 1], method);
+  }
+  const calls = engine.calls.length;
+  const entries = host.entries.length;
+  for (const method of ["", "PARETO", "other", null]) {
+    const result = await executeTool(host, { action: "method", method });
+    assert.equal(result.isError, true);
+  }
+  assert.equal(engine.calls.length, calls);
+  assert.equal(host.entries.length, entries);
+});
+
+test("settle prompts for the two explanation methods after diagnosis", async () => {
+  const env = { root: REPO_ROOT, topic: join(REPO_ROOT, "internal"), engine: fileURLToPath(import.meta.url) };
+  let status = "accepted";
+  const { host, engine } = install(env, async () => ({
+    code: 0,
+    stdout: JSON.stringify({ status, stage: "method", checks: [passCheck], nextStage: "method" }),
+    stderr: "",
+  }));
+  await enroll(host);
+  const result = await settle(host);
+  assert.equal(result?.continue, true);
+  assert.match(result.entries[0].content, /pareto/i);
+  assert.match(result.entries[0].content, /preferencias/i);
+  assert.equal(engine.calls.length, 1);
+  assert.equal(engine.calls[0].args[0], "status");
+  status = "waiting";
+  assert.equal(await settle(host), undefined, "do not continue when the learner must answer");
+  status = "accepted";
+  assert.equal((await settle(host))?.continue, true);
+  assert.equal((await settle(host))?.continue, true);
+  assert.notEqual((await settle(host))?.continue, true, "continuations are bounded");
+});
+
+// S1: a topic exists for the engine only once it is enrolled; its plan and diagnosis
+// cannot be written around it, or the studio shows it "sin seguimiento del motor".
+test("plan and diagnosis files of an unenrolled topic are refused before they are written", async () => {
+  const env = tempEnv();
+  const { host } = install(env, async () => ({ code: 0, stdout: reportJson("accepted"), stderr: "" }));
+  const handler = host.handlers.get("tool_call")?.[0];
+  assert.ok(handler, "tool_call handler registered");
+  const call = (toolName, path) => handler({ type: "tool_call", toolCallId: "t", toolName, input: { path, content: "{}" } }, { ...host.ctx, cwd: env.root });
+
+  for (const [tool, path] of [["write", join(env.root, "nuevo-tema", "plan.json")], ["write", "demo-topic/quiz.json"], ["edit", join(env.topic, "plan.json")]]) {
+    const result = await call(tool, path);
+    assert.equal(result?.block, true, `${tool} ${path} is refused`);
+    assert.match(result.reason, /learning_stage/);
+    assert.match(result.reason, /init/);
+  }
+  assert.equal(existsSync(join(env.root, "nuevo-tema")), false, "nothing was written");
+
+  mkdirSync(join(env.topic, ".learning"));
+  writeFileSync(join(env.topic, ".learning", "state.json"), "{}");
+  assert.equal(await call("write", join(env.topic, "plan.json")), undefined, "an enrolled topic writes its plan");
+  assert.equal(await call("write", join(env.root, "rapidos", "plan.json")), undefined, "quick notes are not topics");
+  assert.equal(await call("write", join(env.root, "nuevo-tema", "notas.md")), undefined, "other files are not guarded");
+  assert.equal(await call("write", join(env.base, "fuera", "plan.json")), undefined, "outside the Learnings root");
+});
+
+// S2: once the learner chose a method, the tutor plans and writes Part 1 without being asked;
+// each stage has its own bounded number of pushes, so the chain never stops half way.
+test("settle walks from the chosen method through planning to part 1", async () => {
+  const env = { root: REPO_ROOT, topic: join(REPO_ROOT, "internal"), engine: fileURLToPath(import.meta.url) };
+  let report = { status: "accepted", stage: "method", checks: [passCheck], nextStage: "method" };
+  const { host } = install(env, async () => ({ code: 0, stdout: JSON.stringify(report), stderr: "" }));
+  await enroll(host);
+  assert.equal((await settle(host))?.continue, true, "asks for the method");
+  assert.equal((await settle(host))?.continue, true, "asks again once");
+
+  report = { status: "accepted", stage: "planning", checks: [passCheck], nextStage: "planning", method: "preferencias" };
+  const planning = await settle(host);
+  assert.equal(planning?.continue, true, "plans right after the method");
+  assert.match(planning.entries[0].content, /plan/i);
+  assert.match(planning.entries[0].content, /preferencias/);
+  assert.match(planning.entries[0].content, /never show/i);
+
+  report = { status: "accepted", stage: "explanation", checks: [passCheck], nextStage: "explanation", part: "p1", method: "preferencias" };
+  assert.equal((await settle(host))?.continue, true, "writes part 1 after planning");
+  assert.equal((await settle(host))?.continue, true);
+  assert.notEqual((await settle(host))?.continue, true, "each stage stays bounded");
+});
+
+// S6: a failed part is not left waiting for the learner to ask: the tutor analyses the
+// failure and writes the remedial part right away.
+test("settle makes the tutor write the remedial part a failed part owes", async () => {
+  const env = { root: REPO_ROOT, topic: join(REPO_ROOT, "internal"), engine: fileURLToPath(import.meta.url) };
+  const report = { status: "accepted", stage: "remedial", checks: [passCheck], nextStage: "remedial", part: "p1", method: "preferencias" };
+  const { host } = install(env, async () => ({ code: 0, stdout: JSON.stringify(report), stderr: "" }));
+  await enroll(host);
+  const result = await settle(host);
+  assert.equal(result?.continue, true);
+  assert.match(result.entries[0].content, /p1/);
+  assert.match(result.entries[0].content, /remedia/);
+  assert.match(result.entries[0].content, /analisis/);
+  assert.match(result.entries[0].content, /new questions/i);
+  assert.equal((await settle(host))?.continue, true);
+  assert.notEqual((await settle(host))?.continue, true, "bounded");
+});
+
+test("settle does not plan on its own for a run without a chosen method", async () => {
+  const env = tempEnv();
+  const { host } = install(env, async () => ({
+    code: 0,
+    stdout: JSON.stringify({ status: "accepted", stage: "planning", checks: [passCheck], nextStage: "planning" }),
+    stderr: "",
+  }));
+  await enroll(host);
+  assert.equal(await settle(host), undefined, "old runs keep their planning pace");
+});
+
 test("settle does not push the chat when the next stage waits on the learner", async () => {
   const env = tempEnv();
   const { host } = install(env, async () => ({

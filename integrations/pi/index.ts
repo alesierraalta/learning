@@ -12,7 +12,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { execFile as execFileCb } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -34,6 +34,8 @@ const ENGINE_TIMEOUT_MS = 120_000;
 const MAX_CORRECTIONS = 2;
 const PASS_STATUSES = new Set(["accepted", "completed", "waiting", "skipped"]);
 const CHECK_STATUSES = new Set(["PASS", "FAIL", "SKIP"]);
+/** Topic files only an enrolled run may hold: the plan and the diagnosis. */
+const ENROLLED_FILES = new Set(["plan.json", "quiz.json"]);
 
 export interface AdapterDeps {
   root: string;
@@ -135,11 +137,12 @@ export type EngineOutcome =
 
 export async function callEngine(
   deps: AdapterDeps,
-  command: "init" | "validate" | "advance" | "status" | "review",
+  command: "init" | "validate" | "advance" | "status" | "review" | "method",
   target: {
     root: string;
     workspace: string;
     scope?: string;
+    method?: string;
     stage?: string;
     rule?: string;
     verdict?: string;
@@ -172,6 +175,9 @@ export async function callEngine(
   }
   if (target.stage) {
     argv.push("--stage", target.stage);
+  }
+  if (command === "method") {
+    argv.push("--method", target.method ?? "");
   }
   if (command === "review") {
     argv.push("--rule", target.rule ?? "", "--verdict", target.verdict ?? "", "--reason", target.reason ?? "");
@@ -207,6 +213,8 @@ interface AdapterState {
   workspace?: string;
   compromiseReason?: string;
   corrections: number;
+  /** The stage the settle gate last pushed the chat into; its budget resets on a new stage. */
+  pushedStage?: string;
 }
 
 const inactiveState = (): AdapterState => ({ phase: "inactive", corrections: 0 });
@@ -346,6 +354,25 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     state.corrections = 0;
   });
 
+  // S1: a topic exists for the engine only once it is enrolled. Its plan and diagnosis written
+  // around the engine would leave it untracked ("sin seguimiento del motor"), so they are refused.
+  pi.on("tool_call", (event, ctx) => {
+    if (event.toolName !== "write" && event.toolName !== "edit") return undefined;
+    const path = (event.input as { path?: unknown }).path;
+    if (typeof path !== "string") return undefined;
+    const inRoot = relative(resolve(deps.root), resolve(ctx.cwd, path));
+    if (inRoot === "" || inRoot.startsWith("..") || isAbsolute(inRoot)) return undefined;
+    const [topic, file, ...rest] = inRoot.split(/[\\/]+/);
+    if (rest.length > 0 || !ENROLLED_FILES.has(file ?? "") || topic === "rapidos" || !safeTopic(topic)) return undefined;
+    if (existsSync(join(deps.root, topic, ".learning", "state.json"))) return undefined;
+    return {
+      block: true,
+      reason:
+        `Topic ${topic} is not enrolled in the learning engine. Enroll it first with learning_stage action init (topic=${topic}), ` +
+        `then write ${file}: the engine tracks the plan and the diagnosis of enrolled topics only.`,
+    };
+  });
+
   pi.on("agent_before_settle", async (_event, ctx) => {
     if (!resolveContained(deps.root, ctx.cwd).ok) return undefined;
     if (state.phase === "inactive") {
@@ -369,14 +396,67 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     }
     const fails = failCheckIds(outcome.report);
     const passing = PASS_STATUSES.has(outcome.report.status) && fails.length === 0;
+    // The strict flow chains method → planning → part 1 without a learner prompt. The push
+    // budget belongs to the stage it pushes, so each stage stays bounded and the chain goes on.
+    const push = (stage: string) => {
+      if (state.pushedStage !== stage) {
+        state.pushedStage = stage;
+        state.corrections = 0;
+      }
+      if (state.corrections >= MAX_CORRECTIONS) return false;
+      state.corrections += 1;
+      return true;
+    };
+    if (passing && outcome.report.nextStage === "method" && outcome.report.status !== "waiting") {
+      if (!push("method")) return undefined;
+      return {
+        entries: [{
+          type: "custom_message",
+          customType: GATE_TYPE,
+          display: true,
+          content: "Learning engine: ask the learner which explanation method they want: pareto (80/20) or preferencias. Record their choice in the engine before planning or writing part 1.",
+        }],
+        continue: true,
+      };
+    }
     // event.context.canContinue is computed before this handler adds its own
     // message, so it is false at a normal end of turn; Pi re-evaluates it after
     // the gate's custom message. Only the correction budget bounds the gate.
     // Parts without pauses: an unwritten explanation is owed by the chat, not
     // by the learner, so the turn does not end before the part exists.
+    if (passing && outcome.report.nextStage === "remedial") {
+      const failed = outcome.report.part ?? "";
+      if (!push(`remedial:${failed}`)) return undefined;
+      return {
+        entries: [{
+          type: "custom_message",
+          customType: GATE_TYPE,
+          display: true,
+          content:
+            `Learning engine: part ${failed} failed. Read the learner's quiz answers, reasoning and own words, work out why they failed and what they did understand, ` +
+            `then add a remedial part right after it in plan.json with "remedia" (the planned part it remedies) and "analisis" (that diagnosis). ` +
+            "Write its explanation for exactly that gap and a mini-quiz with new questions (never one asked before), validate and advance, then present it.",
+        }],
+        continue: true,
+      };
+    }
+    const method = typeof outcome.report.method === "string" ? outcome.report.method : "";
+    if (passing && method && outcome.report.nextStage === "planning" && outcome.report.status !== "waiting") {
+      if (!push("planning")) return undefined;
+      return {
+        entries: [{
+          type: "custom_message",
+          customType: GATE_TYPE,
+          display: true,
+          content:
+            `Learning engine: the learner chose the ${method} method. Plan the route now with that method (planificador.md and plan.json), ` +
+            "validate and advance planning, then continue to part 1. The plan is yours: never show it or list future parts to the learner.",
+        }],
+        continue: true,
+      };
+    }
     if (passing && outcome.report.nextStage === "explanation" && outcome.report.status !== "waiting") {
-      if (state.corrections < MAX_CORRECTIONS) {
-        state.corrections += 1;
+      if (push(`explanation:${outcome.report.part ?? ""}`)) {
         return {
           entries: [
             {
@@ -475,13 +555,14 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     name: "learning_stage",
     label: "Learning engine stage",
     description:
-      "Transport one stage operation (init, start, validate, advance, status, review) to the Go learning engine via its CLI and return the single-JSON report. " +
+      "Transport one stage operation (init, start, validate, advance, status, review, method) to the Go learning engine via its CLI and return the single-JSON report. " +
       "init enrolls a new topic (creates its folder under the Learnings root and records a new run); start resumes an existing topic; both take topic = the folder name and activate the deep session, so the learner never types a command. init also records the teaching scope: complete (the whole topic) or pareto (only the vital slice that yields most of the results). The other actions require an active deep session; they read the scope from state and reject a scope argument. validate lists pendingReviews (rules whose recorded review is missing or stale); the chat (possibly via subagents) evaluates the rubric on the artifact and context, then records the verdict with action review (stage, rule, verdict, reason, optional reviewer). advance needs an explicit stage and blocks while any required review is missing, stale or a gate verdict is FAIL. " +
       "The engine report is the authority on completion; a FAIL check means the work is not finished.",
     promptSnippet: "Run a learning-engine stage operation and read its JSON verdict",
     promptGuidelines: [
       "Once the learner chooses the deep (university) mode, enroll the topic yourself: init for a new topic, start to resume one; never ask the learner to type a command.",
       "If the learner chose to learn with the Pareto rule, pass scope=pareto on init; otherwise omit it (complete). Never change the scope of a running topic.",
+      "After diagnosis, ask whether the learner wants pareto or preferencias and record their answer with action method before planning.",
       "Stage actions are only meaningful inside an active deep learning session; inactive sessions return an error.",
       "Never claim a stage or the topic is complete while the engine report shows FAIL, blocked or error.",
       "When validate returns pendingReviews, evaluate each rubric against the listed artifact and context (delegate to a subagent if useful) and record one review per rule before advancing.",
@@ -492,10 +573,11 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       properties: {
         action: {
           type: "string",
-          enum: ["init", "start", "validate", "advance", "status", "review"],
+          enum: ["init", "start", "validate", "advance", "status", "review", "method"],
           description:
-            "init: create and enroll a new topic folder, record a new run; start: enroll an existing topic and read its status; validate: check a stage without recording (returns pendingReviews); advance: validate + require recorded reviews + record; status: re-read engine state; review: record one chat verdict for one rubric.",
+            "init: create and enroll a new topic folder, record a new run; start: enroll an existing topic and read its status; validate: check a stage without recording (returns pendingReviews); advance: validate + require recorded reviews + record; status: re-read engine state; review: record one chat verdict for one rubric; method: record the learner's explanation method after diagnosis.",
         },
+        method: { type: "string", enum: ["pareto", "preferencias"], description: "method action: the learner's choice after diagnosis." },
         stage: {
           type: "string",
           description: "Engine stage name as defined in docs/protocol.md; required for advance and review.",
@@ -525,11 +607,18 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     // SAFETY: open JSON Schema object, read by the host as a TypeBox-compatible schema.
     outputSchema: { type: "object", additionalProperties: true } as unknown as TSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const { action: requested, topic, scope } = params as {
+      const { action: requested, topic, scope, method } = params as {
         action?: string;
         topic?: unknown;
         scope?: unknown;
+        method?: unknown;
       };
+      if (requested === "method" && method !== "pareto" && method !== "preferencias") {
+        return adapterError("invalid-arguments", "method must be pareto or preferencias");
+      }
+      if (requested !== "method" && method !== undefined) {
+        return adapterError("invalid-arguments", "method is only accepted by the method action");
+      }
       if (scope !== undefined) {
         if (requested !== "init") {
           return adapterError(
@@ -602,7 +691,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
         reason?: string;
         reviewer?: string;
       };
-      if (action !== "validate" && action !== "advance" && action !== "status" && action !== "review") {
+      if (action !== "validate" && action !== "advance" && action !== "status" && action !== "review" && action !== "method") {
         return adapterError("invalid-arguments", `unknown action: ${String(action)}`);
       }
       if (action === "advance" && !stage) {
@@ -619,7 +708,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
           return adapterError("invalid-arguments", `review requires ${missing.join(", ")}`);
         }
       }
-      const outcome = await callEngine(deps, action, { ...engineTarget(), stage, rule, verdict, reason, reviewer });
+      const outcome = await callEngine(deps, action, { ...engineTarget(), stage, rule, verdict, reason, reviewer, ...(action === "method" ? { method: method as string } : {}) });
       if (!outcome.ok) {
         return adapterError(outcome.reason, outcome.detail);
       }
