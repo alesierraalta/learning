@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { resolveContained } from "./paths.ts";
+import { resolveContained, safeTopic } from "./paths.ts";
 import { HttpError } from "./bridge.ts";
 
 export interface QuizTelemetryEntry {
@@ -124,10 +124,19 @@ function normalizeText(s: string): string {
 
 export function validateGlobalTelemetry(value: unknown): GlobalTelemetry {
   if (!record(value) || value.version !== 1) throw new HttpError(400, "invalid telemetry: version must be 1");
-  if (!record(value.perfil_alumno) || !Array.isArray(value.perfil_alumno.fortalezas) || !Array.isArray(value.perfil_alumno.puntos_a_reforzar)) {
+  if (
+    !record(value.perfil_alumno) ||
+    !record(value.perfil_alumno.tendencias) ||
+    !Array.isArray(value.perfil_alumno.fortalezas) ||
+    !Array.isArray(value.perfil_alumno.puntos_a_reforzar)
+  ) {
     throw new HttpError(400, "invalid telemetry: malformed perfil_alumno");
   }
-  if (!record(value.estadisticas_globales) || typeof value.estadisticas_globales.total_quizzes !== "number") {
+  if (
+    !record(value.estadisticas_globales) ||
+    typeof value.estadisticas_globales.total_quizzes !== "number" ||
+    !record(value.estadisticas_globales.por_categoria)
+  ) {
     throw new HttpError(400, "invalid telemetry: malformed estadisticas_globales");
   }
   if (!Array.isArray(value.directrices_tutor) || !Array.isArray(value.historial_reciente)) {
@@ -148,16 +157,35 @@ function globalTelemetryPath(root: string): string {
 }
 
 function topicTelemetryPath(root: string, topic: string): string {
+  if (!safeTopic(topic)) {
+    throw new HttpError(400, `invalid topic name: ${topic}`);
+  }
   const topicDir = join(root, topic);
   const check = resolveContained(root, topicDir);
   if (!check.ok) {
-    const file = join(root, topic, "telemetria.json");
-    if (!topic || topic === "." || topic === ".." || /[\\/\0]/.test(topic)) {
-      throw new HttpError(400, `invalid topic name: ${topic}`);
+    if (check.reason.includes("escapes")) {
+      throw new HttpError(400, "invalid topic name: escapes root");
     }
-    return file;
+    try {
+      const st = lstatSync(topicDir);
+      if (st.isSymbolicLink()) {
+        throw new HttpError(400, "invalid topic name: symlinks not allowed");
+      }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    }
+    return join(root, topic, "telemetria.json");
   }
-  return join(check.targetReal, "telemetria.json");
+  const file = join(check.targetReal, "telemetria.json");
+  try {
+    lstatSync(file);
+    if (!resolveContained(root, file).ok) {
+      throw new HttpError(400, "invalid topic telemetry path");
+    }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+  return file;
 }
 
 export function readGlobalTelemetry(root: string): GlobalTelemetry {
@@ -238,7 +266,12 @@ export function recordQuizTelemetry(root: string, rawEntry: unknown): { global: 
   const ok = Boolean(rawEntry.ok);
   const por_que = typeof rawEntry.por_que === "string" ? rawEntry.por_que.trim() : (ok ? "Respuesta correcta" : "Error en el concepto evaluado");
   const rawCat = typeof rawEntry.categoria === "string" ? rawEntry.categoria.trim() : "";
-  const categoria = (rawCat || "conceptual").toLowerCase().replace(/\s+/g, "_");
+  let categoria = normalizeText(rawCat || "conceptual")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_-]/g, "");
+  if (!categoria || categoria === "__proto__" || categoria === "constructor" || categoria === "prototype") {
+    categoria = "conceptual";
+  }
   const id = typeof rawEntry.id === "string" && rawEntry.id ? rawEntry.id : `qq-${Date.now()}-${randomBytes(4).toString("hex")}`;
   const timestamp = typeof rawEntry.timestamp === "string" ? rawEntry.timestamp : new Date().toISOString();
   const tema = typeof rawEntry.tema === "string" ? rawEntry.tema.trim() : undefined;
@@ -273,7 +306,9 @@ export function recordQuizTelemetry(root: string, rawEntry: unknown): { global: 
     global.estadisticas_globales.total_fallos += 1;
   }
 
-  const catStats = global.estadisticas_globales.por_categoria[categoria] ?? { total: 0, aciertos: 0, fallos: 0 };
+  const catStats = Object.hasOwn(global.estadisticas_globales.por_categoria, categoria)
+    ? global.estadisticas_globales.por_categoria[categoria]
+    : { total: 0, aciertos: 0, fallos: 0 };
   catStats.total += 1;
   if (ok) catStats.aciertos += 1;
   else catStats.fallos += 1;
@@ -293,7 +328,7 @@ export function recordQuizTelemetry(root: string, rawEntry: unknown): { global: 
 
   if (catFallos >= 1 && catAccuracy <= 0.6) {
     // Category identified as friction / gap needing reinforcement
-    if (!global.perfil_alumno.tendencias[categoria]) {
+    if (!Object.hasOwn(global.perfil_alumno.tendencias, categoria)) {
       global.perfil_alumno.tendencias[categoria] = {
         observacion: `Dificultades o fallos detectados en ${humanCat}; requiere explicaciones paso a paso, ejemplos concretos y refuerzo activo.`,
         nivel_dificultad: catFallos >= 2 ? "alta" : "media",
@@ -316,7 +351,7 @@ export function recordQuizTelemetry(root: string, rawEntry: unknown): { global: 
     }
   } else if (catTotal >= 2 && catAccuracy >= 0.75) {
     // Category identified as mastery / strength
-    if (!global.perfil_alumno.tendencias[categoria]) {
+    if (!Object.hasOwn(global.perfil_alumno.tendencias, categoria)) {
       global.perfil_alumno.tendencias[categoria] = {
         observacion: `Excelente asimilación y aciertos consistentes en ${humanCat}.`,
         nivel_dificultad: "baja",
@@ -370,7 +405,9 @@ export function recordQuizTelemetry(root: string, rawEntry: unknown): { global: 
           topicTelemetry.resumen.recomendaciones_refuerzo.push(rec);
         }
       }
-      const tCat = topicTelemetry.resumen.por_categoria[categoria] ?? { total: 0, aciertos: 0, fallos: 0 };
+      const tCat = Object.hasOwn(topicTelemetry.resumen.por_categoria, categoria)
+        ? topicTelemetry.resumen.por_categoria[categoria]
+        : { total: 0, aciertos: 0, fallos: 0 };
       tCat.total += 1;
       if (ok) tCat.aciertos += 1;
       else tCat.fallos += 1;
