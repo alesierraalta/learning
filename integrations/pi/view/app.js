@@ -120,7 +120,16 @@
     parent.append(label);
     return input;
   };
+  // A part saved for reading with no connection keeps everything to read and
+  // nothing that reaches the tutor: what would be sent says it needs a connection.
+  const AWAY = "Necesita conexión: envíalo cuando vuelvas a estar en línea.";
+  const away = (button, message) => {
+    if (!data.offline) return;
+    button.disabled = true;
+    message.textContent = AWAY;
+  };
   const post = async (payload) => {
+    if (data.offline) throw new Error(AWAY);
     const response = await fetch(data.submitUrl, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
     });
@@ -309,6 +318,7 @@
       button.type = "submit";
       const message = status();
       form.append(button, message);
+      away(button, message);
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const missing = pending.find((item) => !item.choices.some((input) => input.checked));
@@ -531,10 +541,12 @@
   if (data.demos?.length) {
     const section = element("section");
     section.append(element("h2", "Demos interactivas"));
-    data.demos.forEach((path) => {
-      const name = path.split("/").pop();
+    data.demos.forEach((path, index) => {
+      // A saved part carries each demo as its own bytes, with the name it had.
+      const saved = path.startsWith("data:");
+      const name = saved ? data.demoNames?.[index] ?? `Demo ${index + 1}` : path.split("/").pop();
       const frame = element("iframe");
-      frame.src = path.split("/").map(encodeURIComponent).join("/");
+      frame.src = saved ? path : path.split("/").map(encodeURIComponent).join("/");
       frame.setAttribute("sandbox", "allow-scripts");
       // Fullscreen must be allowed explicitly, or the demo's own
       // "Pantalla completa" button is denied and looks dead.
@@ -554,6 +566,7 @@
   send.type = "submit";
   const questionStatus = status();
   questionForm.append(send, questionStatus);
+  away(send, questionStatus);
   app.append(questionForm);
   let demo;
   window.addEventListener("message", (event) => {

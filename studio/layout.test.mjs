@@ -1031,3 +1031,193 @@ test("on an upright iPad the map opens readable and two fingers zoom it", { skip
   await page.locator(".pano-controls").getByRole("button", { name: "Ajustar a la ventana" }).click();
   assert.ok((await scale()) < before, "«Ajustar a la ventana» still shows the whole map");
 });
+
+// ---------- reading with no connection ----------
+// The saved copy of a part is read in a browser that may reach nothing: the only
+// request is the file itself, and the text, its formula and its demo still draw.
+test("a saved part draws its text, formula and demo without asking for anything else", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  const deck = JSON.stringify({ title: "Capas", viewBox: "0 0 600 300", steps: [{ title: "Una capa", text: "La primera.", scene: { boxes: [{ x: 40, y: 40, w: 220, h: 80, label: "Aplicación", sub: "capa 7" }] } }] });
+  writeFileSync(
+    join(root, "redes", "explicaciones", "Parte 1 - Capas.md"),
+    `# Parte 1 — Capas\n\nUna red en capas. Una fórmula: $a^2 + b^2$\n\n<lk-walkthrough>\n<script type="application/json">\n${deck}\n</script>\n</lk-walkthrough>\n`,
+  );
+  mkdirSync(join(root, "redes", "explicaciones", "demos"), { recursive: true });
+  writeFileSync(join(root, "redes", "explicaciones", "demos", "p1-capas.html"), "<!doctype html><html><body><p id=\"demo\">capas</p><script>document.getElementById('demo').textContent = 'demo viva';</script></body></html>");
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine, offlineCacheDir: join(root, "..", `${root.split("/").pop()}-cdn`) });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  const asked = [];
+  page.on("request", (request) => asked.push(request.url()));
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+
+  await page.goto(`${studio.url}api/offline?topic=redes&part=p1`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".katex", { timeout: 10000 });
+  assert.deepEqual(asked.filter((url) => !url.startsWith("data:")), [`${studio.url}api/offline?topic=redes&part=p1`], "the file asks for nothing");
+  assert.match(await page.locator("main").innerText(), /Una red en capas/);
+  assert.equal(await page.locator(".katex").count() > 0, true, "the formula is drawn by the KaTeX the file carries");
+  await page.locator("lk-walkthrough svg").first().waitFor({ timeout: 10000 });
+  assert.match(await page.locator("lk-walkthrough").innerText(), /Aplicación/, "a guided walkthrough draws its scene");
+  const demo = page.frameLocator("iframe").first().locator("#demo");
+  assert.equal(await demo.textContent(), "demo viva", "the demo runs inside the file");
+  const tutor = page.locator("form.tutor");
+  assert.match(await tutor.innerText(), /Necesita conexión/, "asking the tutor says it needs a connection");
+  assert.equal(await tutor.getByRole("button", { name: "Enviar pregunta" }).isDisabled(), true);
+  assert.deepEqual(errors, []);
+});
+
+// The studio keeps opening with no connection: a service worker serves the last
+// studio and library it saw. Online it always asks the server first (S3, S8).
+async function controlledStudio(t, options = {}) {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine, offlineCacheDir: join(root, "..", `${root.split("/").pop()}-cdn`), ...options });
+  open.push(studio);
+  const context = await (browser.chromium ?? browser.default).launch().then((b) => b.newContext());
+  t.after(() => context.browser().close());
+  await context.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const page = await context.newPage();
+  await page.goto(studio.url, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => navigator.serviceWorker?.controller, null, { timeout: 10000 });
+  // Once in control, the worker sees every request the studio makes.
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".card", { hasText: "Redes" }).first().waitFor();
+  const stop = async () => {
+    open.splice(open.indexOf(studio), 1);
+    await studio.close();
+    await context.setOffline(true);
+  };
+  return { root, studio, page, context, stop, origin: new URL(studio.url).origin };
+}
+
+test("with no server and no network the studio still opens at its address with its library", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, stop, origin } = await controlledStudio(t);
+  await stop();
+  await page.goto(`${origin}/`, { waitUntil: "domcontentloaded" });
+  await page.locator(".card", { hasText: "Redes" }).first().waitFor({ timeout: 10000 });
+  assert.match(await page.locator(".cards").first().innerText(), /Redes/, "the library the studio last saw");
+});
+
+test("online the studio always shows what the server has now, not what it saved", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, page } = await controlledStudio(t);
+  mkdirSync(join(root, "nuevo"));
+  writeFileSync(join(root, "nuevo", "plan.json"), JSON.stringify({ topic: "Tema nuevo", parts: [{ id: "p1", title: "Intro", slug: "Intro" }] }));
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".card", { hasText: "Tema nuevo" }).first().waitFor({ timeout: 5000 });
+});
+
+test("what was saved under one run's token still answers after a restart changes it", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio, stop, origin } = await controlledStudio(t);
+  const saved = await page.evaluate(async (url) => (await fetch(url)).status, `${studio.url}api/offline?topic=redes&part=p1`);
+  assert.equal(saved, 200, "the part was saved while online");
+  await stop();
+  const answer = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    return { status: response.status, csp: response.headers.get("content-security-policy"), body: await response.text() };
+  }, `${origin}/${"b".repeat(64)}/api/offline?topic=redes&part=p1`);
+  assert.equal(answer.status, 200, "a new token finds the copy saved under the old one");
+  assert.match(answer.csp, /sandbox allow-scripts/, "and it keeps its isolation when served from the cache");
+  assert.match(answer.body, /Capas/);
+});
+
+// What the learner sees: a part read once with a connection opens again without one,
+// in the same reader; one never read says how to get it; a topic saves all its parts.
+const savedParts = (page) =>
+  page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = (event) => resolve(event.data.map((p) => `${p.topic}/${p.part}`).sort());
+        navigator.serviceWorker.controller.postMessage({ type: "saved-parts" }, [channel.port2]);
+      }),
+  );
+
+test("a part read with a connection opens again without one, in the same reader", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, stop, origin, studio } = await controlledStudio(t);
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  for (let i = 0; i < 60 && !(await savedParts(page)).includes("redes/p1"); i++) await page.waitForTimeout(250);
+  assert.deepEqual(await savedParts(page), ["redes/p1"], "reading the part saved it on the device");
+  assert.equal(await page.locator(".offline-banner").isVisible(), false, "online there is no offline notice");
+  await stop();
+
+  await page.goto(`${origin}/#/leer/redes/p1`, { waitUntil: "domcontentloaded" });
+  const banner = page.locator(".offline-banner");
+  await banner.waitFor({ timeout: 10000 });
+  assert.match(await banner.innerText(), /Sin conexión/);
+  const sheet = page.frameLocator("iframe.sheet");
+  await sheet.locator("main").waitFor({ timeout: 10000 });
+  assert.match(await sheet.locator("main").innerText(), /Capas/, "the saved part reads in the same reader");
+  assert.match(await page.locator(".reader-bar .title").innerText(), /Capas/, "with its own title bar");
+});
+
+test("with no connection, a part that was never saved says how to get it", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, page, stop, origin, studio } = await controlledStudio(t);
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 2 - TCP.md"), "# Parte 2 — TCP\n\nEl transporte.\n");
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await stop();
+  await page.goto(`${origin}/#/leer/redes/p2`, { waitUntil: "domcontentloaded" });
+  const note = page.locator(".reader .empty");
+  await note.waitFor({ timeout: 10000 });
+  assert.match(await note.innerText(), /no está guardada en este dispositivo/, "it says the part is not on the device");
+  assert.match(await note.innerText(), /con conexión/, "and how to get it there");
+});
+
+test("a topic saves every written part at once and marks each one", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, page, stop, origin, studio } = await controlledStudio(t);
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 2 - TCP.md"), "# Parte 2 — TCP\n\nEl transporte.\n");
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Guardar el tema sin conexión" }).click();
+  await page.locator(".toast", { hasText: "2 partes guardadas" }).waitFor({ timeout: 20000 });
+  assert.deepEqual(await savedParts(page), ["redes/p1", "redes/p2"]);
+  for (const title of ["Capas", "TCP"]) {
+    assert.match(await page.locator("li.part-row", { hasText: title }).innerText(), /Guardada en este dispositivo/, `${title} is marked as saved`);
+  }
+  await stop();
+  await page.goto(`${origin}/#/leer/redes/p2`, { waitUntil: "domcontentloaded" });
+  await page.frameLocator("iframe.sheet").locator("main", { hasText: "El transporte" }).waitFor({ timeout: 10000 });
+});
+
+test("where the browser cannot keep parts, saving a topic says why instead of failing quietly", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  // An untrusted certificate is the real case; a blocked worker is the same for the studio.
+  const context = await (browser.chromium ?? browser.default).launch().then((b) => b.newContext({ serviceWorkers: "block" }));
+  t.after(() => context.browser().close());
+  await context.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const page = await context.newPage();
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Guardar el tema sin conexión" }).click();
+  const toast = page.locator(".toast");
+  await toast.waitFor({ timeout: 5000 });
+  assert.match(await toast.innerText(), /certificado de confianza/);
+});
+
+// A saved copy runs author scripts; it must not be able to take the reader anywhere else.
+// Online, so only the studio's frame-src can be what stops it.
+test("a saved part cannot navigate the reader away from itself", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, page, studio } = await controlledStudio(t);
+  // A rich page: the one kind of part whose author scripts run as written.
+  writeFileSync(
+    join(root, "redes", "explicaciones", "Parte 1 - Capas.html"),
+    "<!doctype html><html><head><meta charset=\"utf-8\"></head><body><main><h1>Capas</h1><p>Texto.</p></main><script>console.log('trying to leave'); setTimeout(() => { location.href = 'https://example.com/?leak=1'; }, 300);</script></body></html>",
+  );
+  const attempted = [];
+  page.on("console", (message) => attempted.push(message.text()));
+  await page.evaluate((src) => {
+    const frame = document.createElement("iframe");
+    frame.className = "probe";
+    frame.src = src;
+    document.body.append(frame);
+  }, `${studio.url}api/offline?topic=redes&part=p1`);
+  await page.waitForTimeout(2500);
+  const urls = page.frames().map((frame) => frame.url());
+  assert.equal(urls.some((url) => url.includes("example.com")), false, `no frame reached the outside: ${urls.join(", ")}`);
+  assert.ok(attempted.includes("trying to leave"), `the author's script ran and tried: ${attempted.join(" | ")}`);
+  assert.ok(attempted.some((text) => /frame-src|Content Security Policy/i.test(text)), `the browser refused it by policy: ${attempted.join(" | ")}`);
+});

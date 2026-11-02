@@ -33,6 +33,7 @@ import {
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
+import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -76,6 +77,8 @@ export interface StudioOptions {
   token?: string;
   /** When each topic was last opened; kept outside the vault. Default: the user's state directory. */
   openedFile?: string;
+  /** Where the CDN libraries of saved parts are kept after the first download. Default: the user's cache directory. */
+  offlineCacheDir?: string;
 }
 
 export interface Studio {
@@ -217,6 +220,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
   const token = options.token ?? randomBytes(32).toString("hex");
   const openedFile = options.openedFile ?? join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "learning-studio", "opened.json");
+  const offlineCacheDir = options.offlineCacheDir ?? join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "learning-studio", "cdn");
   let port = 0;
 
   // ---- Server-Sent Events ------------------------------------------------
@@ -522,7 +526,8 @@ ${scripts}
       "font-src https://cdn.jsdelivr.net",
       "img-src 'self' data:",
       "connect-src 'self'",
-      `frame-src ${bridgeOrigin}`,
+      // The reader frames the bridge, or a part saved on this device when there is no connection.
+      `frame-src ${bridgeOrigin} 'self'`,
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'none'",
@@ -702,6 +707,11 @@ ${scripts}
       res.end();
       return;
     }
+    // The service worker that keeps the studio readable with no connection. It is static
+    // code with no secret, served at the root so its scope covers the root address too.
+    if (url.pathname === "/sw.js" && req.method === "GET") {
+      return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(UI_DIR, "sw.js")), { "cache-control": "no-cache" });
+    }
     const [first = "", ...rest] = url.pathname.split("/").slice(1);
     if (!tokenMatches(first)) throw new HttpError(404, "not found");
     const path = rest.join("/");
@@ -759,6 +769,25 @@ ${scripts}
       case "api/note": {
         const quick = url.searchParams.get("quick") ?? "";
         return sendJson(res, 200, readQuickNote(root, quick));
+      }
+      case "api/offline": {
+        // One written part as a single file that reads with no connection (docs/studio.md).
+        const topic = url.searchParams.get("topic") ?? "";
+        const part = url.searchParams.get("part") ?? "";
+        const entry = listTopics(root).find((t) => t.id === topic)?.parts.find((p) => p.id === part);
+        if (!entry?.written) throw new HttpError(404, `no written part ${part} in ${topic}`);
+        // Over loopback, like the draft preview: the public proxy's certificate is for browsers.
+        const reader = await view(topic, part);
+        const publicBase = String(reader.base);
+        const localBase = String(reader.localBase ?? reader.base);
+        const page = new URL(String(reader.url).slice(publicBase.length), localBase).href;
+        let html: string;
+        try {
+          html = await snapshotPage(page, partLoader(localBase, offlineCacheDir), [token]);
+        } catch (err) {
+          throw new HttpError(502, `could not save the part: ${(err as Error).message}`);
+        }
+        return send(res, 200, "text/html; charset=utf-8", html, { "content-security-policy": OFFLINE_CSP });
       }
       case "api/view": {
         const quick = url.searchParams.get("quick");

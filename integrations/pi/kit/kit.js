@@ -1,6 +1,7 @@
 /* Shared, light-DOM learning components. No build step. */
 (async () => {
-  if (!window.learningThoughtField) {
+  // A kit inlined in a saved copy has no address to find dictate.js by, and sends nothing.
+  if (!window.learningThoughtField && document.currentScript?.src) {
     const source = new URL('dictate.js', document.currentScript.src);
     await new Promise((resolve, reject) => {
       const script = document.createElement('script');
@@ -12,6 +13,9 @@
   }
   const offline = 'Abre esta página desde Pi para enviarla al tutor';
   const config = () => window.LEARNING_BRIDGE;
+  // A part saved for reading with no connection: what reaches the tutor or the network says so.
+  const away = 'Necesita conexión: hazlo cuando vuelvas a estar en línea';
+  const unreachable = () => { const b = config(); return !b ? offline : b.offline ? away : null; };
   const el = (tag, text, attrs = {}) => {
     const n = document.createElement(tag);
     if (text !== undefined) n.textContent = text;
@@ -24,8 +28,8 @@
   };
   const status = () => el('p', '', { role: 'status', 'aria-live': 'polite' });
   async function post(payload) {
-    const b = config();
-    if (!b) throw new Error(offline);
+    const b = config(), reason = unreachable();
+    if (reason) throw new Error(reason);
     const response = await fetch(b.submitUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ topic: b.topic, part: b.part, ...payload }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
@@ -34,7 +38,15 @@
   const thoughtField = (id, index) => window.learningThoughtField(id, index, config());
   const loaded = new Map();
   function library(name, url, integrity, css = false) {
+    // A library the page already loaded by its own tag (window.mermaid, window.katex) is not loaded twice.
+    if (!css && !loaded.has(name) && window[name]) loaded.set(name, Promise.resolve());
     if (!loaded.has(name)) loaded.set(name, new Promise((resolve, reject) => {
+      // A saved copy carries the library itself, keyed by the URL it would come from.
+      const saved = window.learningOffline?.[url];
+      if (saved !== undefined) {
+        const inline = el(css ? 'style' : 'script'); inline.textContent = saved;
+        document.head.append(inline); resolve(); return;
+      }
       const n = el(css ? 'link' : 'script');
       if (css) { n.rel = 'stylesheet'; n.href = url; } else n.src = url;
       n.integrity = integrity; n.crossOrigin = 'anonymous';
@@ -132,7 +144,7 @@
   });
   define('lk-video', async function () {
     const b = config();
-    if (!b) { this.append(el('p', offline)); return; }
+    if (unreachable()) { this.append(el('p', b?.offline ? '🎬 El video de esta parte necesita conexión.' : offline)); return; }
     const out = status();
     const generate = button('🎬 Generar video', async () => {
       generate.disabled = true;
@@ -164,7 +176,8 @@
     const form = el('form'), field = textField('Pregunta al tutor', 'text', true), out = status();
     const submit = el('button', 'Enviar pregunta', { type: 'submit' });
     form.append(field, submit, out); this.append(form);
-    if (!config()) { out.textContent = offline; submit.disabled = true; }
+    const reason = unreachable();
+    if (reason) { out.textContent = reason; submit.disabled = true; }
     form.addEventListener('submit', async event => {
       event.preventDefault(); const text = form.elements.text.value.trim(); if (!text) return;
       submit.disabled = true;
@@ -176,7 +189,7 @@
   const dontKnow = text => /^no se\.?$/i.test(String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').trim());
   define('lk-quiz', async function () {
     const b = config();
-    if (!b) { this.append(el('p', offline)); return; }
+    if (unreachable()) { this.append(el('p', b?.offline ? 'El mini-quiz se responde con conexión: el tutor lo corrige.' : offline)); return; }
     const response = await fetch(b.quizUrl);
     if (!response.ok) throw new Error(`No se pudo cargar el mini-quiz (HTTP ${response.status})`);
     const data = await response.json(), form = el('form'), out = status();
