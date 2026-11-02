@@ -280,7 +280,8 @@ test("the reader bar stays compact and readable on a phone", { skip: browser ? f
     assert.ok(c.w >= 32 && c.h >= 32, `undersized control: ${JSON.stringify(c)}`);
     assert.ok(c.right <= 360, `control off screen: ${JSON.stringify(c)}`);
   }
-  assert.deepEqual(seen.controls.map((c) => c.name), ["Volver", "Explicación", "App interactiva", "Preguntar", "Borrar"]);
+  assert.deepEqual(seen.controls.map((c) => c.name).filter((name) => !["Descargar para ver sin conexión", "Descargando…", "Guardada en este dispositivo"].includes(name)), ["Volver", "Explicación", "App interactiva", "Preguntar", "Borrar"]);
+  assert.equal(seen.controls.filter((c) => ["Descargar para ver sin conexión", "Descargando…", "Guardada en este dispositivo"].includes(c.name)).length, 1);
   assert.ok(seen.sheetTop <= 150, `the sheet starts at ${seen.sheetTop}px`);
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
 });
@@ -1134,6 +1135,30 @@ const savedParts = (page) =>
         navigator.serviceWorker.controller.postMessage({ type: "saved-parts" }, [channel.port2]);
       }),
   );
+
+test("the reader marks an automatically saved part", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await controlledStudio(t);
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  const button = page.locator(".reader-bar").getByRole("button", { name: "Guardada en este dispositivo" });
+  await button.waitFor({ timeout: 10000 });
+  assert.equal(await button.isDisabled(), true);
+});
+
+test("the reader explains when the browser cannot save a part", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const context = await (browser.chromium ?? browser.default).launch().then((b) => b.newContext({ serviceWorkers: "block" }));
+  t.after(() => context.browser().close());
+  await context.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const page = await context.newPage();
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  const button = page.locator(".reader-bar").getByRole("button", { name: "Descargar para ver sin conexión" });
+  await button.click({ timeout: 5000 });
+  assert.match(await page.locator(".toast").innerText(), /certificado de confianza/);
+  assert.equal(await button.isEnabled(), true);
+});
 
 test("a part read with a connection opens again without one, in the same reader", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page, stop, origin, studio } = await controlledStudio(t);
