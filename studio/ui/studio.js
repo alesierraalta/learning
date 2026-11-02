@@ -112,16 +112,19 @@
     }
   }
 
+  function canSaveParts() {
+    if (navigator.serviceWorker?.controller) return true;
+    toast("Este navegador no deja guardar partes en esta dirección: abre el estudio desde una con certificado de confianza.");
+    return false;
+  }
+
   /** Saves every written part of a topic, one after another, and says how many made it. */
   function saveTopicButton(topic) {
     const parts = topic.parts.filter((p) => p.written);
     const button = btn(
       "Guardar el tema sin conexión",
       async () => {
-        if (!navigator.serviceWorker?.controller) {
-          toast("Este navegador no deja guardar partes en esta dirección: abre el estudio desde una con certificado de confianza.");
-          return;
-        }
+        if (!canSaveParts()) return;
         button.disabled = true;
         let done = 0;
         for (const [index, p] of parts.entries()) {
@@ -1134,6 +1137,31 @@
     // lives in aria-label too.
     const barBtn = (label, onclick, cls, iconName) =>
       h("button", { class: cls, type: "button", onclick, "aria-label": label, title: label }, icon(iconName), h("span", { class: "label" }, label));
+    let saveButton;
+    const setSaveState = (label, disabled, iconName) => {
+      if (seq !== readSeq || !saveButton.isConnected) return;
+      saveButton.disabled = disabled;
+      saveButton.setAttribute("aria-label", label);
+      saveButton.title = label;
+      saveButton.replaceChildren(icon(iconName), h("span", { class: "label" }, label));
+    };
+    const saveReaderPart = async (automatic = false) => {
+      if (!navigator.serviceWorker?.controller) {
+        if (!automatic) canSaveParts();
+        return;
+      }
+      setSaveState("Descargando…", true, "doc");
+      const ok = await savePart(topicId, part);
+      if (seq !== readSeq || !saveButton.isConnected) return;
+      if (ok) setSaveState("Guardada en este dispositivo", true, "check");
+      else {
+        setSaveState("Descargar para ver sin conexión", false, "doc");
+        toast("No se pudo guardar: vuelve a intentarlo con conexión.");
+      }
+    };
+    if (info?.written && mode !== "app") {
+      saveButton = barBtn("Descargar para ver sin conexión", () => saveReaderPart(), "btn small ghost", "doc");
+    }
     const bar = h(
       "div",
       { class: "reader-bar" },
@@ -1147,6 +1175,7 @@
             h("button", { type: "button", "aria-pressed": String(mode === "app"), onclick: () => go(`#/app/${topicId}/${part}`) }, "App interactiva"),
           )
         : null,
+      saveButton,
       prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost nav", "back") : null,
       next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost nav", "next") : null,
       barBtn("Preguntar", () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `), "btn small", "chat"),
@@ -1176,14 +1205,21 @@
       if (!url) throw new Error("Esta parte no tiene aplicación interactiva.");
       frame.src = url;
       // A part read with a connection is kept on the device for reading without one.
-      if (info?.written && mode !== "app" && !saved.has(savedKey(topicId, part))) savePart(topicId, part);
+      if (saveButton) {
+        await savedReady;
+        if (seq !== readSeq || !saveButton.isConnected) return;
+        if (saved.has(savedKey(topicId, part))) setSaveState("Guardada en este dispositivo", true, "check");
+        else if (!saveButton.disabled) saveReaderPart(true);
+      }
     } catch (error) {
       if (seq !== readSeq) return;
       if (!error.offline || !info) return frame.replaceWith(h("p", { class: "empty" }, error.message));
       await savedReady;
       if (seq !== readSeq) return;
-      if (mode !== "app" && saved.has(savedKey(topicId, part))) frame.src = offlineCopy(topicId, part);
-      else
+      if (mode !== "app" && saved.has(savedKey(topicId, part))) {
+        setSaveState("Guardada en este dispositivo", true, "check");
+        frame.src = offlineCopy(topicId, part);
+      } else
         frame.replaceWith(
           h("p", { class: "empty" }, "Esta parte no está guardada en este dispositivo. Ábrela una vez con conexión y quedará guardada para leerla sin ella."),
         );

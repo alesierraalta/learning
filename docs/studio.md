@@ -189,7 +189,7 @@ A part can be read with no connection, inside the studio itself.
 
 - **Saving.** Every part opened with a connection is saved on the device. The
   topic page saves all its written parts at once with **Guardar el tema sin
-  conexión**, and each saved part says *Guardada en este dispositivo*.
+  conexión**, and each saved part says *Guardada en este dispositivo*. The reader also offers **Descargar para ver sin conexión**, changing to *Guardada en este dispositivo* when saved.
 - **Reading.** With no connection the studio still opens at its usual address, with
   the library as it last saw it and a notice: *Sin conexión · estás viendo lo
   guardado en este dispositivo*. A saved part opens in the same reader; one never
