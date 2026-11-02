@@ -63,12 +63,12 @@ export const defaultGlobalTelemetry: GlobalTelemetry = {
   perfil_alumno: {
     tendencias: {
       matematicas: {
-        observacion: "Tiende a no entender partes matemáticas abstractas o fórmulas directas; requiere reforzamiento con números concretos, cuentas paso a paso e intuición física antes del formalismo.",
+        observacion: "Tiende a no entender partes matemáticas abstractas, fórmulas o deducciones cuantitativas; requiere reforzamiento activo con números concretos, cuentas paso a paso e intuición terrenal antes de cualquier formalismo.",
         nivel_dificultad: "alta",
         accion_tutor: "reforzar_paso_a_paso",
       },
       diagramas_y_flujos: {
-        observacion: "Excelente asimilación de diagramas de estados, flujos de datos y modelos visuales.",
+        observacion: "Excelente asimilación de diagramas, mapas conceptuales, secuencias temporales y relaciones visuales.",
         nivel_dificultad: "baja",
         accion_tutor: "usar_como_ancla",
       },
@@ -77,21 +77,26 @@ export const defaultGlobalTelemetry: GlobalTelemetry = {
         nivel_dificultad: "baja",
         accion_tutor: "analogia_con_limite",
       },
-      terminos_abstractos: {
-        observacion: "Fricción con términos técnicos huérfanos sin definición terrenal previa.",
+      terminologia: {
+        observacion: "Fricción con términos técnicos abstractos huérfanos sin definición terrenal previa.",
         nivel_dificultad: "media",
         accion_tutor: "definicion_cotidiana_primero",
       },
+      causa_y_efecto: {
+        observacion: "Gran facilidad para deducir consecuencias directas e impactos entre componentes cuando se expone el dolor o dilema práctico.",
+        nivel_dificultad: "baja",
+        accion_tutor: "conectar_causa_efecto",
+      },
     },
     fortalezas: [
-      "Arquitectura relacional y diseño de esquemas",
-      "Diagramas de flujo y modelos de estados",
-      "Modelos mentales intuitivos y analogías cotidianas",
+      "Modelos conceptuales intuitivos y relaciones causa-efecto",
+      "Mapas visuales, diagramas y secuencias estructuradas",
+      "Analogías prácticas del mundo real",
     ],
     puntos_a_reforzar: [
-      "Partes matemáticas y deducción de fórmulas",
-      "Cálculos aritméticos sin desglose explícito",
-      "Casos borde algorítmicos",
+      "Partes matemáticas y deducción de fórmulas (en cualquier disciplina)",
+      "Cálculos y deducciones cuantitativas sin desarrollo explícito",
+      "Terminología técnica abstracta sin ejemplo terrenal previo",
     ],
   },
   estadisticas_globales: {
@@ -101,16 +106,21 @@ export const defaultGlobalTelemetry: GlobalTelemetry = {
     por_categoria: {},
   },
   directrices_tutor: [
-    "En cada punto explicable, incluir un quiz rápido de 1 pregunta para verificar comprensión inmediata.",
-    "Si el punto involucra matemáticas, fórmulas o cálculos: desglosar renglón a renglón con un ejemplo numérico concreto antes de formalizar.",
+    "En cada punto explicable de cualquier tema (ciencias, humanidades, finanzas, idiomas, etc.), incluir un quiz rápido de 1 pregunta para verificar comprensión inmediata.",
+    "Categorizar de forma adaptativa cada pregunta según su naturaleza (ej. matematicas, conceptual, terminologia, causa_efecto, proceso, o temas específicos como gramatica, finanzas, etc.).",
+    "Si el punto involucra matemáticas, fórmulas o cálculos cuantitativos: desglosar renglón a renglón con un ejemplo numérico concreto antes de formalizar.",
     "Registrar siempre si la respuesta fue correcta o no y el POR QUÉ (diagnóstico del error o consolidación).",
-    "Consultar la telemetría antes de iniciar una explicación para anticipar y reforzar las áreas de debilidad identificadas.",
+    "Consultar la telemetría antes de iniciar una explicación para anticipar y reforzar las áreas de debilidad identificadas del alumno.",
     "Si el alumno falla un quiz rápido, explicar la causa del fallo de forma empática y ofrecer un mini refuerzo antes de continuar.",
   ],
   historial_reciente: [],
 };
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+function normalizeText(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
 
 export function validateGlobalTelemetry(value: unknown): GlobalTelemetry {
   if (!record(value) || value.version !== 1) throw new HttpError(400, "invalid telemetry: version must be 1");
@@ -227,7 +237,8 @@ export function recordQuizTelemetry(root: string, rawEntry: unknown): { global: 
   const respuesta_correcta = typeof rawEntry.respuesta_correcta === "string" ? rawEntry.respuesta_correcta.trim() : "";
   const ok = Boolean(rawEntry.ok);
   const por_que = typeof rawEntry.por_que === "string" ? rawEntry.por_que.trim() : (ok ? "Respuesta correcta" : "Error en el concepto evaluado");
-  const categoria = typeof rawEntry.categoria === "string" && rawEntry.categoria.trim() ? rawEntry.categoria.trim() : "conceptual";
+  const rawCat = typeof rawEntry.categoria === "string" ? rawEntry.categoria.trim() : "";
+  const categoria = (rawCat || "conceptual").toLowerCase().replace(/\s+/g, "_");
   const id = typeof rawEntry.id === "string" && rawEntry.id ? rawEntry.id : `qq-${Date.now()}-${randomBytes(4).toString("hex")}`;
   const timestamp = typeof rawEntry.timestamp === "string" ? rawEntry.timestamp : new Date().toISOString();
   const tema = typeof rawEntry.tema === "string" ? rawEntry.tema.trim() : undefined;
@@ -272,10 +283,66 @@ export function recordQuizTelemetry(root: string, rawEntry: unknown): { global: 
   global.historial_reciente.unshift(entry);
   if (global.historial_reciente.length > 50) global.historial_reciente.pop();
 
-  // Dynamic adaptation based on pattern:
-  if (categoria === "matematicas") {
-    if (!ok && !global.perfil_alumno.puntos_a_reforzar.includes("Partes matemáticas y deducción de fórmulas")) {
-      global.perfil_alumno.puntos_a_reforzar.push("Partes matemáticas y deducción de fórmulas");
+  // Multi-domain adaptive learning profile update:
+  const catTotal = catStats.total;
+  const catAciertos = catStats.aciertos;
+  const catFallos = catStats.fallos;
+  const catAccuracy = catTotal > 0 ? catAciertos / catTotal : 0;
+  const humanCat = categoria.replace(/_/g, " ");
+  const normHumanCat = normalizeText(humanCat);
+
+  if (catFallos >= 1 && catAccuracy <= 0.6) {
+    // Category identified as friction / gap needing reinforcement
+    if (!global.perfil_alumno.tendencias[categoria]) {
+      global.perfil_alumno.tendencias[categoria] = {
+        observacion: `Dificultades o fallos detectados en ${humanCat}; requiere explicaciones paso a paso, ejemplos concretos y refuerzo activo.`,
+        nivel_dificultad: catFallos >= 2 ? "alta" : "media",
+        accion_tutor: `reforzar_${categoria}`,
+      };
+    } else {
+      const t = global.perfil_alumno.tendencias[categoria];
+      if (catFallos >= 2) t.nivel_dificultad = "alta";
+      if (!t.accion_tutor || t.accion_tutor === "usar_como_ancla") {
+        t.accion_tutor = `reforzar_${categoria}`;
+      }
+    }
+
+    const alreadyInRefuerzo = global.perfil_alumno.puntos_a_reforzar.some((p) =>
+      normalizeText(p).includes(normHumanCat)
+    );
+    if (!alreadyInRefuerzo) {
+      const formattedName = humanCat.charAt(0).toUpperCase() + humanCat.slice(1);
+      global.perfil_alumno.puntos_a_reforzar.push(`${formattedName} (refuerzo identificado por fallos en quizzes)`);
+    }
+  } else if (catTotal >= 2 && catAccuracy >= 0.75) {
+    // Category identified as mastery / strength
+    if (!global.perfil_alumno.tendencias[categoria]) {
+      global.perfil_alumno.tendencias[categoria] = {
+        observacion: `Excelente asimilación y aciertos consistentes en ${humanCat}.`,
+        nivel_dificultad: "baja",
+        accion_tutor: "usar_como_ancla",
+      };
+    } else {
+      const t = global.perfil_alumno.tendencias[categoria];
+      t.nivel_dificultad = "baja";
+      if (t.accion_tutor.startsWith("reforzar_")) {
+        t.accion_tutor = "usar_como_ancla";
+      }
+    }
+
+    const alreadyInFortalezas = global.perfil_alumno.fortalezas.some((f) =>
+      normalizeText(f).includes(normHumanCat)
+    );
+    if (!alreadyInFortalezas) {
+      const formattedName = humanCat.charAt(0).toUpperCase() + humanCat.slice(1);
+      global.perfil_alumno.fortalezas.push(`Dominio sólido en ${formattedName}`);
+    }
+
+    // Retire temporary reinforcement notice once mastery is consistently proven (total >= 3, acc >= 0.8)
+    if (catTotal >= 3 && catAccuracy >= 0.8) {
+      global.perfil_alumno.puntos_a_reforzar = global.perfil_alumno.puntos_a_reforzar.filter(
+        (p) => !normalizeText(p).includes(`${normHumanCat} (refuerzo identificado`)
+      );
     }
   }
 
@@ -298,7 +365,7 @@ export function recordQuizTelemetry(root: string, rawEntry: unknown): { global: 
         if (!topicTelemetry.resumen.puntos_debiles.includes(entry.punto)) {
           topicTelemetry.resumen.puntos_debiles.push(entry.punto);
         }
-        const rec = `Reforzar ${entry.punto}: ${entry.por_que}`;
+        const rec = `Reforzar [${categoria}] en "${entry.punto}": ${entry.por_que}`;
         if (!topicTelemetry.resumen.recomendaciones_refuerzo.includes(rec)) {
           topicTelemetry.resumen.recomendaciones_refuerzo.push(rec);
         }

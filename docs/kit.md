@@ -167,10 +167,10 @@ Plain quizzes still require confidence, but never require reasoning; saved legac
 answers retain their old explanation when no `razonamiento` is present.
 
 `lk-quick-quiz` embeds an inline checkpoint within each section/point of the explanation.
-It takes attributes `point="<section title>"` and `tag="<matematicas|conceptual|codigo|...>"` with an
+It takes attributes `point="<section title>"` and `categoria="<category>"` (or `tag="<category>"`, e.g. `matematicas`, `conceptual`, `terminologia`, `gramatica`, `fisiologia`, `finanzas`, `cronologia`, etc.) with an
 inner JSON script holding `{id, pregunta, opciones, correcta, explicacion}`. When answered, it grades
 instantly in-page and reports telemetry (verdict, correct/wrong, and the explanation why) to the parent
-studio and the bridge backend (`telemetria.json`), feeding the tutor's adaptive model.
+studio and the bridge backend (`telemetria.json`), feeding the tutor's adaptive model across any discipline.
 
 `lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
 the learner drains what they are thinking, typed or dictated with the microphone button — and

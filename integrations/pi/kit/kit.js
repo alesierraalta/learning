@@ -291,7 +291,7 @@
     let spec;
     try { spec = JSON.parse(raw.textContent); } catch (e) { throw new Error(`Quiz rápido mal formado: ${e.message}`); }
     const point = this.getAttribute('point') || '';
-    const tag = this.getAttribute('tag') || 'conceptual';
+    const tag = this.getAttribute('categoria') || this.getAttribute('category') || this.getAttribute('tag') || spec.categoria || spec.category || spec.tag || 'conceptual';
     const form = el('form', undefined, { class: 'lk-quick-quiz-form' });
     const box = el('fieldset', undefined, { class: 'lk-question lk-qq-box' });
     const tagLabel = el('span', `Quiz rápido · ${point || 'Punto clave'}`, { class: 'lk-qq-badge' });

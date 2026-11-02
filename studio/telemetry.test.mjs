@@ -100,3 +100,75 @@ test("recordQuizTelemetry updates global and topic telemetry", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("adaptive categorization dynamically learns trends across any domain (grammar, medicine, finance)", () => {
+  const root = mkdtempSync(join(tmpdir(), "telemetry-adaptive-test-"));
+  try {
+    // 1. Friction in grammar (Languages topic)
+    const failGrammar = {
+      punto: "Phrasal verbs transitivos",
+      tema: "gramatica-speaking",
+      categoria: "gramatica",
+      pregunta: "¿Qué significa 'call off'?",
+      respuesta_alumno: "Llamar a alguien",
+      respuesta_correcta: "Cancelar",
+      ok: false,
+      por_que: "Confusión con el significado idiomático",
+    };
+    const res1 = recordQuizTelemetry(root, failGrammar);
+    assert.equal(res1.global.estadisticas_globales.por_categoria.gramatica.fallos, 1);
+    assert.ok(res1.global.perfil_alumno.tendencias.gramatica);
+    assert.equal(res1.global.perfil_alumno.tendencias.gramatica.nivel_dificultad, "media");
+    assert.equal(res1.global.perfil_alumno.tendencias.gramatica.accion_tutor, "reforzar_gramatica");
+    assert.ok(res1.global.perfil_alumno.puntos_a_reforzar.some((p) => p.toLowerCase().includes("gramatica")));
+
+    // Second failure in grammar escalates difficulty
+    const failGrammar2 = {
+      punto: "Phrasal verbs inseparables",
+      tema: "gramatica-speaking",
+      categoria: "gramatica",
+      pregunta: "¿Cuál es inseparable?",
+      respuesta_alumno: "Turn off",
+      respuesta_correcta: "Look after",
+      ok: false,
+      por_que: "No distingue separables de inseparables",
+    };
+    const res2 = recordQuizTelemetry(root, failGrammar2);
+    assert.equal(res2.global.perfil_alumno.tendencias.gramatica.nivel_dificultad, "alta");
+
+    // 2. Mastery in medicine / physiology
+    const okMed1 = {
+      punto: "Ciclo cardíaco",
+      tema: "fisiologia-cardiovascular",
+      categoria: "fisiologia",
+      pregunta: "¿Qué válvula se abre en la sístole ventricular izquierda?",
+      respuesta_alumno: "Aórtica",
+      respuesta_correcta: "Aórtica",
+      ok: true,
+      por_que: "Conocimiento exacto de hemodinámica",
+    };
+    recordQuizTelemetry(root, okMed1);
+
+    const okMed2 = {
+      punto: "Presión arterial media",
+      tema: "fisiologia-cardiovascular",
+      categoria: "fisiologia",
+      pregunta: "¿Cuál es la fórmula aproximada de PAM?",
+      respuesta_alumno: "PAD + (PAS - PAD)/3",
+      respuesta_correcta: "PAD + (PAS - PAD)/3",
+      ok: true,
+      por_que: "Cálculo y concepto fisiológico correcto",
+    };
+    const resMed2 = recordQuizTelemetry(root, okMed2);
+    assert.equal(resMed2.global.estadisticas_globales.por_categoria.fisiologia.aciertos, 2);
+    assert.ok(resMed2.global.perfil_alumno.tendencias.fisiologia);
+    assert.equal(resMed2.global.perfil_alumno.tendencias.fisiologia.nivel_dificultad, "baja");
+    assert.equal(resMed2.global.perfil_alumno.tendencias.fisiologia.accion_tutor, "usar_como_ancla");
+    assert.ok(resMed2.global.perfil_alumno.fortalezas.some((f) => f.toLowerCase().includes("fisiologia")));
+
+    // Check topic telemetry recommendations include category prefix
+    assert.ok(res1.topic?.resumen.recomendaciones_refuerzo.some((r) => r.includes("[gramatica]")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
