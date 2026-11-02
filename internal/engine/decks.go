@@ -255,24 +255,43 @@ func sceneProblem(s deckScene) string {
 	return ""
 }
 
+// fenceRun returns the fence character and run length a line opens with (three
+// or more backticks or tildes), or 0 when the line is not a fence.
+func fenceRun(trimmed string) (byte, int) {
+	if len(trimmed) < 3 || (trimmed[0] != '`' && trimmed[0] != '~') {
+		return 0, 0
+	}
+	n := 0
+	for n < len(trimmed) && trimmed[n] == trimmed[0] {
+		n++
+	}
+	if n < 3 {
+		return 0, 0
+	}
+	return trimmed[0], n
+}
+
 // withoutCodeFences drops fenced code blocks (``` and ~~~): markup inside them
-// is shown as code, never rendered as a walkthrough.
+// is shown as code, never rendered as a walkthrough. As in CommonMark, a fence
+// closes only with the same character, at least as long, and nothing after it.
 func withoutCodeFences(text string) string {
 	var out strings.Builder
-	fence := ""
+	var fenceChar byte
+	fenceLen := 0
 	for line := range strings.SplitSeq(text, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if fence == "" {
-			if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-				fence = trimmed[:3]
+		ch, n := fenceRun(trimmed)
+		if fenceLen == 0 {
+			if n > 0 {
+				fenceChar, fenceLen = ch, n
 				continue
 			}
 			out.WriteString(line)
 			out.WriteByte('\n')
 			continue
 		}
-		if strings.HasPrefix(trimmed, fence) {
-			fence = ""
+		if ch == fenceChar && n >= fenceLen && n == len(trimmed) {
+			fenceLen = 0
 		}
 	}
 	return out.String()
