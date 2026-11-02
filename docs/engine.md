@@ -417,13 +417,16 @@ receipts stay valid.
 - The note carries at least one closed `<lk-walkthrough>` with a JSON deck; an
   `lk-widget` or a page under `explicaciones/apps/` does not replace it.
 - Every walkthrough in the note has 3 to 6 steps.
-- Markup inside a fenced code block (```` ``` ```` or `~~~`) is code, not a walkthrough, and an
-  opening tag followed by another opening before its closing tag is reported as
-  not closed, so it cannot hide the next deck.
-- Every step draws something (a box, node, sheet, gear, dashed frame or table,
-  sized with the kit's own defaults) and at least one arrow with both ends
+- Markup inside a fenced code block (```` ``` ```` or `~~~`) is code, not a walkthrough. Fences are
+  read as CommonMark does, including fences inside list items and blockquotes; a
+  fence-looking line inside an HTML block is plain text. An opening tag followed
+  by another opening before its closing tag is reported as not closed, so it
+  cannot hide the next deck.
+- Every step draws something the kit can place (a box, sheet or dashed frame
+  with `x`, `y` and a positive `w` and `h`; a node or gear with `x` and `y`; a
+  table with `x` and `y`, sized with the kit's own defaults) and at least one arrow with both ends
   (`x1`, `y1`, `x2`, `y2`): an arrow entry without coordinates renders nothing. When its largest figure is
-  a table, an arrow must point into that table, at the row or cell that matters:
+  a table, an arrow must end inside that table, at the row or cell that matters:
   a table is the scene only when the data is the example (rows of a relation).
   A table no arrow touches, with the explanation happening in captions around
   it, fails.

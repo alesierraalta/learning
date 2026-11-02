@@ -42,6 +42,16 @@ func explanationFrontier(t *testing.T) *fixture {
 	return f
 }
 
+// prefixLines puts a container prefix (list indentation, blockquote marker)
+// in front of every line of a snippet.
+func prefixLines(text, prefix string) string {
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
+}
+
 func repeatSteps(step string, n int) []string {
 	steps := make([]string, n)
 	for i := range steps {
@@ -73,6 +83,12 @@ func TestPartNeedsProgressiveWalkthrough(t *testing.T) {
 		{"a closer followed by a no-break space is not a closer", "~~~\n~~~\u00a0\n" + deck(t, repeatSteps(sceneStep, 3)...) + "\n~~~", false, "needs a progressive walkthrough"},
 		{"a backtick run with a backtick in its info string opens nothing", "``` a`b\n" + deck(t, repeatSteps(sceneStep, 3)...), true, ""},
 		{"a backtick line does not close a tilde fence", "~~~\n```\n" + deck(t, repeatSteps(sceneStep, 3)...) + "\n~~~", false, "needs a progressive walkthrough"},
+		{"a fence inside a list item is code", "- ~~~html\n" + prefixLines(deck(t, repeatSteps(sceneStep, 3)...), "  ") + "\n  ~~~\n", false, "and has none"},
+		{"a fence inside a blockquote is code", "> ~~~html\n" + prefixLines(deck(t, repeatSteps(sceneStep, 3)...), "> ") + "\n> ~~~\n", false, "and has none"},
+		{"a fence line inside an HTML block opens nothing", "<div>\n~~~\n</div>\n\n" + deck(t, repeatSteps(sceneStep, 3)...), true, ""},
+		{"a box without a size draws nothing", deck(t, sceneStep, `{"boxes":[{}],"arrows":[{"x1":0,"y1":0,"x2":20,"y2":20,"label":"mira"}]}`, sceneStep), false, "draws nothing"},
+		{"a null box draws nothing", deck(t, sceneStep, `{"boxes":[null],"arrows":[{"x1":0,"y1":0,"x2":20,"y2":20,"label":"mira"}]}`, sceneStep), false, "draws nothing"},
+		{"an arrow that stops beside the table does not point into it", deck(t, sceneStep, `{"grids":[{"x":20,"y":24,"width":320,"rowH":48,"cols":["id"],"rows":[["1"]]}],"arrows":[{"x1":400,"y1":50,"x2":352,"y2":50,"label":"esta"}]}`, sceneStep), false, "no arrow points at"},
 		{"an arrow without coordinates draws nothing", deck(t, sceneStep, `{"boxes":[{"x":40,"y":60,"w":120,"h":90,"label":"(0,2)"}],"arrows":[{"label":"sube"}]}`, sceneStep), false, "arrow"},
 		{"a dashed frame with its arrow is a scene", deck(t, sceneStep, `{"dashed":[{"x":20,"y":20,"w":300,"h":200,"label":"almacén"}],"arrows":[{"x1":160,"y1":300,"x2":160,"y2":230,"label":"entra"}]}`, sceneStep), true, ""},
 		{"a gear keeps the size the kit draws", deck(t, sceneStep, `{"gears":[{"x":200,"y":200}],"grids":[{"x":10,"y":10,"width":100,"rowH":48,"cols":["a"],"rows":[["1"]]}],"arrows":[{"x1":300,"y1":300,"x2":250,"y2":250,"label":"gira"}]}`, sceneStep), true, ""},
