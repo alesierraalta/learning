@@ -18,6 +18,7 @@ import { dirname, extname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveContained, safeTopic } from "./paths.ts";
+import { recordQuizTelemetry } from "./telemetry.ts";
 import { CodeRunError, loadRunners, readExercise, publicExercise, forPage, runCode } from "./coderun.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 
@@ -492,6 +493,7 @@ function writeAnswers(file: string, record: AnswerFile): void {
 }
 
 const ALLOWED_KEYS: Record<string, Set<string>> = {
+  "quick-quiz": new Set(["kind", "topic", "part", "entry"]),
   "mini-quiz": new Set(["kind", "topic", "part", "answers", "reasoning", "ownWords", "exercises"]),
   diagnosis: new Set(["kind", "topic", "answers", "reasoning"]),
   question: new Set(["kind", "topic", "part", "text", "demo"]),
@@ -1244,6 +1246,32 @@ ${scripts}
       const header = ["Vista HTML", topic, partId, "pregunta", demo && `demo ${demo}`].filter(Boolean).join(" · ");
       await deliver(`[${header}]\nPregunta de la persona:\n${quote(text)}`);
       sendJson(res, 200, { sent: true });
+      return;
+    }
+
+    if (kind === "quick-quiz") {
+      const entry = payload.entry;
+      if (!entry || typeof entry !== "object") throw new HttpError(400, "entry is required for quick-quiz");
+      const punto = typeof entry.punto === "string" ? entry.punto : "";
+      const ok = Boolean(entry.ok);
+      const por_que = typeof entry.por_que === "string" ? entry.por_que : (ok ? "Acierto" : "Fallo");
+      const categoria = typeof entry.categoria === "string" ? entry.categoria : "conceptual";
+      const qEntry = {
+        ...entry,
+        tema: topic,
+        parte: typeof partId === "string" ? partId : undefined,
+      };
+      const tele = recordQuizTelemetry(rootReal, qEntry);
+      const header = ["Vista HTML", topic, partId, "quiz rápido", punto].filter(Boolean).join(" · ");
+      const lines = [
+        `[${header}]`,
+        `Pregunta: ${entry.pregunta ?? ""}`,
+        `Resultado: ${ok ? "✔ Correcto" : "✘ Incorrecto"} (Eligió: ${entry.respuesta_alumno ?? ""}, Correcta: ${entry.respuesta_correcta ?? ""})`,
+        `Categoría: ${categoria}`,
+        `Diagnóstico: ${por_que}`,
+      ];
+      await deliver(lines.join("\n"));
+      sendJson(res, 200, { ok: true, telemetry: tele });
       return;
     }
 

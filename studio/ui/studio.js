@@ -1233,6 +1233,13 @@
   let showResultsStatus = () => {};
   window.addEventListener("message", (event) => {
     const data = event.data;
+    if (data && data.type === "learning:quick-quiz" && data.entry) {
+      const frame = stage.querySelector("iframe.sheet");
+      if (frame && event.source === frame.contentWindow) {
+        post("api/telemetry", { entry: data.entry }).catch(() => {});
+      }
+      return;
+    }
     if (!data || data.type !== "learning:submitted" || typeof data.topic !== "string" || !Array.isArray(data.results)) return;
     const frame = stage.querySelector("iframe.sheet");
     if (!frame || event.source !== frame.contentWindow) return;

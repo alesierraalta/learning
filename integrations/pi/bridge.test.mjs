@@ -1108,7 +1108,7 @@ test("a video request reaches the chat as a fixed message", async () => {
   const { view, host, shutdown } = await setup();
   const url = base(await view({}));
   const res = await submit(url, { kind: "video", topic: TOPIC, part: "p1" });
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 200, res.body);
   assert.equal(
     host.sent[0].content,
     "[Vista HTML · sql-demo · p1 · video]\nLa persona pide el video de esta parte: prodúcelo con el pipeline de learnings-video (video-distill.md) y guárdalo en explicaciones/adjuntos/Parte 1 - Claves.mp4.",
@@ -1160,7 +1160,7 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
     ownWords: "Una clave identifica una fila.",
     exercises: "SELECT * FROM t;",
   });
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 200, res.body);
   const body = JSON.parse(res.body);
   assert.deepEqual(body.results, [
     { id: "q1", chosen: "B", correct: "B", ok: true },
@@ -1199,7 +1199,7 @@ test("reasoning written by the old two-prompt form still submits and is normaliz
       q2: { entendi: "otra", porque: "razón", confianza: "seguro" },
     },
   });
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 200, res.body);
   assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")).razonamientos, {
     q1: { razonamiento: "primer\n\nsegundo", confianza: "dudo" },
     q2: { razonamiento: "otra\n\nrazón", confianza: "seguro" },
@@ -1244,7 +1244,7 @@ test("diagnosis submit adds only new ids of the current round and keeps recorded
   assert.deepEqual(data.quiz.questions.map((q) => q.id), ["d1", "d2", "d3"]);
   assert.deepEqual(data.answered, [{ id: "d1", chosen: "B", correct: "B", ok: true }]);
   const res = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d2: "E" }, reasoning: why("d2") });
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 200, res.body);
   assert.deepEqual(JSON.parse(readFileSync(join(topic, "quiz.answers.json"), "utf8")), {
     answers: { d1: "B", d2: "E" },
     razonamientos: why("d2"),
@@ -1284,12 +1284,37 @@ test("a question to the tutor is sent with its context and writes no file", asyn
   const { view, topic, host, shutdown } = await setup();
   const url = base(await view({}));
   const res = await submit(url, { kind: "question", topic: TOPIC, part: "p1", text: "¿Por qué la PK no admite NULL?", demo: "p1-claves.html" });
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 200, res.body);
   assert.equal(
     host.sent[0].content,
     '[Vista HTML · sql-demo · p1 · pregunta · demo p1-claves.html]\nPregunta de la persona:\n"""\n¿Por qué la PK no admite NULL?\n"""',
   );
   assert.equal(existsSync(join(topic, "mini-quiz", "p1.answers.json")), false);
+  await shutdown();
+});
+
+test("quick-quiz submit records telemetry and delivers notification to chat", async () => {
+  const { view, root, topic, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, {
+    kind: "quick-quiz",
+    topic: TOPIC,
+    part: "p1",
+    entry: {
+      punto: "1. Por qué existe",
+      pregunta: "¿Qué problema resuelve la PK?",
+      respuesta_alumno: "B",
+      respuesta_correcta: "B",
+      ok: true,
+      categoria: "conceptual",
+      por_que: "Acierto: identifica unicidad",
+    },
+  });
+  assert.equal(res.status, 200, res.body);
+  assert.ok(host.sent[0].content.includes("[Vista HTML · sql-demo · p1 · quiz rápido · 1. Por qué existe]"));
+  assert.ok(host.sent[0].content.includes("✔ Correcto"));
+  assert.ok(existsSync(join(root, "telemetria.json")));
+  assert.ok(existsSync(join(topic, "telemetria.json")));
   await shutdown();
 });
 

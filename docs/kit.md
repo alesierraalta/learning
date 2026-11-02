@@ -69,6 +69,12 @@ use light DOM: normal page CSS and accessible native controls still work.
 </lk-widget>
 <!-- Add page-authored inline JS to wire the demo's native controls. -->
 
+<lk-quick-quiz point="1. Por qué existe" tag="matematicas">
+<script type="application/json">
+{"id": "qq-1", "pregunta": "¿Por qué...?", "opciones": {"A":"...", "B":"...", "E":"No sé"}, "correcta": "A", "explicacion": "..."}
+</script>
+</lk-quick-quiz>
+
 <lk-video></lk-video>
 <lk-quiz></lk-quiz>
 <lk-ask></lk-ask>
@@ -159,6 +165,12 @@ Both rich quizzes and plain part/diagnosis quizzes share `kit/dictate.js`:
 before either client; standalone kit pages load it automatically beside `kit.js`.
 Plain quizzes still require confidence, but never require reasoning; saved legacy
 answers retain their old explanation when no `razonamiento` is present.
+
+`lk-quick-quiz` embeds an inline checkpoint within each section/point of the explanation.
+It takes attributes `point="<section title>"` and `categoria="<category>"` (or `tag="<category>"`, e.g. `matematicas`, `conceptual`, `terminologia`, `gramatica`, `fisiologia`, `finanzas`, `cronologia`, etc.) with an
+inner JSON script holding `{id, pregunta, opciones, correcta, explicacion}`. When answered, it grades
+instantly in-page and reports telemetry (verdict, correct/wrong, and the explanation why) to the parent
+studio and the bridge backend (`telemetria.json`), feeding the tutor's adaptive model across any discipline.
 
 `lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
 the learner drains what they are thinking, typed or dictated with the microphone button — and

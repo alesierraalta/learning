@@ -285,6 +285,85 @@
       window.parent.postMessage({ type: 'learning:submitted', kind: 'mini-quiz', topic: b.topic, part: b.part, score: graded.score, results }, '*');
     }
   });
+  define('lk-quick-quiz', async function () {
+    const raw = this.querySelector('script[type="application/json"]');
+    if (!raw) return;
+    let spec;
+    try { spec = JSON.parse(raw.textContent); } catch (e) { throw new Error(`Quiz rápido mal formado: ${e.message}`); }
+    const point = this.getAttribute('point') || '';
+    const tag = this.getAttribute('categoria') || this.getAttribute('category') || this.getAttribute('tag') || spec.categoria || spec.category || spec.tag || 'conceptual';
+    const form = el('form', undefined, { class: 'lk-quick-quiz-form' });
+    const box = el('fieldset', undefined, { class: 'lk-question lk-qq-box' });
+    const tagLabel = el('span', `Quiz rápido · ${point || 'Punto clave'}`, { class: 'lk-qq-badge' });
+    const legend = el('legend');
+    legend.append(tagLabel, document.createElement('br'), document.createTextNode(spec.pregunta || spec.enunciado || ''));
+    box.append(legend);
+
+    const qId = spec.id || `qq-${Math.random().toString(36).slice(2, 8)}`;
+    const options = spec.opciones || spec.options || {};
+    for (const [letter, text] of Object.entries(options)) {
+      const label = el('label', undefined, { class: 'lk-option' });
+      label.append(
+        el('input', undefined, { type: 'radio', name: qId, value: letter, required: '' }),
+        el('span', `${letter}. ${text}`)
+      );
+      box.append(label);
+    }
+
+    const submit = el('button', 'Comprobar respuesta', { type: 'submit', class: 'lk-qq-submit' });
+    const resultBox = el('div', undefined, { class: 'lk-qq-result', hidden: '' });
+    form.append(box, submit, resultBox);
+    this.append(form);
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const chosen = form.elements[qId]?.value;
+      if (!chosen) return;
+      submit.disabled = true;
+      form.querySelectorAll('input').forEach(i => { i.disabled = true; });
+
+      const correcta = spec.correcta || spec.correct || spec.answer || '';
+      const ok = chosen.toUpperCase() === correcta.toUpperCase();
+      const explicacion = spec.explicacion || spec.explanation || '';
+      const por_que = ok ? (explicacion ? `Acierto: ${explicacion}` : 'Respuesta correcta.') : `Fallo (eligió ${chosen}, correcta: ${correcta}): ${explicacion || 'No consolidó el concepto.'}`;
+
+      resultBox.hidden = false;
+      resultBox.className = `lk-qq-result ${ok ? 'lk-correct' : 'lk-error'}`;
+      resultBox.textContent = ok
+        ? `✔ ¡Correcto! ${explicacion}`
+        : `✘ Incorrecto. Elegiste ${chosen}; la correcta es ${correcta}. ${explicacion}`;
+
+      const b = config();
+      const entry = {
+        id: qId,
+        punto: point || 'Punto explicable',
+        categoria: tag,
+        pregunta: spec.pregunta || spec.enunciado || '',
+        respuesta_alumno: chosen,
+        respuesta_correcta: correcta,
+        ok,
+        por_que,
+        timestamp: new Date().toISOString()
+      };
+
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+          type: 'learning:quick-quiz',
+          topic: b?.topic,
+          part: b?.part,
+          entry
+        }, '*');
+      }
+
+      if (b?.submitUrl) {
+        try {
+          await post({ kind: 'quick-quiz', entry });
+        } catch {
+          /* best effort delivery */
+        }
+      }
+    });
+  });
   async function decorate() {
     const main = document.querySelector('main') || document.body;
     const headings = [...main.querySelectorAll('h2')];
