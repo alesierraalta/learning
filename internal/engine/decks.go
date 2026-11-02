@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -131,12 +132,14 @@ type figureGeom struct {
 	Header                     *bool
 }
 
+// parseGeoms keeps the figures the kit can place: an entry without a numeric x
+// and y renders nothing, so it draws nothing.
 func parseGeoms(raw []json.RawMessage) []figureGeom {
 	out := make([]figureGeom, 0, len(raw))
 	for _, item := range raw {
 		var g struct {
-			X      float64           `json:"x"`
-			Y      float64           `json:"y"`
+			X      *float64          `json:"x"`
+			Y      *float64          `json:"y"`
 			W      float64           `json:"w"`
 			H      float64           `json:"h"`
 			R      float64           `json:"r"`
@@ -145,8 +148,10 @@ func parseGeoms(raw []json.RawMessage) []figureGeom {
 			Rows   []json.RawMessage `json:"rows"`
 			Header *bool             `json:"header"`
 		}
-		_ = json.Unmarshal(item, &g)
-		out = append(out, figureGeom{X: g.X, Y: g.Y, W: g.W, H: g.H, R: g.R, Width: g.Width, RowH: g.RowH, Rows: g.Rows, Header: g.Header})
+		if json.Unmarshal(item, &g) != nil || g.X == nil || g.Y == nil {
+			continue
+		}
+		out = append(out, figureGeom{X: *g.X, Y: *g.Y, W: g.W, H: g.H, R: g.R, Width: g.Width, RowH: g.RowH, Rows: g.Rows, Header: g.Header})
 	}
 	return out
 }
@@ -185,13 +190,12 @@ func drawnArrows(arrows []json.RawMessage) []arrowEnds {
 	return out
 }
 
-// pointsAtTable reports an arrow whose head lands on the table (with a small
-// margin for the head drawn just outside the frame).
+// pointsAtTable reports an arrow whose head ends inside the table, on the row
+// or cell it shows.
 func pointsAtTable(arrows []arrowEnds, g figureGeom) bool {
-	const margin = 12.0
 	w, h := gridSize(g)
 	for _, a := range arrows {
-		if a.X2 >= g.X-margin && a.X2 <= g.X+w+margin && a.Y2 >= g.Y-margin && a.Y2 <= g.Y+h+margin {
+		if a.X2 >= g.X && a.X2 <= g.X+w && a.Y2 >= g.Y && a.Y2 <= g.Y+h {
 			return true
 		}
 	}
@@ -216,11 +220,11 @@ func circleArea(gs []figureGeom, fallback float64) (n int, largest float64) {
 func sceneProblem(s deckScene) string {
 	largestShape := 0.0
 	shapes := 0
-	for _, g := range parseGeoms(s.Boxes) {
-		shapes++
-		largestShape = max(largestShape, g.W*g.H)
-	}
-	for _, g := range append(parseGeoms(s.Sheets), parseGeoms(s.Dashed)...) {
+	// A box, sheet or frame needs a size to be drawn at all.
+	for _, g := range append(append(parseGeoms(s.Boxes), parseGeoms(s.Sheets)...), parseGeoms(s.Dashed)...) {
+		if g.W <= 0 || g.H <= 0 {
+			continue
+		}
 		shapes++
 		largestShape = max(largestShape, g.W*g.H)
 	}
@@ -239,13 +243,14 @@ func sceneProblem(s deckScene) string {
 	// explanation happening somewhere else.
 	var largestTable figureGeom
 	largestTableArea := 0.0
-	for _, g := range parseGeoms(s.Grids) {
+	grids := parseGeoms(s.Grids)
+	for _, g := range grids {
 		if w, h := gridSize(g); w*h > largestTableArea {
 			largestTable, largestTableArea = g, w*h
 		}
 	}
 	switch {
-	case shapes == 0 && len(s.Grids) == 0:
+	case shapes == 0 && len(grids) == 0:
 		return "draws nothing: draw the example itself (boxes, nodes)"
 	case len(arrows) == 0:
 		return "has no arrow with both ends (x1, y1, x2, y2): point at what changes, the way the tutorial does"
@@ -276,29 +281,103 @@ func fenceRun(line string) (ch byte, n int, rest string) {
 	return ch, n, line[indent+n:]
 }
 
+// stripQuotes removes the blockquote markers in front of a line and reports how
+// many there were.
+func stripQuotes(line string) (int, string) {
+	depth := 0
+	for {
+		i := 0
+		for i < len(line) && i < 3 && line[i] == ' ' {
+			i++
+		}
+		if i == len(line) || line[i] != '>' {
+			return depth, line
+		}
+		line = strings.TrimPrefix(line[i+1:], " ")
+		depth++
+	}
+}
+
+// listMarker is a list item opener; its width is the item's content indent.
+var listMarker = regexp.MustCompile(`^ {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4}`)
+
+// htmlBlockStart is a line that opens a CommonMark HTML block, where fences are
+// plain text. It returns what ends the block: a closing tag for script, pre,
+// style and textarea, "-->" for a comment, or "" for "the next blank line".
+func htmlBlockStart(line string) (bool, string) {
+	trimmed := strings.TrimLeft(line, " ")
+	if len(line)-len(trimmed) > 3 || len(trimmed) < 2 || trimmed[0] != '<' {
+		return false, ""
+	}
+	if strings.HasPrefix(trimmed, "<!--") {
+		return true, "-->"
+	}
+	next := trimmed[1]
+	if next != '/' && next != '!' && next != '?' && !('a' <= next && next <= 'z' || 'A' <= next && next <= 'Z') {
+		return false, ""
+	}
+	lower := strings.ToLower(trimmed)
+	for _, tag := range []string{"script", "pre", "style", "textarea"} {
+		if strings.HasPrefix(lower, "<"+tag) && (len(lower) == len(tag)+1 || strings.ContainsRune(" >\t", rune(lower[len(tag)+1]))) {
+			return true, "</" + tag + ">"
+		}
+	}
+	return true, ""
+}
+
 // withoutCodeFences drops fenced code blocks (``` and ~~~): markup inside them
 // is shown as code, never rendered as a walkthrough. It follows CommonMark: a
-// backtick opener's info string has no backtick, and a fence closes only with
-// the same character, at least as long, followed by spaces or tabs alone.
+// backtick opener's info string has no backtick; a fence closes only with the
+// same character, at least as long, followed by spaces or tabs alone; a fence
+// inside a list item or a blockquote belongs to that container and ends with
+// it; and a fence-looking line inside an HTML block is plain text.
 func withoutCodeFences(text string) string {
 	var out strings.Builder
+	keep := func(line string) {
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}
 	var fenceChar byte
-	fenceLen := 0
+	fenceLen, fenceQuotes, fenceIndent := 0, 0, 0
+	inHTML, htmlEnd := false, ""
 	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSuffix(line, "\r")
-		ch, n, rest := fenceRun(line)
-		if fenceLen == 0 {
-			if n > 0 && !(ch == '`' && strings.ContainsRune(rest, '`')) {
-				fenceChar, fenceLen = ch, n
+		if fenceLen > 0 {
+			depth, body := stripQuotes(line)
+			lead := len(body) - len(strings.TrimLeft(body, " "))
+			left := depth < fenceQuotes || (fenceIndent > 0 && strings.TrimSpace(body) != "" && lead < fenceIndent)
+			if !left {
+				body = body[min(lead, fenceIndent):]
+				if ch, n, rest := fenceRun(body); ch == fenceChar && n >= fenceLen && strings.Trim(rest, " \t") == "" {
+					fenceLen = 0
+				}
 				continue
 			}
-			out.WriteString(line)
-			out.WriteByte('\n')
+			fenceLen = 0 // the container ended, and the fence with it
+		}
+		if inHTML {
+			keep(line)
+			if (htmlEnd == "" && strings.TrimSpace(line) == "") || (htmlEnd != "" && strings.Contains(strings.ToLower(line), htmlEnd)) {
+				inHTML = false
+			}
 			continue
 		}
-		if ch == fenceChar && n >= fenceLen && strings.Trim(rest, " \t") == "" {
-			fenceLen = 0
+		depth, body := stripQuotes(line)
+		indent := 0
+		if m := listMarker.FindString(body); m != "" {
+			indent, body = len(m), body[len(m):]
 		}
+		if ch, n, rest := fenceRun(body); n > 0 && !(ch == '`' && strings.ContainsRune(rest, '`')) {
+			fenceChar, fenceLen, fenceQuotes, fenceIndent = ch, n, depth, indent
+			continue
+		}
+		if start, end := htmlBlockStart(body); start {
+			inHTML, htmlEnd = true, end
+			if end != "" && strings.Contains(strings.ToLower(body), end) {
+				inHTML = false
+			}
+		}
+		keep(line)
 	}
 	return out.String()
 }
