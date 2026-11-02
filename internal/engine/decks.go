@@ -340,6 +340,9 @@ func withoutCodeFences(text string) string {
 	var fenceChar byte
 	fenceLen, fenceQuotes, fenceIndent := 0, 0, 0
 	inHTML, htmlEnd := false, ""
+	// The open list item, if any: its content indent holds on its continuation
+	// lines (and across blank lines) until a less indented line ends it.
+	listIndent, listQuotes := 0, 0
 	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		if fenceLen > 0 {
@@ -363,10 +366,20 @@ func withoutCodeFences(text string) string {
 			continue
 		}
 		depth, body := stripQuotes(line)
-		indent := 0
-		if m := listMarker.FindString(body); m != "" {
-			indent, body = len(m), body[len(m):]
+		if depth != listQuotes {
+			listIndent = 0
 		}
+		lead := len(body) - len(strings.TrimLeft(body, " "))
+		if m := listMarker.FindString(body); m != "" {
+			listIndent, listQuotes, body = len(m), depth, body[len(m):]
+		} else if listIndent > 0 {
+			if strings.TrimSpace(body) != "" && lead < listIndent {
+				listIndent = 0
+			} else {
+				body = body[min(lead, listIndent):]
+			}
+		}
+		indent := listIndent
 		if ch, n, rest := fenceRun(body); n > 0 && !(ch == '`' && strings.ContainsRune(rest, '`')) {
 			fenceChar, fenceLen, fenceQuotes, fenceIndent = ch, n, depth, indent
 			continue
