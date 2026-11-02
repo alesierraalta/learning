@@ -3,7 +3,7 @@
 import { after, test } from "node:test";
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, existsSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request, createServer as httpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -357,57 +357,6 @@ test('prose next to a long inline code keeps normal word gaps on a phone', { ski
   assert.ok(gap.gap <= 12, `the words are stretched ${gap.gap}px apart`);
 });
 
-test('app pages inline shared reasoning and private bridge config', async () => {
-  for (const configured of [false, true]) {
-    const { view } = await setup(configured ? { transcriber: { url: 'http://127.0.0.1:1', token: 'app-private-token' } } : {});
-    const result = await view({ topic: TOPIC, part: 'p1' });
-    const response = await http(result.structuredContent.appUrl);
-    assert.equal(response.status, 200);
-    assert.match(response.body, /window\.learningThoughtField\s*=/);
-    assert.match(response.body, /window\.learningDictate\s*=/);
-    const config = JSON.parse(response.body.match(/window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
-    assert.equal('transcribeUrl' in config, configured);
-    assert.doesNotMatch(response.body, /app-private-token/);
-  }
-});
-
-test('app dictation honors kitDir and escapes script terminators', async () => {
-  const kitDir = realpathSync(mkdtempSync(join(tmpdir(), 'app-kit-')));
-  writeFileSync(join(kitDir, 'dictate.js'), 'window.customDictation = "</ScRiPt><p>not markup</p>";');
-  const { view } = await setup({ kitDir });
-  const result = await view({ topic: TOPIC, part: 'p1' });
-  const response = await http(result.structuredContent.appUrl);
-  assert.ok(response.body.includes('window.customDictation = "<\\/script><p>not markup</p>";'));
-  assert.doesNotMatch(response.body, /<\/ScRiPt>/);
-});
-
-test('app reasoning renders and records under its inline-only CSP', { skip: !playwright && 'playwright not installed' }, async t => {
-  const { view, topic } = await setup({ transcriber: { url: 'http://127.0.0.1:1', token: 'app-private-token' } });
-  writeFileSync(join(topic, 'explicaciones', 'apps', 'p1.html'), '<!doctype html><html><head></head><body><script>document.body.append(window.learningThoughtField("q1", 0, window.LEARNING_BRIDGE));</script></body></html>');
-  const browser = await playwright.chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
-  const violations = [];
-  const errors = [];
-  page.on('pageerror', error => errors.push(error.message));
-  await page.exposeFunction('recordViolation', value => violations.push(value));
-  await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => window.recordViolation(event.violatedDirective)));
-  await page.route('**/api/transcribe', route => route.fulfill({ json: { text: 'Pensé en la clave' } }));
-  const result = await view({ topic: TOPIC, part: 'p1' });
-  await page.goto(result.structuredContent.appUrl);
-  const field = page.getByLabel('Cómo lo pensé (opcional)');
-  await field.waitFor();
-  await page.getByRole('button', { name: /Dictar el razonamiento/ }).click();
-  const stop = page.locator('.lk-mic');
-  await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Detener');
-  await page.waitForTimeout(300);
-  await stop.click();
-  await page.waitForFunction(() => document.querySelector('textarea')?.value === 'Pensé en la clave');
-  assert.equal(await field.inputValue(), 'Pensé en la clave');
-  assert.deepEqual(violations, []);
-  assert.deepEqual(errors, []);
-});
-
 test('plain part and diagnosis share optional dictable reasoning', { skip: !playwright && 'playwright not installed' }, async t => {
   const { view, topic } = await setup({ transcriber: { url: 'http://127.0.0.1:1', token: 'never-in-page' } });
   const browser = await playwright.chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
@@ -516,9 +465,6 @@ test("public bridge origins preserve loopback access and constrain proxy request
     assert.equal(page.status, 200);
     assert.ok(page.headers["content-security-policy"].includes(publicEmbedder));
   }
-  const app = await http(result.structuredContent.appUrl.replace(publicOrigin, `http://127.0.0.1:${port}`));
-  assert.equal(app.status, 200);
-  assert.match(app.headers["content-security-policy"], /frame-ancestors https:\/\/box\.tail0\.ts\.net:8445(;|$)/);
   assert.equal((await http(local, { headers: { host: "evil.example:80" } })).status, 403);
   const endpoint = `http://127.0.0.1:${port}${new URL(result.structuredContent.base).pathname}submit`;
   for (const [origin, rejected] of [[publicOrigin, false], ["https://evil.example", true]]) {
@@ -841,6 +787,8 @@ test("part page embeds the note with the video wired to the file route and the q
   assert.deepEqual(data.quiz.questions.map((q) => q.id), ["q1", "q2"]);
   assert.equal(JSON.stringify(data.quiz).includes('"answer"'), false);
   assert.deepEqual(data.demos, ["file/explicaciones/demos/p1-claves.html"]);
+  assert.deepEqual(data.video, { src: "explicaciones/adjuntos/Parte 1 - Claves.mp4", exists: true }, "every node carries its video control");
+  assert.equal(data.app, undefined, "the interactive app is gone");
   const demo = await http(new URL(data.demos[0], url).href);
   assert.equal(demo.status, 200);
   assert.equal(demo.headers["content-security-policy"], "sandbox allow-scripts");
@@ -890,51 +838,32 @@ test("plan.json part ids or slugs with path separators are never used as paths",
   await shutdown();
 });
 
-test("a part's interactive app is served full page with the submit channel injected", async () => {
-  const { view, shutdown } = await setup();
-  const result = await view({ topic: TOPIC, part: "p1" });
-  const appUrl = result.structuredContent.appUrl;
-  assert.equal(appUrl, `${base(result)}${TOPIC}/p1/app`);
-  assert.match(result.content[0].text, /Aplicación interactiva: http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{64}\/sql-demo\/p1\/app/);
-  const page = await http(appUrl);
-  assert.equal(page.status, 200);
-  assert.match(page.headers["content-type"], /^text\/html/);
-  const csp = page.headers["content-security-policy"];
-  assert.match(csp, /script-src 'unsafe-inline'/);
-  assert.match(csp, /connect-src 'self'/);
-  assert.match(csp, /frame-ancestors 'none'/);
-  assert.doesNotMatch(csp, /https:/);
-  const injected = JSON.parse(page.body.match(/<head><script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
-  assert.deepEqual(injected, { submitUrl: `${new URL(base(result)).pathname}submit`, topic: TOPIC, part: "p1" });
-  assert.match(page.body, /<body>app<\/body>/);
-  const partPage = await http(result.structuredContent.url);
-  assert.equal(JSON.parse(partPage.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]).app, `${new URL(base(result)).pathname}${TOPIC}/p1/app`);
-  await shutdown();
-});
-
-test("a part without an app has no appUrl and its app route is 404", async () => {
+test("the retired app route is gone and every part payload carries its video control", async () => {
   const { view, topic, shutdown } = await setup();
   writeFileSync(join(topic, "explicaciones", "Parte 2 - Joins.md"), "# Parte 2 — Joins\n");
-  const result = await view({ topic: TOPIC, part: "p2" });
+  const result = await view({ topic: TOPIC, part: "p1" });
   assert.equal(result.structuredContent.appUrl, undefined);
   assert.doesNotMatch(result.content[0].text, /Aplicación interactiva/);
+  assert.equal((await http(`${base(result)}${TOPIC}/p1/app`)).status, 404);
   assert.equal((await http(`${base(result)}${TOPIC}/p2/app`)).status, 404);
-  assert.equal((await http(`${base(result)}${TOPIC}/p9/app`)).status, 404);
   assert.equal((await http(`${base(result)}${TOPIC}/..%2Fp1/app`)).status, 404);
   const page = await http(result.structuredContent.url);
-  assert.equal(JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]).app, null);
+  const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
+  assert.equal(data.app, undefined);
+  assert.deepEqual(data.video, { src: "explicaciones/adjuntos/Parte 1 - Claves.mp4", exists: true });
+  const second = await view({ topic: TOPIC, part: "p2" });
+  const secondData = JSON.parse((await http(second.structuredContent.url)).body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
+  assert.deepEqual(secondData.video, { src: "explicaciones/adjuntos/Parte 2 - Joins.mp4", exists: false }, "a node without an mp4 still offers the button");
   await shutdown();
 });
 
-test("frameAncestors lets one loopback origin embed the pages and apps; anything else is refused at registration", async () => {
+test("frameAncestors lets one loopback origin embed the pages; anything else is refused at registration", async () => {
   const { root } = makeRoot();
   const host = makeHost();
   registerBridge(host.api, { root, frameAncestors: ["http://127.0.0.1:5555"] });
   const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
   const page = await http(result.structuredContent.url);
   assert.match(page.headers["content-security-policy"], /frame-ancestors 'self' http:\/\/127\.0\.0\.1:5555(;|$)/);
-  const app = await http(result.structuredContent.appUrl);
-  assert.match(app.headers["content-security-policy"], /frame-ancestors http:\/\/127\.0\.0\.1:5555(;|$)/);
   for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
   for (const bad of ["https://evil.example", "http://127.0.0.1:5555; script-src *", "*", "http://example.com:80"]) {
     assert.throws(() => registerBridge(makeHost().api, { root, frameAncestors: [bad] }), /frameAncestors/);
@@ -972,6 +901,8 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
     video: "file/explicaciones/adjuntos/Parte%201%20-%20Claves.mp4",
   });
   assert.match(page.body, /<h1>Rica<\/h1>/);
+  assert.match(page.body, /<lk-video><\/lk-video>/, "a rich page without the video control gets one");
+  assert.match(page.body, /kit\/kit\.js/, "the injected control ships the kit assets");
   const video = await http(new URL(config.video, url).href, { method: "HEAD" });
   assert.equal(video.status, 200);
   const kit = await http(`${result.structuredContent.base}kit/kit.js`);
@@ -998,6 +929,47 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   assert.equal((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p9`)).status, 404);
   assert.equal((await http(`${result.structuredContent.base}api/quiz?topic=..&part=p1`)).status, 400);
   for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
+});
+
+test("a video control or kit asset named only inside a comment is still missing", async () => {
+  const { root, topic } = makeRoot();
+  const kitDir = realpathSync(mkdtempSync(join(tmpdir(), "kit-")));
+  writeFileSync(join(kitDir, "kit.js"), "console.log('kit');");
+  writeFileSync(join(kitDir, "kit.css"), "body{}");
+  writeFileSync(
+    join(topic, "explicaciones", "Parte 1 - Claves.html"),
+    '<!doctype html><html lang="es"><head><!-- <script src="../kit/kit.js"></script><link rel="stylesheet" href="../kit/kit.css"> --></head><body><h1>Rica</h1><!-- <lk-video></lk-video> --></body></html>',
+  );
+  const host = makeHost();
+  registerBridge(host.api, { root, kitDir });
+  const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
+  const page = await http(result.structuredContent.url);
+  assert.equal(page.status, 200);
+  const visible = page.body.replace(/<!--[\s\S]*?-->/g, "");
+  assert.match(visible, /<lk-video><\/lk-video>/, "a control only inside a comment is still missing");
+  assert.match(visible, /<script[^>]+kit\/kit\.js/, "assets only named inside a comment are still missing");
+  for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
+});
+
+// The docs promise that the part page polls the file after the request, the
+// way the kit's lk-video does (a check now, then every 5 s while the page is open).
+test("the part video control swaps the player in once the file exists", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view } = await setup();
+  const video = join(topic, "explicaciones", "adjuntos", "Parte 1 - Claves.mp4");
+  rmSync(video);
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(url);
+  await page.locator(".video-block button").click();
+  writeFileSync(video, Buffer.from("0123456789"));
+  const player = page.locator(".video-block video");
+  // The written file is a placeholder, not decodable media: the promise is the
+  // swap itself, so the player only has to be attached (an errored video can
+  // have zero height even though it rendered).
+  await player.waitFor({ state: "attached", timeout: 33000 });
+  assert.match(await player.getAttribute("src"), /file\/explicaciones\/adjuntos\/Parte%201%20-%20Claves\.mp4$/);
 });
 
 test("a video request reaches the chat as a fixed message", async () => {

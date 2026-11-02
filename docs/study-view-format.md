@@ -105,25 +105,36 @@ with the demo filename, capped at 2,000 characters) populate the question box;
 the learner still submits them to the tutor. Do not send secrets or answers
 through this channel.
 
-## The part's interactive app
+## The video control belongs to every node
 
-When the explanation itself should be an experiment (predict, act, compute, check),
-write it as one self-contained page, `explicaciones/apps/<part>.html` (inline CSS and
-JS, no network). `learning_view` then returns an **Aplicación interactiva** URL and the
-part page shows a launch button. The bridge serves the app full page and injects
-`window.LEARNING_BRIDGE = { submitUrl, topic, part }` (plus `transcribeUrl` when configured)
-and the shared dictation helpers. An app that asks quiz questions renders each reasoning
-field with `window.learningThoughtField(questionId, index, window.LEARNING_BRIDGE)`:
-one optional «Cómo lo pensé» field with «Dictar», never the old two fields
-«¿Qué entendiste…» / «¿Por qué llegaste…». It sends
-`reasoning[id] = { razonamiento, confianza }` alongside `answers` in the same fixed
-payload as the view (`kind: "mini-quiz"`; `kind: "question"` with `text` for questions).
-The bridge grades
-the quiz, so the app holds no answer keys; keep question ids and option letters equal
-to `mini-quiz/<part>.json`. Opened without the bridge (`window.LEARNING_BRIDGE`
-undefined) the app must still run its experiments and say it is not connected.
-Reference: the reinforcement-learning Part 3 test app
-(`Learnings/prueba-vista-aprendizaje-por-refuerzo/explicaciones/apps/p3.html`).
+The video is not optional furniture: every part node must offer a way to get it, and the
+reader adds it automatically. When `explicaciones/adjuntos/Parte N - <slug>.mp4` exists it
+renders the player; otherwise it shows **«🎬 Generar video»**, which posts
+`{kind: "video", topic, part}` to the chat and polls the file until it appears. A rich page
+keeps the same guarantee through `<lk-video></lk-video>`; the bridge injects the component
+(and `kit.js`/`kit.css`) when the page forgot it. Do not hard-code a second player, a custom
+button or a page-specific script.
+
+## Checkpoints in the middle of a node
+
+A rich page can quiz inside a section with `lk-checkpoint`. It takes an inline JSON array,
+gives immediate local feedback and never calls the engine, so it fits after a formula or a
+distinction the learner must apply before moving on. The graded five-question `lk-quiz`
+still closes the part; checkpoints are ungraded self-checks.
+
+```html
+<lk-checkpoint>
+[
+  {"q": "¿Qué devuelve evaluar la política en un estado?",
+   "options": ["Una acción", "El valor esperado de seguirla", "La recompensa inmediata"],
+   "answer": 1,
+   "why": "La evaluación de política estima v(s): lo que se espera ganar siguiéndola desde ahí."}
+]
+</lk-checkpoint>
+```
+
+Keep one to three questions per checkpoint, plausible distractors and a one-sentence
+`why`. Do not repeat the mini-quiz questions; a checkpoint checks the step just read.
 
 ## Do not
 

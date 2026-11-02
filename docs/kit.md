@@ -69,6 +69,15 @@ use light DOM: normal page CSS and accessible native controls still work.
 </lk-widget>
 <!-- Add page-authored inline JS to wire the demo's native controls. -->
 
+<lk-checkpoint>
+[
+  {"q": "¿Qué estima la evaluación de política?",
+   "options": ["La recompensa inmediata", "El valor esperado de seguir la política", "La mejor acción posible"],
+   "answer": 1,
+   "why": "Estima v(s): lo que se espera ganar siguiéndola desde ese estado."}
+]
+</lk-checkpoint>
+
 <lk-video></lk-video>
 <lk-quiz></lk-quiz>
 <lk-ask></lk-ask>
@@ -165,8 +174,10 @@ The microphone needs HTTPS remotely; the server keeps the transcriber credential
 private. Without that URL the existing browser Web Speech dictation is unchanged.
 It displays server grading and restored read-only answers
 and concept verdicts. Never put answer keys in the page. Exercise instructions
-remain page-authored content. `lk-video` checks availability with HEAD and polls
-every 30 seconds after requesting generation. `lk-ask` sends a question.
+remain page-authored content. `lk-video` is present on every part node — author it, or the
+bridge injects it with the kit assets; it checks availability with HEAD and polls every 30
+seconds after requesting generation. `lk-checkpoint` renders inline JSON questions with
+immediate local feedback and a retry, and never calls the engine. `lk-ask` sends a question.
 Without bridge config these three show the instruction to open the page in Pi;
 all local demos, diagrams, steps, and mathematics remain usable.
 

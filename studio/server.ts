@@ -669,7 +669,7 @@ ${scripts}
           return sendJson(res, 200, { url: `${String((await view()).base)}rapidos/${encodeURIComponent(quick)}` });
         }
         const result = await view(url.searchParams.get("topic") ?? undefined, url.searchParams.get("part") ?? undefined);
-        return sendJson(res, 200, { url: result.url, ...(result.appUrl ? { appUrl: result.appUrl } : {}) });
+        return sendJson(res, 200, { url: result.url });
       }
       default:
         throw new HttpError(404, "not found");

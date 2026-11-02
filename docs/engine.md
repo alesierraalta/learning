@@ -187,8 +187,8 @@ requires an `application/json` script with a valid payload and at least one
 step; scene-only markup is not a payload.
 
 A part can also fulfil the promise with a page-level demo file, the form the
-vault already serves in its demos panel: `explicaciones/apps/<part>.html` or
-any `explicaciones/demos/<part>-<name>.html`. A regular, readable page must
+vault already serves in its demos panel: any
+`explicaciones/demos/<part>-<name>.html`. A regular, readable page must
 contain an executable script and either an HTML `button`, `input`, `select` or
 `textarea` outside script text, or a closed `lk-walkthrough` with a valid JSON
 payload. Only JavaScript counts as executable: a script that loads `src=`, or
@@ -199,8 +199,9 @@ does not make a page interactive, so a page that only stores a payload is
 static markup. HTML comments are ignored. Every walkthrough on the selected
 page still has its payload and arrow rules checked. The page form does not
 require the inline reading-guide line. The explanation stage receipts the page
-it selected (the app page, else the first interactive
-`explicaciones/demos/<part>-*.html`), so replacing that page with static markup
+it selected (the first interactive
+`explicaciones/demos/<part>-*.html`; the retired
+`explicaciones/apps/<part>.html` form is not read), so replacing that page with static markup
 or deleting it after the stage was accepted leaves the stage stale: `status`,
 `validate` and `advance` block until the part is validated again. A part whose
 note already carries the inline demos selects no page and receipts none. These

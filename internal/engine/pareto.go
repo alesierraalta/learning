@@ -210,8 +210,9 @@ func demoPageExistsPrefixed(ws, dir, prefix string) (string, bool) {
 }
 
 // demoPartPage resolves the page-level demo that proves a part's hands-on work:
-// explicaciones/apps/<part>.html, else the first interactive page under
-// explicaciones/demos/<part>-*.html. evalDemoPart counts that page as the
+// the first interactive page under explicaciones/demos/<part>-*.html. The
+// retired explicaciones/apps/<part>.html form is no longer vault content, so it
+// never satisfies the promise.
 // part's demo and buildReceipts receipts it, so the page that proves the demo
 // is the page whose replacement or deletion invalidates that proof. A part
 // that plans no demo, or whose note already carries the minimum inline demos,
@@ -234,10 +235,6 @@ func demoPartPage(r *rules.Rules, ws string, plan *planDoc, part string) string 
 		if countDemos(readArtifact(ws, rel), r.Thresholds.DemoElements) >= r.Thresholds.MinDemos {
 			return ""
 		}
-	}
-	appRel := "explicaciones/apps/" + part + ".html"
-	if demoPageExists(ws, appRel) {
-		return appRel
 	}
 	demoRel := "explicaciones/demos/"
 	if name, ok := demoPageExistsPrefixed(ws, demoRel, part+"-"); ok {
@@ -278,9 +275,9 @@ func evalDemoPart(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	if count < c.r.Thresholds.MinDemos {
 		// The vault's established demo form is a page-level file the reader
-		// embeds: explicaciones/apps/<part>.html or
-		// explicaciones/demos/<part>-<name>.html. Those pages hand the part its
-		// demo too, so they satisfy the same promise without inline elements.
+		// embeds: explicaciones/demos/<part>-<name>.html. Those pages hand the
+		// part its demo too, so they satisfy the same promise without inline
+		// elements.
 		if page := demoPartPage(c.r, c.ws, c.plan, c.part); page != "" {
 			count, missing, guideRel = c.r.Thresholds.MinDemos, 0, page
 		}
@@ -288,7 +285,7 @@ func evalDemoPart(c *evalCtx, decl rules.CheckDecl) Check {
 	if count < c.r.Thresholds.MinDemos {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"part %s planned a demo but %s has only %d demo(s), below the minimum of %d (a closed %s element or an interactive-structure %s page)",
-			c.part, guideRel, count, c.r.Thresholds.MinDemos, strings.Join(demoElements, ", "), "explicaciones/apps/<part>.html"))
+			c.part, guideRel, count, c.r.Thresholds.MinDemos, strings.Join(demoElements, ", "), "explicaciones/demos/<part>-<name>.html"))
 	}
 	if missing > 0 {
 		return failCheck(decl.ID, fmt.Sprintf(

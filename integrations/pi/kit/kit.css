@@ -33,7 +33,11 @@ button:disabled { opacity:.6; cursor:default; }
 textarea { display:block; width:100%; resize:vertical; margin-top:8px; padding:12px; border:1px solid #cbd5e1; border-radius:5px; background:white; color:var(--ink); }
 input { accent-color:var(--cobalt); }
 [hidden] { display:none !important; }
-lk-callout,lk-widget,lk-steps,lk-step,lk-diagram,lk-video,lk-quiz,lk-ask { display:block; margin:24px 0; }
+lk-callout,lk-widget,lk-steps,lk-step,lk-diagram,lk-video,lk-quiz,lk-ask,lk-checkpoint { display:block; margin:24px 0; }
+lk-checkpoint { padding:20px 22px; border:1px solid var(--rule); border-left:4px solid var(--cobalt); border-radius:6px; background:#f8fafc; }
+lk-checkpoint .lk-question { margin:18px 0; padding:0; border:0; }
+lk-checkpoint .lk-why { margin:6px 0 0; font-size:.95rem; }
+lk-checkpoint .lk-reward { margin-top:12px; }
 lk-callout { padding:16px 20px; border:1px solid var(--rule); border-left:4px solid var(--cobalt); border-radius:5px; background:#f8fafc; }
 lk-callout[type=warning] { border-left-color:var(--amber); }
 lk-callout[type=success],lk-callout[type=tip] { border-left-color:var(--emerald); }

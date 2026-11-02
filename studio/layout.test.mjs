@@ -146,7 +146,7 @@ test("the reader bar stays compact and readable on a phone", { skip: browser ? f
     assert.ok(c.w >= 32 && c.h >= 32, `undersized control: ${JSON.stringify(c)}`);
     assert.ok(c.right <= 360, `control off screen: ${JSON.stringify(c)}`);
   }
-  assert.deepEqual(seen.controls.map((c) => c.name), ["Volver", "Explicación", "App interactiva", "Preguntar", "Borrar"]);
+  assert.deepEqual(seen.controls.map((c) => c.name), ["Volver", "Preguntar", "Borrar"]);
   assert.ok(seen.sheetTop <= 150, `the sheet starts at ${seen.sheetTop}px`);
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
 });

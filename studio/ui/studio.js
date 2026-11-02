@@ -175,7 +175,7 @@
     const part = topic.part ? partName(topic, topic.part) : "";
     const read = (id) => () => go(`#/leer/${topic.id}/${id}`);
     if (topic.status === "sin inscribir") {
-      return { tone: "test", label: "Tema de prueba", text: "Este tema no lleva seguimiento del motor: puedes leer sus partes y probar sus apps.", cta: ["Ver el tema", () => go(`#/tema/${topic.id}`)] };
+      return { tone: "test", label: "Tema de prueba", text: "Este tema no lleva seguimiento del motor: puedes leer sus partes y sus explicaciones.", cta: ["Ver el tema", () => go(`#/tema/${topic.id}`)] };
     }
     if (topic.status === "completed") {
       return { tone: "done", label: "Terminado", text: "Completaste este tema. Puedes repasarlo cuando quieras.", cta: ["Repasar mis lagunas", () => say(prompts.gaps(topic))] };
@@ -221,7 +221,6 @@
     window.scrollTo(0, 0);
     if (view === "tema" && a) return topicView(a);
     if (view === "leer" && a) return readerView({ topicId: a, part: b, mode: "page" });
-    if (view === "app" && a) return readerView({ topicId: a, part: b, mode: "app" });
     if (view === "rapido" && a) return readerView({ quickId: a });
     if (view === "editar") return editorView(a);
     return homeView();
@@ -427,7 +426,6 @@
             "div",
             { class: "row-actions" },
             p.written ? btn("Leer", () => go(`#/leer/${topic.id}/${p.id}`), state === "current" ? "btn small primary" : "btn small", "book") : null,
-            p.hasApp ? btn("App", () => go(`#/app/${topic.id}/${p.id}`), "btn small", "app") : null,
             !p.written && p === firstPending && topic.status !== "sin inscribir" ? btn("Pedir esta parte", () => say(prompts.next(topic)), "btn small ghost", "spark") : null,
           ),
         ),
@@ -483,7 +481,7 @@
                                             askDelete({
                                               body: { kind: "topic", topic: topic.id },
                                               title: topic.title,
-                                              detail: `Se moverá «${topic.title}» completo: su plan, sus partes, sus apps y sus mini-quizzes.`,
+                                              detail: `Se moverá «${topic.title}» completo: su plan, sus partes y sus mini-quizzes.`,
                                               leaves: true,
                                             }),
                                           "btn ghost danger",
@@ -529,14 +527,6 @@
       { class: "reader-bar" },
       h("button", { class: "icon-btn", type: "button", "aria-label": "Volver", title: "Volver", onclick: () => go(quick ? "#/" : `#/tema/${topicId}`) }, icon("back")),
       h("div", { class: "title" }, h("small", {}, kicker), title),
-      info && info.hasApp
-        ? h(
-            "div",
-            { class: "switch", role: "group", "aria-label": "Formato" },
-            h("button", { type: "button", "aria-pressed": String(mode !== "app"), onclick: () => go(`#/leer/${topicId}/${part}`) }, "Explicación"),
-            h("button", { type: "button", "aria-pressed": String(mode === "app"), onclick: () => go(`#/app/${topicId}/${part}`) }, "App interactiva"),
-          )
-        : null,
       prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost nav", "back") : null,
       next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost nav", "next") : null,
       barBtn("Preguntar", () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `), "btn small", "chat"),
@@ -549,7 +539,7 @@
                 title,
                 detail: quick
                   ? `Se moverá la nota rápida «${title}».`
-                  : `Se moverá «${title}» con su explicación, su app, sus demos y su mini-quiz.`,
+                  : `Se moverá «${title}» con su explicación, sus demos y su mini-quiz.`,
                 leaves: true,
               }),
             "btn small ghost danger",
@@ -562,8 +552,8 @@
       const query = new URLSearchParams(quick ? { quick: quickId } : { topic: topicId, ...(part ? { part } : {}) });
       const data = await request(`api/view?${query}`);
       if (seq !== readSeq) return;
-      const url = mode === "app" ? data.appUrl : data.url;
-      if (!url) throw new Error("Esta parte no tiene aplicación interactiva.");
+      const url = data.url;
+      if (!url) throw new Error("Esta parte no tiene vista HTML.");
       frame.src = url;
     } catch (error) {
       if (seq === readSeq) frame.replaceWith(h("p", { class: "empty" }, error.message));
@@ -1066,7 +1056,7 @@
     }
     const [, view] = location.hash.split("/");
     // Never re-render the editor from a library change: it would drop typed text.
-    if (view !== "leer" && view !== "app" && view !== "rapido" && view !== "editar") render();
+    if (view !== "leer" && view !== "rapido" && view !== "editar") render();
   }
   root.replaceChildren(
     h(

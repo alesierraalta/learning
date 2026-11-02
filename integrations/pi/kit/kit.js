@@ -173,6 +173,59 @@
       finally { submit.disabled = false; }
     });
   });
+  define('lk-checkpoint', function () {
+    const source = this.querySelector('script[type="application/json"]')?.textContent ?? this.textContent;
+    let questions;
+    try {
+      questions = JSON.parse(source.trim());
+    } catch {
+      this.append(el('p', 'Checkpoint con JSON inválido', { role: 'alert' }));
+      return;
+    }
+    const form = el('form', undefined, { class: 'lk-checkpoint' }), out = status(), fieldsets = [];
+    for (const [index, q] of questions.entries()) {
+      const box = el('fieldset', undefined, { class: 'lk-question' });
+      box.append(el('legend', `${index + 1}. ${q.q}`));
+      for (const [value, text] of q.options.entries()) {
+        const label = el('label', undefined, { class: 'lk-option' });
+        label.append(el('input', undefined, { type: 'radio', name: `c${index}`, value: String(value), required: '' }), el('span', text));
+        box.append(label);
+      }
+      box.append(el('p', '', { class: 'lk-why', hidden: '' }));
+      fieldsets.push(box); form.append(box);
+    }
+    const submit = el('button', 'Comprobar', { type: 'submit' });
+    form.append(submit, out);
+    const title = this.getAttribute('title');
+    this.replaceChildren(...(title ? [el('strong', title, { class: 'lk-title' })] : []), form);
+    let graded = false;
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      if (graded) {
+        form.reset(); graded = false; submit.textContent = 'Comprobar'; out.textContent = ''; out.className = '';
+        for (const box of fieldsets) {
+          const why = box.querySelector('.lk-why');
+          why.hidden = true; why.textContent = ''; why.className = 'lk-why';
+          box.querySelectorAll('input').forEach(input => { input.disabled = false; });
+        }
+        return;
+      }
+      const answers = new FormData(form);
+      let score = 0;
+      fieldsets.forEach((box, index) => {
+        const q = questions[index], chosen = Number(answers.get(`c${index}`)), ok = chosen === q.answer;
+        if (ok) score++;
+        const why = box.querySelector('.lk-why');
+        why.hidden = false;
+        why.textContent = `${ok ? '✔' : '✘'} ${q.why || ''}`;
+        why.className = `lk-why ${ok ? 'lk-correct' : 'lk-error'}`;
+        box.querySelectorAll('input').forEach(input => { input.disabled = true; });
+      });
+      out.textContent = `${score} de ${questions.length} correctas`;
+      out.className = 'lk-reward';
+      submit.textContent = 'Reintentar'; graded = true;
+    });
+  });
   define('lk-quiz', async function () {
     const b = config();
     if (!b) { this.append(el('p', offline)); return; }

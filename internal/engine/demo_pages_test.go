@@ -18,8 +18,8 @@ func TestDemoPageFilesSatisfyTheDemoPromise(t *testing.T) {
 		{"static app", "explicaciones/apps/p1.html", "<!doctype html><html><body><svg><rect/></svg></body></html>", false},
 		{"static demo", "explicaciones/demos/p1-static.html", "<!doctype html><html><body><svg><rect/></svg></body></html>", false},
 		{"control only inside script", "explicaciones/apps/p1.html", `<script>const sample = "<button>";</script><svg><rect/></svg>`, false},
-		{"standalone control and script", "explicaciones/apps/p1.html", `<button>Next</button><script>document.querySelector('button').onclick = () => {};</script>`, true},
-		{"existing interactive app", "explicaciones/apps/p1.html", string(example), true},
+		{"retired app with a control", "explicaciones/apps/p1.html", `<button>Next</button><script>document.querySelector('button').onclick = () => {};</script>`, false},
+		{"retired app with the interactive page", "explicaciones/apps/p1.html", string(example), false},
 		{"existing interactive demo", "explicaciones/demos/p1-demo.html", string(example), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -43,5 +43,26 @@ func TestInlineDemoStillSatisfiesThePromise(t *testing.T) {
 	ch, ok := hasCheck(rep, "demo-part")
 	if !ok || ch.Status != "PASS" || code != 0 {
 		t.Fatalf("demo-part = %s exit %d (%s)", ch.Status, code, ch.Reason)
+	}
+}
+
+// The interactive part app is retired: the bridge no longer serves
+// explicaciones/apps/<part>.html, so a legacy file there must not satisfy the
+// demo promise or become the page a receipt binds.
+func TestRetiredPartAppDoesNotSatisfyTheDemoPromise(t *testing.T) {
+	example, err := os.ReadFile("../../integrations/pi/kit/examples/rl-parte-3.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := demoThroughPlanning(t)
+	f.writeExplanationWithDemo(t, "p1", "Texto sin demo.")
+	f.write(t, "explicaciones/apps/p1.html", string(example))
+	rep, code := f.run(t, f.opts("validate", "explanation"))
+	ch, found := hasCheck(rep, "demo-part")
+	if !found || ch.Status != "FAIL" || code != 1 {
+		t.Fatalf("a retired app page still satisfies the demo promise: demo-part = %s exit %d reason %q", ch.Status, code, ch.Reason)
+	}
+	if strings.Contains(ch.Reason, "explicaciones/apps") {
+		t.Fatalf("the failure text still points authors at the retired app: %q", ch.Reason)
 	}
 }

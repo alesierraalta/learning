@@ -18,10 +18,9 @@ overrides the Learnings folder. Ctrl+C stops the studio and its Pi.
 
 Every part page carries a **Modo ancho** toggle in its top-right corner. Off by
 default: the reader keeps one narrow column. Switched on, on a screen at least
-1080px wide, the prose spreads into two columns, headings, tables, code and the
-app button span both, and the page uses up to 1400px of the monitor. The choice is
+1080px wide, the prose spreads into two columns, headings, tables and code span both, and the page uses up to 1400px of the monitor. The choice is
 remembered per browser, so it survives a reload and a studio restart; below 1080px
-the text stays in one column even with the mode on. Interactive apps and the
+the text stays in one column even with the mode on. The video block and the
 mini-quiz are not affected: only the explanation text is a reading surface.
 
 ## HTTPS reverse proxy
@@ -67,7 +66,7 @@ Microphone capture requires HTTPS remotely (loopback HTTP still works).
   The `estudio` session id keeps one persistent conversation of its own; a Pi
   open in a terminal is never written by two processes.
 - It hosts its own study-view bridge (`integrations/pi/bridge.ts`): part pages,
-  rich pages, apps, the diagnosis and quick notes open in the center viewer, and
+  rich pages, the diagnosis and quick notes open in the center viewer, and
   every submission from them (quiz, reasoning, confidence, questions, video
   requests) becomes a prompt of the same Pi session.
 - `studio/ui/` is the browser client: library (topics with engine status and

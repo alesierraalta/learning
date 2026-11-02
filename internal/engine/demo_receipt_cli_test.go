@@ -75,7 +75,7 @@ func TestDemoPageReceiptAndJavaScriptMIME(t *testing.T) {
 	}
 	t.Run("mime", func(t *testing.T) {
 		f, c := setup(t)
-		path := "explicaciones/apps/p1.html"
+		path := "explicaciones/demos/p1-mime.html"
 		for _, tc := range []struct {
 			name, script string
 			valid        bool
@@ -102,7 +102,7 @@ func TestDemoPageReceiptAndJavaScriptMIME(t *testing.T) {
 			})
 		}
 	})
-	for _, path := range []string{"explicaciones/apps/p1.html", "explicaciones/demos/p1-z-interactive.html"} {
+	for _, path := range []string{"explicaciones/demos/p1-z-interactive.html"} {
 		for _, mutation := range []string{"replace", "delete"} {
 			t.Run(path+"/"+mutation, func(t *testing.T) {
 				f, c := setup(t)

@@ -267,7 +267,7 @@ test("a part note path resolves to the topic and part the reader routes on", () 
   assert.equal(noteFromPath("explicaciones/Parte 1 - Sin tema.md"), null, "a note without its topic folder has no route");
   assert.equal(noteFromPath(undefined), null);
   assert.deepEqual(noteFromPath("/home/ale/Learnings/redes/explicaciones/Parte 2 - TCP.html"), { topic: "redes", index: 2 }, "the rich page of a part opens that part");
-  assert.equal(noteFromPath("/home/ale/Learnings/redes/explicaciones/apps/p1.html"), null, "an app page is not a part note");
+  assert.equal(noteFromPath("/home/ale/Learnings/redes/explicaciones/apps/p1.html"), null, "only part notes and pages are routable");
 });
 
 test("a quick note path resolves to the quick note the reader opens", () => {
@@ -375,14 +375,13 @@ test("the library lists topics with engine status, parts and quick notes; api/vi
   assert.equal(topic.status, "waiting");
   assert.equal(topic.stage, "diagnosis");
   assert.equal(topic.hasDiagnosis, true);
-  assert.deepEqual(topic.parts.map((p) => [p.id, p.written, p.hasApp]), [["p1", true, true], ["p2", false, false]]);
+  assert.deepEqual(topic.parts.map((p) => [p.id, p.written]), [["p1", true], ["p2", false]]);
   // What the topic still owes travels with the library, so no view can call it finished.
   assert.deepEqual(topic.gaps, { missing: ["p2"], noVisuals: [], noQuiz: ["p1"] });
   assert.deepEqual(topic.parts.map((p) => p.visuals), [0, 0]);
 
   const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
   assert.match(view.url, /^http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{64}\/redes\/p1$/);
-  assert.equal(view.appUrl, `${view.url}/app`);
   const page = await http(view.url);
   assert.match(page.headers["content-security-policy"], new RegExp(`frame-ancestors 'self' ${new URL(studio.url).origin}`));
   assert.equal((await http(`${studio.url}api/view?topic=redes&part=p2`)).status, 404);

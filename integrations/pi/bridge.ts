@@ -72,22 +72,6 @@ const PAGE_CSP = [
   "form-action 'none'",
 ].join("; ");
 
-/**
- * A part's interactive app is a self-contained vault page (inline script and
- * style) served top-level so it can use the injected submit channel; it may
- * reach nothing but this server.
- */
-const APP_CSP = [
-  "default-src 'none'",
-  "script-src 'unsafe-inline'",
-  "style-src 'unsafe-inline'",
-  "img-src 'self' data:",
-  "media-src 'self'",
-  "connect-src 'self'",
-  "font-src 'self' data:",
-  "base-uri 'none'",
-  "form-action 'none'",
-].join("; ");
 /** A rich part page: page-authored demos run inline; it reaches only this server and the pinned CDN. */
 const RICH_CSP = [
   "default-src 'none'",
@@ -262,6 +246,39 @@ const partVideo = (plan: { parts: PlanPart[] }, partId: string) => {
   return `explicaciones/adjuntos/Parte ${index + 1} - ${plan.parts[index].slug}.mp4`;
 };
 
+/** The video a part node owns: the rendered file when it exists, a button when it does not. */
+function partVideoInfo(topicDir: string, plan: { parts: PlanPart[] }, partId: string) {
+  const file = partVideo(plan, partId);
+  return { src: file, exists: existsSync(join(topicDir, file)) };
+}
+
+/**
+ * Every node owes one video control. A rich page keeps its `<lk-video>`; a page
+ * that forgot it gets one after <body>, and the kit assets when it never loaded
+ * them, so the button exists even when the author did not know the component.
+ */
+function injectHeadLast(html: string, content: string): string {
+  return /<\/head\s*>/i.test(html) ? html.replace(/<\/head\s*>/i, () => content + "</head>") : html + content;
+}
+
+function ensureNodeVideo(html: string, token: string): string {
+  let out = html;
+  const kitCss = `<link rel="stylesheet" href="/${token}/kit/kit.css">`;
+  const kitJs = `<script src="/${token}/kit/kit.js" defer></script>`;
+  // A mention inside a comment is not a loaded asset: only real markup counts.
+  const withoutComments = out.replace(/<!--[\s\S]*?-->/g, "");
+  // Appended, never prepended: the bridge config stays the first script in head.
+  if (!/kit\.js/i.test(withoutComments)) out = injectHeadLast(out, kitCss + kitJs);
+  else if (!/kit\.css/i.test(withoutComments)) out = injectHeadLast(out, kitCss);
+  // A control inside a comment or a page script does not render either.
+  const visible = out.replace(/<!--[\s\S]*?-->/g, "").replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  if (!/<lk-video[\s/>]/i.test(visible)) {
+    const control = "<lk-video></lk-video>";
+    out = /<body[^>]*>/i.test(out) ? out.replace(/<body[^>]*>/i, (body) => body + control) : control + out;
+  }
+  return out;
+}
+
 /** Writes `script` first in <head>, or at the start of a page without one. */
 const injectFirst = (html: string, script: string) =>
   /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (head) => head + script) : script + html;
@@ -329,13 +346,6 @@ export function obsidianToMarkdown(markdown: string, topicDir: string): string {
     .replace(/\u0000(\d+)\u0000/g, (_m, index: string) => kept[Number(index)]!);
 }
 
-/** explicaciones/apps/<part>.html when the part has an interactive app. */
-function partApp(topicDir: string, partId: string): string | undefined {
-  if (!safeTopic(partId)) return undefined;
-  const contained = resolveContained(topicDir, join(topicDir, "explicaciones", "apps", `${partId}.html`));
-  return contained.ok && statSync(contained.targetReal).isFile() ? contained.targetReal : undefined;
-}
-
 function partDemos(topicDir: string, partId: string): string[] {
   const dir = join(topicDir, "explicaciones", "demos");
   if (!existsSync(dir)) return [];
@@ -350,11 +360,14 @@ const TRASH_DIR = ".papelera";
 /** Folders the vault needs: a topic is a content folder, never the trash or the quick notes. */
 const RESERVED_DIRS = new Set([TRASH_DIR, "rapidos"]);
 
-/** Every file a part owns: note, rich page, app, demos, attachments and mini-quiz. */
+/** Every file a part owns: note, rich page, legacy app, demos, attachments and mini-quiz. */
 function partFiles(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string[] {
   const index = plan.parts.findIndex((p) => p.id === partId);
   if (index < 0) return [];
-  const files = [partNote(topicDir, plan, partId), richPage(topicDir, plan, partId), partApp(topicDir, partId)];
+  const files = [partNote(topicDir, plan, partId), richPage(topicDir, plan, partId)];
+  // Retired apps are still cleaned so an older vault can drop them by deleting the part.
+  const legacyApp = join(topicDir, "explicaciones", "apps", `${partId}.html`);
+  if (existsSync(legacyApp)) files.push(legacyApp);
   const demos = join(topicDir, "explicaciones", "demos");
   if (existsSync(demos)) {
     for (const name of readdirSync(demos)) if (name.startsWith(`${partId}-`) && name.endsWith(".html")) files.push(join(demos, name));
@@ -577,7 +590,6 @@ export interface PartSummary {
   title: string;
   written: boolean;
   rich: boolean;
-  hasApp: boolean;
   hasQuiz: boolean;
   answered: boolean;
   /** Figures in the written note: fenced visual blocks plus inline visual elements. */
@@ -739,7 +751,6 @@ export function listTopics(rootReal: string, runners = loadRunners()): TopicSumm
             title: p.title,
             written: rich || note !== undefined,
             rich,
-            hasApp: partApp(dir, p.id) !== undefined,
             hasQuiz: existsSync(join(dir, "mini-quiz", `${p.id}.json`)),
             answered: existsSync(join(dir, "mini-quiz", `${p.id}.answers.json`)),
             visuals: note === undefined ? 0 : countVisuals(readFileSync(note, "utf8")),
@@ -802,7 +813,6 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   if (invalid !== undefined) throw new Error(`frameAncestors accepts loopback http origins only, got ${JSON.stringify(invalid)}`);
   if (embedderOrigins !== undefined) embedders.push(...embedderOrigins.map((origin) => origin.origin));
   const pageCsp = `${PAGE_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
-  const appCsp = `${APP_CSP}; frame-ancestors ${embedders.length ? embedders.join(" ") : "'none'"}`;
   const richCsp = `${RICH_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
   const kitDir = options.kitDir ?? KIT_DIR;
   let server: Server | undefined;
@@ -964,7 +974,7 @@ ${scripts}
     const plan = readPlan(dir);
     const rich = plan && richPage(dir, plan, partId);
     if (plan && rich) {
-      let html = injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan));
+      let html = ensureNodeVideo(injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan)), token);
       const exercises = listExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId);
       if (exercises.length) {
         const escape = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -990,7 +1000,7 @@ ${scripts}
       quiz: questions ? { questions: questions.map(publicQuestion) } : null,
       answered: questions ? gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))) : null,
       demos: partDemos(dir, partId),
-      app: partApp(dir, partId) ? `/${token}/${encodeURIComponent(topic)}/${partId}/app` : null,
+      video: partVideoInfo(dir, plan, partId),
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
     });
   };
@@ -1044,7 +1054,7 @@ ${scripts}
       quiz: null,
       answered: null,
       demos: [],
-      app: null,
+      video: null,
       verdicts: null,
     });
   };
@@ -1065,18 +1075,6 @@ ${scripts}
       demos: [],
       verdicts: readVerdicts(join(dir, "diagnostico-conceptos.json")),
     });
-  };
-
-  const appPage = (res: ServerResponse, topic: string, partId: string) => {
-    const dir = topicDir(topic);
-    const plan = readPlan(dir);
-    const file = plan?.parts.some((p) => p.id === partId) ? partApp(dir, partId) : undefined;
-    if (!file) throw new HttpError(404, `part ${partId} has no interactive app`);
-    const config = JSON.stringify({ ...transcribeConfig(), submitUrl: `/${token}/submit`, topic, part: partId }).replace(/</g, "\\u003c");
-    const dictate = readFileSync(join(kitDir, "dictate.js"), "utf8").replace(/<\/script/gi, "<\\/script");
-    const script = `<script>window.LEARNING_BRIDGE = ${config};</script><script>${dictate}</script>`;
-    const injected = injectFirst(readFileSync(file, "utf8"), script);
-    send(res, 200, "text/html; charset=utf-8", injected, { "content-security-policy": appCsp });
   };
 
   const serveFile = (req: IncomingMessage, res: ServerResponse, topic: string, segments: string[]) => {
@@ -1365,7 +1363,6 @@ ${scripts}
       return serveFile(req, res, topic, more);
     }
     if (topic === "rapidos" && more.length === 0) return quickPage(res, second);
-    if (more.length === 1 && more[0] === "app") return appPage(res, topic, second);
     if (more.length > 0) throw new HttpError(404, "not found");
     if (second === DIAGNOSIS) return diagnosisPage(res, topic);
     return partPage(res, topic, second);
@@ -1455,12 +1452,10 @@ ${scripts}
         return viewError(`could not start the view server: ${(err as Error).message}`);
       }
       const url = base() + path;
-      const hasApp = typeof topic === "string" && typeof part === "string" && partApp(join(session.rootReal, topic), part) !== undefined;
-      const appUrl = hasApp ? `${url}/app` : undefined;
       return {
-        content: [{ type: "text" as const, text: appUrl ? `Aplicación interactiva: ${appUrl}\nVista HTML: ${url}` : `Vista HTML: ${url}` }],
-        details: { url, appUrl },
-        structuredContent: { url, base: base(), localBase: localBase(), ...(appUrl ? { appUrl } : {}) } as Record<string, unknown>,
+        content: [{ type: "text" as const, text: `Vista HTML: ${url}` }],
+        details: { url },
+        structuredContent: { url, base: base(), localBase: localBase() } as Record<string, unknown>,
         isError: false,
       };
     },

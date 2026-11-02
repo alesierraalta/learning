@@ -66,6 +66,14 @@
 <lk-step label="Otra casilla" mark="bloqueo"><p>Ahora mira la casilla <code>(1,2)</code>, justo debajo de la columna. Su política dice <strong>↑</strong>, pero arriba está la columna: el robot choca y se queda en el sitio, paso tras paso. Nunca llega a ninguna salida y su valor es <strong>−0,40</strong>, aunque cada paso individual solo cueste −0,04.</p></lk-step>
 </lk-steps>
 <lk-callout type="warning" title="Lo que muestra el bloqueo"><p>La recompensa de cada paso de <code>(1,2)</code> y de <code>(0,2)</code> es la misma (−0,04). Lo que las distingue es el <strong>valor</strong>: <code>V(0,2) = +0,52</code> porque su política lleva a la puerta; <code>V(1,2) = −0,40</code> porque su política lo deja atascado.</p></lk-callout>
+<lk-checkpoint title="Comprueba el paso a paso">
+<script type="application/json">
+[
+  {"q":"¿Qué recibe el robot en cada paso normal del camino a la puerta?","options":["Solo +1 al final","−0,04, también si se aleja o choca","El valor V de la casilla"],"answer":1,"why":"La recompensa llega paso a paso; el valor, en cambio, es una estimación a la larga."},
+  {"q":"¿Por qué V(1,2) vale −0,40 si cada paso cuesta −0,04?","options":["Porque esa casilla paga una recompensa distinta","Porque su política lo deja atascado y los −0,04 se acumulan descontados","Porque el descuento se aplica al revés"],"answer":1,"why":"El valor suma la cadena de costes descontados: −0,04 · 1/(1−0,9) = −0,40."}
+]
+</script>
+</lk-checkpoint>
 <lk-widget title="Dibuja y ejecuta la política"><p>Pulsa una casilla para girar su flecha. Para ver el BLOQUEO, empieza debajo de la columna.</p><div class="lab"><div class="grid" id="g3"></div><div class="side"><div class="row"><button id="p3run">Ejecutar la política</button><button id="p3reset">Política inicial</button></div><label>Empezar en: <select id="p3start"><option value="0,2">la salida (0,2)</option><option value="1,2">debajo de la columna (1,2)</option><option value="3,2">esquina (3,2)</option></select></label><pre class="log" id="p3log"></pre><p id="p3msg" role="status"></p></div></div></lk-widget></section>
 <section id="value-section"><h2>4. De la intuición a la fórmula</h2>
 <p><strong>Intuición</strong>: el valor de una casilla es «lo que gano en el próximo paso, más lo que valga la casilla a la que llego (un poco descontado)».</p>
@@ -96,6 +104,14 @@
 <p><strong>Política ≠ Modelo.</strong> La política dice <strong>qué hacer</strong>; el modelo dice <strong>qué pasará si lo haces</strong>. Un robot puede tener una política excelente sin modelo alguno.</p>
 <p><strong>Con modelo ≠ Sin modelo.</strong> Los métodos <strong>basados en modelo</strong> planifican imaginando resultados antes de vivirlos; los métodos <strong>sin modelo</strong> aprenden solo por prueba y error.</p>
 <p><strong>Señal de recompensa ≠ Algo que el agente decide.</strong> La recompensa forma parte del entorno: el agente no puede cambiarla a su antojo; lo que sí cambia es su política.</p>
+<lk-checkpoint title="Comprueba las distinciones">
+<script type="application/json">
+[
+  {"q":"La política dice ___ y el modelo dice ___.","options":["qué pasará / qué hacer","qué hacer / qué pasará si lo haces","cuánto vale / qué recompensa llega"],"answer":1,"why":"La política elige la acción; el modelo predice la consecuencia."},
+  {"q":"¿Quién define la señal de recompensa?","options":["El agente con su política","El entorno","La función de valor"],"answer":1,"why":"La recompensa es parte del entorno: el agente no la elige."}
+]
+</script>
+</lk-checkpoint>
 <lk-widget title="Planificar frente a vivir episodios"><p>El suelo resbaloso permite comparar una predicción exacta con un promedio de experiencias. La política es la que dibujaste arriba.</p><div class="lab"><div class="grid" id="g5"></div><div class="side"><label><input type="checkbox" id="m5slip"> Suelo resbaloso: 80 % va donde apunta, 10 % a cada lado</label><pre class="formula" id="m5model"></pre><div class="row"><button id="m5plan">Planificar con el modelo</button><button id="m5try1">Vivir 1 episodio</button><button id="m5try50">Vivir 50</button><button id="m5clear">Borrar</button></div><p>Con modelo: V(salida) = <span id="m5exact">—</span><br>Sin modelo (promedio de <span id="m5n">0</span> episodios): <span id="m5est">—</span></p></div></div><svg class="chart" id="m5chart" viewBox="0 0 600 170" role="img" aria-label="Valor exacto y promedio de episodios"></svg><p>Los episodios se cortan a los 60 pasos: el promedio tiene un pequeño error de truncamiento si el robot queda atascado.</p></lk-widget></section>
 <section><h2>6. Dónde se rompe la analogía</h2>
 <ul><li>El robot del ejemplo <strong>ve todo el almacén</strong> y la demo calcula V exactamente con el modelo. Un agente real normalmente <strong>no conoce</strong> P ni las recompensas: tiene que <strong>estimar</strong> el valor a partir de lo que vive, con error.</li>
@@ -113,6 +129,15 @@
   C --&gt;|No| D{¿Predice qué pasa&lt;br/&gt;si hago una acción?}
   D --&gt;|Sí| M[Modelo del entorno&lt;br/&gt;opcional, para planificar]
   D --&gt;|No| V[Función de valor&lt;br/&gt;lo que espero ganar a la larga]</pre>
+<lk-checkpoint title="Comprueba el mapa">
+<script type="application/json">
+[
+  {"q":"«Si hago ↑ en (0,1), llego a (0,0) con −0,04» es…","options":["Modelo","Política","Valor"],"answer":0,"why":"Predice la consecuencia de una acción: eso es el modelo."},
+  {"q":"«En (0,1) conviene ↑» es…","options":["Modelo","Política","Recompensa"],"answer":1,"why":"Dice qué acción tomar: eso es la política."},
+  {"q":"«Desde (0,2) espero +0,52» es…","options":["Modelo","Valor","Política"],"answer":1,"why":"Estima lo que se acumula a la larga desde un estado: eso es el valor."}
+]
+</script>
+</lk-checkpoint>
 <lk-widget title="Clasifica los elementos"><p>Clasifica cada cosa que guarda o recibe el robot. La explicación aparece al elegir.</p><div class="cards" id="sort"></div></lk-widget></section>
 <section><h2>8. Cierre</h2>
 <p><strong>Entrada ➔ Proceso ➔ Salida</strong>: el robot recibe un <strong>estado</strong> y la <strong>recompensa</strong> del paso ➔ usa su <strong>función de valor</strong> (y, si tiene, su <strong>modelo</strong>) para juzgar las opciones ➔ su <strong>política</strong> entrega la <strong>acción</strong> que maximiza lo que espera ganar a la larga.</p>

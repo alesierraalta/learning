@@ -489,13 +489,69 @@
       const shortSubject = /\(([^)]+)\)\s*$/.exec(subject)?.[1] || subject;
       title.before(element("p", `Parte ${number} · ${shortSubject}`, "part-kicker"));
     }
-    if (data.app) {
-      const launch = element("div", undefined, "app-launch");
-      const open = link("▶ Abrir la aplicación interactiva de esta parte", data.app);
-      open.className = "app-button";
-      launch.append(open, element("p", "La explicación como experimento: predices, mueves, calculas y respondes; lo que envíes llega al chat de Pi.", "muted"));
-      if (title) title.after(launch);
-      else article.prepend(launch);
+    if (data.video) {
+      const section = element("section", undefined, "video-block");
+      section.append(element("h2", "Video de la parte"));
+      const src = data.topicBase + "file/" + data.video.src.split("/").map(encodeURIComponent).join("/");
+      if (data.video.exists) {
+        const player = element("video");
+        player.controls = true;
+        player.preload = "metadata";
+        player.src = src;
+        section.append(player);
+      } else {
+        const request = element("button", "🎬 Generar video");
+        request.type = "button";
+        const line = status();
+        const note = element("p", "Todavía no hay video de esta parte: se genera con la voz y el estilo del vault.", "muted");
+        let done = false;
+        const showPlayer = () => {
+          if (done) return;
+          done = true;
+          const player = element("video");
+          player.controls = true;
+          player.preload = "metadata";
+          player.src = src;
+          request.replaceWith(player);
+          line.remove();
+          note.remove();
+        };
+        const check = async () => {
+          try {
+            const response = await fetch(src, { method: "HEAD", cache: "no-store" });
+            if (!response.ok) return false;
+            showPlayer();
+            return true;
+          } catch {
+            return false;
+          }
+        };
+        const poll = () => {
+          // One check now (the tutor may finish before the request returns) and
+          // then every 5 s while the page is open; each check is a local HEAD.
+          const timer = setInterval(async () => {
+            if (await check()) clearInterval(timer);
+          }, 5000);
+          void check().then((ready) => {
+            if (ready) clearInterval(timer);
+          });
+        };
+        request.addEventListener("click", async () => {
+          request.disabled = true;
+          line.textContent = "Pidiendo el video al tutor…";
+          try {
+            await post({ kind: "video", topic: data.topic, part: data.part });
+            line.textContent = "Pedido enviado. El tutor lo produce en el chat; esta página se actualiza cuando el archivo exista.";
+            poll();
+          } catch (error) {
+            request.disabled = false;
+            line.textContent = error.message;
+          }
+        });
+        section.append(request, line, note);
+      }
+      if (title) title.after(section);
+      else article.prepend(section);
     }
     app.append(article);
     decorate(article);
