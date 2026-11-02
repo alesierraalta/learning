@@ -57,7 +57,7 @@ func evalStage(r *rules.Rules, st *State, ws, stage, part string) evalResult {
 	return res
 }
 
-func validateReceiptInputs(r *rules.Rules, ws, stage string) []Check {
+func validateReceiptInputs(_ *rules.Rules, ws, stage string) []Check {
 	if stage != "planning" {
 		return nil
 	}
@@ -711,7 +711,7 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 			}
 		}
 	}
-	decks, problems := progressiveProblems(proseOnly(text))
+	decks, problems := progressiveProblems(withoutCodeFences(text))
 	if decks == 0 {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"part %s needs a progressive walkthrough in %s and has none: a closed <lk-walkthrough> deck that draws the example and points at what changes (an lk-widget or a separate app does not replace it)",

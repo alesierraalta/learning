@@ -12,6 +12,7 @@ Branch: feat/progressive-walkthroughs · Milestone #3 (issues #73, #74) · Deliv
 ## Tasks
 
 - T1 S1-S3 engine rule, tests, docs — inline — done, commit 32f32d6 (RED: 3 new tests failed before the rule; GREEN: go test ./... ok, node --test 216/0/9; S3 rubric test written after the rubric, no RED)
+- T3 S1-S3 close the gaps the independent verifier found — inline — done on fix/walkthrough-gate-gaps (RED: 6 new cases failed; GREEN after the fix)
 - T2 S4-S5 skill guidance, reference deck, live Part 3 — inline — done: skill v1.40 (`references/recorridos-progresivos.md`, `assets/recorrido_rejilla.py`, rules in SKILL.md, learning-validation.md, metodo-explicame.md) synced to the VPS (hashes match); VPS AGENTS.md aligned; `docs/kit.md` updated in this branch; live Part 3 replaced (L8). Skill files live in the home skills folder, outside this repo.
 
 ## Log
@@ -24,4 +25,5 @@ Branch: feat/progressive-walkthroughs · Milestone #3 (issues #73, #74) · Deliv
 - L7: S2 revised — the first rule (a table can never be the largest figure) would have broken data topics such as SQL, where the table is the example; no user asked for that. Now a table may be the scene only when an arrow points into it. RED: the SQL-shaped case failed before the change; GREEN: go test ./... ok. Probe: the old live Part 3 decks still fail (28 step problems), the new ones pass.
 - L8: T2 progress — scene decks (tiles, robot, labelled arrows; scratch generator) replaced the six table decks in the live Part 3 on the VPS (sha256 109ac655…, 6 walkthroughs, 0 grids, mini-quiz intact; browser gate PASSED; screenshots reviewed).
 - L9: S3 reworded to match what shipped: a separate unconditional rubric, because `visual-value` only applies when a part plans a visual. Impact probe on the VPS: certified parts (SQL p1-p3, gramática p1) unaffected; uncertified parts without a walkthrough (RL p1, p2; liquidez 1.1) will owe one when they reach the frontier. PR #75.
+- L10: gentle-ai-verify on 90a60a6 (Risk: item 3): compatibility boundary sound (only the frontier part is evaluated; certified parts, receipts and frozen rubrics untouched), but S2 gaps: `~~~` fences counted, arrows without coordinates counted, dashed frames ignored, gear default radius 30 instead of the kit's 60, an unclosed deck could swallow the next one; S3 rubric contradicted the data-table exception; demo receipt test lost the legacy page-bound case. All fixed in T3, with a test restoring the legacy page receipt coverage (rules with demoElements = lk-widget only).
 - L5: the live Part 3 decks of 2026-11-01 are table-based (gen.py `scene()` puts a grid on top and two caption boxes below); T2 replaces them.

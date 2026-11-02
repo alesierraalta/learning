@@ -417,7 +417,12 @@ receipts stay valid.
 - The note carries at least one closed `<lk-walkthrough>` with a JSON deck; an
   `lk-widget` or a page under `explicaciones/apps/` does not replace it.
 - Every walkthrough in the note has 3 to 6 steps.
-- Every step draws something and at least one arrow. When its largest figure is
+- Markup inside a fenced code block (```` ``` ```` or `~~~`) is code, not a walkthrough, and an
+  opening tag followed by another opening before its closing tag is reported as
+  not closed, so it cannot hide the next deck.
+- Every step draws something (a box, node, sheet, gear, dashed frame or table,
+  sized with the kit's own defaults) and at least one arrow with both ends
+  (`x1`, `y1`, `x2`, `y2`): an arrow entry without coordinates renders nothing. When its largest figure is
   a table, an arrow must point into that table, at the row or cell that matters:
   a table is the scene only when the data is the example (rows of a relation).
   A table no arrow touches, with the explanation happening in captions around
