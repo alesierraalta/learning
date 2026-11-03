@@ -70,6 +70,15 @@ authored lines). It stays as three units because splitting a theme change away f
 the pages it repaints, or a fix away from its witness test, would make each unit
 harder to judge than the whole diff. Push and pull request remain the user's call.
 
+## Delivery
+
+- Branch `feat/learnings-theme-feedback-regenerate`, pushed to `origin`.
+- Pull request: [#82](https://github.com/alesierraalta/learning/pull/82), base `main`,
+  five commits, seventeen files.
+- Delivery follows the repository's own path: merge to `main` runs
+  `.github/workflows/deploy.yml` on the VPS self-hosted runner, which calls
+  `deploy/vps/update.sh` (fast-forward, rebuild, restart, health).
+
 ## TSP findings (test-strategy / 2026-11-03)
 
 Five defects found after the feature landed, each pinned by a test that was red
