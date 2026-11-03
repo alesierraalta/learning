@@ -109,4 +109,3 @@ func TestInlineDemoStillSatisfiesThePromise(t *testing.T) {
 		t.Fatalf("demo-part = %s exit %d (%s)", ch.Status, code, ch.Reason)
 	}
 }
-
