@@ -22,7 +22,7 @@ if git diff --cached --quiet; then
   exit 0
 fi
 changed=()
-while IFS= read -r path; do changed+=("$path"); done < <(git diff --cached --name-only --diff-filter=ACM -- '*.md')
+while IFS= read -r -d '' path; do changed+=("$path"); done < <(git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACM -- '*.md')
 
 if [ "${LEARNINGS_SKIP_DECK_LINT:-}" != "1" ] && [ -f "$lint" ]; then
   refused=0
