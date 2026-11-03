@@ -961,6 +961,16 @@ test("the retired app route is gone and every part payload carries its video con
   await shutdown();
 });
 
+test("a directory named like the video is not a video", async () => {
+  const { view, topic, shutdown } = await setup();
+  writeFileSync(join(topic, "explicaciones", "Parte 2 - Joins.md"), "# Parte 2 — Joins\n");
+  mkdirSync(join(topic, "explicaciones", "adjuntos", "Parte 2 - Joins.mp4"), { recursive: true });
+  const result = await view({ topic: TOPIC, part: "p2" });
+  const data = JSON.parse((await http(result.structuredContent.url)).body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
+  assert.deepEqual(data.video, { src: "explicaciones/adjuntos/Parte 2 - Joins.mp4", exists: false }, "a directory is not a file");
+  await shutdown();
+});
+
 test("frameAncestors lets one loopback origin embed the pages; anything else is refused at registration", async () => {
   const { root } = makeRoot();
   const host = makeHost();

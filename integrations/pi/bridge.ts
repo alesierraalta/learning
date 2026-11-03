@@ -250,7 +250,14 @@ const partVideo = (plan: { parts: PlanPart[] }, partId: string) => {
 /** The video a part node owns: the rendered file when it exists, a button when it does not. */
 function partVideoInfo(topicDir: string, plan: { parts: PlanPart[] }, partId: string) {
   const file = partVideo(plan, partId);
-  return { src: file, exists: existsSync(join(topicDir, file)) };
+  let exists = false;
+  try {
+    // A directory with the video's name is not a video the route can serve.
+    exists = statSync(join(topicDir, file)).isFile();
+  } catch {
+    exists = false;
+  }
+  return { src: file, exists };
 }
 
 /**
