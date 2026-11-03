@@ -84,6 +84,26 @@ existing promise true.
 | F11 | `integrations/pi/bridge.ts` | two backups never overwrite each other | bridge.test.mjs · *two regenerations in the same millisecond keep both previous versions* | a taken trash folder gets a `-2` suffix |
 | F12 | `studio/server.ts` | a refused regeneration leaves the part in the library | server.test.mjs · *a regeneration that is refused never moves the part* | the prompt is built and measured before the first write |
 
+## Visual pass (real browser, 2026-11-03)
+
+The suites were green, so the surfaces were opened in Chromium against a fixture
+vault (rich page, note, mini-quiz) and measured, not eyeballed:
+
+- Studio home, topic list, reader bar and the dialog read correctly in the dark
+  paper; the reader bar still fits «Guardada en este dispositivo» + Preguntar +
+  Sugerir + Regenerar + Borrar at 1440 px.
+- **The figure island was unreadable.** `:root[data-theme="dark"] .lk-walkthrough`
+  reset every token but not the inherited `color`, so a caption inherited the
+  dark page's light ink on the island's white paper (measured: figure background
+  `#fff`, text `rgb(227, 235, 239)`). Fixed with `color: var(--ink)` on the island
+  and on `pre.mermaid`.
+- **The dialog asked for prose in a code face.** The textarea arrived with
+  `Liberation Mono 14px`; it is the one box where the learner writes their own
+  words, so it now uses `--sans` at `.97rem`.
+- Measured and left alone: the disabled accept button is `opacity: .45` with
+  `cursor: default`, so «asks for a reason first» is visible; pressed chips invert
+  to the ink surface in both papers, which is the design system's own idiom.
+
 ## Log
 
 - L1 (user): «modo oscuro en learnings, un botón de "regenerar parte" y que te
