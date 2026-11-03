@@ -1055,6 +1055,24 @@ test("a video control or kit asset named only inside a comment is still missing"
   for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
 });
 
+test("a kit asset named only inside a page script is still missing", async () => {
+  const { root, topic } = makeRoot();
+  const kitDir = realpathSync(mkdtempSync(join(tmpdir(), "kit-")));
+  writeFileSync(join(kitDir, "kit.js"), "console.log('kit');");
+  writeFileSync(join(kitDir, "kit.css"), "body{}");
+  writeFileSync(
+    join(topic, "explicaciones", "Parte 1 - Claves.html"),
+    '<!doctype html><html lang="es"><head></head><body><h1>Rica</h1><script>const asset = "kit.js";</script></body></html>',
+  );
+  const host = makeHost();
+  registerBridge(host.api, { root, kitDir });
+  const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
+  const page = await http(result.structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.match(page.body, /<script[^>]+kit\/kit\.js/, "a script string is not a loaded asset");
+  for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
+});
+
 // The docs promise that the part page polls the file after the request, the
 // way the kit's lk-video does (a check now, then every 5 s while the page is open).
 test("the part video control swaps the player in once the file exists", { skip: !playwright && "playwright not installed" }, async (t) => {

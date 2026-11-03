@@ -268,9 +268,12 @@ function ensureNodeVideo(html: string, token: string): string {
   const kitJs = `<script src="/${token}/kit/kit.js" defer></script>`;
   // A mention inside a comment is not a loaded asset: only real markup counts.
   const withoutComments = out.replace(/<!--[\s\S]*?-->/g, "");
+  // A string inside a page script is not a loaded asset either, but keep the
+  // <script src> opening tag: that is how a real kit asset is loaded.
+  const markup = withoutComments.replace(/(<script\b[^>]*>)[\s\S]*?(<\/script\s*>)/gi, "$1$2");
   // Appended, never prepended: the bridge config stays the first script in head.
-  if (!/kit\.js/i.test(withoutComments)) out = injectHeadLast(out, kitCss + kitJs);
-  else if (!/kit\.css/i.test(withoutComments)) out = injectHeadLast(out, kitCss);
+  if (!/kit\.js/i.test(markup)) out = injectHeadLast(out, kitCss + kitJs);
+  else if (!/kit\.css/i.test(markup)) out = injectHeadLast(out, kitCss);
   // A control inside a comment or a page script does not render either.
   const visible = out.replace(/<!--[\s\S]*?-->/g, "").replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
   if (!/<lk-video[\s/>]/i.test(visible)) {
