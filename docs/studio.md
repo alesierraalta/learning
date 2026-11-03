@@ -188,18 +188,29 @@ chip or one sentence; the accept button stays disabled until then.
   and the mini-quiz move to `.papelera/<stamp>__regeneracion__<topic>-<part>/`, keeping
   their vault-relative paths (`redes/explicaciones/Parte 1 - Capas.html`), with a
   `papelera.json` manifest; the video, the demos, the attachments and `plan.json` stay
-  where they are, so regeneration replaces a part without deleting anything.
+  where they are, so regeneration replaces a part without deleting anything. When two
+  backups of one part land in the same millisecond, the second folder gets a `-2` suffix
+  instead of overwriting the first: the trash never keeps one copy of two.
+  Everything that can refuse the request — an unknown part, a malformed reason, a prompt
+  over the limit — is decided before the first write, so a refused regeneration leaves
+  the part exactly where it was.
 
 `<LEARNING_ROOT>/sugerencias.json` holds every entry (`{id, tema, parte, motivos, texto,
-origen: sugerencia|regenerar, timestamp}`, version 1). It is validated on read: a file
-that cannot be parsed reads as empty and is kept aside as `sugerencias.corrupta-<stamp>.json`
-before the next write, so the learner's words are never lost to a bad edit.
+origen: sugerencia|regenerar, timestamp}`, version 1). It is validated on read and
+nothing is repaired behind the learner's back: a file that cannot be parsed reads as
+empty and is renamed to `sugerencias.corrupta-<stamp>.json` before the next write, and an
+entry that no longer matches the shape is copied to `sugerencias.corrupta-<stamp>.json`
+before the store is rewritten without it. An empty, healthy store keeps nothing aside.
+The learner's words are never lost to a bad edit.
 
 Each chip moves one preference level, deterministically: «Faltan ejemplos» sets
 `ejemplos` to más, «Demasiado texto» lowers `texto`, «Matemáticas confusas» lowers
 `matematicas` and raises `pasos`. Repeating a suggestion does not stack; it keeps the
 aspect where the learner asked for it. The preferences page shows the result, so
-the change is visible and reversible.
+the change is visible and reversible. Moving a preference is the only part that can
+fail without losing the feedback: if `preferencias.json` cannot be read, the entry is
+still stored and the adaptation simply waits, because a file the learner cannot repair
+must not swallow their words.
 
 The loop leans on what is already stored: before writing, the prompts for a part, the
 plan and the map carry a compact context built from `preferencias.json`, the weak

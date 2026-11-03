@@ -80,21 +80,39 @@ function clean(entrada: unknown): Sugerencia | null {
   return { id, tema, parte, motivos: reasons.filter((r): r is string => typeof r === "string" && known(r)), texto, origen, timestamp };
 }
 
-/** A store that cannot be read is not a broken studio: it reads as empty, and the next write keeps the old file aside. */
-export function readSugerencias(root: string): SugerenciasFile {
+/**
+ * What the file holds and what could not be kept from it. A store that cannot be read
+ * is not a broken studio: it reads as empty, and the next write keeps the old file aside.
+ */
+interface Lectura {
+  data: SugerenciasFile;
+  /** The whole file, when nothing in it could be parsed. */
+  crudo?: string;
+  /** Entries that parsed as JSON but not as a suggestion: they are the learner's words, so they are never dropped silently. */
+  descartadas: unknown[];
+}
+
+function read(root: string): Lectura {
   const file = filePath(root);
   let text: string;
   try { text = readFileSync(file, "utf8"); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return empty();
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { data: empty(), descartadas: [] };
     throw error;
   }
-  try {
-    const data: unknown = JSON.parse(text);
-    if (!isRecord(data) || data.version !== 1 || !Array.isArray(data.entradas)) return empty();
-    const entradas = data.entradas.map(clean).filter((e): e is Sugerencia => e !== null);
-    return { version: 1, actualizado: typeof data.actualizado === "string" ? data.actualizado : "", entradas };
-  } catch { return empty(); }
+  let data: unknown;
+  try { data = JSON.parse(text); } catch { return { data: empty(), crudo: text, descartadas: [] }; }
+  if (!isRecord(data) || data.version !== 1 || !Array.isArray(data.entradas)) return { data: empty(), crudo: text, descartadas: [] };
+  const entradas = data.entradas.map(clean).filter((e): e is Sugerencia => e !== null);
+  const descartadas = data.entradas.filter((e) => clean(e) === null);
+  return {
+    data: { version: 1, actualizado: typeof data.actualizado === "string" ? data.actualizado : "", entradas },
+    descartadas,
+  };
+}
+
+export function readSugerencias(root: string): SugerenciasFile {
+  return read(root).data;
 }
 
 function write(file: string, data: SugerenciasFile) {
@@ -108,17 +126,28 @@ function write(file: string, data: SugerenciasFile) {
   }
 }
 
-/** The file that cannot be parsed is kept: suggestions are the learner's words, not a cache. */
-function keepAside(root: string) {
+/**
+ * Suggestions are the learner's words, not a cache: whatever the next write cannot keep
+ * is put beside it first. An empty store keeps nothing and is left alone.
+ */
+function keepAside(root: string, lectura: Lectura) {
   const file = filePath(root);
-  try { readFileSync(file); } catch { return; }
-  const data = readSugerencias(root);
-  if (data.entradas.length > 0) return;
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  try { renameSync(file, join(root, `sugerencias.corrupta-${stamp}.json`)); } catch { /* nothing to keep */ }
+  const aside = join(root, `sugerencias.corrupta-${stamp}.json`);
+  if (lectura.crudo !== undefined) {
+    try { renameSync(file, aside); } catch { /* nothing to keep */ }
+    return;
+  }
+  if (lectura.descartadas.length === 0) return;
+  try {
+    writeFileSync(aside, `${JSON.stringify({ version: 1, actualizado: lectura.data.actualizado, entradas: lectura.descartadas }, null, 2)}\n`, {
+      flag: "wx",
+      mode: 0o600,
+    });
+  } catch { /* the live store is still whole, and so is the entry it keeps */ }
 }
 
-function validate(raw: unknown): Omit<Sugerencia, "id" | "timestamp"> {
+export function validateSugerencia(raw: unknown): Omit<Sugerencia, "id" | "timestamp"> {
   if (!isRecord(raw)) throw new HttpError(400, "invalid sugerencia");
   const keys = Object.keys(raw);
   if (!keys.every((k) => ["tema", "parte", "motivos", "texto", "origen"].includes(k))) throw new HttpError(400, "invalid sugerencia");
@@ -222,16 +251,23 @@ export function tutorContext(root: string, tema?: string): string {
   return clip(lines.join("\n"), MAX_CONTEXTO);
 }
 
-/** Records the suggestion and moves the preferences its chips name. */
+/**
+ * Records the suggestion and moves the preferences its chips name. The preferences are
+ * touched first and their failure never costs the words: a store the learner cannot fix
+ * (a broken preferencias.json) must not make their feedback disappear.
+ */
 export function recordSugerencia(root: string, raw: unknown) {
-  const input = validate(raw);
-  keepAside(root);
-  const data = readSugerencias(root);
+  const input = validateSugerencia(raw);
+  const lectura = read(root);
+  let preferencias: Awaited<ReturnType<typeof applyMotivos>> | null = null;
+  try { preferencias = applyMotivos(root, input.motivos); }
+  catch { /* adaptation stops, the learner's feedback does not */ }
+  keepAside(root, lectura);
+  const data = lectura.data;
   const entrada: Sugerencia = { id: `s-${randomBytes(6).toString("hex")}`, ...input, timestamp: new Date().toISOString() };
   data.entradas.push(entrada);
   if (data.entradas.length > MAX_ENTRADAS) data.entradas = data.entradas.slice(-MAX_ENTRADAS);
   data.actualizado = entrada.timestamp;
   write(filePath(root), data);
-  const preferencias = applyMotivos(root, entrada.motivos);
   return { entrada, preferencias, directrices: directrices(data.entradas) };
 }

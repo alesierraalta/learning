@@ -23,6 +23,7 @@ import {
   HttpError,
   NoteRevMismatch,
   backupPartForRegeneration,
+  regenerationTrash,
   deleteNote,
   listTopics,
   parsePublicOrigins,
@@ -39,7 +40,7 @@ import { buildPanorama } from "./panorama.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
-import { listSugerencias, motivos, recordSugerencia, tutorContext } from "./sugerencias.ts";
+import { listSugerencias, motivos, recordSugerencia, tutorContext, validateSugerencia } from "./sugerencias.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -628,10 +629,14 @@ ${scripts}
         const tema = typeof body.tema === "string" ? body.tema : "";
         const parte = typeof body.parte === "string" ? body.parte : "";
         if (!/^[\w-]+$/.test(tema) || !/^p\d+$/.test(parte)) throw new HttpError(400, "invalid regeneration target");
-        const saved = recordSugerencia(root, { tema, parte, motivos: body.motivos, texto: body.texto, origen: "regenerar" });
-        const backup = backupPartForRegeneration(root, { topic: tema, part: parte });
-        const text = regenerationPrompt(tema, parte, saved.entrada, backup.trash);
+        // Everything that can refuse this request happens before the first write: a refused
+        // regeneration must leave the part in the library, not in the trash.
+        const input = validateSugerencia({ tema, parte, motivos: body.motivos, texto: body.texto, origen: "regenerar" });
+        const planned = regenerationTrash(root, { topic: tema, part: parte });
+        const text = regenerationPrompt(tema, parte, input, planned.trash);
         if (text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "the regeneration prompt is too long");
+        const saved = recordSugerencia(root, { ...input, origen: "regenerar" });
+        const backup = backupPartForRegeneration(root, { topic: tema, part: parte }, new Date(), planned.trash || undefined);
         await prompt(text);
         return sendJson(res, 200, { ok: true, prompt: text, trash: backup.trash, entrada: saved.entrada });
       }

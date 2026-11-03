@@ -14,7 +14,7 @@ import type { TSchema } from "typebox";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, relative, sep } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveContained, safeTopic } from "./paths.ts";
@@ -372,6 +372,16 @@ const TRASH_DIR = ".papelera";
 /** Folders the vault needs: a topic is a content folder, never the trash or the quick notes. */
 const RESERVED_DIRS = new Set([TRASH_DIR, "rapidos"]);
 
+/** A trash folder is named after the moment it is created: two backups in the same millisecond must not share one. */
+function freshFolder(base: string): string {
+  if (!existsSync(base)) return base;
+  for (let n = 2; n < 1000; n += 1) {
+    const next = `${base}-${n}`;
+    if (!existsSync(next)) return next;
+  }
+  throw new HttpError(500, "the trash has no free folder for this moment");
+}
+
 /** Every file a part owns: note, rich page, legacy app, demos, attachments and mini-quiz. */
 function partFiles(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string[] {
   const index = plan.parts.findIndex((p) => p.id === partId);
@@ -431,12 +441,20 @@ export interface RegenerationBackup {
 }
 
 /**
- * A regeneration rewrites the page, the note and the quiz, so those three go to the
- * trash before the tutor starts: the previous version can be read again by hand. The
- * video, the demos and the attachments are not rewritten and stay where they are, and
- * `plan.json` keeps its entry: the part is not deleted, it is replaced.
+ * Where a regeneration would keep the version it replaces, decided without moving
+ * anything: the prompt names this folder, so it must be known before the first write.
  */
-export function backupPartForRegeneration(root: string, target: { topic: string; part: string }, now = new Date()): RegenerationBackup {
+export function regenerationTrash(root: string, target: { topic: string; part: string }, now = new Date()): RegenerationBackup {
+  const { rootReal, files } = regeneratable(root, target);
+  if (files.length === 0) return { trash: "", moved: [] };
+  const stamp = now.toISOString().replace(/[:.]/g, "-").replace(/Z$/, "");
+  const label = `${target.topic}-${target.part}`.replace(/[^\w.-]/g, "-");
+  const trashRel = relative(rootReal, freshFolder(join(rootReal, TRASH_DIR, `${stamp}__regeneracion__${label}`)));
+  return { trash: trashRel, moved: files.map((file) => relative(rootReal, file)) };
+}
+
+/** The part a regeneration may replace, and the three files it rewrites. Never moves anything. */
+function regeneratable(root: string, target: { topic: string; part: string }) {
   const rootReal = realpathSync(root);
   if (!safeTopic(target.topic) || RESERVED_DIRS.has(target.topic)) throw new HttpError(400, "invalid topic id");
   if (!/^p\d+$/.test(target.part)) throw new HttpError(400, "invalid part id");
@@ -447,23 +465,46 @@ export function backupPartForRegeneration(root: string, target: { topic: string;
   if (!plan.parts.some((p) => p.id === target.part)) throw new HttpError(404, `part ${target.part} is not in the plan`);
   const files = [richPage(topicDir, plan, target.part), partNote(topicDir, plan, target.part), join(topicDir, "mini-quiz", `${target.part}.json`)]
     .filter((file): file is string => typeof file === "string" && existsSync(file));
+  return { rootReal, files };
+}
+
+/**
+ * A regeneration rewrites the page, the note and the quiz, so those three go to the
+ * trash before the tutor starts: the previous version can be read again by hand. The
+ * video, the demos and the attachments are not rewritten and stay where they are, and
+ * `plan.json` keeps its entry: the part is not deleted, it is replaced.
+ */
+export function backupPartForRegeneration(
+  root: string,
+  target: { topic: string; part: string },
+  now = new Date(),
+  folder?: string,
+): RegenerationBackup {
+  const { rootReal, files } = regeneratable(root, target);
   if (files.length === 0) return { trash: "", moved: [] };
   const moving = files.map((file) => trashable(rootReal, file));
   const stamp = now.toISOString().replace(/[:.]/g, "-").replace(/Z$/, "");
   const label = `${target.topic}-${target.part}`.replace(/[^\w.-]/g, "-");
-  const trashRel = join(TRASH_DIR, `${stamp}__regeneracion__${label}`);
-  const trash = join(rootReal, trashRel);
+  const wanted = folder ?? relative(rootReal, freshFolder(join(rootReal, TRASH_DIR, `${stamp}__regeneracion__${label}`)));
+  // The folder does not exist yet, so containment is decided on the path itself: the
+  // trash is the only place a backup may land.
+  const trashPath = join(rootReal, wanted);
+  const guard = relative(rootReal, trashPath);
+  const insideTrash = guard === TRASH_DIR || guard.startsWith(`${TRASH_DIR}/`) || guard.startsWith(`${TRASH_DIR}\\`);
+  if (!insideTrash || isAbsolute(wanted) || guard.startsWith("..")) throw new HttpError(400, "invalid trash folder");
+  const trashRel = relative(rootReal, trashPath);
   const moved: string[] = [];
-  mkdirSync(trash, { recursive: true });
+  mkdirSync(trashPath, { recursive: true });
+  const manifest = () => `${JSON.stringify({ kind: "regeneracion", at: now.toISOString(), topic: target.topic, part: target.part, moved }, null, 2)}\n`;
   // The intent is on disk before the first move, exactly as a deletion does it.
-  writeFileSync(join(trash, "papelera.json"), `${JSON.stringify({ kind: "regeneracion", at: now.toISOString(), topic: target.topic, part: target.part, moved }, null, 2)}\n`);
+  writeFileSync(join(trashPath, "papelera.json"), manifest());
   for (const file of moving) {
     const rel = relative(rootReal, file);
-    mkdirSync(dirname(join(trash, rel)), { recursive: true });
-    renameSync(file, join(trash, rel));
+    mkdirSync(dirname(join(trashPath, rel)), { recursive: true });
+    renameSync(file, join(trashPath, rel));
     moved.push(rel);
   }
-  writeFileSync(join(trash, "papelera.json"), `${JSON.stringify({ kind: "regeneracion", at: now.toISOString(), topic: target.topic, part: target.part, moved }, null, 2)}\n`);
+  writeFileSync(join(trashPath, "papelera.json"), manifest());
   return { trash: trashRel, moved };
 }
 
@@ -515,7 +556,7 @@ export function deleteNote(root: string, target: DeleteTarget, now = new Date())
   if (moving.length === 0 && !removedPart) throw new HttpError(404, "nothing to delete");
 
   const stamp = now.toISOString().replace(/[:.]/g, "-").replace(/Z$/, "");
-  const trashRel = join(TRASH_DIR, `${stamp}__${target.kind}__${label.replace(/[^\w.-]/g, "-")}`);
+  const trashRel = relative(rootReal, freshFolder(join(rootReal, TRASH_DIR, `${stamp}__${target.kind}__${label.replace(/[^\w.-]/g, "-")}`)));
   const trash = join(rootReal, trashRel);
   const moved: string[] = [];
   const manifest = { kind: target.kind, at: now.toISOString(), ...detail, moved };

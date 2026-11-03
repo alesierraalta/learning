@@ -3,7 +3,7 @@
 import { after, test } from "node:test";
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request, createServer as httpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -1658,4 +1658,25 @@ test("a regeneration backup refuses what a deletion refuses, and moves nothing o
   rmSync(join(topic, "explicaciones", "Parte 1 - Capas.md"));
   assert.deepEqual(backupPartForRegeneration(root, { topic: "redes", part: "p1" }), { trash: "", moved: [] });
   assert.equal(existsSync(join(root, ".papelera")), false);
+});
+
+test("two regenerations in the same millisecond keep both previous versions", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "regen-")));
+  const topic = join(root, "redes");
+  mkdirSync(join(topic, "explicaciones"), { recursive: true });
+  writeFileSync(join(topic, "plan.json"), JSON.stringify({ topic: "Redes", parts: [{ id: "p1", title: "Capas", slug: "Capas", subtema: "1.1" }] }));
+  const page = join(topic, "explicaciones", "Parte 1 - Capas.html");
+  const moment = new Date("2026-01-01T00:00:00.000Z");
+
+  writeFileSync(page, "<p>primera version</p>");
+  backupPartForRegeneration(root, { topic: "redes", part: "p1" }, moment);
+  writeFileSync(page, "<p>segunda version</p>");
+  backupPartForRegeneration(root, { topic: "redes", part: "p1" }, moment);
+
+  // Both versions are the learner's earlier work: neither may overwrite the other.
+  const kept = readdirSync(join(root, ".papelera"), { recursive: true })
+    .map(String)
+    .filter((name) => name.endsWith("Parte 1 - Capas.html"))
+    .map((name) => readFileSync(join(root, ".papelera", name), "utf8"));
+  assert.deepEqual(kept.sort(), ["<p>primera version</p>", "<p>segunda version</p>"]);
 });

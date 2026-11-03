@@ -949,3 +949,81 @@ test("the studio dictates through its own proxy and refuses when no transcriber 
   assert.equal(answer.status, 503);
   assert.match(answer.body, /no está configurada/i);
 });
+
+test("a store with no suggestions is not a broken store", async () => {
+  const { studio, root } = await setup();
+  writeFileSync(join(root, "sugerencias.json"), JSON.stringify({ version: 1, actualizado: "", entradas: [] }));
+
+  const response = await http(`${studio.url}api/sugerencias`, {
+    method: "POST",
+    headers: { origin: new URL(studio.url).origin, "content-type": "application/json" },
+    body: JSON.stringify({ tema: "redes", parte: "p1", texto: "una idea" }),
+  });
+  assert.equal(response.status, 200, response.body);
+  assert.deepEqual(
+    readdirSync(root).filter((name) => name.startsWith("sugerencias.corrupta-")),
+    [],
+    "a store that parses with no entries was kept aside as corrupt",
+  );
+  assert.equal(JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8")).entradas.length, 1);
+});
+
+test("an entry the store cannot read is never thrown away", async () => {
+  const { studio, root } = await setup();
+  const good = { id: "s-1", tema: "redes", parte: "p1", motivos: [], texto: "buena", origen: "sugerencia", timestamp: "2026-01-01T00:00:00Z" };
+  const unreadable = { id: 7, texto: "no la entiendo" };
+  writeFileSync(join(root, "sugerencias.json"), JSON.stringify({ version: 1, actualizado: "", entradas: [good, unreadable] }));
+
+  const response = await http(`${studio.url}api/sugerencias`, {
+    method: "POST",
+    headers: { origin: new URL(studio.url).origin, "content-type": "application/json" },
+    body: JSON.stringify({ tema: "redes", parte: "p1", texto: "otra idea" }),
+  });
+  assert.equal(response.status, 200, response.body);
+
+  // Keeping the good entries and dropping the odd one is fine; destroying the learner's
+  // words without leaving them somewhere is not.
+  const preserved =
+    readdirSync(root).some((name) => name.startsWith("sugerencias.corrupta-") && readFileSync(join(root, name), "utf8").includes("no la entiendo")) ||
+    JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8")).entradas.some((e) => e.texto === "no la entiendo");
+  assert.ok(preserved, "the unreadable entry vanished without a copy");
+});
+
+test("recording a suggestion never half-succeeds", async () => {
+  const { studio, root } = await setup();
+  writeFileSync(join(root, "preferencias.json"), "{ roto");
+
+  const response = await http(`${studio.url}api/sugerencias`, {
+    method: "POST",
+    headers: { origin: new URL(studio.url).origin, "content-type": "application/json" },
+    body: JSON.stringify({ tema: "redes", parte: "p1", motivos: ["faltan-ejemplos"], texto: "mas ejemplos de capas" }),
+  });
+  const stored = existsSync(join(root, "sugerencias.json")) ? JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8")).entradas.length : 0;
+
+  // Either the whole request failed (nothing stored) or it succeeded (exactly one entry):
+  // a stored entry behind an error makes the learner retry and write it twice.
+  if (response.status === 200) assert.equal(stored, 1, "the studio said yes but the entry is not there");
+  else assert.equal(stored, 0, `the studio answered ${response.status} after storing the entry`);
+});
+
+test("a regeneration that is refused never moves the part", async () => {
+  const { studio, root, received } = await setup();
+  const planFile = join(root, "redes", "plan.json");
+  const plan = JSON.parse(readFileSync(planFile, "utf8"));
+  // A plan title big enough that its own prompt cannot be sent.
+  plan.parts[0].title = "T".repeat(40000);
+  writeFileSync(planFile, JSON.stringify(plan));
+  const page = join(root, "redes", "explicaciones", "Parte 1 - Capas.html");
+  writeFileSync(page, "<p>la version buena</p>");
+
+  const response = await http(`${studio.url}api/regenerar`, {
+    method: "POST",
+    headers: { origin: new URL(studio.url).origin, "content-type": "application/json" },
+    body: JSON.stringify({ tema: "redes", parte: "p1", motivos: ["demasiado-texto"] }),
+  });
+
+  assert.ok(response.status >= 400, `the studio accepted a prompt it cannot send (${response.status})`);
+  assert.equal(existsSync(page), true, "a refused regeneration took the part out of the library");
+  assert.equal(existsSync(join(root, ".papelera")), false, "a refused regeneration left a backup behind");
+  assert.equal(received().some((line) => line.type === "prompt"), false, "the tutor was asked to rewrite a part that failed");
+});

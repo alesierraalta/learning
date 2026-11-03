@@ -56,6 +56,34 @@ ideas adjust preferences and reach the tutor.
 - "Feedback" already names an engine stage artifact (`feedback/{part}.json`), so
   the learner's ideas are `sugerencias` on disk and in code.
 
+## Delivery strategy
+
+Three reviewable work units on `feat/learnings-theme-feedback-regenerate`, in this
+order, each self-contained enough to read alone:
+
+1. `7a8d87b` — the dark paper: theme tokens, the bootstrap, the toggle, the frames.
+2. `c13535b` — the dialog and the store: sugerencias, regeneration backup, dictation.
+3. `e498451` — the five TSP fixes, each with the test that was red before it.
+
+The slice is larger than the 400-line guideline (the three commits hold ~1440
+authored lines). It stays as three units because splitting a theme change away from
+the pages it repaints, or a fix away from its witness test, would make each unit
+harder to judge than the whole diff. Push and pull request remain the user's call.
+
+## TSP findings (test-strategy / 2026-11-03)
+
+Five defects found after the feature landed, each pinned by a test that was red
+before the fix and is green now. No product contract changed: every fix makes an
+existing promise true.
+
+| Finding | Where | Promise it broke | Pinned by | Fix |
+|---|---|---|---|---|
+| F8 | `studio/sugerencias.ts` | an empty but healthy store is not corruption | server.test.mjs · *a store with no suggestions is not a broken store* | keep-aside only when something is actually dropped |
+| F9 | `studio/sugerencias.ts` | an unreadable entry is never lost | server.test.mjs · *an entry the store cannot read is never thrown away* | dropped entries are copied to `sugerencias.corrupta-*` before the rewrite |
+| F10 | `studio/sugerencias.ts` | a request either stores and says so, or refuses and stores nothing | server.test.mjs · *recording a suggestion never half-succeeds* | preferences move first and their failure never costs the words |
+| F11 | `integrations/pi/bridge.ts` | two backups never overwrite each other | bridge.test.mjs · *two regenerations in the same millisecond keep both previous versions* | a taken trash folder gets a `-2` suffix |
+| F12 | `studio/server.ts` | a refused regeneration leaves the part in the library | server.test.mjs · *a regeneration that is refused never moves the part* | the prompt is built and measured before the first write |
+
 ## Log
 
 - L1 (user): «modo oscuro en learnings, un botón de "regenerar parte" y que te
