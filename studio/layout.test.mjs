@@ -280,7 +280,7 @@ test("the reader bar stays compact and readable on a phone", { skip: browser ? f
     assert.ok(c.w >= 32 && c.h >= 32, `undersized control: ${JSON.stringify(c)}`);
     assert.ok(c.right <= 360, `control off screen: ${JSON.stringify(c)}`);
   }
-  assert.deepEqual(seen.controls.map((c) => c.name).filter((name) => !["Descargar para ver sin conexión", "Descargando…", "Guardada en este dispositivo"].includes(name)), ["Volver", "Preguntar", "Borrar"]);
+  assert.deepEqual(seen.controls.map((c) => c.name).filter((name) => !["Descargar para ver sin conexión", "Descargando…", "Guardada en este dispositivo"].includes(name)), ["Volver", "Preguntar", "Sugerir", "Regenerar", "Borrar"]);
   assert.ok(seen.sheetTop <= 150, `the sheet starts at ${seen.sheetTop}px`);
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
 });
@@ -598,7 +598,7 @@ test("the preview draws the draft before it is saved", { skip: browser ? false :
   await editorBody(page).fill(typed);
 
   const frameElement = await page.waitForSelector(".editor-preview iframe.sheet[src]", { timeout: 15000 });
-  assert.match(await frameElement.getAttribute("src"), /\/borrador\/[0-9a-f]{32}$/, "the frame points at a draft, not at a saved note");
+  assert.match(await frameElement.getAttribute("src"), /\/borrador\/[0-9a-f]{32}(\?theme=(dark|light))?$/, "the frame points at a draft, not at a saved note");
   const frame = await frameElement.contentFrame();
   await frame.waitForLoadState("load");
   await frame.locator("lk-walkthrough svg").first().waitFor({ timeout: 15000 });
@@ -1246,4 +1246,38 @@ test("a saved part cannot navigate the reader away from itself", { skip: browser
   assert.equal(urls.some((url) => url.includes("example.com")), false, `no frame reached the outside: ${urls.join(", ")}`);
   assert.ok(attempted.includes("trying to leave"), `the author's script ran and tried: ${attempted.join(" | ")}`);
   assert.ok(attempted.some((text) => /frame-src|Content Security Policy/i.test(text)), `the browser refused it by policy: ${attempted.join(" | ")}`);
+});
+
+test("the suggestion box asks for a reason before it can be sent, and reads like prose", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  // A written part: only those offer «Sugerir».
+  mkdirSync(join(root, "redes", "mini-quiz"), { recursive: true });
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.html"), "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Capas</title></head><body><main><h1>Capas</h1></main></body></html>");
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), "# Capas\n");
+  writeFileSync(join(root, "redes", "mini-quiz", "p1.json"), "{}");
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+
+  await page.getByRole("button", { name: "Sugerir" }).click();
+  const accept = page.getByRole("button", { name: "Guardar sugerencia" });
+  await accept.waitFor();
+  const idle = await accept.evaluate((el) => ({ disabled: el.disabled, opacity: Number(getComputedStyle(el).opacity) }));
+  assert.equal(idle.disabled, true, "with no reason and no words the box cannot be sent");
+  assert.ok(idle.opacity < 0.9, `a disabled box looks disabled: ${idle.opacity}`);
+
+  const font = await page.locator("#sugerencia-texto").evaluate((el) => getComputedStyle(el).fontFamily);
+  assert.equal(/mono/i.test(font), false, `the learner writes prose, not code: ${font}`);
+
+  await page.locator(".modal .chip").first().click();
+  assert.equal(await accept.isEnabled(), true, "one reason is enough to send it");
+  await accept.click();
+  await page.getByText("Sugerencia guardada").waitFor();
+  const stored = JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8"));
+  assert.deepEqual(stored.entradas.map((e) => [e.tema, e.parte, e.motivos.length]), [["redes", "p1", 1]]);
 });

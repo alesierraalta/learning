@@ -160,6 +160,13 @@ A page with a walkthrough must load the drawing vocabulary first, because `kit.j
 Highlights (`dashed`) are painted after sheets and boxes and before labels, so a highlight that
 must not hide what it marks needs `"fill": "none"`.
 
+The page paper follows the reader's choice. `kit/theme.js` reads `?theme=`, then
+`localStorage`, then the operating system, and sets `data-theme` on `<html>`; the
+bridge and the studio load it before anything else paints. `kit.css` swaps only tokens in
+`:root[data-theme="dark"]`, and figures keep a light surface on purpose: a diagram's
+colours are part of what it teaches. A page that hard-codes `#fff` for a surface will not
+follow the theme; use `var(--paper)` and `var(--ink)`.
+
 Both rich quizzes and plain part/diagnosis quizzes share `kit/dictate.js`:
 «Cómo lo pensé (opcional)», its hint and «Dictar» button. The bridge loads it
 before either client; standalone kit pages load it automatically beside `kit.js`.

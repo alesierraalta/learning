@@ -14,11 +14,12 @@ import type { TSchema } from "typebox";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, relative, sep } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveContained, safeTopic } from "./paths.ts";
 import { recordQuizTelemetry } from "./telemetry.ts";
+import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio, type Transcriber } from "./transcribe.ts";
 import { CodeRunError, loadRunners, readExercise, publicExercise, forPage, runCode } from "./coderun.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 
@@ -173,7 +174,7 @@ function readRecord(file: string): Record<string, unknown> | undefined {
   return value;
 }
 
-function readPlan(topicDir: string): { topic: string; parts: PlanPart[] } | undefined {
+export function readPlan(topicDir: string): { topic: string; parts: PlanPart[] } | undefined {
   const plan = readRecord(join(topicDir, "plan.json"));
   if (!plan || !Array.isArray(plan.parts)) return undefined;
   // id and slug become path segments: a part with a separator is not a part.
@@ -371,6 +372,16 @@ const TRASH_DIR = ".papelera";
 /** Folders the vault needs: a topic is a content folder, never the trash or the quick notes. */
 const RESERVED_DIRS = new Set([TRASH_DIR, "rapidos"]);
 
+/** A trash folder is named after the moment it is created: two backups in the same millisecond must not share one. */
+function freshFolder(base: string): string {
+  if (!existsSync(base)) return base;
+  for (let n = 2; n < 1000; n += 1) {
+    const next = `${base}-${n}`;
+    if (!existsSync(next)) return next;
+  }
+  throw new HttpError(500, "the trash has no free folder for this moment");
+}
+
 /** Every file a part owns: note, rich page, legacy app, demos, attachments and mini-quiz. */
 function partFiles(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string[] {
   const index = plan.parts.findIndex((p) => p.id === partId);
@@ -413,6 +424,90 @@ export interface DeleteResult {
   removedPart?: string;
 }
 
+/** One file the trash may move: inside the vault, never a symlink, never the root itself. */
+function trashable(rootReal: string, file: string): string {
+  if (lstatSync(file).isSymbolicLink()) throw new HttpError(400, `refusing to move a symbolic link: ${relative(rootReal, file)}`);
+  const inside = resolveContained(rootReal, file);
+  if (!inside.ok) throw new HttpError(400, inside.reason);
+  if (inside.targetReal === rootReal) throw new HttpError(400, "refusing to move the Learnings root");
+  return inside.targetReal;
+}
+
+export interface RegenerationBackup {
+  /** Vault-relative trash folder, or empty when there was nothing written yet. */
+  trash: string;
+  /** Vault-relative paths that moved. */
+  moved: string[];
+}
+
+/**
+ * Where a regeneration would keep the version it replaces, decided without moving
+ * anything: the prompt names this folder, so it must be known before the first write.
+ */
+export function regenerationTrash(root: string, target: { topic: string; part: string }, now = new Date()): RegenerationBackup {
+  const { rootReal, files } = regeneratable(root, target);
+  if (files.length === 0) return { trash: "", moved: [] };
+  const stamp = now.toISOString().replace(/[:.]/g, "-").replace(/Z$/, "");
+  const label = `${target.topic}-${target.part}`.replace(/[^\w.-]/g, "-");
+  const trashRel = relative(rootReal, freshFolder(join(rootReal, TRASH_DIR, `${stamp}__regeneracion__${label}`)));
+  return { trash: trashRel, moved: files.map((file) => relative(rootReal, file)) };
+}
+
+/** The part a regeneration may replace, and the three files it rewrites. Never moves anything. */
+function regeneratable(root: string, target: { topic: string; part: string }) {
+  const rootReal = realpathSync(root);
+  if (!safeTopic(target.topic) || RESERVED_DIRS.has(target.topic)) throw new HttpError(400, "invalid topic id");
+  if (!/^p\d+$/.test(target.part)) throw new HttpError(400, "invalid part id");
+  const topicDir = join(rootReal, target.topic);
+  // A plan that cannot be read aborts before anything moves.
+  const plan = readPlan(topicDir);
+  if (!plan) throw new HttpError(404, `topic ${target.topic} has no plan`);
+  if (!plan.parts.some((p) => p.id === target.part)) throw new HttpError(404, `part ${target.part} is not in the plan`);
+  const files = [richPage(topicDir, plan, target.part), partNote(topicDir, plan, target.part), join(topicDir, "mini-quiz", `${target.part}.json`)]
+    .filter((file): file is string => typeof file === "string" && existsSync(file));
+  return { rootReal, files };
+}
+
+/**
+ * A regeneration rewrites the page, the note and the quiz, so those three go to the
+ * trash before the tutor starts: the previous version can be read again by hand. The
+ * video, the demos and the attachments are not rewritten and stay where they are, and
+ * `plan.json` keeps its entry: the part is not deleted, it is replaced.
+ */
+export function backupPartForRegeneration(
+  root: string,
+  target: { topic: string; part: string },
+  now = new Date(),
+  folder?: string,
+): RegenerationBackup {
+  const { rootReal, files } = regeneratable(root, target);
+  if (files.length === 0) return { trash: "", moved: [] };
+  const moving = files.map((file) => trashable(rootReal, file));
+  const stamp = now.toISOString().replace(/[:.]/g, "-").replace(/Z$/, "");
+  const label = `${target.topic}-${target.part}`.replace(/[^\w.-]/g, "-");
+  const wanted = folder ?? relative(rootReal, freshFolder(join(rootReal, TRASH_DIR, `${stamp}__regeneracion__${label}`)));
+  // The folder does not exist yet, so containment is decided on the path itself: the
+  // trash is the only place a backup may land.
+  const trashPath = join(rootReal, wanted);
+  const guard = relative(rootReal, trashPath);
+  const insideTrash = guard === TRASH_DIR || guard.startsWith(`${TRASH_DIR}/`) || guard.startsWith(`${TRASH_DIR}\\`);
+  if (!insideTrash || isAbsolute(wanted) || guard.startsWith("..")) throw new HttpError(400, "invalid trash folder");
+  const trashRel = relative(rootReal, trashPath);
+  const moved: string[] = [];
+  mkdirSync(trashPath, { recursive: true });
+  const manifest = () => `${JSON.stringify({ kind: "regeneracion", at: now.toISOString(), topic: target.topic, part: target.part, moved }, null, 2)}\n`;
+  // The intent is on disk before the first move, exactly as a deletion does it.
+  writeFileSync(join(trashPath, "papelera.json"), manifest());
+  for (const file of moving) {
+    const rel = relative(rootReal, file);
+    mkdirSync(dirname(join(trashPath, rel)), { recursive: true });
+    renameSync(file, join(trashPath, rel));
+    moved.push(rel);
+  }
+  writeFileSync(join(trashPath, "papelera.json"), manifest());
+  return { trash: trashRel, moved };
+}
+
 /**
  * Moves a note out of the library without destroying it: the files land in
  * `.papelera/<stamp>__<kind>__<label>/` keeping their vault-relative paths, and a
@@ -421,13 +516,7 @@ export interface DeleteResult {
  */
 export function deleteNote(root: string, target: DeleteTarget, now = new Date()): DeleteResult {
   const rootReal = realpathSync(root);
-  const contained = (file: string): string => {
-    if (lstatSync(file).isSymbolicLink()) throw new HttpError(400, `refusing to move a symbolic link: ${relative(rootReal, file)}`);
-    const inside = resolveContained(rootReal, file);
-    if (!inside.ok) throw new HttpError(400, inside.reason);
-    if (inside.targetReal === rootReal) throw new HttpError(400, "refusing to move the Learnings root");
-    return inside.targetReal;
-  };
+  const contained = (file: string) => trashable(rootReal, file);
 
   let label = "";
   let files: string[] = [];
@@ -467,7 +556,7 @@ export function deleteNote(root: string, target: DeleteTarget, now = new Date())
   if (moving.length === 0 && !removedPart) throw new HttpError(404, "nothing to delete");
 
   const stamp = now.toISOString().replace(/[:.]/g, "-").replace(/Z$/, "");
-  const trashRel = join(TRASH_DIR, `${stamp}__${target.kind}__${label.replace(/[^\w.-]/g, "-")}`);
+  const trashRel = relative(rootReal, freshFolder(join(rootReal, TRASH_DIR, `${stamp}__${target.kind}__${label.replace(/[^\w.-]/g, "-")}`)));
   const trash = join(rootReal, trashRel);
   const moved: string[] = [];
   const manifest = { kind: target.kind, at: now.toISOString(), ...detail, moved };
@@ -793,7 +882,7 @@ export interface BridgeOptions {
   frameAncestors?: string[];
   publicOrigin?: string;
   publicEmbedder?: string;
-  transcriber?: { url: string; token: string; deadlineMs?: number };
+  transcriber?: Transcriber;
   /** Directory of kit.css / kit.js (tests). */
   kitDir?: string;
   /**
@@ -880,45 +969,19 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
     if (!allowedOrigins().has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
     const type = String(req.headers["content-type"] ?? "").toLowerCase();
     if (!type.startsWith("audio/")) throw new HttpError(415, "Se necesita audio.");
-    const chunks: Buffer[] = []; let size = 0;
+    const chunks: Buffer[] = [];
+    let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
-      if (size <= 15 * 1024 * 1024) chunks.push(chunk);
+      if (size <= MAX_AUDIO_BYTES) chunks.push(chunk);
     }
-    if (size > 15 * 1024 * 1024) throw new HttpError(413, "Audio demasiado grande.");
+    if (size > MAX_AUDIO_BYTES) throw new HttpError(413, "Audio demasiado grande.");
     if (!size) throw new HttpError(400, "El audio está vacío.");
-    const ext = ({ webm: "webm", ogg: "ogg", mp4: "m4a", wav: "wav", mpeg: "mp3" } as Record<string, string>)[type.split(";")[0].slice(6)] ?? "webm";
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), target.deadlineMs ?? 90000);
-    const headers = { authorization: `Bearer ${target.token}` };
-    const jobs = `${target.url.replace(/\/$/, "")}/api/jobs`;
-    let job: string | undefined;
-    const call = async (url: string, init: RequestInit = {}) => {
-      const response = await fetch(url, { ...init, headers, signal: controller.signal });
-      if (!response.ok) throw new Error("transcriber");
-      return response;
-    };
     try {
-      // Dictation is one voice: speaker diarization would prefix every line with "Speaker N:".
-      const uploaded = await (await call(`${jobs}?filename=dictado.${ext}&diarize=false`, { method: "PUT", body: Buffer.concat(chunks) })).json();
-      if (typeof uploaded.id !== "string" || !uploaded.id) throw new Error("missing job");
-      job = `${jobs}/${encodeURIComponent(uploaded.id)}`;
-      while (true) {
-        const state = await (await call(job)).json();
-        if (state.status === "failed") throw new Error("failed");
-        if (state.status === "done") break;
-        await new Promise<void>((resolve) => setTimeout(resolve, 250));
-        if (controller.signal.aborted) throw new Error("timeout");
-      }
-      const text = await (await call(`${job}/txt`)).text();
-      await fetch(job, { method: "DELETE", headers, signal: AbortSignal.timeout(5000) }).catch(() => {});
-      job = undefined;
-      sendJson(res, 200, { text });
-    } catch {
-      throw new HttpError(controller.signal.aborted ? 504 : 502, "No se pudo transcribir el audio.");
-    } finally {
-      clearTimeout(timer);
-      if (job) await fetch(job, { method: "DELETE", headers, signal: AbortSignal.timeout(5000) }).catch(() => {});
+      sendJson(res, 200, { text: await transcribeAudio(target, Buffer.concat(chunks), type) });
+    } catch (error) {
+      if (!(error instanceof TranscribeError)) throw error;
+      throw new HttpError(error.kind === "timeout" ? 504 : 502, "No se pudo transcribir el audio.");
     }
   };
 
@@ -937,6 +1000,7 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
 <link rel="stylesheet" href="${prefix}kit/kit.css?v=${staticVersion}">
 <link rel="stylesheet" href="${prefix}app.css?v=${staticVersion}">
 ${scripts}
+<script src="${prefix}kit/theme.js?v=${staticVersion}"></script>
 </head>
 <body>
 <main id="app"></main>
@@ -983,7 +1047,8 @@ ${scripts}
       part: partId,
       video: `file/${partVideo(plan, partId).split("/").map(encodeURIComponent).join("/")}`,
     }).replace(/</g, "\\u003c");
-    return `<script>window.LEARNING_BRIDGE = ${json};</script><script src="/${token}/kit/dictate.js"></script>`;
+    // The theme boots first: the paper is chosen before any of this page paints.
+    return `<script src="/${token}/kit/theme.js"></script><script>window.LEARNING_BRIDGE = ${json};</script><script src="/${token}/kit/dictate.js"></script>`;
   };
 
   const partPage = (res: ServerResponse, topic: string, partId: string) => {

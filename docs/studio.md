@@ -37,6 +37,23 @@ remembered per browser, so it survives a reload and a studio restart; below 1080
 the text stays in one column even with the mode on. The video block and the
 mini-quiz are not affected: only the explanation text is a reading surface.
 
+## Tema oscuro
+
+The header's moon (or sun) button repaints the studio and every reader it opens.
+The first visit follows the operating system's preference; after that the choice is
+kept per browser in `localStorage` (`learnings.theme`), so it survives a reload, a
+studio restart and a new part page. The reader frames are another origin and cannot
+read that storage, so the studio hands them the theme in their address (`?theme=dark`)
+and by `postMessage` when it changes; `kit/theme.js` is the one bootstrap that reads
+either and sets `data-theme` on `<html>` before the body paints.
+
+Both stylesheets carry a `:root[data-theme="dark"]` block that only swaps tokens
+(`--paper`, `--ink`, `--muted`, `--line`, the accent colours) and sets
+`color-scheme: dark`; the layout is untouched. Authored figures keep a light paper
+surface in dark mode: a diagram's colours are part of what it teaches, so inverting
+them would change the lesson. The deck (tutorial) and the code editor follow the
+same tokens.
+
 ## Panorama del tema
 
 Topic cards and topic pages offer **Panorama del tema**, with a back control to
@@ -112,6 +129,9 @@ configuration refuses startup. The token stays on the server, never in page conf
 «Dictar» records microphone audio; «Detener» uploads it (maximum 15 MiB), then
 «Transcribiendo…» waits for the transcript. Jobs are deleted after use; transcription
 has a 90-second deadline. Without these variables the existing Web Speech path remains.
+The suggestions box in the studio uses the same script and the same service through its
+own `POST api/transcribe` proxy (503 when no transcriber is configured), so a dictation
+behaves the same in the reader and in the studio.
 Microphone capture requires HTTPS remotely (loopback HTTP still works).
 
 ## What runs
@@ -154,6 +174,51 @@ backup (`git add -A`) keeps deleted notes in its history as well. Only paths
 inside the vault are deletable: ids are validated, symbolic links and the
 reserved folders (`.papelera`, `rapidos`) are refused, and a refused delete moves
 nothing.
+
+## Sugerencias y regenerar
+
+The reader of a written part offers **Sugerir** and **Regenerar**. Both open the same
+dialog: the reason chips («Demasiado texto», «Faltan ejemplos», «Matemáticas confusas»…)
+and a box for the learner's own words, typed or dictated. A suggestion needs at least one
+chip or one sentence; the accept button stays disabled until then.
+
+- **Sugerir** stores it and nothing else: the tutor reads it the next time it writes.
+- **Regenerar** stores it and asks the tutor for that part again — rich page, note and
+  mini-quiz — with the reason as the request. Before the tutor starts, the page, the note
+  and the mini-quiz move to `.papelera/<stamp>__regeneracion__<topic>-<part>/`, keeping
+  their vault-relative paths (`redes/explicaciones/Parte 1 - Capas.html`), with a
+  `papelera.json` manifest; the video, the demos, the attachments and `plan.json` stay
+  where they are, so regeneration replaces a part without deleting anything. When two
+  backups of one part land in the same millisecond, the second folder gets a `-2` suffix
+  instead of overwriting the first: the trash never keeps one copy of two.
+  Everything that can refuse the request — an unknown part, a malformed reason, a prompt
+  over the limit — is decided before the first write, so a refused regeneration leaves
+  the part exactly where it was.
+
+`<LEARNING_ROOT>/sugerencias.json` holds every entry (`{id, tema, parte, motivos, texto,
+origen: sugerencia|regenerar, timestamp}`, version 1). It is validated on read and
+nothing is repaired behind the learner's back: a file that cannot be parsed reads as
+empty and is renamed to `sugerencias.corrupta-<stamp>.json` before the next write, and an
+entry that no longer matches the shape is copied to `sugerencias.corrupta-<stamp>.json`
+before the store is rewritten without it. An empty, healthy store keeps nothing aside.
+The learner's words are never lost to a bad edit.
+
+Each chip moves one preference level, deterministically: «Faltan ejemplos» sets
+`ejemplos` to más, «Demasiado texto» lowers `texto`, «Matemáticas confusas» lowers
+`matematicas` and raises `pasos`. Repeating a suggestion does not stack; it keeps the
+aspect where the learner asked for it. The preferences page shows the result, so
+the change is visible and reversible. Moving a preference is the only part that can
+fail without losing the feedback: if `preferencias.json` cannot be read, the entry is
+still stored and the adaptation simply waits, because a file the learner cannot repair
+must not swallow their words.
+
+The loop leans on what is already stored: before writing, the prompts for a part, the
+plan and the map carry a compact context built from `preferencias.json`, the weak
+categories in `telemetria.json` and the last words from `sugerencias.json`. The
+token-gated routes are `GET api/sugerencias?tema=&parte=` (entries, chips and derived
+lines), `POST api/sugerencias` (record), `POST api/regenerar` (record, back up, prompt)
+and `GET api/contexto?tema=` (the lines a writing prompt carries). Malformed input
+returns 400; nothing is written on a failure.
 
 ## Design and tutorial
 

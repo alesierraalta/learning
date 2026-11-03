@@ -1,12 +1,13 @@
 (() => {
   const root = document.getElementById("studio");
-  let base;
+  let CONFIG;
   try {
-    base = JSON.parse(document.getElementById("studio-data").textContent).base;
+    CONFIG = JSON.parse(document.getElementById("studio-data").textContent);
   } catch {
     root.textContent = "No se pudo iniciar el estudio: falta su configuración. Vuelve a abrirlo con el comando estudio.";
     return;
   }
+  const base = CONFIG.base;
 
   // ---------- small DOM kit ----------
   const ICONS = {
@@ -16,6 +17,8 @@
     play: '<path d="M7 5l12 7-12 7z"/>',
     app: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
     chat: '<path d="M5 5h14v10H9l-4 4z"/>',
+    pencil: '<path d="M4 20h4l10-10-4-4L4 16z"/><path d="M14 6l4 4"/>',
+    refresh: '<path d="M20 12a8 8 0 11-3-6.2"/><path d="M20 4v4h-4"/>',
     send: '<path d="M4 12l16-8-6 16-2-7z"/>',
     check: '<path d="M5 12l4 4 10-10"/>',
     x: '<path d="M6 6l12 12M18 6L6 18"/>',
@@ -30,6 +33,8 @@
     map: '<circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="12" cy="18" r="2.6"/><path d="M8.6 6h6.8M7.3 8.3l3.5 7.1M16.7 8.3l-3.5 7.1"/>',
     fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
+    moon: '<path d="M20 14.2A8.4 8.4 0 019.8 4a7 7 0 1010.2 10.2z"/>',
+    sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4"/>',
   };
   const svgParser = new DOMParser();
   const icon = (name) =>
@@ -162,6 +167,40 @@
   const post = (path, body = {}) =>
     request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
+  // ---------- the paper ----------
+  /**
+   * One choice for every surface. The studio repaints itself and hands the theme
+   * to the reader frame: it is another origin, so it cannot read this storage and
+   * gets the theme in its address instead, which makes its first paint the right one.
+   */
+  const paintTheme = (button) => {
+    const dark = document.documentElement.dataset.theme === "dark";
+    const label = dark ? "Cambiar a modo claro" : "Cambiar a modo oscuro";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.setAttribute("aria-pressed", String(dark));
+    button.replaceChildren(icon(dark ? "sun" : "moon"));
+  };
+  const themeButton = () => {
+    const button = h("button", { class: "icon-btn theme-btn", type: "button" });
+    paintTheme(button);
+    button.addEventListener("click", () => {
+      const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      if (window.learningTheme?.set) window.learningTheme.set(next);
+      else document.documentElement.dataset.theme = next;
+      paintTheme(button);
+      for (const frame of document.querySelectorAll("iframe.sheet")) {
+        frame.contentWindow?.postMessage({ type: "learning-theme", theme: next }, "*");
+      }
+    });
+    return button;
+  };
+  const withTheme = (url) => {
+    const theme = document.documentElement.dataset.theme;
+    if (!theme || !url) return url;
+    return `${url}${url.includes("?") ? "&" : "?"}theme=${theme}`;
+  };
+
   // ---------- deleting a note ----------
   /**
    * Nothing is destroyed: the studio moves the note to the vault's `.papelera/`,
@@ -208,6 +247,94 @@
     });
     document.body.append(box);
     cancel.focus();
+  };
+
+  // ---------- what the learner wants changed ----------
+  /**
+   * The reason is the request. A chip moves one preference and the words travel with
+   * the prompt, so the next explanation already answers what this one missed; repeating
+   * a suggestion does not stack, it just keeps the aspect where the learner wants it.
+   */
+  const askSugerencia = async ({ topic, part, title, regenerate }) => {
+    let catalogue = { motivos: [], directrices: [] };
+    try {
+      catalogue = await request(`api/sugerencias?tema=${encodeURIComponent(topic)}&parte=${encodeURIComponent(part)}`);
+    } catch { /* the words alone are a suggestion too */ }
+    const chosen = new Set();
+    const area = h("textarea", { id: "sugerencia-texto", rows: "4", placeholder: "Cuéntalo con tus palabras: qué no cuadró, qué ejemplo se quedó corto…" });
+    const note = h("span", { class: "muted dictado-note" });
+    const dictate = h("button", { class: "btn small ghost dictado-btn", type: "button" }, "Dictar");
+    if (window.learningDictate) window.learningDictate(area, dictate, note, { transcribeUrl: CONFIG.transcribeUrl });
+    else { dictate.disabled = true; note.textContent = "Este navegador no puede dictar."; }
+    const accept = btn(regenerate ? "Regenerar la parte" : "Guardar sugerencia", () => submit(), "btn primary");
+    const refresh = () => {
+      accept.disabled = chosen.size === 0 && !area.value.trim();
+    };
+    const chips = h(
+      "div",
+      { class: "chips", role: "group", "aria-label": "Motivos" },
+      ...catalogue.motivos.map((motivo) => {
+        const chip = h("button", { class: "chip", type: "button", "aria-pressed": "false" }, motivo.texto);
+        chip.addEventListener("click", () => {
+          if (chosen.has(motivo.id)) chosen.delete(motivo.id);
+          else chosen.add(motivo.id);
+          chip.setAttribute("aria-pressed", String(chosen.has(motivo.id)));
+          refresh();
+        });
+        return chip;
+      }),
+    );
+    area.addEventListener("input", refresh);
+    const cancel = btn("Cancelar", () => box.remove(), "btn ghost");
+
+    async function submit() {
+      accept.disabled = true;
+      const body = { tema: topic, parte: part, motivos: [...chosen], texto: area.value.trim() };
+      try {
+        const result = await post(regenerate ? "api/regenerar" : "api/sugerencias", body);
+        box.remove();
+        if (regenerate) {
+          toast(result.trash ? `Regenerando «${title}»: la versión anterior queda en la papelera` : `Regenerando «${title}»`);
+          openDrawer();
+        } else {
+          toast("Sugerencia guardada: el tutor la tendrá en cuenta en la próxima explicación");
+        }
+      } catch (error) {
+        accept.disabled = false;
+        note.textContent = error.message;
+        note.classList.add("alert");
+      }
+    }
+
+    const box = h(
+      "div",
+      { class: "modal-backdrop" },
+      h(
+        "div",
+        { class: "modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "sugerencia-title" },
+        h("h2", { id: "sugerencia-title" }, regenerate ? "¿Por qué quieres regenerar esta parte?" : "¿Qué cambiarías de esta parte?"),
+        h(
+          "p",
+          { class: "modal-note" },
+          regenerate
+            ? "La versión anterior no se pierde: queda en la papelera del vault. El plan y el video se conservan."
+            : "Se guarda para que el tutor lo tenga en cuenta cuando vuelva a escribir esta parte.",
+        ),
+        chips,
+        area,
+        h("div", { class: "dictado" }, dictate, note),
+        h("div", { class: "modal-actions" }, cancel, accept),
+      ),
+    );
+    box.addEventListener("click", (event) => {
+      if (event.target === box) box.remove();
+    });
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") box.remove();
+    });
+    document.body.append(box);
+    refresh();
+    area.focus();
   };
 
   // ---------- what the engine state means for the learner ----------
@@ -267,7 +394,7 @@
     tone: "tutor",
     label: "Siguiente paso",
     text: `La Parte ${partNumber(topic, part)} todavía no está escrita: el tutor puede prepararla.`,
-    cta: [`Escribir la Parte ${partNumber(topic, part)}`, () => say(writePrompt(topic, part))],
+    cta: [`Escribir la Parte ${partNumber(topic, part)}`, () => say(writePrompt(topic, part), topic.id)],
   });
   const prompts = {
     resume: (t) => `Sigamos con ${t.title} (carpeta ${t.id}).`,
@@ -589,7 +716,7 @@
             "div",
             { class: "row-actions" },
             p.written ? btn("Leer", () => go(`#/leer/${topic.id}/${p.id}`), state === "current" ? "btn small primary" : "btn small", "book") : null,
-            !p.written ? btn("Escribir esta parte", () => say(writePrompt(topic, p)), p === firstPending ? "btn small primary" : "btn small", "spark") : null,
+            !p.written ? btn("Escribir esta parte", () => say(writePrompt(topic, p), topic.id), p === firstPending ? "btn small primary" : "btn small", "spark") : null,
           ),
         ),
       );
@@ -629,7 +756,7 @@
                     {},
                     `El plan tiene ${topic.parts.length} partes y ${topic.parts.length - gaps.missing.length} escrita${topic.parts.length - gaps.missing.length === 1 ? "" : "s"}: faltan ${gaps.missing.length} (${gaps.missing.join(", ")}).`,
                   ),
-                  btn("Pedir las que faltan", () => say(prompts.fill(topic)), "btn small ghost", "spark"),
+                  btn("Pedir las que faltan", () => say(prompts.fill(topic), topic.id), "btn small ghost", "spark"),
                 )
               : null,
             h("ol", { class: "route", "aria-label": "Ruta del tema" }, rows),
@@ -775,7 +902,7 @@
           { class: "row-actions" },
           part.written
             ? btn("Leer", () => go(`#/leer/${topic.id}/${part.id}`), "btn small", "book")
-            : btn("Escribir esta parte", () => say(writePromptOf(topic, part.number, part.title)), "btn small primary", "spark"),
+            : btn("Escribir esta parte", () => say(writePromptOf(topic, part.number, part.title), topic.id), "btn small primary", "spark"),
         ),
       ),
     );
@@ -806,7 +933,7 @@
                 "div",
                 { class: "pano-ask reveal" },
                 h("p", {}, "Falta la planificación: el tutor todavía no escribió planificador.md."),
-                btn("Pedir la planificación", () => say(planPrompt(topic)), "btn small", "spark"),
+                btn("Pedir la planificación", () => say(planPrompt(topic), topic.id), "btn small", "spark"),
               ),
           h("ol", { class: "route", "aria-label": "Ruta del tema" }, chapters),
         ),
@@ -820,7 +947,7 @@
               "div",
               { class: "pano-ask reveal" },
               h("p", {}, "Falta el mapa de dependencias: el tutor todavía no lo dibujó."),
-              btn("Pedir el mapa", () => say(mapPrompt(topic)), "btn small", "spark"),
+              btn("Pedir el mapa", () => say(mapPrompt(topic), topic.id), "btn small", "spark"),
             ),
       ),
       h(
@@ -856,7 +983,7 @@
             { class: "pano-ask reveal" },
             h("h2", {}, "Todavía no hay mapa"),
             h("p", {}, "El mapa de dependencias es un archivo mapa.mmd: el tutor dibuja ahí cada subtema con sus conceptos y las flechas de qué necesita a qué."),
-            btn("Pedir el mapa de dependencias", () => say(mapPrompt(topic)), "btn primary", "spark"),
+            btn("Pedir el mapa de dependencias", () => say(mapPrompt(topic), topic.id), "btn primary", "spark"),
           ),
         ),
       );
@@ -937,13 +1064,13 @@
       return [
         h("p", { class: "muted" }, `Tu ruta todavía no tiene una parte para ${name}.`),
         node.request
-          ? btn(`Pedir la parte de ${node.request}`, () => say(subtemaPrompt(topic, node.request)), "btn small primary", "spark")
+          ? btn(`Pedir la parte de ${node.request}`, () => say(subtemaPrompt(topic, node.request), topic.id), "btn small primary", "spark")
           : null,
       ];
     }
     const open = part.written
       ? btn("Leer esta parte", () => go(`#/leer/${topic.id}/${part.id}`), "btn small", "book")
-      : btn("Escribir esta parte", () => say(writePromptOf(topic, part.number, part.title)), "btn small primary", "spark");
+      : btn("Escribir esta parte", () => say(writePromptOf(topic, part.number, part.title), topic.id), "btn small primary", "spark");
     return [h("p", { class: "pano-part-name" }, part.written ? "Aprendido en " : "Lo aprenderás en ", h("b", {}, `Parte ${part.number}`), ` · ${part.title}`), open];
   }
   function select(node) {
@@ -1169,6 +1296,12 @@
       prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost nav", "back") : null,
       next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost nav", "next") : null,
       barBtn("Preguntar", () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `), "btn small", "chat"),
+      info?.written
+        ? barBtn("Sugerir", () => askSugerencia({ topic: topicId, part, title, regenerate: false }), "btn small ghost", "pencil")
+        : null,
+      info?.written
+        ? barBtn("Regenerar", () => askSugerencia({ topic: topicId, part, title, regenerate: true }), "btn small ghost", "refresh")
+        : null,
       quick || info
         ? barBtn(
             "Borrar",
@@ -1193,7 +1326,7 @@
       if (seq !== readSeq) return;
       const url = data.url;
       if (!url) throw new Error("Esta parte no tiene vista HTML.");
-      frame.src = url;
+      frame.src = withTheme(url);
       // A part read with a connection is kept on the device for reading without one.
       if (saveButton) {
         await savedReady;
@@ -1356,7 +1489,7 @@
         });
         const answer = await response.json().catch(() => ({}));
         if (seq !== editSeq || !response.ok || typeof answer.url !== "string") return;
-        frame.src = answer.url;
+        frame.src = withTheme(answer.url);
         preview.replaceChildren(frame);
         previewNote.textContent = "tu borrador";
       } catch {
@@ -1374,7 +1507,7 @@
       try {
         const data = await request(`api/view?quick=${encodeURIComponent(quickId)}`);
         if (seq !== editSeq) return;
-        frame.src = `${data.url}${data.url.includes("?") ? "&" : "?"}v=${encodeURIComponent(rev)}`;
+        frame.src = withTheme(`${data.url}${data.url.includes("?") ? "&" : "?"}v=${encodeURIComponent(rev)}`);
         preview.replaceChildren(frame);
       } catch (error) {
         if (seq === editSeq) preview.replaceChildren(h("p", { class: "empty" }, `No se pudo abrir la vista previa: ${error.message}`));
@@ -1584,10 +1717,20 @@
     document.body.classList.remove("drawer-open");
     pill.setAttribute("aria-expanded", "false");
   }
-  async function say(text) {
+  /**
+   * A writing request travels with what the learner already said and chose: the server
+   * keeps that context, so the prompt carries it instead of the prompt builder guessing it.
+   */
+  const withContext = async (text, tema) => {
+    try {
+      const data = await request(`api/contexto?tema=${encodeURIComponent(tema)}`);
+      return typeof data.texto === "string" && data.texto ? `${text}\n\n${data.texto}` : text;
+    } catch { return text; }
+  };
+  async function say(text, tema) {
     openDrawer();
     try {
-      await post("prompt", { text });
+      await post("prompt", { text: tema ? await withContext(text, tema) : text });
     } catch (error) {
       append(h("div", { class: "notice error" }, `No se pudo enviar: ${error.message}`));
     }
@@ -1829,7 +1972,7 @@
       { class: "topbar" },
       h("a", { class: "brand", href: "#/" }, h("b", {}, "Estudio"), h("span", {}, "Learnings")),
       crumbs,
-      h("div", { class: "top-actions" }, h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
+      h("div", { class: "top-actions" }, themeButton(), h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
     ),
     offlineBanner,
     h("div", { class: "app" }, stage),

@@ -2,7 +2,7 @@
 // child (testdata/fake-pi.mjs) and a temporary Learnings root.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { request, createServer } from "node:http";
 import { dirname, join } from "node:path";
@@ -833,4 +833,197 @@ test("a written part is served as one isolated file that reads with no connectio
   assert.equal((await http(`${studio.url}api/offline?topic=redes&part=p2`)).status, 404, "a part not written yet has nothing to save");
   assert.equal((await http(`${studio.url}api/offline?topic=../etc&part=p1`)).status, 404, "a topic never leaves the vault");
   assert.equal((await http(`${studio.url.replace(/[0-9a-f]{64}\/$/, `${"0".repeat(64)}/`)}api/offline?topic=redes&part=p1`)).status, 404, "the route needs the studio's token");
+});
+
+test("the shell paints the remembered theme before the studio script runs", async () => {
+  const { studio } = await setup();
+  const shell = await http(studio.url);
+  assert.equal(shell.status, 200);
+  const boot = shell.body.indexOf("/kit/theme.js");
+  assert.ok(boot > 0, "the shell loads the theme bootstrap");
+  assert.ok(boot < shell.body.indexOf("/studio.js"), "and it runs before the studio paints");
+  assert.equal((await http(`${studio.url}kit/theme.js`)).status, 200, "the bootstrap is served under the studio's token");
+});
+
+test("a suggestion is stored, moves one preference level and never stacks", async () => {
+  const { studio, root } = await setup();
+  const first = await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["faltan-ejemplos"], texto: "El ejemplo del TCP no me cuadró" });
+  assert.equal(first.status, 200, first.body);
+  const saved = JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8"));
+  assert.equal(saved.version, 1);
+  assert.equal(saved.entradas.length, 1);
+  assert.equal(saved.entradas[0].origen, "sugerencia");
+  assert.deepEqual(saved.entradas[0].motivos, ["faltan-ejemplos"]);
+
+  const preferences = JSON.parse((await http(`${studio.url}api/preferences`)).body);
+  assert.equal(preferences.aspectos.find((a) => a.id === "ejemplos").nivel, "más", "the chip moved the aspect up one level");
+
+  // Asking for the same thing again keeps the aspect where the learner put it.
+  await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["faltan-ejemplos"] });
+  const again = JSON.parse((await http(`${studio.url}api/preferences`)).body);
+  assert.equal(again.aspectos.find((a) => a.id === "ejemplos").nivel, "más");
+
+  const listed = await http(`${studio.url}api/sugerencias?tema=redes&parte=p1`);
+  assert.equal(listed.status, 200);
+  const view = JSON.parse(listed.body);
+  assert.equal(view.entradas.length, 2);
+  assert.ok(view.motivos.some((m) => m.id === "faltan-ejemplos"), "the catalogue travels with the answers");
+  assert.ok(view.directrices.some((line) => line.includes("El ejemplo del TCP no me cuadró")));
+});
+
+test("a suggestion needs a reason or words, and cannot replace the file it cannot read", async () => {
+  const { studio, root } = await setup();
+  assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1" })).status, 400, "an empty suggestion asks for nothing");
+  assert.equal((await post(studio, "api/sugerencias", { tema: "../etc", parte: "p1", texto: "x" })).status, 400, "a topic never leaves the vault");
+  assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["no-existe"], texto: "x" })).status, 400);
+  assert.equal(existsSync(join(root, "sugerencias.json")), false, "a rejected suggestion writes nothing");
+
+  // A file that cannot be parsed is kept aside, never replaced unseen.
+  writeFileSync(join(root, "sugerencias.json"), "{ esto no es json");
+  const seen = await http(`${studio.url}api/sugerencias`);
+  assert.equal(seen.status, 200);
+  assert.deepEqual(JSON.parse(seen.body).entradas, []);
+  assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", texto: "sigue aquí" })).status, 200);
+  const kept = readdirSync(root).filter((name) => name.startsWith("sugerencias.corrupta-"));
+  assert.equal(kept.length, 1, "the unreadable file is kept aside");
+  assert.equal(readFileSync(join(root, kept[0]), "utf8"), "{ esto no es json");
+});
+
+test("regenerating backs the part up, keeps its video and the plan, and asks for it again", async () => {
+  const { studio, root, received } = await setup();
+  const topic = join(root, "redes");
+  const page = join(topic, "explicaciones", "Parte 1 - Capas.html");
+  const quiz = join(topic, "mini-quiz", "p1.json");
+  const video = join(topic, "explicaciones", "adjuntos", "Parte 1 - Capas.mp4");
+  mkdirSync(dirname(quiz), { recursive: true });
+  mkdirSync(dirname(video), { recursive: true });
+  writeFileSync(page, "<html><body>la versión vieja</body></html>");
+  writeFileSync(quiz, JSON.stringify({ questions: [] }));
+  writeFileSync(video, "video");
+  const plan = readFileSync(join(topic, "plan.json"), "utf8");
+
+  const answer = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto, por favor" });
+  assert.equal(answer.status, 200, answer.body);
+  const result = JSON.parse(answer.body);
+  assert.match(result.prompt, /Regenera Parte 1 «Capas» de Redes/);
+  assert.match(result.prompt, /Demasiado texto/, "the reason reaches the tutor in the learner's words");
+  assert.match(result.prompt, /más corto, por favor/);
+  assert.match(result.prompt, /Conserva el video y los adjuntos/);
+
+  assert.equal(existsSync(page), false, "the old page left the topic");
+  assert.equal(existsSync(quiz), false);
+  assert.equal(existsSync(video), true, "the video stays: regeneration keeps it");
+  assert.equal(readFileSync(join(topic, "plan.json"), "utf8"), plan, "the plan is untouched");
+
+  const trash = join(root, result.trash);
+  // Vault-relative paths, exactly as a deletion keeps them.
+  assert.ok(existsSync(join(trash, "redes", "explicaciones", "Parte 1 - Capas.html")));
+  assert.ok(existsSync(join(trash, "redes", "explicaciones", "Parte 1 - Capas.md")));
+  assert.ok(existsSync(join(trash, "redes", "mini-quiz", "p1.json")));
+  const manifest = JSON.parse(readFileSync(join(trash, "papelera.json"), "utf8"));
+  assert.equal(manifest.kind, "regeneracion");
+  assert.equal(manifest.moved.length, 3);
+  assert.equal(received().find((line) => line.type === "prompt").message, result.prompt, "the tutor receives exactly that prompt");
+});
+
+test("the context a writing prompt carries has preferences, weak categories and the learner's words", async () => {
+  const { studio } = await setup();
+  await post(studio, "api/telemetry", {
+    entry: { punto: "1. Capas", tema: "redes", categoria: "matematicas", pregunta: "¿Cuántas subredes?", respuesta_alumno: "A", respuesta_correcta: "B", ok: false, por_que: "Confunde la máscara" },
+  });
+  await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["matematicas-confusas"], texto: "Las cuentas de la máscara me pierden" });
+
+  const answer = await http(`${studio.url}api/contexto?tema=redes`);
+  assert.equal(answer.status, 200);
+  const { texto } = JSON.parse(answer.body);
+  assert.match(texto, /Preferencias:/);
+  assert.match(texto, /matematicas=/);
+  assert.match(texto, /dónde más falla|Donde más falla/i);
+  assert.match(texto, /matematicas/);
+  assert.match(texto, /Las cuentas de la máscara me pierden/);
+});
+
+test("the studio dictates through its own proxy and refuses when no transcriber is configured", async () => {
+  const { studio } = await setup();
+  const answer = await http(`${studio.url}api/transcribe`, { method: "POST", headers: { origin: new URL(studio.url).origin, "content-type": "audio/webm" }, body: "audio" });
+  assert.equal(answer.status, 503);
+  assert.match(answer.body, /no está configurada/i);
+});
+
+test("a store with no suggestions is not a broken store", async () => {
+  const { studio, root } = await setup();
+  writeFileSync(join(root, "sugerencias.json"), JSON.stringify({ version: 1, actualizado: "", entradas: [] }));
+
+  const response = await http(`${studio.url}api/sugerencias`, {
+    method: "POST",
+    headers: { origin: new URL(studio.url).origin, "content-type": "application/json" },
+    body: JSON.stringify({ tema: "redes", parte: "p1", texto: "una idea" }),
+  });
+  assert.equal(response.status, 200, response.body);
+  assert.deepEqual(
+    readdirSync(root).filter((name) => name.startsWith("sugerencias.corrupta-")),
+    [],
+    "a store that parses with no entries was kept aside as corrupt",
+  );
+  assert.equal(JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8")).entradas.length, 1);
+});
+
+test("an entry the store cannot read is never thrown away", async () => {
+  const { studio, root } = await setup();
+  const good = { id: "s-1", tema: "redes", parte: "p1", motivos: [], texto: "buena", origen: "sugerencia", timestamp: "2026-01-01T00:00:00Z" };
+  const unreadable = { id: 7, texto: "no la entiendo" };
+  writeFileSync(join(root, "sugerencias.json"), JSON.stringify({ version: 1, actualizado: "", entradas: [good, unreadable] }));
+
+  const response = await http(`${studio.url}api/sugerencias`, {
+    method: "POST",
+    headers: { origin: new URL(studio.url).origin, "content-type": "application/json" },
+    body: JSON.stringify({ tema: "redes", parte: "p1", texto: "otra idea" }),
+  });
+  assert.equal(response.status, 200, response.body);
+
+  // Keeping the good entries and dropping the odd one is fine; destroying the learner's
+  // words without leaving them somewhere is not.
+  const preserved =
+    readdirSync(root).some((name) => name.startsWith("sugerencias.corrupta-") && readFileSync(join(root, name), "utf8").includes("no la entiendo")) ||
+    JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8")).entradas.some((e) => e.texto === "no la entiendo");
+  assert.ok(preserved, "the unreadable entry vanished without a copy");
+});
+
+test("recording a suggestion never half-succeeds", async () => {
+  const { studio, root } = await setup();
+  writeFileSync(join(root, "preferencias.json"), "{ roto");
+
+  const response = await http(`${studio.url}api/sugerencias`, {
+    method: "POST",
+    headers: { origin: new URL(studio.url).origin, "content-type": "application/json" },
+    body: JSON.stringify({ tema: "redes", parte: "p1", motivos: ["faltan-ejemplos"], texto: "mas ejemplos de capas" }),
+  });
+  const stored = existsSync(join(root, "sugerencias.json")) ? JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8")).entradas.length : 0;
+
+  // Either the whole request failed (nothing stored) or it succeeded (exactly one entry):
+  // a stored entry behind an error makes the learner retry and write it twice.
+  if (response.status === 200) assert.equal(stored, 1, "the studio said yes but the entry is not there");
+  else assert.equal(stored, 0, `the studio answered ${response.status} after storing the entry`);
+});
+
+test("a regeneration that is refused never moves the part", async () => {
+  const { studio, root, received } = await setup();
+  const planFile = join(root, "redes", "plan.json");
+  const plan = JSON.parse(readFileSync(planFile, "utf8"));
+  // A plan title big enough that its own prompt cannot be sent.
+  plan.parts[0].title = "T".repeat(40000);
+  writeFileSync(planFile, JSON.stringify(plan));
+  const page = join(root, "redes", "explicaciones", "Parte 1 - Capas.html");
+  writeFileSync(page, "<p>la version buena</p>");
+
+  const response = await http(`${studio.url}api/regenerar`, {
+    method: "POST",
+    headers: { origin: new URL(studio.url).origin, "content-type": "application/json" },
+    body: JSON.stringify({ tema: "redes", parte: "p1", motivos: ["demasiado-texto"] }),
+  });
+
+  assert.ok(response.status >= 400, `the studio accepted a prompt it cannot send (${response.status})`);
+  assert.equal(existsSync(page), true, "a refused regeneration took the part out of the library");
+  assert.equal(existsSync(join(root, ".papelera")), false, "a refused regeneration left a backup behind");
+  assert.equal(received().some((line) => line.type === "prompt"), false, "the tutor was asked to rewrite a part that failed");
 });

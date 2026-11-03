@@ -3,13 +3,13 @@
 import { after, test } from "node:test";
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request, createServer as httpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { countVisuals, obsidianToMarkdown, registerBridge, listTopics } from "./bridge.ts";
+import { backupPartForRegeneration, countVisuals, obsidianToMarkdown, registerBridge, listTopics } from "./bridge.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { loadRunners } from "./coderun.ts";
 
@@ -1006,7 +1006,9 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net 'unsafe-inline'/);
   assert.match(csp, /connect-src 'self'/);
   assert.match(csp, /frame-ancestors 'self' http:\/\/127\.0\.0\.1:5555/);
-  const config = JSON.parse(page.body.match(/<head><script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
+  // The theme boots before anything paints, ahead of the config the page reads.
+  assert.match(page.body, /<head><script src="[^"]*\/kit\/theme\.js"><\/script><script>window\.LEARNING_BRIDGE = /);
+  const config = JSON.parse(page.body.match(/<script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
   assert.deepEqual(config, {
     submitUrl: `${prefix}submit`,
     quizUrl: `${prefix}api/quiz?topic=${TOPIC}&part=p1`,
@@ -1636,4 +1638,45 @@ test("a demo page finds the kit through its own relative path", async () => {
   assert.equal((await http(`${base}${TOPIC}/kit/nope.js`)).status, 404);
   assert.equal((await http(`${base}${TOPIC}/file/kit/..%2Fkit.css`)).status, 404);
   await shutdown();
+});
+
+test("a regeneration backup refuses what a deletion refuses, and moves nothing on a refusal", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "regen-")));
+  const topic = join(root, "redes");
+  mkdirSync(join(topic, "explicaciones"), { recursive: true });
+  writeFileSync(join(topic, "plan.json"), JSON.stringify({ topic: "Redes", parts: [{ id: "p1", title: "Capas", slug: "Capas", subtema: "1.1" }] }));
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Capas.md"), "# Parte 1\n");
+
+  assert.throws(() => backupPartForRegeneration(root, { topic: "../etc", part: "p1" }), /invalid topic id/);
+  assert.throws(() => backupPartForRegeneration(root, { topic: "redes", part: "../p1" }), /invalid part id/);
+  assert.throws(() => backupPartForRegeneration(root, { topic: "redes", part: "p9" }), /is not in the plan/);
+  assert.throws(() => backupPartForRegeneration(root, { topic: "nada", part: "p1" }), /has no plan/);
+  assert.equal(existsSync(join(root, ".papelera")), false, "a refused backup leaves no trash behind");
+  assert.equal(existsSync(join(topic, "explicaciones", "Parte 1 - Capas.md")), true);
+
+  // A part whose files are already gone is not an error: there is nothing to keep.
+  rmSync(join(topic, "explicaciones", "Parte 1 - Capas.md"));
+  assert.deepEqual(backupPartForRegeneration(root, { topic: "redes", part: "p1" }), { trash: "", moved: [] });
+  assert.equal(existsSync(join(root, ".papelera")), false);
+});
+
+test("two regenerations in the same millisecond keep both previous versions", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "regen-")));
+  const topic = join(root, "redes");
+  mkdirSync(join(topic, "explicaciones"), { recursive: true });
+  writeFileSync(join(topic, "plan.json"), JSON.stringify({ topic: "Redes", parts: [{ id: "p1", title: "Capas", slug: "Capas", subtema: "1.1" }] }));
+  const page = join(topic, "explicaciones", "Parte 1 - Capas.html");
+  const moment = new Date("2026-01-01T00:00:00.000Z");
+
+  writeFileSync(page, "<p>primera version</p>");
+  backupPartForRegeneration(root, { topic: "redes", part: "p1" }, moment);
+  writeFileSync(page, "<p>segunda version</p>");
+  backupPartForRegeneration(root, { topic: "redes", part: "p1" }, moment);
+
+  // Both versions are the learner's earlier work: neither may overwrite the other.
+  const kept = readdirSync(join(root, ".papelera"), { recursive: true })
+    .map(String)
+    .filter((name) => name.endsWith("Parte 1 - Capas.html"))
+    .map((name) => readFileSync(join(root, ".papelera", name), "utf8"));
+  assert.deepEqual(kept.sort(), ["<p>primera version</p>", "<p>segunda version</p>"]);
 });
