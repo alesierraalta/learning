@@ -263,26 +263,121 @@ test("the reader bar stays compact and readable on a phone", { skip: browser ? f
   await page.waitForSelector("iframe.sheet[src]");
   const seen = await page.evaluate(() => {
     const title = document.querySelector(".reader-bar .title");
-    const controls = [...document.querySelectorAll(".reader-bar button")].map((b) => {
-      const r = b.getBoundingClientRect();
-      return { name: b.getAttribute("aria-label") || b.textContent.trim(), w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right) };
-    });
+    const bar = document.querySelector(".reader-bar");
+    const controls = [...document.querySelectorAll(".reader-bar button")]
+      .map((b) => {
+        const r = b.getBoundingClientRect();
+        return { name: b.getAttribute("aria-label") || b.textContent.trim(), w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right), top: Math.round(r.top) };
+      })
+      .filter((c) => c.h > 0);
     return {
       clipped: title.scrollWidth > title.clientWidth + 1 || title.scrollHeight > title.clientHeight + 1,
+      barHeight: Math.round(bar.getBoundingClientRect().height),
+      rows: new Set(controls.map((c) => c.top)).size,
       controls,
       sheetTop: Math.round(document.querySelector("iframe.sheet").getBoundingClientRect().top),
       pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
     };
   });
   assert.equal(seen.clipped, false, "the part title is cut");
+  assert.ok(seen.barHeight <= 56, `the bar is ${seen.barHeight}px tall`);
+  assert.equal(seen.rows, 1, `the bar wraps into ${seen.rows} rows`);
   for (const c of seen.controls) {
     assert.ok(c.name, `a reader control has no name: ${JSON.stringify(c)}`);
     assert.ok(c.w >= 32 && c.h >= 32, `undersized control: ${JSON.stringify(c)}`);
     assert.ok(c.right <= 360, `control off screen: ${JSON.stringify(c)}`);
   }
-  assert.deepEqual(seen.controls.map((c) => c.name).filter((name) => !["Descargar para ver sin conexión", "Descargando…", "Guardada en este dispositivo"].includes(name)), ["Volver", "Preguntar", "Sugerir", "Regenerar", "Borrar"]);
+  // The five actions leave the row; the trigger that opens them takes their place.
+  assert.deepEqual(seen.controls.map((c) => c.name), ["Volver", "Más acciones"]);
   assert.ok(seen.sheetTop <= 150, `the sheet starts at ${seen.sheetTop}px`);
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
+});
+
+// S1-S2: one row on a phone, and the actions that leave the row stay reachable
+// in an overflow menu with the same handlers (delete still asks first).
+test("the reader bar is one row and its overflow menu holds the five actions (S1, S2, S5)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".reader-bar .title");
+  const row = await page.evaluate(() => {
+    const bar = document.querySelector(".reader-bar");
+    const controls = [...bar.querySelectorAll("button")].filter((b) => b.getBoundingClientRect().height > 0);
+    return {
+      height: Math.round(bar.getBoundingClientRect().height),
+      tops: [...new Set(controls.map((b) => Math.round(b.getBoundingClientRect().top)))],
+      right: Math.max(...controls.map((b) => Math.round(b.getBoundingClientRect().right))),
+    };
+  });
+  assert.ok(row.height <= 56, `the bar is ${row.height}px tall`);
+  assert.deepEqual(row.tops.length, 1, "the bar is more than one row");
+  assert.ok(row.right <= 390, `the row overflows the phone by ${row.right - 390}px`);
+
+  const more = page.getByRole("button", { name: "Más acciones" });
+  assert.equal(await more.getAttribute("aria-expanded"), "false");
+  await more.focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await more.getAttribute("aria-expanded"), "true");
+  const menu = page.locator(".reader-menu");
+  assert.equal(await menu.isVisible(), true);
+  assert.deepEqual((await menu.locator("button").allInnerTexts()).map((text) => text.trim()), ["Descargar para ver sin conexión", "Preguntar", "Sugerir", "Regenerar", "Borrar"]);
+  assert.equal(await page.evaluate(() => !!document.activeElement.closest?.(".reader-menu")), true, "the menu is not keyboard reachable");
+
+  await page.keyboard.press("Escape");
+  assert.equal(await more.getAttribute("aria-expanded"), "false");
+  assert.equal(await menu.isVisible(), false);
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute("aria-label")), "Más acciones");
+
+  await more.click();
+  assert.equal(await menu.isVisible(), true);
+  await page.locator(".reader-bar .title").click();
+  assert.equal(await menu.isVisible(), false, "a click outside leaves the menu open");
+
+  // Borrar keeps its confirmation: the note only leaves after the dialog is accepted.
+  await more.click();
+  await page.getByRole("menuitem", { name: "Borrar" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.waitFor();
+  assert.match(await dialog.innerText(), /¿Mover «Capas» a la papelera\?/);
+  await dialog.getByRole("button", { name: "Cancelar" }).click();
+  assert.equal(await page.locator(".modal").count(), 0);
+  assert.match(page.url(), /#\/leer\/redes\/p1/);
+});
+
+// S3: above 720px the bar is the row it always was, with every control in it.
+test("the reader bar keeps its controls in the row on a desktop (S3, S5)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 800 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".reader-bar .title");
+  assert.equal(await page.locator(".reader-more").isVisible(), false, "the overflow trigger is a phone's");
+  assert.equal(await page.locator(".reader-menu").isVisible(), false, "the menu is open on a desktop");
+  const seen = await page.evaluate(() => {
+    const controls = [...document.querySelectorAll(".reader-bar > button")]
+      .map((b) => {
+        const r = b.getBoundingClientRect();
+        return { name: b.getAttribute("aria-label") || b.textContent.trim(), h: Math.round(r.height), top: Math.round(r.top), right: Math.round(r.right) };
+      })
+      .filter((c) => c.h > 0);
+    return { controls, tops: [...new Set(controls.map((c) => c.top))] };
+  });
+  assert.equal(seen.tops.length, 1, "the desktop bar wraps into two rows");
+  for (const c of seen.controls) assert.ok(c.right <= 1280, `control off screen: ${JSON.stringify(c)}`);
+  const saves = ["Descargar para ver sin conexión", "Descargando…", "Guardada en este dispositivo"];
+  assert.equal(seen.controls.filter((c) => saves.includes(c.name)).length, 1, `the save control is missing: ${JSON.stringify(seen.controls)}`);
+  assert.deepEqual(seen.controls.map((c) => c.name).filter((name) => !saves.includes(name)), ["Volver", "Preguntar", "Sugerir", "Regenerar", "Borrar"]);
 });
 
 test("the home ask field and section headings fit a phone", { skip: browser ? false : "playwright not installed" }, async (t) => {

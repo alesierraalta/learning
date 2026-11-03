@@ -1263,12 +1263,16 @@
     const barBtn = (label, onclick, cls, iconName) =>
       h("button", { class: cls, type: "button", onclick, "aria-label": label, title: label }, icon(iconName), h("span", { class: "label" }, label));
     let saveButton;
+    let menuSave;
     const setSaveState = (label, disabled, iconName) => {
       if (seq !== readSeq || !saveButton.isConnected) return;
       saveButton.disabled = disabled;
       saveButton.setAttribute("aria-label", label);
       saveButton.title = label;
       saveButton.replaceChildren(icon(iconName), h("span", { class: "label" }, label));
+      // The menu entry keeps its own name (it promises the action); only its
+      // availability follows the row it replaces.
+      if (menuSave) menuSave.disabled = disabled;
     };
     const saveReaderPart = async (automatic = false) => {
       if (!navigator.serviceWorker?.controller) {
@@ -1284,28 +1288,30 @@
         toast("No se pudo guardar: vuelve a intentarlo con conexión.");
       }
     };
-    if (info?.written && mode !== "app") {
-      saveButton = barBtn("Descargar para ver sin conexión", () => saveReaderPart(), "btn small ghost", "doc");
-    }
-    const bar = h(
-      "div",
-      { class: "reader-bar" },
-      h("button", { class: "icon-btn", type: "button", "aria-label": "Volver", title: "Volver", onclick: () => go(quick ? "#/" : `#/tema/${topicId}`) }, icon("back")),
-      h("div", { class: "title" }, h("small", {}, kicker), title),
-      saveButton,
-      prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost nav", "back") : null,
-      next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost nav", "next") : null,
-      barBtn("Preguntar", () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `), "btn small", "chat"),
+    // One definition per action, shared by the desktop row and the phone menu:
+    // the menu can never drift from the row it replaces.
+    const actions = [
+      info?.written && mode !== "app"
+        ? { label: "Descargar para ver sin conexión", icon: "doc", cls: "btn small ghost", run: () => saveReaderPart(), save: true }
+        : null,
+      {
+        label: "Preguntar",
+        icon: "chat",
+        cls: "btn small",
+        run: () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `),
+      },
       info?.written
-        ? barBtn("Sugerir", () => askSugerencia({ topic: topicId, part, title, regenerate: false }), "btn small ghost", "pencil")
+        ? { label: "Sugerir", icon: "pencil", cls: "btn small ghost", run: () => askSugerencia({ topic: topicId, part, title, regenerate: false }) }
         : null,
       info?.written
-        ? barBtn("Regenerar", () => askSugerencia({ topic: topicId, part, title, regenerate: true }), "btn small ghost", "refresh")
+        ? { label: "Regenerar", icon: "refresh", cls: "btn small ghost", run: () => askSugerencia({ topic: topicId, part, title, regenerate: true }) }
         : null,
       quick || info
-        ? barBtn(
-            "Borrar",
-            () =>
+        ? {
+            label: "Borrar",
+            icon: "x",
+            cls: "btn small ghost danger",
+            run: () =>
               askDelete({
                 body: quick ? { kind: "quick", quick: quickId } : { kind: "part", topic: topicId, part },
                 title,
@@ -1314,12 +1320,82 @@
                   : `Se moverá «${title}» con su explicación, sus demos y su mini-quiz.`,
                 leaves: true,
               }),
-            "btn small ghost danger",
-            "x",
-          )
+          }
         : null,
+    ].filter(Boolean);
+
+    // The phone menu: a positioned list, closed by Escape or a click outside.
+    let closeMenu = () => {};
+    const menu = h(
+      "div",
+      { class: "reader-menu", id: "reader-actions", role: "menu", hidden: true },
+      actions.map((action) => {
+        const item = h(
+          "button",
+          { class: "reader-menu-item", type: "button", role: "menuitem", onclick: () => { closeMenu(); action.run(); } },
+          icon(action.icon),
+          h("span", {}, action.label),
+        );
+        if (action.save) menuSave = item;
+        return item;
+      }),
     );
-    stage.replaceChildren(h("div", { class: "reader" }, bar, h("div", { class: "sheet-wrap" }, frame)));
+    const moreButton = h(
+      "button",
+      {
+        class: "icon-btn reader-more",
+        type: "button",
+        "aria-label": "Más acciones",
+        title: "Más acciones",
+        "aria-haspopup": "menu",
+        "aria-expanded": "false",
+        "aria-controls": "reader-actions",
+      },
+      icon("more"),
+    );
+    const onMenuPointer = (event) => {
+      if (!menu.contains(event.target) && event.target !== moreButton) closeMenu();
+    };
+    const onMenuKey = (event) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      closeMenu();
+      moreButton.focus();
+    };
+    closeMenu = () => {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      moreButton.setAttribute("aria-expanded", "false");
+      document.removeEventListener("pointerdown", onMenuPointer, true);
+      document.removeEventListener("keydown", onMenuKey);
+    };
+    moreButton.addEventListener("click", () => {
+      if (!menu.hidden) return closeMenu();
+      menu.hidden = false;
+      moreButton.setAttribute("aria-expanded", "true");
+      document.addEventListener("pointerdown", onMenuPointer, true);
+      document.addEventListener("keydown", onMenuKey);
+      menu.querySelector("button:not(:disabled)")?.focus();
+    });
+
+    const actionButton = (action) => {
+      const node = barBtn(action.label, action.run, `${action.cls} reader-action`, action.icon);
+      if (action.save) saveButton = node;
+      return node;
+    };
+    const saveAction = actions.find((action) => action.save);
+    const bar = h(
+      "div",
+      { class: "reader-bar" },
+      h("button", { class: "icon-btn", type: "button", "aria-label": "Volver", title: "Volver", onclick: () => go(quick ? "#/" : `#/tema/${topicId}`) }, icon("back")),
+      h("div", { class: "title" }, h("small", {}, kicker), title),
+      saveAction ? actionButton(saveAction) : null,
+      prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost nav", "back") : null,
+      next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost nav", "next") : null,
+      ...actions.filter((action) => !action.save).map(actionButton),
+      moreButton,
+    );
+    stage.replaceChildren(h("div", { class: "reader" }, h("div", { class: "reader-head" }, bar, menu), h("div", { class: "sheet-wrap" }, frame)));
     try {
       const query = new URLSearchParams(quick ? { quick: quickId } : { topic: topicId, ...(part ? { part } : {}) });
       const data = await request(`api/view?${query}`);
