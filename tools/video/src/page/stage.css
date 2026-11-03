@@ -1,0 +1,46 @@
+/* Ink on paper: the drawing carries the idea, the column beside it says it in
+   words. Everything is sized in 1920x1080 design pixels. */
+@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 400; src: url("/integrations/pi/kit/fonts/atkinson-400.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 700; src: url("/integrations/pi/kit/fonts/atkinson-700.woff2") format("woff2"); }
+
+:root {
+  --ink: #0F2E3D;
+  --slate: #3F5B69;
+  --muted: rgba(15, 46, 61, .62);
+  --hair: rgba(15, 46, 61, .18);
+  --sans: "Atkinson Hyperlegible", "DejaVu Sans", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: #fff; }
+body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+#stage { position: relative; width: 1920px; height: 1080px; background: #fff; }
+
+.kicker {
+  position: absolute; top: 56px; left: 88px; right: 88px; font-size: 20px; font-weight: 700;
+  letter-spacing: .2em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+  position: absolute; top: 86px; left: 88px; right: 88px; font-size: 50px; font-weight: 700;
+  letter-spacing: -.01em; line-height: 1.1;
+}
+.rule { position: absolute; top: 172px; left: 88px; right: 88px; height: 1px; background: var(--hair); }
+
+.figure { position: absolute; top: 196px; left: 76px; width: 900px; height: 720px; }
+.figure svg { width: 100%; height: 100%; }
+.figure svg text { font-family: var(--sans); }
+
+.note { position: absolute; top: 208px; left: 1010px; width: 830px; }
+.counter {
+  font-size: 19px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 18px;
+}
+.note h2 { font-size: 38px; font-weight: 700; line-height: 1.18; letter-spacing: -.01em; margin-bottom: 20px; }
+.note p { font-size: 26px; line-height: 1.5; color: var(--slate); }
+
+.foot { position: absolute; top: 1000px; left: 88px; right: 88px; }
+.brand { font-size: 19px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+
+.progress { position: absolute; left: 88px; right: 88px; bottom: 44px; height: 3px; background: var(--hair); }
+.progress i { display: block; height: 3px; width: 0; background: var(--ink); }

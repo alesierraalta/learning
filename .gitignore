@@ -6,3 +6,6 @@ bin/
 scratch/
 # Local AI runtime state
 .atl/
+
+# video engine scratch
+/tools/video/.cache/

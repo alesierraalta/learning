@@ -1,0 +1,2352 @@
+{
+ "part": "Parte 3",
+ "title": "Política, valor y modelo",
+ "topic": "fundamentos-aprendizaje-por-refuerzo",
+ "voice": "es-ES-AlvaroNeural",
+ "rate": "-4%",
+ "sections": [
+  {
+   "kicker": "PARTE 3 · FUNDAMENTOS DEL APRENDIZAJE POR REFUERZO",
+   "heading": "Política, valor y modelo",
+   "beats": [
+    {
+     "title": "Tres ideas que se confunden",
+     "narration": "En esta parte vas a separar tres ideas que suelen confundirse: la política, que decide; la recompensa, que paga; y el valor, que estima. Y vas a ver cómo se combinan en una sola ecuación.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 14,
+           "y": 40,
+           "w": 100,
+           "h": 52,
+           "label": "Política",
+           "tone": "blue",
+           "size": 17
+          },
+          {
+           "x": 130,
+           "y": 40,
+           "w": 100,
+           "h": 52,
+           "label": "Recompensa",
+           "tone": "green",
+           "size": 14
+          },
+          {
+           "x": 246,
+           "y": 40,
+           "w": 100,
+           "h": 52,
+           "label": "Valor",
+           "tone": "slate",
+           "size": 17
+          }
+         ],
+         "labels": [
+          {
+           "x": 64,
+           "y": 32,
+           "text": "decide",
+           "size": 13
+          },
+          {
+           "x": 180,
+           "y": 32,
+           "text": "paga",
+           "size": 13
+          },
+          {
+           "x": 296,
+           "y": 32,
+           "text": "estima",
+           "size": 13
+          },
+          {
+           "x": 64,
+           "y": 112,
+           "text": "qué hacer",
+           "size": 13
+          },
+          {
+           "x": 180,
+           "y": 112,
+           "text": "qué recibo",
+           "size": 13
+          },
+          {
+           "x": 296,
+           "y": 112,
+           "text": "qué espero",
+           "size": 13
+          }
+         ],
+         "dashed": [
+          {
+           "x": 14,
+           "y": 150,
+           "w": 332,
+           "h": 108
+          }
+         ]
+        },
+        "text": "Tres piezas del mismo oficio: una decide, una paga, una estima."
+       },
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 14,
+           "y": 40,
+           "w": 100,
+           "h": 52,
+           "label": "Política",
+           "tone": "blue",
+           "size": 17
+          },
+          {
+           "x": 130,
+           "y": 40,
+           "w": 100,
+           "h": 52,
+           "label": "Recompensa",
+           "tone": "green",
+           "size": 14
+          },
+          {
+           "x": 246,
+           "y": 40,
+           "w": 100,
+           "h": 52,
+           "label": "Valor",
+           "tone": "slate",
+           "size": 17
+          }
+         ],
+         "labels": [
+          {
+           "x": 64,
+           "y": 32,
+           "text": "decide",
+           "size": 13
+          },
+          {
+           "x": 180,
+           "y": 32,
+           "text": "paga",
+           "size": 13
+          },
+          {
+           "x": 296,
+           "y": 32,
+           "text": "estima",
+           "size": 13
+          },
+          {
+           "x": 64,
+           "y": 112,
+           "text": "qué hacer",
+           "size": 13
+          },
+          {
+           "x": 180,
+           "y": 112,
+           "text": "qué recibo",
+           "size": 13
+          },
+          {
+           "x": 296,
+           "y": 112,
+           "text": "qué espero",
+           "size": 13
+          },
+          {
+           "x": 180,
+           "y": 244,
+           "text": "una sola ecuación las une",
+           "size": 13
+          }
+         ],
+         "dashed": [
+          {
+           "x": 14,
+           "y": 150,
+           "w": 332,
+           "h": 108
+          }
+         ],
+         "formulas": [
+          {
+           "x": 180,
+           "y": 214,
+           "text": "V(s) = r + γ · V(s′)",
+           "size": 24
+          }
+         ]
+        },
+        "text": "La ecuación que las une se llama valor: lo que paga ahora más lo que viene después."
+       }
+      ],
+      "anchors": [
+       0,
+       0.55
+      ]
+     }
+    },
+    {
+     "title": "El robot del almacén",
+     "narration": "El robot quiere llegar a la puerta sin caer en el charco. Cada paso normal paga menos cuatro centésimas; la puerta paga uno; el charco, menos uno. Si solo mira la recompensa del paso siguiente, todos los pasos le dan igual.",
+     "visual": {
+      "deck": "El almacén del ejemplo"
+     }
+    }
+   ]
+  },
+  {
+   "kicker": "SECCIÓN 1 · POR QUÉ EXISTE",
+   "heading": "Por qué existe",
+   "beats": [
+    {
+     "title": "La recompensa es miope",
+     "narration": "La recompensa inmediata dice qué tan bueno es este paso, no si vas bien encaminado. Por eso el robot necesita algo más que un pago por paso: una forma de mirar más allá del siguiente movimiento.",
+     "visual": {
+      "deck": "Por qué no basta la recompensa"
+     }
+    },
+    {
+     "title": "Tres preguntas, tres piezas",
+     "narration": "Para decidir bien hacen falta tres cosas. Una regla de qué hacer en cada casilla: la política. Una forma de saber qué tan bien le irá desde cada casilla: la función de valor. Y, si quiere pensar antes de moverse, una idea de qué pasa cuando hace algo: el modelo.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "labels": [
+          {
+           "x": 180,
+           "y": 26,
+           "text": "¿qué hago aquí?",
+           "size": 15,
+           "anchor": "middle"
+          }
+         ],
+         "boxes": [
+          {
+           "x": 120,
+           "y": 36,
+           "w": 120,
+           "h": 48,
+           "label": "π",
+           "tone": "blue",
+           "size": 20
+          }
+         ],
+         "labels2": []
+        },
+        "text": "¿Qué hago aquí? Esa pregunta define la política: una acción por estado."
+       },
+       {
+        "scene": {
+         "labels": [
+          {
+           "x": 180,
+           "y": 26,
+           "text": "¿qué hago aquí?",
+           "size": 15,
+           "anchor": "middle"
+          },
+          {
+           "x": 180,
+           "y": 100,
+           "text": "¿qué gano ahora?",
+           "size": 15,
+           "anchor": "middle"
+          }
+         ],
+         "boxes": [
+          {
+           "x": 120,
+           "y": 36,
+           "w": 120,
+           "h": 48,
+           "label": "π",
+           "tone": "blue",
+           "size": 20
+          },
+          {
+           "x": 120,
+           "y": 110,
+           "w": 120,
+           "h": 48,
+           "label": "R",
+           "tone": "green",
+           "size": 20
+          }
+         ]
+        },
+        "text": "¿Qué gano ahora? Esa es la recompensa: la paga de un paso."
+       },
+       {
+        "scene": {
+         "labels": [
+          {
+           "x": 180,
+           "y": 26,
+           "text": "¿qué hago aquí?",
+           "size": 15,
+           "anchor": "middle"
+          },
+          {
+           "x": 180,
+           "y": 100,
+           "text": "¿qué gano ahora?",
+           "size": 15,
+           "anchor": "middle"
+          },
+          {
+           "x": 180,
+           "y": 174,
+           "text": "¿qué espero después?",
+           "size": 15,
+           "anchor": "middle"
+          },
+          {
+           "x": 180,
+           "y": 262,
+           "text": "tres preguntas, tres piezas",
+           "size": 13
+          }
+         ],
+         "boxes": [
+          {
+           "x": 120,
+           "y": 36,
+           "w": 120,
+           "h": 48,
+           "label": "π",
+           "tone": "blue",
+           "size": 20
+          },
+          {
+           "x": 120,
+           "y": 110,
+           "w": 120,
+           "h": 48,
+           "label": "R",
+           "tone": "green",
+           "size": 20
+          },
+          {
+           "x": 120,
+           "y": 184,
+           "w": 120,
+           "h": 48,
+           "label": "V",
+           "tone": "amber",
+           "size": 20
+          }
+         ]
+        },
+        "text": "¿Qué espero después? Ese es el valor: lo que crees que va a venir."
+       }
+      ],
+      "anchors": [
+       0,
+       0.3,
+       0.62
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kicker": "SECCIÓN 2 · LAS PIEZAS",
+   "heading": "Las piezas",
+   "beats": [
+    {
+     "title": "Política, recompensa, valor",
+     "narration": "La política es una flecha por casilla: en la salida, subir. La recompensa es lo que el entorno paga ahora: menos cuatro centésimas por paso, uno en la puerta, menos uno en el charco. El valor es un número por casilla: desde la puerta, uno; desde el charco, menos uno.",
+     "visual": {
+      "deck": "La política: una flecha por casilla"
+     }
+    },
+    {
+     "title": "El futuro se descuenta",
+     "narration": "El valor no suma el futuro sin más: lo descuenta. Con gamma igual a cero coma nueve, lo que llega dos pasos después pesa menos que lo que llega ahora. Ese descuento es lo que hace que el robot prefiera llegar pronto.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "bars": [
+          {
+           "x": 30,
+           "y": 30,
+           "w": 300,
+           "h": 110,
+           "zero": 110,
+           "barW": 40,
+           "size": 12,
+           "items": [
+            {
+             "label": "hoy",
+             "value": 1,
+             "note": "1,00"
+            },
+            {
+             "label": "+1",
+             "value": 0.9,
+             "note": "0,90"
+            },
+            {
+             "label": "+2",
+             "value": 0.81,
+             "note": "0,81"
+            },
+            {
+             "label": "+3",
+             "value": 0.73,
+             "note": "0,73"
+            },
+            {
+             "label": "+4",
+             "value": 0.66,
+             "note": "0,66"
+            }
+           ]
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 200,
+           "text": "lo que llega más tarde cuenta menos",
+           "size": 14
+          }
+         ]
+        },
+        "text": "Un premio a cuatro pasos no vale lo mismo que uno de hoy."
+       },
+       {
+        "scene": {
+         "bars": [
+          {
+           "x": 30,
+           "y": 30,
+           "w": 300,
+           "h": 110,
+           "zero": 110,
+           "barW": 40,
+           "size": 12,
+           "items": [
+            {
+             "label": "hoy",
+             "value": 1,
+             "note": "1,00"
+            },
+            {
+             "label": "+1",
+             "value": 0.9,
+             "note": "0,90"
+            },
+            {
+             "label": "+2",
+             "value": 0.81,
+             "note": "0,81"
+            },
+            {
+             "label": "+3",
+             "value": 0.73,
+             "note": "0,73"
+            },
+            {
+             "label": "+4",
+             "value": 0.66,
+             "note": "0,66"
+            }
+           ]
+          }
+         ],
+         "formulas": [
+          {
+           "x": 180,
+           "y": 214,
+           "text": "V(s) = r + γ · V(s′)",
+           "size": 24
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 196,
+           "text": "γ = 0,9 · lo que llega más tarde cuenta menos",
+           "size": 12
+          }
+         ]
+        },
+        "text": "El descuento gamma convierte el futuro en algo comparable con el presente."
+       }
+      ],
+      "anchors": [
+       0,
+       0.5
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kicker": "SECCIÓN 3 · PASO A PASO",
+   "heading": "Paso a paso",
+   "beats": [
+    {
+     "title": "T0 a T3",
+     "narration": "Mira la política inicial: en la fila de arriba todas las flechas apuntan a la derecha; en el resto, hacia arriba. En el tiempo cero el robot está en la salida y su política dice subir. Sube, recibe menos cuatro centésimas, y sigue subiendo hasta la esquina.",
+     "visual": {
+      "deck": "El robot sigue su política",
+      "steps": [
+       0,
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "title": "T4 a T6",
+     "narration": "Desde la esquina avanza por la fila de arriba. Cada paso vuelve a costar menos cuatro centésimas. Cuando entra en la puerta, la recompensa es uno y el episodio termina. La política inicial no era buena, pero el recorrido ya muestra lo importante: la recompensa llega paso a paso.",
+     "visual": {
+      "deck": "El robot sigue su política",
+      "steps": [
+       3,
+       4,
+       5
+      ]
+     }
+    },
+    {
+     "title": "Un paso no es el episodio",
+     "narration": "Ese recorrido enseña la diferencia entre el pago y el resultado. Ningún paso aislado parece bueno, y sin embargo el conjunto sí lo es. Para juzgar una casilla hay que mirar la cadena completa de pagos que viene después.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 8,
+           "y": 46,
+           "w": 44,
+           "h": 34,
+           "label": "R",
+           "tone": "slate",
+           "size": 14
+          },
+          {
+           "x": 64,
+           "y": 46,
+           "w": 44,
+           "h": 34,
+           "label": "1",
+           "tone": "slate",
+           "size": 14
+          },
+          {
+           "x": 120,
+           "y": 46,
+           "w": 44,
+           "h": 34,
+           "label": "2",
+           "tone": "slate",
+           "size": 14
+          },
+          {
+           "x": 176,
+           "y": 46,
+           "w": 44,
+           "h": 34,
+           "label": "3",
+           "tone": "slate",
+           "size": 14
+          },
+          {
+           "x": 232,
+           "y": 46,
+           "w": 44,
+           "h": 34,
+           "label": "4",
+           "tone": "slate",
+           "size": 14
+          },
+          {
+           "x": 288,
+           "y": 46,
+           "w": 62,
+           "h": 34,
+           "label": "+1",
+           "tone": "green",
+           "size": 14
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 54,
+           "y1": 63,
+           "x2": 62,
+           "y2": 63,
+           "tone": "slate",
+           "width": 2.5
+          },
+          {
+           "x1": 110,
+           "y1": 63,
+           "x2": 118,
+           "y2": 63,
+           "tone": "slate",
+           "width": 2.5
+          },
+          {
+           "x1": 166,
+           "y1": 63,
+           "x2": 174,
+           "y2": 63,
+           "tone": "slate",
+           "width": 2.5
+          },
+          {
+           "x1": 222,
+           "y1": 63,
+           "x2": 230,
+           "y2": 63,
+           "tone": "slate",
+           "width": 2.5
+          },
+          {
+           "x1": 278,
+           "y1": 63,
+           "x2": 286,
+           "y2": 63,
+           "tone": "slate",
+           "width": 2.5
+          }
+         ],
+         "labels": [
+          {
+           "x": 86,
+           "y": 100,
+           "text": "−0,04",
+           "size": 12
+          },
+          {
+           "x": 142,
+           "y": 100,
+           "text": "−0,04",
+           "size": 12
+          },
+          {
+           "x": 198,
+           "y": 100,
+           "text": "−0,04",
+           "size": 12
+          },
+          {
+           "x": 254,
+           "y": 100,
+           "text": "−0,04",
+           "size": 12
+          },
+          {
+           "x": 319,
+           "y": 100,
+           "text": "+1,00",
+           "size": 12,
+           "color": "#21594F"
+          },
+          {
+           "x": 180,
+           "y": 150,
+           "text": "cada paso cobra su recompensa",
+           "size": 14
+          }
+         ]
+        },
+        "text": "Cada paso cobra su propia recompensa, buena o mala."
+       },
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 8,
+           "y": 46,
+           "w": 44,
+           "h": 34,
+           "label": "R",
+           "tone": "slate",
+           "size": 14
+          },
+          {
+           "x": 64,
+           "y": 46,
+           "w": 44,
+           "h": 34,
+           "label": "1",
+           "tone": "slate",
+           "size": 14
+          },
+          {
+           "x": 120,
+           "y": 46,
+           "w": 44,
+           "h": 34,
+           "label": "2",
+           "tone": "slate",
+           "size": 14
+          },
+          {
+           "x": 176,
+           "y": 46,
+           "w": 44,
+           "h": 34,
+           "label": "3",
+           "tone": "slate",
+           "size": 14
+          },
+          {
+           "x": 232,
+           "y": 46,
+           "w": 44,
+           "h": 34,
+           "label": "4",
+           "tone": "slate",
+           "size": 14
+          },
+          {
+           "x": 288,
+           "y": 46,
+           "w": 62,
+           "h": 34,
+           "label": "+1",
+           "tone": "green",
+           "size": 14
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 54,
+           "y1": 63,
+           "x2": 62,
+           "y2": 63,
+           "tone": "slate",
+           "width": 2.5
+          },
+          {
+           "x1": 110,
+           "y1": 63,
+           "x2": 118,
+           "y2": 63,
+           "tone": "slate",
+           "width": 2.5
+          },
+          {
+           "x1": 166,
+           "y1": 63,
+           "x2": 174,
+           "y2": 63,
+           "tone": "slate",
+           "width": 2.5
+          },
+          {
+           "x1": 222,
+           "y1": 63,
+           "x2": 230,
+           "y2": 63,
+           "tone": "slate",
+           "width": 2.5
+          },
+          {
+           "x1": 278,
+           "y1": 63,
+           "x2": 286,
+           "y2": 63,
+           "tone": "slate",
+           "width": 2.5
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 250,
+           "text": "el episodio es la suma, no el último paso",
+           "size": 12
+          }
+         ],
+         "dashed": [
+          {
+           "x": 8,
+           "y": 176,
+           "w": 342,
+           "h": 84
+          }
+         ],
+         "formulas": [
+          {
+           "x": 180,
+           "y": 222,
+           "text": "R₁ + R₂ + … + R_T",
+           "size": 22
+          }
+         ]
+        },
+        "text": "Lo que se aprende a mejorar es el total del episodio, no el último paso."
+       }
+      ],
+      "anchors": [
+       0,
+       0.55
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kicker": "SECCIÓN 4 · DE LA INTUICIÓN A LA FÓRMULA",
+   "heading": "De la intuición a la fórmula",
+   "beats": [
+    {
+     "title": "La intuición",
+     "narration": "El valor de una casilla es lo que gano en el próximo paso, más lo que valga la casilla a la que llego, un poco descontado. Esa frase es toda la idea; la ecuación solo la escribe corto.",
+     "visual": {
+      "deck": "El valor se calcula hacia atrás"
+     }
+    },
+    {
+     "title": "La tabla de decisión",
+     "narration": "Desde la casilla uno cero, moverse a la derecha lleva a la puerta: paga menos cuatro centésimas y llega a un estado que vale uno. Con gamma cero coma nueve: menos cero coma cero cuatro más cero coma nueve por uno, igual a cero coma ochenta y seis.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "grids": [
+          {
+           "x": 30,
+           "y": 40,
+           "width": 300,
+           "rowH": 34,
+           "size": 13,
+           "cols": [
+            "Casilla",
+            "R",
+            "V"
+           ],
+           "rows": [
+            [
+             "(0,0)",
+             "−0,04",
+             "0,73"
+            ],
+            [
+             "(0,1)",
+             "−0,04",
+             "0,62"
+            ],
+            [
+             "(1,0)",
+             "−0,04",
+             "0,52"
+            ],
+            [
+             "(2,0)",
+             "+1,00",
+             "1,00"
+            ]
+           ],
+           "cellTone": {
+            "3,1": "green",
+            "3,2": "green"
+           }
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 26,
+           "text": "la misma casilla, dos números distintos",
+           "size": 13
+          }
+         ]
+        },
+        "text": "Cada casilla guarda dos números: lo que paga estar ahí y lo que vale estar ahí."
+       },
+       {
+        "scene": {
+         "grids": [
+          {
+           "x": 30,
+           "y": 40,
+           "width": 300,
+           "rowH": 34,
+           "size": 13,
+           "cols": [
+            "Casilla",
+            "R",
+            "V"
+           ],
+           "rows": [
+            [
+             "(0,0)",
+             "−0,04",
+             "0,73"
+            ],
+            [
+             "(0,1)",
+             "−0,04",
+             "0,62"
+            ],
+            [
+             "(1,0)",
+             "−0,04",
+             "0,52"
+            ],
+            [
+             "(2,0)",
+             "+1,00",
+             "1,00"
+            ]
+           ],
+           "cellTone": {
+            "3,1": "green",
+            "3,2": "green"
+           }
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 26,
+           "text": "la misma casilla, dos números distintos",
+           "size": 13
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 12,
+           "y1": 193,
+           "x2": 26,
+           "y2": 193,
+           "tone": "blue",
+           "width": 3
+          }
+         ],
+         "formulas": [
+          {
+           "x": 180,
+           "y": 250,
+           "text": "la política elige la fila de mayor V",
+           "size": 16
+          }
+         ]
+        },
+        "text": "La política elige, entre las acciones posibles, la de mayor valor."
+       }
+      ],
+      "anchors": [
+       0,
+       0.55
+      ]
+     }
+    },
+    {
+     "title": "La ecuación de Bellman",
+     "narration": "Así, el valor de un estado es la recompensa esperada más gamma por el valor del siguiente. Es la ecuación de Bellman, y no es una receta para calcular: es una condición que el valor correcto debe cumplir. Si todos los valores la cumplen a la vez, la política se puede mejorar mirando un paso adelante.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "formulas": [
+          {
+           "x": 180,
+           "y": 120,
+           "text": "V(s) = r + γ · V(s′)",
+           "size": 26
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 60,
+           "text": "el valor de estar aquí",
+           "size": 13
+          }
+         ]
+        },
+        "text": "El valor de una casilla se define con el valor de la siguiente."
+       },
+       {
+        "scene": {
+         "formulas": [
+          {
+           "x": 180,
+           "y": 120,
+           "text": "V(s) = r + γ · V(s′)",
+           "size": 26
+          }
+         ],
+         "labels": [
+          {
+           "x": 62,
+           "y": 244,
+           "text": "paga ahora",
+           "size": 12
+          },
+          {
+           "x": 180,
+           "y": 244,
+           "text": "cuánto importa el futuro",
+           "size": 12
+          },
+          {
+           "x": 298,
+           "y": 244,
+           "text": "estima lo que viene",
+           "size": 12
+          }
+         ],
+         "boxes": [
+          {
+           "x": 12,
+           "y": 176,
+           "w": 100,
+           "h": 44,
+           "label": "r",
+           "tone": "green",
+           "size": 18
+          },
+          {
+           "x": 130,
+           "y": 176,
+           "w": 100,
+           "h": 44,
+           "label": "γ",
+           "tone": "amber",
+           "size": 18
+          },
+          {
+           "x": 248,
+           "y": 176,
+           "w": 100,
+           "h": 44,
+           "label": "V(s′)",
+           "tone": "slate",
+           "size": 18
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 62,
+           "y1": 174,
+           "x2": 100,
+           "y2": 134,
+           "tone": "slate",
+           "width": 2
+          },
+          {
+           "x1": 180,
+           "y1": 174,
+           "x2": 180,
+           "y2": 134,
+           "tone": "slate",
+           "width": 2
+          },
+          {
+           "x1": 298,
+           "y1": 174,
+           "x2": 260,
+           "y2": 134,
+           "tone": "slate",
+           "width": 2
+          }
+         ]
+        },
+        "text": "Recompensa inmediata, descuento y estimación del futuro: tres piezas en una línea."
+       }
+      ],
+      "anchors": [
+       0,
+       0.45
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kicker": "SECCIÓN 5 · DISTINCIONES CRÍTICAS",
+   "heading": "Distinciones críticas",
+   "beats": [
+    {
+     "title": "Recompensa no es valor",
+     "narration": "La recompensa es lo que el entorno paga ahora; el valor es lo que el agente estima que acumulará desde ahí. Las recompensas son el contrato; el valor es la predicción. Confundirlos lleva a perseguir pagos inmediatos y a perder de vista la meta.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "panels": [
+          {
+           "x": 16,
+           "y": 40,
+           "w": 150,
+           "h": 140,
+           "title": "Recompensa",
+           "lines": [
+            "lo que pagó",
+            "un paso",
+            "un dato"
+           ],
+           "size": 15,
+           "lineH": 30,
+           "tone": "green"
+          },
+          {
+           "x": 194,
+           "y": 40,
+           "w": 150,
+           "h": 140,
+           "title": "Valor",
+           "lines": [
+            "lo que esperas",
+            "de aquí en adelante",
+            "una estimación"
+           ],
+           "size": 15,
+           "lineH": 30,
+           "tone": "slate"
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 214,
+           "text": "uno se cobra",
+           "size": 13
+          }
+         ]
+        },
+        "text": "La recompensa se cobra al llegar: es un dato."
+       },
+       {
+        "scene": {
+         "panels": [
+          {
+           "x": 16,
+           "y": 40,
+           "w": 150,
+           "h": 140,
+           "title": "Recompensa",
+           "lines": [
+            "lo que pagó",
+            "un paso",
+            "un dato"
+           ],
+           "size": 15,
+           "lineH": 30,
+           "tone": "green"
+          },
+          {
+           "x": 194,
+           "y": 40,
+           "w": 150,
+           "h": 140,
+           "title": "Valor",
+           "lines": [
+            "lo que esperas",
+            "de aquí en adelante",
+            "una estimación"
+           ],
+           "size": 15,
+           "lineH": 30,
+           "tone": "slate"
+          }
+         ],
+         "formulas": [
+          {
+           "x": 180,
+           "y": 236,
+           "text": "uno se cobra, el otro se calcula",
+           "size": 15
+          }
+         ]
+        },
+        "text": "El valor se calcula antes de llegar: es una estimación."
+       }
+      ],
+      "anchors": [
+       0,
+       0.5
+      ]
+     }
+    },
+    {
+     "title": "Política no es modelo",
+     "narration": "La política dice qué hacer; el modelo dice qué pasará si lo haces. Un robot puede tener una política excelente sin modelo: actúa por reflejo. Y puede tener un modelo perfecto y una política mala: sabe lo que pasaría, pero elige mal. Para leerlo, compara la acción que elige la política con el resultado que predice el modelo antes de moverse.",
+     "visual": {
+      "deck": "Política ≠ modelo"
+     }
+    },
+    {
+     "title": "Cómo leer la demo",
+     "narration": "En la demo puedes separar las dos preguntas. Primero mira la flecha: qué haría el robot. Después mira el número: qué espera ganar desde esa casilla. Cuando la flecha y el número no coinciden, tienes evidencia de que la política todavía no es buena.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 118,
+           "y": 34,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 168,
+           "y": 34,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 218,
+           "y": 34,
+           "w": 46,
+           "h": 36,
+           "label": "+1",
+           "tone": "green",
+           "size": 14
+          },
+          {
+           "x": 118,
+           "y": 74,
+           "w": 46,
+           "h": 36,
+           "label": "R",
+           "tone": "blue",
+           "size": 15
+          },
+          {
+           "x": 168,
+           "y": 74,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 218,
+           "y": 74,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 118,
+           "y": 114,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 168,
+           "y": 114,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 218,
+           "y": 114,
+           "w": 46,
+           "h": 36,
+           "label": "−1",
+           "tone": "red",
+           "size": 14
+          }
+         ],
+         "labels": [
+          {
+           "x": 190,
+           "y": 22,
+           "text": "el almacén de siempre",
+           "size": 13
+          }
+         ]
+        },
+        "text": "El mismo almacén, tres capas: el próximo paso, la recompensa y el valor."
+       },
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 118,
+           "y": 34,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 168,
+           "y": 34,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 218,
+           "y": 34,
+           "w": 46,
+           "h": 36,
+           "label": "+1",
+           "tone": "green",
+           "size": 14
+          },
+          {
+           "x": 118,
+           "y": 74,
+           "w": 46,
+           "h": 36,
+           "label": "R",
+           "tone": "blue",
+           "size": 15
+          },
+          {
+           "x": 168,
+           "y": 74,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 218,
+           "y": 74,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 118,
+           "y": 114,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 168,
+           "y": 114,
+           "w": 46,
+           "h": 36,
+           "label": "",
+           "tone": "slate"
+          },
+          {
+           "x": 218,
+           "y": 114,
+           "w": 46,
+           "h": 36,
+           "label": "−1",
+           "tone": "red",
+           "size": 14
+          }
+         ],
+         "labels": [
+          {
+           "x": 190,
+           "y": 22,
+           "text": "el almacén de siempre",
+           "size": 13
+          },
+          {
+           "x": 60,
+           "y": 60,
+           "text": "el próximo paso",
+           "size": 13,
+           "anchor": "end"
+          },
+          {
+           "x": 60,
+           "y": 100,
+           "text": "la recompensa",
+           "size": 13,
+           "anchor": "end"
+          },
+          {
+           "x": 60,
+           "y": 140,
+           "text": "el valor",
+           "size": 13,
+           "anchor": "end"
+          }
+         ],
+         "badges": [
+          {
+           "cx": 40,
+           "cy": 55,
+           "n": 1
+          },
+          {
+           "cx": 40,
+           "cy": 95,
+           "n": 2
+          },
+          {
+           "cx": 40,
+           "cy": 135,
+           "n": 3
+          }
+         ]
+        },
+        "text": "Los tres números se mueven juntos: si cambia la recompensa, cambia el valor."
+       }
+      ],
+      "anchors": [
+       0,
+       0.5
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kicker": "SECCIÓN 6 · DÓNDE SE ROMPE LA ANALOGÍA",
+   "heading": "Dónde se rompe la analogía",
+   "beats": [
+    {
+     "title": "El modelo no siempre está",
+     "narration": "En el ejemplo el robot ve todo el almacén y la demo calcula el valor exactamente con el modelo. Un agente real normalmente no conoce las probabilidades ni las recompensas: tiene que estimarlas de la experiencia. Ahí empieza el aprendizaje por refuerzo de verdad.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "dashed": [
+          {
+           "x": 80,
+           "y": 40,
+           "w": 200,
+           "h": 100,
+           "label": "Modelo"
+          }
+         ],
+         "formulas": [
+          {
+           "x": 180,
+           "y": 130,
+           "text": "s, a → s′, r",
+           "size": 18
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 180,
+           "text": "la tabla de lo que pasaría",
+           "size": 13
+          }
+         ]
+        },
+        "text": "El modelo es la tabla de lo que pasaría si actúas: s, a, s prima, r."
+       },
+       {
+        "scene": {
+         "dashed": [
+          {
+           "x": 80,
+           "y": 40,
+           "w": 200,
+           "h": 100,
+           "label": "Modelo"
+          }
+         ],
+         "formulas": [
+          {
+           "x": 180,
+           "y": 130,
+           "text": "s, a → s′, r",
+           "size": 18
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 180,
+           "text": "la tabla de lo que pasaría",
+           "size": 13
+          },
+          {
+           "x": 180,
+           "y": 236,
+           "text": "sin modelo: hay que probar en el entorno",
+           "size": 13
+          }
+         ],
+         "lines": [
+          {
+           "x1": 90,
+           "y1": 50,
+           "x2": 270,
+           "y2": 130,
+           "tone": "red",
+           "width": 3,
+           "arrow": false
+          },
+          {
+           "x1": 270,
+           "y1": 50,
+           "x2": 90,
+           "y2": 130,
+           "tone": "red",
+           "width": 3,
+           "arrow": false
+          }
+         ]
+        },
+        "text": "Sin modelo no puedes planificar: solo probar en el entorno y aprender de lo que pasa."
+       }
+      ],
+      "anchors": [
+       0,
+       0.5
+      ]
+     }
+    },
+    {
+     "title": "La tabla no escala",
+     "narration": "En el almacén hay nueve casillas y cabe una tabla. En un videojuego o en un brazo robótico hay demasiados estados: el valor y la política se aproximan con funciones, no con tablas. Ese cambio es el paso de los métodos tabulares a los aproximados.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "grids": [
+          {
+           "x": 20,
+           "y": 80,
+           "width": 120,
+           "rowH": 26,
+           "size": 11,
+           "header": false,
+           "cols": [
+            "",
+            "",
+            ""
+           ],
+           "rows": [
+            [
+             "",
+             "",
+             ""
+            ],
+            [
+             "",
+             "",
+             ""
+            ],
+            [
+             "",
+             "",
+             ""
+            ]
+           ]
+          }
+         ],
+         "labels": [
+          {
+           "x": 80,
+           "y": 66,
+           "text": "9 casillas",
+           "size": 13
+          }
+         ]
+        },
+        "text": "Nueve casillas se tabulan sin esfuerzo."
+       },
+       {
+        "scene": {
+         "grids": [
+          {
+           "x": 20,
+           "y": 80,
+           "width": 120,
+           "rowH": 26,
+           "size": 11,
+           "header": false,
+           "cols": [
+            "",
+            "",
+            ""
+           ],
+           "rows": [
+            [
+             "",
+             "",
+             ""
+            ],
+            [
+             "",
+             "",
+             ""
+            ],
+            [
+             "",
+             "",
+             ""
+            ]
+           ]
+          }
+         ],
+         "labels": [
+          {
+           "x": 80,
+           "y": 66,
+           "text": "9 casillas",
+           "size": 13
+          },
+          {
+           "x": 268,
+           "y": 108,
+           "text": "10²⁰",
+           "size": 30,
+           "color": "#0F2E3D"
+          },
+          {
+           "x": 268,
+           "y": 136,
+           "text": "casillas",
+           "size": 13
+          },
+          {
+           "x": 180,
+           "y": 210,
+           "text": "una fila por casilla no cabe",
+           "size": 13
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 152,
+           "y1": 120,
+           "x2": 214,
+           "y2": 120,
+           "tone": "red",
+           "width": 3
+          }
+         ]
+        },
+        "text": "Un problema real tiene más casillas que átomos: la tabla deja de servir."
+       }
+      ],
+      "anchors": [
+       0,
+       0.5
+      ]
+     }
+    },
+    {
+     "title": "Decisiones de diseño",
+     "narration": "Aquí la política es una flecha fija por casilla; muchas políticas reales son estocásticas y dan una probabilidad a cada acción. Y la batería como recompensa por paso es una decisión: si la cambias, cambia lo que el robot considera bueno. Prueba con menos cero coma cinco y verás otro comportamiento.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "panels": [
+          {
+           "x": 14,
+           "y": 40,
+           "w": 160,
+           "h": 120,
+           "title": "Estocástica",
+           "lines": [
+            "varias acciones",
+            "posibles"
+           ],
+           "size": 15,
+           "lineH": 30,
+           "tone": "blue"
+          },
+          {
+           "x": 186,
+           "y": 40,
+           "w": 160,
+           "h": 120,
+           "title": "Recompensa",
+           "lines": [
+            "−0,04 por paso",
+            "de batería"
+           ],
+           "size": 15,
+           "lineH": 30,
+           "tone": "amber"
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 196,
+           "text": "así el robot no repite siempre lo mismo",
+           "size": 13
+          }
+         ]
+        },
+        "text": "Una política estocástica elige con probabilidad, no siempre la misma acción."
+       },
+       {
+        "scene": {
+         "panels": [
+          {
+           "x": 14,
+           "y": 40,
+           "w": 160,
+           "h": 120,
+           "title": "Estocástica",
+           "lines": [
+            "varias acciones",
+            "posibles"
+           ],
+           "size": 15,
+           "lineH": 30,
+           "tone": "blue"
+          },
+          {
+           "x": 186,
+           "y": 40,
+           "w": 160,
+           "h": 120,
+           "title": "Recompensa",
+           "lines": [
+            "−0,04 por paso",
+            "de batería"
+           ],
+           "size": 15,
+           "lineH": 30,
+           "tone": "amber"
+          }
+         ],
+         "labels": [
+          {
+           "x": 180,
+           "y": 210,
+           "text": "explorar y no vivir eternamente",
+           "size": 13
+          }
+         ]
+        },
+        "text": "Y una recompensa por paso evita que el agente se quede dando vueltas para siempre."
+       }
+      ],
+      "anchors": [
+       0,
+       0.5
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kicker": "SECCIÓN 7 · EL MAPA MENTAL",
+   "heading": "El mapa mental",
+   "beats": [
+    {
+     "title": "Clasificar cualquier elemento",
+     "narration": "Para clasificar cualquier elemento, hazte una pregunta: ¿lo entrega el entorno en cada paso? Si la respuesta es sí, es la señal de recompensa. Si es no, pregunta si dice qué acción tomar: si la dice, es la política; si no, es el modelo o el valor.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 12,
+           "y": 24,
+           "w": 210,
+           "h": 44,
+           "label": "¿decide qué hacer?",
+           "tone": "blue",
+           "size": 14
+          }
+         ],
+         "labels": [
+          {
+           "x": 300,
+           "y": 52,
+           "text": "política",
+           "size": 14,
+           "color": "#004276"
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 226,
+           "y1": 46,
+           "x2": 258,
+           "y2": 46,
+           "tone": "blue",
+           "width": 2.5
+          }
+         ]
+        },
+        "text": "¿Decide qué hacer? Es política."
+       },
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 12,
+           "y": 24,
+           "w": 210,
+           "h": 44,
+           "label": "¿decide qué hacer?",
+           "tone": "blue",
+           "size": 14
+          },
+          {
+           "x": 12,
+           "y": 100,
+           "w": 210,
+           "h": 44,
+           "label": "¿paga o recibe algo?",
+           "tone": "green",
+           "size": 14
+          }
+         ],
+         "labels": [
+          {
+           "x": 300,
+           "y": 52,
+           "text": "política",
+           "size": 14,
+           "color": "#004276"
+          },
+          {
+           "x": 300,
+           "y": 128,
+           "text": "recompensa",
+           "size": 14,
+           "color": "#21594F"
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 226,
+           "y1": 46,
+           "x2": 258,
+           "y2": 46,
+           "tone": "blue",
+           "width": 2.5
+          },
+          {
+           "x1": 226,
+           "y1": 122,
+           "x2": 258,
+           "y2": 122,
+           "tone": "green",
+           "width": 2.5
+          }
+         ]
+        },
+        "text": "¿Paga o recibe algo? Es recompensa."
+       },
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 12,
+           "y": 24,
+           "w": 210,
+           "h": 44,
+           "label": "¿decide qué hacer?",
+           "tone": "blue",
+           "size": 14
+          },
+          {
+           "x": 12,
+           "y": 100,
+           "w": 210,
+           "h": 44,
+           "label": "¿paga o recibe algo?",
+           "tone": "green",
+           "size": 14
+          },
+          {
+           "x": 12,
+           "y": 176,
+           "w": 210,
+           "h": 44,
+           "label": "¿estima o predice?",
+           "tone": "amber",
+           "size": 14
+          }
+         ],
+         "labels": [
+          {
+           "x": 300,
+           "y": 52,
+           "text": "política",
+           "size": 14,
+           "color": "#004276"
+          },
+          {
+           "x": 300,
+           "y": 128,
+           "text": "recompensa",
+           "size": 14,
+           "color": "#21594F"
+          },
+          {
+           "x": 300,
+           "y": 204,
+           "text": "valor o modelo",
+           "size": 13,
+           "color": "#8A6B3F"
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 226,
+           "y1": 46,
+           "x2": 258,
+           "y2": 46,
+           "tone": "blue",
+           "width": 2.5
+          },
+          {
+           "x1": 226,
+           "y1": 122,
+           "x2": 258,
+           "y2": 122,
+           "tone": "green",
+           "width": 2.5
+          },
+          {
+           "x1": 226,
+           "y1": 198,
+           "x2": 258,
+           "y2": 198,
+           "tone": "amber",
+           "width": 2.5
+          }
+         ]
+        },
+        "text": "¿Estima o predice? Es valor o modelo."
+       }
+      ],
+      "anchors": [
+       0,
+       0.3,
+       0.62
+      ]
+     }
+    },
+    {
+     "title": "Cuatro verbos",
+     "narration": "Una regla para recordarlo: la recompensa define la meta, la política decide, el valor estima y el modelo predice. Cuatro verbos, cuatro piezas, y ninguna sobra.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 8,
+           "y": 60,
+           "w": 78,
+           "h": 54,
+           "label": "Decide",
+           "tone": "blue",
+           "size": 13
+          },
+          {
+           "x": 96,
+           "y": 60,
+           "w": 78,
+           "h": 54,
+           "label": "Paga",
+           "tone": "green",
+           "size": 13
+          },
+          {
+           "x": 184,
+           "y": 60,
+           "w": 78,
+           "h": 54,
+           "label": "Estima",
+           "tone": "slate",
+           "size": 13
+          },
+          {
+           "x": 272,
+           "y": 60,
+           "w": 78,
+           "h": 54,
+           "label": "Predice",
+           "tone": "amber",
+           "size": 13
+          }
+         ]
+        },
+        "text": "Decide, paga, estima, predice."
+       },
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 8,
+           "y": 60,
+           "w": 78,
+           "h": 54,
+           "label": "Decide",
+           "tone": "blue",
+           "size": 13
+          },
+          {
+           "x": 96,
+           "y": 60,
+           "w": 78,
+           "h": 54,
+           "label": "Paga",
+           "tone": "green",
+           "size": 13
+          },
+          {
+           "x": 184,
+           "y": 60,
+           "w": 78,
+           "h": 54,
+           "label": "Estima",
+           "tone": "slate",
+           "size": 13
+          },
+          {
+           "x": 272,
+           "y": 60,
+           "w": 78,
+           "h": 54,
+           "label": "Predice",
+           "tone": "amber",
+           "size": 13
+          }
+         ],
+         "labels": [
+          {
+           "x": 47,
+           "y": 136,
+           "text": "política",
+           "size": 13
+          },
+          {
+           "x": 135,
+           "y": 136,
+           "text": "recompensa",
+           "size": 13
+          },
+          {
+           "x": 223,
+           "y": 136,
+           "text": "valor",
+           "size": 13
+          },
+          {
+           "x": 311,
+           "y": 136,
+           "text": "modelo",
+           "size": 13
+          },
+          {
+           "x": 180,
+           "y": 200,
+           "text": "cuatro verbos, cuatro piezas",
+           "size": 14
+          }
+         ]
+        },
+        "text": "Cuatro verbos y cuatro piezas: si sabes cuál es, sabes qué mirar."
+       }
+      ],
+      "anchors": [
+       0,
+       0.5
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kicker": "SECCIÓN 8 · CIERRE",
+   "heading": "Cierre",
+   "beats": [
+    {
+     "title": "Entrada, proceso, salida",
+     "narration": "El robot recibe un estado y la recompensa del paso; usa su función de valor y, si tiene, su modelo, para juzgar; y devuelve una acción. Ese ciclo es el esqueleto de cualquier agente de refuerzo.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 4,
+           "y": 60,
+           "w": 86,
+           "h": 46,
+           "label": "estado s",
+           "tone": "slate",
+           "size": 12
+          },
+          {
+           "x": 122,
+           "y": 60,
+           "w": 86,
+           "h": 46,
+           "label": "política π",
+           "tone": "blue",
+           "size": 12
+          },
+          {
+           "x": 240,
+           "y": 60,
+           "w": 86,
+           "h": 46,
+           "label": "acción a",
+           "tone": "green",
+           "size": 12
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 92,
+           "y1": 83,
+           "x2": 118,
+           "y2": 83,
+           "tone": "slate",
+           "width": 3
+          },
+          {
+           "x1": 210,
+           "y1": 83,
+           "x2": 236,
+           "y2": 83,
+           "tone": "slate",
+           "width": 3
+          }
+         ]
+        },
+        "text": "El agente lee un estado y la política devuelve una acción."
+       },
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 4,
+           "y": 60,
+           "w": 86,
+           "h": 46,
+           "label": "estado s",
+           "tone": "slate",
+           "size": 12
+          },
+          {
+           "x": 122,
+           "y": 60,
+           "w": 86,
+           "h": 46,
+           "label": "política π",
+           "tone": "blue",
+           "size": 12
+          },
+          {
+           "x": 240,
+           "y": 60,
+           "w": 86,
+           "h": 46,
+           "label": "acción a",
+           "tone": "green",
+           "size": 12
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 92,
+           "y1": 83,
+           "x2": 118,
+           "y2": 83,
+           "tone": "slate",
+           "width": 3
+          },
+          {
+           "x1": 210,
+           "y1": 83,
+           "x2": 236,
+           "y2": 83,
+           "tone": "slate",
+           "width": 3
+          }
+         ],
+         "dashed": [
+          {
+           "x": 96,
+           "y": 160,
+           "w": 170,
+           "h": 76,
+           "label": "entorno"
+          }
+         ],
+         "curves": [
+          {
+           "x1": 283,
+           "y1": 110,
+           "x2": 250,
+           "y2": 156,
+           "tone": "slate",
+           "bend": 0.4,
+           "width": 3
+          },
+          {
+           "x1": 116,
+           "y1": 156,
+           "x2": 60,
+           "y2": 112,
+           "tone": "slate",
+           "bend": 0.4,
+           "width": 3
+          }
+         ],
+         "labels": [
+          {
+           "x": 286,
+           "y": 196,
+           "text": "s′, r",
+           "size": 14
+          }
+         ]
+        },
+        "text": "El entorno cobra esa acción con un estado nuevo y una recompensa."
+       }
+      ],
+      "anchors": [
+       0,
+       0.5
+      ]
+     }
+    },
+    {
+     "title": "Una frase para llevarte",
+     "narration": "Si te quedas con una frase: la recompensa es el contrato, el valor la predicción, la política la decisión y el modelo la consecuencia. En la próxima parte verás cómo se aprende el valor cuando el modelo no está.",
+     "visual": {
+      "scenes": [
+       {
+        "scene": {
+         "formulas": [
+          {
+           "x": 180,
+           "y": 80,
+           "text": "Decide, cobra, estima, predice.",
+           "size": 20
+          }
+         ]
+        },
+        "text": "Decide, cobra, estima, predice."
+       },
+       {
+        "scene": {
+         "formulas": [
+          {
+           "x": 180,
+           "y": 80,
+           "text": "Decide, cobra, estima, predice.",
+           "size": 20
+          }
+         ],
+         "labels": [
+          {
+           "x": 60,
+           "y": 150,
+           "text": "política",
+           "size": 13
+          },
+          {
+           "x": 140,
+           "y": 150,
+           "text": "recompensa",
+           "size": 13
+          },
+          {
+           "x": 220,
+           "y": 150,
+           "text": "valor",
+           "size": 13
+          },
+          {
+           "x": 300,
+           "y": 150,
+           "text": "modelo",
+           "size": 13
+          },
+          {
+           "x": 180,
+           "y": 210,
+           "text": "si sabes cuál de las cuatro es, sabes qué pieza mirar",
+           "size": 12
+          }
+         ],
+         "lines": [
+          {
+           "x1": 30,
+           "y1": 160,
+           "x2": 90,
+           "y2": 160,
+           "tone": "slate",
+           "width": 1.5,
+           "arrow": false
+          },
+          {
+           "x1": 110,
+           "y1": 160,
+           "x2": 170,
+           "y2": 160,
+           "tone": "slate",
+           "width": 1.5,
+           "arrow": false
+          },
+          {
+           "x1": 190,
+           "y1": 160,
+           "x2": 250,
+           "y2": 160,
+           "tone": "slate",
+           "width": 1.5,
+           "arrow": false
+          },
+          {
+           "x1": 270,
+           "y1": 160,
+           "x2": 330,
+           "y2": 160,
+           "tone": "slate",
+           "width": 1.5,
+           "arrow": false
+          }
+         ]
+        },
+        "text": "Con esas cuatro palabras ordenas cualquier problema de refuerzo."
+       }
+      ],
+      "anchors": [
+       0,
+       0.5
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,29 @@
+Objective: a video may never say what it does not draw. The engine learns to audit every narration against the elements its own frames paint, and Parte 3's T0–T6 beat stops narrating a field of arrows while showing a T1..T4 reward list.
+Branch: feat/video-narration-parity · Delivery: ask-on-risk · Runner: `node --test tools/video/test/*.test.mjs`, `node tools/video/audit.mjs --spec tools/video/parts/parte3.json --note <note.md>`, render probe + frame inspection.
+
+## Specs
+
+- S0 (honesty): every contract the engine's own CLI suite already encodes holds — an unimplemented flag is rejected by name, an invalid `--stills` time is rejected and writes no frame, a render that cannot finish leaves no deliverable SRT, a slice render's captions start at the slice, an out-of-range deck step is a named spec error and not a `TypeError`, a beat naming both a deck and its own scenes is rejected, and a narration the recording does not match is rejected instead of shipping the old words. `node --test tools/video/test/` is green.
+- S1 (gate): `tools/video/lib/promises.mjs` extracts from each beat's narration every term of a fixed drawing lexicon and requires that beat's own frames to draw it. `node tools/video/audit.mjs --spec <spec> --note <note>` exits non-zero naming section, beat, the spoken phrase and the missing element. Lexicon: `flecha(s)`→arrow; `casilla(s)`/`celda(s)`/`rejilla`→grid cells; `tabla`→grid with columns; `número(s)`/`cifra(s)`→a label carrying a numeral; `barra(s)`→bars; `fórmula`/`ecuación`→equation; `puerta`/`charco`/`robot`/`salida`→a labelled element with that text. A plural or a "todas las flechas" requires arrow count ≥ cell count in the same frame.
+- S2 (primitive): the stage draws a `policy` scene — one arrow per cell of a grid, each with its own direction and tone — so "en la fila de arriba todas las flechas apuntan a la derecha; en el resto, hacia arriba" is literally painted.
+- S3 (rebuild): the T0–T6 beats of Parte 3 paint the policy field first, anchored to the words "fila de arriba" and "el resto", then highlight the robot's cell and its movement. The accumulated reward changes as a number inside the scene, never as a `T1..T4` step list.
+- S4 (frame test): a frame sampled at each rebuilt beat's midpoint is understandable with the sound off and does not read as a table of steps.
+- S5 (proof): Parte 3 is re-rendered by the engine, ≥6 frames are inspected against their narration, and mp4+srt are delivered to `~/Learnings/fundamentos-aprendizaje-por-refuerzo/explicaciones/adjuntos/` with the part's exact name, the previous file kept as the before.
+- S6 (docs): `tools/video/README.md` documents the audit, the lexicon and the `policy` primitive; `docs/` gains nothing new.
+
+## Tasks
+
+- T0 honesty: make the seven CLI contracts its own suite encodes pass (S0) — worker — commit
+- T1 baseline: commit the engine that already produced the delivered Parte 3, now green (S0-S6 prerequisite) — inline — commit
+- T2 gate: `lib/promises.mjs`, `audit.mjs`, lexicon tests including the T0–T3 beat as the RED case (S1) — worker — commit
+- T3 primitive: `policy` scene in `src/page/stage.js` + spec schema support + tests (S2) — worker — commit
+- T4 rebuild: T0–T6 beats of `parts/parte3.json` repainted on the policy field, audit green (S3-S4) — worker — commit
+- T5 render: re-render Parte 3, inspect ≥6 frames, deliver to the vault (S5) — inline — evidence
+- T6 docs: README audit + primitive + lexicon (S6) — worker — commit
+
+## Log
+
+- L1 (2026-11-03, user, verbatim): "Cuenta el tipo de errores que estoy intentando mitigar es que por lo menos en el video pones el ejemplo de las casillas y tal. Y cuando dices llegas al minuto uno con cincuenta creo que dices la Mira que algunos muestran una flecha hacia arriba y realmente no me estás mostrando nada que muestre una flecha mirando hacia arriba, solamente me dice T1, T2, T3, T4 y cada uno con su paso, o sea, con su peso. con la recompensa. Pero en ninguna me está diciendo. O sea, ninguna. Yo nunca estoy visualizando lo que el narrador esté diciendo de flecha para arriba, flecha para abajo. O sea, yo no estoy pudiendo. No tengo ninguna forma. de ver lo que está diciendo el narrador. Entonces eso es una de las cosas que que necesito arreglar porque el tema de las visuales las representaciones visuales es súper importante que de paso no solo que no lo estás haciendo, sino que lo estás diciendo y no lo estás mostrando Lo cual lo hace peor porque hace un vídeo inconsistente."
+- L2 (2026-11-03, user, verbatim): "el tema de las visuales las representaciones visuales es súper importante ... no solo que no lo estás haciendo, sino que lo estás diciendo y no lo estás mostrando."
+- L3: diagnosis — `tools/video/parts/parte3.json:504` narrates the whole policy field ("en la fila de arriba todas las flechas apuntan a la derecha; en el resto, hacia arriba") while its visual is `{"deck": "El robot sigue su política", "steps": [0,1,2,3]}` (`:505-514`), a deck whose every step draws exactly one movement arrow and whose right column prints `T1..T4` with `−0,04` accumulated. `lib/spec.mjs:20-39` validates structure only; `tools/deck-gate.mjs` validates geometry only. Nothing compares words to drawings.
+- L4 (decision, user): two tandas. Tanda 1 = this document plus the mobile reader bar. Tanda 2 = book/EPUB reading mode and telemetry-discovered preference aspects.
