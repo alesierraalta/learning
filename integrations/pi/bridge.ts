@@ -937,6 +937,7 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
 <link rel="stylesheet" href="${prefix}kit/kit.css?v=${staticVersion}">
 <link rel="stylesheet" href="${prefix}app.css?v=${staticVersion}">
 ${scripts}
+<script src="${prefix}kit/theme.js?v=${staticVersion}"></script>
 </head>
 <body>
 <main id="app"></main>
@@ -983,7 +984,8 @@ ${scripts}
       part: partId,
       video: `file/${partVideo(plan, partId).split("/").map(encodeURIComponent).join("/")}`,
     }).replace(/</g, "\\u003c");
-    return `<script>window.LEARNING_BRIDGE = ${json};</script><script src="/${token}/kit/dictate.js"></script>`;
+    // The theme boots first: the paper is chosen before any of this page paints.
+    return `<script src="/${token}/kit/theme.js"></script><script>window.LEARNING_BRIDGE = ${json};</script><script src="/${token}/kit/dictate.js"></script>`;
   };
 
   const partPage = (res: ServerResponse, topic: string, partId: string) => {

@@ -834,3 +834,12 @@ test("a written part is served as one isolated file that reads with no connectio
   assert.equal((await http(`${studio.url}api/offline?topic=../etc&part=p1`)).status, 404, "a topic never leaves the vault");
   assert.equal((await http(`${studio.url.replace(/[0-9a-f]{64}\/$/, `${"0".repeat(64)}/`)}api/offline?topic=redes&part=p1`)).status, 404, "the route needs the studio's token");
 });
+test("the shell paints the remembered theme before the studio script runs", async () => {
+  const { studio } = await setup();
+  const shell = await http(studio.url);
+  assert.equal(shell.status, 200);
+  const boot = shell.body.indexOf("/kit/theme.js");
+  assert.ok(boot > 0, "the shell loads the theme bootstrap");
+  assert.ok(boot < shell.body.indexOf("/studio.js"), "and it runs before the studio paints");
+  assert.equal((await http(`${studio.url}kit/theme.js`)).status, 200, "the bootstrap is served under the studio's token");
+});

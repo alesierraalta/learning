@@ -20,6 +20,8 @@
   --red: #DD4A68;
   --red-s: #FBEAEE;
   --gold: #a67f59;
+  /* letters drawn over an ink-coloured surface: white on light paper, night on dark paper */
+  --on-ink: #ffffff;
   --serif: "Liberation Serif", "DejaVu Serif", "Hoefler Text", Georgia, "Times New Roman", Times, serif;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: "Liberation Mono", "DejaVu Sans Mono", Consolas, monospace;
@@ -53,7 +55,7 @@ a { color: var(--blue); }
 .tutor-pill.dead { border-color: var(--red); color: var(--red); }
 .tutor-pill.dead .dot { background: var(--red); }
 .tutor-pill .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tutor-pill .badge { background: var(--amber); color: #fff; font-size: .75rem; border-radius: 999px; padding: 0 7px; }
+.tutor-pill .badge { background: var(--amber); color: var(--on-ink); font-size: .75rem; border-radius: 999px; padding: 0 7px; }
 @keyframes pulse { 50% { opacity: .3; transform: scale(.75); } }
 
 /* ---------- layout ---------- */
@@ -171,9 +173,9 @@ h3 { font-weight: 700; }
 .part-row { position: relative; display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 12px 14px 12px 0; }
 .part-row + .part-row { margin-top: 4px; }
 .node { position: relative; z-index: 1; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 1.1rem; background: var(--paper); border: 3px solid var(--line); color: var(--muted); }
-.part-row.done .node { background: var(--green); border-color: var(--green); color: #fff; }
+.part-row.done .node { background: var(--green); border-color: var(--green); color: var(--on-ink); }
 .part-row.ready .node { border-color: var(--blue); color: var(--blue); background: var(--blue-s); }
-.part-row.current .node { border-color: var(--amber); background: var(--amber); color: #fff; }
+.part-row.current .node { border-color: var(--amber); background: var(--amber); color: var(--on-ink); }
 .part-row.current { background: var(--amber-s); border: 2px solid var(--amber); border-radius: 10px; padding-left: 0; }
 .part-row .node svg { width: 22px; height: 22px; }
 .part-row h3 { font-size: 1.2rem; line-height: 1.25; }
@@ -190,7 +192,7 @@ h3 { font-weight: 700; }
 .switch { display: inline-flex; border: 2px solid var(--ink); border-radius: 6px; overflow: hidden; }
 .switch button { border: 0; background: var(--paper); padding: 7px 14px; cursor: pointer; font-weight: 700; font-size: .95rem; }
 .switch button + button { border-left: 2px solid var(--ink); }
-.switch button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.switch button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
 .sheet-wrap { flex: 1; overflow: hidden; }
 .sheet { width: 100%; height: 100%; border: 0; background: var(--paper); }
 
@@ -214,9 +216,9 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 .msg.user { align-self: flex-end; background: var(--green-s); white-space: pre-wrap; }
 .msg.assistant { align-self: flex-start; background: var(--blue-s); }
 .msg.assistant p { margin: 0 0 .55em; } .msg.assistant p:last-child { margin: 0; }
-.msg.assistant code { font: .86em var(--mono); background: #fff; padding: 0 4px; border-radius: 3px; }
-.msg.assistant pre { background: #fff; padding: 8px; border-radius: 6px; overflow-x: auto; }
-.msg.assistant table { border-collapse: collapse; font-size: .9rem; background: #fff; }
+.msg.assistant code { font: .86em var(--mono); background: var(--soft); padding: 0 4px; border-radius: 3px; }
+.msg.assistant pre { background: var(--soft); padding: 8px; border-radius: 6px; overflow-x: auto; }
+.msg.assistant table { border-collapse: collapse; font-size: .9rem; background: var(--soft); }
 .msg.assistant td, .msg.assistant th { border: 1px solid var(--line); padding: 3px 6px; }
 .activity { align-self: flex-start; display: flex; align-items: center; gap: 8px; font-size: .95rem; font-style: italic; color: var(--muted); }
 .activity.running { color: var(--blue); }
@@ -246,13 +248,13 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 .composer .box { display: flex; align-items: flex-end; gap: 8px; border: 2px solid var(--ink); border-radius: 8px; padding: 6px 6px 6px 12px; }
 .composer .box:focus-within { border-color: var(--blue); box-shadow: 0 0 0 4px var(--blue-s); }
 .composer textarea { flex: 1; border: 0; outline: 0; resize: none; max-height: 180px; padding: 6px 0; background: transparent; line-height: 1.45; }
-.composer .send { width: 42px; height: 42px; border-radius: 6px; border: 0; background: var(--blue); color: #fff; display: grid; place-items: center; cursor: pointer; flex: none; }
+.composer .send { width: 42px; height: 42px; border-radius: 6px; border: 0; background: var(--blue); color: var(--on-ink); display: grid; place-items: center; cursor: pointer; flex: none; }
 .composer .send svg { width: 19px; height: 19px; }
 .composer .hint { font-size: .88rem; font-style: italic; color: var(--muted); margin: 6px 2px 0; display: flex; justify-content: space-between; }
 .composer .stop { min-height: 32px; padding: 4px 8px; color: var(--red); background: none; border: 0; cursor: pointer; font-weight: 700; font-style: normal; }
 .composer .hint { align-items: center; }
 
-.toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 6px; z-index: 60; }
+.toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--ink); color: var(--on-ink); padding: 10px 18px; border-radius: 6px; z-index: 60; }
 /* Deleting a note is confirmed by name: the card that leaves is the one that was read. */
 .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(15, 23, 42, .55); z-index: 70; }
 .modal { width: min(520px, 100%); background: var(--paper); border: 2px solid var(--ink); border-radius: 12px; padding: 24px 26px 20px; box-shadow: 8px 8px 0 rgba(15, 23, 42, .14); }
@@ -366,13 +368,13 @@ h3 { font-style: italic; }
   letter-spacing: .13em;
   text-transform: uppercase;
 }
-.btn:hover { background: var(--ink); color: #fff; }
+.btn:hover { background: var(--ink); color: var(--on-ink); }
 .btn.primary, .btn.you, .btn.soft { background: transparent; border-color: var(--ink); color: var(--ink); }
-.btn.primary:hover, .btn.you:hover, .btn.soft:hover { background: var(--ink); color: #fff; }
+.btn.primary:hover, .btn.you:hover, .btn.soft:hover { background: var(--ink); color: var(--on-ink); }
 .btn.ghost { border-color: var(--line); color: var(--muted); background: transparent; }
-.btn.ghost:hover { background: var(--ink); color: #fff; border-color: var(--ink); }
+.btn.ghost:hover { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
 .btn.danger { background: transparent; border-color: var(--ink); color: var(--red); font-weight: 700; }
-.btn.danger:hover { background: var(--ink); color: #fff; }
+.btn.danger:hover { background: var(--ink); color: var(--on-ink); }
 .mode { background: var(--paper); border: 1px solid var(--line); }
 .mode.uni, .mode.quick { background: var(--paper); border-color: var(--line); }
 .mode:hover { border-color: var(--ink); }
@@ -384,7 +386,7 @@ h3 { font-style: italic; }
 .tag { border: 1px solid var(--line); background: transparent; font-family: var(--sans); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .progress span { border: 1px solid var(--line); }
 .progress span.on { background: var(--accent, var(--blue)); border-color: var(--blue); }
-input, textarea, select { border: 1px solid var(--ink); background: #fff; color: var(--ink); font-family: var(--mono); font-size: 14px; }
+input, textarea, select { border: 1px solid var(--ink); background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: 14px; }
 input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 .brand b { font-weight: 400; }
@@ -583,3 +585,49 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .offline-banner { position: sticky; top: var(--topbar); z-index: 19; padding: 8px 32px; background: var(--amber-s); border-bottom: 2px solid var(--amber); color: var(--amber); font-family: var(--sans); font-size: .9rem; font-weight: 700; }
 .offline-banner[hidden] { display: none; }
 @media (max-width: 720px) { .offline-banner { padding: 8px 14px; } }
+
+/* ---------- the dark paper ----------
+   One inversion of the same ink: night paper, the same three accents lifted to
+   stay readable, and the same hairline rules. The slides, the reader and the
+   rich pages share the palette token by token, so nothing needs a second skin. */
+:root[data-theme="dark"] {
+  --ink: #E4EDF1;
+  --slate: #B7C9D1;
+  --slate2: #92A8B2;
+  --muted: rgba(228, 237, 241, .62);
+  --meta: #9AAFB8;
+  --line: rgba(228, 237, 241, .16);
+  --soft: #142228;
+  --soft2: #111E24;
+  --paper: #0D191F;
+  --blue: #8FC2E3;
+  --blue-s: #12242F;
+  --green: #83C7B0;
+  --green-s: #11241E;
+  --amber: #DCBB8C;
+  --amber-s: #241E15;
+  --red: #EE8FA5;
+  --red-s: #2A151C;
+  --gold: #D8B892;
+  --on-ink: #0D191F;
+  color-scheme: dark;
+}
+:root[data-theme="dark"] ::selection { background: #1E3B52; color: var(--ink); }
+:root[data-theme="dark"] .tutor-pill.dead,
+:root[data-theme="dark"] .notice.error { color: var(--red); }
+/* The reader frame draws its own paper: the bar keeps the seam visible. */
+:root[data-theme="dark"] .sheet,
+:root[data-theme="dark"] .sheet-wrap { background: var(--paper); }
+:root[data-theme="dark"] .modal-backdrop { background: rgba(2, 8, 11, .62); }
+:root[data-theme="dark"] .deck { background: rgba(2, 8, 11, .9); }
+:root[data-theme="dark"] .deck-slide { background: var(--paper); }
+:root[data-theme="dark"] .progress span.on { border-color: var(--blue); }
+:root[data-theme="dark"] .editor-preview,
+:root[data-theme="dark"] .pano-canvas { background: var(--paper); }
+
+/* The theme switch reads as one more quiet control in the bar. */
+.theme-btn { border-color: var(--line); }
+.theme-btn:hover { border-color: var(--ink); background: var(--soft); }
+@media (max-width: 720px) {
+  .theme-btn { width: 38px; height: 38px; }
+}

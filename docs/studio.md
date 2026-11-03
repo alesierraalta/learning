@@ -37,6 +37,23 @@ remembered per browser, so it survives a reload and a studio restart; below 1080
 the text stays in one column even with the mode on. The video block and the
 mini-quiz are not affected: only the explanation text is a reading surface.
 
+## Tema oscuro
+
+The header's moon (or sun) button repaints the studio and every reader it opens.
+The first visit follows the operating system's preference; after that the choice is
+kept per browser in `localStorage` (`learnings.theme`), so it survives a reload, a
+studio restart and a new part page. The reader frames are another origin and cannot
+read that storage, so the studio hands them the theme in their address (`?theme=dark`)
+and by `postMessage` when it changes; `kit/theme.js` is the one bootstrap that reads
+either and sets `data-theme` on `<html>` before the body paints.
+
+Both stylesheets carry a `:root[data-theme="dark"]` block that only swaps tokens
+(`--paper`, `--ink`, `--muted`, `--line`, the accent colours) and sets
+`color-scheme: dark`; the layout is untouched. Authored figures keep a light paper
+surface in dark mode: a diagram's colours are part of what it teaches, so inverting
+them would change the lesson. The deck (tutorial) and the code editor follow the
+same tokens.
+
 ## Panorama del tema
 
 Topic cards and topic pages offer **Panorama del tema**, with a back control to

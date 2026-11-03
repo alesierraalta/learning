@@ -1,12 +1,13 @@
 (() => {
   const root = document.getElementById("studio");
-  let base;
+  let CONFIG;
   try {
-    base = JSON.parse(document.getElementById("studio-data").textContent).base;
+    CONFIG = JSON.parse(document.getElementById("studio-data").textContent);
   } catch {
     root.textContent = "No se pudo iniciar el estudio: falta su configuración. Vuelve a abrirlo con el comando estudio.";
     return;
   }
+  const base = CONFIG.base;
 
   // ---------- small DOM kit ----------
   const ICONS = {
@@ -30,6 +31,8 @@
     map: '<circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="12" cy="18" r="2.6"/><path d="M8.6 6h6.8M7.3 8.3l3.5 7.1M16.7 8.3l-3.5 7.1"/>',
     fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
+    moon: '<path d="M20 14.2A8.4 8.4 0 019.8 4a7 7 0 1010.2 10.2z"/>',
+    sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4"/>',
   };
   const svgParser = new DOMParser();
   const icon = (name) =>
@@ -161,6 +164,40 @@
   };
   const post = (path, body = {}) =>
     request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  // ---------- the paper ----------
+  /**
+   * One choice for every surface. The studio repaints itself and hands the theme
+   * to the reader frame: it is another origin, so it cannot read this storage and
+   * gets the theme in its address instead, which makes its first paint the right one.
+   */
+  const paintTheme = (button) => {
+    const dark = document.documentElement.dataset.theme === "dark";
+    const label = dark ? "Cambiar a modo claro" : "Cambiar a modo oscuro";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.setAttribute("aria-pressed", String(dark));
+    button.replaceChildren(icon(dark ? "sun" : "moon"));
+  };
+  const themeButton = () => {
+    const button = h("button", { class: "icon-btn theme-btn", type: "button" });
+    paintTheme(button);
+    button.addEventListener("click", () => {
+      const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      if (window.learningTheme?.set) window.learningTheme.set(next);
+      else document.documentElement.dataset.theme = next;
+      paintTheme(button);
+      for (const frame of document.querySelectorAll("iframe.sheet")) {
+        frame.contentWindow?.postMessage({ type: "learning-theme", theme: next }, "*");
+      }
+    });
+    return button;
+  };
+  const withTheme = (url) => {
+    const theme = document.documentElement.dataset.theme;
+    if (!theme || !url) return url;
+    return `${url}${url.includes("?") ? "&" : "?"}theme=${theme}`;
+  };
 
   // ---------- deleting a note ----------
   /**
@@ -1193,7 +1230,7 @@
       if (seq !== readSeq) return;
       const url = data.url;
       if (!url) throw new Error("Esta parte no tiene vista HTML.");
-      frame.src = url;
+      frame.src = withTheme(url);
       // A part read with a connection is kept on the device for reading without one.
       if (saveButton) {
         await savedReady;
@@ -1356,7 +1393,7 @@
         });
         const answer = await response.json().catch(() => ({}));
         if (seq !== editSeq || !response.ok || typeof answer.url !== "string") return;
-        frame.src = answer.url;
+        frame.src = withTheme(answer.url);
         preview.replaceChildren(frame);
         previewNote.textContent = "tu borrador";
       } catch {
@@ -1374,7 +1411,7 @@
       try {
         const data = await request(`api/view?quick=${encodeURIComponent(quickId)}`);
         if (seq !== editSeq) return;
-        frame.src = `${data.url}${data.url.includes("?") ? "&" : "?"}v=${encodeURIComponent(rev)}`;
+        frame.src = withTheme(`${data.url}${data.url.includes("?") ? "&" : "?"}v=${encodeURIComponent(rev)}`);
         preview.replaceChildren(frame);
       } catch (error) {
         if (seq === editSeq) preview.replaceChildren(h("p", { class: "empty" }, `No se pudo abrir la vista previa: ${error.message}`));
@@ -1829,7 +1866,7 @@
       { class: "topbar" },
       h("a", { class: "brand", href: "#/" }, h("b", {}, "Estudio"), h("span", {}, "Learnings")),
       crumbs,
-      h("div", { class: "top-actions" }, h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
+      h("div", { class: "top-actions" }, themeButton(), h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
     ),
     offlineBanner,
     h("div", { class: "app" }, stage),

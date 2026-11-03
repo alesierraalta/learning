@@ -598,7 +598,7 @@ test("the preview draws the draft before it is saved", { skip: browser ? false :
   await editorBody(page).fill(typed);
 
   const frameElement = await page.waitForSelector(".editor-preview iframe.sheet[src]", { timeout: 15000 });
-  assert.match(await frameElement.getAttribute("src"), /\/borrador\/[0-9a-f]{32}$/, "the frame points at a draft, not at a saved note");
+  assert.match(await frameElement.getAttribute("src"), /\/borrador\/[0-9a-f]{32}(\?theme=(dark|light))?$/, "the frame points at a draft, not at a saved note");
   const frame = await frameElement.contentFrame();
   await frame.waitForLoadState("load");
   await frame.locator("lk-walkthrough svg").first().waitFor({ timeout: 15000 });

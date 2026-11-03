@@ -507,6 +507,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 <link rel="icon" href="/${token}/favicon.svg" type="image/svg+xml">
 ${FONT_STYLESHEETS.map(([href, sri]) => `<link rel="stylesheet" href="${href}" integrity="${sri}" crossorigin="anonymous">`).join("\n")}
 <link rel="stylesheet" href="/${token}/studio.css">
+<script src="/${token}/kit/theme.js"></script>
 ${scripts}
 </head>
 <body>
@@ -732,7 +733,10 @@ ${scripts}
       case "tutorial.js":
         return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(UI_DIR, path)));
       case "kit/scene.js":
-        return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(HERE, "..", "integrations", "pi", "kit", "scene.js")));
+      case "kit/theme.js":
+      case "kit/dictate.js":
+        // The reader's own scripts, served by the studio: one paper, one dictation box, one kit.
+        return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(HERE, "..", "integrations", "pi", "kit", path.slice(4))));
       case "studio.css":
         return send(res, 200, "text/css; charset=utf-8", readFileSync(join(UI_DIR, "studio.css")));
       case "favicon.svg":

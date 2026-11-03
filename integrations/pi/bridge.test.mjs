@@ -1006,7 +1006,9 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net 'unsafe-inline'/);
   assert.match(csp, /connect-src 'self'/);
   assert.match(csp, /frame-ancestors 'self' http:\/\/127\.0\.0\.1:5555/);
-  const config = JSON.parse(page.body.match(/<head><script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
+  // The theme boots before anything paints, ahead of the config the page reads.
+  assert.match(page.body, /<head><script src="[^"]*\/kit\/theme\.js"><\/script><script>window\.LEARNING_BRIDGE = /);
+  const config = JSON.parse(page.body.match(/<script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
   assert.deepEqual(config, {
     submitUrl: `${prefix}submit`,
     quizUrl: `${prefix}api/quiz?topic=${TOPIC}&part=p1`,
