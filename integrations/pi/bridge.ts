@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { resolveContained, safeTopic } from "./paths.ts";
 import { recordQuizTelemetry } from "./telemetry.ts";
+import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio, type Transcriber } from "./transcribe.ts";
 import { CodeRunError, loadRunners, readExercise, publicExercise, forPage, runCode } from "./coderun.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 
@@ -173,7 +174,7 @@ function readRecord(file: string): Record<string, unknown> | undefined {
   return value;
 }
 
-function readPlan(topicDir: string): { topic: string; parts: PlanPart[] } | undefined {
+export function readPlan(topicDir: string): { topic: string; parts: PlanPart[] } | undefined {
   const plan = readRecord(join(topicDir, "plan.json"));
   if (!plan || !Array.isArray(plan.parts)) return undefined;
   // id and slug become path segments: a part with a separator is not a part.
@@ -413,6 +414,59 @@ export interface DeleteResult {
   removedPart?: string;
 }
 
+/** One file the trash may move: inside the vault, never a symlink, never the root itself. */
+function trashable(rootReal: string, file: string): string {
+  if (lstatSync(file).isSymbolicLink()) throw new HttpError(400, `refusing to move a symbolic link: ${relative(rootReal, file)}`);
+  const inside = resolveContained(rootReal, file);
+  if (!inside.ok) throw new HttpError(400, inside.reason);
+  if (inside.targetReal === rootReal) throw new HttpError(400, "refusing to move the Learnings root");
+  return inside.targetReal;
+}
+
+export interface RegenerationBackup {
+  /** Vault-relative trash folder, or empty when there was nothing written yet. */
+  trash: string;
+  /** Vault-relative paths that moved. */
+  moved: string[];
+}
+
+/**
+ * A regeneration rewrites the page, the note and the quiz, so those three go to the
+ * trash before the tutor starts: the previous version can be read again by hand. The
+ * video, the demos and the attachments are not rewritten and stay where they are, and
+ * `plan.json` keeps its entry: the part is not deleted, it is replaced.
+ */
+export function backupPartForRegeneration(root: string, target: { topic: string; part: string }, now = new Date()): RegenerationBackup {
+  const rootReal = realpathSync(root);
+  if (!safeTopic(target.topic) || RESERVED_DIRS.has(target.topic)) throw new HttpError(400, "invalid topic id");
+  if (!/^p\d+$/.test(target.part)) throw new HttpError(400, "invalid part id");
+  const topicDir = join(rootReal, target.topic);
+  // A plan that cannot be read aborts before anything moves.
+  const plan = readPlan(topicDir);
+  if (!plan) throw new HttpError(404, `topic ${target.topic} has no plan`);
+  if (!plan.parts.some((p) => p.id === target.part)) throw new HttpError(404, `part ${target.part} is not in the plan`);
+  const files = [richPage(topicDir, plan, target.part), partNote(topicDir, plan, target.part), join(topicDir, "mini-quiz", `${target.part}.json`)]
+    .filter((file): file is string => typeof file === "string" && existsSync(file));
+  if (files.length === 0) return { trash: "", moved: [] };
+  const moving = files.map((file) => trashable(rootReal, file));
+  const stamp = now.toISOString().replace(/[:.]/g, "-").replace(/Z$/, "");
+  const label = `${target.topic}-${target.part}`.replace(/[^\w.-]/g, "-");
+  const trashRel = join(TRASH_DIR, `${stamp}__regeneracion__${label}`);
+  const trash = join(rootReal, trashRel);
+  const moved: string[] = [];
+  mkdirSync(trash, { recursive: true });
+  // The intent is on disk before the first move, exactly as a deletion does it.
+  writeFileSync(join(trash, "papelera.json"), `${JSON.stringify({ kind: "regeneracion", at: now.toISOString(), topic: target.topic, part: target.part, moved }, null, 2)}\n`);
+  for (const file of moving) {
+    const rel = relative(rootReal, file);
+    mkdirSync(dirname(join(trash, rel)), { recursive: true });
+    renameSync(file, join(trash, rel));
+    moved.push(rel);
+  }
+  writeFileSync(join(trash, "papelera.json"), `${JSON.stringify({ kind: "regeneracion", at: now.toISOString(), topic: target.topic, part: target.part, moved }, null, 2)}\n`);
+  return { trash: trashRel, moved };
+}
+
 /**
  * Moves a note out of the library without destroying it: the files land in
  * `.papelera/<stamp>__<kind>__<label>/` keeping their vault-relative paths, and a
@@ -421,13 +475,7 @@ export interface DeleteResult {
  */
 export function deleteNote(root: string, target: DeleteTarget, now = new Date()): DeleteResult {
   const rootReal = realpathSync(root);
-  const contained = (file: string): string => {
-    if (lstatSync(file).isSymbolicLink()) throw new HttpError(400, `refusing to move a symbolic link: ${relative(rootReal, file)}`);
-    const inside = resolveContained(rootReal, file);
-    if (!inside.ok) throw new HttpError(400, inside.reason);
-    if (inside.targetReal === rootReal) throw new HttpError(400, "refusing to move the Learnings root");
-    return inside.targetReal;
-  };
+  const contained = (file: string) => trashable(rootReal, file);
 
   let label = "";
   let files: string[] = [];
@@ -793,7 +841,7 @@ export interface BridgeOptions {
   frameAncestors?: string[];
   publicOrigin?: string;
   publicEmbedder?: string;
-  transcriber?: { url: string; token: string; deadlineMs?: number };
+  transcriber?: Transcriber;
   /** Directory of kit.css / kit.js (tests). */
   kitDir?: string;
   /**
@@ -880,45 +928,19 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
     if (!allowedOrigins().has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
     const type = String(req.headers["content-type"] ?? "").toLowerCase();
     if (!type.startsWith("audio/")) throw new HttpError(415, "Se necesita audio.");
-    const chunks: Buffer[] = []; let size = 0;
+    const chunks: Buffer[] = [];
+    let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
-      if (size <= 15 * 1024 * 1024) chunks.push(chunk);
+      if (size <= MAX_AUDIO_BYTES) chunks.push(chunk);
     }
-    if (size > 15 * 1024 * 1024) throw new HttpError(413, "Audio demasiado grande.");
+    if (size > MAX_AUDIO_BYTES) throw new HttpError(413, "Audio demasiado grande.");
     if (!size) throw new HttpError(400, "El audio está vacío.");
-    const ext = ({ webm: "webm", ogg: "ogg", mp4: "m4a", wav: "wav", mpeg: "mp3" } as Record<string, string>)[type.split(";")[0].slice(6)] ?? "webm";
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), target.deadlineMs ?? 90000);
-    const headers = { authorization: `Bearer ${target.token}` };
-    const jobs = `${target.url.replace(/\/$/, "")}/api/jobs`;
-    let job: string | undefined;
-    const call = async (url: string, init: RequestInit = {}) => {
-      const response = await fetch(url, { ...init, headers, signal: controller.signal });
-      if (!response.ok) throw new Error("transcriber");
-      return response;
-    };
     try {
-      // Dictation is one voice: speaker diarization would prefix every line with "Speaker N:".
-      const uploaded = await (await call(`${jobs}?filename=dictado.${ext}&diarize=false`, { method: "PUT", body: Buffer.concat(chunks) })).json();
-      if (typeof uploaded.id !== "string" || !uploaded.id) throw new Error("missing job");
-      job = `${jobs}/${encodeURIComponent(uploaded.id)}`;
-      while (true) {
-        const state = await (await call(job)).json();
-        if (state.status === "failed") throw new Error("failed");
-        if (state.status === "done") break;
-        await new Promise<void>((resolve) => setTimeout(resolve, 250));
-        if (controller.signal.aborted) throw new Error("timeout");
-      }
-      const text = await (await call(`${job}/txt`)).text();
-      await fetch(job, { method: "DELETE", headers, signal: AbortSignal.timeout(5000) }).catch(() => {});
-      job = undefined;
-      sendJson(res, 200, { text });
-    } catch {
-      throw new HttpError(controller.signal.aborted ? 504 : 502, "No se pudo transcribir el audio.");
-    } finally {
-      clearTimeout(timer);
-      if (job) await fetch(job, { method: "DELETE", headers, signal: AbortSignal.timeout(5000) }).catch(() => {});
+      sendJson(res, 200, { text: await transcribeAudio(target, Buffer.concat(chunks), type) });
+    } catch (error) {
+      if (!(error instanceof TranscribeError)) throw error;
+      throw new HttpError(error.kind === "timeout" ? 504 : 502, "No se pudo transcribir el audio.");
     }
   };
 

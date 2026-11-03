@@ -22,20 +22,24 @@ import {
   CDN_SCRIPTS,
   HttpError,
   NoteRevMismatch,
+  backupPartForRegeneration,
   deleteNote,
   listTopics,
   parsePublicOrigins,
+  readPlan,
   readQuickNote,
   registerBridge,
   writeQuickNote,
   type DeleteResult,
 } from "../integrations/pi/bridge.ts";
+import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio } from "../integrations/pi/transcribe.ts";
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
+import { listSugerencias, motivos, recordSugerencia, tutorContext } from "./sugerencias.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -497,7 +501,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const scripts = CDN_SCRIPTS.slice(0, 2)
       .map(([src, sri]) => `<script src="${src}" integrity="${sri}" crossorigin="anonymous"></script>`)
       .join("\n");
-    const data = JSON.stringify({ base: `/${token}/` }).replace(/</g, "\\u003c");
+    // The dictation box needs the address of the studio's own proxy; without a transcriber
+    // the shared script falls back to the browser's speech recognition.
+    const transcribe = options.transcriberUrl ? { transcribeUrl: `/${token}/api/transcribe` } : {};
+    const data = JSON.stringify({ base: `/${token}/`, ...transcribe }).replace(/</g, "\\u003c");
     return `<!doctype html>
 <html lang="es">
 <head>
@@ -514,6 +521,7 @@ ${scripts}
 <main id="studio"></main>
 <script type="application/json" id="studio-data">${data}</script>
 <script src="/${token}/kit/scene.js"></script>
+<script src="/${token}/kit/dictate.js"></script>
 <script src="/${token}/tutorial.js"></script>
 <script src="/${token}/studio.js"></script>
 </body>
@@ -555,14 +563,78 @@ ${scripts}
       req.on("error", reject);
     });
 
+  /** The studio's own proxy to the dictation service: the reader's script posts here too. */
+  const transcribe = async (req: IncomingMessage, res: ServerResponse) => {
+    const target = options.transcriberUrl && options.transcriberToken
+      ? { url: options.transcriberUrl, token: options.transcriberToken }
+      : undefined;
+    if (!target) throw new HttpError(503, "La transcripción no está configurada en el Estudio.");
+    const type = String(req.headers["content-type"] ?? "").toLowerCase();
+    if (!type.startsWith("audio/")) throw new HttpError(415, "Se necesita audio.");
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size <= MAX_AUDIO_BYTES) chunks.push(chunk);
+    }
+    if (size > MAX_AUDIO_BYTES) throw new HttpError(413, "Audio demasiado grande.");
+    if (!size) throw new HttpError(400, "El audio está vacío.");
+    try {
+      return sendJson(res, 200, { text: await transcribeAudio(target, Buffer.concat(chunks), type) });
+    } catch (error) {
+      if (!(error instanceof TranscribeError)) throw error;
+      throw new HttpError(error.kind === "timeout" ? 504 : 502, "No se pudo transcribir el audio.");
+    }
+  };
+
+  /** A regeneration is a prompt plus the reason that produced it; the previous version waits in the trash. */
+  const regenerationPrompt = (tema: string, parte: string, entrada: { motivos: string[]; texto: string }, trash: string) => {
+    const plan = readPlan(join(root, tema));
+    const index = plan?.parts.findIndex((p) => p.id === parte) ?? -1;
+    const part = index >= 0 ? plan!.parts[index] : undefined;
+    const nombre = part ? `Parte ${index + 1} «${part.title}»` : `la parte ${parte}`;
+    // The plan's title names the topic for a human; the folder names it on disk.
+    const titulo = plan?.topic || tema;
+    const dicho = [
+      entrada.motivos.length ? `motivos: ${entrada.motivos.map((id) => motivos.find((m) => m.id === id)?.texto ?? id).join(", ")}` : "",
+      entrada.texto ? `sus palabras: «${entrada.texto}»` : "",
+    ].filter(Boolean).join("; ");
+    return [
+      `Regenera ${nombre} de ${titulo} (carpeta ${tema}).`,
+      "",
+      `El alumno pidió regenerarla: ${dicho}.`,
+      trash ? `La versión anterior está guardada en ${trash} dentro del vault: no la borres.` : "",
+      "Rehaz la página rica y la nota, y el mini-quiz de esta parte. Conserva el video y los adjuntos.",
+      "El plan no cambia: es una regeneración de una parte que ya existe, no un tema nuevo.",
+      "",
+      tutorContext(root, tema),
+    ].filter((line) => line !== "").join("\n");
+  };
+
   const post = async (req: IncomingMessage, res: ServerResponse, action: string) => {
     const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.origin)]);
     if (!allowed.has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
+    // Audio is not JSON: it is streamed to the transcriber as it arrives.
+    if (action === "api/transcribe") return transcribe(req, res);
     if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
     const body = await readBody(req);
     switch (action) {
       case "api/preferences":
         return sendJson(res, 200, savePreferences(root, body));
+      case "api/sugerencias":
+        return sendJson(res, 200, recordSugerencia(root, body));
+      case "api/regenerar": {
+        if (!isRecord(body)) throw new HttpError(400, "invalid regeneration");
+        const tema = typeof body.tema === "string" ? body.tema : "";
+        const parte = typeof body.parte === "string" ? body.parte : "";
+        if (!/^[\w-]+$/.test(tema) || !/^p\d+$/.test(parte)) throw new HttpError(400, "invalid regeneration target");
+        const saved = recordSugerencia(root, { tema, parte, motivos: body.motivos, texto: body.texto, origen: "regenerar" });
+        const backup = backupPartForRegeneration(root, { topic: tema, part: parte });
+        const text = regenerationPrompt(tema, parte, saved.entrada, backup.trash);
+        if (text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "the regeneration prompt is too long");
+        await prompt(text);
+        return sendJson(res, 200, { ok: true, prompt: text, trash: backup.trash, entrada: saved.entrada });
+      }
       case "api/telemetry": {
         if (isRecord(body) && body.entry) {
           const result = recordQuizTelemetry(root, body.entry);
@@ -748,6 +820,14 @@ ${scripts}
         return sendJson(res, 200, await library());
       case "api/preferences":
         return sendJson(res, 200, readPreferences(root));
+      case "api/sugerencias":
+        return sendJson(res, 200, listSugerencias(root, {
+          tema: url.searchParams.get("tema") ?? undefined,
+          parte: url.searchParams.get("parte") ?? undefined,
+        }));
+      case "api/contexto":
+        // The lines a writing prompt carries: preferences, weak spots and the learner's words.
+        return sendJson(res, 200, { texto: tutorContext(root, url.searchParams.get("tema") ?? undefined) });
       case "api/telemetry": {
         const topic = url.searchParams.get("topic");
         if (topic) {

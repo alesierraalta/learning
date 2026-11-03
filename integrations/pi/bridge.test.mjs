@@ -9,7 +9,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { countVisuals, obsidianToMarkdown, registerBridge, listTopics } from "./bridge.ts";
+import { backupPartForRegeneration, countVisuals, obsidianToMarkdown, registerBridge, listTopics } from "./bridge.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { loadRunners } from "./coderun.ts";
 
@@ -1638,4 +1638,24 @@ test("a demo page finds the kit through its own relative path", async () => {
   assert.equal((await http(`${base}${TOPIC}/kit/nope.js`)).status, 404);
   assert.equal((await http(`${base}${TOPIC}/file/kit/..%2Fkit.css`)).status, 404);
   await shutdown();
+});
+
+test("a regeneration backup refuses what a deletion refuses, and moves nothing on a refusal", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "regen-")));
+  const topic = join(root, "redes");
+  mkdirSync(join(topic, "explicaciones"), { recursive: true });
+  writeFileSync(join(topic, "plan.json"), JSON.stringify({ topic: "Redes", parts: [{ id: "p1", title: "Capas", slug: "Capas", subtema: "1.1" }] }));
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Capas.md"), "# Parte 1\n");
+
+  assert.throws(() => backupPartForRegeneration(root, { topic: "../etc", part: "p1" }), /invalid topic id/);
+  assert.throws(() => backupPartForRegeneration(root, { topic: "redes", part: "../p1" }), /invalid part id/);
+  assert.throws(() => backupPartForRegeneration(root, { topic: "redes", part: "p9" }), /is not in the plan/);
+  assert.throws(() => backupPartForRegeneration(root, { topic: "nada", part: "p1" }), /has no plan/);
+  assert.equal(existsSync(join(root, ".papelera")), false, "a refused backup leaves no trash behind");
+  assert.equal(existsSync(join(topic, "explicaciones", "Parte 1 - Capas.md")), true);
+
+  // A part whose files are already gone is not an error: there is nothing to keep.
+  rmSync(join(topic, "explicaciones", "Parte 1 - Capas.md"));
+  assert.deepEqual(backupPartForRegeneration(root, { topic: "redes", part: "p1" }), { trash: "", moved: [] });
+  assert.equal(existsSync(join(root, ".papelera")), false);
 });
