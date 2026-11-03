@@ -63,7 +63,7 @@ order, each self-contained enough to read alone:
 
 1. `7a8d87b` — the dark paper: theme tokens, the bootstrap, the toggle, the frames.
 2. `c13535b` — the dialog and the store: sugerencias, regeneration backup, dictation.
-3. `e498451` — the five TSP fixes, each with the test that was red before it.
+3. `af33e26` — the five TSP fixes, each with the test that was red before it.
 
 The slice is larger than the 400-line guideline (the three commits hold ~1440
 authored lines). It stays as three units because splitting a theme change away from
