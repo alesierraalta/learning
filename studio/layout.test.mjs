@@ -691,6 +691,8 @@ test("the chat offers the first part of a topic the tutor just created", { skip:
 test("a turn with several notes offers the last one written", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page } = await tutorTurn(t, (root) => [{ path: join(root, "redes", "explicaciones", "Parte 1 - Capas.md") }, { path: join(root, "rapidos", "hash.md") }]);
   const offer = page.locator(".thread .note-cta");
+  // The thread re-renders once the turn's library reload lands; wait for the offer, then count.
+  await offer.first().waitFor({ timeout: 10000 });
   assert.equal(await offer.count(), 1, "one offer per turn");
   await offer.getByRole("button", { name: "Ir a la nota" }).click();
   await page.waitForFunction(() => location.hash === "#/rapido/hash", null, { timeout: 5000 });
