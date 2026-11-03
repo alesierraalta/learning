@@ -14,6 +14,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { loadAudio } from "./lib/audio.mjs";
 import { extractDecks } from "./lib/note.mjs";
+import { audit, formatViolation } from "./lib/promises.mjs";
 import { readSpec } from "./lib/spec.mjs";
 import { buildTimeline } from "./lib/timeline.mjs";
 
@@ -37,6 +38,10 @@ main().catch((cause) => {
 async function main() {
   const spec = readSpec(resolve(args.spec));
   const decks = extractDecks(await readFile(resolve(args.note), "utf8"));
+  // Every flag, every slice: a part that says what it does not draw never
+  // becomes a frame, let alone a file.
+  const violations = audit(spec, decks);
+  if (violations.length) throw new Error(violations.map(formatViolation).join("\n"));
   const beats = loadAudio(spec, { dir: resolve(args.audio), remote: args.remote });
   const plan = buildTimeline(spec, beats, decks);
   plan.title = spec.title;

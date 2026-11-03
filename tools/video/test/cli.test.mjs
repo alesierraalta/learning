@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 const REPO = new URL("../../..", import.meta.url).pathname;
 const CLI = join(REPO, "tools/video/render.mjs");
-const WORDS = "una flecha por casilla decide que hacer en cada estado".split(" ");
+const WORDS = "cada estado decide que hacer y el valor lo dice".split(" ");
 const BEATS = 4;
 
 function fixture({ narration = WORDS.join(" "), visual } = {}) {

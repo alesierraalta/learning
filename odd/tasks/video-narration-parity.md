@@ -15,7 +15,7 @@ Branch: feat/video-narration-parity · Delivery: ask-on-risk · Runner: `node --
 
 - T0 honesty: make the seven CLI contracts its own suite encodes pass (S0) — worker — commit
 - T1 baseline: commit the engine that already produced the delivered Parte 3, now green (S0-S6 prerequisite) — inline — commit
-- T2 gate: `lib/promises.mjs`, `audit.mjs`, lexicon tests including the T0–T3 beat as the RED case (S1) — worker — commit
+- T2 gate: `lib/promises.mjs`, `audit.mjs`, lexicon tests including the T0–T3 beat as the RED case (S1) — worker — done
 - T3 primitive: `policy` scene in `src/page/stage.js` + spec schema support + tests (S2) — worker — commit
 - T4 rebuild: T0–T6 beats of `parts/parte3.json` repainted on the policy field, audit green (S3-S4) — worker — commit
 - T5 render: re-render Parte 3, inspect ≥6 frames, deliver to the vault (S5) — inline — evidence
@@ -27,3 +27,6 @@ Branch: feat/video-narration-parity · Delivery: ask-on-risk · Runner: `node --
 - L2 (2026-11-03, user, verbatim): "el tema de las visuales las representaciones visuales es súper importante ... no solo que no lo estás haciendo, sino que lo estás diciendo y no lo estás mostrando."
 - L3: diagnosis — `tools/video/parts/parte3.json:504` narrates the whole policy field ("en la fila de arriba todas las flechas apuntan a la derecha; en el resto, hacia arriba") while its visual is `{"deck": "El robot sigue su política", "steps": [0,1,2,3]}` (`:505-514`), a deck whose every step draws exactly one movement arrow and whose right column prints `T1..T4` with `−0,04` accumulated. `lib/spec.mjs:20-39` validates structure only; `tools/deck-gate.mjs` validates geometry only. Nothing compares words to drawings.
 - L4 (decision, user): two tandas. Tanda 1 = this document plus the mobile reader bar. Tanda 2 = book/EPUB reading mode and telemetry-discovered preference aspects.
+- L5 (evidence, T2): `tools/video/lib/promises.mjs` holds the fixed lexicon (arrow, arrow-per-cell, cell, table, numeral, bar, equation) and `drawnBy`, which reads the very scene objects `src/page/stage.js` paints; `tools/video/audit.mjs` prints one line per violation and exits 1; `tools/video/render.mjs` runs the audit before planning so a beat cannot ship words its frames do not answer. `node --test tools/video/test/` → 26 pass, 0 fail.
+- L6 (decision, scoping): subject nouns (robot, puerta, charco, salida) are NOT promises. They name the world the beat talks about, not the drawing; a beat may discuss the robot over a chart. Only the visual vocabulary — the words a viewer can point at on screen — is gated. Dropping them removed 7 false positives and kept 6 real ones.
+- L7 (the six real gaps, `node tools/video/audit.mjs --spec tools/video/parts/parte3.json --note tools/video/.cache/parte3/note.md`): s2 "una flecha por casilla" (deck draws one arrow at a time); s3 T0–T3 "todas las flechas" (the reported defect); s5 "Cómo leer la demo" "mira la flecha"; s6 "La tabla no escala" "tabla"; s6 "Decisiones de diseño" "flecha" and "casilla". T3–T4 must close all six.
