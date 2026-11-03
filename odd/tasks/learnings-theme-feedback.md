@@ -78,6 +78,13 @@ harder to judge than the whole diff. Push and pull request remain the user's cal
 - Delivery follows the repository's own path: merge to `main` runs
   `.github/workflows/deploy.yml` on the VPS self-hosted runner, which calls
   `deploy/vps/update.sh` (fast-forward, rebuild, restart, health).
+- First attempt (2026-11-03) found that path switched off: the workflow was
+  `disabled_manually` and no self-hosted runner existed, so the merge created no
+  run. The deploy was done over SSH instead (`fleet.sh vps 'bash
+  ~/learning/deploy/vps/update.sh'`, health OK at `d179ee1`). The workflow was
+  re-enabled and the runner reinstalled the same day; a `workflow_dispatch` run
+  then deployed `d179ee1` in 24 s, and the documentation fix that followed
+  deployed through the same path.
 
 ## TSP findings (test-strategy / 2026-11-03)
 

@@ -140,6 +140,7 @@ Re-register after deleting the runner in GitHub: `systemctl --user disable --now
 - A failed deploy is visible in the repository's Actions tab and in `journalctl --user -u learning-studio`.
 - Retry from Actions → **Deploy studio** → **Run workflow**, or run `bash ~/learning/deploy/vps/update.sh` over SSH as `ale`.
 - To stop automatic delivery, disable the workflow in the Actions tab or stop the runner (`systemctl --user disable --now github-runner`); manual updates keep working.
+- A merge that creates no run at all means the workflow is switched off, not that the deploy failed: `gh workflow list --all` must show **Deploy studio** as `active`, and `gh api repos/alesierraalta/learning/actions/runners` must list the `…-learning` runner as `online` with the `learning-vps` label. With no runner a queued deploy waits forever; with the workflow `disabled_manually` nothing is even queued.
 - The runner runs as `ale`, the same account that owns the vault, the studio token and Pi's credentials. The repository is public, so never approve a fork workflow run that targets the self-hosted runner; the deploy workflow only uses `push` to `main` and `workflow_dispatch`.
 
 After editing the environment file, run `systemctl --user restart learning-studio`. After changing the unit, rerun the installer and restart the service (enabling an already active unit does not restart it).
@@ -148,6 +149,7 @@ After editing the environment file, run `systemctl --user restart learning-studi
 
 | Symptom | Action |
 | --- | --- |
+| A merge to `main` deploys nothing | Check both switches: `gh workflow list --all` must show **Deploy studio** as `active` (`gh workflow enable "Deploy studio"` if not), and `gh api repos/alesierraalta/learning/actions/runners` must list the runner as `online`. Reinstall it with `deploy/vps/install-runner.sh` and a fresh registration token. |
 | Port taken / restart loop | Free 4747 or 4748; public mode deliberately fails rather than choosing another port. Inspect the journal. |
 | Host not allowed | Confirm both public origins in `~/.config/learning-studio.env` match the hostname and ports above; restart. |
 | Microphone unavailable | Use the HTTPS ZeroTier entry, not a plain-HTTP address, and accept the certificate warning once (or trust the Infra Root CA). Grant browser microphone permission. |
