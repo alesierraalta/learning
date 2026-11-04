@@ -62,7 +62,7 @@ export function resolveStates({ states, anchors, narration, words, speechStart, 
     }
     // The beat opens on its first drawing. Only the later states wait for a
     // spoken phrase, so a cut never leaves the figure empty.
-    if (i === 0 && Number.isFinite(start)) return { ...state, t: start };
+    if (i === 0 && Number.isFinite(start)) return { ...state, t: Math.min(start, last) };
     return { ...state, t: Math.min(last, Math.max(from, at)) };
   });
 }

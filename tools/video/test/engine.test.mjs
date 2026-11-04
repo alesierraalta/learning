@@ -131,3 +131,31 @@ test("a deck beat says which steps play, and every step change is spoken", () =>
   base.sections[0].beats[0].visual = { deck: "D", steps: [0, 1], anchors: ["una flecha por casilla", "en cada estado"] };
   assert.deepEqual(validate(base), []);
 });
+
+test("an anchor the narration never says is refused before the render", () => {
+  const spec = {
+    part: 1, title: "T", topic: "t",
+    sections: [{ heading: "H", beats: [
+      { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { scenes: [{ scene: {} }, { scene: {} }], anchors: ["una flecha por casilla", "al llegar a la puerta"] } },
+    ] }],
+  };
+  const problems = validate(spec);
+  assert.ok(problems.some((p) => /never says/.test(p)), problems.join(" | "));
+});
+
+test("an anchor that is not text is named for what it is", () => {
+  const spec = {
+    part: 1, title: "T", topic: "t",
+    sections: [{ heading: "H", beats: [
+      { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { scenes: [{ scene: {} }, { scene: {} }], anchors: [true, 0.5] } },
+    ] }],
+  };
+  const problems = validate(spec);
+  assert.ok(problems.some((p) => /not text/.test(p)), problems.join(" | "));
+});
+
+test("the first state never lands after the beat's last allowed moment", () => {
+  const words = [{ t: 0, d: 0.2, w: "uno" }];
+  const [only] = resolveStates({ states: [{}], narration: "uno", words, speechStart: 10, speechDur: 0.1, start: 20 });
+  assert.ok(only.t < 20, `first state at ${only.t}`);
+});
