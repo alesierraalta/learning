@@ -72,6 +72,19 @@
       const t = tone(n2.tone);
       push("shape", n2, S.node(n2.cx, n2.cy, n2.label, { fill: t.fill, stroke: t.stroke, color: t.color, r: n2.r || 30 }));
     }
+    // A policy field: one arrow per cell, drawn small in the cell's bottom-left
+    // corner so it never sits on the cell's own label. A beat that says "una
+    // flecha por casilla" then has the whole field on screen at once, and each
+    // arrow is its own primitive, so the field can assemble cell by cell.
+    for (const p of scene.policy || []) {
+      const color = tone(p.tone || "blue").stroke;
+      const [dx, dy] = direction(p.dir);
+      const pad = p.pad || 6;
+      const len = p.len || 18;
+      const x0 = p.x + pad;
+      const y0 = p.y + p.h - pad;
+      push("stroke", p, S.line(x0, y0, x0 + dx * len, y0 + dy * len, { color, width: p.width || 2.5 }));
+    }
     for (const g of scene.gears || []) {
       push("shape", g, S.gear(g.cx, g.cy, g.r || 60, g.teeth || 10, tone(g.tone).stroke));
     }
@@ -108,6 +121,17 @@
       }));
     }
     return out.join("");
+  }
+
+  // A policy arrow points from the cell's centre outward: eight compass names,
+  // so "up-right" is a diagonal and "right" a straight arrow.
+  function direction(dir) {
+    const parts = String(dir || "right").toLowerCase().split(/[-\s_]+/);
+    const dx = parts.includes("left") ? -1 : parts.includes("right") ? 1 : 0;
+    const dy = parts.includes("up") || parts.includes("top") ? -1 : parts.includes("down") || parts.includes("bottom") ? 1 : 0;
+    if (!dx && !dy) return [1, 0];
+    const len = Math.hypot(dx, dy);
+    return [dx / len, dy / len];
   }
 
   function escapeAttr(s) {

@@ -103,13 +103,29 @@ test("audit reports every violation, not just the first", () => {
   assert.deepEqual(violations.map((v) => v.beat), [0, 1]);
 });
 
+test("a policy field answers 'one arrow per cell' even when the cells are tiles", () => {
+  // The warehouse is drawn as boxes; the policy is a field of arrows inside
+  // them. One movement arrow beside twelve tiles is not that picture.
+  const cellsOf = (dirs) => dirs.map((dir, i) => ({ x: 16 + (i % 4) * 88, y: 40 + Math.floor(i / 4) * 94, w: 56, h: 50, dir }));
+  const field = (dirs) => ({ boxes: boxes(12), policy: cellsOf(dirs) });
+  const spec = (scene) => specOf([
+    beatOf("T0 a T3", "Mira la política inicial: en la fila de arriba todas las flechas apuntan a la derecha.", {
+      scenes: [{ scene }],
+    }),
+  ]);
+  assert.deepEqual(audit(spec(field(["right", "right", "right", "up", "up", "up"])), []), []);
+  const one = audit(spec({ boxes: boxes(12), arrows: arrows(1) }), []);
+  assert.equal(one.length, 1);
+  assert.match(one[0].missing, /arrow for each of its cells/);
+});
+
 test("a scene key the gate cannot read is surfaced, never silently passed", () => {
   const spec = specOf([
     beatOf("Primitiva nueva", "La política dibuja una flecha por casilla en todo el campo.", {
-      scenes: [{ scene: { boxes: boxes(4), arrows: arrows(4), policy: { cells: [0, 1, 2, 3] } } }],
+      scenes: [{ scene: { boxes: boxes(4), arrows: arrows(4), heatmap: { cells: [0, 1, 2, 3] } } }],
     }),
   ]);
   const violations = audit(spec, []);
   assert.equal(violations.length, 1);
-  assert.match(violations[0].missing, /cannot read.*"policy"/);
+  assert.match(violations[0].missing, /cannot read.*"heatmap"/);
 });

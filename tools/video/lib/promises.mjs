@@ -18,6 +18,7 @@
 export const KNOWN_SCENE_KEYS = new Set([
   "grids", "sheets", "dashed", "panels", "bars", "boxes", "nodes", "gears",
   "packets", "arrows", "curves", "paths", "lines", "badges", "formulas", "labels",
+  "policy",
 ]);
 
 const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -40,7 +41,11 @@ export const LEXICON = [
     pattern: ARROW_PER_CELL,
     perFrame: true,
     requires: "one frame draws an arrow for each of its cells",
-    holds: (fact) => fact.arrows >= Math.max(1, fact.cells),
+    // A drawn policy field is the picture this promise describes: arrows inside
+    // cells, at least three of them, so the viewer sees a field and not a
+    // single movement. A frame that draws cells but no field must match the
+    // count instead.
+    holds: (fact) => fact.policyArrows >= 3 || fact.arrows >= Math.max(1, fact.cells),
   },
   {
     id: "cell",
@@ -174,7 +179,7 @@ function framesOf(beat, decks) {
 }
 
 function collect(scene, text, title) {
-  const sets = { arrows: new Set(), cells: new Set(), tables: new Set(), bars: new Set(), equations: new Set() };
+  const sets = { arrows: new Set(), policyArrows: new Set(), cells: new Set(), tables: new Set(), bars: new Set(), equations: new Set() };
   const texts = new Set();
   const unknown = new Set();
   const addText = (value) => {
@@ -198,7 +203,11 @@ function collect(scene, text, title) {
 
   // A box is a drawn tile, a grid cell is a drawn cell: both count as cells.
   for (const box of scene.boxes || []) sets.cells.add(`box|${JSON.stringify(box)}`);
-  for (const [gi, grid] of (scene.grids || []).entries()) {
+  // A policy field is arrows drawn inside cells: both facts, from one object.
+  for (const [pi, item] of (scene.policy || []).entries()) {
+    sets.arrows.add(`policy|${pi}|${JSON.stringify(item)}`);
+    sets.policyArrows.add(`policy|${pi}|${JSON.stringify(item)}`);
+  }  for (const [gi, grid] of (scene.grids || []).entries()) {
     for (const [ri, row] of (grid.rows || []).entries()) {
       for (const [ci, cell] of (row || []).entries()) sets.cells.add(`cell|${gi}|${ri},${ci}|${JSON.stringify(cell)}`);
     }
@@ -255,6 +264,7 @@ function used(value) {
 function counts(collected) {
   return {
     arrows: collected.sets.arrows.size,
+    policyArrows: collected.sets.policyArrows.size,
     cells: collected.sets.cells.size,
     tables: collected.sets.tables.size,
     bars: collected.sets.bars.size,
@@ -264,7 +274,7 @@ function counts(collected) {
 }
 
 function unionOf(collected) {
-  const sets = { arrows: new Set(), cells: new Set(), tables: new Set(), bars: new Set(), equations: new Set() };
+  const sets = { arrows: new Set(), policyArrows: new Set(), cells: new Set(), tables: new Set(), bars: new Set(), equations: new Set() };
   const texts = new Set();
   const unknown = new Set();
   for (const c of collected) {
