@@ -34,6 +34,8 @@ const staticVersion = (() => {
   const files = [
     join(VIEW_DIR, "app.css"),
     join(VIEW_DIR, "app.js"),
+    join(VIEW_DIR, "book.css"),
+    join(VIEW_DIR, "book.js"),
     join(KIT_DIR, "kit.css"),
     join(KIT_DIR, "kit.js"),
   ];
@@ -999,6 +1001,7 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
 <link rel="icon" href="${prefix}favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="${prefix}kit/kit.css?v=${staticVersion}">
 <link rel="stylesheet" href="${prefix}app.css?v=${staticVersion}">
+<link rel="stylesheet" href="${prefix}book.css?v=${staticVersion}">
 ${scripts}
 <script src="${prefix}kit/theme.js?v=${staticVersion}"></script>
 </head>
@@ -1010,6 +1013,7 @@ ${scripts}
 <script src="${prefix}kit/kit.js?v=${staticVersion}"></script>
 <script src="${prefix}math.js?v=${staticVersion}"></script>
 <script src="${prefix}app.js?v=${staticVersion}"></script>
+<script src="${prefix}book.js?v=${staticVersion}"></script>
 </body>
 </html>
 `;
@@ -1057,6 +1061,11 @@ ${scripts}
     const rich = plan && richPage(dir, plan, partId);
     if (plan && rich) {
       let html = ensureNodeVideo(injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan)), token);
+      // A hand-built part page carries its own design, so it gets only the
+      // reading-mode assets: the book columns and the page-turn script. It runs
+      // after the body, because the script looks for the page it paginates.
+      const bookAssets = `<link rel="stylesheet" href="/${token}/book.css?v=${staticVersion}"><script src="/${token}/book.js?v=${staticVersion}"></script>`;
+      html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => bookAssets + "</body>") : html + bookAssets;
       const exercises = listExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId);
       if (exercises.length) {
         const escape = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -1456,7 +1465,7 @@ ${scripts}
     if (rest[0] === "kit" && rest.length >= 2) return kitFile(res, rest.slice(1).join("/"));
     if (rest.length === 2 && rest[0] === "api" && rest[1] === "quiz") return quizApi(res, url);
     if (rest.length === 2 && rest[0] === "borrador") return draftPage(res, rest[1]);
-    if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css" || rest[0] === "math.js" || rest[0] === "favicon.svg")) {
+    if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css" || rest[0] === "book.js" || rest[0] === "book.css" || rest[0] === "math.js" || rest[0] === "favicon.svg")) {
       return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])), { "cache-control": "no-cache" });
     }
     const [topic, second, ...more] = rest;

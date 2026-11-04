@@ -457,6 +457,11 @@ test('rich-page quiz: «No sé» hides confidence and a framed submit notifies t
   t.after(() => browser.close());
   const page = await browser.newPage();
   const result = await view({ topic: TOPIC, part: 'p1' });
+  // A hand-built page keeps its own design, so it gets the reading-mode assets
+  // and nothing else. Without them the book mode cannot paginate a rich part.
+  const served = await fetch(result.structuredContent.url).then((r) => r.text());
+  assert.match(served, /book\.css/);
+  assert.match(served, /book\.js/);
   await page.goto(base(result));
   await page.evaluate(url => {
     window.received = [];
