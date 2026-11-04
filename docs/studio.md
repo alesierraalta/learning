@@ -28,6 +28,20 @@ validates the exact aspect IDs and fields, and atomically replaces the file. It
 requires the same origin and JSON content type as the studio's other POSTs;
 invalid input returns 400 without changing the existing file.
 
+The list is no longer closed. When telemetry holds a category with at least
+three answers and an accuracy at or below 0.6, a dashed callout above the form
+offers what the learner's own answers suggest («Tu uso sugiere un refuerzo
+nuevo»).
+`GET api/preferences/candidatos` returns those categories, minus the ones the
+file already has; `POST api/preferences/descubrir` appends them as aspects after
+the seven shipped ones, so the page then shows the eighth with the badge
+«descubierto por tu uso» and its evidence («3 respuestas, 1 acierto»). A
+discovered aspect carries `origen: "telemetria"` and `evidencia: {respuestas,
+aciertos}`, so the reason travels with it and a save keeps both. `POST
+api/preferences/olvidar` with `{id}` removes it and leaves the seven shipped
+aspects — and their levels — as they were; those seven never show the badge or
+the button. Nothing is applied without the learner's click.
+
 ## Wide reading mode
 
 Every part page carries a **Modo ancho** toggle in its top-right corner. Off by

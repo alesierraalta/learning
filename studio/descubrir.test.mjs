@@ -75,6 +75,24 @@ test("discovering twice does not stack, and forgetting restores the seven", () =
   assert.equal(back.aspectos.find((a) => a.id === "texto").nivel, "menos");
 });
 
+test("a removed aspect does not come back while the counts still say so", () => {
+  const dir = root();
+  telemetry(dir, { derivadas: { total: 4, aciertos: 1, fallos: 3 } });
+  descubrir(dir);
+  const removed = olvidar(dir, "derivadas");
+  assert.deepEqual(removed.rechazados, ["derivadas"]);
+  // The learner said no: the same evidence must not undo that on the next run.
+  assert.equal(descubrir(dir).aspectos.length, 7);
+  assert.equal(readPreferences(dir).aspectos.length, 7);
+});
+
+test("a hand-edited refusal list that is not a list of ids is refused", () => {
+  const dir = root();
+  const base = readPreferences(dir);
+  assert.throws(() => savePreferences(dir, { version: 1, aspectos: base.aspectos, rechazados: [1] }), /invalid preferences/);
+  assert.throws(() => savePreferences(dir, { version: 1, aspectos: base.aspectos, rechazados: ["a", "a"] }), /invalid preferences/);
+});
+
 test("a shipped aspect cannot be forgotten", () => {
   const dir = root();
   assert.throws(() => olvidar(dir, "texto"), /a shipped aspect cannot be forgotten/);

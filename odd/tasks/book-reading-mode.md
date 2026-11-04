@@ -46,3 +46,10 @@ modo Libro. Y modo artículo como está actualmente.»
 
 L2 — Decision (2026-11-03): real column pagination with an animated horizontal
 slide, and `prefers-reduced-motion` respected. Not a fixed slice of markup.
+
+L3 — Done (2026-11-04): T1-T3 landed in `3ed144e` and `c0c9300`. The document
+paginates itself (`integrations/pi/view/app.css` columns + `app.js` gestures) and
+reports `{page, pages}` to the studio, which only says the mode and asks for a
+turn. Measured at 390x320: 4 pages, `scrollLeft` exactly one page per turn. On a
+phone the three modes moved into the overflow menu (the row belongs to the
+title); the row's contract test was updated to say so.

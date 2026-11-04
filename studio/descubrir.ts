@@ -50,9 +50,13 @@ export function candidatos(global: GlobalTelemetry): Candidato[] {
  */
 export function descubrir(root: string) {
   const preferences = readPreferences(root);
+  const refused = new Set(preferences.rechazados ?? []);
   const found: Aspecto[] = [];
   for (const candidate of candidatos(readGlobalTelemetry(root))) {
     if (preferences.aspectos.some((a) => a.id === candidate.id)) continue;
+    // A removed aspect stays removed: the counts did not change because the
+    // learner said no.
+    if (refused.has(candidate.id)) continue;
     found.push({
       id: candidate.id,
       titulo: candidate.titulo,
@@ -74,5 +78,6 @@ export function olvidar(root: string, id: string) {
   if (!item) throw new HttpError(404, "aspect not found");
   if (item.origen !== "telemetria") throw new HttpError(400, "a shipped aspect cannot be forgotten");
   const kept = preferences.aspectos.filter((a) => a.id !== id);
-  return savePreferences(root, { version: preferences.version, aspectos: kept });
+  const refused = [...new Set([...(preferences.rechazados ?? []), id])];
+  return savePreferences(root, { version: preferences.version, aspectos: kept, rechazados: refused });
 }

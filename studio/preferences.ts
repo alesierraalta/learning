@@ -22,6 +22,8 @@ export interface Aspecto {
 export interface Preferences {
   version: 1;
   aspectos: Aspecto[];
+  /** Aspects the learner removed: the evidence may still say they fail them. */
+  rechazados?: string[];
 }
 
 const defaults: Preferences = {
@@ -61,7 +63,12 @@ function isEvidence(value: unknown): value is Evidencia {
 function validate(value: unknown): Preferences {
   const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
   const keys = (v: Record<string, unknown>, expected: string[]) => Object.keys(v).length === expected.length && expected.every((k) => Object.hasOwn(v, k));
-  if (!record(value) || !keys(value, ["version", "aspectos"]) || value.version !== 1 || !Array.isArray(value.aspectos) || value.aspectos.length < defaults.aspectos.length) throw new HttpError(400, "invalid preferences");
+  const shape = record(value) && (keys(value, ["version", "aspectos"]) || keys(value, ["version", "aspectos", "rechazados"]));
+  if (!shape || value.version !== 1 || !Array.isArray(value.aspectos) || value.aspectos.length < defaults.aspectos.length) throw new HttpError(400, "invalid preferences");
+  if (value.rechazados !== undefined) {
+    const refused = value.rechazados;
+    if (!Array.isArray(refused) || refused.some((id) => typeof id !== "string" || !id.trim()) || new Set(refused).size !== refused.length) throw new HttpError(400, "invalid preferences");
+  }
   const seen = new Set<string>();
   for (const item of value.aspectos) {
     if (!record(item) || typeof item.id !== "string" || seen.has(item.id)) throw new HttpError(400, "invalid aspect");

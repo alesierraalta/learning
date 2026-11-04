@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { startStudio } from "./server.ts";
+import { defaultGlobalTelemetry, saveGlobalTelemetry } from "../integrations/pi/telemetry.ts";
+import { readPreferences } from "./preferences.ts";
 import { makeRoot } from "./testdata/root.mjs";
 
 const CANDIDATES = [
@@ -326,7 +328,9 @@ test("the reader bar is one row and its overflow menu holds the five actions (S1
   assert.equal(await more.getAttribute("aria-expanded"), "true");
   const menu = page.locator(".reader-menu");
   assert.equal(await menu.isVisible(), true);
-  assert.deepEqual((await menu.locator("button").allInnerTexts()).map((text) => text.trim()), ["Descargar para ver sin conexión", "Preguntar", "Sugerir", "Regenerar", "Borrar"]);
+  // The five actions, plus the reading mode: on a phone the three modes are
+  // reached here, because the row belongs to the title.
+  assert.deepEqual((await menu.locator("button").allInnerTexts()).map((text) => text.trim()), ["Descargar para ver sin conexión", "Preguntar", "Sugerir", "Regenerar", "Modo: art.", "Borrar"]);
   assert.equal(await page.evaluate(() => !!document.activeElement.closest?.(".reader-menu")), true, "the menu is not keyboard reachable");
 
   await page.keyboard.press("Escape");
@@ -1381,7 +1385,9 @@ test("the reader offers three modes and starts in the article one (S1, S4)", { s
   const { root, engine } = makeRoot();
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
   open.push(studio);
-  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 844 } }));
+  // The switch lives in the row where the row has room; a phone reaches the
+  // same three modes through the overflow menu.
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 800 } }));
   t.after(() => page.context().browser().close());
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
@@ -1407,11 +1413,12 @@ test("book mode paginates the part and turns one page at a time (S2, S5)", { ski
   // A short viewport, so the fixture part is longer than one page.
   const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 320 } }));
   t.after(() => page.context().browser().close());
-  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.addInitScript(() => {
+    localStorage.setItem("estudio.tutorial", "visto");
+    localStorage.setItem("learnings.reading-mode", "libro");
+  });
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
-  await page.waitForTimeout(400);
-  await page.getByRole("button", { name: "Libro", exact: true }).click();
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(700);
   const app = page.frameLocator("iframe.sheet").locator("#app");
   const pages = await app.evaluate((el) => Math.ceil(el.scrollWidth / el.clientWidth));
   assert.ok(pages > 1, `a long part has more than one page, got ${pages}`);
@@ -1447,11 +1454,12 @@ test("a page turn respects prefers-reduced-motion (S3)", { skip: browser ? false
   const context = await instance.newContext({ viewport: { width: 390, height: 320 }, reducedMotion: "reduce" });
   const page = await context.newPage();
   t.after(() => instance.close());
-  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.addInitScript(() => {
+    localStorage.setItem("estudio.tutorial", "visto");
+    localStorage.setItem("learnings.reading-mode", "libro");
+  });
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
-  await page.waitForTimeout(400);
-  await page.getByRole("button", { name: "Libro", exact: true }).click();
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(700);
   const app = page.frameLocator("iframe.sheet").locator("#app");
   const pages = await app.evaluate((el) => Math.ceil(el.scrollWidth / el.clientWidth));
   assert.ok(pages > 1, `a long part has more than one page, got ${pages}`);
@@ -1460,4 +1468,51 @@ test("a page turn respects prefers-reduced-motion (S3)", { skip: browser ? false
   await page.waitForTimeout(120);
   assert.equal(await app.evaluate((el) => el.scrollLeft), 390);
   assert.equal(await page.locator(".reader-page").innerText(), `2 / ${pages}`);
+});
+
+test("a discovered aspect is marked and reversible (S3)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  // The learner keeps failing `derivadas`: three answers, one right.
+  saveGlobalTelemetry(root, {
+    ...structuredClone(defaultGlobalTelemetry),
+    estadisticas_globales: {
+      total_quizzes: 0,
+      total_aciertos: 0,
+      total_fallos: 0,
+      por_categoria: { derivadas: { total: 3, aciertos: 1, fallos: 2 } },
+    },
+  });
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 800 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/preferencias`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "Preferencias" }).waitFor();
+  // What the answers suggest is offered above the form, never applied silently.
+  await page.getByText("Tu uso sugiere un refuerzo nuevo").waitFor();
+  await page.getByRole("button", { name: "Añadirlo" }).click();
+  const aspect = page.locator("fieldset.preference")
+    .filter({ hasText: "Refuerzo de derivadas" });
+  await aspect.getByText("descubierto por tu uso").waitFor();
+  await aspect.getByText("3 respuestas, 1 acierto").waitFor();
+  // It is a preference like the rest: it keeps its reason through a save.
+  assert.equal(readPreferences(root).aspectos.at(-1).origen, "telemetria");
+  await page.getByRole("button", { name: "Guardar preferencias" }).click();
+  await page.getByText("Preferencias guardadas").waitFor();
+  const saved = readPreferences(root).aspectos.at(-1);
+  assert.deepEqual(saved.evidencia, { respuestas: 3, aciertos: 1 });
+  const fits = () => document.documentElement.scrollWidth <= innerWidth;
+  assert.ok(await page.evaluate(fits));
+  // Removing it leaves the seven shipped aspects, none of them marked.
+  await aspect.getByRole("button", { name: "Quitar" }).click();
+  await page.waitForFunction(
+    () => document.querySelectorAll("fieldset.preference").length === 7,
+  );
+  assert.equal(await page.locator(".preference-badge").count(), 0);
+  assert.equal(readPreferences(root).aspectos.length, 7);
+  // Saying no is remembered: the counts still say the learner fails it, and the
+  // callout must not offer it again.
+  assert.equal(await page.locator(".preference-found").count(), 0);
+  assert.deepEqual(readPreferences(root).rechazados, ["derivadas"]);
 });

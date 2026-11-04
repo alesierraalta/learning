@@ -62,3 +62,11 @@ L3 — Correction (2026-11-04): S2 named `perfil_alumno.tendencias` as the sourc
 of the counts. It is not: a trend entry carries only `observacion`,
 `nivel_dificultad` and `accion_tutor`. The counts live in
 `estadisticas_globales.por_categoria`; S2 was rewritten to say so.
+
+L4 — Done (2026-11-04): T1-T3 landed. `studio/descubrir.ts` derives candidates
+from `estadisticas_globales.por_categoria`; `studio/preferences.ts` accepts an
+appended aspect only with `origen: "telemetria"` and its evidence, and keeps the
+seven shipped ones pinned; `olvidar` records the id in `rechazados`, so the same
+counts do not offer it again. The preferences page shows the callout, the badge
+and the evidence, and removes it. Tests: `studio/descubrir.test.mjs` 8 pass,
+`studio/layout.test.mjs` "a discovered aspect is marked and reversible (S3)".

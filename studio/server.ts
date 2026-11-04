@@ -39,6 +39,7 @@ import { resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
+import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, tutorContext, validateSugerencia } from "./sugerencias.ts";
 
@@ -622,6 +623,12 @@ ${scripts}
     switch (action) {
       case "api/preferences":
         return sendJson(res, 200, savePreferences(root, body));
+      case "api/preferences/descubrir":
+        return sendJson(res, 200, descubrir(root));
+      case "api/preferences/olvidar": {
+        if (!isRecord(body) || typeof body.id !== "string") throw new HttpError(400, "invalid aspect");
+        return sendJson(res, 200, olvidar(root, body.id));
+      }
       case "api/sugerencias":
         return sendJson(res, 200, recordSugerencia(root, body));
       case "api/regenerar": {
@@ -825,6 +832,11 @@ ${scripts}
         return sendJson(res, 200, await library());
       case "api/preferences":
         return sendJson(res, 200, readPreferences(root));
+      case "api/preferences/candidatos": {
+        const preferences = readPreferences(root);
+        const taken = new Set([...preferences.aspectos.map((a) => a.id), ...(preferences.rechazados ?? [])]);
+        return sendJson(res, 200, { candidatos: candidatos(readGlobalTelemetry(root)).filter((c) => !taken.has(c.id)) });
+      }
       case "api/sugerencias":
         return sendJson(res, 200, listSugerencias(root, {
           tema: url.searchParams.get("tema") ?? undefined,
