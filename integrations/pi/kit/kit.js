@@ -99,7 +99,9 @@
   });
   let diagramId = 0;
   define('lk-diagram', function () {
-    const spec = JSON.parse(this.querySelector('script[type="application/json"]').textContent);
+    let spec;
+    try { spec = JSON.parse(this.querySelector('script[type="application/json"]').textContent); }
+    catch (error) { throw new Error(`El diagrama tiene un JSON inválido: ${error.message}`); }
     const ns = 'http://www.w3.org/2000/svg';
     const svgEl = (tag, attrs, text) => {
       const n = document.createElementNS(ns, tag);
@@ -563,7 +565,8 @@
     if (!steps.length) throw new Error('El recorrido no tiene pasos');
     const stage = el('div', undefined, { class: 'lk-wt-stage' });
     const stageWidth = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[2]) || 1200;
-    stage.innerHTML = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth))).join(''), spec.viewBox || '0 0 1200 640');
+    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth))).join(''), spec.viewBox || '0 0 1200 640');
+    stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
     const captionTitle = el('strong');
     const captionText = el('p');
     const caption = el('div', undefined, { class: 'lk-wt-caption' });
