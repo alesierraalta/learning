@@ -24,6 +24,22 @@ export const KNOWN_SCENE_KEYS = new Set([
 const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const digit = /[0-9]/;
 
+// The narration is matched folded, so a term carrying its accent as a separate
+// code point makes the same promise as one carrying it precomposed. The map
+// takes a folded index back to the raw string, so a violation still quotes the
+// words the viewer heard.
+const fold = (s) => {
+  const chars = [];
+  const raw = [];
+  for (let i = 0; i < s.length; i++) {
+    for (const ch of norm(s[i])) {
+      chars.push(ch);
+      raw.push(i);
+    }
+  }
+  return { text: chars.join(""), raw };
+};
+
 // "todas las flechas" and phrases that bind one arrow to each cell. The
 // stronger rule subsumes "at least one arrow", so a plain `flecha` match inside
 // one of these phrases is not reported twice.
@@ -55,13 +71,13 @@ export const LEXICON = [
   },
   {
     id: "table",
-    pattern: /\btabla\b/gi,
+    pattern: /\btablas?\b/gi,
     requires: "a grid drawn with column headers",
     holds: (fact) => fact.tables >= 1,
   },
   {
     id: "numeral",
-    pattern: /\b(?:n[u\u00fa]meros?|cifras?)\b/gi,
+    pattern: /\b(?:numeros?|cifras?)\b/gi,
     requires: "a drawn label whose text contains a digit",
     holds: (fact) => fact.hasDigit,
   },
@@ -73,7 +89,7 @@ export const LEXICON = [
   },
   {
     id: "equation",
-    pattern: /\b(?:f[o\u00f3]rmulas?|ecuaci[o\u00f3]n(?:es)?)\b/gi,
+    pattern: /\b(?:formulas?|ecuacion(?:es)?)\b/gi,
     requires: "at least one equation is drawn",
     holds: (fact) => fact.equations >= 1,
   },
@@ -83,14 +99,18 @@ export const LEXICON = [
 // phrase verbatim so a violation can quote the words the viewer heard.
 export function promisesOf(narration) {
   const spoken = String(narration ?? "");
+  const folded = fold(spoken);
   const found = [];
   for (const entry of LEXICON) {
-    for (const match of spoken.matchAll(entry.pattern)) {
+    for (const match of folded.text.matchAll(entry.pattern)) {
+      const start = folded.raw[match.index];
+      const end = folded.raw[match.index + match[0].length - 1] + 1;
+      const phrase = spoken.slice(start, end);
       found.push({
         id: entry.id,
-        phrase: match[0],
-        term: match[0],
-        index: match.index,
+        phrase,
+        term: phrase,
+        index: start,
         perFrame: !!entry.perFrame,
         requires: entry.requires,
         holds: entry.holds,
