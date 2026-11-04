@@ -19,6 +19,7 @@ animate, because it wrote one PNG per reveal step with PIL.
 | Promise gate | `lib/promises.mjs`, `audit.mjs` | Refuses a beat whose words promise a drawing its frames do not have. |
 | Stage | `src/page/stage.js` | Draws frame `t`: a pure function of time, so a render is reproducible. |
 | Renderer | `render.mjs` | Headless Chromium → PNG frames → ffmpeg, plus the SRT. |
+| Migration | `migrate.mjs` | Turns a `render_part.py` spec into a first engine draft: narrations kept word for word, bullets drawn. |
 
 `frame(t)` is pure: no CSS transitions, no `requestAnimationFrame`, no clock.
 That is what makes the output deterministic and lets Playwright ask for any
@@ -157,3 +158,22 @@ The video keeps the page's contract: `final.mp4` + `final.srt` named
 `Parte N - <slug>.mp4|.srt` under the topic's `explicaciones/adjuntos/`. Copy
 both, then verify with `ffprobe` and a couple of extracted frames — the page
 player links by name, so the name must not change.
+
+## Coming from the old pipeline
+
+The `parts/*.json` on the vault were written for `render_part.py`, where a beat
+named a scene *type* (`formula`, `flow`, `chain`) and a list of bullets. This
+engine draws instead of naming, so there is no honest translation between them —
+but there is a starting point:
+
+```sh
+node tools/video/migrate.mjs --spec parts/parte1.json --out /tmp/parte1.draft.json
+```
+
+The draft keeps every narration word for word, because the audio is bound to it,
+and draws each beat's bullets as one state, so the draft validates and renders
+as it is. It invents no anchors: a draft changes its drawing once per beat, never
+on a spoken word. What no tool can do is say what the drawing should be — that is
+authoring — and each beat keeps `migratedFrom` with the old scene type and bullet
+count so the rewrite knows where it started. A spec that already has `visual` on
+some beats is refused instead of half merged.
