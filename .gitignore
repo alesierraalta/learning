@@ -9,3 +9,6 @@ scratch/
 
 # video engine scratch
 /tools/video/.cache/
+
+# Dependencias del plugin de Pi (manifiesto en integrations/pi)
+node_modules/

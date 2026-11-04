@@ -1,0 +1,10 @@
+{
+  "name": "learnings-pi-extension",
+  "private": true,
+  "type": "module",
+  "description": "The Learnings extension for Pi: bridge, telemetry and transcription",
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.5.0",
+    "typebox": "1.3.27"
+  }
+}
