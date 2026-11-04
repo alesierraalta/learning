@@ -188,3 +188,34 @@ test("scene.js loads before kit.js", () => {
     assert.ok(scene < kit, `${name} loads scene.js after kit.js`);
   }
 });
+
+// A deck can promise a policy field in words ("la fila de arriba apunta a la
+// derecha"). Without this the note drew nothing where the video drew nine arrows,
+// and the reader had to take the sentence on faith.
+test('a walkthrough deck draws one arrow per policy cell', { skip: !playwright && 'playwright not installed' }, async t => {
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const cells = [[20, 20], [120, 20], [20, 120], [120, 120]];
+  const spec = {
+    title: 'Campo de política',
+    viewBox: '0 0 320 200',
+    steps: [{
+      title: 'La política completa',
+      text: 'Cada casilla tiene su flecha fija.',
+      scene: {
+        boxes: cells.map(([x, y]) => ({ x, y, w: 80, h: 60, label: '', tone: 'slate' })),
+        policy: cells.map(([x, y], i) => ({ x, y, w: 80, h: 60, dir: i < 2 ? 'right' : 'up' })),
+      },
+    }],
+  };
+  await page.route('http://localhost:45679/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/kit.js') return route.fulfill({ contentType: 'text/javascript', body: readFileSync(join(KIT, 'kit.js'), 'utf8') });
+    if (path === '/scene.js') return route.fulfill({ contentType: 'text/javascript', body: readFileSync(join(KIT, 'scene.js'), 'utf8') });
+    return route.fulfill({ contentType: 'text/html', body: `<script src="/scene.js"></script><script src="/kit.js"></script><lk-walkthrough><script type="application/json">${JSON.stringify(spec)}</script></lk-walkthrough>` });
+  });
+  await page.goto('http://localhost:45679/');
+  const heads = await page.locator('svg path[marker-end]').count();
+  assert.equal(heads, 4, 'one arrow per cell, no more');
+});

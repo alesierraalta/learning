@@ -186,7 +186,19 @@ h3 { font-weight: 700; }
 
 /* ---------- reader ---------- */
 .reader { display: flex; flex-direction: column; height: calc(100vh - var(--topbar)); }
+/* The bar is the only height the sheet gives up: the reading surface is the
+   rest of .reader, so the document is never pushed under it. */
+.reader-head { position: relative; }
 .reader-bar { display: flex; align-items: center; gap: 12px; padding: 10px 26px; border-bottom: 2px solid var(--line); }
+/* The overflow trigger and its menu are the phone's; the desktop row keeps
+   every control visible and these two never take room. */
+.reader-bar .reader-more { display: none; }
+.reader-menu { position: absolute; right: 8px; top: calc(100% + 6px); z-index: 25; display: none; flex-direction: column; min-width: 240px; max-width: calc(100vw - 16px); padding: 6px; background: var(--paper); border: 2px solid var(--ink); border-radius: 8px; box-shadow: 8px 8px 0 rgba(15, 23, 42, .14); }
+.reader-menu button { display: flex; width: 100%; align-items: center; gap: 10px; padding: 9px 12px; border: 0; background: transparent; border-radius: 4px; cursor: pointer; text-align: left; font-weight: 700; font-size: .98rem; }
+.reader-menu button:hover:not(:disabled) { background: var(--soft); }
+.reader-menu button:focus-visible { background: var(--soft); outline: 3px solid var(--blue); outline-offset: -3px; }
+.reader-menu button:disabled { opacity: .45; cursor: default; }
+.reader-menu button svg { width: 17px; height: 17px; flex: none; }
 .reader-bar .title { flex: 1; min-width: 0; font-size: 1.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .reader-bar .title small { font-size: 1rem; color: var(--meta); margin-right: 12px; }
 .switch { display: inline-flex; border: 2px solid var(--ink); border-radius: 6px; overflow: hidden; }
@@ -318,15 +330,19 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
   .page { padding: 30px 18px 80px; }
   .part-row { grid-template-columns: 42px minmax(0, 1fr); }
   .part-row .row-actions { grid-column: 2; justify-content: flex-start; }
-  /* A whole title beside back, ask and delete; the format switch and the
-     previous/next arrows, when there are any, take the second row. */
-  .reader-bar { flex-wrap: wrap; gap: 0 6px; padding: 6px 10px; }
-  .reader-bar::after { content: ""; order: 1; flex-basis: 100%; height: 0; }
-  .reader-bar .nav, .reader-bar .switch { order: 2; margin-top: 6px; }
-  .reader-bar .title { font-size: 1.05rem; line-height: 1.25; white-space: normal; overflow: visible; overflow-wrap: anywhere; hyphens: auto; }
-  .reader-bar .title small { display: block; font-size: .8rem; margin: 0; }
-  .reader-bar .btn { min-width: 38px; min-height: 38px; justify-content: center; padding: 6px; }
+  /* One row, never two: back, the truncated title, the arrows while they fit
+     and the overflow trigger. The five actions live in the menu so the text
+     gets the screen; the title gives up width first, never a line. */
+  .reader-bar { flex-wrap: nowrap; gap: 4px; padding: 6px 8px; }
+  .reader-bar::after { content: none; }
+  .reader-bar .nav { margin-top: 0; flex: none; }
+  .reader-bar .reader-action { display: none; }
+  .reader-bar .title { font-size: .92rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; hyphens: none; }
+  .reader-bar .title small { display: none; }
+  .reader-bar .btn { min-width: 38px; min-height: 38px; justify-content: center; padding: 0; flex: none; }
   .reader-bar .btn .label { display: none; }
+  .reader-bar .reader-more { display: grid; flex: none; }
+  .reader-menu:not([hidden]) { display: flex; }
   .reader-bar .switch { flex: 1 1 auto; }
   .reader-bar .switch button { flex: 1; min-height: 34px; padding: 5px 8px; }
 }
