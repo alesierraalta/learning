@@ -40,13 +40,13 @@ de escenas que supere visualmente el bloque ASCII de ChatGPT.
 | ID | Tarea | Specs | Ruta | Commit |
 |---|---|---|---|---|
 | T1 | Documento de feature y rama | S1-S8 | — | `docs(odd): plan the visual v2 rework` |
-| T2 | `lk-scene`: componente de escena con el vocabulario de `scene.js` | S5 | inline | `feat(kit): render real scenes, not grey box grids` |
-| T3 | `tools/scene.mjs`: valida y previsualiza un spec de escena | S6 | inline | `feat(tools): validate and preview scene specs` |
-| T4 | `references/estandar-explicacion.md`: contrato canónico de tono | S2,S3,S4,S8 | inline | `docs(skill): make the approved explanation the tone contract` |
-| T5 | `references/visuales.md`: mapa ASCII → escena y barra de calidad | S5,S6 | inline | `docs(skill): replace the ASCII ban with a scene standard` |
-| T6 | `SKILL.md` adelgazado con el método puro como espina dorsal | S7 | inline | `docs(skill): thin the skill to the pure method` |
-| T7 | `docs/kit.md` y `docs/study-view-format.md` al día | S5,S7 | inline | `docs: document lk-scene and the new part structure` |
-| T8 | Verificación: una parte real renderizada, gate y captura | S1-S8 | inline | `test: pin the visual v2 rendering` |
+| T2 | `lk-scene`: componente de escena con el vocabulario de `scene.js` | S5,S6 | inline | `6fbca5c` |
+| T3 | ~~`tools/scene.mjs`: valida y previsualiza un spec de escena~~ (descartada: el ajuste de texto se mide en tiempo de pintado y `tools/deck-gate.mjs` ya bloquea desbordes; un validador estático duplicaría el gate) | S6 | — | — |
+| T4 | `references/estandar-explicacion.md`: contrato canónico de tono | S2,S3,S4,S8 | inline | fuera del repo (`~/.claude/skills/explicacion-interactiva/references/`) |
+| T5 | `references/visuales.md`: estándar de escenas, mapa ASCII → escena y barra de calidad | S5,S6 | inline | ídem T4 |
+| T6 | `SKILL.md` adelgazado: fuera el resumen y el gancho, `Ruta` obligatoria, escena como unidad visual, pipeline de video a `references/video-distill.md` | S1-S7 | inline | ídem T4 |
+| T7 | `docs/kit.md` al día con `lk-scene` y la regla de los 760; `docs/study-view-format.md` no requería cambios (no menciona geometría en texto) | S5,S7 | inline | ver commit de esta tarea |
+| T8 | Verificación: escenas renderizadas a 760 y `lk-walkthrough` sin regresión | S1-S8 | inline | evidencia en L5 |
 
 ## Log
 
@@ -67,3 +67,19 @@ de escenas que supere visualmente el bloque ASCII de ChatGPT.
   videos y el tutorial, y `lk-diagram` (`kit.js:101-135`, rejilla de cajas `190x70` gris `#475569`)
   que es lo que la página renderiza. La página usa el renderizador pobre; de ahí «están muy mal
   hechos».
+- **L4 (2026-11-04, tono canónico).** Las cuatro explicaciones aprobadas quedan completas, sin
+  retoques, en `references/ejemplo-aprobado.md` (81 KB) para imitar el tono; `estandar-explicacion.md`
+  destila su anatomía en diez movimientos y una lista de prohibiciones; `visuales.md` da los
+  tamaños exactos (760 de ancho, etiqueta 22, subtítulo 14, flecha 15, trazo 3), el mapa de cada
+  familia de `plain text` a su escena y la barra de calidad. `SKILL.md` pasa de prohibir el quiz a
+  exigirlo intercalado, de ocultar el plan a abrir con `## Ruta`, de granularidad atómica a texto
+  continuo, y de Mermaid vertical a escena; el estándar audiovisual queda como puntero a
+  `references/video-distill.md`.
+- **L5 (2026-11-04, verificación).** Las dos escenas se renderizaron al tamaño de la columna de
+  lectura y se revisaron a ojo: la etiqueta cae a 22 px, las dos flechas escalonan sus palabras
+  (`labelAt` 0.36 y 0.64) y el pie no toca la figura. El pase de ajuste compartido no rompió los
+  decks: `sql-parte-1.html` sigue mostrando 9 walkthroughs, 242 nodos de texto sellados con
+  `data-fit`, avance de paso correcto y cero errores de consola.
+- **L6 (2026-11-04, límite del entorno).** `~/documents/learning` no tiene `package.json`,
+  `tsconfig.json` ni `node_modules`, así que los errores de módulos externos de `telemetry.ts`,
+  `codevault.ts`, `coderun.ts` y `bridge.ts` son ambientales y previos a este trabajo; no se tocan.
