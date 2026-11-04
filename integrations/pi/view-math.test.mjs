@@ -49,3 +49,9 @@ test("the source of a formula can be restored when the renderer is missing", () 
   assert.equal(source({ display: true, tex: "a+b" }), "$$a+b$$");
   assert.equal(source({ display: false, tex: "a" }), "$a$");
 });
+
+test("the page global and the module export are the same object", () => {
+  const api = createRequire(import.meta.url)("./view/math.js");
+  assert.equal(globalThis.lkMath, api, "the browser global is what a script tag sees");
+  assert.equal(typeof api.render, "function");
+});
