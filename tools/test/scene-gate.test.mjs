@@ -73,3 +73,12 @@ test('una escena que no dibuja nada es un hallazgo, no un aprobado', async () =>
   assert.equal(code, 1, 'un JSON con la forma equivocada dibuja cero cosas y pasaba como bueno');
   assert.match(stdout, /empty-scene/);
 });
+
+test('una escena rota no esconde las demás notas', async () => {
+  const rota = note('rota.md', '<lk-scene title="roto">\n<script type="application/json">\n{ esto no es json }\n</script>\n</lk-scene>\n');
+  const buena = note('buena.md', scene({ boxes: [{ x: 20, y: 60, w: 120, h: 70, label: 'Uno', size: 7 }] }));
+  const { code, stdout } = await run([rota, buena]);
+  assert.equal(code, 1, 'una nota rota es un fallo, no una excusa para dejar de mirar');
+  assert.match(stdout, /rota\.md/, 'la nota rota se nombra');
+  assert.match(stdout, /text-too-small/, 'y la siguiente nota sí se midió');
+});

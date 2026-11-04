@@ -9,7 +9,7 @@
 // Uso: node tools/scene-gate.mjs <nota.md | directorio>
 // Sale 1 si encuentra algo, 0 si todas las escenas pasan.
 
-import { mkdtempSync, mkdirSync, cpSync, writeFileSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, cpSync, rmSync, writeFileSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
@@ -131,8 +131,12 @@ try {
         console.log(`${note}: escena ${i + 1}${scene.title ? ` — ${scene.title}` : ''}`);
         for (const p of scene.problems) console.log(`  ${p.kind}: ${p.text} (${p.detail})`);
       });
+    } catch (error) {
+      failures += 1;
+      console.log(`${note}: no se pudo dibujar (${String(error.message).split('\n')[0]})`);
     } finally {
       await page.close();
+      rmSync(dir, { recursive: true, force: true });
     }
   }
 } finally {
