@@ -18,7 +18,7 @@
 export const KNOWN_SCENE_KEYS = new Set([
   "grids", "sheets", "dashed", "panels", "bars", "boxes", "nodes", "gears",
   "packets", "arrows", "curves", "paths", "lines", "badges", "formulas", "labels",
-  "policy", "walls", "exits",
+  "policy", "walls", "exits", "hazards",
 ]);
 
 const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -252,8 +252,11 @@ function collect(scene, text, title) {
   const declared = Array.isArray(scene.walls) && Array.isArray(scene.exits);
   const hasPolicy = (scene.policy || []).length > 0;
   for (const box of scene.boxes || []) {
-    const kind = declared ? "cell" : labelKind(box.label);
-    if (kind === "robot") continue;
+    // The label is read whichever way the field states its walls, so both
+    // paths certify the same figure the same way. A tile the robot occupies is
+    // a cell like any other: the actor standing there does not remove the
+    // cell's action, and the arrow drawn on it is that action.
+    const kind = labelKind(box.label);
     sets.cells.add(`box|${JSON.stringify(box)}`);
     const at = `${box.x},${box.y}`;
     if (kind === "wall") sets.walls.add(`at|${at}`);
@@ -271,7 +274,7 @@ function collect(scene, text, title) {
   // A declaration is only honest if the cell it names is drawn, so a wall or an
   // exit that lands on nothing counts as misdeclared and fails the promise.
   const drawn = new Set((scene.boxes || []).map((b) => `${b.x},${b.y}`));
-  for (const kind of ["walls", "exits"]) {
+  for (const kind of ["walls", "exits", "hazards"]) {
     for (const [i, cell] of (scene[kind] || []).entries()) {
       sets[kind].add(`at|${cell.x},${cell.y}`);
       if (!drawn.has(`${cell.x},${cell.y}`)) sets.misdeclared.add(`${kind}|${i}`);
