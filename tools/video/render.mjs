@@ -50,7 +50,12 @@ async function main() {
 
   const work = resolve(args.work || join(HERE, ".cache/render"));
   const from = Number(args.from || 0);
-  const to = Number(args.to || plan.total);
+  // The length is only known after planning, so the window is checked here: a
+  // slice past the end used to render an empty part and call it success.
+  if (from >= plan.total) {
+    throw new Error(`--from ${args.from} is past the end of the part (${fmt(plan.total)}); there is no window to render`);
+  }
+  const to = Math.min(Number(args.to || plan.total), plan.total);
   await mkdir(work, { recursive: true });
   await writeFile(join(work, "plan.json"), JSON.stringify(plan, null, 1));
   const captions = sliceCues(plan.cues, from, to);
