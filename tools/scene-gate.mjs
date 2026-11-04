@@ -135,7 +135,7 @@ try {
       failures += 1;
       console.log(`${note}: no se pudo dibujar (${String(error.message).split('\n')[0]})`);
     } finally {
-      await page.close();
+      await page.close().catch(() => {});
       rmSync(dir, { recursive: true, force: true });
     }
   }
@@ -143,6 +143,11 @@ try {
   await browser.close();
 }
 
-console.log(!scenes ? 'sin escenas: no hay nada que medir' : failures ? `${failures} problema(s) en ${scenes} escena(s)` : `ok: ${scenes} escena(s) sin problemas`);
+const summary = failures
+  ? `${failures} problema(s) en ${scenes} escena(s)`
+  : scenes
+    ? `ok: ${scenes} escena(s) sin problemas`
+    : 'sin escenas: no hay nada que medir';
+console.log(summary);
 const code = unreadable ? 2 : failures ? 1 : 0;
 process.exit(code);

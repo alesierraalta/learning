@@ -82,3 +82,11 @@ test('una escena rota no esconde las demás notas', async () => {
   assert.match(stdout, /rota\.md/, 'la nota rota se nombra');
   assert.match(stdout, /text-too-small/, 'y la siguiente nota sí se midió');
 });
+
+test('cuando todo se rompe no se anuncia que no había nada que medir', async () => {
+  const rota = note('solo-rota.md', '<lk-scene title="roto">\n<script type="application/json">\n{ no es json }\n</script>\n</lk-scene>\n');
+  const { code, stdout } = await run([rota]);
+  assert.equal(code, 1);
+  assert.doesNotMatch(stdout, /nada que medir/, 'el resumen no puede sonar a aprobado cuando algo falló');
+  assert.match(stdout, /problema|no se pudo/i);
+});
