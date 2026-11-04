@@ -18,7 +18,7 @@
 export const KNOWN_SCENE_KEYS = new Set([
   "grids", "sheets", "dashed", "panels", "bars", "boxes", "nodes", "gears",
   "packets", "arrows", "curves", "paths", "lines", "badges", "formulas", "labels",
-  "policy",
+  "policy", "walls", "exits",
 ]);
 
 const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -55,13 +55,19 @@ export const LEXICON = [
   {
     id: "arrow-per-cell",
     pattern: ARROW_PER_CELL,
-    perFrame: true,
-    requires: "one frame draws an arrow for each of its cells",
-    // A drawn policy field is the picture this promise describes: arrows inside
-    // cells, at least three of them, so the viewer sees a field and not a
-    // single movement. A frame that draws cells but no field must match the
-    // count instead.
-    holds: (fact) => fact.policyArrows >= 3 || fact.arrows >= Math.max(1, fact.cells),
+    last: true,
+    requires:
+      "the finished field says which of its tiles are walls, exits and hazards, and puts one arrow on every remaining cell",
+    // "One arrow per cell" describes the finished figure, not every instant of
+    // the assembly that builds it, so it is read on the beat's last state. A
+    // wall, an exit and a hazard have no action to choose: the gate reads them
+    // from the labels the figure already draws, or from an explicit
+    // declaration, and refuses a field that does neither.
+    holds: (fact) =>
+      fact.policyDeclared &&
+      fact.misdeclared === 0 &&
+      (fact.declared || fact.unclassified === 0) &&
+      fact.policyArrows === fact.cells - fact.walls - fact.exits - fact.hazards,
   },
   {
     id: "cell",
@@ -111,7 +117,7 @@ export function promisesOf(narration) {
         phrase,
         term: phrase,
         index: start,
-        perFrame: !!entry.perFrame,
+        last: !!entry.last,
         requires: entry.requires,
         holds: entry.holds,
       });
@@ -134,7 +140,7 @@ export function drawnBy(beat, decks = []) {
   );
   const union = unionOf(collected);
   const frames = collected.map((c) => ({ ...counts(c), texts: [...c.texts], unknown: [...c.unknown] }));
-  return { frames, union, unknown: union.unknown };
+  return { frames, last: frames[frames.length - 1], union, unknown: union.unknown };
 }
 
 // Every claim the spec makes that its drawings do not answer, all of them.
@@ -153,9 +159,7 @@ export function audit(spec, decks = []) {
         violations.push(violation(si, bi, beat.title, promise.phrase, missing));
       };
       for (const promise of promises) {
-        const ok = promise.perFrame
-          ? drawn.frames.some((frame) => promise.holds(frame, promise))
-          : promise.holds(drawn.union, promise);
+        const ok = promise.holds(promise.last ? drawn.last : drawn.union, promise);
         if (!ok) report(promise, requiresOf(promise));
       }
       if (drawn.unknown.length) {
@@ -198,8 +202,28 @@ function framesOf(beat, decks) {
     : { scene: s, text: v.text || "", title: "" }));
 }
 
+// A tile that already carries a fixed label says what it is. These are the
+// words the warehouse deck draws on its own cells, not an inference: the gate
+// reads the figure the viewer reads.
+const ACTION_GLYPH = /^[\u2191\u2193\u2190\u2192]$/;
+const NUMBERISH = /^\d+(?:[.,]\d+)?$/;
+
+function labelKind(label) {
+  const word = String(label ?? "").trim();
+  // An unlabelled tile makes no claim: it is a plain cell. A label the gate
+  // cannot read does make one, and it is refused rather than ignored.
+  if (!word) return "cell";
+  if (word === "\u00d7" || word === "x" || word === "X") return "wall";
+  if (word === "+1") return "exit";
+  if (word === "\u22121" || word === "-1") return "hazard";
+  if (word === "R" || word === "robot") return "robot";
+  if (ACTION_GLYPH.test(word)) return "action";
+  if (NUMBERISH.test(word) || word === "?") return "cell";
+  return "unknown";
+}
+
 function collect(scene, text, title) {
-  const sets = { arrows: new Set(), policyArrows: new Set(), cells: new Set(), tables: new Set(), bars: new Set(), equations: new Set() };
+  const sets = { arrows: new Set(), policyArrows: new Set(), cells: new Set(), tables: new Set(), bars: new Set(), equations: new Set(), walls: new Set(), exits: new Set(), hazards: new Set(), misdeclared: new Set(), unclassified: new Set() };
   const texts = new Set();
   const unknown = new Set();
   const addText = (value) => {
@@ -222,11 +246,36 @@ function collect(scene, text, title) {
   for (const [kind, item] of arrowed) sets.arrows.add(`${kind}|${JSON.stringify(item)}`);
 
   // A box is a drawn tile, a grid cell is a drawn cell: both count as cells.
-  for (const box of scene.boxes || []) sets.cells.add(`box|${JSON.stringify(box)}`);
+  // A tile that already says what it is says it with its label, so a field that
+  // names its walls, exits and hazards that way needs no declaration in the
+  // spec. An explicit declaration wins: the author's statement is the figure.
+  const declared = Array.isArray(scene.walls) && Array.isArray(scene.exits);
+  const hasPolicy = (scene.policy || []).length > 0;
+  for (const box of scene.boxes || []) {
+    const kind = declared ? "cell" : labelKind(box.label);
+    if (kind === "robot") continue;
+    sets.cells.add(`box|${JSON.stringify(box)}`);
+    const at = `${box.x},${box.y}`;
+    if (kind === "wall") sets.walls.add(`at|${at}`);
+    else if (kind === "exit") sets.exits.add(`at|${at}`);
+    else if (kind === "hazard") sets.hazards.add(`at|${at}`);
+    else if (kind === "action") sets.policyArrows.add(`glyph|${at}`);
+    else if (kind === "unknown" && hasPolicy) sets.unclassified.add(`at|${at}:${String(box.label ?? "")}`);
+  }
   // A policy field is arrows drawn inside cells: both facts, from one object.
   for (const [pi, item] of (scene.policy || []).entries()) {
     sets.arrows.add(`policy|${pi}|${JSON.stringify(item)}`);
     sets.policyArrows.add(`policy|${pi}|${JSON.stringify(item)}`);
+  }
+
+  // A declaration is only honest if the cell it names is drawn, so a wall or an
+  // exit that lands on nothing counts as misdeclared and fails the promise.
+  const drawn = new Set((scene.boxes || []).map((b) => `${b.x},${b.y}`));
+  for (const kind of ["walls", "exits"]) {
+    for (const [i, cell] of (scene[kind] || []).entries()) {
+      sets[kind].add(`at|${cell.x},${cell.y}`);
+      if (!drawn.has(`${cell.x},${cell.y}`)) sets.misdeclared.add(`${kind}|${i}`);
+    }
   }  for (const [gi, grid] of (scene.grids || []).entries()) {
     for (const [ri, row] of (grid.rows || []).entries()) {
       for (const [ci, cell] of (row || []).entries()) sets.cells.add(`cell|${gi}|${ri},${ci}|${JSON.stringify(cell)}`);
@@ -271,7 +320,8 @@ function collect(scene, text, title) {
   // title of a deck step ("V(2,0) = +1,00") is on screen.
   for (const text of texts) if (text.includes("=")) sets.equations.add(`text|${text}`);
 
-  return { sets, texts, unknown };
+  const policyDeclared = !hasPolicy || declared || sets.unclassified.size === 0;
+  return { sets, texts, unknown, policyDeclared, declared };
 }
 
 function used(value) {
@@ -289,12 +339,19 @@ function counts(collected) {
     tables: collected.sets.tables.size,
     bars: collected.sets.bars.size,
     equations: collected.sets.equations.size,
+    walls: collected.sets.walls.size,
+    exits: collected.sets.exits.size,
+    hazards: collected.sets.hazards.size,
+    misdeclared: collected.sets.misdeclared.size,
+    unclassified: collected.sets.unclassified.size,
+    declared: collected.declared === true,
+    policyDeclared: collected.policyDeclared !== false,
     hasDigit: [...collected.texts].some((text) => digit.test(text)),
   };
 }
 
 function unionOf(collected) {
-  const sets = { arrows: new Set(), policyArrows: new Set(), cells: new Set(), tables: new Set(), bars: new Set(), equations: new Set() };
+  const sets = { arrows: new Set(), policyArrows: new Set(), cells: new Set(), tables: new Set(), bars: new Set(), equations: new Set(), walls: new Set(), exits: new Set(), hazards: new Set(), misdeclared: new Set(), unclassified: new Set() };
   const texts = new Set();
   const unknown = new Set();
   for (const c of collected) {
@@ -302,6 +359,12 @@ function unionOf(collected) {
     for (const text of c.texts) texts.add(text);
     for (const key of c.unknown) unknown.add(key);
   }
-  const merged = { sets, texts, unknown };
+  const merged = {
+    sets,
+    texts,
+    unknown,
+    policyDeclared: collected.every((c) => c.policyDeclared !== false),
+    declared: collected.every((c) => c.declared === true),
+  };
   return { ...counts(merged), texts: [...texts], unknown: [...unknown] };
 }

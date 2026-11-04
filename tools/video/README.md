@@ -136,12 +136,20 @@ casilla` / `todas las flechas`, `casilla`/`celda`/`rejilla`, `tabla`, `número`,
 objects the stage paints, never from pixels, never from the narration, and a
 scene key the gate cannot read is surfaced instead of counted as nothing.
 
-Two boundaries are deliberate. Claims about one instant (`una flecha por
-casilla`, `todas las flechas`) are checked per frame, because a viewer who
-never sees the field was told about a picture that is not there. Subject nouns
-(`robot`, `puerta`, `charco`, `salida`) are not promises: they name the world
-the beat talks about, not the drawing, and a beat may discuss the robot over a
-chart without owing a picture of it.
+Two boundaries are deliberate. A claim about a finished field (`una flecha por
+casilla`, `todas las flechas`) is read on the beat's last state, not on every
+frame: a field that assembles itself is a picture, not a lie. What it must
+satisfy is the arithmetic — `policy` arrows count against `cells - walls -
+exits - hazards`. The gate reads those three from the labels the figure already
+draws (`×` wall, `+1` exit, `−1` hazard, `R` robot, an arrow glyph the action
+chosen there), so a field that names its tiles that way needs no declaration in
+the spec; an explicit `walls`/`exits` pair wins when a scene draws no labels. A
+label the gate cannot read fails in the open instead of shrinking the count, and
+a declared cell that lands on no drawn box fails too.
+
+Subject nouns (`robot`, `puerta`, `charco`, `salida`) are not promises: they
+name the world the beat talks about, not the drawing, and a beat may discuss
+the robot over a chart without owing a picture of it.
 
 ## Delivery
 
