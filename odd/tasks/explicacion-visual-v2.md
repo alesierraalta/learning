@@ -98,3 +98,15 @@ de escenas que supere visualmente el bloque ASCII de ChatGPT.
   2135 líneas sobre `origin/main`: muy por encima del corte de revisión de ~400. Queda pendiente la
   decisión del usuario sobre la estrategia de entrega (PR encadenados por unidad de trabajo), que
   no se toma sin su orden.
+- **L9 (2026-11-04, corte propuesto).** La rama mezcla dos sesiones: `2676dfc`, `a39ec49`,
+  `be831c5` y `4f678fc` son del trabajo de narración de video (los commiteó otra sesión sobre
+  `feat/video-narration-sync`, y esta rama nació de ahí); el resto es el trabajo visual. Corte de
+  revisión propuesto, de menos a más riesgo, cada uno revisable solo:
+  1. escenas en el kit — `6fbca5c`, `2d1128d`, `f41d120`, `5f8e4a4`, `fb79f1c`;
+  2. los dos gates y lo que encontraron — `d8467e9`, `ac54ea7`, `4fa456d`, `8a01e63`, `cc3f074`,
+     `f2136bf`, `4094d3f`;
+  3. notas en el repositorio — `d18011c`;
+  4. manifiesto del plugin — `43c90a7`;
+  5. narración de video, de la otra sesión — `2676dfc`, `a39ec49`, `be831c5`, `4f678fc`.
+  Reordenar los commits significa reescribir una rama compartida con otra sesión activa, así que
+  no se hace sin orden explícita del usuario.
