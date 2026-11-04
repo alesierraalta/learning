@@ -9,6 +9,15 @@
   }
   const base = CONFIG.base;
 
+  // The three ways to read a part. The article layout is the default; the
+  // choice is kept on the device, like the document's own wide-reading key.
+  const READING_MODE_KEY = "learnings.reading-mode";
+  const READING_MODES = [
+    ["articulo", "Art.", "Artículo"],
+    ["ancho", "Ancho", "Ancho"],
+    ["libro", "Libro", "Libro"],
+  ];
+
   // ---------- small DOM kit ----------
   const ICONS = {
     back: '<path d="M15 18l-6-6 6-6"/>',
@@ -1324,6 +1333,15 @@
         : null,
     ].filter(Boolean);
 
+    // Three reading modes, and the choice belongs to this device, like the
+    // wide-reading key the document keeps for itself.
+    let readingMode = localStorage.getItem(READING_MODE_KEY);
+    if (!READING_MODES.some(([id]) => id === readingMode)) readingMode = "articulo";
+    const modeButtons = READING_MODES.map(([id, short, full]) =>
+      h("button", { type: "button", title: full, "aria-label": full, "aria-pressed": String(id === readingMode), onclick: () => applyMode(id) }, short),
+    );
+    const modeSwitch = h("div", { class: "switch reader-mode", role: "group", "aria-label": "Modo de lectura" }, modeButtons);
+
     // The phone menu: a positioned list, closed by Escape or a click outside.
     let closeMenu = () => {};
     const menu = h(
@@ -1393,9 +1411,28 @@
       prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost nav", "back") : null,
       next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost nav", "next") : null,
       ...actions.filter((action) => !action.save).map(actionButton),
+      modeSwitch,
       moreButton,
     );
-    stage.replaceChildren(h("div", { class: "reader" }, h("div", { class: "reader-head" }, bar, menu), h("div", { class: "sheet-wrap" }, frame)));
+    const pageLabel = h("span", { class: "reader-page" }, "1 / 1");
+    const pagePrev = h("button", { class: "icon-btn", type: "button", "aria-label": "Página anterior", title: "Página anterior", onclick: () => turnPage(-1) }, icon("back"));
+    const pageNext = h("button", { class: "icon-btn", type: "button", "aria-label": "Página siguiente", title: "Página siguiente", onclick: () => turnPage(1) }, icon("next"));
+    const pageBar = h("div", { class: "reader-pages", hidden: true }, pagePrev, pageLabel, pageNext);
+    const reader = h("div", { class: "reader" }, h("div", { class: "reader-head" }, bar, menu), h("div", { class: "sheet-wrap" }, frame, pageBar));
+    stage.replaceChildren(reader);
+    function applyMode(id) {
+      readingMode = id;
+      try { localStorage.setItem(READING_MODE_KEY, id); } catch { /* private mode */ }
+      reader.classList.toggle("book", id === "libro");
+      reader.classList.toggle("wide", id === "ancho");
+      pageBar.hidden = id !== "libro";
+      READING_MODES.forEach(([mode], i) => modeButtons[i].setAttribute("aria-pressed", String(mode === id)));
+      frame.contentWindow?.postMessage({ type: "learning-reading-mode", mode: id }, "*");
+    }
+    applyMode(readingMode);
+    // The document registers its listener while loading, so the mode is said again
+    // once the frame has one.
+    frame.addEventListener("load", () => applyMode(readingMode));
     try {
       const query = new URLSearchParams(quick ? { quick: quickId } : { topic: topicId, ...(part ? { part } : {}) });
       const data = await request(`api/view?${query}`);
@@ -1425,6 +1462,14 @@
     }
   }
 
+  // ---------- reading modes ----------
+  // The frame owns the page: it is the only side that can measure itself, so the
+  // studio only says which mode it wants and asks for a turn.
+  function turnPage(delta) {
+    const frame = document.querySelector(".reader.book iframe.sheet");
+    frame?.contentWindow?.postMessage({ type: "learning-page", delta }, "*");
+  }
+
   // ---------- results of a submitted quiz ----------
   // The reading frame announces a graded submission; the learner lands on its results
   // and watches the tutor read them until it is done, then goes on to the next step.
@@ -1432,6 +1477,17 @@
   let showResultsStatus = () => {};
   window.addEventListener("message", (event) => {
     const data = event.data;
+    if (data && data.type === "learning-book") {
+      const bar = document.querySelector(".reader-pages");
+      const frame = document.querySelector(".reader iframe.sheet");
+      if (!bar || !frame || event.source !== frame.contentWindow) return;
+      if (!Number.isInteger(data.page) || !Number.isInteger(data.pages)) return;
+      bar.querySelector(".reader-page").textContent = `${data.page} / ${data.pages}`;
+      const [prev, next] = bar.querySelectorAll("button");
+      prev.disabled = data.page <= 1;
+      next.disabled = data.page >= data.pages;
+      return;
+    }
     if (data && data.type === "learning:quick-quiz" && data.entry) {
       const frame = stage.querySelector("iframe.sheet");
       if (frame && event.source === frame.contentWindow) {

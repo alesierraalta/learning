@@ -37,6 +37,26 @@ remembered per browser, so it survives a reload and a studio restart; below 1080
 the text stays in one column even with the mode on. The video block and the
 mini-quiz are not affected: only the explanation text is a reading surface.
 
+## Modos de lectura del estudio
+
+La barra del lector ofrece tres modos, en un interruptor de tres botones:
+**Art.** (el de siempre, por defecto), **Ancho** y **Libro**. La elección se
+guarda en el navegador (`learnings.reading-mode`), así que volver a abrir la
+parte la conserva.
+
+En **Libro** la parte se pagina de verdad: una pantalla, una página, y la
+siguiente continúa donde terminó la anterior. Se pasa con los botones de la
+píldora flotante (`2 / 5`), con las flechas del teclado o con un deslizamiento
+horizontal sobre la página; en la primera y en la última el botón se detiene en
+vez de dar la vuelta. Con `prefers-reduced-motion: reduce` la página cambia sin
+animación y el contenido es el mismo.
+
+La página la mide el propio documento, que es el único lado que puede hacerlo:
+el estudio solo dice el modo y pide el giro, y el documento contesta en qué
+página está y cuántas hay. Por eso el modo ancho del documento (el de la
+sección anterior) y el modo Ancho del estudio son cosas distintas: el primero
+cambia la tipografía, el segundo le da al marco todo el ancho disponible.
+
 ## Tema oscuro
 
 The header's moon (or sun) button repaints the studio and every reader it opens.
