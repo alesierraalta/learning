@@ -85,6 +85,37 @@ three grid units between centers. `kind` is `box`, `agent`, `env`, `store`, or
 `decision`. Dimensions are SVG viewBox pixels; diagrams scale to the column.
 Use short labels and inspect the result for overlapping edges and text.
 
+`lk-scene` draws one figure the reader only has to look at, with the same vocabulary as a
+deck: two actors and the arrow between them, a chain, a contrast, a reparto, a black box.
+Reach for it when the idea has a shape but no sequence; it is not a substitute for the part's
+walkthrough. Declare it with a `viewBox` of 760 across and 1 unit ≈ 1 px inside it, because
+that is the reading column and the type then lands where it was authored. At the video's
+1728-wide canvas a 26-unit label renders at 14 px in the column and the figure reads as a
+caption, which is why the older wide diagrams looked wrong. Sizes that work: box label 22,
+sub 14 with `subDy` 22, arrow label 15, free annotation 14, arrow `width` 3, boxes
+196 × 110 at `y` 64, arrows at `y` 100 and 138. Stagger two parallel arrows with `labelAt`
+0.36 and 0.64 so their captions do not stack in one column. `integrations/pi/kit/examples/scene-intro-rl.html`
+is the worked example.
+
+Three rules keep a scene honest once it is in a page. Text never drops below 11 px on screen: when
+a label cannot fit, the pass stops at that floor, squeezes the glyph spacing and marks the stage
+with `data-overflow="1"`, so a compressed figure says so instead of going quiet. An arrow's label is
+measured against its own shaft — never the whole canvas — because words sized to the figure rather
+than to the arrow end up painted over the source box and the marker head. And the stage measures the
+column it occupies rather than the window (a container query), so a scene inside a narrow column
+keeps its scale and scrolls sideways instead of shrinking its type.
+
+```html
+<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 230","title":"Un paso del bucle",
+ "caption":"La acción viaja hacia el entorno; la recompensa y el estado nuevo vuelven.",
+ "scene":{"boxes":[{"x":8,"y":64,"w":196,"h":110,"label":"AGENTE","sub":"robot · batería 70 %","tone":"blue","rx":0,"size":22,"subSize":14,"subDy":22}],
+          "arrows":[{"x1":208,"y1":100,"x2":552,"y2":100,"label":"acción: aspirar","tone":"blue","labelSize":15,"width":3,"labelAt":0.36}]}}
+</script>
+</lk-scene>
+```
+
 `lk-walkthrough` is the deck's own visual language, step by step. **Every reading section gets
 one**: the figure carries the visual explanation and the prose keeps the detail, so a section
 without a figure is a gap. Each `scene` is the complete state that step shows, drawn with the

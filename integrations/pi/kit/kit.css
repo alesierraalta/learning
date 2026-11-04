@@ -284,3 +284,22 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
 .lk-walkthrough>.lk-wt-full { top: 12px; right: 12px; }
 .lk-walkthrough>.lk-title { max-width: 100%; }
 .lk-walkthrough:fullscreen, .lk-walkthrough:-webkit-full-screen { padding-top: 60px; }
+
+/* A scene that only has to be looked at. The drawing is the lesson, so the
+   figure owns the width it needs and the page scrolls rather than shrinking
+   a 26px label into something nobody can read. */
+lk-scene { display: block; margin: 30px 0; }
+lk-scene>.lk-title { display: block; margin-bottom: 12px; }
+lk-scene figure { margin: 0; }
+.lk-scene-stage { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; container-type: inline-size; }
+.lk-scene-stage svg { display: block; width: 100%; height: auto; }
+.lk-scene-caption { margin: 12px 0 0; font-size: .8rem; line-height: 1.55; color: rgba(15, 23, 42, .62); }
+/* La escena conserva su escala y hace scroll cuando no cabe. Se mide el hueco que
+   ocupa, no el ancho de la ventana: una parte puede vivir en una columna estrecha
+   dentro de una pantalla ancha. */
+@container (max-width: 700px) {
+  .lk-scene-stage svg { width: auto; min-width: 660px; }
+}
+@media (max-width: 720px) {
+  .lk-scene-caption { font-size: .74rem; }
+}

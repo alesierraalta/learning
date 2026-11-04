@@ -99,7 +99,9 @@
   });
   let diagramId = 0;
   define('lk-diagram', function () {
-    const spec = JSON.parse(this.querySelector('script[type="application/json"]').textContent);
+    let spec;
+    try { spec = JSON.parse(this.querySelector('script[type="application/json"]').textContent); }
+    catch (error) { throw new Error(`El diagrama tiene un JSON inválido: ${error.message}`); }
     const ns = 'http://www.w3.org/2000/svg';
     const svgEl = (tag, attrs, text) => {
       const n = document.createElementNS(ns, tag);
@@ -427,6 +429,7 @@
       out += S.box(b.x, b.y, b.w, b.h, b.label || '', {
         stroke: b.stroke || t.stroke, fill: b.fill || t.fill, color: b.color || t.color,
         size: b.size || 26, sub: b.sub || '', rx: b.rx ?? 10,
+        subDy: b.subDy ?? 30, subSize: b.subSize ?? 22,
       });
     }
     for (const n of scene.nodes || []) {
@@ -447,6 +450,11 @@
     for (const a of scene.arrows || []) {
       const color = tone(a.tone).stroke;
       const size = a.labelSize || 22;
+      // A figure drawn at the width of the reading column is a third of the
+      // video's canvas: at the video's 4-unit stroke the shaft and its head
+      // swallow a short arrow. The width travels with the arrow so a scene can
+      // say how heavy it should be.
+      const shaft = a.width || 4;
       const dx = a.x2 - a.x1, dy = a.y2 - a.y1;
       const len = Math.hypot(dx, dy) || 1;
       const vertical = Math.abs(dy) > Math.abs(dx) * 1.5;
@@ -455,31 +463,45 @@
       // shaft with the head. A short arrow has no room to cut, so the words move beside it.
       // The scene marker is 11 units across a 12-unit viewBox, with refX=10
       // and a 4-unit stroke: it extends 10 * 11 / 12 * 4 = 36.67 units backwards.
-      const headBack = 10 * 11 / 12 * 4;
-      const words = a.label ? Math.min(stageWidth - 30, a.label.length * size * 0.54 + 14) : 0;
+      const headBack = 10 * 11 / 12 * shaft;
+      const words = a.label ? Math.min(stageWidth - 30, a.label.length * size * 0.45 + 12) : 0;
       const cut = Math.min(len * 0.62, words);
       const captionRun = vertical ? size * 1.2 : words;
-      if (a.label && cut >= captionRun && cut > size * 1.2 && (len - cut) / 2 > headBack) {
+      // Where along the shaft the words sit. Two arrows running the same way
+      // stack their captions in one column and read as dashes; staggering them
+      // (0.35 and 0.65) puts each caption beside the side it belongs to.
+      const at = Math.min(0.88, Math.max(0.12, a.labelAt ?? 0.5));
+      const before = len * at - cut / 2;
+      const after = len * (1 - at) - cut / 2;
+      if (a.label && cut >= captionRun && cut > size * 1.2 && before > size * 0.6 && after > headBack) {
         const ux = dx / len, uy = dy / len;
         const half = cut / 2;
-        const midX = a.x1 + ux * (len / 2), midY = a.y1 + uy * (len / 2);
+        const midX = a.x1 + ux * len * at, midY = a.y1 + uy * len * at;
         const head = { x: midX + ux * half, y: midY + uy * half };
-        out += S.line(a.x1, a.y1, midX - ux * half, midY - uy * half, { color, dashedLine: !!a.dashed, arrow: false });
-        out += S.line(head.x, head.y, a.x2, a.y2, { color, dashedLine: !!a.dashed });
+        out += S.line(a.x1, a.y1, midX - ux * half, midY - uy * half, { color, dashedLine: !!a.dashed, arrow: false, width: shaft });
+        out += S.line(head.x, head.y, a.x2, a.y2, { color, dashedLine: !!a.dashed, width: shaft });
         out += S.lbl(midX + (vertical ? 0 : 0), midY + size * 0.36, a.label, {
           anchor: 'middle', color: tone(a.labelTone || a.tone).color, size,
           fit: vertical ? Math.max(1, 2 * Math.min(midX - 4, stageWidth - midX - 4)) : Math.max(1, cut - 14),
         });
       } else {
-        if (a.bend !== undefined) out += S.curve(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, bend: a.bend });
-        else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed });
+        if (a.bend !== undefined) out += S.curve(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, bend: a.bend, width: shaft });
+        else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, width: shaft });
         if (a.label) {
-          const midX = (a.x1 + a.x2) / 2, midY = (a.y1 + a.y2) / 2 - (a.bend === undefined ? 0 : Math.abs(dy) * 0.18);
-          const gap = 11 * 4 / 2 + 4;
+          const midY = (a.y1 + a.y2) / 2 - (a.bend === undefined ? 0 : Math.abs(dy) * 0.18);
+          const gap = 11 * shaft / 2 + 4;
           const left = Math.min(a.x1, a.x2) - gap, right = Math.max(a.x1, a.x2) + gap;
           const side = left - 4 > stageWidth - right - 4 ? -1 : 1;
-          const x = vertical ? (side > 0 ? right : left) : Math.max(15, Math.min(stageWidth - 15, midX));
-          const fit = vertical ? Math.max(1, side > 0 ? stageWidth - x - 4 : x - 4) : Math.max(1, 2 * Math.min(x - 4, stageWidth - x - 4));
+          // Las palabras pertenecen a la flecha, así que su ancho disponible es el
+          // tramo libre de su propio eje, sin la punta. Medirlas contra el ancho del
+          // escenario entero las dejaba dibujadas encima de la caja de salida y de
+          // la cabeza: el ajuste decía que cabían donde no cabían.
+          const dirX = Math.sign(dx) || 1;
+          const freeStart = a.x1 + dirX * 3;
+          const freeEnd = a.x2 - dirX * headBack;
+          const freeWidth = Math.max(1, Math.abs(freeEnd - freeStart));
+          const x = vertical ? (side > 0 ? right : left) : Math.max(15, Math.min(stageWidth - 15, (freeStart + freeEnd) / 2));
+          const fit = vertical ? Math.max(1, side > 0 ? stageWidth - x - 4 : x - 4) : Math.max(1, Math.min(freeWidth - 4, 2 * Math.min(x - 4, stageWidth - x - 4)));
           out += S.lbl(x, vertical ? midY + size * 0.36 : Math.min(a.y1, a.y2) - gap - size * 0.3, a.label, {
             anchor: vertical ? (side > 0 ? 'start' : 'end') : 'middle',
             color: tone(a.labelTone || a.tone).color,
@@ -493,6 +515,46 @@
     for (const l of scene.labels || []) out += S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 });
     return out;
   }
+  // No word may leave the box that holds it. Measuring the real glyphs is the
+  // only honest way: a character count said this deck fit while it overflowed.
+  // Shared by every figure on a page, stepped or still.
+  function fitSceneText(stage, { minPx = 0, flagOverflow = false } = {}) {
+    const S = window.LKScene;
+    // Un texto que se encoge hasta lo ilegible ya no explica nada: el suelo se
+    // declara en píxeles de pantalla y se traduce a unidades del lienzo. Cuando el
+    // suelo impide encajar el texto, la escena lo marca en vez de callarse.
+    const svg = stage.querySelector('svg');
+    const vbWidth = svg?.viewBox?.baseVal?.width || 0;
+    const svgWidth = svg ? svg.getBoundingClientRect().width : 0;
+    const unitFloor = minPx > 0 && vbWidth > 0 && svgWidth > 0 ? (minPx * vbWidth) / svgWidth : 0;
+    const groups = [...stage.querySelectorAll('[data-step]')];
+    const shown = groups.map((g) => g.style.display);
+    // A hidden text measures as zero, so the pass sees every step at once.
+    groups.forEach((g) => { g.style.display = ''; });
+    for (const text of stage.querySelectorAll('text[data-fit]')) {
+      const max = Number(text.dataset.fit);
+      const authored = Number(text.getAttribute('font-size')) || 22;
+      if (!(max > 0)) continue;
+      // El 2 % de margen evita que el redondeo subpíxel deje el suelo justo por
+      // debajo del mínimo que la escena promete.
+      const floor = Math.max(authored * 0.55, unitFloor * 1.02);
+      for (let tries = 0; tries < 4; tries++) {
+        const need = text.getComputedTextLength();
+        if (need <= max) break;
+        const size = Math.max(floor, (Number(text.getAttribute('font-size')) || authored) * (max / need) * 0.98);
+        text.setAttribute('font-size', S.f(size));
+        if (size === floor) break;
+      }
+      // Last resort: squeezing the glyphs is still better than spilling the box.
+      if (text.getComputedTextLength() > max) {
+        text.setAttribute('textLength', String(Math.round(max)));
+        text.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+        text.dataset.overflow = '1';
+        if (flagOverflow) stage.dataset.overflow = '1';
+      }
+    }
+    groups.forEach((g, i) => { g.style.display = shown[i]; });
+  }
   define('lk-walkthrough', function () {
     const S = window.LKScene;
     if (!S) throw new Error('Falta scene.js: no se puede dibujar el recorrido');
@@ -503,7 +565,8 @@
     if (!steps.length) throw new Error('El recorrido no tiene pasos');
     const stage = el('div', undefined, { class: 'lk-wt-stage' });
     const stageWidth = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[2]) || 1200;
-    stage.innerHTML = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth))).join(''), spec.viewBox || '0 0 1200 640');
+    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth))).join(''), spec.viewBox || '0 0 1200 640');
+    stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
     const captionTitle = el('strong');
     const captionText = el('p');
     const caption = el('div', undefined, { class: 'lk-wt-caption' });
@@ -547,34 +610,7 @@
     this.tabIndex = 0;
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
     this.append(full, stage, hint, bar, caption);
-    // No word may leave the box that holds it. Measuring the real glyphs is the
-    // only honest way: a character count said this deck fit while it overflowed.
-    const fitStage = () => {
-      const groups = [...stage.querySelectorAll('[data-step]')];
-      const shown = groups.map((g) => g.style.display);
-      // A hidden text measures as zero, so the pass sees every step at once.
-      groups.forEach((g) => { g.style.display = ''; });
-      for (const text of stage.querySelectorAll('text[data-fit]')) {
-        const max = Number(text.dataset.fit);
-        const authored = Number(text.getAttribute('font-size')) || 22;
-        if (!(max > 0)) continue;
-        const floor = authored * 0.55;
-        for (let tries = 0; tries < 4; tries++) {
-          const need = text.getComputedTextLength();
-          if (need <= max) break;
-          const size = Math.max(floor, (Number(text.getAttribute('font-size')) || authored) * (max / need) * 0.98);
-          text.setAttribute('font-size', S.f(size));
-          if (size === floor) break;
-        }
-        // Last resort: squeezing the glyphs is still better than spilling the box.
-        if (text.getComputedTextLength() > max) {
-          text.setAttribute('textLength', String(Math.round(max)));
-          text.setAttribute('lengthAdjust', 'spacingAndGlyphs');
-        }
-      }
-      groups.forEach((g, i) => { g.style.display = shown[i]; });
-    };
-    fitStage();
+    fitSceneText(stage);
     steps.forEach((_, i) => {
       const dot = button(String(i + 1), () => go(i));
       dot.className = 'lk-wt-dot';
@@ -604,5 +640,36 @@
       else if (event.key === 'ArrowLeft') { event.preventDefault(); go(index - 1); }
     });
     draw();
+  });
+
+  // One figure that only has to be looked at. Same vocabulary, same measuring
+  // pass as the walkthrough, without borrowing its step controls: a scene with
+  // nothing to step through should not pretend to have steps.
+  define('lk-scene', function () {
+    const S = window.LKScene;
+    if (!S) throw new Error('Falta scene.js: no se puede dibujar la escena');
+    let spec;
+    try { spec = JSON.parse(this.querySelector('script[type="application/json"]').textContent); }
+    catch (error) { throw new Error(`La escena tiene un JSON inválido: ${error.message}`); }
+    const viewBox = spec.viewBox || '0 0 1200 520';
+    const stageWidth = Number(viewBox.trim().split(/[\s,]+/)[2]) || 1200;
+    const stage = el('div', undefined, { class: 'lk-scene-stage' });
+    // Parsed as an SVG document, never assigned as HTML: the markup is ours and
+    // already escaped, but a figure has no business executing anything.
+    const parsed = new DOMParser().parseFromString(S.svg(walkScene(spec.scene || {}, stageWidth), viewBox), 'image/svg+xml');
+    if (parsed.querySelector('parsererror')) throw new Error('La escena no se pudo dibujar: SVG inválido');
+    stage.append(document.importNode(parsed.documentElement, true));
+    const svg = stage.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('role', 'img');
+      svg.setAttribute('aria-label', spec.title || 'Escena');
+    }
+    const figure = el('figure');
+    figure.append(stage);
+    if (spec.caption) figure.append(el('figcaption', spec.caption, { class: 'lk-scene-caption' }));
+    this.classList.add('lk-scene');
+    if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
+    this.append(figure);
+    fitSceneText(stage, { minPx: 11, flagOverflow: true });
   });
 })();

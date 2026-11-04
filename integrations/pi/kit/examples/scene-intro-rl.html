@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Escenas — la interacción agente-entorno</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<script src="../kit/scene.js" defer></script>
+<script src="../kit/kit.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Escenas</h1>
+
+<p>Referencia de dibujo para las partes: una escena por idea, dibujada con el vocabulario de
+<code>scene.js</code> y dimensionada al ancho de la columna de lectura. Reemplaza al bloque
+ASCII sin volver a él.</p>
+
+<h2>1. La interacción completa</h2>
+
+<p>El robot limpia. El entorno responde. En el medio pasan dos cosas que no son lo mismo:
+la acción que sale y la consecuencia que vuelve.</p>
+
+<lk-scene>
+<script type="application/json">
+{
+  "viewBox": "0 0 760 230",
+  "title": "Un paso del bucle",
+  "caption": "La acción viaja hacia el entorno; la recompensa y el estado nuevo vuelven. Después del paso: sala limpia, batería 68 %.",
+  "scene": {
+    "boxes": [
+      { "x": 8, "y": 64, "w": 196, "h": 110, "label": "AGENTE", "sub": "robot · batería 70 %", "tone": "blue", "rx": 0, "size": 22, "subSize": 14, "subDy": 22 },
+      { "x": 556, "y": 64, "w": 196, "h": 110, "label": "ENTORNO", "sub": "casa · sala sucia", "tone": "green", "rx": 0, "size": 22, "subSize": 14, "subDy": 22 }
+    ],
+    "arrows": [
+      { "x1": 208, "y1": 100, "x2": 552, "y2": 100, "label": "acción: aspirar", "tone": "blue", "labelSize": 15, "width": 3, "labelAt": 0.36 },
+      { "x1": 552, "y1": 138, "x2": 208, "y2": 138, "label": "recompensa +10", "tone": "green", "labelSize": 15, "width": 3, "labelAt": 0.64 }
+    ]
+  }
+}
+</script>
+</lk-scene>
+
+<p>El robot no controla la consecuencia. Elige la acción, y el entorno decide qué ocurre
+después. Ese reparto es todo el problema.</p>
+
+<h2>2. Las dos salidas del mismo paso</h2>
+
+<p>Un paso entrega dos cosas distintas, y confundirlas arruina el resto del tema.</p>
+
+<lk-scene>
+<script type="application/json">
+{
+  "viewBox": "0 0 760 240",
+  "title": "Qué vuelve en cada paso",
+  "caption": "La recompensa se cobra una vez; el estado nuevo abre las decisiones que vienen.",
+  "scene": {
+    "boxes": [
+      { "x": 300, "y": 76, "w": 160, "h": 96, "label": "un paso", "sub": "s → a → s nuevo", "tone": "ink", "rx": 0, "size": 20, "subSize": 13, "subDy": 20 }
+    ],
+    "arrows": [
+      { "x1": 294, "y1": 124, "x2": 90, "y2": 124, "label": "recompensa r", "tone": "amber", "labelSize": 15, "width": 3 },
+      { "x1": 466, "y1": 124, "x2": 670, "y2": 124, "label": "estado nuevo", "tone": "blue", "labelSize": 15, "width": 3 }
+    ],
+    "labels": [
+      { "x": 192, "y": 190, "text": "se cobra una vez", "size": 14, "tone": "amber" },
+      { "x": 568, "y": 190, "text": "abre la siguiente decisión", "size": 14, "tone": "blue" }
+    ]
+  }
+}
+</script>
+</lk-scene>
+
+<p>La recompensa es un número que se cobra una sola vez. El estado es la posición desde la
+que se decide lo siguiente. Por eso un valor puede ser alto aunque la recompensa de este paso
+sea cero.</p>
+
+</main>
+</body>
+</html>
