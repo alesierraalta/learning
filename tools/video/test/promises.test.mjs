@@ -35,7 +35,7 @@ test("a frame that says 'todas las flechas' but draws one arrow is a violation n
   assert.equal(violations.length, 1);
   assert.equal(violations[0].phrase, "todas las flechas");
   assert.equal(violations[0].beat, 0);
-  assert.match(violations[0].missing, /arrow for each of its cells/);
+  assert.match(violations[0].missing, /arrow for each remaining cell/);
   assert.match(formatViolation(violations[0]), /^section 0 · beat "T0 a T3" · says "todas las flechas" · draws nothing that answers it/);
 });
 
@@ -78,6 +78,9 @@ test("a beat whose frame draws what it says passes", () => {
         scene: {
           grids: [grid(["casilla", "valor"], [["puerta", "0,0"], ["robot", "1,0"]])],
           arrows: arrows(4),
+          policy: [0, 1, 2, 3].map((i) => ({ x: 16 + i * 40, y: 40, w: 36, h: 30, dir: "up" })),
+          walls: [],
+          exits: [],
         },
       }],
     }),
@@ -113,16 +116,25 @@ test("a policy field answers 'one arrow per cell' even when the cells are tiles"
       scenes: [{ scene }],
     }),
   ]);
-  assert.deepEqual(audit(spec(field(["right", "right", "right", "up", "up", "up"])), []), []);
-  const one = audit(spec({ boxes: boxes(12), arrows: arrows(1) }), []);
-  assert.equal(one.length, 1);
-  assert.match(one[0].missing, /arrow for each of its cells/);
+  const declared = { walls: [], exits: [] };
+  const full = field(Array(12).fill("up"));
+  Object.assign(full, declared);
+  assert.deepEqual(audit(spec(full), []), []);
+  const partial = audit(spec(field(["right", "right", "right", "up", "up", "up"])), []);
+  assert.equal(partial.length, 1);
+  assert.match(partial[0].missing, /arrow for each remaining cell/);
 });
 
 test("a scene key the gate cannot read is surfaced, never silently passed", () => {
   const spec = specOf([
     beatOf("Primitiva nueva", "La política dibuja una flecha por casilla en todo el campo.", {
-      scenes: [{ scene: { boxes: boxes(4), arrows: arrows(4), heatmap: { cells: [0, 1, 2, 3] } } }],
+      scenes: [{ scene: {
+        boxes: boxes(4),
+        policy: [0, 1, 2, 3].map((i) => ({ x: 16 + i * 40, y: 40, w: 36, h: 30, dir: "up" })),
+        walls: [],
+        exits: [],
+        heatmap: { cells: [0, 1, 2, 3] },
+      } }],
     }),
   ]);
   const violations = audit(spec, []);
