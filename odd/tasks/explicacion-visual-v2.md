@@ -83,3 +83,18 @@ de escenas que supere visualmente el bloque ASCII de ChatGPT.
 - **L6 (2026-11-04, límite del entorno).** `~/documents/learning` no tiene `package.json`,
   `tsconfig.json` ni `node_modules`, así que los errores de módulos externos de `telemetry.ts`,
   `codevault.ts`, `coderun.ts` y `bridge.ts` son ambientales y previos a este trabajo; no se tocan.
+- **L7 (2026-11-04, arquitectura).** El flujo de `tsp` declaraba dos dimensiones «not measured».
+  Las dos son límites del binario, no deudas de este repositorio: la sonda de calidad responde
+  `no adapter for javascript` y no expone bandera para registrar uno, y la sonda de arquitectura
+  responde `the change touched no Go file, so no import edge was judged` — solo lee imports de Go.
+  Un `.tsp-arch.json` aquí cambiaría un silencio por otro, así que se escribió, se validó y se
+  borró. En su lugar, `tools/arch-gate.mjs` juzga las capas que sí existen con cuatro reglas
+  medidas en el árbol, más dos clases de defecto que nadie más mira aquí (enlace relativo roto y
+  ciclo entre módulos). En su primera pasada encontró un ciclo real:
+  `bridge.ts → telemetry.ts → bridge.ts` por `HttpError`, una clase que viaja en ejecución. Se
+  rompió moviéndola a `errors.ts` (`f2136bf`), y el puente la sigue exportando. El gate vive en
+  `cc3f074`: 8 tests y 140 archivos con 0 hallazgos.
+- **L8 (2026-11-04, corte de entrega).** La rama `feat/explicacion-visual` llega a 17 commits y
+  2135 líneas sobre `origin/main`: muy por encima del corte de revisión de ~400. Queda pendiente la
+  decisión del usuario sobre la estrategia de entrega (PR encadenados por unidad de trabajo), que
+  no se toma sin su orden.
