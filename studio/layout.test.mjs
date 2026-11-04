@@ -1392,17 +1392,17 @@ test("the reader offers three modes and starts in the article one (S1, S4)", { s
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
   await page.waitForTimeout(300);
-  assert.deepEqual(await page.locator(".reader-mode button").allInnerTexts(), ["Art.", "Ancho", "Libro"]);
-  assert.equal(await page.locator('.reader-mode button[aria-pressed="true"]').innerText(), "Art.");
+  assert.deepEqual(await page.locator(".reader-mode option").allInnerTexts(), ["Art.", "Ancho", "Libro"]);
+  assert.equal(await page.locator(".reader-mode").inputValue(), "articulo");
   assert.equal(await page.locator(".reader-pages").isVisible(), false);
-  await page.getByRole("button", { name: "Libro", exact: true }).click();
+  await page.locator(".reader-mode").selectOption("libro");
   await page.waitForTimeout(400);
-  assert.equal(await page.locator('.reader-mode button[aria-pressed="true"]').innerText(), "Libro");
+  assert.equal(await page.locator(".reader-mode").inputValue(), "libro");
   assert.equal(await page.locator(".reader-pages").isVisible(), true);
   // The mode belongs to this device: opening the part again keeps it.
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(500);
-  assert.equal(await page.locator('.reader-mode button[aria-pressed="true"]').innerText(), "Libro");
+  assert.equal(await page.locator(".reader-mode").inputValue(), "libro");
   assert.equal(await page.locator(".reader-pages").isVisible(), true);
 });
 

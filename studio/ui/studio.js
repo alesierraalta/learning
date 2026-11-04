@@ -1333,10 +1333,14 @@
     // wide-reading key the document keeps for itself.
     let readingMode = localStorage.getItem(READING_MODE_KEY);
     if (!READING_MODES.some(([id]) => id === readingMode)) readingMode = "articulo";
-    const modeButtons = READING_MODES.map(([id, short, full]) =>
-      h("button", { type: "button", title: full, "aria-label": full, "aria-pressed": String(id === readingMode), onclick: () => applyMode(id) }, short),
+    // A native select, not three buttons: the row already carries five actions
+    // and the title, and three more buttons collapsed the title to zero width on
+    // a 1280 px bar whose font metrics differ from the machine that wrote this.
+    const modeSwitch = h(
+      "select",
+      { class: "reader-mode", "aria-label": "Modo de lectura", title: "Modo de lectura", onchange: (e) => applyMode(e.target.value) },
+      READING_MODES.map(([id, short, full]) => h("option", { value: id, title: full }, short)),
     );
-    const modeSwitch = h("div", { class: "switch reader-mode", role: "group", "aria-label": "Modo de lectura" }, modeButtons);
 
     const actions = [
       info?.written && mode !== "app"
@@ -1464,7 +1468,7 @@
       reader.classList.toggle("book", id === "libro");
       reader.classList.toggle("wide", id === "ancho");
       pageBar.hidden = id !== "libro";
-      READING_MODES.forEach(([mode], i) => modeButtons[i].setAttribute("aria-pressed", String(mode === id)));
+      modeSwitch.value = id;
       if (modeMenuItem) {
         const short = READING_MODES.find(([mode]) => mode === id)[1].toLowerCase();
         modeMenuItem.querySelector("span").textContent = `Modo: ${short}`;

@@ -672,8 +672,12 @@
     const page = Math.min(pages, Math.round(scroller.scrollLeft / width()) + 1);
     return { page, pages };
   };
+  // Only a book page talks to the studio: every other page load would post a
+  // message nobody asked for, and the frame's listeners are exact about what
+  // they accept.
   const tell = () => {
     if (window.parent === window) return;
+    if (!document.body.classList.contains("book")) return;
     window.parent.postMessage({ type: "learning-book", ...state() }, "*");
   };
   const turn = (delta) => {
