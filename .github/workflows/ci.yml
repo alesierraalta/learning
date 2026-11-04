@@ -78,8 +78,16 @@ jobs:
           module="$(npm root -g)/playwright/index.mjs"
           echo "PLAYWRIGHT_MODULE=$module" >> "$GITHUB_ENV"
 
+      # The video suites build their audio fixture with ffmpeg, and the engine
+      # cannot render without it. Running the suites for the first time is what
+      # found this: the step used to match no file, so it never needed it.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Adapter, studio and video suites
-        run: node --test integrations/pi/*.test.mjs studio/*.test.mjs tools/video/*.test.mjs
+        run: |
+          node --test integrations/pi/*.test.mjs studio/*.test.mjs \
+            tools/video/test/*.test.mjs
 
   # A broken deploy script only shows up when it runs, which for update.sh is
   # after the merge: it has already pulled over the live tree by then. This
