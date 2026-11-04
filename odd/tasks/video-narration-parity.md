@@ -45,3 +45,14 @@ Branch: feat/video-narration-parity · Delivery: ask-on-risk · Runner: `node --
 - L20 (decision, T3 revision 2 — supersedes the "must declare walls and exits" half of L15, kept as history): the peer measured the deck and showed that the spec needs no change, because the figure already says what each tile is. `lib/promises.mjs` now classifies a tile by the label it draws — `×` wall, `+1` exit, `−1` hazard, `R` robot, `/^[↑↓←→]$/` an action drawn in the tile, digits or `?` a plain cell, an absent label a plain cell — and counts `policyArrows === cells - walls - exits - hazards`. An explicit `walls`/`exits` pair stays authoritative for scenes that draw no labels, a label the gate cannot read fails in the open, and a declared cell that lands on no drawn box still fails. Measured on the real deck: 12 tiles, one wall, one exit, one hazard, nine glyphs at the last state — `9 === 9`.
 - L21 (evidence, L20): `tools/video/test/promises-gaps.test.mjs` holds four more cases — the labelled warehouse passes without declarations, five of its nine arrows fails, an action drawn as a glyph inside its own tile counts as the arrow, and a tile labelled `norte` fails. `node --test tools/video/test/*.test.mjs` → 43 tests, 42 pass, 0 fail, 1 skip. `node tools/video/audit.mjs --spec tools/video/parts/parte3.json --note tools/video/.cache/parte3/note.md` → `22 beats, 24 promises, all drawn`.
 - L22 (lesson, CI, second round): with the glob in place the suites ran for the first time on the runner and failed on `spawnSync ffmpeg ENOENT` — `tools/video/test/cli.test.mjs:23` synthesizes a silent mp3 for its fixture, and the engine cannot render without ffmpeg. The step matched no file before, so nothing ever needed it there. Fixed with an `Install ffmpeg` step in `.github/workflows/ci.yml` (`19f8abc`). This is the cost of a silent green: two environment assumptions were hidden behind a glob that matched nothing.
+
+L23 — TSP sobre la aritmética de `arrow-per-cell` (2026-11-04). Tres defectos, plan
+en `odd/tsp/promise-gate-arithmetic-2026-11-04.md`: A) la casilla del robot se
+descontaba de `cells` pero su flecha seguía contando, así que un campo completo
+fallaba; B) el camino declarado forzaba toda casilla a `"cell"`, ignoraba
+`hazards` y no lo conocía como clave, aunque su propio `requires` promete las tres
+clases; C) un término hablado que el léxico no conoce (hoy: "una acción por
+casilla") no promete nada, mientras que una clave de dibujo desconocida sí se
+reporta. A y B arreglados; C queda como deuda de diseño porque el arreglo angosto
+rechaza un beat legítimo: la frase define la política sobre tres cajas, no describe
+un campo dibujado.
