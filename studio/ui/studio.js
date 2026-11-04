@@ -9,6 +9,15 @@
   }
   const base = CONFIG.base;
 
+  // The three ways to read a part. The article layout is the default; the
+  // choice is kept on the device, like the document's own wide-reading key.
+  const READING_MODE_KEY = "learnings.reading-mode";
+  const READING_MODES = [
+    ["articulo", "Art.", "Artículo"],
+    ["ancho", "Ancho", "Ancho"],
+    ["libro", "Libro", "Libro"],
+  ];
+
   // ---------- small DOM kit ----------
   const ICONS = {
     back: '<path d="M15 18l-6-6 6-6"/>',
@@ -487,9 +496,42 @@
     const page = h("div", { class: "page preferences-page" }, h("header", { class: "editor-head" }, h("span", { class: "tag" }, "Configuración"), h("h1", {}, "Preferencias"), h("p", { class: "muted" }, "Elige cómo prefieres que te expliquen.")), status);
     stage.replaceChildren(page);
     try {
-      const data = await request("api/preferences");
+      // The file is what the learner chose; the candidates are what their own
+      // answers suggest. The second is offered, never applied on its own.
+      const [data, found] = await Promise.all([
+        request("api/preferences"),
+        request("api/preferences/candidatos").then((r) => r.candidatos ?? []).catch(() => []),
+      ]);
       if (!page.isConnected) return;
       status.textContent = "";
+      const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+      const evidence = (e) => `${count(e.respuestas, "respuesta", "respuestas")}, ${count(e.aciertos, "acierto", "aciertos")}`;
+      // Both buttons change the file and then the page follows it.
+      const change = async (button, run, failure) => {
+        button.disabled = true;
+        try { await run(); render(); }
+        catch (error) { button.disabled = false; status.textContent = `${failure}: ${error.message}`; }
+      };
+      if (found.length) {
+        const one = found.length === 1;
+        const add = h("button", { class: "btn small", type: "button", onclick: () => change(add, () => post("api/preferences/descubrir", {}), "No se pudo añadir") }, one ? "Añadirlo" : "Añadirlos");
+        page.append(h("aside", { class: "preference-found", "aria-label": "Lo que sugiere tu uso" },
+          h("p", {}, one ? "Tu uso sugiere un refuerzo nuevo" : `Tu uso sugiere ${found.length} refuerzos nuevos`),
+          h("p", { class: "muted" }, found.map((c) => c.titulo).join(" · ")),
+          add));
+      }
+      const field = (aspect) => {
+        const discovered = aspect.origen === "telemetria";
+        const quit = discovered ? h("button", { class: "btn small ghost", type: "button", onclick: () => change(quit, () => post("api/preferences/olvidar", { id: aspect.id }), "No se pudo quitar") }, "Quitar") : null;
+        return h("fieldset", { class: "preference" },
+          h("legend", {}, aspect.titulo, discovered ? h("span", { class: "preference-badge" }, "descubierto por tu uso") : null),
+          h("p", { class: "muted" }, aspect.descripcion),
+          discovered ? h("p", { class: "preference-evidence" }, evidence(aspect.evidencia)) : null,
+          h("div", { class: "preference-levels" }, ["menos", "medio", "más"].map((level) => h("label", {},
+            h("input", { type: "radio", name: aspect.id, value: level, checked: aspect.nivel === level, onchange: () => { aspect.nivel = level; status.textContent = ""; } }), level))),
+          quit ? h("div", { class: "preference-actions" }, quit) : null,
+        );
+      };
       const save = h("button", { class: "btn primary", type: "submit" }, "Guardar preferencias");
       const form = h("form", { class: "preferences-form", onsubmit: async (event) => {
         event.preventDefault();
@@ -500,11 +542,7 @@
           status.textContent = "Preferencias guardadas";
         } catch (error) { status.textContent = `No se pudo guardar: ${error.message}`; }
         finally { save.disabled = false; }
-      } }, data.aspectos.map((aspect) => h("fieldset", { class: "preference" },
-        h("legend", {}, aspect.titulo), h("p", { class: "muted" }, aspect.descripcion),
-        h("div", { class: "preference-levels" }, ["menos", "medio", "más"].map((level) => h("label", {},
-          h("input", { type: "radio", name: aspect.id, value: level, checked: aspect.nivel === level, onchange: () => { aspect.nivel = level; status.textContent = ""; } }), level))),
-      )), save);
+      } }, data.aspectos.map(field), save);
       page.append(form);
     } catch (error) { if (page.isConnected) status.textContent = `No se pudieron cargar las preferencias: ${error.message}`; }
   }
@@ -1264,6 +1302,7 @@
       h("button", { class: cls, type: "button", onclick, "aria-label": label, title: label }, icon(iconName), h("span", { class: "label" }, label));
     let saveButton;
     let menuSave;
+    let modeMenuItem;
     const setSaveState = (label, disabled, iconName) => {
       if (seq !== readSeq || !saveButton.isConnected) return;
       saveButton.disabled = disabled;
@@ -1290,6 +1329,19 @@
     };
     // One definition per action, shared by the desktop row and the phone menu:
     // the menu can never drift from the row it replaces.
+    // Three reading modes, and the choice belongs to this device, like the
+    // wide-reading key the document keeps for itself.
+    let readingMode = localStorage.getItem(READING_MODE_KEY);
+    if (!READING_MODES.some(([id]) => id === readingMode)) readingMode = "articulo";
+    // A native select, not three buttons: the row already carries five actions
+    // and the title, and three more buttons collapsed the title to zero width on
+    // a 1280 px bar whose font metrics differ from the machine that wrote this.
+    const modeSwitch = h(
+      "select",
+      { class: "reader-mode", "aria-label": "Modo de lectura", title: "Modo de lectura", onchange: (e) => applyMode(e.target.value) },
+      READING_MODES.map(([id, short, full]) => h("option", { value: id, title: full }, short)),
+    );
+
     const actions = [
       info?.written && mode !== "app"
         ? { label: "Descargar para ver sin conexión", icon: "doc", cls: "btn small ghost", run: () => saveReaderPart(), save: true }
@@ -1306,6 +1358,13 @@
       info?.written
         ? { label: "Regenerar", icon: "refresh", cls: "btn small ghost", run: () => askSugerencia({ topic: topicId, part, title, regenerate: true }) }
         : null,
+      {
+        label: `Modo: ${READING_MODES.find(([id]) => id === readingMode)[1].toLowerCase()}`,
+        icon: "book",
+        cls: "btn small ghost",
+        mode: true,
+        run: () => applyMode(READING_MODES[(READING_MODES.findIndex(([id]) => id === readingMode) + 1) % READING_MODES.length][0]),
+      },
       quick || info
         ? {
             label: "Borrar",
@@ -1337,6 +1396,7 @@
           h("span", {}, action.label),
         );
         if (action.save) menuSave = item;
+        if (action.mode) modeMenuItem = item;
         return item;
       }),
     );
@@ -1392,10 +1452,33 @@
       saveAction ? actionButton(saveAction) : null,
       prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost nav", "back") : null,
       next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost nav", "next") : null,
-      ...actions.filter((action) => !action.save).map(actionButton),
+      ...actions.filter((action) => !action.save && !action.mode).map(actionButton),
+      modeSwitch,
       moreButton,
     );
-    stage.replaceChildren(h("div", { class: "reader" }, h("div", { class: "reader-head" }, bar, menu), h("div", { class: "sheet-wrap" }, frame)));
+    const pageLabel = h("span", { class: "reader-page" }, "1 / 1");
+    const pagePrev = h("button", { class: "icon-btn", type: "button", "aria-label": "Página anterior", title: "Página anterior", onclick: () => turnPage(-1) }, icon("back"));
+    const pageNext = h("button", { class: "icon-btn", type: "button", "aria-label": "Página siguiente", title: "Página siguiente", onclick: () => turnPage(1) }, icon("next"));
+    const pageBar = h("div", { class: "reader-pages", hidden: true }, pagePrev, pageLabel, pageNext);
+    const reader = h("div", { class: "reader" }, h("div", { class: "reader-head" }, bar, menu), h("div", { class: "sheet-wrap" }, frame, pageBar));
+    stage.replaceChildren(reader);
+    function applyMode(id) {
+      readingMode = id;
+      try { localStorage.setItem(READING_MODE_KEY, id); } catch { /* private mode */ }
+      reader.classList.toggle("book", id === "libro");
+      reader.classList.toggle("wide", id === "ancho");
+      pageBar.hidden = id !== "libro";
+      modeSwitch.value = id;
+      if (modeMenuItem) {
+        const short = READING_MODES.find(([mode]) => mode === id)[1].toLowerCase();
+        modeMenuItem.querySelector("span").textContent = `Modo: ${short}`;
+      }
+      frame.contentWindow?.postMessage({ type: "learning-reading-mode", mode: id }, "*");
+    }
+    applyMode(readingMode);
+    // The document registers its listener while loading, so the mode is said again
+    // once the frame has one.
+    frame.addEventListener("load", () => applyMode(readingMode));
     try {
       const query = new URLSearchParams(quick ? { quick: quickId } : { topic: topicId, ...(part ? { part } : {}) });
       const data = await request(`api/view?${query}`);
@@ -1425,6 +1508,14 @@
     }
   }
 
+  // ---------- reading modes ----------
+  // The frame owns the page: it is the only side that can measure itself, so the
+  // studio only says which mode it wants and asks for a turn.
+  function turnPage(delta) {
+    const frame = document.querySelector(".reader.book iframe.sheet");
+    frame?.contentWindow?.postMessage({ type: "learning-page", delta }, "*");
+  }
+
   // ---------- results of a submitted quiz ----------
   // The reading frame announces a graded submission; the learner lands on its results
   // and watches the tutor read them until it is done, then goes on to the next step.
@@ -1432,6 +1523,17 @@
   let showResultsStatus = () => {};
   window.addEventListener("message", (event) => {
     const data = event.data;
+    if (data && data.type === "learning-book") {
+      const bar = document.querySelector(".reader-pages");
+      const frame = document.querySelector(".reader iframe.sheet");
+      if (!bar || !frame || event.source !== frame.contentWindow) return;
+      if (!Number.isInteger(data.page) || !Number.isInteger(data.pages)) return;
+      bar.querySelector(".reader-page").textContent = `${data.page} / ${data.pages}`;
+      const [prev, next] = bar.querySelectorAll("button");
+      prev.disabled = data.page <= 1;
+      next.disabled = data.page >= data.pages;
+      return;
+    }
     if (data && data.type === "learning:quick-quiz" && data.entry) {
       const frame = stage.querySelector("iframe.sheet");
       if (frame && event.source === frame.contentWindow) {

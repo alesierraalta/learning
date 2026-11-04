@@ -28,6 +28,20 @@ validates the exact aspect IDs and fields, and atomically replaces the file. It
 requires the same origin and JSON content type as the studio's other POSTs;
 invalid input returns 400 without changing the existing file.
 
+The list is no longer closed. When telemetry holds a category with at least
+three answers and an accuracy at or below 0.6, a dashed callout above the form
+offers what the learner's own answers suggest («Tu uso sugiere un refuerzo
+nuevo»).
+`GET api/preferences/candidatos` returns those categories, minus the ones the
+file already has; `POST api/preferences/descubrir` appends them as aspects after
+the seven shipped ones, so the page then shows the eighth with the badge
+«descubierto por tu uso» and its evidence («3 respuestas, 1 acierto»). A
+discovered aspect carries `origen: "telemetria"` and `evidencia: {respuestas,
+aciertos}`, so the reason travels with it and a save keeps both. `POST
+api/preferences/olvidar` with `{id}` removes it and leaves the seven shipped
+aspects — and their levels — as they were; those seven never show the badge or
+the button. Nothing is applied without the learner's click.
+
 ## Wide reading mode
 
 Every part page carries a **Modo ancho** toggle in its top-right corner. Off by
@@ -36,6 +50,26 @@ default: the reader keeps one narrow column. Switched on, on a screen at least
 remembered per browser, so it survives a reload and a studio restart; below 1080px
 the text stays in one column even with the mode on. The video block and the
 mini-quiz are not affected: only the explanation text is a reading surface.
+
+## Modos de lectura del estudio
+
+La barra del lector ofrece tres modos, en un interruptor de tres botones:
+**Art.** (el de siempre, por defecto), **Ancho** y **Libro**. La elección se
+guarda en el navegador (`learnings.reading-mode`), así que volver a abrir la
+parte la conserva.
+
+En **Libro** la parte se pagina de verdad: una pantalla, una página, y la
+siguiente continúa donde terminó la anterior. Se pasa con los botones de la
+píldora flotante (`2 / 5`), con las flechas del teclado o con un deslizamiento
+horizontal sobre la página; en la primera y en la última el botón se detiene en
+vez de dar la vuelta. Con `prefers-reduced-motion: reduce` la página cambia sin
+animación y el contenido es el mismo.
+
+La página la mide el propio documento, que es el único lado que puede hacerlo:
+el estudio solo dice el modo y pide el giro, y el documento contesta en qué
+página está y cuántas hay. Por eso el modo ancho del documento (el de la
+sección anterior) y el modo Ancho del estudio son cosas distintas: el primero
+cambia la tipografía, el segundo le da al marco todo el ancho disponible.
 
 ## Tema oscuro
 
