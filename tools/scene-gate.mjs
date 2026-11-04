@@ -38,7 +38,13 @@ async function loadPlaywright() {
 
 function notesAt(target) {
   const path = resolve(target);
-  if (statSync(path).isDirectory()) {
+  let info;
+  try {
+    info = statSync(path);
+  } catch {
+    return [path];
+  }
+  if (info.isDirectory()) {
     return readdirSync(path, { recursive: true })
       .filter((f) => String(f).endsWith('.md'))
       .map((f) => join(path, String(f)));
@@ -63,10 +69,18 @@ if (!targets.length) {
 const browser = await playwright.chromium.launch();
 let failures = 0;
 let scenes = 0;
+let unreadable = false;
 
 try {
   for (const note of targets.flatMap(notesAt)) {
-    const source = readFileSync(note, 'utf8');
+    let source;
+    try {
+      source = readFileSync(note, 'utf8');
+    } catch (error) {
+      console.log(`no se pudo leer ${note}: ${error.code || error.message}`);
+      unreadable = true;
+      continue;
+    }
     const specs = [...source.matchAll(SCENE)].map((m) => m[1]);
     if (!specs.length) continue;
 
@@ -93,8 +107,9 @@ try {
           return { text: t.textContent.trim(), x: b.x, y: b.y, w: b.width, h: b.height, px: (Number(t.getAttribute('font-size')) || 0) * scale };
         }).filter((t) => t.text);
         const problems = [];
+        if (!texts.length) problems.push({ kind: 'empty-scene', text: host.getAttribute('title') || '', detail: 'la escena no dibujó nada: revisa la forma del JSON' });
         for (const t of texts) if (t.px < minPx) problems.push({ kind: 'text-too-small', text: t.text, detail: `${t.px.toFixed(1)} px` });
-        if (host.querySelector('.lk-scene-stage')?.dataset.overflow) problems.push({ kind: 'scene-overflow', text: host.querySelector('.lk-title')?.textContent || '', detail: 'el ajuste no pudo encajar el texto sin comprimirlo' });
+        if (host.querySelector('.lk-scene-stage')?.dataset.overflow) problems.push({ kind: 'scene-overflow', text: host.getAttribute('title') || '', detail: 'el ajuste no pudo encajar el texto sin comprimirlo' });
         for (const t of texts) if (t.x < -1 || t.x + t.w > bounds + 1) problems.push({ kind: 'text-outside-canvas', text: t.text, detail: `x ${t.x.toFixed(0)}–${(t.x + t.w).toFixed(0)} fuera de 0–${bounds}` });
         for (let i = 0; i < texts.length; i++) {
           for (let j = i + 1; j < texts.length; j++) {
@@ -106,7 +121,7 @@ try {
             if (overlap > 0.15 * Math.min(a.w * a.h, b.w * b.h)) problems.push({ kind: 'text-over-text', text: `${a.text} / ${b.text}`, detail: `${Math.round(overlap)} u² encima` });
           }
         }
-        return { title: host.querySelector('.lk-title')?.textContent || '', problems };
+        return { title: host.getAttribute('title') || '', problems };
       }), MIN_PX);
 
       scenes += report.length;
@@ -124,5 +139,6 @@ try {
   await browser.close();
 }
 
-console.log(failures ? `${failures} problema(s) en ${scenes} escena(s)` : `ok: ${scenes} escena(s) sin problemas`);
-process.exit(failures ? 1 : 0);
+console.log(!scenes ? 'sin escenas: no hay nada que medir' : failures ? `${failures} problema(s) en ${scenes} escena(s)` : `ok: ${scenes} escena(s) sin problemas`);
+const code = unreadable ? 2 : failures ? 1 : 0;
+process.exit(code);
