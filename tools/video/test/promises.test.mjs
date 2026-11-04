@@ -35,7 +35,7 @@ test("a frame that says 'todas las flechas' but draws one arrow is a violation n
   assert.equal(violations.length, 1);
   assert.equal(violations[0].phrase, "todas las flechas");
   assert.equal(violations[0].beat, 0);
-  assert.match(violations[0].missing, /arrow for each remaining cell/);
+  assert.match(violations[0].missing, /puts one arrow on every remaining cell/);
   assert.match(formatViolation(violations[0]), /^section 0 · beat "T0 a T3" · says "todas las flechas" · draws nothing that answers it/);
 });
 
@@ -122,7 +122,7 @@ test("a policy field answers 'one arrow per cell' even when the cells are tiles"
   assert.deepEqual(audit(spec(full), []), []);
   const partial = audit(spec(field(["right", "right", "right", "up", "up", "up"])), []);
   assert.equal(partial.length, 1);
-  assert.match(partial[0].missing, /arrow for each remaining cell/);
+  assert.match(partial[0].missing, /puts one arrow on every remaining cell/);
 });
 
 test("a scene key the gate cannot read is surfaced, never silently passed", () => {

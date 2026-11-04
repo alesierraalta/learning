@@ -190,8 +190,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.55
+       "tres ideas que suelen confundirse",
+       "se combinan en una sola ecuación"
       ]
      }
     },
@@ -199,7 +199,17 @@
      "title": "El robot del almacén",
      "narration": "El robot quiere llegar a la puerta sin caer en el charco. Cada paso normal paga menos cuatro centésimas; la puerta paga uno; el charco, menos uno. Si solo mira la recompensa del paso siguiente, todos los pasos le dan igual.",
      "visual": {
-      "deck": "El almacén del ejemplo"
+      "deck": "El almacén del ejemplo",
+      "steps": [
+       0,
+       1,
+       2
+      ],
+      "anchors": [
+       "El robot quiere llegar a la puerta",
+       "la puerta paga uno",
+       "el charco menos uno"
+      ]
      }
     }
    ]
@@ -212,7 +222,17 @@
      "title": "La recompensa es miope",
      "narration": "La recompensa inmediata dice qué tan bueno es este paso, no si vas bien encaminado. Por eso el robot necesita algo más que un pago por paso: una forma de mirar más allá del siguiente movimiento.",
      "visual": {
-      "deck": "Por qué no basta la recompensa"
+      "deck": "Por qué no basta la recompensa",
+      "steps": [
+       0,
+       1,
+       2
+      ],
+      "anchors": [
+       "La recompensa inmediata dice",
+       "no si vas bien encaminado",
+       "una forma de mirar más allá"
+      ]
      }
     },
     {
@@ -245,47 +265,6 @@
          "labels2": []
         },
         "text": "¿Qué hago aquí? Esa pregunta define la política: una acción por estado."
-       },
-       {
-        "scene": {
-         "labels": [
-          {
-           "x": 180,
-           "y": 26,
-           "text": "¿qué hago aquí?",
-           "size": 15,
-           "anchor": "middle"
-          },
-          {
-           "x": 180,
-           "y": 100,
-           "text": "¿qué gano ahora?",
-           "size": 15,
-           "anchor": "middle"
-          }
-         ],
-         "boxes": [
-          {
-           "x": 120,
-           "y": 36,
-           "w": 120,
-           "h": 48,
-           "label": "π",
-           "tone": "blue",
-           "size": 20
-          },
-          {
-           "x": 120,
-           "y": 110,
-           "w": 120,
-           "h": 48,
-           "label": "R",
-           "tone": "green",
-           "size": 20
-          }
-         ]
-        },
-        "text": "¿Qué gano ahora? Esa es la recompensa: la paga de un paso."
        },
        {
         "scene": {
@@ -352,9 +331,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.3,
-       0.62
+       "Una regla de qué hacer en cada casilla",
+       "la función de valor"
       ]
      }
     }
@@ -368,7 +346,15 @@
      "title": "Política, recompensa, valor",
      "narration": "La política es una flecha por casilla: en la salida, subir. La recompensa es lo que el entorno paga ahora: menos cuatro centésimas por paso, uno en la puerta, menos uno en el charco. El valor es un número por casilla: desde la puerta, uno; desde el charco, menos uno.",
      "visual": {
-      "deck": "La política: una flecha por casilla"
+      "deck": "La política: una flecha por casilla",
+      "steps": [
+       0,
+       4
+      ],
+      "anchors": [
+       "una flecha por casilla",
+       "en la salida subir"
+      ]
      }
     },
     {
@@ -488,8 +474,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.5
+       "El valor no suma el futuro sin más",
+       "lo que llega dos pasos después pesa menos"
       ]
      }
     }
@@ -507,8 +493,12 @@
       "steps": [
        0,
        1,
-       2,
        3
+      ],
+      "anchors": [
+       "En el tiempo cero el robot está",
+       "Sube recibe menos cuatro",
+       "hasta la esquina"
       ]
      }
     },
@@ -521,6 +511,11 @@
        3,
        4,
        5
+      ],
+      "anchors": [
+       "Desde la esquina avanza",
+       "Cada paso vuelve a costar",
+       "Cuando entra en la puerta"
       ]
      }
     },
@@ -800,8 +795,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.55
+       "Ese recorrido enseña la diferencia",
+       "Ningún paso aislado parece bueno"
       ]
      }
     }
@@ -815,7 +810,11 @@
      "title": "La intuición",
      "narration": "El valor de una casilla es lo que gano en el próximo paso, más lo que valga la casilla a la que llego, un poco descontado. Esa frase es toda la idea; la ecuación solo la escribe corto.",
      "visual": {
-      "deck": "El valor se calcula hacia atrás"
+      "deck": "El valor se calcula hacia atrás",
+      "steps": [
+       5
+      ],
+      "anchors": []
      }
     },
     {
@@ -949,8 +948,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.55
+       "Desde la casilla uno cero",
+       "Con gamma cero coma nueve"
       ]
      }
     },
@@ -1070,8 +1069,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.45
+       "el valor de un estado es la recompensa esperada",
+       "Es la ecuación de Bellman"
       ]
      }
     }
@@ -1178,8 +1177,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.5
+       "La recompensa es lo que el entorno paga ahora",
+       "el valor es lo que el agente estima"
       ]
      }
     },
@@ -1187,7 +1186,17 @@
      "title": "Política no es modelo",
      "narration": "La política dice qué hacer; el modelo dice qué pasará si lo haces. Un robot puede tener una política excelente sin modelo: actúa por reflejo. Y puede tener un modelo perfecto y una política mala: sabe lo que pasaría, pero elige mal. Para leerlo, compara la acción que elige la política con el resultado que predice el modelo antes de moverse.",
      "visual": {
-      "deck": "Política ≠ modelo"
+      "deck": "Política ≠ modelo",
+      "steps": [
+       0,
+       1,
+       2
+      ],
+      "anchors": [
+       "La política dice qué hacer",
+       "el modelo dice qué pasará",
+       "compara la acción que elige la política"
+      ]
      }
     },
     {
@@ -1545,8 +1554,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.5
+       "En la demo puedes separar las dos preguntas",
+       "Cuando la flecha y el número no coinciden"
       ]
      }
     }
@@ -1649,8 +1658,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.5
+       "la demo calcula el valor exactamente con el modelo",
+       "Un agente real normalmente no conoce"
       ]
      }
     },
@@ -1778,8 +1787,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.5
+       "En el almacén hay nueve casillas",
+       "En un videojuego o en un brazo robótico"
       ]
      }
     },
@@ -2040,8 +2049,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.5
+       "muchas políticas reales son estocásticas",
+       "la batería como recompensa por paso"
       ]
      }
     }
@@ -2056,41 +2065,6 @@
      "narration": "Para clasificar cualquier elemento, hazte una pregunta: ¿lo entrega el entorno en cada paso? Si la respuesta es sí, es la señal de recompensa. Si es no, pregunta si dice qué acción tomar: si la dice, es la política; si no, es el modelo o el valor.",
      "visual": {
       "scenes": [
-       {
-        "scene": {
-         "boxes": [
-          {
-           "x": 12,
-           "y": 24,
-           "w": 210,
-           "h": 44,
-           "label": "¿decide qué hacer?",
-           "tone": "blue",
-           "size": 14
-          }
-         ],
-         "labels": [
-          {
-           "x": 300,
-           "y": 52,
-           "text": "política",
-           "size": 14,
-           "color": "#004276"
-          }
-         ],
-         "arrows": [
-          {
-           "x1": 226,
-           "y1": 46,
-           "x2": 258,
-           "y2": 46,
-           "tone": "blue",
-           "width": 2.5
-          }
-         ]
-        },
-        "text": "¿Decide qué hacer? Es política."
-       },
        {
         "scene": {
          "boxes": [
@@ -2149,6 +2123,41 @@
          ]
         },
         "text": "¿Paga o recibe algo? Es recompensa."
+       },
+       {
+        "scene": {
+         "boxes": [
+          {
+           "x": 12,
+           "y": 24,
+           "w": 210,
+           "h": 44,
+           "label": "¿decide qué hacer?",
+           "tone": "blue",
+           "size": 14
+          }
+         ],
+         "labels": [
+          {
+           "x": 300,
+           "y": 52,
+           "text": "política",
+           "size": 14,
+           "color": "#004276"
+          }
+         ],
+         "arrows": [
+          {
+           "x1": 226,
+           "y1": 46,
+           "x2": 258,
+           "y2": 46,
+           "tone": "blue",
+           "width": 2.5
+          }
+         ]
+        },
+        "text": "¿Decide qué hacer? Es política."
        },
        {
         "scene": {
@@ -2235,9 +2244,9 @@
        }
       ],
       "anchors": [
-       0,
-       0.3,
-       0.62
+       "lo entrega el entorno en cada paso",
+       "si dice qué acción tomar",
+       "si no es el modelo o el valor"
       ]
      }
     },
@@ -2366,8 +2375,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.5
+       "Cuatro verbos",
+       "ninguna sobra"
       ]
      }
     }
@@ -2525,8 +2534,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.5
+       "El robot recibe un estado",
+       "Ese ciclo es el esqueleto"
       ]
      }
     },
@@ -2633,8 +2642,8 @@
        }
       ],
       "anchors": [
-       0,
-       0.5
+       "la recompensa es el contrato",
+       "En la próxima parte verás"
       ]
      }
     }

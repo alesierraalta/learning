@@ -80,3 +80,34 @@ test(
   assert.equal(found.length, 1);
   assert.equal(found[0].phrase, "numeros");
 });
+
+// The warehouse deck says what each tile is with the label it already draws,
+// so the gate can read the figure instead of asking the spec to repeat it.
+const ROLES = new Map([["104,134", "×"], ["280,40", "+1"], ["280,134", "−1"]]);
+const LABELLED = WAREHOUSE.map((cell) => ({ ...cell, label: ROLES.get(`${cell.x},${cell.y}`) ?? "?" }));
+const moves = (n) => FREE.slice(0, n).map((c) => ({ x: c.x, y: c.y, w: 56, h: 50, dir: "up" }));
+const fieldBeat = (scene) => ({ title: "campo", narration: "una flecha por casilla", visual: { scene } });
+
+test("a field whose tiles say what they are needs no declaration in the spec", () => {
+  // 12 tiles: one wall, one exit, one hazard, nine cells with an action.
+  assert.deepEqual(audit({ sections: [{ beats: [fieldBeat({ boxes: LABELLED, policy: moves(9) })] }] }, []), []);
+});
+
+test("the same field with five of its nine arrows drawn fails", () => {
+  const found = audit({ sections: [{ beats: [fieldBeat({ boxes: LABELLED, policy: moves(5) })] }] }, []);
+  assert.equal(found.length, 1);
+  assert.match(found[0].missing, /puts one arrow on every remaining cell/);
+});
+
+test("an action drawn as a glyph inside its own tile counts as the arrow", () => {
+  const drawn = FREE.slice(0, 9).map((c) => ({ x: c.x, y: c.y, w: 56, h: 50, label: "↑" }));
+  const boxes = LABELLED.map((cell) => drawn.find((d) => d.x === cell.x && d.y === cell.y) || cell);
+  assert.deepEqual(audit({ sections: [{ beats: [fieldBeat({ boxes })] }] }, []), []);
+});
+
+test("a label the gate cannot read fails in the open instead of shrinking the count", () => {
+  const boxes = LABELLED.map((cell) => (cell.x === 16 && cell.y === 40 ? { ...cell, label: "norte" } : cell));
+  const found = audit({ sections: [{ beats: [fieldBeat({ boxes, policy: moves(9) })] }] }, []);
+  assert.equal(found.length, 1);
+  assert.match(found[0].missing, /puts one arrow on every remaining cell/);
+});

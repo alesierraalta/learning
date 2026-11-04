@@ -37,7 +37,33 @@ export function validate(spec) {
         problems.push(`${where} deck steps must be non-negative integers`);
       }
       if (v.deck && v.steps && !v.steps.length) problems.push(`${where} picks no deck steps`);
+      problems.push(...visualCounts(where, v));
     });
   });
+  return problems;
+}
+
+// The drawing may only change when the voice names what changed: a viewer
+// cannot read a new figure and listen to a different sentence at once.
+function visualCounts(where, v) {
+  const problems = [];
+  if (v.deck && !Array.isArray(v.steps)) {
+    problems.push(`${where} names a deck without steps; say which steps play, in order`);
+    return problems;
+  }
+  const states = v.scenes ? v.scenes.length : v.deck ? v.steps.length : 1;
+  if (!v.anchors || !v.anchors.length) {
+    if (states > 1) {
+      problems.push(`${where} shows ${states} states but declares no anchors: every change of drawing must be caused by a spoken phrase`);
+    }
+    return problems;
+  }
+  if (v.anchors.length !== states) {
+    problems.push(`${where} shows ${states} states but declares ${v.anchors.length} anchors`);
+  }
+  const timed = v.anchors.filter((anchor) => typeof anchor !== "string");
+  if (timed.length) {
+    problems.push(`${where} anchors must be spoken phrases, not fractions (${timed.length} of ${v.anchors.length} are numbers)`);
+  }
   return problems;
 }
