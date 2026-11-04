@@ -45,7 +45,7 @@ export function resolveStates({ states, anchors, narration, words, speechStart, 
     throw new Error(`visual has ${states.length} states but ${anchors.length} anchors`);
   }
   const span = Math.max(0, last - from);
-  return states.map((state, i) => {
+  const resolved = states.map((state, i) => {
     let at;
     if (!anchors || !anchors.length) {
       at = states.length === 1 ? from : from + (span * i) / (states.length - 1);
@@ -65,6 +65,14 @@ export function resolveStates({ states, anchors, narration, words, speechStart, 
     if (i === 0 && Number.isFinite(start)) return { ...state, t: Math.min(start, last) };
     return { ...state, t: Math.min(last, Math.max(from, at)) };
   });
+  // A declared anchor can point backwards; the stage then draws the later state
+  // first and moves the figure backwards, so the order is a rule, not a nicety.
+  resolved.forEach((state, i) => {
+    if (i > 0 && state.t < resolved[i - 1].t) {
+      throw new Error(`anchors play out of order: state ${i + 1} at ${state.t.toFixed(2)} s comes before state ${i} at ${resolved[i - 1].t.toFixed(2)} s; declare them in the order the narrator says them`);
+    }
+  });
+  return resolved;
 }
 
 // SRT cues from TTS word boundaries: at most two lines, at most ~44 characters

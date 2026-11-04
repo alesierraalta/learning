@@ -62,6 +62,10 @@ function visualCounts(where, v, narration) {
     return problems;
   }
   const states = v.scenes ? v.scenes.length : v.deck ? v.steps.length : 1;
+  if (states === 0) {
+    problems.push(`${where} has no state to draw: give the visual at least one scene or one deck step`);
+    return problems;
+  }
   if (!v.anchors || !v.anchors.length) {
     if (states > 1) {
       problems.push(`${where} shows ${states} states but declares no anchors: every change of drawing must be caused by a spoken phrase`);

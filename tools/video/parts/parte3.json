@@ -509,11 +509,7 @@
        "La recompensa es lo que el entorno paga ahora",
        "El valor es un número por casilla"
       ]
-     },
-     "promiseExceptions": [
-      "acción",
-      "número"
-     ]
+     }
     },
     {
      "title": "El futuro se descuenta",

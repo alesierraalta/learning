@@ -163,9 +163,26 @@ test("the first state never lands after the beat's last allowed moment", () => {
 test("the states of a beat keep the order the narrator says them", () => {
   const narration = "La política elige una acción por casilla y la recompensa";
   const words = narration.split(" ").map((w, i) => ({ t: i * 0.3, d: 0.28, w }));
+  assert.throws(
+    () => resolveStates({
+      states: [{}, {}, {}],
+      anchors: ["La recompensa", "casilla", "La política"],
+      narration,
+      words,
+      speechStart: 10,
+      speechDur: 3,
+      start: 9.85,
+    }),
+    /out of order/,
+  );
+});
+
+test("states declared in the order the narrator says them stay ordered", () => {
+  const narration = "La política elige una acción por casilla y la recompensa";
+  const words = narration.split(" ").map((w, i) => ({ t: i * 0.3, d: 0.28, w }));
   const timed = resolveStates({
     states: [{}, {}, {}],
-    anchors: ["La recompensa", "casilla", "La política"],
+    anchors: ["La política", "casilla", "La recompensa"],
     narration,
     words,
     speechStart: 10,
