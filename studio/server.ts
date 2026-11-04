@@ -39,6 +39,7 @@ import { resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
+import { AGENTES, PENSAMIENTOS, modelParts, piArgs, readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, tutorContext, validateSugerencia } from "./sugerencias.ts";
@@ -221,8 +222,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   if (!contained.ok) throw new Error(contained.reason);
   if (options.token !== undefined && !TOKEN_SHAPE.test(options.token)) throw new Error("token must be 64 lowercase hex characters");
   const root = contained.rootReal;
-  // Its own session id: terminal sessions in the same folder are never written by two processes.
-  const piCommand = options.piCommand ?? ["pi", "--mode", "rpc", "--session-id", "estudio"];
+  // The agent and its model come from the learner's settings; a test may pin the
+  // exact command instead, so a fake Pi never depends on what the vault says.
+  let tutor = readTutor(root);
+  const tutorCommand = () => options.piCommand ?? ["pi", ...piArgs(tutor)];
   const enginePath = options.enginePath ?? join(REPO, "bin", "learning");
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
   const token = options.token ?? randomBytes(32).toString("hex");
@@ -331,7 +334,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   const startPi = () => {
-    const [cmd, ...args] = piCommand;
+    const [cmd, ...args] = tutorCommand();
     const proc = spawn(cmd, args, {
       cwd: root,
       env: { ...process.env, GENTLE_SHELL_INTERACTIVE_HOST: "1" },
@@ -613,6 +616,60 @@ ${scripts}
     ].filter((line) => line !== "").join("\n");
   };
 
+  // ---- Tutor settings ------------------------------------------------------
+  /** An agent without a runtime yet is listed, but never offered as a choice. */
+  const agentes = () => AGENTES.map((agent) => ({ ...agent, disponible: agent.id === "pi" }));
+
+  /** What the running agent offers right now; a stopped agent offers nothing. */
+  const catalogo = async (): Promise<Json[]> => {
+    if (!alive) return [];
+    try {
+      const reply = await call({ type: "get_available_models" }, 10000);
+      const models = isRecord(reply.data) && Array.isArray(reply.data.models) ? reply.data.models : [];
+      return models.filter(isRecord).flatMap((model) => typeof model.provider === "string" && typeof model.id === "string"
+        ? [{ id: `${model.provider}/${model.id}`, nombre: typeof model.name === "string" ? model.name : model.id, proveedor: model.provider, razona: model.reasoning === true }]
+        : []);
+    } catch {
+      // A tutor that cannot list models still tutors: the page shows what the file says.
+      return [];
+    }
+  };
+
+  /**
+   * What the running tutor reports. The file is a wish until the agent follows
+   * it, so the page shows the agent's own answer, not the saved value.
+   */
+  const activo = async (): Promise<Json | null> => {
+    if (!alive) return null;
+    try {
+      const reply = await call({ type: "get_state" }, 10000);
+      const data = isRecord(reply.data) ? reply.data : {};
+      const model = isRecord(data.model) ? data.model : null;
+      return {
+        modelo: model && typeof model.provider === "string" && typeof model.id === "string" ? `${model.provider}/${model.id}` : "",
+        pensamiento: typeof data.thinkingLevel === "string" ? data.thinkingLevel : "",
+      };
+    } catch { return null; }
+  };
+
+  /**
+   * The model and the thinking level switch inside the running session, so the
+   * conversation survives the change. The agent cannot: a different one is
+   * started again, and the file already holds the choice it will read.
+   */
+  const applyTutor = async (next: TutorConfig, previous: TutorConfig) => {
+    if (next.modelo) {
+      const parts = modelParts(next.modelo);
+      if (!parts) throw new HttpError(400, "invalid tutor model");
+      const reply = await call({ type: "set_model", provider: parts.provider, modelId: parts.modelId }, 20000);
+      if (reply.success === false) throw new HttpError(409, String(reply.error ?? "the tutor refused that model"));
+    }
+    if (next.pensamiento && next.pensamiento !== previous.pensamiento) {
+      const reply = await call({ type: "set_thinking_level", level: next.pensamiento }, 10000);
+      if (reply.success === false) throw new HttpError(409, String(reply.error ?? "the tutor refused that thinking level"));
+    }
+  };
+
   const post = async (req: IncomingMessage, res: ServerResponse, action: string) => {
     const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.origin)]);
     if (!allowed.has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
@@ -623,6 +680,21 @@ ${scripts}
     switch (action) {
       case "api/preferences":
         return sendJson(res, 200, savePreferences(root, body));
+      case "api/tutor": {
+        const previous = tutor;
+        // The file is what the next start reads: it is written before the live
+        // agent is touched, so a refused live change still leaves a valid choice.
+        tutor = saveTutor(root, body);
+        if (tutor.agente !== previous.agente) {
+          if (alive) child?.kill();
+          startPi();
+        } else if (alive) {
+          try { await applyTutor(tutor, previous); }
+          catch { if (alive) child?.kill(); startPi(); }
+        }
+        // A restarted agent has nothing to report yet: the page re-reads it.
+        return sendJson(res, 200, { config: tutor, agentes: agentes() });
+      }
       case "api/preferences/descubrir":
         return sendJson(res, 200, descubrir(root));
       case "api/preferences/olvidar": {
@@ -832,6 +904,8 @@ ${scripts}
         return sendJson(res, 200, await library());
       case "api/preferences":
         return sendJson(res, 200, readPreferences(root));
+      case "api/tutor":
+        return sendJson(res, 200, { config: tutor, agentes: agentes(), pensamientos: PENSAMIENTOS, modelos: await catalogo(), activo: await activo() });
       case "api/preferences/candidatos": {
         const preferences = readPreferences(root);
         const taken = new Set([...preferences.aspectos.map((a) => a.id), ...(preferences.rechazados ?? [])]);

@@ -490,6 +490,53 @@
     return homeView();
   }
 
+  /**
+   * Who tutors: the agent, its model and how hard it thinks. The file is the
+   * learner's; a save applies to the running session, so the chat is not lost.
+   */
+  function tutorSection(data, status) {
+    const config = { ...data.config };
+    const agentes = data.agentes ?? [];
+    const models = data.modelos ?? [];
+    const option = (value, label, selected, disabled = false) => h("option", { value, selected, disabled }, label);
+    const agent = h("select", { name: "agente", onchange: () => { config.agente = agent.value; } },
+      agentes.map((a) => option(a.id, a.disponible ? a.nombre : `${a.nombre} (no disponible)`, a.id === config.agente, !a.disponible)));
+    // A saved model the agent no longer offers stays visible: the file said it.
+    const known = models.some((m) => m.id === config.modelo);
+    const model = h("select", { name: "modelo", onchange: () => { config.modelo = model.value; } },
+      option("", "El que elija el tutor", config.modelo === ""),
+      ...(config.modelo && !known ? [option(config.modelo, `${config.modelo} (no disponible)`, true)] : []),
+      ...models.map((m) => option(m.id, `${m.nombre} · ${m.proveedor}`, m.id === config.modelo)));
+    const effort = h("select", { name: "pensamiento", onchange: () => { config.pensamiento = effort.value; } },
+      option("", "El que elija el tutor", config.pensamiento === ""),
+      ...(data.pensamientos ?? []).map((level) => option(level, level, level === config.pensamiento)));
+    const field = (label, hint, control) => h("label", { class: "tutor-field" }, h("span", {}, label), h("small", { class: "muted" }, hint), control);
+    const save = h("button", { class: "btn primary", type: "submit" }, "Guardar el tutor");
+    // What the agent says it runs now, so a saved file is never confused with an applied one.
+    const now = data.activo
+      ? h("p", { class: "muted" }, data.activo.modelo
+        ? `Ahora responde con ${data.activo.modelo}${data.activo.pensamiento ? ` · esfuerzo ${data.activo.pensamiento}` : ""}.`
+        : "El tutor está activo, sin un modelo fijado.")
+      : h("p", { class: "muted" }, "El tutor no está activo: la lista de modelos aparece cuando arranca.");
+    const form = h("form", { class: "preferences-form", onsubmit: async (event) => {
+      event.preventDefault();
+      save.disabled = true;
+      status.textContent = "Guardando el tutor…";
+      try {
+        await post("api/tutor", config);
+        toast("Tutor guardado");
+        render();
+      } catch (error) { status.textContent = `No se pudo guardar el tutor: ${error.message}`; }
+      finally { save.disabled = false; }
+    } },
+      field("Agente", "Quién da la tutoría.", agent),
+      field("Modelo", "Con qué modelo responde.", model),
+      field("Esfuerzo", "Cuánto razona antes de responder.", effort),
+      now,
+      save);
+    return h("section", { class: "tutor-block" }, h("h2", {}, "Tutor"), h("p", { class: "muted" }, "Prepara el plan, escribe las explicaciones y corrige tus respuestas."), form);
+  }
+
   async function preferencesView() {
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Configuración" }, { text: "Preferencias" }]);
     const status = h("p", { role: "status", class: "muted" }, "Cargando…");
@@ -498,9 +545,11 @@
     try {
       // The file is what the learner chose; the candidates are what their own
       // answers suggest. The second is offered, never applied on its own.
-      const [data, found] = await Promise.all([
+      const [data, found, tutor] = await Promise.all([
         request("api/preferences"),
         request("api/preferences/candidatos").then((r) => r.candidatos ?? []).catch(() => []),
+        // The tutor block is offered even when it cannot be read: the preferences still work.
+        request("api/tutor").catch(() => null),
       ]);
       if (!page.isConnected) return;
       status.textContent = "";
@@ -544,6 +593,7 @@
         finally { save.disabled = false; }
       } }, data.aspectos.map(field), save);
       page.append(form);
+      if (tutor) page.insertBefore(tutorSection(tutor, status), form);
     } catch (error) { if (page.isConnected) status.textContent = `No se pudieron cargar las preferencias: ${error.message}`; }
   }
 

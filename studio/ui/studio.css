@@ -104,6 +104,14 @@ h3 { font-weight: 700; }
 .preference-levels { display: flex; flex-wrap: wrap; gap: 12px 24px; }
 .preference-levels label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .preferences-form > button { justify-self: start; }
+/* Who tutors: the agent and its model are the learner's, so they read as a form. */
+.tutor-block { margin: 0 0 36px; padding: 0 0 32px; border-bottom: 2px solid var(--line); }
+.tutor-block h2 { margin: 0 0 4px; }
+.tutor-block > p { margin: 0 0 20px; }
+.tutor-field { display: grid; gap: 4px; justify-items: start; }
+.tutor-field span { font-weight: 700; }
+.tutor-field small { color: var(--muted); }
+.tutor-field select { width: 100%; max-width: 460px; padding: 8px 10px; border: 2px solid var(--line); border-radius: 6px; background: var(--paper); color: inherit; font: inherit; }
 /* What the answers suggest: a dashed offer above the form, never a decision. */
 .preference-found { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 28px; padding: 14px 16px; border: 2px dashed var(--line); background: var(--soft2); }
 .preference-found p { flex: 1 1 220px; min-width: 0; margin: 0; }

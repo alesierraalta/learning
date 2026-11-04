@@ -42,6 +42,25 @@ api/preferences/olvidar` with `{id}` removes it and leaves the seven shipped
 aspects — and their levels — as they were; those seven never show the badge or
 the button. Nothing is applied without the learner's click.
 
+## Tutor
+
+The same page carries who tutors: the agent runtime and the model it answers
+with. Saving writes `<LEARNING_ROOT>/tutor.json` as `{version: 1, agente,
+modelo, pensamiento}`; `modelo` is a `provider/id` and `pensamiento` is one of
+Pi's levels, both empty when the runtime's own default should stand. A missing
+file starts from the defaults without creating one, and a damaged file falls
+back to those defaults instead of stopping the studio: the tutor always starts.
+
+`GET api/tutor` returns `{config, agentes, pensamientos, modelos}`. `agentes`
+lists every runtime with `disponible`, so an agent whose adapter does not exist
+yet is visible but not selectable; `modelos` is what the running tutor reports
+and stays empty while it is not running. `POST api/tutor` validates the exact
+keys, atomically replaces the file, and then makes the running session follow
+it: the model and the thinking level switch in place (`set_model`,
+`set_thinking_level`), so the chat survives, and a different agent is started
+again with the same session id. The model is also a command-line flag, so the
+next start boots on it without switching.
+
 ## Wide reading mode
 
 Every part page carries a **Modo ancho** toggle in its top-right corner. Off by

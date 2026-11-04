@@ -34,6 +34,10 @@ const notices = () => {
 };
 const spoken = notices();
 
+// What the agent reports about itself; a switch changes it, so a test can tell
+// the live session apart from the file it was asked to follow.
+const state = { thinkingLevel: "medium" };
+
 const run = (message) => {
   out({ type: "agent_start" });
   out({ type: "message_start", message: { role: "user", content: message } });
@@ -92,6 +96,31 @@ process.stdin.on("data", (chunk) => {
           pendingDialog = null;
           finish(command.value ?? (command.cancelled ? "nada" : String(command.confirmed)));
         }
+        break;
+      case "get_available_models":
+        out({ id: command.id, type: "response", command: "get_available_models", success: true, data: { models: [
+          { id: "deepseek-v4.1-flash", name: "DeepSeek Flash", provider: "opencode-go", reasoning: true },
+        ] } });
+        break;
+      case "set_model":
+        // Like Pi: a model it does not list is refused, a listed one is switched.
+        if (command.provider === "opencode-go" && command.modelId === "deepseek-v4.1-flash") {
+          state.model = { id: command.modelId, name: "DeepSeek Flash", provider: command.provider };
+          out({ id: command.id, type: "response", command: "set_model", success: true, data: state.model });
+        } else {
+          out({ id: command.id, type: "response", command: "set_model", success: false, error: `unknown model ${command.provider}/${command.modelId}` });
+        }
+        break;
+      case "get_state":
+        out({ id: command.id, type: "response", command: "get_state", success: true, data: {
+          ...(state.model ? { model: state.model } : {}),
+          thinkingLevel: state.thinkingLevel,
+          isStreaming: false,
+        } });
+        break;
+      case "set_thinking_level":
+        state.thinkingLevel = command.level;
+        out({ id: command.id, type: "response", command: "set_thinking_level", success: true, data: null });
         break;
       case "abort":
       case "new_session":

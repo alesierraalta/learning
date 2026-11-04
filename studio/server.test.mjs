@@ -101,6 +101,80 @@ test("preferences API seeds, saves, and rejects invalid changes without modifyin
   }
 });
 
+test("tutor API seeds the defaults, saves the choice, and applies it to the running session", async () => {
+  const { studio, root, received } = await setup();
+  const file = join(root, "tutor.json");
+  const initial = await http(`${studio.url}api/tutor`);
+  assert.equal(initial.status, 200);
+  const data = JSON.parse(initial.body);
+  assert.deepEqual(data.config, { version: 1, agente: "pi", modelo: "", pensamiento: "" });
+  // Reading is not a decision: the file appears with the first save.
+  assert.equal(existsSync(file), false);
+  // An agent without a runtime is listed, but it cannot be chosen.
+  assert.deepEqual(data.agentes.map((a) => [a.id, a.disponible]), [["pi", true], ["agy", false]]);
+  assert.deepEqual(data.modelos.map((m) => [m.id, m.nombre]), [["opencode-go/deepseek-v4.1-flash", "DeepSeek Flash"]]);
+  // The page reports what the agent runs, not what the file wishes.
+  assert.deepEqual(data.activo, { modelo: "", pensamiento: "medium" });
+
+  const next = { ...data.config, modelo: "opencode-go/deepseek-v4.1-flash", pensamiento: "high" };
+  const saved = await post(studio, "api/tutor", next);
+  assert.equal(saved.status, 200, saved.body);
+  assert.deepEqual(JSON.parse(saved.body).config, next);
+  assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), next);
+  const after = JSON.parse((await http(`${studio.url}api/tutor`)).body);
+  assert.deepEqual(after.config, next);
+  assert.deepEqual(after.activo, { modelo: "opencode-go/deepseek-v4.1-flash", pensamiento: "high" });
+  // The chat survives the change: the same child switched model and effort.
+  const sent = received().filter((c) => c.type === "set_model" || c.type === "set_thinking_level");
+  assert.deepEqual(sent.map((c) => [c.type, c.provider ?? c.level]), [["set_model", "opencode-go"], ["set_thinking_level", "high"]]);
+
+  // A refused setting changes nothing: the file keeps the choice that worked.
+  const before = readFileSync(file, "utf8");
+  for (const bad of [
+    { ...next, extra: true },
+    { ...next, version: 2 },
+    { ...next, agente: "opencode" },
+    { ...next, modelo: "no es un id" },
+    { ...next, pensamiento: "extremo" },
+    {},
+  ]) {
+    const response = await post(studio, "api/tutor", bad);
+    assert.equal(response.status, 400, response.body);
+    assert.ok(JSON.parse(response.body).error);
+    assert.equal(readFileSync(file, "utf8"), before);
+  }
+});
+
+test("a damaged tutor file falls back to the defaults instead of blocking the studio", async () => {
+  const { root, engine } = makeRoot();
+  writeFileSync(join(root, "tutor.json"), "{ no es json");
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine });
+  open.push(studio);
+  const response = await http(`${studio.url}api/tutor`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(response.body).config, { version: 1, agente: "pi", modelo: "", pensamiento: "" });
+});
+
+test("the tutor process starts with the model and effort the settings name", async () => {
+  const { root, engine } = makeRoot();
+  const bin = mkdtempSync(join(tmpdir(), "tutor-bin-"));
+  const argvFile = join(bin, "argv.txt");
+  // A `pi` on PATH that records how it was called and then behaves like Pi.
+  writeFileSync(join(bin, "pi"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${argvFile}'\nexec '${process.execPath}' '${FAKE_PI}'\n`, { mode: 0o755 });
+  writeFileSync(join(root, "tutor.json"), JSON.stringify({ version: 1, agente: "pi", modelo: "opencode-go/deepseek-v4.1-flash", pensamiento: "high" }));
+  const previous = process.env.PATH;
+  process.env.PATH = `${bin}:${previous}`;
+  try {
+    const studio = await startStudio({ root, enginePath: engine });
+    open.push(studio);
+    await until(() => existsSync(argvFile));
+    // The model is a flag, so the agent boots on it instead of switching later.
+    assert.equal(readFileSync(argvFile, "utf8").trim(), "--mode rpc --session-id estudio --model opencode-go/deepseek-v4.1-flash --thinking high");
+  } finally {
+    process.env.PATH = previous;
+  }
+});
+
 test("telemetry API reads, records quiz entries, and serves global and topic telemetry", async () => {
   const { studio, root } = await setup();
   const file = join(root, "telemetria.json");
