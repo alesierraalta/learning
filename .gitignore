@@ -9,3 +9,7 @@ scratch/
 
 # video engine scratch
 /tools/video/.cache/
+
+# Python bytecode from the audio synthesiser
+__pycache__/
+*.pyc
