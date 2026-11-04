@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolveContained, safeTopic } from "./paths.ts";
-import { HttpError } from "./bridge.ts";
+import { HttpError } from "./errors.ts";
 
 export interface QuizTelemetryEntry {
   id: string;

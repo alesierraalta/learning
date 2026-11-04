@@ -17,6 +17,7 @@ import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFi
 import { dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { HttpError } from "./errors.ts";
 import { resolveContained, safeTopic } from "./paths.ts";
 import { recordQuizTelemetry } from "./telemetry.ts";
 import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio, type Transcriber } from "./transcribe.ts";
@@ -152,13 +153,7 @@ interface AnswerFile {
   razonamientos: Record<string, Reasoning>;
 }
 
-export class HttpError extends Error {
-  readonly status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
+export { HttpError };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
