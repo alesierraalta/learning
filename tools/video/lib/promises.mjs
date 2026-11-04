@@ -45,6 +45,21 @@ const fold = (s) => {
 // one of these phrases is not reported twice.
 const ARROW_PER_CELL = /\btodas\s+las\s+flechas\b|\b(?:una|1)\s+flecha\s+por\s+(?:casilla|celda)\b|\bcada\s+(?:casilla|celda)\b[^.;]{0,60}?\bflechas?\b/gi;
 
+// A sentence that quantifies over cells makes a claim about every one of them.
+// The lexicon answers it only when the quantified thing is a drawing it can
+// count (an arrow on each cell, a table, a number). "cada casilla con su
+// acción" quantifies just the same and answers nothing, so the gate names the
+// word instead of passing it in silence.
+const UNIVERSAL = /\b(?:por|cada|todas?\s+las?|cada\s+una\s+de\s+las)\s+(?:casillas?|celdas?|baldosas?)\b/iu;
+const WEAK_PROMISES = new Set(["cell", "numeral"]);
+
+function quantified(sentence) {
+  const forward = sentence.match(/(\p{L}+)\s+por\s+(?:casilla|celda|baldosa)/iu);
+  if (forward) return forward[1];
+  const after = sentence.match(/(?:casilla|celda|baldosa)s?\s+con\s+(?:su\s+|una\s+)?(\p{L}+)/iu);
+  return after ? after[1] : "";
+}
+
 export const LEXICON = [
   {
     id: "arrow",
@@ -144,13 +159,14 @@ export function drawnBy(beat, decks = []) {
 }
 
 // Every claim the spec makes that its drawings do not answer, all of them.
+// The sentences a beat speaks, split where a claim ends.
+const sentencesOf = (text) => String(text ?? "").split(/(?<=[.:;!?])\s+/).filter(Boolean);
+
 export function audit(spec, decks = []) {
   const violations = [];
   (spec.sections || []).forEach((section, si) => {
     (section.beats || []).forEach((beat, bi) => {
       const promises = promisesOf(beat.narration);
-      if (!promises.length) return;
-      const drawn = drawnBy(beat, decks);
       const seen = new Set();
       const report = (promise, missing) => {
         const key = `${promise.id}|${norm(promise.phrase)}|${missing}`;
@@ -158,6 +174,21 @@ export function audit(spec, decks = []) {
         seen.add(key);
         violations.push(violation(si, bi, beat.title, promise.phrase, missing));
       };
+      // A beat may define a term instead of describing a drawing; it says so,
+      // and the gate stops reading that word as a promise about this figure.
+      const excused = new Set((beat.promiseExceptions || []).map((word) => norm(word)));
+      for (const sentence of sentencesOf(beat.narration)) {
+        if (!UNIVERSAL.test(sentence)) continue;
+        if (promisesOf(sentence).some((p) => !WEAK_PROMISES.has(p.id))) continue;
+        // No nameable thing was quantified ("una regla de qué hacer en cada
+        // casilla"): the sentence does not claim a countable drawing, so it is
+        // prose about the policy and not a promise about this figure.
+        const word = quantified(sentence);
+        if (!word || excused.has(norm(word))) continue;
+        report({ id: "universal", phrase: sentence }, `a claim over every cell names "${word}", which this gate cannot read`);
+      }
+      if (!promises.length) return;
+      const drawn = drawnBy(beat, decks);
       for (const promise of promises) {
         const ok = promise.holds(promise.last ? drawn.last : drawn.union, promise);
         if (!ok) report(promise, requiresOf(promise));

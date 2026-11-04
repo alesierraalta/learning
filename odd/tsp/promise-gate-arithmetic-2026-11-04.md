@@ -164,6 +164,35 @@ The term needs the design work named above — surface the spoken terms the lexi
 does not know, with a stop list — not a wider regex. The test stays skipped with
 that reason, so the finding is visible in the suite instead of buried here.
 
+## Closed: universal claims over cells
+
+C's hole is closed without turning prose into lexicon, following the design the
+other session proposed: read the *quantifier*, not the noun. A sentence that
+says `X por casilla` or `casilla con su X` claims something about every cell, and
+the gate now reports it when no promise it can count answers it:
+
+```text
+"cada casilla con su acción" over 3 of 9 arrows
+  → a claim over every cell names "acción", which this gate cannot read
+"una flecha por casilla" over the finished field        → passes, unchanged
+```
+
+Two refinements the measurement forced:
+
+- A quantifier that names no countable thing is prose, not a promise: `Una regla
+  de qué hacer en cada casilla:` quantifies over cells but names nothing to
+  count, so it is skipped. Without this, the live spec produced four findings
+  and three of them were definitions.
+- A beat may *define* a term instead of describing a drawing, and it says so in
+  `beat.promiseExceptions`. On the live spec exactly one beat needs it:
+
+```json
+{ "title": "Política, recompensa, valor", "promiseExceptions": ["acción", "número"] }
+```
+
+With that declaration the audit is back to `22 beats, 22 promises, all drawn`
+while every other universal claim is now checked.
+
 ## Priority
 
 A and B are one-line fixes with no product judgment and both make the gate refuse
