@@ -403,6 +403,15 @@
       red: { stroke: C.red, fill: 'rgba(221,74,104,0.06)', color: C.red },
     };
   };
+  // Compass words to a unit vector, so a deck can say "up" instead of computing
+  // the endpoint by hand.
+  function policyDir(dir) {
+    const words = String(dir).toLowerCase().split(/[-_\s]+/);
+    const dx = words.includes('right') ? 1 : words.includes('left') ? -1 : 0;
+    const dy = words.some((w) => w === 'up' || w === 'top') ? -1 : words.some((w) => w === 'down' || w === 'bottom') ? 1 : 0;
+    const len = Math.hypot(dx, dy) || 1;
+    return [dx / len, dy / len];
+  }
   function walkScene(scene, stageWidth) {
     const S = window.LKScene;
     const tones = WALK_TONES();
@@ -423,6 +432,17 @@
     for (const n of scene.nodes || []) {
       const t = tone(n.tone);
       out += S.node(n.x, n.y, n.label || '', { stroke: t.stroke, fill: t.fill, color: t.color, r: n.r || 30 });
+    }
+    // A policy field is one fixed arrow per cell, the drawing a sentence like
+    // "la fila de arriba apunta a la derecha" promises. Drawn before the plain
+    // arrows so a beat's movement arrow stays the loudest thing on screen.
+    for (const p of scene.policy || []) {
+      const [ux, uy] = policyDir(p.dir || 'up');
+      const len = p.len || 22;
+      const pad = p.pad ?? 6;
+      const x0 = p.x + pad;
+      const y0 = p.y + p.h - pad;
+      out += S.line(x0, y0, x0 + ux * len, y0 + uy * len, { color: tone(p.tone || 'blue').stroke, width: p.width || 2 });
     }
     for (const a of scene.arrows || []) {
       const color = tone(a.tone).stroke;
