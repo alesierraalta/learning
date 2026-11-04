@@ -10,7 +10,7 @@
  * Every route requires the per-run token; the Host header must be loopback and
  * a POST must come from this origin with a JSON body.
  */
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -39,7 +39,8 @@ import { resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
-import { AGENTES, PENSAMIENTOS, modelParts, piArgs, readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
+import { AGENTES, PENSAMIENTOS, piArgs, readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
+import { createPiRuntime, transcriptOf } from "./runtime.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, tutorContext, validateSugerencia } from "./sugerencias.ts";
@@ -60,7 +61,6 @@ const TOKEN_SHAPE = /^[a-f0-9]{64}$/;
  * studying: the chat keeps the tutor's notices and the studio log keeps these.
  */
 const HARNESS_NOTICE = /^(?:gentle\s*ai|el\s+gentleman|gentle-ai)\b/i;
-const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
 /** The slides' serif: Tinos is metric-compatible with the Liberation Serif the decks render with. */
 const FONT_STYLESHEETS = [
   ["https://cdn.jsdelivr.net/npm/@fontsource/tinos@5.3.0/latin-400.css", "sha384-8zbxI8QzWEG4vEML31iP2/kJ3U7lZQKpjbhBQnsXSbyqwu2/5YmJNYnEi8S+uHyC"],
@@ -98,18 +98,6 @@ export interface Studio {
 
 type Json = Record<string, unknown>;
 const isRecord = (v: unknown): v is Json => v !== null && typeof v === "object" && !Array.isArray(v);
-
-/** The text parts of a Pi message, joined. */
-function messageText(message: unknown): string {
-  if (!isRecord(message)) return "";
-  const { content } = message;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((c): c is Json => isRecord(c) && c.type === "text" && typeof c.text === "string")
-    .map((c) => c.text as string)
-    .join("");
-}
 
 /** A short Spanish label of what the tutor is doing, from one tool call. */
 function toolLabel(name: string, args: unknown): string {
@@ -195,18 +183,20 @@ function toolNote(name: string, args: unknown, root?: string): Note | null {
  * The last part note the conversation wrote or edited: a reloaded tab still knows which note the
  * tutor was talking about, so the chat keeps the way back to it.
  */
-export function noteFromMessages(messages: unknown, root?: string): Note | null {
-  if (!Array.isArray(messages)) return null;
+/** The part a transcript's writes touched: the last one the learner can open. */
+export function noteFromEntries(entries: { calls?: { name: string; args: unknown }[] }[], root?: string): Note | null {
   let found: Note | null = null;
-  for (const message of messages) {
-    if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) continue;
-    for (const part of message.content) {
-      if (!isRecord(part) || part.type !== "toolCall") continue;
-      const note = toolNote(String(part.name), part.arguments, root);
+  for (const entry of entries) {
+    for (const call of entry.calls ?? []) {
+      const note = toolNote(call.name, call.args, root);
       if (note !== null) found = note;
     }
   }
   return found;
+}
+
+export function noteFromMessages(messages: unknown, root?: string): Note | null {
+  return noteFromEntries(transcriptOf(messages), root);
 }
 
 export async function startStudio(options: StudioOptions = {}): Promise<Studio> {
@@ -240,186 +230,96 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     for (const res of clients) res.write(frame);
   };
 
-  // ---- Pi child (JSONL RPC) ----------------------------------------------
-  let child: ChildProcessWithoutNullStreams | undefined;
-  let alive = false;
-  let busy = false;
-  let nextId = 0;
+  // ---- Agent runtime (JSONL RPC) -----------------------------------------
+  // The studio keeps the vocabulary: assistant ids, tool labels, notes, topics
+  // and the SSE frames. The runtime reports facts only.
   let assistantSeq = 0;
   let assistantId = "";
-  const waiting = new Map<string, (record: Json) => void>();
-  // A tool's end event may arrive without its arguments; the row keeps the ones its start carried.
-  const toolArgs = new Map<string, unknown>();
-  const dialogs = new Map<string, Json>();
-  const state = () => ({ busy, alive });
+  // The runtime owns the open dialogs; this is the studio's replay of them, so a
+  // reloaded tab still gets the question it has to answer.
+  const openDialogs = new Map<string, Json>();
 
-  const handle = (record: Json) => {
-    const type = record.type;
-    if (type === "response" && typeof record.id === "string" && waiting.has(record.id)) {
-      waiting.get(record.id)!(record);
-      waiting.delete(record.id);
-      return;
-    }
-    switch (type) {
-      case "agent_start":
-        busy = true;
-        emit("state", state());
-        return;
-      case "agent_settled":
-        busy = false;
-        toolArgs.clear();
-        emit("state", state());
-        emit("library_changed", {});
-        return;
-      case "message_start": {
-        const message = record.message;
-        if (isRecord(message) && message.role === "user") emit("user", { text: messageText(message) });
-        if (isRecord(message) && message.role === "assistant") assistantId = `a${++assistantSeq}`;
-        return;
-      }
-      case "message_update": {
-        const ev = record.assistantMessageEvent;
-        if (isRecord(ev) && ev.type === "text_delta" && typeof ev.delta === "string") {
-          emit("assistant_delta", { id: assistantId, delta: ev.delta });
+  const command = [...tutorCommand()];
+  const runtime = createPiRuntime({
+    command,
+    cwd: root,
+    onEvent: (event) => {
+      switch (event.type) {
+        case "state":
+          emit("state", { busy: event.busy, alive: event.alive });
+          return;
+        case "user":
+          emit("user", { text: event.text });
+          return;
+        case "assistant_start":
+          assistantId = `a${++assistantSeq}`;
+          return;
+        case "assistant_delta":
+          emit("assistant_delta", { id: assistantId, delta: event.delta });
+          return;
+        case "assistant_end":
+          emit("assistant_end", { id: assistantId, text: event.text });
+          return;
+        case "tool_start":
+        case "tool_end": {
+          const note = toolNote(event.name, event.args, root);
+          const topic = toolTopic(event.name, event.args, root);
+          emit("tool", {
+            phase: event.type === "tool_start" ? "start" : "end",
+            id: event.id,
+            name: event.name,
+            label: toolLabel(event.name, event.args),
+            ok: event.type === "tool_start" ? true : event.ok,
+            ...(note === null ? {} : { note }),
+            ...(topic === null ? {} : { topic }),
+          });
+          return;
         }
-        return;
-      }
-      case "message_end": {
-        const message = record.message;
-        if (isRecord(message) && message.role === "assistant") {
-          const text = messageText(message);
-          if (text) emit("assistant_end", { id: assistantId, text });
-        }
-        return;
-      }
-      case "tool_execution_start": {
-        const name = String(record.toolName);
-        const id = String(record.toolCallId);
-        toolArgs.set(id, record.args);
-        const note = toolNote(name, record.args, root);
-        const topic = toolTopic(name, record.args, root);
-        emit("tool", { phase: "start", id: record.toolCallId, name: record.toolName, label: toolLabel(name, record.args), ok: true, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
-        return;
-      }
-      case "tool_execution_end": {
-        const name = String(record.toolName);
-        const id = String(record.toolCallId);
-        const args = record.args ?? toolArgs.get(id);
-        toolArgs.delete(id);
-        const note = toolNote(name, args, root);
-        const topic = toolTopic(name, args, root);
-        emit("tool", { phase: "end", id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
-        return;
-      }
-      case "extension_ui_request": {
-        const method = String(record.method);
-        if (DIALOG_METHODS.has(method) && typeof record.id === "string") {
-          const dialog = {
-            id: record.id,
-            method,
-            title: record.title ?? "",
-            message: record.message ?? "",
-            options: Array.isArray(record.options) ? record.options : [],
-            placeholder: record.placeholder ?? "",
-          };
-          dialogs.set(record.id, dialog);
+        case "dialog": {
+          const dialog = { id: event.id, method: event.method, title: event.title, message: event.message, options: event.options, placeholder: event.placeholder };
+          openDialogs.set(event.id, dialog);
           emit("dialog", dialog);
-        } else if (method === "notify" && typeof record.message === "string") {
-          if (!HARNESS_NOTICE.test(record.message.trim())) emit("notice", { level: record.notifyType ?? "info", message: record.message });
-          else process.stderr.write(`estudio: aviso del arnés fuera del chat · ${record.message}\n`);
+          return;
         }
-        return;
+        case "dialog_closed":
+          openDialogs.delete(event.id);
+          emit("dialog_closed", { id: event.id });
+          return;
+        case "notice":
+          if (!HARNESS_NOTICE.test(event.message.trim())) emit("notice", { level: event.level, message: event.message });
+          else process.stderr.write(`estudio: aviso del arnés fuera del chat · ${event.message}\n`);
+          return;
+        case "settled":
+          emit("library_changed", {});
+          return;
+        case "failure":
+          emit("error", { message: event.message });
+          return;
       }
-    }
-  };
+    },
+  });
 
-  const startPi = () => {
-    const [cmd, ...args] = tutorCommand();
-    const proc = spawn(cmd, args, {
-      cwd: root,
-      env: { ...process.env, GENTLE_SHELL_INTERACTIVE_HOST: "1" },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    child = proc;
-    alive = true;
-    busy = false;
-    let buffer = Buffer.alloc(0);
-    proc.stdout.on("data", (chunk: Buffer) => {
-      buffer = Buffer.concat([buffer, chunk]);
-      let nl: number;
-      // JSONL framing: records end only at LF (never Unicode line separators).
-      while ((nl = buffer.indexOf(0x0a)) >= 0) {
-        const line = buffer.subarray(0, nl).toString("utf8").replace(/\r$/, "");
-        buffer = buffer.subarray(nl + 1);
-        if (!line.trim()) continue;
-        try {
-          const record = JSON.parse(line);
-          if (isRecord(record)) handle(record);
-        } catch {
-          // Not a protocol record; Pi reserves stdout for records.
-        }
-      }
-    });
-    proc.stderr.resume();
-    proc.on("exit", () => {
-      if (child !== proc) return;
-      alive = false;
-      busy = false;
-      for (const resolve of waiting.values()) resolve({ success: false, error: "Pi exited" });
-      waiting.clear();
-      for (const id of dialogs.keys()) emit("dialog_closed", { id });
-      dialogs.clear();
-      emit("state", state());
-      emit("error", { message: "El tutor se detuvo." });
-    });
-    proc.on("error", (err) => emit("error", { message: `No se pudo iniciar Pi: ${err.message}` }));
-    emit("state", state());
-  };
-
-  const write = (command: Json) => {
-    if (!child || !alive) throw new HttpError(503, "the tutor is not running");
-    child.stdin.write(`${JSON.stringify(command)}\n`);
-  };
-
-  const call = (command: Json, timeoutMs = 30000): Promise<Json> =>
-    new Promise((resolve, reject) => {
-      const id = `s${++nextId}`;
-      const timer = setTimeout(() => {
-        waiting.delete(id);
-        reject(new HttpError(504, `Pi did not answer ${command.type}`));
-      }, timeoutMs);
-      waiting.set(id, (record) => {
-        clearTimeout(timer);
-        resolve(record);
-      });
-      try {
-        write({ ...command, id });
-      } catch (err) {
-        clearTimeout(timer);
-        waiting.delete(id);
-        reject(err);
-      }
-    });
-
-  /** A prompt while Pi works is queued until it finishes. */
-  const prompt = async (text: string) => {
-    const reply = await call(busy ? { type: "prompt", message: text, streamingBehavior: "followUp" } : { type: "prompt", message: text });
-    if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi rejected the prompt"));
+  /**
+   * The agent restarts with the settings the file already holds. The command is
+   * the studio's, so it is refreshed in place before the next start.
+   */
+  const restart = () => {
+    command.splice(0, command.length, ...tutorCommand());
+    runtime.start();
   };
 
   // ---- hosted study-view bridge -------------------------------------------
   const tools = new Map<string, { execute: (...args: unknown[]) => Promise<Json> }>();
-  const shutdownHandlers: Array<() => Promise<void> | void> = [];
   const fakePi = {
     on(event: string, handler: () => Promise<void> | void) {
-      if (event === "session_shutdown") shutdownHandlers.push(handler);
+      if (event === "session_shutdown") runtime.onShutdown(handler);
       return () => {};
     },
     registerTool(tool: { name: string; execute: (...args: unknown[]) => Promise<Json> }) {
       tools.set(tool.name, tool);
     },
     sendUserMessage(text: string) {
-      return prompt(text);
+      return runtime.prompt(text);
     },
   };
   const view = async (topic?: string, part?: string) => {
@@ -621,36 +521,13 @@ ${scripts}
   const agentes = () => AGENTES.map((agent) => ({ ...agent, disponible: agent.id === "pi" }));
 
   /** What the running agent offers right now; a stopped agent offers nothing. */
-  const catalogo = async (): Promise<Json[]> => {
-    if (!alive) return [];
-    try {
-      const reply = await call({ type: "get_available_models" }, 10000);
-      const models = isRecord(reply.data) && Array.isArray(reply.data.models) ? reply.data.models : [];
-      return models.filter(isRecord).flatMap((model) => typeof model.provider === "string" && typeof model.id === "string"
-        ? [{ id: `${model.provider}/${model.id}`, nombre: typeof model.name === "string" ? model.name : model.id, proveedor: model.provider, razona: model.reasoning === true }]
-        : []);
-    } catch {
-      // A tutor that cannot list models still tutors: the page shows what the file says.
-      return [];
-    }
-  };
+  const catalogo = () => runtime.models();
 
   /**
    * What the running tutor reports. The file is a wish until the agent follows
    * it, so the page shows the agent's own answer, not the saved value.
    */
-  const activo = async (): Promise<Json | null> => {
-    if (!alive) return null;
-    try {
-      const reply = await call({ type: "get_state" }, 10000);
-      const data = isRecord(reply.data) ? reply.data : {};
-      const model = isRecord(data.model) ? data.model : null;
-      return {
-        modelo: model && typeof model.provider === "string" && typeof model.id === "string" ? `${model.provider}/${model.id}` : "",
-        pensamiento: typeof data.thinkingLevel === "string" ? data.thinkingLevel : "",
-      };
-    } catch { return null; }
-  };
+  const activo = () => runtime.current();
 
   /**
    * The model and the thinking level switch inside the running session, so the
@@ -658,16 +535,8 @@ ${scripts}
    * started again, and the file already holds the choice it will read.
    */
   const applyTutor = async (next: TutorConfig, previous: TutorConfig) => {
-    if (next.modelo) {
-      const parts = modelParts(next.modelo);
-      if (!parts) throw new HttpError(400, "invalid tutor model");
-      const reply = await call({ type: "set_model", provider: parts.provider, modelId: parts.modelId }, 20000);
-      if (reply.success === false) throw new HttpError(409, String(reply.error ?? "the tutor refused that model"));
-    }
-    if (next.pensamiento && next.pensamiento !== previous.pensamiento) {
-      const reply = await call({ type: "set_thinking_level", level: next.pensamiento }, 10000);
-      if (reply.success === false) throw new HttpError(409, String(reply.error ?? "the tutor refused that thinking level"));
-    }
+    const pensamiento = next.pensamiento && next.pensamiento !== previous.pensamiento ? next.pensamiento : "";
+    await runtime.apply({ modelo: next.modelo, pensamiento });
   };
 
   const post = async (req: IncomingMessage, res: ServerResponse, action: string) => {
@@ -686,11 +555,10 @@ ${scripts}
         // agent is touched, so a refused live change still leaves a valid choice.
         tutor = saveTutor(root, body);
         if (tutor.agente !== previous.agente) {
-          if (alive) child?.kill();
-          startPi();
-        } else if (alive) {
+          restart();
+        } else if (runtime.alive) {
           try { await applyTutor(tutor, previous); }
-          catch { if (alive) child?.kill(); startPi(); }
+          catch { restart(); }
         }
         // A restarted agent has nothing to report yet: the page re-reads it.
         return sendJson(res, 200, { config: tutor, agentes: agentes() });
@@ -716,7 +584,7 @@ ${scripts}
         if (text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "the regeneration prompt is too long");
         const saved = recordSugerencia(root, { ...input, origen: "regenerar" });
         const backup = backupPartForRegeneration(root, { topic: tema, part: parte }, new Date(), planned.trash || undefined);
-        await prompt(text);
+        await runtime.prompt(text);
         return sendJson(res, 200, { ok: true, prompt: text, trash: backup.trash, entrada: saved.entrada });
       }
       case "api/telemetry": {
@@ -731,24 +599,22 @@ ${scripts}
         if (typeof text !== "string" || !text.trim() || text.length > MAX_PROMPT_CHARS) {
           throw new HttpError(400, `text must be non-empty, at most ${MAX_PROMPT_CHARS} characters`);
         }
-        await prompt(text.trim());
+        await runtime.prompt(text.trim());
         break;
       }
       case "dialog": {
         const id = body.id;
-        if (typeof id !== "string" || !dialogs.has(id)) throw new HttpError(404, "no such open dialog");
+        if (typeof id !== "string" || !openDialogs.has(id)) throw new HttpError(404, "no such open dialog");
         const response: Json = { type: "extension_ui_response", id };
         if (body.cancelled === true) response.cancelled = true;
         else if (typeof body.confirmed === "boolean") response.confirmed = body.confirmed;
         else if (typeof body.value === "string" && body.value.length <= MAX_PROMPT_CHARS) response.value = body.value;
         else throw new HttpError(400, "dialog answer needs value, confirmed or cancelled");
-        write(response);
-        dialogs.delete(id);
-        emit("dialog_closed", { id });
+        runtime.respond(id, response);
         break;
       }
       case "abort":
-        await call({ type: "abort" }, 60000);
+        await runtime.abort();
         break;
       case "api/draft": {
         const written = (value: unknown) => (typeof value === "string" ? value : "");
@@ -817,14 +683,12 @@ ${scripts}
         break;
       }
       case "new-session": {
-        const reply = await call({ type: "new_session" });
-        if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused a new session"));
+        await runtime.newSession();
         emit("history", { messages: [], note: null });
         break;
       }
       case "restart":
-        if (alive) child?.kill();
-        startPi();
+        restart();
         break;
       default:
         throw new HttpError(404, "not found");
@@ -833,15 +697,10 @@ ${scripts}
   };
 
   const history = async (): Promise<{ messages: Json[]; note: Note | null }> => {
-    if (!alive) return { messages: [], note: null };
     try {
-      const reply = await call({ type: "get_messages" }, 10000);
-      const raw = isRecord(reply.data) && Array.isArray(reply.data.messages) ? reply.data.messages : [];
-      const messages = raw
-        .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
-        .map((m) => ({ role: m.role, text: messageText(m) }))
-        .filter((m) => m.text);
-      return { messages, note: noteFromMessages(raw, root) };
+      const entries = await runtime.transcript();
+      const messages = entries.filter((entry) => entry.text).map((entry) => ({ role: entry.role, text: entry.text }));
+      return { messages, note: noteFromEntries(entries, root) };
     } catch {
       return { messages: [], note: null };
     }
@@ -850,8 +709,8 @@ ${scripts}
   const events = async (res: ServerResponse) => {
     res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", "x-content-type-options": "nosniff" });
     res.write(`event: history\ndata: ${JSON.stringify(await history())}\n\n`);
-    res.write(`event: state\ndata: ${JSON.stringify(state())}\n\n`);
-    for (const dialog of dialogs.values()) res.write(`event: dialog\ndata: ${JSON.stringify(dialog)}\n\n`);
+    res.write(`event: state\ndata: ${JSON.stringify({ busy: runtime.busy, alive: runtime.alive })}\n\n`);
+    for (const dialog of openDialogs.values()) res.write(`event: dialog\ndata: ${JSON.stringify(dialog)}\n\n`);
     clients.add(res);
     res.on("close", () => clients.delete(res));
   };
@@ -1023,7 +882,7 @@ ${scripts}
     throw new Error("the study-view bridge returned an invalid origin");
   }
   if (!bridgeOrigin) throw new Error("the study-view bridge did not start");
-  startPi();
+  runtime.start();
 
   return {
     url: `http://127.0.0.1:${port}/${token}/`,
@@ -1031,10 +890,7 @@ ${scripts}
     close: async () => {
       for (const res of clients) res.end();
       clients.clear();
-      const proc = child;
-      child = undefined;
-      proc?.kill();
-      for (const handler of shutdownHandlers) await handler();
+      await runtime.stop();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
