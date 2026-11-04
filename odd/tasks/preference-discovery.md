@@ -20,8 +20,8 @@ herramienta.»
 
 S2 — Strong evidence, not a guess. A telemetry category becomes an aspect only
 with at least 3 answers in it and an accuracy at or below 0.6. The numbers come
-from `perfil_alumno.tendencias` (`catTotal`, `catAccuracy`) and are recorded with
-the aspect, so the reason is auditable.
+from `estadisticas_globales.por_categoria` (`total`, `aciertos`), the only place
+that keeps them, and are recorded with the aspect, so the reason is auditable.
 
 S3 — A discovered aspect is marked and reversible: it carries its origin and its
 evidence, the reader sees it as discovered rather than chosen, and removing it
@@ -57,3 +57,8 @@ ponerla … que se vayan auto adaptando y vayan creciendo.»
 
 L2 — Decision (2026-11-03): propose and activate with strong evidence (≥3
 answers, accuracy ≤0.6), shown as «descubierto por tu uso» and reversible.
+
+L3 — Correction (2026-11-04): S2 named `perfil_alumno.tendencias` as the source
+of the counts. It is not: a trend entry carries only `observacion`,
+`nivel_dificultad` and `accion_tutor`. The counts live in
+`estadisticas_globales.por_categoria`; S2 was rewritten to say so.
