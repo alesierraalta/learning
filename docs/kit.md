@@ -97,6 +97,14 @@ sub 14 with `subDy` 22, arrow label 15, free annotation 14, arrow `width` 3, box
 0.36 and 0.64 so their captions do not stack in one column. `integrations/pi/kit/examples/scene-intro-rl.html`
 is the worked example.
 
+Three rules keep a scene honest once it is in a page. Text never drops below 11 px on screen: when
+a label cannot fit, the pass stops at that floor, squeezes the glyph spacing and marks the stage
+with `data-overflow="1"`, so a compressed figure says so instead of going quiet. An arrow's label is
+measured against its own shaft — never the whole canvas — because words sized to the figure rather
+than to the arrow end up painted over the source box and the marker head. And the stage measures the
+column it occupies rather than the window (a container query), so a scene inside a narrow column
+keeps its scale and scrolls sideways instead of shrinking its type.
+
 ```html
 <lk-scene>
 <script type="application/json">

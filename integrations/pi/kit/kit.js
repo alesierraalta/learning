@@ -486,12 +486,20 @@
         if (a.bend !== undefined) out += S.curve(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, bend: a.bend, width: shaft });
         else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, width: shaft });
         if (a.label) {
-          const midX = (a.x1 + a.x2) / 2, midY = (a.y1 + a.y2) / 2 - (a.bend === undefined ? 0 : Math.abs(dy) * 0.18);
+          const midY = (a.y1 + a.y2) / 2 - (a.bend === undefined ? 0 : Math.abs(dy) * 0.18);
           const gap = 11 * shaft / 2 + 4;
           const left = Math.min(a.x1, a.x2) - gap, right = Math.max(a.x1, a.x2) + gap;
           const side = left - 4 > stageWidth - right - 4 ? -1 : 1;
-          const x = vertical ? (side > 0 ? right : left) : Math.max(15, Math.min(stageWidth - 15, midX));
-          const fit = vertical ? Math.max(1, side > 0 ? stageWidth - x - 4 : x - 4) : Math.max(1, 2 * Math.min(x - 4, stageWidth - x - 4));
+          // Las palabras pertenecen a la flecha, así que su ancho disponible es el
+          // tramo libre de su propio eje, sin la punta. Medirlas contra el ancho del
+          // escenario entero las dejaba dibujadas encima de la caja de salida y de
+          // la cabeza: el ajuste decía que cabían donde no cabían.
+          const dirX = Math.sign(dx) || 1;
+          const freeStart = a.x1 + dirX * 3;
+          const freeEnd = a.x2 - dirX * headBack;
+          const freeWidth = Math.max(1, Math.abs(freeEnd - freeStart));
+          const x = vertical ? (side > 0 ? right : left) : Math.max(15, Math.min(stageWidth - 15, (freeStart + freeEnd) / 2));
+          const fit = vertical ? Math.max(1, side > 0 ? stageWidth - x - 4 : x - 4) : Math.max(1, Math.min(freeWidth - 4, 2 * Math.min(x - 4, stageWidth - x - 4)));
           out += S.lbl(x, vertical ? midY + size * 0.36 : Math.min(a.y1, a.y2) - gap - size * 0.3, a.label, {
             anchor: vertical ? (side > 0 ? 'start' : 'end') : 'middle',
             color: tone(a.labelTone || a.tone).color,
@@ -508,8 +516,15 @@
   // No word may leave the box that holds it. Measuring the real glyphs is the
   // only honest way: a character count said this deck fit while it overflowed.
   // Shared by every figure on a page, stepped or still.
-  function fitSceneText(stage) {
+  function fitSceneText(stage, { minPx = 0, flagOverflow = false } = {}) {
     const S = window.LKScene;
+    // Un texto que se encoge hasta lo ilegible ya no explica nada: el suelo se
+    // declara en píxeles de pantalla y se traduce a unidades del lienzo. Cuando el
+    // suelo impide encajar el texto, la escena lo marca en vez de callarse.
+    const svg = stage.querySelector('svg');
+    const vbWidth = svg?.viewBox?.baseVal?.width || 0;
+    const svgWidth = svg ? svg.getBoundingClientRect().width : 0;
+    const unitFloor = minPx > 0 && vbWidth > 0 && svgWidth > 0 ? (minPx * vbWidth) / svgWidth : 0;
     const groups = [...stage.querySelectorAll('[data-step]')];
     const shown = groups.map((g) => g.style.display);
     // A hidden text measures as zero, so the pass sees every step at once.
@@ -518,7 +533,9 @@
       const max = Number(text.dataset.fit);
       const authored = Number(text.getAttribute('font-size')) || 22;
       if (!(max > 0)) continue;
-      const floor = authored * 0.55;
+      // El 2 % de margen evita que el redondeo subpíxel deje el suelo justo por
+      // debajo del mínimo que la escena promete.
+      const floor = Math.max(authored * 0.55, unitFloor * 1.02);
       for (let tries = 0; tries < 4; tries++) {
         const need = text.getComputedTextLength();
         if (need <= max) break;
@@ -530,6 +547,8 @@
       if (text.getComputedTextLength() > max) {
         text.setAttribute('textLength', String(Math.round(max)));
         text.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+        text.dataset.overflow = '1';
+        if (flagOverflow) stage.dataset.overflow = '1';
       }
     }
     groups.forEach((g, i) => { g.style.display = shown[i]; });
@@ -648,6 +667,6 @@
     this.classList.add('lk-scene');
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
     this.append(figure);
-    fitSceneText(stage);
+    fitSceneText(stage, { minPx: 11, flagOverflow: true });
   });
 })();
