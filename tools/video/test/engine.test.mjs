@@ -99,3 +99,35 @@ test("a visual without a scene is rejected before rendering", () => {
   const spec = { part: "p", title: "t", topic: "x", sections: [{ heading: "h", beats: [{ title: "Sin dibujo", narration: "esto no tiene ningún dibujo asociado", visual: {} }] }] };
   assert.match(validate(spec).join(), /no visual/);
 });
+
+test("a drawing that changes without the voice saying why is refused", () => {
+  const spec = {
+    part: 1, title: "T", topic: "t",
+    sections: [{ heading: "H", beats: [
+      { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { scenes: [{ scene: {} }, { scene: {} }], anchors: [0, 0.5] } },
+    ] }],
+  };
+  const problems = validate(spec);
+  assert.ok(problems.some((p) => /spoken phrase|anchors/.test(p)), problems.join(" | "));
+});
+
+test("a drawing that changes on a spoken phrase is accepted", () => {
+  const spec = {
+    part: 1, title: "T", topic: "t",
+    sections: [{ heading: "H", beats: [
+      { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { scenes: [{ scene: {} }, { scene: {} }], anchors: ["una flecha por casilla", "en cada estado"] } },
+    ] }],
+  };
+  assert.deepEqual(validate(spec), []);
+});
+
+test("a deck beat says which steps play, and every step change is spoken", () => {
+  const base = { part: 1, title: "T", topic: "t", sections: [{ heading: "H", beats: [
+    { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { deck: "D" } },
+  ] }] };
+  assert.ok(validate(base).some((p) => /steps/.test(p)));
+  base.sections[0].beats[0].visual = { deck: "D", steps: [0, 1], anchors: [0.2, 0.8] };
+  assert.ok(validate(base).some((p) => /spoken phrase|anchors/.test(p)));
+  base.sections[0].beats[0].visual = { deck: "D", steps: [0, 1], anchors: ["una flecha por casilla", "en cada estado"] };
+  assert.deepEqual(validate(base), []);
+});

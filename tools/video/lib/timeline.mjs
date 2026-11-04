@@ -35,9 +35,11 @@ export function wordAnchor(narration, words, phrase) {
 }
 
 // Resolve a beat's states to absolute times inside the part.
-export function resolveStates({ states, anchors, narration, words, speechStart, speechDur }) {
+export function resolveStates({ states, anchors, narration, words, speechStart, speechDur, start }) {
   if (states.length === 0) throw new Error("a visual needs at least one state");
-  const from = speechStart + FIRST_STATE;
+  // The first state is drawn as the beat opens, not a moment later: a beat that
+  // waited for the voice left the figure blank at every cut.
+  const from = Number.isFinite(start) ? start : speechStart + FIRST_STATE;
   const last = speechStart + Math.max(FIRST_STATE + 0.2, speechDur - STATE_MARGIN);
   if (anchors && anchors.length && anchors.length !== states.length) {
     throw new Error(`visual has ${states.length} states but ${anchors.length} anchors`);
@@ -58,6 +60,9 @@ export function resolveStates({ states, anchors, narration, words, speechStart, 
         throw new Error(`anchor must be a word phrase or a 0..1 fraction, got ${JSON.stringify(anchor)}`);
       }
     }
+    // The beat opens on its first drawing. Only the later states wait for a
+    // spoken phrase, so a cut never leaves the figure empty.
+    if (i === 0 && Number.isFinite(start)) return { ...state, t: start };
     return { ...state, t: Math.min(last, Math.max(from, at)) };
   });
 }
@@ -84,7 +89,10 @@ export function cues(words, offset, { maxChars = 44, maxSeconds = 6 } = {}) {
     if (!w.w.trim()) continue;
     if (start === null) start = w.t;
     const next = [...line, w.w.trim()].join(" ");
-    if (line.length >= 2 && (next.length > maxChars * 2 || w.t + w.d - start > maxSeconds)) flush(), (start = w.t);
+    if (line.length >= 2 && (next.length > maxChars * 2 || w.t + w.d - start > maxSeconds)) {
+      flush();
+      start = w.t;
+    }
     line.push(w.w.trim());
     end = w.t + w.d;
   }
@@ -172,6 +180,7 @@ export function buildTimeline(spec, beats, decks) {
         words: audio.words,
         speechStart,
         speechDur,
+        start,
       });
       out.push({
         tag,
