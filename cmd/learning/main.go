@@ -20,6 +20,7 @@ Usage:
   learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode MODE] [--scope SCOPE] [--stage STAGE] [--json]
   learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
   learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
+  learning mcp
   learning help
 
 Commands:
@@ -44,6 +45,11 @@ Commands:
   method     Record the learner's explanation method (pareto or preferencias)
              once, right after the diagnosis, in a strict-flow run. Refused
              choices write nothing.
+  mcp        Serve status, validate, advance, review and init over the Model
+             Context Protocol (JSON-RPC 2.0, one object per line on
+             stdin/stdout), so a tutor runtime that is not this CLI can call
+             the engine. The engine still decides every stage: a tutor may not
+             claim a stage done unless status reports it.
 
 Review flow (the chat, optionally via subagents, is the reviewer):
   validate <stage>  ->  read evidence.pendingReviews (rubric instruction + context)
@@ -96,6 +102,16 @@ func main() {
 // run parses argv strictly and executes one engine command. All engine
 // output — including errors in JSON mode — is a single object written to out.
 func run(args []string, out io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "mcp":
+			if len(args) > 1 {
+				fmt.Fprintln(os.Stderr, "learning mcp: accepts no arguments")
+				return engine.ExitOperational
+			}
+			return serveMCP(os.Stdin, out, os.Stderr)
+		}
+	}
 	jsonMode := hasJSONFlag(args)
 	opts, wantHelp, err := parseArgs(args)
 	if err != nil {
