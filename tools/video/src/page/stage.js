@@ -239,8 +239,15 @@
         const before = path.getPointAtLength(Math.max(0, total - 2));
         const angle = (Math.atan2(end.y - before.y, end.x - before.x) * 180) / Math.PI;
         const head = document.createElementNS(NS, "polygon");
-        head.setAttribute("points", "0,0 14,-6 14,6");
-        head.setAttribute("transform", `translate(${end.x},${end.y}) rotate(${angle})`);
+        // The base sits BEHIND the tip, so the triangle points the way the line
+        // travels. With the base in front, every arrow in every part pointed
+        // backwards: a viewer asked for an up arrow and never saw one.
+        // A thin line gets a proportionally smaller head, or the head swallows
+        // the whole shaft and the arrow reads as a bare triangle.
+        const weight = Number(path.getAttribute("stroke-width")) || 4;
+        const scale = Math.max(0.5, weight / 4);
+        head.setAttribute("points", "0,0 -14,-6 -14,6");
+        head.setAttribute("transform", `translate(${end.x},${end.y}) rotate(${angle}) scale(${scale})`);
         head.setAttribute("fill", path.getAttribute("stroke"));
         head.setAttribute("opacity", "0");
         path.removeAttribute("marker-end");
