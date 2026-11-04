@@ -495,6 +495,9 @@
    * learner's; a save applies to the running session, so the chat is not lost.
    */
   function tutorSection(data, status) {
+    // A studio that cannot answer for its tutor still lets the learner change
+    // preferences: the section is absent, not the page.
+    if (!data || !data.config) return null;
     const config = { ...data.config };
     const agentes = data.agentes ?? [];
     const models = data.modelos ?? [];
