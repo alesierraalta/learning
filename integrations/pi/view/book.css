@@ -1,0 +1,16 @@
+/* Reading modes: one screen-wide column per page, pages side by side.
+   Kept out of app.css so a hand-built part page can load exactly this. */
+/* Book mode: one screen-wide column per page, pages side by side, no vertical
+   scroll. The studio only says the mode; the page measures itself. */
+body.book { overflow: hidden; }
+/* Two wrappers exist in the wild: the studio's fixture writes #app, and a real
+   part is served as <main>. Both are the page, so both paginate. */
+body.book #app,
+body.book > main { max-width: none; height: 100vh; margin: 0; padding: 0; overflow-x: auto; overflow-y: hidden; column-width: 100vw; column-gap: 0; column-fill: auto; }
+body.book #app > *,
+body.book > main > * { width: min(648px, 100vw - 96px); margin-left: auto; margin-right: auto; break-inside: avoid; }
+body.book #app > figure,
+body.book > main > figure { width: min(816px, 100vw - 96px); }
+/* A reading-progress bar pinned above the page would otherwise eat the first
+   page's height. */
+body.book > .lk-progress { position: fixed; top: 0; left: 0; right: 0; z-index: 2; }

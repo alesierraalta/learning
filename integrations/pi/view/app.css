@@ -36,13 +36,6 @@ body { margin: 0; }
    984 for what must be read across. */
 #app { max-width: 648px; margin: 0 auto; padding: 72px 24px 96px; overflow-wrap: anywhere; }
 
-/* Book mode: one screen-wide column per page, pages side by side, no vertical
-   scroll. The studio only says the mode; the page measures itself. */
-body.book { overflow: hidden; }
-body.book #app { max-width: none; height: 100vh; margin: 0; padding: 0; overflow-x: auto; overflow-y: hidden; column-width: 100vw; column-gap: 0; column-fill: auto; }
-body.book #app > * { width: min(648px, 100vw - 96px); margin-left: auto; margin-right: auto; break-inside: avoid; }
-body.book #app > figure { width: min(816px, 100vw - 96px); }
-
 h1, h2, h3 { line-height: 1.25; letter-spacing: 0; }
 h1 { font-size: 34px; font-weight: 400; margin: 0 0 10px; }
 h2 { font-size: 26px; font-weight: 400; margin: 44px 0 16px; }
