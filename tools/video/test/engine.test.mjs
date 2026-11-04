@@ -159,3 +159,30 @@ test("the first state never lands after the beat's last allowed moment", () => {
   const [only] = resolveStates({ states: [{}], narration: "uno", words, speechStart: 10, speechDur: 0.1, start: 20 });
   assert.ok(only.t < 20, `first state at ${only.t}`);
 });
+
+test("the states of a beat keep the order the narrator says them", () => {
+  const narration = "La política elige una acción por casilla y la recompensa";
+  const words = narration.split(" ").map((w, i) => ({ t: i * 0.3, d: 0.28, w }));
+  const timed = resolveStates({
+    states: [{}, {}, {}],
+    anchors: ["La recompensa", "casilla", "La política"],
+    narration,
+    words,
+    speechStart: 10,
+    speechDur: 3,
+    start: 9.85,
+  });
+  const times = timed.map((s) => s.t);
+  assert.deepEqual(times, [...times].sort((a, b) => a - b), `states play out of order: ${times.map((t) => t.toFixed(2)).join(" ")}`);
+});
+
+test("a visual with no state at all is a spec error that names the beat", () => {
+  const spec = {
+    part: 1, title: "T", topic: "t",
+    sections: [{ heading: "H", beats: [
+      { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { scenes: [] } },
+    ] }],
+  };
+  const problems = validate(spec);
+  assert.ok(problems.length > 0, "a visual with no state was accepted and only fails later, without naming the beat");
+});
