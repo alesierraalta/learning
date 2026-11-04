@@ -42,7 +42,7 @@ lk-callout[type=danger],lk-callout[type=error] { border-left-color:var(--crimson
 lk-callout>:last-child { margin-bottom:0; }
 lk-widget { border:1px solid var(--rule); border-radius:8px; padding:20px; }
 lk-step { border-left:2px solid var(--cobalt); padding:12px 18px; background:#f8fafc; }
-.lk-step-label { color:var(--cobalt); font-family:"DejaVu Sans Mono",monospace; }
+.lk-step-label { color:var(--cobalt); font-family:"DejaVu Sans Mono",monospace; margin-right:.5em; }
 .lk-mark { font-size:.75rem; color:#047857; }
 .lk-mark.bloqueo { color:var(--crimson); }
 .lk-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; }
@@ -190,7 +190,7 @@ lk-callout[type] { border-left: 0; }
 .lk-title { font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 lk-widget { border: 1px solid var(--hair); border-radius: 0; padding: 18px 0 0; }
 lk-step { border-left: 1px solid var(--hair); padding: 4px 0 4px 16px; background: none; }
-.lk-step-label { color: var(--accent); font-family: var(--mono); }
+.lk-step-label { color: var(--accent); font-family: var(--mono); margin-right: .5em; }
 .lk-mark { color: var(--accent); }
 .lk-mark.bloqueo { color: var(--ink); font-weight: 700; }
 .lk-controls p { font-size: 13px; color: var(--muted); }
