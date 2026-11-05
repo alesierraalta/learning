@@ -303,3 +303,11 @@ lk-scene figure { margin: 0; }
 @media (max-width: 720px) {
   .lk-scene-caption { font-size: .74rem; }
 }
+
+/* A figure drawn by the visual engine from the note's JSON scene. The drawing
+   names tones and the page paper decides their colour, so it is never an
+   island: it follows the reader's light or dark choice. */
+lk-figure { display: block; margin: 30px 0; }
+lk-figure figure { margin: 0; }
+.lk-figure-stage { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.lk-figure-stage svg { display: block; width: 100%; height: auto; }

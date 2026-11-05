@@ -116,6 +116,43 @@ keeps its scale and scrolls sideways instead of shrinking its type.
 </lk-scene>
 ```
 
+### Figures from the visual engine
+
+A note figure is not hand-drawn SVG: it is a JSON scene the engine in `tools/visuals/`
+owns, and `lk-figure` draws it with the same renderer the CLI uses. The note names meaning —
+a grid, a cell kind, a tone — never coordinates or a colour, so the figure follows the
+paper it lands on: light, dark, or the reader's system.
+
+```html
+<script src="../kit/visuals/draw.js" defer></script>
+<script src="../kit/kit.js" defer></script>
+
+<lk-figure>
+<script type="application/json">
+{"title":"El almacén","aria":"Una rejilla con el robot y la salida al otro lado",
+ "viewBox":"0 0 760 290",
+ "grids":[{"x":16,"y":40,"cols":4,"rows":3,"w":82,"h":82,
+           "cells":[{"c":0,"r":0,"kind":"robot"},{"c":3,"r":0,"kind":"exit","label":"+1"}]}],
+ "arrows":[{"x1":20,"y1":260,"x2":320,"y2":260,"tone":"blue","label":"el robot sigue su política"}]}
+</script>
+</lk-figure>
+```
+
+Author the `viewBox` at the width of the reading column (760) so 1 unit is about 1 px and
+the type lands where it was written. The scene keys are the engine's (`grids`, `sheets`,
+`panels`, `dashed`, `bars`, `boxes`, `arrows`, `paths`, `labels`; cell kinds `free`,
+`policy`, `value`, `exit`, `wall`, `hazard`, `robot`, `start`), documented in
+`tools/visuals/README.md`. A figure that draws nothing, or whose payload does not parse,
+says so instead of showing an empty box, and the note gate
+(`node tools/visuals/audit-note.mjs --note <note>`) refuses a hand-written `<svg>`.
+
+The bridge serves `kit/visuals/draw.js` from `tools/visuals/` and loads it before `kit.js`
+on every reader page, so a markdown note only writes the `<lk-figure>` block. A hand-built
+page loads it itself, exactly as it loads `scene.js` for `lk-walkthrough`. A page served by
+another static server must expose the engine at the same path (`<kit>/visuals/draw.js`),
+beside `kit.js`, because that is where the component looks for it; the engine file itself
+stays in `tools/visuals/draw.js` so there is only one renderer.
+
 `lk-walkthrough` is the deck's own visual language, step by step. **Every reading section gets
 one**: the figure carries the visual explanation and the prose keeps the detail, so a section
 without a figure is a gap. Each `scene` is the complete state that step shows, drawn with the
@@ -194,9 +231,11 @@ must not hide what it marks needs `"fill": "none"`.
 The page paper follows the reader's choice. `kit/theme.js` reads `?theme=`, then
 `localStorage`, then the operating system, and sets `data-theme` on `<html>`; the
 bridge and the studio load it before anything else paints. `kit.css` swaps only tokens in
-`:root[data-theme="dark"]`, and figures keep a light surface on purpose: a diagram's
-colours are part of what it teaches. A page that hard-codes `#fff` for a surface will not
-follow the theme; use `var(--paper)` and `var(--ink)`.
+`:root[data-theme="dark"]`, and a walkthrough or scene keeps a light surface on purpose: a
+diagram's colours are part of what it teaches. An `lk-figure` from the visual engine is
+the exception: it names tones instead of colours, so it follows the paper it lands on. A
+page that hard-codes `#fff` for a surface will not follow the theme; use `var(--paper)`
+and `var(--ink)`.
 
 Both rich quizzes and plain part/diagnosis quizzes share `kit/dictate.js`:
 «Cómo lo pensé (opcional)», its hint and «Dictar» button. The bridge loads it

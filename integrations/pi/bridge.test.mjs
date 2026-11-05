@@ -1461,12 +1461,90 @@ test("the index degrades one broken topic instead of failing the gallery", () =>
   assert.ok(rows.find((r) => r.id === TOPIC).parts.length > 0);
 });
 
+// The note stays the source: a figure written as a JSON scene is drawn by the
+// visual engine in the reader, so the same note follows the paper it lands on.
+test("a note figure is drawn by the visual engine, in the reader's theme", { skip: !playwright && 'playwright not installed' }, async t => {
+  const { root, view } = await setup();
+  mkdirSync(join(root, 'rapidos'), { recursive: true });
+  const scene = JSON.stringify({
+    title: 'El almacén',
+    aria: 'Una rejilla con el robot en la esquina y la salida al otro lado',
+    viewBox: '0 0 360 290',
+    grids: [{ x: 16, y: 40, cols: 4, rows: 3, w: 82, h: 82, cells: [{ c: 0, r: 0, kind: 'robot' }, { c: 3, r: 0, kind: 'exit', label: '+1' }] }],
+    arrows: [{ x1: 20, y1: 260, x2: 320, y2: 260, tone: 'blue', label: 'el robot sigue su política' }],
+  });
+  writeFileSync(join(root, 'rapidos', 'figura.md'), `# Figura\n\n<lk-figure>\n<script type="application/json">${scene}</script>\n</lk-figure>\n\nCómo leerlo: entra por la casilla del robot y mira la salida.\n`);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(base(await view({})) + 'rapidos/figura');
+  const figure = page.locator('lk-figure');
+  await figure.locator('svg').waitFor();
+  // The drawing names tones; the page paper decides their colour.
+  const ink = () => figure.evaluate(node => getComputedStyle(node.querySelector('svg')).getPropertyValue('--v-ink').trim());
+  assert.equal(await ink(), '#0F2E3D', 'the light paper comes from the engine tokens');
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  assert.equal(await ink(), '#F1EFE8', 'the dark paper swaps the same tokens');
+  // Fills are mixed against the paper, never layered with alpha over an assumed white page.
+  assert.equal(await figure.locator('svg [fill*="rgba("]').count(), 0);
+  assert.equal(await figure.locator('svg [stroke*="rgba("]').count(), 0, 'nothing is layered with alpha');
+});
+
 test("visuals count fenced figures and inline elements, never code samples", () => {
   assert.equal(countVisuals("```python\nprint(1)\n```\n"), 0);
   assert.equal(countVisuals("```mermaid\ngraph TD; A-->B;\n```\n"), 1);
   assert.equal(countVisuals("<figure><svg viewBox='0 0 1 1'></svg></figure>"), 2);
   assert.equal(countVisuals("```text\n<svg>\n```\n"), 0, "a sample is not a figure");
   assert.equal(countVisuals("```js\nconst a = 1;\n```\n\n```mermaid\ngraph TD;\n```\n"), 1);
+});
+
+// The counter accepts only scenes the renderer can draw: an unknown tone, an
+// unknown anchor, a non-numeric width and a viewBox without four numbers are
+// refused here exactly as `sceneDraws` refuses them.
+test("a scene the engine cannot draw is not a visual", () => {
+  const figure = (scene) => `<lk-figure>\n<script type="application/json">${JSON.stringify(scene)}</script>\n</lk-figure>`;
+  const invalid = [
+    { labels: [{ x: 1, y: 1, text: "a", tone: "purple" }] },
+    { labels: [{ x: 1, y: 1, text: "a", anchor: "middle-ish" }] },
+    { arrows: [{ x1: 1, y1: 1, x2: 9, y2: 1, width: "wide" }] },
+    { viewBox: "0 0 360", arrows: [{ x1: 1, y1: 1, x2: 9, y2: 1 }] },
+  ];
+  for (const scene of invalid) assert.equal(countVisuals(figure(scene)), 0, JSON.stringify(scene));
+  // The shapes that worked before still count.
+  assert.equal(countVisuals(figure({ labels: [{ x: 1, y: 1, text: "a", tone: "blue", anchor: "middle" }] })), 1);
+  assert.equal(countVisuals(figure({ viewBox: "0 0 360 290", arrows: [{ x1: 1, y1: 1, x2: 9, y2: 1, width: 2 }] })), 1);
+  assert.equal(countVisuals(figure({ grids: [{ cols: 1, rows: 1, w: 9, h: 9, cells: [{ c: 0, r: 0, kind: "value", text: "V(s)" }] }] })), 1, "a value cell may show its own text");
+});
+
+// A note figure is a JSON scene the reader draws; the counter only sees a
+// visual when there is something in the scene to draw, and it accepts the same
+// shapes the renderer iterates.
+test("visuals count an lk-figure scene with content, never an empty one", () => {
+  const figure = (payload) => `<lk-figure>\n<script type="application/json">${payload}</script>\n</lk-figure>\n`;
+  assert.equal(countVisuals(figure('{"grids":[{"cols":4,"rows":3,"w":9,"h":9,"cells":[{"c":0,"r":0}]}]}')), 1);
+  assert.equal(countVisuals(figure('{"title":"Solo un título"}')), 0, "a scene that draws nothing is not a visual");
+  assert.equal(countVisuals(figure("{}")), 0);
+  assert.equal(countVisuals(figure("{\"grids\": [")), 0, "a broken scene is not a visual");
+  assert.equal(countVisuals("```html\n" + figure('{"grids":[{"cols":4}]}') + "```\n"), 0, "a sample is not a figure");
+  assert.equal(countVisuals(figure('{"grids":"4"}')), 0, "a string is not a list of grids");
+  assert.equal(countVisuals(figure('{"boxes":5}')), 0, "a number is not a list of boxes");
+  assert.equal(countVisuals(figure('{"arrows":[]}')), 0, "an empty list draws nothing");
+  assert.equal(countVisuals(figure('{"arrows":""}')), 0);
+  assert.equal(countVisuals(figure('{"bars":{"baseline":100}}')), 0, "bars needs a bars list");
+  assert.equal(countVisuals(figure('{"bars":{"baseline":100,"bars":[{"x":1,"w":9,"h":20}]}}')), 1);
+  // An entry the renderer refuses makes the whole scene undrawable.
+  for (const scene of ['{"grids":[{}]}', '{"arrows":[{}]}', '{"paths":[{}]}', '{"boxes":[{}]}', '{"labels":[{}]}', '{"bars":{"bars":[{}]}}']) {
+    assert.equal(countVisuals(figure(scene)), 0, scene);
+  }
+  // A well-typed scene that paints nothing is a blank box, not a visual.
+  assert.equal(countVisuals(figure('{"grids":[{"cols":1,"rows":1,"w":9,"h":9,"cells":[]}]}')), 0, "a grid without cells draws nothing");
+  assert.equal(countVisuals(figure('{"bars":{}}')), 0, "bars without bars draws nothing");
+  assert.equal(countVisuals(figure('{"bars":{"bars":[{"x":1,"h":0}]}}')), 0, "a zero-height bar paints nothing");
+  assert.equal(countVisuals(figure('{"grids":[{"cols":1,"rows":1,"w":9,"h":9,"cells":[{"c":0,"r":0}]}]}')), 1);
+  // A compact figure and an inline element on one line both draw, so both count.
+  const compact = `<lk-figure><script type="application/json">{"grids":[{"cols":1,"rows":1,"w":9,"h":9,"cells":[{"c":0,"r":0}]}]}</script></lk-figure>`;
+  assert.equal(countVisuals(`${compact}<svg><circle cx="1" cy="1" r="1"/></svg>`), 2);
+  assert.equal(countVisuals(`<svg><circle cx="1" cy="1" r="1"/></svg>${compact}`), 2);
 });
 
 test("a topic reports what it still owes: missing parts, promised visuals and missing quiz", () => {
@@ -1642,6 +1720,24 @@ test("a demo page finds the kit through its own relative path", async () => {
   assert.match(css.headers["content-type"], /^text\/css/);
   assert.equal((await http(`${base}${TOPIC}/kit/nope.js`)).status, 404);
   assert.equal((await http(`${base}${TOPIC}/file/kit/..%2Fkit.css`)).status, 404);
+  await shutdown();
+});
+
+// The reader draws a note figure with the engine the CLI uses, served beside the
+// kit so the same file draws a still, a frame and a page.
+test("the reader serves the visual engine beside the kit", async () => {
+  const { view, shutdown } = await setup();
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const base = result.structuredContent.base;
+  const engine = await http(`${base}kit/visuals/draw.js`);
+  assert.equal(engine.status, 200);
+  assert.match(engine.headers["content-type"], /^text\/javascript/);
+  assert.match(engine.body, /LKVisuals/);
+  assert.match(engine.body, /function renderScene/);
+  assert.equal((await http(`${base}${TOPIC}/kit/visuals/draw.js`)).status, 200, "a page under a topic resolves the same route");
+  assert.equal((await http(`${base}${TOPIC}/file/kit/visuals/draw.js`)).status, 200, "a demo one level deeper does too");
+  assert.equal((await http(`${base}kit/visuals/theme.mjs`)).status, 404, "only the classic engine file is served");
+  assert.equal((await http(`${base}kit/visuals/nope.js`)).status, 404, "the route never guesses a file");
   await shutdown();
 });
 

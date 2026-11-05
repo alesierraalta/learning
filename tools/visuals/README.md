@@ -22,6 +22,32 @@ node tools/visuals/index.mjs --scene escena.json --theme dark --mode static --ou
 `--html` writes the same scene three times — light, dark, and a live copy that
 switches theme on click — which is how a figure gets checked before it ships.
 
+## In the reader
+
+The same drawing is a reader component. A note carries the scene and
+`<lk-figure>` draws it in the page's paper:
+
+```html
+<script src="../kit/visuals/draw.js" defer></script>
+<script src="../kit/kit.js" defer></script>
+
+<lk-figure>
+<script type="application/json">
+{"title":"El almacén","viewBox":"0 0 760 290",
+ "grids":[{"x":16,"y":40,"cols":4,"rows":3,"w":82,"h":82,
+           "cells":[{"c":0,"r":0,"kind":"robot"},{"c":3,"r":0,"kind":"exit","label":"+1"}]}]}
+</script>
+</lk-figure>
+```
+
+`draw.js` is the engine as one classic script: this CLI imports it through the
+`theme.mjs`, `color.mjs`, `place.mjs` and `markup.mjs` wrappers beside this file,
+and the reader loads it before `kit.js` (the bridge serves it at
+`kit/visuals/draw.js`). The component injects the token block once per page and
+draws in `vars` mode, so light and dark come from the page, never from the
+figure. A scene that draws nothing is an error the reader can see, not an empty
+box.
+
 ## A scene
 
 ```json

@@ -26,6 +26,8 @@ import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./
 
 const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
 const KIT_DIR = join(dirname(fileURLToPath(import.meta.url)), "kit");
+/** The visual engine the reader draws a note's figure from (S1). */
+const VISUALS_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../tools/visuals");
 /**
  * Static assets are revalidated on every load and carry this version stamp. The
  * reader used to cache app.css for an hour, so a deploy left the old stylesheet
@@ -39,6 +41,7 @@ const staticVersion = (() => {
     join(VIEW_DIR, "book.js"),
     join(KIT_DIR, "kit.css"),
     join(KIT_DIR, "kit.js"),
+    join(VISUALS_DIR, "draw.js"),
   ];
   let stamp = 1;
   for (const file of files) {
@@ -812,6 +815,118 @@ export function writeQuickNote(root: string, input: QuickNoteSave): { id: string
 const VISUAL_BLOCKS = new Set(["mermaid", "svg", "graphviz", "dot", "plantuml"]);
 const VISUAL_ELEMENTS = /<\s*(?:svg|figure|canvas)\b/gi;
 
+/**
+ * Scene keys that draw something. A note figure is the scene the visual engine
+ * draws, so an empty or wrongly typed payload is not a visual (S5): the same
+ * rule the engine's own counter applies. `bars` is the one object key; it holds
+ * a `bars` list, the shape the renderer iterates.
+ */
+const FIGURE_LISTS = ["grids", "sheets", "panels", "dashed", "boxes", "arrows", "paths", "labels"];
+const FIGURE_BLOCK = /<lk-figure\b[^>]*>([\s\S]*?)<\/lk-figure>/gi;
+const FIGURE_JSON = /<script\b[^>]*type\s*=\s*["']application\/json["'][^>]*>([\s\S]*?)<\/script>/i;
+const FIGURE_CELL_KINDS = ["free", "policy", "value", "exit", "wall", "hazard", "robot", "start"];
+const FIGURE_DIRECTIONS = ["up", "down", "left", "right"];
+const FIGURE_TONES = ["ink", "slate", "line", "soft", "blue", "green", "amber", "red", "muted", "paper"];
+const FIGURE_ANCHORS = ["start", "middle", "end"];
+const FIGURE_ITEM_NUMBERS: Record<string, string[]> = {
+  sheets: ["rx", "strokeWidth", "size", "subSize", "labelOffset", "alpha"],
+  boxes: ["rx", "strokeWidth", "size", "subSize", "labelOffset", "alpha"],
+  panels: ["lineH", "size", "titleSize"],
+  dashed: ["rx", "width", "size"],
+  arrows: ["width"],
+  paths: ["width"],
+  labels: ["size", "weight"],
+};
+const FIGURE_ITEM_TONES: Record<string, string[]> = {
+  sheets: ["tone", "fill", "text"],
+  boxes: ["tone", "fill", "text"],
+  panels: ["tone"],
+  dashed: ["tone"],
+  arrows: ["tone"],
+  paths: ["tone", "fill"],
+  labels: ["tone"],
+};
+
+const finite = (value: unknown): boolean => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+const toneOk = (value: unknown): boolean => value === undefined || (typeof value === "string" && FIGURE_TONES.includes(value));
+
+function figureCellDraws(cell: unknown): boolean {
+  if (!isRecord(cell) || !finite(cell.c) || !finite(cell.r)) return false;
+  if (!toneOk(cell.tone)) return false;
+  if (cell.size !== undefined && !finite(cell.size)) return false;
+  const kind = cell.kind ?? "free";
+  if (typeof kind !== "string" || !FIGURE_CELL_KINDS.includes(kind)) return false;
+  if (kind === "policy" && !(typeof cell.dir === "string" && FIGURE_DIRECTIONS.includes(cell.dir))) return false;
+  return !(kind === "value" || cell.value !== undefined) || (cell.text !== undefined && cell.text !== null) || finite(cell.value);
+}
+
+function figureItemDraws(key: string, item: unknown): boolean {
+  if (!isRecord(item)) return false;
+  for (const field of FIGURE_ITEM_TONES[key] ?? []) if (!toneOk(item[field])) return false;
+  for (const field of FIGURE_ITEM_NUMBERS[key] ?? []) if (item[field] !== undefined && !finite(item[field])) return false;
+  if (key === "panels" && item.lines !== undefined && !Array.isArray(item.lines)) return false;
+  if (key === "labels" && item.anchor !== undefined && !(typeof item.anchor === "string" && FIGURE_ANCHORS.includes(item.anchor))) return false;
+  if (item.alpha !== undefined && (Number(item.alpha) < 0 || Number(item.alpha) > 1)) return false;
+  if (key === "grids") {
+    return ["cols", "rows", "w", "h"].every((field) => finite(item[field]) && Number(item[field]) > 0) && Array.isArray(item.cells);
+  }
+  if (key === "arrows") return ["x1", "y1", "x2", "y2"].every((field) => finite(item[field]));
+  if (key === "paths") return typeof item.d === "string" && item.d.trim().length > 0;
+  if (key === "labels") return finite(item.x) && finite(item.y) && item.text !== undefined && item.text !== null && String(item.text).length > 0;
+  return ["x", "y", "w", "h"].every((field) => finite(item[field]));
+}
+
+/**
+ * A scene is drawable only when every entry is one the renderer iterates and at
+ * least one entry paints something: the same rule the Go counter and the gate
+ * apply, so a blank grid or a bars object without bars is not a visual. The
+ * semantic fields (tone, anchor, sizes, viewBox) fail closed here exactly where
+ * `sceneProblems` fails in the renderer.
+ */
+function sceneDraws(scene: unknown): boolean {
+  if (!isRecord(scene)) return false;
+  const box = String(scene.viewBox ?? "0 0 360 290").trim().split(/\s+/).map(Number);
+  if (box.length !== 4 || !box.every(Number.isFinite) || box[2] <= 0 || box[3] <= 0) return false;
+  let draws = false;
+  for (const key of FIGURE_LISTS) {
+    const value = scene[key];
+    if (value === undefined || value === null) continue;
+    if (!Array.isArray(value)) return false;
+    for (const item of value) {
+      if (!figureItemDraws(key, item)) return false;
+      if (key === "grids") {
+        const cells = (item as Record<string, unknown>).cells as unknown[];
+        if (!cells.every(figureCellDraws)) return false;
+        if (cells.length > 0) draws = true;
+      } else draws = true;
+    }
+  }
+  const bars = scene.bars;
+  if (bars !== undefined && bars !== null) {
+    if (!isRecord(bars)) return false;
+    if (bars.baseline !== undefined && !finite(bars.baseline)) return false;
+    const list = bars.bars;
+    if (list !== undefined && !Array.isArray(list)) return false;
+    for (const bar of (list ?? []) as unknown[]) {
+      if (!isRecord(bar) || !finite(bar.x) || !finite(bar.h)) return false;
+      if (bar.w !== undefined && !finite(bar.w)) return false;
+      if (!toneOk(bar.tone)) return false;
+      if (Number(bar.h) !== 0) draws = true;
+    }
+  }
+  return draws;
+}
+
+function figureDraws(block: string): boolean {
+  const payload = FIGURE_JSON.exec(block)?.[1];
+  if (payload === undefined) return false;
+  try {
+    return sceneDraws(JSON.parse(payload));
+  } catch {
+    return false;
+  }
+}
+
 export function countVisuals(markdown: string): number {
   let fenced = 0;
   // Strip every fenced block first: an <svg> inside a ```text sample is a sample, not a figure.
@@ -820,7 +935,14 @@ export function countVisuals(markdown: string): number {
     if (language !== undefined && VISUAL_BLOCKS.has(language)) fenced += 1;
     return "";
   });
-  return fenced + (outside.match(VISUAL_ELEMENTS)?.length ?? 0);
+  // A note figure is the JSON scene the reader draws; only a scene with
+  // something in it counts, and its own markup is not counted twice.
+  let figures = 0;
+  const rest = outside.replace(FIGURE_BLOCK, (block) => {
+    if (figureDraws(block)) figures += 1;
+    return "";
+  });
+  return fenced + figures + (rest.match(VISUAL_ELEMENTS)?.length ?? 0);
 }
 
 const EMPTY_GAPS: TopicGaps = { missing: [], noVisuals: [], noQuiz: [] };
@@ -882,6 +1004,8 @@ export interface BridgeOptions {
   transcriber?: Transcriber;
   /** Directory of kit.css / kit.js (tests). */
   kitDir?: string;
+  /** Directory of the visual engine's draw.js (tests). */
+  visualsDir?: string;
   /**
    * A secret the URL token is derived from, so a restart keeps the token and open pages keep
    * working; the token is a keyed hash, never the secret itself. Random per start when absent.
@@ -918,6 +1042,7 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   const pageCsp = `${PAGE_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
   const richCsp = `${RICH_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
   const kitDir = options.kitDir ?? KIT_DIR;
+  const visualsDir = options.visualsDir ?? VISUALS_DIR;
   let server: Server | undefined;
   let starting: Promise<void> | undefined;
   let port = 0;
@@ -1004,6 +1129,7 @@ ${scripts}
 <main id="app"></main>
 <script type="application/json" id="view-data">${json}</script>
 <script src="${prefix}kit/dictate.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/visuals/draw.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/scene.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/kit.js?v=${staticVersion}"></script>
 <script src="${prefix}math.js?v=${staticVersion}"></script>
@@ -1107,6 +1233,17 @@ ${scripts}
   };
 
   const kitFile = (res: ServerResponse, name: string) => {
+    // The visual engine is drawn by the same file the CLI uses, served beside
+    // the kit so a note figure never carries a second copy of the renderer.
+    const visual = /^visuals\/([\w-]+\.js)$/.exec(name);
+    if (visual) {
+      const contained = resolveContained(visualsDir, join(visualsDir, visual[1]));
+      if (!contained.ok) throw new HttpError(404, "not found");
+      return send(res, 200, MIME[extname(visual[1])], readFileSync(contained.targetReal), {
+        "access-control-allow-origin": "*",
+        "cache-control": "no-cache",
+      });
+    }
     if (!/^(?:fonts\/)?[\w-]+\.(js|css|woff2)$/.test(name)) throw new HttpError(404, "not found");
     const contained = resolveContained(kitDir, join(kitDir, name));
     if (!contained.ok) throw new HttpError(404, "not found");

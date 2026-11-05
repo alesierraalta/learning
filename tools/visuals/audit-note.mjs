@@ -3,7 +3,7 @@
 // and refuses the two things that took the diagrams away from us: an SVG
 // written by hand, and a scene that spells meaning as pixels or characters.
 import { readFileSync } from "node:fs";
-import { CELL_KINDS } from "./markup.mjs";
+import { CELL_KINDS, sceneDraws, sceneProblems } from "./markup.mjs";
 
 export const FIGURE = /<lk-figure>\s*<script type="application\/json">([\s\S]*?)<\/script>/g;
 export const SCENE_KEYS = ["title", "aria", "viewBox", "grids", "sheets", "panels", "dashed", "bars", "boxes", "arrows", "paths", "labels"];
@@ -40,6 +40,11 @@ export function auditNote(markdown, where = "note") {
       violations.push(`${where}:${at} figure ${figures} is not valid JSON: ${error.message}`);
       continue;
     }
+    if (!scene || typeof scene !== "object" || Array.isArray(scene)) {
+      violations.push(`${where}:${at} figure ${figures} must be a JSON object`);
+      continue;
+    }
+    const before = violations.length;
     for (const key of Object.keys(scene)) {
       if (!SCENE_KEYS.includes(key)) violations.push(`${where}:${at} figure ${figures} names "${key}", which the engine cannot draw (it draws: ${SCENE_KEYS.join(", ")})`);
     }
@@ -47,10 +52,18 @@ export function auditNote(markdown, where = "note") {
       for (const cell of grid.cells ?? []) {
         if (cell.label && GLYPHS.test(cell.label)) violations.push(`${where}:${at} figure ${figures} spells its meaning as the character "${cell.label}": use kind "policy" with a direction (${CELL_DIRS.join(", ")})`);
         if (cell.kind && !CELL_KINDS.includes(cell.kind)) violations.push(`${where}:${at} figure ${figures} has a cell kind the engine does not have: "${cell.kind}"`);
+        if (cell.kind === "policy" && !CELL_DIRS.includes(cell.dir)) violations.push(`${where}:${at} figure ${figures} has a policy with no direction at (${cell.c},${cell.r}): use ${CELL_DIRS.join(", ")}`);
       }
     }
     for (const label of scene.labels ?? []) {
       if (GLYPHS.test(String(label.text ?? ""))) violations.push(`${where}:${at} figure ${figures} spells its meaning as the character "${label.text}": draw an arrow instead`);
+    }
+    // The drawing decides what it can paint. A scene with a blank grid or a
+    // bars object without bars is not a figure, and an entry the renderer
+    // refuses is named before it ships.
+    if (violations.length === before && !sceneDraws(scene)) {
+      const [problem] = sceneProblems(scene);
+      violations.push(`${where}:${at} figure ${figures} ${problem ?? "draws nothing the engine can draw: add a cell, an arrow, a box, a label or a bar"}`);
     }
   }
 

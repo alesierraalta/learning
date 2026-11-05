@@ -2,7 +2,7 @@
 // same scene survives a white page and a black one.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { renderScene, signed, CELL_KINDS } from "../markup.mjs";
+import { renderScene, signed, CELL_KINDS, sceneDraws } from "../markup.mjs";
 import { mix, contrast } from "../color.mjs";
 import { placeLabel } from "../place.mjs";
 import { THEMES } from "../theme.mjs";
@@ -90,4 +90,53 @@ test("every cell kind the engine advertises is a colour it can draw", () => {
     const svg = renderScene(grid([{ c: 0, r: 0, kind, dir: "up", value: -0.4 }]), { mode: "static" });
     assert.ok(svg.length > 100, `${kind} draws something`);
   }
+});
+
+// A scene is note data, not code. No string from it may leave the attribute it
+// was written into, and a semantic field the engine cannot read is refused
+// instead of being printed as a guess.
+test("no scene string can leave its attribute", () => {
+  const label = { x: 1, y: 1, text: "a" };
+  assert.throws(() => renderScene({ viewBox: '0 0 360 290" onload="alert(1)' }), /viewBox/);
+  assert.throws(() => renderScene({ labels: [{ ...label, anchor: 'middle" onmouseover="alert(1)' }] }), /anchor/);
+  assert.throws(() => renderScene({ labels: [{ ...label, weight: '600" onload="alert(1)' }] }), /weight/);
+  assert.throws(() => renderScene({ arrows: [{ x1: 1, y1: 1, x2: 2, y2: 2, width: '2" onload="alert(1)' }] }), /width/);
+  assert.throws(() => renderScene({ boxes: [{ x: 1, y: 1, w: 2, h: 2, rx: '4" onload="alert(1)' }] }), /rx/);
+  // Free-form path data keeps its meaning: the quote is an entity, not a new attribute.
+  const svg = renderScene({ paths: [{ d: 'M0 0 L9 9" onload="alert(1)' }] }, { mode: "static" });
+  assert.doesNotMatch(svg, / onload="/);
+  assert.match(svg, /d="M0 0 L9 9&quot; onload=&quot;alert\(1\)"/);
+});
+
+// The counter accepts only the shapes the renderer iterates: a list is a list,
+// and bars is an object with its own bars list.
+test("a scene of the wrong shape is refused, never drawn as a guess", () => {
+  assert.throws(() => renderScene({ grids: "4" }), /grids/);
+  assert.throws(() => renderScene({ boxes: 5 }), /boxes/);
+  assert.throws(() => renderScene({ bars: [] }), /bars/);
+  assert.throws(() => renderScene({ labels: {} }), /labels/);
+});
+
+// A scene draws only when every entry is one the renderer can read and at
+// least one entry paints something: a grid without cells and a bars object
+// without bars are blank boxes, not figures.
+test("a scene draws only when an entry paints something", () => {  assert.equal(sceneDraws({ grids: [{ cols: 1, rows: 1, w: 9, h: 9, cells: [] }] }), false);
+  assert.equal(sceneDraws({ bars: {} }), false);
+  assert.equal(sceneDraws({ bars: { bars: [{ x: 1, w: 9, h: 0 }] } }), false, "a zero-height bar paints nothing");
+  assert.equal(sceneDraws({ grids: [{ cols: 1, rows: 1, w: 9, h: 9, cells: [{ c: 0, r: 0 }] }] }), true);
+  assert.equal(sceneDraws({ bars: { bars: [{ x: 1, w: 9, h: 20 }] } }), true);
+  for (const scene of [{ grids: [{}] }, { arrows: [{}] }, { paths: [{}] }, { boxes: [{}] }, { labels: [{}] }, { bars: { bars: [{}] } }]) {
+    assert.throws(() => renderScene(scene), /grid|arrow|path|box|label|bar/, JSON.stringify(scene));
+    assert.equal(sceneDraws(scene), false, JSON.stringify(scene));
+  }
+});
+
+// The baseline draws a value cell from its own text, without a number.
+test("a value cell may show its text instead of a number", () => {
+  const scene = { viewBox: "0 0 360 290", grids: [{ x: 1, y: 1, cols: 1, rows: 1, w: 40, h: 40, cells: [{ c: 0, r: 0, kind: "value", text: "V(s)" }] }] };
+  const svg = renderScene(scene, { mode: "static" });
+  assert.match(svg, />V\(s\)</);
+  assert.equal(sceneDraws(scene), true);
+  // Without text and without a number the cell cannot be drawn.
+  assert.throws(() => renderScene({ grids: [{ x: 1, y: 1, cols: 1, rows: 1, w: 40, h: 40, cells: [{ c: 0, r: 0, kind: "value" }] }] }), /value cell/);
 });

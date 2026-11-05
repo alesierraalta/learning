@@ -189,6 +189,106 @@ test("scene.js loads before kit.js", () => {
   }
 });
 
+// A note figure is the visual engine's scene: the note names meaning, the reader
+// draws it, and the paper decides the colours. These two tests pin the reader
+// contract: the component draws, and it follows light and dark.
+const VISUALS = join(import.meta.dirname, "../../tools/visuals");
+
+async function figurePage(t, html, port) {
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.route(`http://localhost:${port}/**`, async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/draw.js") return route.fulfill({ contentType: "text/javascript", body: readFileSync(join(VISUALS, "draw.js"), "utf8") });
+    if (path === "/kit.js") return route.fulfill({ contentType: "text/javascript", body: readFileSync(join(KIT, "kit.js"), "utf8") });
+    if (path === "/dictate.js") return route.fulfill({ contentType: "text/javascript", body: readFileSync(join(KIT, "dictate.js"), "utf8") });
+    return route.fulfill({ contentType: "text/html", body: html });
+  });
+  await page.goto(`http://localhost:${port}/`);
+  return page;
+}
+
+const SCENE = JSON.stringify({
+  title: "El almacén",
+  aria: "Una rejilla con el robot en la esquina y la salida al otro lado",
+  viewBox: "0 0 360 290",
+  grids: [{ x: 16, y: 40, cols: 4, rows: 3, w: 82, h: 82, cells: [{ c: 0, r: 0, kind: "robot" }, { c: 3, r: 0, kind: "exit", label: "+1" }] }],
+  arrows: [{ x1: 20, y1: 260, x2: 320, y2: 260, tone: "blue", label: "el robot sigue su política" }],
+});
+
+test("lk-figure draws a scene and its tones follow the reader's paper", { skip: !playwright && 'playwright not installed' }, async t => {
+  const figure = `<lk-figure>\n<script type="application/json">${SCENE}</script>\n</lk-figure>`;
+  const page = await figurePage(t, `<script src="/draw.js"></script><script src="/kit.js"></script>${figure}${figure}`, 45680);
+  await page.locator("lk-figure svg").first().waitFor();
+  // One token block serves every figure on the page, instead of one style per drawing.
+  assert.equal(await page.locator("head style#lk-visuals-theme").count(), 1);
+  const tokens = (theme) => page.evaluate(async theme => {
+    document.documentElement.dataset.theme = theme;
+    const svg = document.querySelector("lk-figure svg");
+    const style = getComputedStyle(svg);
+    return { ink: style.getPropertyValue("--v-ink").trim(), blue: style.getPropertyValue("--v-blue").trim(), fill: svg.querySelector("rect").getAttribute("fill") };
+  }, theme);
+  const light = await tokens("light");
+  const dark = await tokens("dark");
+  assert.equal(light.ink, "#0F2E3D");
+  assert.equal(dark.ink, "#F1EFE8", "the same figure on the black paper uses light ink");
+  assert.notEqual(light.blue, dark.blue);
+  assert.match(light.fill, /^color-mix\(in srgb, var\(--v-[a-z]+\)/);
+  assert.equal(await page.locator('lk-figure svg [fill*="rgba("], lk-figure svg [stroke*="rgba("]').count(), 0, "nothing is layered with alpha");
+  // A page that carries no choice follows the system, through the token media query.
+  await page.evaluate(() => { delete document.documentElement.dataset.theme; });
+  await page.emulateMedia({ colorScheme: "dark" });
+  const system = await page.evaluate(() => getComputedStyle(document.querySelector("lk-figure svg")).getPropertyValue("--v-ink").trim());
+  assert.equal(system, "#F1EFE8", "prefers-color-scheme alone selects the dark paper");
+});
+
+test("an lk-figure that draws nothing says so instead of showing a blank box", { skip: !playwright && 'playwright not installed' }, async t => {
+  const scenes = [
+    { title: "Solo un título" },
+    { grids: [{ cols: 2, rows: 1, w: 40, h: 40, cells: [] }] },
+    { bars: {} },
+    { arrows: [{}] },
+    { labels: [{ x: 1, y: 1, text: "a", tone: "purple" }] },
+    { labels: [{ x: 1, y: 1, text: "a", anchor: "middle-ish" }] },
+    { arrows: [{ x1: 1, y1: 1, x2: 9, y2: 1, width: "wide" }] },
+    { viewBox: "0 0 360", arrows: [{ x1: 1, y1: 1, x2: 9, y2: 1 }] },
+  ];
+  const html = scenes.map((scene) => `<lk-figure>\n<script type="application/json">${JSON.stringify(scene)}</script>\n</lk-figure>`).join("");
+  const page = await figurePage(t, `<script src="/draw.js"></script><script src="/kit.js"></script>${html}`, 45681);
+  await page.waitForFunction((count) => document.querySelectorAll("lk-figure [role=alert]").length === count, scenes.length);
+  assert.equal(await page.locator("lk-figure svg").count(), 0, "a blank scene never becomes an empty drawing");
+  const alerts = await page.locator("lk-figure [role=alert]").allTextContents();
+  assert.ok(alerts.some((text) => /no dibuja nada/.test(text)), "a grid without cells says the scene draws nothing");
+  assert.ok(alerts.some((text) => /tone/.test(text)), "an unknown tone is named");
+  assert.ok(alerts.some((text) => /anchor/.test(text)), "an unknown anchor is named");
+  assert.ok(alerts.some((text) => /width/.test(text)), "a non-numeric width is named");
+  assert.ok(alerts.some((text) => /viewBox/.test(text)), "a viewBox without four numbers is named");
+  assert.ok(alerts.some((text) => /no se pudo dibujar/.test(text)), "an entry the engine refuses says why");
+});
+
+// A scene is note data, not code. A quote inside it must never close an
+// attribute: the component refuses the fields it cannot read, and free-form
+// path data keeps its quote as an entity.
+test("a scene string can never become an attribute or an event handler", { skip: !playwright && 'playwright not installed' }, async t => {
+  const figure = (scene) => `<lk-figure>\n<script type="application/json">${JSON.stringify(scene)}</script>\n</lk-figure>`;
+  const cards = [
+    { viewBox: '0 0 360 290" onload="window.__pwned=1', labels: [{ x: 1, y: 1, text: "a" }] },
+    { labels: [{ x: 10, y: 10, text: "hola", anchor: 'middle" onmouseover="window.__pwned=2' }] },
+    { arrows: [{ x1: 1, y1: 1, x2: 9, y2: 9, width: '2" onload="window.__pwned=3' }] },
+    { paths: [{ d: 'M0 0 L9 9" onload="window.__pwned=4' }] },
+  ];
+  const page = await figurePage(t, `<script src="/draw.js"></script><script src="/kit.js"></script>${cards.map(figure).join("")}`, 45682);
+  await page.waitForFunction(() => document.querySelectorAll("lk-figure [role=alert]").length === 3);
+  assert.equal(await page.evaluate(() => window.__pwned), undefined, "no scene ran as code");
+  assert.equal(await page.locator("[onload], [onmouseover]").count(), 0, "no attribute became an event handler");
+  // The path is data the engine can draw: the quote stays inside the attribute.
+  const path = page.locator("lk-figure svg > path").first();
+  await path.waitFor();
+  assert.equal(await path.getAttribute("onload"), null);
+  assert.equal(await path.getAttribute("d"), 'M0 0 L9 9" onload="window.__pwned=4');
+});
+
 // A deck can promise a policy field in words ("la fila de arriba apunta a la
 // derecha"). Without this the note drew nothing where the video drew nine arrows,
 // and the reader had to take the sentence on faith.

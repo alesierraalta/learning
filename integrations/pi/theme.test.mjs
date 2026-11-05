@@ -67,11 +67,26 @@ test("a frame follows the studio by message, and the storage key follows another
   assert.equal(root.dataset.theme, "light", "with nothing stored, the system decides again");
 });
 
-test("the dark paper keeps its figures legible: an island resets the ink, not only the tokens", () => {
-  const css = readFileSync(join(import.meta.dirname, "kit", "kit.css"), "utf8");
+test("the dark paper keeps its figures legible: an island resets the ink, not only the tokens", () => {  const css = readFileSync(join(import.meta.dirname, "kit", "kit.css"), "utf8");
   const island = css.match(/:root\[data-theme="dark"\] \.lk-walkthrough \{[^}]*\}/);
   assert.ok(island, "the walkthrough keeps a light paper inside the dark page");
   assert.match(island[0], /color: var\(--ink\)/, "text inherited from the page turns dark again inside the island");
   const mermaid = css.match(/:root\[data-theme="dark"\] pre\.mermaid \{[^}]*\}/);
   assert.ok(mermaid && /color: var\(--ink\)/.test(mermaid[0]), "a mermaid diagram is drawn on its own light paper");
+});
+
+// A reader figure is drawn from the note's scene by the visual engine. The
+// renderer is a classic script loaded before kit.js, so the component can use it
+// on the first connect: the same file the CLI draws with, not a second copy.
+test("the figure renderer runs as a classic script and names tones, not colours", () => {
+  const sandbox = { window: null };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../tools/visuals/draw.js"), "utf8"), sandbox);
+  const visuals = sandbox.LKVisuals;
+  assert.ok(visuals && typeof visuals.renderScene === "function", "draw.js exposes the engine on the page");
+  const svg = visuals.renderScene({ arrows: [{ x1: 1, y1: 1, x2: 9, y2: 1, tone: "blue", label: "va" }] }, { mode: "vars", style: false });
+  assert.match(svg, /var\(--v-blue\)/, "a figure names a tone");
+  assert.doesNotMatch(svg, /<style>/, "the token block is injected once per page, not once per figure");
+  assert.match(visuals.themeCss(), /--v-ink:#F1EFE8/, "the dark paper travels with the renderer");
 });

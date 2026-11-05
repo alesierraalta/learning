@@ -27,7 +27,7 @@ black paper, and refuse the figures that are typed by hand.
 | T1 | `tools/visuals/`: theme, colour mixing, label placement, scene markup, CLI | S1 S2 S3 S4 S6 S7 | done |
 | T2 | Note gate refusing hand-written `<svg>`, `rgba()`, glyph meaning, unknown keys | S2 S8 | done |
 | T3 | Tests for what the engine draws and refuses, and for what the gate refuses | S1 S2 S5 S8 | done |
-| T4 | Reader component (`lk-figure`) so the note renders the scene in the reader's theme | S3 S5 | pending |
+| T4 | Reader component (`lk-figure`) so the note renders the scene in the reader's theme | S3 S5 | in progress |
 | T5 | Migrate the figures of the published notes to scenes | S5 S6 | pending |
 
 ## Log

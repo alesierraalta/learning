@@ -77,7 +77,7 @@
     const clean = DOMPurify.sanitize(inline ? marked.parseInline(math.text) : marked.parse(math.text, { renderer }), {
       USE_PROFILES: { html: true, svg: true },
       ADD_TAGS: ["video", "audio", "source", "details", "summary", "script",
-        "lk-walkthrough", "lk-callout", "lk-quiz", "lk-widget", "lk-diagram", "lk-math", "lk-steps", "lk-ask", "lk-step"],
+        "lk-walkthrough", "lk-callout", "lk-quiz", "lk-widget", "lk-diagram", "lk-figure", "lk-math", "lk-steps", "lk-ask", "lk-step"],
       ADD_ATTR: ["controls", "preload", "type", "title"],
       FORBID_TAGS: ["foreignObject", "image", "use"],
     });
