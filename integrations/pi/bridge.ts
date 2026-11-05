@@ -293,7 +293,15 @@ function partAudioInfo(topicDir: string, plan: { parts: PlanPart[] }, partId: st
       } catch {
         exists = false;
       }
-      return { style, name: file.slice(file.lastIndexOf("/") + 1), exists };
+      const name = file.slice(file.lastIndexOf("/") + 1);
+      const srt = name.replace(/\.m4a$/, ".srt");
+      let srtExists = false;
+      try {
+        srtExists = statSync(join(topicDir, file.replace(/\.m4a$/, ".srt"))).isFile();
+      } catch {
+        srtExists = false;
+      }
+      return { style, name, exists, srt, srtExists };
     }),
   };
 }

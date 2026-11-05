@@ -234,8 +234,8 @@ test('lk-audio plays what exists and asks for what does not', { skip: !playwrigh
     audio: {
       base: 'file/explicaciones/adjuntos/audio/',
       styles: [
-        { style: 'debate', name: 'Parte 1 - Claves - debate.m4a', exists: true },
-        { style: 'entrevista', name: 'Parte 1 - Claves - entrevista.m4a', exists: false },
+        { style: 'debate', name: 'Parte 1 - Claves - debate.m4a', exists: true, srt: 'Parte 1 - Claves - debate.srt', srtExists: true },
+        { style: 'entrevista', name: 'Parte 1 - Claves - entrevista.m4a', exists: false, srt: 'Parte 1 - Claves - entrevista.srt', srtExists: false },
       ],
     },
   };
@@ -261,6 +261,7 @@ test('lk-audio plays what exists and asks for what does not', { skip: !playwrigh
   assert.equal(await rows.first().locator('audio').count(), 1);
   assert.equal(await rows.first().locator('a.lk-audio-download').getAttribute('download'), 'Parte 1 - Claves - debate.m4a');
   assert.equal(await rows.first().locator('button').count(), 0);
+  assert.equal(await rows.first().locator('a.lk-audio-srt').getAttribute('download'), 'Parte 1 - Claves - debate.srt');
   const ask = rows.nth(1).getByRole('button', { name: '🎧 Generar entrevista' });
   await ask.click();
   await page.waitForFunction(() => document.querySelectorAll('.lk-audio-row p[role=status]')[0]?.textContent.includes('Pedido al tutor'));

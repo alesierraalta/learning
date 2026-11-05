@@ -600,6 +600,7 @@
         const label = labels[entry.style] || entry.style;
         const row = element("div", undefined, "audio-row");
         const head = element("span", label, "audio-style");
+        const srtSrc = (entry) => data.topicBase + "file/" + (data.audio.base + entry.srt).split("/").map(encodeURIComponent).join("/");
         const showPlayer = () => {
           const player = element("audio");
           player.controls = true;
@@ -609,6 +610,24 @@
           download.href = src(entry);
           download.download = entry.name;
           row.replaceChildren(head, player, download);
+          if (!entry.srt) return;
+          if (entry.srtExists) {
+            const transcript = element("a", "Transcripción", "audio-srt");
+            transcript.href = srtSrc(entry);
+            transcript.download = entry.srt;
+            row.append(transcript);
+            return;
+          }
+          void (async () => {
+            try {
+              const response = await fetch(srtSrc(entry), { method: "HEAD", cache: "no-store" });
+              if (!response.ok || row.querySelector("a.audio-srt")) return;
+              const transcript = element("a", "Transcripción", "audio-srt");
+              transcript.href = srtSrc(entry);
+              transcript.download = entry.srt;
+              row.append(transcript);
+            } catch { /* A delivery without a transcript is still listenable. */ }
+          })();
         };
         if (entry.exists) showPlayer();
         else {

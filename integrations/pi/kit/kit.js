@@ -181,10 +181,23 @@
       const src = b.audio.base + encodeURIComponent(entry.name);
       const row = el('div', undefined, { class: 'lk-audio-row' });
       const head = el('span', label, { class: 'lk-audio-style' });
+      const srt = entry.srt ? b.audio.base + encodeURIComponent(entry.srt) : '';
+      const transcript = async () => {
+        if (!srt || entry.srtExists) {
+          if (srt && entry.srtExists) row.append(el('a', 'Transcripción', { href: srt, download: entry.srt, class: 'lk-audio-srt' }));
+          return;
+        }
+        try {
+          const head = await fetch(srt, { method: 'HEAD' });
+          if (!head.ok || !row.isConnected || row.querySelector('a.lk-audio-srt')) return;
+          row.append(el('a', 'Transcripción', { href: srt, download: entry.srt, class: 'lk-audio-srt' }));
+        } catch { /* A delivery without a transcript is still listenable. */ }
+      };
       const play = () => {
         const player = el('audio', undefined, { controls: '', preload: 'metadata', src });
         const download = el('a', 'Descargar', { href: src, download: entry.name, class: 'lk-audio-download' });
         row.replaceChildren(head, player, download);
+        void transcript();
       };
       if (entry.exists) play();
       else {
