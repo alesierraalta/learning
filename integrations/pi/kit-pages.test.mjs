@@ -245,7 +245,10 @@ test('lk-audio plays what exists and asks for what does not', { skip: !playwrigh
       posts.push(JSON.parse(route.request().postData()));
       return route.fulfill({ json: { sent: true } });
     }
-    if (path.endsWith('.m4a')) return route.fulfill({ status: 200, contentType: 'audio/mp4', body: '0123' });
+    // The bridge serves files under `file/` and nothing else: a control that
+    // forgets the segment must fail here, as it fails on a real page.
+    if (path.startsWith('/file/') && path.endsWith('.m4a')) return route.fulfill({ status: 200, contentType: 'audio/mp4', body: '0123' });
+    if (path.startsWith('/file/') && path.endsWith('.srt')) return route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '1\n00:00:00,000 --> 00:00:01,000\nhueco\n' });
     // The charset is part of the contract: without it the labels' emoji decode as mojibake.
     if (path === '/dictate.js') return route.fulfill({ contentType: 'text/javascript; charset=utf-8', body: '' });
     if (path === '/kit.js') return route.fulfill({ contentType: 'text/javascript; charset=utf-8', body: readFileSync(join(KIT, 'kit.js'), 'utf8') });
