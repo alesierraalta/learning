@@ -25,8 +25,8 @@ export function conversation(overrides = {}) {
     style: "debate",
     minutes: 20,
     chapters: [
-      { title: "Qué es un agente", segments: one("a", 7) },
-      { title: "Dónde falla", segments: one("b", 7) },
+      { title: "Qué es un agente", segments: one("a", 8) },
+      { title: "Dónde falla", segments: one("b", 8) },
     ],
     ...overrides,
   };

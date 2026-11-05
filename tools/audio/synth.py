@@ -43,6 +43,19 @@ def turns(spec: dict, rate: str):
             yield key, voice, text
 
 
+def communicator(edge_tts, text: str, voice: str, rate: str):
+    """Ask for word boundaries: 7.x would otherwise stream sentence ones.
+
+    The transcript and every cue are anchored on word timings, so a sentence
+    boundary is not a substitute. edge-tts 6.x has no such keyword and always
+    streams words, so a TypeError means the older, sufficient behaviour.
+    """
+    try:
+        return edge_tts.Communicate(text, voice, rate=rate, boundary="WordBoundary")
+    except TypeError:
+        return edge_tts.Communicate(text, voice, rate=rate)
+
+
 async def synthesise(edge_tts, key: str, voice: str, text: str, rate: str, out: str, force: bool) -> str:
     mp3 = os.path.join(out, f"{key}.mp3")
     meta = os.path.join(out, f"{key}.json")
@@ -56,7 +69,7 @@ async def synthesise(edge_tts, key: str, voice: str, text: str, rate: str, out: 
             pass
     boundaries = []
     audio = bytearray()
-    communicate = edge_tts.Communicate(text, voice, rate=rate)
+    communicate = communicator(edge_tts, text, voice, rate)
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
             audio.extend(chunk["data"])
@@ -65,7 +78,10 @@ async def synthesise(edge_tts, key: str, voice: str, text: str, rate: str, out: 
     if not audio:
         raise RuntimeError(f"edge-tts returned no audio for {key} ({voice})")
     if not boundaries:
-        raise RuntimeError(f"edge-tts returned no word boundaries for {key}; captions and anchoring need them")
+        raise RuntimeError(
+            f"edge-tts returned no word boundaries for {key}: the transcript is built from word "
+            f"timings, so check that this edge-tts version honours boundary=\"WordBoundary\""
+        )
     temporary = f"{mp3}.part"
     try:
         with open(temporary, "wb") as handle:
