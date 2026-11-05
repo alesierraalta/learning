@@ -111,6 +111,9 @@ test("renders one m4a with chapters, a transcript and a report", () => {
   const report = JSON.parse(readFileSync(join(dir, ".parte1-work", "report.json"), "utf8"));
   assert.equal(report.turns, 16);
   assert.equal(report.cues, 16);
+  // The ceiling is measured on the encoded file, not inherited from the filter.
+  assert.ok(report.level.peak <= -1.4, `true peak ${report.level.peak} dBFS`);
+  assert.ok(Math.abs(report.level.lufs + 16) <= 0.7, `loudness ${report.level.lufs} LUFS`);
   assert.deepEqual(report.voices, { A: "Alvaro", B: "Elvira" });
   assert.ok(Math.abs(report.duration - Number(streams.format.duration)) < 0.5);
   // 14 takes of 5 s plus the planned silence, and the encode keeps the plan.

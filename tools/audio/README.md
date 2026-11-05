@@ -81,20 +81,24 @@ part rather than padding it.
 
 ## What the output carries
 
-- AAC 128 kbit/s, 48 kHz, mono, `loudnorm=I=-16:TP=-1.5:LRA=11` — the level a
-  phone and a car stereo both agree on;
+- AAC 128 kbit/s, 48 kHz, mono, `loudnorm=I=-16:TP=-1.5:LRA=11` plus a limiter
+  below that ceiling, because AAC overshoots what it is encoded with — the level
+  a phone and a car stereo both agree on. The render measures the finished file
+  with `ebur128` and refuses a true peak above −1.4 dBFS or a loudness more than
+  0.7 LUFS off −16;
 - one chapter per `chapters[]` entry, titled with the spec's own title;
 - an `.srt` built from the synthesiser's word boundaries, so the transcript is
   the audio and not a second copy of the script;
-- `<work>/report.json`: the measured duration, the turns, the cues, the voices
-  and the estimated-vs-actual minutes, so a delivery can be audited later.
+- `<work>/report.json`: the measured duration, loudness and true peak, the
+  turns, the cues, the voices and the estimated-vs-actual minutes, so a delivery
+  can be audited later.
 
 ## Failure modes
 
 | message | meaning |
 | --- | --- |
 | `missing N recording(s)` | the synthesiser never ran for these turns, or ran elsewhere: run it, or pass `--remote` |
-| `stale recordings` | the take says other words than the spec: re-synthesise that turn (the key changed) |
+| `stale recordings` | a take exists under that key but says other words: something wrote the cache by hand, so delete it and synthesise again |
 | `must land between 12 and 28 minutes` | the spec is too short or too long; rebalance chapters, do not stretch sentences |
 | `edge-tts is not installed` | `synth.py` needs the venv that has `edge-tts`; install it there, not here |
 
