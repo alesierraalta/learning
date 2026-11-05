@@ -1025,7 +1025,7 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
     part: "p1",
     video: "file/explicaciones/adjuntos/Parte%201%20-%20Claves.mp4",
     audio: {
-      base: "explicaciones/adjuntos/audio/",
+      base: "file/explicaciones/adjuntos/audio/",
       styles: ["debate", "entrevista", "charla", "formal"].map(styleEntry),
     },
   });
@@ -1197,7 +1197,7 @@ test("every part page carries one audio entry per style and serves the file once
   };
   const before = await read();
   assert.deepEqual(before.audio, {
-    base: "explicaciones/adjuntos/audio/",
+    base: "file/explicaciones/adjuntos/audio/",
     styles: [
       { style: "debate", name: "Parte 1 - Claves - debate.m4a", exists: false, srt: "Parte 1 - Claves - debate.srt", srtExists: false },
       { style: "entrevista", name: "Parte 1 - Claves - entrevista.m4a", exists: false, srt: "Parte 1 - Claves - entrevista.srt", srtExists: false },
@@ -1222,6 +1222,14 @@ test("every part page carries one audio entry per style and serves the file once
   const file = await http(`${pageDir}file/explicaciones/adjuntos/audio/Parte%201%20-%20Claves%20-%20debate.m4a`);
   assert.equal(file.status, 200);
   assert.match(file.headers["content-type"], /^audio\/mp4/);
+  // The kit resolves its player and transcript from the payload alone, so the base
+  // has to name the route itself: without `file/` every rich page 404s its audio.
+  const own = await http(`${pageDir}${after.audio.base}${encodeURIComponent(after.audio.styles[0].name)}`);
+  assert.equal(own.status, 200);
+  assert.match(own.headers["content-type"], /^audio\/mp4/);
+  const ownSrt = await http(`${pageDir}${after.audio.base}${encodeURIComponent(after.audio.styles[0].srt)}`);
+  assert.equal(ownSrt.status, 200);
+  assert.match(ownSrt.headers["content-type"], /^text\/plain/);
   await shutdown();
 });
 

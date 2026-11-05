@@ -595,12 +595,13 @@
       const labels = { debate: "Debate", entrevista: "Entrevista", charla: "Charla", formal: "Explicación" };
       const section = element("section", undefined, "audio-block");
       section.append(element("h2", "Audio de la parte"));
-      const src = (entry) => data.topicBase + "file/" + (data.audio.base + entry.name).split("/").map(encodeURIComponent).join("/");
+      const media = (name) => data.topicBase + (data.audio.base + name).split("/").map(encodeURIComponent).join("/");
+      const src = (entry) => media(entry.name);
       for (const entry of data.audio.styles) {
         const label = labels[entry.style] || entry.style;
         const row = element("div", undefined, "audio-row");
         const head = element("span", label, "audio-style");
-        const srtSrc = (entry) => data.topicBase + "file/" + (data.audio.base + entry.srt).split("/").map(encodeURIComponent).join("/");
+        const srtSrc = (entry) => media(entry.srt);
         const showPlayer = () => {
           const player = element("audio");
           player.controls = true;

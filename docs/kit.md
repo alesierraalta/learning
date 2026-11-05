@@ -241,10 +241,12 @@ window.LEARNING_BRIDGE = {
   topic: '<topic>', part: '<part>',
   video: 'file/explicaciones/adjuntos/Parte N - Name.mp4',
   audio: {
-    base: 'explicaciones/adjuntos/audio/',
+    base: 'file/explicaciones/adjuntos/audio/',
     styles: [
-      { style: 'debate', name: 'Parte N - Name - debate.m4a', exists: true },
-      { style: 'entrevista', name: 'Parte N - Name - entrevista.m4a', exists: false }
+      { style: 'debate', name: 'Parte N - Name - debate.m4a', exists: true,
+        srt: 'Parte N - Name - debate.srt', srtExists: true },
+      { style: 'entrevista', name: 'Parte N - Name - entrevista.m4a', exists: false,
+        srt: 'Parte N - Name - entrevista.srt', srtExists: false }
     ]
   }
 };

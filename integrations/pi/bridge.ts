@@ -278,7 +278,9 @@ const audioFile = (plan: { parts: PlanPart[] }, partId: string, style: string) =
  */
 function partAudioInfo(topicDir: string, plan: { parts: PlanPart[] }, partId: string) {
   return {
-    base: "explicaciones/adjuntos/audio/",
+    // The page resolves these against its own directory, and the bridge serves
+    // files under `file/`: the base names that route, like `video` does.
+    base: "file/explicaciones/adjuntos/audio/",
     styles: AUDIO_STYLES.map((style) => {
       const file = audioFile(plan, partId, style);
       let exists = false;
