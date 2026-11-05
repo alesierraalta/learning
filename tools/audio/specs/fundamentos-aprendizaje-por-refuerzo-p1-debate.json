@@ -71,35 +71,35 @@
       "title": "3. Los cinco nombres, en una frase cada uno",
       "segments": [
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Vamos uno por uno, en una frase cada uno, como los plantea la nota. Agente: el que aprende y decide. Recibe el estado y la recompensa, y elige la acción. Esa es toda su descripción, sin adornos."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Entorno: todo lo que está al otro lado de la frontera. Recibe la acción, entrega el estado siguiente y la recompensa. Ahí no hay aprendizaje, hay respuesta: el entorno no decide nada, reacciona a lo que el agente hace."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Estado, ese con subíndice t: la información que describe la situación en el instante t. En el almacén, la casilla donde está el robot. Y acción, a con subíndice t: lo que el agente puede hacer en ese instante. Aquí, una de cuatro, arriba, abajo, izquierda o derecha."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Y recompensa, r con subíndice t más uno: un número que el entorno entrega después de la acción. Después, no antes ni durante. Y define la meta, porque lo único que el agente quiere es que su suma a lo largo del tiempo sea grande, no que un paso concreto pague mucho."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Con esos cinco nombres, la frase del principio ya se puede escribir. Encadenar estado, acción y recompensa tiene nombre propio: trayectoria. Y se lee así: s cero, a cero, r uno, s uno, a uno, r dos, s dos, y así hasta el final del episodio."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Esa cadena es todo el vocabulario de esta parte. Cinco nombres y una forma de encadenarlos. Si más adelante te pierdes, vuelve aquí, porque nada de lo que viene después añade piezas nuevas."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Añado la parte incómoda. La recompensa define la meta, pero no dice cómo llegar. Es un número, no una instrucción. El agente tiene que averiguar qué acciones hacen grande esa suma, y para eso no tiene más que su propia experiencia."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Y hay una asimetría que conviene decir en voz alta: el agente elige la acción, pero no elige el estado ni elige la recompensa. Por eso el estado se llama s y el que lo produce es el entorno. Ahí ya está la frontera de la que hablaremos después."
         }
       ]
@@ -108,31 +108,31 @@
       "title": "4. El almacén, dibujado",
       "segments": [
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Ahora el dibujo, porque el almacén ya contiene todo el problema. Cuatro columnas por tres filas. El robot sale de la esquina inferior izquierda, la casilla cero dos, y cada casilla se nombra con su par de coordenadas."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Dos casillas terminales. La puerta, arriba a la derecha, paga más uno y el episodio termina. El charco, justo debajo de la puerta, paga menos uno y el episodio también termina. Y hay una columna en la casilla uno uno que no se puede pisar."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Cada paso normal cuesta menos cero coma cero cuatro de batería. Y si el robot intenta salirse del almacén o chocar contra la columna, se queda donde estaba: no hay movimiento y tampoco hay desastre, la casilla uno uno simplemente no cede."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Cuenta lo que ya está ahí, porque está todo. Nueve casillas transitables, o sea nueve estados. Cuatro acciones, las cuatro direcciones. Tres recompensas distintas, menos cero coma cero cuatro, más uno y menos uno. Y dos terminales donde el episodio acaba. Tres tipos de casilla: las normales que se pisan, las terminales que cierran el episodio y el obstáculo que no se atraviesa."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Y una cosa que el dibujo deja clara sin decirla: el robot no puede cambiar ni una sola de esas piezas. No mueve la columna, no cambia el precio del charco, no mueve la puerta. Todo eso está del lado del entorno, y por eso se puede estudiar como un problema."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Por eso el mismo almacén vuelve en la parte tres. Lo que aprendas aquí sobre estados, acciones y recompensas lo reutilizas allí, con las mismas casillas y los mismos precios. No es un ejemplo de usar y tirar."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Y fíjate en lo que no hay en el dibujo. No hay flechas que avisen al robot de la recompensa antes de moverse, ni un cartel que diga cuál es el camino bueno. El almacén paga, pero no aconseja: esa es toda la dificultad del problema."
         }
       ]
@@ -174,35 +174,35 @@
       "title": "6. Tres confusiones que cuestan horas",
       "segments": [
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Tres confusiones que cuestan horas, y la nota las nombra una por una: estado no es observación, recompensa no es valor, acción no es decisión en cada instante. La primera: el estado es la situación real del entorno; la observación es lo que el agente alcanza a ver."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "El caso del almacén. Si el robot tiene la cámara sucia, puede estar en dos uno y creer que está en uno uno. El estado real existe, la observación llega incompleta. Y cuando la observación no basta para decidir bien, el problema se llama parcialmente observable. No es que el robot esté perdido: es que su creencia es falsa."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "La segunda: recompensa no es valor. La recompensa es lo que pagó este paso; el valor es lo que esperas ganar desde aquí en adelante."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Y no se contradicen. En cero cero la recompensa es menos cero coma cero cuatro, y el valor es más cero coma setenta y tres. Miden cosas distintas: lo que acabas de cobrar y lo que te queda por cobrar. Eso se desarrolla en la parte tres."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "La tercera: acción no es decisión en cada instante. En el almacén se decide cada paso, pero un agente puede decidir cada cierto tiempo, por ejemplo cada minuto."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Y ese hueco se llama periodo de decisión. Es parte del diseño del problema, no del algoritmo: elegir cada cuánto se decide es una decisión de quien modela, y el método que aprende viene después, sobre ese diseño ya hecho."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Y las tres confusiones comparten una raíz: mezclar lo que el agente controla con lo que solo presencia. La observación no la elige, el valor no lo cobra en el momento, y el periodo de decisión no lo fija él."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Por eso la nota insiste tanto en los nombres. Con el vocabulario claro, cada confusión se resuelve sola: miras quién produce la pieza y se acaba el debate. Estado y observación no son sinónimos; recompensa y valor tampoco."
         }
       ]
@@ -211,31 +211,31 @@
       "title": "7. En una frase",
       "segments": [
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Resumamos, porque la nota lo deja en cuatro líneas. El bucle es estado, acción, recompensa y estado nuevo, repetido. Nada más que eso, repetido tantas veces como haga falta hasta que la política acierte."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "La frontera entre agente y entorno se traza por control: lo que el agente no puede cambiar, es entorno. Ni por cercanía, ni por tamaño, ni por quién lo construyó. Solo por control: si puedes cambiarlo, es tuyo; si no, es del mundo."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "La recompensa es del entorno y define la meta; el agente solo la recibe. Y el objetivo no es el paso siguiente, sino la suma de recompensas de la trayectoria, que es lo que de verdad se quiere hacer grande."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Que se escribe G igual a r uno más r dos más r tres, y así hasta el terminal. La suma de recompensas de la trayectoria, con su nombre propio y todo."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Y esa suma explica por qué el problema no se resuelve mirando un solo paso. Dos trayectorias pueden empezar igual y acabar una en la puerta y la otra en el charco. Lo que distingue una de otra es lo que se acumula, no lo que se cobra al principio. Por eso una política se juzga por la trayectoria entera y no por su primer movimiento."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Exacto, y por eso la parte termina aquí: cinco nombres, una frontera y una suma. Cómo se calcula esa suma y cómo se aprende de ella viene en las siguientes partes, sobre este mismo almacén."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Y si tuvieras que quedarte con una sola frase de toda la parte, quédate con esta: el agente no decide el premio, decide la acción; y aprende mirando la suma, no el paso suelto. El bucle, la frontera, la recompensa del entorno y la suma: cuatro ideas y ninguna sobra."
         }
       ]
@@ -285,27 +285,27 @@
       "title": "Ejercicios",
       "segments": [
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Dos ejercicios para cerrar. El fácil: dibuja el bucle agente-entorno de un termostato, escribe qué es estado, qué es acción y qué es recompensa, y di dónde trazas la frontera. Luego comprueba tu respuesta con la demo de la vista, que es el mismo almacén que has estado oyendo."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "El termostato es buen ejercicio porque ya lo conoces de la primera sección. Pero acuérdate de lo que vimos: si la regla la escribió alguien antes, el aparato obedece, no aprende. El ejercicio es dibujar la frontera y decidir qué cae de cada lado, no volverlo listo."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "El medio: completar una función de Python que da un paso del almacén. Recibe el estado y la acción, y devuelve tres cosas: el estado siguiente, la recompensa y si el episodio terminó. Es la misma tuerca de la que venimos hablando, escrita en código."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Las reglas están en el código de la nota. Si se sale del almacén o choca con la columna uno uno, se queda donde estaba. Si entra en la puerta, más uno y episodio terminado. Si entra en el charco, menos uno y episodio terminado. Cualquier otro paso normal, menos cero coma cero cuatro y el episodio sigue."
         },
         {
-          "speaker": "A",
+          "speaker": "B",
           "text": "Y el ejercicio pide el resultado de un caso concreto: desde la casilla dos cero, un paso a la derecha. Con esas reglas, la respuesta es la casilla tres cero, recompensa más uno y episodio terminado, porque esa casilla es la puerta."
         },
         {
-          "speaker": "B",
+          "speaker": "A",
           "text": "Ese caso es la puerta, así que la función devuelve el estado nuevo, la recompensa de uno y verdadero en el tercer valor. Y el ejercicio pide escribir la solución y el resultado en el recuadro de la vista, no solo pensarlos. Con eso cierras la parte: cinco nombres, una frontera, un bucle y una suma que hay que hacer grande."
         }
       ]
