@@ -1344,6 +1344,9 @@ ${scripts}
     if (partId !== undefined && (typeof partId !== "string" || !plan?.parts.some((p) => p.id === partId))) {
       throw new HttpError(400, "part is not in plan.json");
     }
+    // Both request branches name a file of a part, so a plan is needed; an absent
+    // plan already threw above whenever a part was named.
+    const partPlan = plan ?? { parts: [] };
 
     if (kind === "audio") {
       if (typeof partId !== "string") throw new HttpError(400, "part is required");
@@ -1352,7 +1355,7 @@ ${scripts}
       }
       const header = ["Vista HTML", topic, partId, `audio · ${payload.style}`].join(" · ");
       await deliver(
-        `[${header}]\nLa persona pide el audio de esta parte en estilo ${payload.style}: escríbelo y prodúcelo con el motor de audio (skill learnings-audio), con la spec en tools/audio/specs/${topic}-${partId}-${payload.style}.json y la entrega en ${audioFile(plan!, partId, payload.style)}.`,
+        `[${header}]\nLa persona pide el audio de esta parte en estilo ${payload.style}: escríbelo y prodúcelo con el motor de audio (skill learnings-audio), con la spec en tools/audio/specs/${topic}-${partId}-${payload.style}.json y la entrega en ${audioFile(partPlan, partId, payload.style)}.`,
       );
       sendJson(res, 200, { sent: true });
       return;
@@ -1362,7 +1365,7 @@ ${scripts}
       if (typeof partId !== "string") throw new HttpError(400, "part is required");
       const header = ["Vista HTML", topic, partId, "video"].join(" · ");
       await deliver(
-        `[${header}]\nLa persona pide el video de esta parte: prodúcelo con el pipeline de learnings-video (video-distill.md) y guárdalo en ${partVideo(plan!, partId)}.`,
+        `[${header}]\nLa persona pide el video de esta parte: prodúcelo con el pipeline de learnings-video (video-distill.md) y guárdalo en ${partVideo(partPlan, partId)}.`,
       );
       sendJson(res, 200, { sent: true });
       return;
