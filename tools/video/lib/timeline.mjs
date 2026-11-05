@@ -199,6 +199,7 @@ export function buildTimeline(spec, beats, decks) {
         title: beat.title,
         narration: beat.narration,
         deck,
+        hold: beat.hold === true,
         viewBox: contentBox(timed, viewBox),
         start,
         speechStart,

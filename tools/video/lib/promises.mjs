@@ -332,6 +332,15 @@ function collect(scene, text, title) {
     }
   }
 
+  // A bar chart drawn with plain boxes still promises bars: a box much wider
+  // than it is tall reads as one, and the decks draw their comparisons that way.
+  for (const [xi, box] of (scene.boxes || []).entries()) {
+    const w = Number(box.w);
+    const h = Number(box.h);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || h <= 0 || w < 3 * h) continue;
+    sets.bars.add(`box|${xi}|${box.x},${box.y}`);
+  }
+
   for (const [fi, formula] of (scene.formulas || []).entries()) {
     sets.equations.add(`formula|${fi}|${JSON.stringify(formula)}`);
     addText(formula.text);
