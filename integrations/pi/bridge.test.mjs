@@ -1126,6 +1126,77 @@ test("a video request reaches the chat as a fixed message", async () => {
   await shutdown();
 });
 
+test("an audio request reaches the chat with the style and the path to deliver", async () => {
+  const { view, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, { kind: "audio", topic: TOPIC, part: "p1", style: "debate" });
+  assert.equal(res.status, 200, res.body);
+  assert.equal(
+    host.sent[0].content,
+    "[Vista HTML · sql-demo · p1 · audio · debate]\nLa persona pide el audio de esta parte en estilo debate: escríbelo y prodúcelo con el motor de audio (skill learnings-audio), con la spec en tools/audio/specs/sql-demo-p1-debate.json y la entrega en explicaciones/adjuntos/audio/Parte 1 - Claves - debate.m4a.",
+  );
+  assert.equal((await submit(url, { kind: "audio", topic: TOPIC, part: "p1", style: "podcast" })).status, 400);
+  assert.equal((await submit(url, { kind: "audio", topic: TOPIC, part: "p1" })).status, 400);
+  assert.equal((await submit(url, { kind: "audio", topic: TOPIC, style: "debate" })).status, 400);
+  assert.equal((await submit(url, { kind: "audio", topic: TOPIC, part: "p1", style: "debate", text: "x" })).status, 400);
+  assert.equal(host.sent.length, 1);
+  await shutdown();
+});
+
+// The page offers all four ways to hear a part before any of them exists: the
+// name of each file is fixed by the bridge, never guessed by the browser.
+test("every part page carries one audio entry per style and serves the file once it exists", async () => {
+  const { topic, view, shutdown } = await setup();
+  const part = await view({ topic: TOPIC, part: "p1" });
+  const url = part.structuredContent.url;
+  const read = async () => {
+    const page = await http(url);
+    assert.equal(page.status, 200);
+    const json = /<script type="application\/json" id="view-data">([\s\S]*?)<\/script>/.exec(page.body);
+    assert.ok(json, "the part payload is embedded");
+    return JSON.parse(json[1]);
+  };
+  const before = await read();
+  assert.deepEqual(before.audio, {
+    base: "explicaciones/adjuntos/audio/",
+    styles: [
+      { style: "debate", name: "Parte 1 - Claves - debate.m4a", exists: false },
+      { style: "entrevista", name: "Parte 1 - Claves - entrevista.m4a", exists: false },
+      { style: "charla", name: "Parte 1 - Claves - charla.m4a", exists: false },
+      { style: "formal", name: "Parte 1 - Claves - formal.m4a", exists: false },
+    ],
+  });
+  assert.equal(before.video.exists, true, "the video still reports itself");
+
+  const dir = join(topic, "explicaciones", "adjuntos", "audio");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "Parte 1 - Claves - debate.m4a"), Buffer.from("0123456789"));
+  const after = await read();
+  assert.equal(after.audio.styles[0].exists, true);
+  assert.equal(after.audio.styles[1].exists, false);
+
+  // The page's own directory is where its relative `file/...` URLs resolve.
+  const pageDir = url.slice(0, url.lastIndexOf("/") + 1);
+  const file = await http(`${pageDir}file/explicaciones/adjuntos/audio/Parte%201%20-%20Claves%20-%20debate.m4a`);
+  assert.equal(file.status, 200);
+  assert.match(file.headers["content-type"], /^audio\/mp4/);
+  await shutdown();
+});
+
+test("a rich page that never heard of audio gets the control anyway", async () => {
+  const { topic, view, shutdown } = await setup();
+  writeFileSync(
+    join(topic, "explicaciones", "Parte 1 - Claves.html"),
+    '<!doctype html><html lang="es"><head><title>Rica</title></head><body><h1>Rica</h1></body></html>',
+  );
+  const page = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.match(page.body, /<lk-audio><\/lk-audio>/);
+  assert.match(page.body, /<lk-video><\/lk-video>/);
+  assert.match(page.body, /kit\/kit\.js/);
+  await shutdown();
+});
+
 test("a quick note is served with the view design, its embeds and no quiz", async () => {
   const { view, root, shutdown } = await setup();
   mkdirSync(join(root, "rapidos", "adjuntos"), { recursive: true });

@@ -219,3 +219,51 @@ test('a walkthrough deck draws one arrow per policy cell', { skip: !playwright &
   const heads = await page.locator('svg path[marker-end]').count();
   assert.equal(heads, 4, 'one arrow per cell, no more');
 });
+
+// A part is heard, not only read: the row that exists is a player with its
+// download, and the row that does not is the request the tutor answers.
+test('lk-audio plays what exists and asks for what does not', { skip: !playwright && 'playwright not installed' }, async t => {
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const posts = [];
+  const bridge = {
+    submitUrl: '/submit',
+    topic: 't',
+    part: 'p1',
+    audio: {
+      base: 'file/explicaciones/adjuntos/audio/',
+      styles: [
+        { style: 'debate', name: 'Parte 1 - Claves - debate.m4a', exists: true },
+        { style: 'entrevista', name: 'Parte 1 - Claves - entrevista.m4a', exists: false },
+      ],
+    },
+  };
+  await page.route('http://localhost:45678/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/submit') {
+      posts.push(JSON.parse(route.request().postData()));
+      return route.fulfill({ json: { sent: true } });
+    }
+    if (path.endsWith('.m4a')) return route.fulfill({ status: 200, contentType: 'audio/mp4', body: '0123' });
+    // The charset is part of the contract: without it the labels' emoji decode as mojibake.
+    if (path === '/dictate.js') return route.fulfill({ contentType: 'text/javascript; charset=utf-8', body: '' });
+    if (path === '/kit.js') return route.fulfill({ contentType: 'text/javascript; charset=utf-8', body: readFileSync(join(KIT, 'kit.js'), 'utf8') });
+    return route.fulfill({
+      contentType: 'text/html',
+      body: `<script>window.LEARNING_BRIDGE=${JSON.stringify(bridge)}</script><script src="/kit.js"></script><lk-audio></lk-audio>`,
+    });
+  });
+  await page.goto('http://localhost:45678/p1');
+  const rows = page.locator('.lk-audio-row');
+  await rows.first().waitFor();
+  assert.equal(await rows.count(), 2);
+  assert.equal(await rows.first().locator('audio').count(), 1);
+  assert.equal(await rows.first().locator('a.lk-audio-download').getAttribute('download'), 'Parte 1 - Claves - debate.m4a');
+  assert.equal(await rows.first().locator('button').count(), 0);
+  const ask = rows.nth(1).getByRole('button', { name: '🎧 Generar entrevista' });
+  await ask.click();
+  await page.waitForFunction(() => document.querySelectorAll('.lk-audio-row p[role=status]')[0]?.textContent.includes('Pedido al tutor'));
+  assert.deepEqual(posts, [{ kind: 'audio', style: 'entrevista', topic: 't', part: 'p1' }]);
+  assert.equal(await ask.isDisabled(), true);
+});
