@@ -345,6 +345,7 @@
     {
      "title": "Política, recompensa, valor",
      "narration": "La política elige una acción por casilla: en la salida, subir. La recompensa es lo que el entorno paga ahora: menos cuatro centésimas por paso, uno en la puerta, menos uno en el charco. El valor es un número por casilla: desde la puerta, uno; desde el charco, menos uno.",
+     "promiseExceptions": ["acción", "número"],
      "visual": {
       "scenes": [
        {
