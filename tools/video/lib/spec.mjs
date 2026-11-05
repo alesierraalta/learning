@@ -30,6 +30,7 @@ export function validate(spec) {
       const where = `section ${si} beat ${bi}`;
       if (!beat.title) problems.push(`${where} has no title`);
       if (!beat.narration || beat.narration.trim().split(/\s+/).length < 8) problems.push(`${where} narration is too short to be a beat`);
+      if (beat.hold !== undefined && typeof beat.hold !== "boolean") problems.push(`${where} hold must be true or false`);
       const v = beat.visual || {};
       if (!v.deck && !v.scenes && !v.scene) problems.push(`${where} has no visual (deck, scene or scenes)`);
       if (v.deck && (v.scenes || v.scene)) problems.push(`${where} names both a deck and its own scenes; keep one visual`);

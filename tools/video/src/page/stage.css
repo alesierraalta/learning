@@ -6,7 +6,7 @@
 :root {
   --ink: #0F2E3D;
   --slate: #3F5B69;
-  --muted: rgba(15, 46, 61, .62);
+  --muted: rgba(15, 46, 61, .66);
   --hair: rgba(15, 46, 61, .18);
   --sans: "Atkinson Hyperlegible", "DejaVu Sans", system-ui, sans-serif;
 }
@@ -37,7 +37,7 @@ h1 {
   color: var(--muted); margin-bottom: 18px;
 }
 .note h2 { font-size: 38px; font-weight: 700; line-height: 1.18; letter-spacing: -.01em; margin-bottom: 20px; }
-.note p { font-size: 26px; line-height: 1.5; color: var(--slate); }
+.note p { font-size: 29px; line-height: 1.46; color: var(--slate); }
 
 .foot { position: absolute; top: 1000px; left: 88px; right: 88px; }
 .brand { font-size: 19px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }

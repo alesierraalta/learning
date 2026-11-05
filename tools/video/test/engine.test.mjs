@@ -203,3 +203,22 @@ test("a visual with no state at all is a spec error that names the beat", () => 
   const problems = validate(spec);
   assert.ok(problems.length > 0, "a visual with no state was accepted and only fails later, without naming the beat");
 });
+
+test("a declared hold reaches the plan, and only a boolean declares one", () => {
+  const spec = (hold) => ({
+    part: "p", title: "t", topic: "x",
+    sections: [{ kicker: "k", heading: "h", beats: [
+      { title: "Uno", hold, narration: "una flecha por casilla decide qué hacer en cada estado del almacén", visual: { scenes: [{ scene: { boxes: [{ x: 0, y: 0, w: 10, h: 10 }] } }] } },
+      { title: "Dos", narration: "una flecha por casilla decide qué hacer en cada estado del almacén", visual: { scenes: [{ scene: { boxes: [{ x: 0, y: 0, w: 10, h: 10 }] } }] } },
+    ] }],
+  });
+  const decks = [];
+  const spoken = "una flecha por casilla decide qué hacer en cada estado del almacén";
+  const words = spoken.split(" ").map((w, i) => ({ t: i * 0.3, d: 0.28, w }));
+  const beats = new Map([["s01b00", { dur: 4, words }], ["s01b01", { dur: 4, words }]]);
+  const plan = buildTimeline(spec(true), beats, decks);
+  assert.equal(plan.beats[0].hold, true, "the hold is the author's declaration, not a guess");
+  assert.equal(plan.beats[1].hold, false, "a beat without one is an ordinary beat");
+  assert.deepEqual(validate(spec(true)), []);
+  assert.match(validate(spec("yes")).join(), /hold must be true or false/);
+});
