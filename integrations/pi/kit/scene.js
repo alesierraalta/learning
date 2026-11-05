@@ -48,10 +48,13 @@
     return out;
   };
 
-  const box = (x, y, w, h, label, { stroke = C.ink, fill = "#ffffff", color = C.ink, size = 28, sub = "", rx = 0 } = {}) =>
+  // subDy/subSize travel with the label size: a scene drawn at the width of the
+  // reading column uses 17-unit words, and a fixed 30-unit offset would push
+  // the caption against the bottom edge. The defaults are the video's.
+  const box = (x, y, w, h, label, { stroke = C.ink, fill = "#ffffff", color = C.ink, size = 28, sub = "", rx = 0, subDy = 30, subSize = 22 } = {}) =>
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="2"/>` +
     txt(x + w / 2, y + h / 2 + (sub ? -2 : size * 0.35), label, { size, color, fit: w - 12 }) +
-    (sub ? txt(x + w / 2, y + h / 2 + 30, sub, { size: 22, color: C.slate, bold: false, italic: true, fit: w - 12 }) : "");
+    (sub ? txt(x + w / 2, y + h / 2 + subDy, sub, { size: subSize, color: C.slate, bold: false, italic: true, fit: w - 12 }) : "");
 
   const node = (cx, cy, label, { fill = "#ffffff", stroke = C.ink, color = C.ink, r = 30 } = {}) =>
     `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2"/>` + txt(cx, cy + 9, label, { size: 24, color });

@@ -99,3 +99,107 @@ test("a visual without a scene is rejected before rendering", () => {
   const spec = { part: "p", title: "t", topic: "x", sections: [{ heading: "h", beats: [{ title: "Sin dibujo", narration: "esto no tiene ningún dibujo asociado", visual: {} }] }] };
   assert.match(validate(spec).join(), /no visual/);
 });
+
+test("a drawing that changes without the voice saying why is refused", () => {
+  const spec = {
+    part: 1, title: "T", topic: "t",
+    sections: [{ heading: "H", beats: [
+      { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { scenes: [{ scene: {} }, { scene: {} }], anchors: [0, 0.5] } },
+    ] }],
+  };
+  const problems = validate(spec);
+  assert.ok(problems.some((p) => /spoken phrase|anchors/.test(p)), problems.join(" | "));
+});
+
+test("a drawing that changes on a spoken phrase is accepted", () => {
+  const spec = {
+    part: 1, title: "T", topic: "t",
+    sections: [{ heading: "H", beats: [
+      { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { scenes: [{ scene: {} }, { scene: {} }], anchors: ["una flecha por casilla", "en cada estado"] } },
+    ] }],
+  };
+  assert.deepEqual(validate(spec), []);
+});
+
+test("a deck beat says which steps play, and every step change is spoken", () => {
+  const base = { part: 1, title: "T", topic: "t", sections: [{ heading: "H", beats: [
+    { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { deck: "D" } },
+  ] }] };
+  assert.ok(validate(base).some((p) => /steps/.test(p)));
+  base.sections[0].beats[0].visual = { deck: "D", steps: [0, 1], anchors: [0.2, 0.8] };
+  assert.ok(validate(base).some((p) => /spoken phrase|anchors/.test(p)));
+  base.sections[0].beats[0].visual = { deck: "D", steps: [0, 1], anchors: ["una flecha por casilla", "en cada estado"] };
+  assert.deepEqual(validate(base), []);
+});
+
+test("an anchor the narration never says is refused before the render", () => {
+  const spec = {
+    part: 1, title: "T", topic: "t",
+    sections: [{ heading: "H", beats: [
+      { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { scenes: [{ scene: {} }, { scene: {} }], anchors: ["una flecha por casilla", "al llegar a la puerta"] } },
+    ] }],
+  };
+  const problems = validate(spec);
+  assert.ok(problems.some((p) => /never says/.test(p)), problems.join(" | "));
+});
+
+test("an anchor that is not text is named for what it is", () => {
+  const spec = {
+    part: 1, title: "T", topic: "t",
+    sections: [{ heading: "H", beats: [
+      { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { scenes: [{ scene: {} }, { scene: {} }], anchors: [true, 0.5] } },
+    ] }],
+  };
+  const problems = validate(spec);
+  assert.ok(problems.some((p) => /not text/.test(p)), problems.join(" | "));
+});
+
+test("the first state never lands after the beat's last allowed moment", () => {
+  const words = [{ t: 0, d: 0.2, w: "uno" }];
+  const [only] = resolveStates({ states: [{}], narration: "uno", words, speechStart: 10, speechDur: 0.1, start: 20 });
+  assert.ok(only.t < 20, `first state at ${only.t}`);
+});
+
+test("the states of a beat keep the order the narrator says them", () => {
+  const narration = "La política elige una acción por casilla y la recompensa";
+  const words = narration.split(" ").map((w, i) => ({ t: i * 0.3, d: 0.28, w }));
+  assert.throws(
+    () => resolveStates({
+      states: [{}, {}, {}],
+      anchors: ["La recompensa", "casilla", "La política"],
+      narration,
+      words,
+      speechStart: 10,
+      speechDur: 3,
+      start: 9.85,
+    }),
+    /out of order/,
+  );
+});
+
+test("states declared in the order the narrator says them stay ordered", () => {
+  const narration = "La política elige una acción por casilla y la recompensa";
+  const words = narration.split(" ").map((w, i) => ({ t: i * 0.3, d: 0.28, w }));
+  const timed = resolveStates({
+    states: [{}, {}, {}],
+    anchors: ["La política", "casilla", "La recompensa"],
+    narration,
+    words,
+    speechStart: 10,
+    speechDur: 3,
+    start: 9.85,
+  });
+  const times = timed.map((s) => s.t);
+  assert.deepEqual(times, [...times].sort((a, b) => a - b), `states play out of order: ${times.map((t) => t.toFixed(2)).join(" ")}`);
+});
+
+test("a visual with no state at all is a spec error that names the beat", () => {
+  const spec = {
+    part: 1, title: "T", topic: "t",
+    sections: [{ heading: "H", beats: [
+      { title: "uno", narration: "una flecha por casilla decide que hacer en cada estado", visual: { scenes: [] } },
+    ] }],
+  };
+  const problems = validate(spec);
+  assert.ok(problems.length > 0, "a visual with no state was accepted and only fails later, without naming the beat");
+});

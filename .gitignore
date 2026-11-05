@@ -13,3 +13,5 @@ scratch/
 # Python bytecode from the audio synthesiser
 __pycache__/
 *.pyc
+# Dependencias del plugin de Pi (manifiesto en integrations/pi)
+node_modules/

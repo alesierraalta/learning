@@ -37,7 +37,50 @@ export function validate(spec) {
         problems.push(`${where} deck steps must be non-negative integers`);
       }
       if (v.deck && v.steps && !v.steps.length) problems.push(`${where} picks no deck steps`);
+      problems.push(...visualCounts(where, v, beat.narration));
     });
+  });
+  return problems;
+}
+
+// The same folding the timeline uses to match a phrase against the recording.
+const fold = (text) => String(text).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+function says(narration, phrase) {
+  const spoken = fold(narration).split(" ");
+  const wanted = fold(phrase).split(" ").filter(Boolean);
+  if (!wanted.length) return false;
+  return spoken.some((_, i) => wanted.every((word, k) => spoken[i + k] === word));
+}
+
+// The drawing may only change when the voice names what changed: a viewer
+// cannot read a new figure and listen to a different sentence at once.
+function visualCounts(where, v, narration) {
+  const problems = [];
+  if (v.deck && !Array.isArray(v.steps)) {
+    problems.push(`${where} names a deck without steps; say which steps play, in order`);
+    return problems;
+  }
+  const states = v.scenes ? v.scenes.length : v.deck ? v.steps.length : 1;
+  if (states === 0) {
+    problems.push(`${where} has no state to draw: give the visual at least one scene or one deck step`);
+    return problems;
+  }
+  if (!v.anchors || !v.anchors.length) {
+    if (states > 1) {
+      problems.push(`${where} shows ${states} states but declares no anchors: every change of drawing must be caused by a spoken phrase`);
+    }
+    return problems;
+  }
+  if (v.anchors.length !== states) {
+    problems.push(`${where} shows ${states} states but declares ${v.anchors.length} anchors`);
+  }
+  const timed = v.anchors.filter((anchor) => typeof anchor !== "string");
+  if (timed.length) {
+    problems.push(`${where} anchors must be spoken phrases, not numbers or fractions (${timed.length} of ${v.anchors.length} are not text)`);
+  }
+  v.anchors.filter((anchor) => typeof anchor === "string").forEach((anchor) => {
+    if (!says(narration, anchor)) problems.push(`${where} anchors on "${anchor}", which the narration never says`);
   });
   return problems;
 }

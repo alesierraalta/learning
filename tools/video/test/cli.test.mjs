@@ -97,3 +97,10 @@ test("narration that no recording matches is rejected instead of shipping the ol
   assert.notEqual(run.code, 0, "the captions come from the recording, so a stale recording must not pass as this narration");
   assert.match(run.out, /narration|boundaries|re-synth/i);
 });
+
+test("a window that starts after the part ends is refused", () => {
+  const f = fixture();
+  const run = render(f, { args: ["--from", "99", "--to", "100", "--video", join(f.dir, "out.mp4")] });
+  assert.notEqual(run.code, 0, "a window outside the part must not report success");
+  assert.match(run.out, /ends|length|shorter|part/i, "the error says the part is shorter than the window");
+});

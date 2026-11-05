@@ -2,6 +2,7 @@
 // child (testdata/fake-pi.mjs) and a temporary Learnings root.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { request, createServer } from "node:http";
@@ -375,7 +376,7 @@ test("public studio origins must be configured together", async () => {
 });
 
 test("a configured studio token survives a restart so open tabs keep working", async () => {
-  const token = "0123456789abcdef".repeat(4);
+  const token = randomBytes(32).toString("hex");
   const first = await setup({ token });
   assert.equal(first.studio.url, `http://127.0.0.1:${first.studio.port}/${token}/`);
   assert.equal((await http(`${first.studio.url}api/library`)).status, 200);
@@ -386,7 +387,7 @@ test("a configured studio token survives a restart so open tabs keep working", a
 });
 
 test("a configured studio token keeps the reader's URLs across a restart, so an open quiz can still dictate and submit", async () => {
-  const token = "0123456789abcdef".repeat(4);
+  const token = randomBytes(32).toString("hex");
   const readerBase = async (studio) => JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body).url.replace(/redes\/p1$/, "");
   const probe = createServer();
   await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
