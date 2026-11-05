@@ -87,7 +87,7 @@ jobs:
       - name: Adapter, studio and video suites
         run: |
           node --test integrations/pi/*.test.mjs studio/*.test.mjs \
-            tools/video/test/*.test.mjs
+            tools/video/test/*.test.mjs tools/visuals/test/*.test.mjs
 
   # A broken deploy script only shows up when it runs, which for update.sh is
   # after the merge: it has already pulled over the live tree by then. This
