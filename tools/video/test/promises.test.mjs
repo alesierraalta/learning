@@ -170,3 +170,17 @@ test("the shipped Parte 3 spec answers its own narration", { skip: !hasCachedNot
   const decks = extractDecks(readFileSync(notePath(), "utf8"));
   assert.deepEqual(audit(spec, decks).map(formatViolation), []);
 });
+
+test("a bar chart drawn with plain boxes answers 'barra'", () => {
+  const wide = { boxes: [{ x: 24, y: 62, w: 171.7, h: 34, label: "0,86" }, { x: 24, y: 148, w: 40, h: 34, label: "−1" }] };
+  const spec = specOf([beatOf("Si el charco pagara +2", "Ahora mira la barra de arriba: la barra más larga gana.", { scenes: [{ scene: wide }] })]);
+  assert.deepEqual(audit(spec, []), []);
+});
+
+test("two square boxes are not a bar chart", () => {
+  const square = { boxes: [{ x: 24, y: 62, w: 40, h: 40, label: "0,86" }, { x: 24, y: 148, w: 40, h: 40, label: "−1" }] };
+  const spec = specOf([beatOf("Dos casillas", "Mira la barra de arriba: la barra más larga gana.", { scenes: [{ scene: square }] })]);
+  const violations = audit(spec, []);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].phrase, "barra");
+});
