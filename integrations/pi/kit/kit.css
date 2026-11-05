@@ -310,5 +310,6 @@ lk-scene figure { margin: 0; }
 .lk-audio-row:last-of-type { padding-bottom:0; }
 .lk-audio-style { flex:0 0 92px; font-family:var(--sans,sans-serif); font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
 .lk-audio-row audio { flex:1 1 260px; min-width:220px; }
-.lk-audio-download { font-family:var(--sans,sans-serif); font-size:12px; text-underline-offset:3px; }
+.lk-audio-download,
+.lk-audio-srt { font-family:var(--sans,sans-serif); font-size:12px; text-underline-offset:3px; }
 .lk-audio-row p[role=status] { flex:1 1 100%; margin:0; font-size:13px; }

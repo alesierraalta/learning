@@ -1014,12 +1014,20 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   // The theme boots before anything paints, ahead of the config the page reads.
   assert.match(page.body, /<head><script src="[^"]*\/kit\/theme\.js"><\/script><script>window\.LEARNING_BRIDGE = /);
   const config = JSON.parse(page.body.match(/<script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
+  const styleEntry = (style) => {
+    const name = `Parte 1 - Claves - ${style}.m4a`;
+    return { style, name, exists: false, srt: name.replace(/\.m4a$/, ".srt"), srtExists: false };
+  };
   assert.deepEqual(config, {
     submitUrl: `${prefix}submit`,
     quizUrl: `${prefix}api/quiz?topic=${TOPIC}&part=p1`,
     topic: TOPIC,
     part: "p1",
     video: "file/explicaciones/adjuntos/Parte%201%20-%20Claves.mp4",
+    audio: {
+      base: "explicaciones/adjuntos/audio/",
+      styles: ["debate", "entrevista", "charla", "formal"].map(styleEntry),
+    },
   });
   assert.match(page.body, /<h1>Rica<\/h1>/);
   assert.match(page.body, /<lk-video><\/lk-video>/, "a rich page without the video control gets one");
@@ -1128,6 +1136,7 @@ test("the part audio row swaps the player in once the file exists", { skip: !pla
   await rows.first().locator("button").click();
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "Parte 1 - Claves - debate.m4a"), Buffer.from("0123456789"));
+  writeFileSync(join(dir, "Parte 1 - Claves - debate.srt"), "1\n00:00:00,000 --> 00:00:01,000\nhueco\n");
   const player = rows.first().locator("audio");
   await player.waitFor({ state: "attached", timeout: 33000 });
   const src = await player.getAttribute("src");
@@ -1136,6 +1145,9 @@ test("the part audio row swaps the player in once the file exists", { skip: !pla
   assert.equal(await download.getAttribute("href"), src);
   assert.equal(await download.getAttribute("download"), "Parte 1 - Claves - debate.m4a");
   assert.equal(await rows.first().locator("button").count(), 0, "the request becomes the player");
+  const transcript = rows.first().locator("a.audio-srt");
+  assert.equal(await transcript.getAttribute("download"), "Parte 1 - Claves - debate.srt");
+  assert.match(await transcript.getAttribute("href"), /Parte%201%20-%20Claves%20-%20debate\.srt$/);
 });
 
 test("a video request reaches the chat as a fixed message", async () => {
@@ -1187,10 +1199,10 @@ test("every part page carries one audio entry per style and serves the file once
   assert.deepEqual(before.audio, {
     base: "explicaciones/adjuntos/audio/",
     styles: [
-      { style: "debate", name: "Parte 1 - Claves - debate.m4a", exists: false },
-      { style: "entrevista", name: "Parte 1 - Claves - entrevista.m4a", exists: false },
-      { style: "charla", name: "Parte 1 - Claves - charla.m4a", exists: false },
-      { style: "formal", name: "Parte 1 - Claves - formal.m4a", exists: false },
+      { style: "debate", name: "Parte 1 - Claves - debate.m4a", exists: false, srt: "Parte 1 - Claves - debate.srt", srtExists: false },
+      { style: "entrevista", name: "Parte 1 - Claves - entrevista.m4a", exists: false, srt: "Parte 1 - Claves - entrevista.srt", srtExists: false },
+      { style: "charla", name: "Parte 1 - Claves - charla.m4a", exists: false, srt: "Parte 1 - Claves - charla.srt", srtExists: false },
+      { style: "formal", name: "Parte 1 - Claves - formal.m4a", exists: false, srt: "Parte 1 - Claves - formal.srt", srtExists: false },
     ],
   });
   assert.equal(before.video.exists, true, "the video still reports itself");
@@ -1198,9 +1210,12 @@ test("every part page carries one audio entry per style and serves the file once
   const dir = join(topic, "explicaciones", "adjuntos", "audio");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "Parte 1 - Claves - debate.m4a"), Buffer.from("0123456789"));
+  writeFileSync(join(dir, "Parte 1 - Claves - debate.srt"), "1\n00:00:00,000 --> 00:00:01,000\nhueco\n");
   const after = await read();
   assert.equal(after.audio.styles[0].exists, true);
+  assert.equal(after.audio.styles[0].srtExists, true, "the transcript is its own file");
   assert.equal(after.audio.styles[1].exists, false);
+  assert.equal(after.audio.styles[1].srtExists, false);
 
   // The page's own directory is where its relative `file/...` URLs resolve.
   const pageDir = url.slice(0, url.lastIndexOf("/") + 1);

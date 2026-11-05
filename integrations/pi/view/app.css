@@ -193,7 +193,8 @@ button.secondary { background: transparent; color: var(--ink); }
 .audio-row:first-of-type { border-top: 0; }
 .audio-style { flex: 0 0 92px; font-family: var(--sans); font-size: 10.5px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; }
 .audio-row audio { flex: 1 1 260px; min-width: 220px; }
-.audio-download { font-family: var(--sans); font-size: 11px; text-underline-offset: 3px; }
+.audio-download,
+.audio-srt { font-family: var(--sans); font-size: 11px; text-underline-offset: 3px; }
 .audio-row p[role=status] { flex: 1 1 100%; margin: 0; }
 
 .tutor { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--hair); }
