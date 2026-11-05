@@ -10,6 +10,7 @@ import { join } from "node:path";
 
 const REPO = new URL("../../..", import.meta.url).pathname;
 const CLI = join(REPO, "tools/video/render.mjs");
+const LEGIBILITY = join(REPO, "tools/video/legibility.mjs");
 const WORDS = "cada estado decide que hacer y el valor lo dice".split(" ");
 const BEATS = 4;
 
@@ -103,4 +104,111 @@ test("a window that starts after the part ends is refused", () => {
   const run = render(f, { args: ["--from", "99", "--to", "100", "--video", join(f.dir, "out.mp4")] });
   assert.notEqual(run.code, 0, "a window outside the part must not report success");
   assert.match(run.out, /ends|length|shorter|part/i, "the error says the part is shorter than the window");
+});
+
+test("a part with words nobody can read is not rendered, and leaves no SRT", () => {
+  const f = fixture({ visual: { scenes: [{ text: "uno", scene: { labels: [{ x: 180, y: 145, text: "apenas visible", color: "#efefef", size: 13 }] } }] } });
+  const run = render(f, { args: ["--stills", "0.2", "--craft"] });
+  assert.notEqual(run.code, 0, "a frame nobody can read must stop the render");
+  assert.match(run.out, /contrast is/, "the gate says what it measured");
+  assert.ok(!existsSync(join(f.work, "final.srt")), "no deliverable outlives a refused gate");
+});
+
+test("the craft gate runs on a clean part and reports what it measured", () => {
+  const f = fixture();
+  const run = render(f, { args: ["--stills", "0.2", "--craft"] });
+  assert.equal(run.code, 0, run.out);
+  assert.match(run.out, /summary: 0 errors/);
+});
+
+test("the gate says what it wants and refuses a plan it cannot read", () => {
+  const none = spawnSync("node", [LEGIBILITY], { encoding: "utf8" });
+  assert.equal(none.status, 2, "no arguments is a usage problem, not a crash");
+  assert.match(none.stderr, /needs --plan/);
+  const missing = spawnSync("node", [LEGIBILITY, "--plan", join(tmpdir(), "no-such-plan.json")], { encoding: "utf8" });
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /cannot read the plan at/);
+});
+
+test("a request with a broken escape is a client error, not a dead render", () => {
+  const moduleUrl = new URL("../lib/browser.mjs", import.meta.url).href;
+  const script = [
+    `const { serve } = await import(${JSON.stringify(moduleUrl)});`,
+    `const { mkdtempSync, writeFileSync } = await import("node:fs");`,
+    `const { tmpdir } = await import("node:os");`,
+    `const { join } = await import("node:path");`,
+    `const root = mkdtempSync(join(tmpdir(), "serve-"));`,
+    `writeFileSync(join(root, "ok.txt"), "fine");`,
+    `const server = await serve(root);`,
+    `let bad = 0;`,
+    `try { bad = (await fetch(server.url + "/%zz")).status; } catch { bad = -1; }`,
+    `const after = await fetch(server.url + "/ok.txt");`,
+    `console.log("bad:" + bad + " after:" + after.status);`,
+    `server.close();`,
+  ].join("\n");
+  const run = spawnSync("node", ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 20_000 });
+  assert.equal(run.status, 0, `the asset server died on one malformed request:\n${run.stderr}`);
+  assert.match(run.stdout, /after:200/, "the server keeps serving after a malformed request");
+  assert.match(run.stdout, /bad:400/, "a malformed escape is a bad request, not a crash");
+});
+
+test("a flag the gate does not implement is refused, not ignored", () => {
+  // --work belongs to the renderer; the gate accepted it and did nothing.
+  const run = spawnSync("node", [LEGIBILITY, "--plan", join(tmpdir(), "no-such-plan.json"), "--work", "/tmp/x"], { encoding: "utf8" });
+  assert.equal(run.status, 2, `--work must be a usage error, got exit ${run.status}`);
+  assert.match(run.stderr, /work/, "the error names the flag");
+});
+
+test("a beat filter that names no beat is refused instead of reporting green", () => {
+  const f = fixture();
+  const plan = render(f, { args: ["--stills", "0.2"] });
+  assert.equal(plan.code, 0, plan.out);
+  const run = spawnSync("node", [LEGIBILITY, "--plan", join(f.work, "plan.json"), "--beats", "s99b99"], { encoding: "utf8", timeout: 60_000 });
+  assert.equal(run.status, 2, `a typo in --beats measured nothing and exited ${run.status}:\n${run.out}${run.stderr}`);
+  assert.match(`${run.stdout}${run.stderr}`, /s99b99/, "the error names the beat nobody has");
+});
+
+test("a stage that is not where it should be says so instead of throwing a TypeError", () => {
+  const moduleUrl = new URL("../lib/browser.mjs", import.meta.url).href;
+  const script = [
+    `const { loadPlaywright, openStage } = await import(${JSON.stringify(moduleUrl)});`,
+    `const { tmpdir } = await import("node:os");`,
+    `const pw = await loadPlaywright([${JSON.stringify(REPO)}]);`,
+    `try { const s = await openStage(pw, { beats: [] }, { root: tmpdir() }); await s.close(); console.log("opened"); }`,
+    `catch (e) { console.log("error:" + e.message.split("\\n")[0]); }`,
+  ].join("\n");
+  const run = spawnSync("node", ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 60_000 });
+  assert.equal(run.status, 0, run.stderr);
+  assert.doesNotMatch(run.stdout, /is not a function/, `a missing stage surfaced as a TypeError: ${run.stdout}`);
+  assert.match(run.stdout, /index\.html/, "the error names the page it could not load");
+});
+
+test("a render that names no output says so instead of exiting as if it had rendered", () => {
+  const f = fixture();
+  const run = render(f, { args: [] });
+  assert.equal(run.code, 2, `nothing was asked for, yet the run exited ${run.code}:\n${run.out}`);
+  assert.match(run.out, /--video/, "the message names what to pass");
+});
+
+// The poster is the frame a viewer sees before pressing play. The README says the
+// gate measures it, so a first frame that draws nothing must be reported rather
+// than passing as clean.
+test("the poster rule fires when the first frame draws nothing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "video-poster-"));
+  const path = join(dir, "plan.json");
+  writeFileSync(path, JSON.stringify({
+    part: "Parte T",
+    total: 2,
+    title: "Prueba",
+    cues: [],
+    beats: [{
+      tag: "s01b00", section: 1, beat: 0,
+      kicker: "Sección 1", heading: "Uno", title: "Uno",
+      narration: "todavía no hay nada dibujado", deck: "", viewBox: "0 0 360 300",
+      start: 0, speechStart: 0, speechDur: 0, end: 2,
+      states: [{ scene: { shapes: [], boxes: [], labels: [] }, text: "", t: 0 }],
+    }],
+  }));
+  const run = spawnSync("node", [LEGIBILITY, "--plan", path, "--json"], { encoding: "utf8", timeout: 120_000 });
+  assert.match(`${run.stdout}${run.stderr}`, /first_frame_empty/, "an empty poster is reported, not passed as clean");
 });

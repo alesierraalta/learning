@@ -187,6 +187,15 @@ button.secondary { background: transparent; color: var(--ink); }
 .video-block button:hover, .video-block button:focus { background: var(--ink); color: var(--on-ink); }
 .video-block button:disabled { opacity: .55; cursor: progress; }
 .video-block p { margin: 8px 0 0; }
+.audio-block { margin: 18px 0 26px; padding: 0; border: 0; background: none; }
+.audio-block h2 { margin-bottom: 10px; }
+.audio-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 0; border-top: 1px solid var(--rule); }
+.audio-row:first-of-type { border-top: 0; }
+.audio-style { flex: 0 0 92px; font-family: var(--sans); font-size: 10.5px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; }
+.audio-row audio { flex: 1 1 260px; min-width: 220px; }
+.audio-download,
+.audio-srt { font-family: var(--sans); font-size: 11px; text-underline-offset: 3px; }
+.audio-row p[role=status] { flex: 1 1 100%; margin: 0; }
 
 .tutor { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--hair); }
 .verdict { margin: 14px 0; padding: 0; border: 0; }
@@ -222,7 +231,7 @@ button.secondary { background: transparent; color: var(--ink); }
      no cruza las dos columnas y el modo ancho se lee a saltos. */
   body.wide .prose > section { display: contents; }
   body.wide .prose > h1, body.wide .prose > h2, body.wide .prose > h3, body.wide .prose > table, body.wide .prose > pre,
-  body.wide .prose > iframe, body.wide .prose > .part-kicker, body.wide .prose > .video-block { column-span: all; }
+  body.wide .prose > iframe, body.wide .prose > .part-kicker, body.wide .prose > .video-block, body.wide .prose > .audio-block { column-span: all; }
   body.wide .prose > h1 { max-width: 30em; }
   body.wide figure:has(svg), body.wide .mermaid { width: 100%; margin-left: 0; transform: none; }
   body.wide .note-pair { display: block; }

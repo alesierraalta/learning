@@ -37,7 +37,9 @@ node tools/video/render.mjs \
   --video tools/video/.cache/parte3/final.mp4
 ```
 
-`--stills 12.5,90` writes PNG stills instead of a video (fast visual checks).`--from 100 --to 120` renders a slice. `--remote synchub:<dir>` fetches missing
+`--craft` runs the craft gate before any frame is captured, so a part that is
+not readable produces no file. `--stills 12.5,90` writes PNG stills instead of a
+video (fast visual checks).`--from 100 --to 120` renders a slice. `--remote synchub:<dir>` fetches missing
 narration; on the VPS the audio cache is already local and no `--remote` is
 needed. Requires `ffmpeg`, `ffprobe` and Playwright (local or global; the
 renderer resolves both).
@@ -70,7 +72,11 @@ picture changes. A full part is ~20 fps of Chromium work, so Part 3 (6:17,
 ```
 
 `narration` must match the recorded audio word for word — the boundaries come
-from that recording. A beat's visual is one of three things:
+from that recording. edge-tts tokenises for its own convenience (it merges
+`+1 entero` into one boundary and splits `−0,04` into four), so
+`lib/audio.mjs:alignWords` realigns them to the narration's words; audio
+recorded for other words still fails, which is what catches a stale cache. A
+beat's visual is one of three things:
 
 - `{"deck": "<note deck title>", "steps": [3, 4]}` — animate steps of the
   note's own deck (all steps when `steps` is omitted).
@@ -151,6 +157,45 @@ a declared cell that lands on no drawn box fails too.
 Subject nouns (`robot`, `puerta`, `charco`, `salida`) are not promises: they
 name the world the beat talks about, not the drawing, and a beat may discuss
 the robot over a chart without owing a picture of it.
+
+## The craft gate
+
+Readable is part of the contract, not a matter of taste. `legibility.mjs` loads
+the same stage the renderer uses, seeks every state the beat draws and asks the
+browser what it actually painted: the computed size of each text in screen
+pixels, its colour, and the paint behind it. It reads the plan, not the
+narration and not the pixels.
+
+```bash
+node tools/video/legibility.mjs --plan tools/video/.cache/parte3/plan.json
+# summary: 0 errors · 4 warnings · 95 waived      (exit 1 if an error)
+```
+
+Five rules, and one of them is a hard stop:
+
+- `contrast_aa_failure` — **error**. A colour under 3:1 (24 px and up) or 4.5:1
+  below that cannot be read on a phone. Our muted chrome sat at 4.27:1 until
+  `--muted` went from `.62` to `.66` (4.82:1).
+- `text_below_floor` — warning. The floor is 2.6% of the short side (28 px in
+  1080p), the size at which a line survives a phone. Chrome the viewer does not
+  read carries `data-texture` and is reported as waived instead of silently
+  dropped.
+- `dead_stretch` — warning. More than 3 s with the figure unchanged **and the
+  voice silent**. A figure that holds while the narration explains is not a
+  hole: the film is moving. The gate reports the silent span it measured, so the
+  number is the hole and not the hold. A stillness that was chosen carries
+  `"hold": true` in the spec and is waived; anything else is a question for the
+  author, not a bug in the engine.
+- `film_silent` — a film over 15 s with no narration at all.
+- `first_frame_empty` — warning. The poster is the frame before play, and it is
+  measured on the drawing: no primitive and no label inside the figure. A title
+  alone does not save it, because the header says what the film is, not what it
+  shows.
+
+A part sets `"hold": true` on a beat whose picture is meant to sit still. The
+poster is measured on the first sample, the progress bar is excluded (chrome that
+moves every frame would hide a still figure), and findings about the same
+`where` × `text` are counted once instead of once per sample.
 
 ## Delivery
 

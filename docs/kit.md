@@ -15,6 +15,7 @@ framework is required. The bridge serves the page at `/<token>/<topic>/<part>`.
 <body><main>
   <p class="definition">One precise formal definition.</p>
   <lk-video></lk-video>
+  <lk-audio></lk-audio>
   <div class="kicker">Parte 3 · Topic</div>
   <h1>Title</h1>
   <h2>1. Por qué existe</h2>
@@ -76,6 +77,7 @@ use light DOM: normal page CSS and accessible native controls still work.
 </lk-quick-quiz>
 
 <lk-video></lk-video>
+<lk-audio></lk-audio>
 <lk-quiz></lk-quiz>
 <lk-ask></lk-ask>
 ```
@@ -259,9 +261,11 @@ The microphone needs HTTPS remotely; the server keeps the transcriber credential
 private. Without that URL the existing browser Web Speech dictation is unchanged.
 It displays server grading and restored read-only answers
 and concept verdicts. Never put answer keys in the page. Exercise instructions
-remain page-authored content. `lk-video` is present on every part node — author it, or the
-bridge injects it with the kit assets; it checks availability with HEAD and polls every 30
-seconds after requesting generation. `lk-ask` sends a question.
+remain page-authored content. `lk-video` and `lk-audio` are present on every part node —
+author them, or the bridge injects them with the kit assets; both check availability with
+HEAD and poll every 30 seconds after requesting generation. `lk-audio` draws one row per
+style the part can be heard in: an existing file is a player with its download, a missing
+one is the «🎧 Generar …» request. `lk-ask` sends a question.
 Without bridge config these three show the instruction to open the page in Pi;
 all local demos, diagrams, steps, and mathematics remain usable.
 
@@ -274,7 +278,16 @@ window.LEARNING_BRIDGE = {
   submitUrl: '/<token>/submit',
   quizUrl: '/<token>/api/quiz?topic=<topic>&part=<part>',
   topic: '<topic>', part: '<part>',
-  video: 'file/explicaciones/adjuntos/Parte N - Name.mp4'
+  video: 'file/explicaciones/adjuntos/Parte N - Name.mp4',
+  audio: {
+    base: 'file/explicaciones/adjuntos/audio/',
+    styles: [
+      { style: 'debate', name: 'Parte N - Name - debate.m4a', exists: true,
+        srt: 'Parte N - Name - debate.srt', srtExists: true },
+      { style: 'entrevista', name: 'Parte N - Name - entrevista.m4a', exists: false,
+        srt: 'Parte N - Name - entrevista.srt', srtExists: false }
+    ]
+  }
 };
 ```
 
@@ -287,6 +300,8 @@ are an array of `{codigo,estado,pregunta,evidencia}`; a concept-ID map to
 `{veredicto,evidencia}` is also accepted. Submissions use JSON:
 
 - Video: `{kind:'video', topic, part}`.
+- Audio: `{kind:'audio', topic, part, style}` with `style` one of `debate`,
+  `entrevista`, `charla`, `formal`; anything else is rejected with 400.
 - Question: `{kind:'question', topic, part, text}`.
 - Quiz: `{kind:'mini-quiz', topic, part, answers, reasoning, ownWords?, exercises?}`.
   `reasoning` maps question IDs to `{razonamiento, confianza}`; the older

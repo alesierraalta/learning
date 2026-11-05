@@ -4,15 +4,13 @@
 //
 //   node tools/video/render.mjs --spec parts/parte3.json --note <note.md> \
 //        --audio <dir> --work <dir> [--stills 12.5,90] [--video out.mp4]
-import { createReadStream } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import { extname, join, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { once } from "node:events";
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { loadAudio } from "./lib/audio.mjs";
+import { loadPlaywright, openStage } from "./lib/browser.mjs";
 import { extractDecks } from "./lib/note.mjs";
 import { audit, formatViolation } from "./lib/promises.mjs";
 import { readSpec } from "./lib/spec.mjs";
@@ -20,11 +18,8 @@ import { buildTimeline } from "./lib/timeline.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(HERE, "../..");
-const W = 1920;
-const H = 1080;
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".woff2": "font/woff2", ".json": "application/json", ".svg": "image/svg+xml" };
 
-const KNOWN_ARGS = new Set(["spec", "note", "audio", "work", "stills", "video", "from", "to", "fps", "preset", "crf", "remote"]);
+const KNOWN_ARGS = new Set(["spec", "note", "audio", "work", "stills", "video", "from", "to", "fps", "preset", "crf", "remote", "craft"]);
 
 const args = parseArgs(process.argv.slice(2));
 checkArgs(args);
@@ -59,27 +54,25 @@ async function main() {
   await mkdir(work, { recursive: true });
   await writeFile(join(work, "plan.json"), JSON.stringify(plan, null, 1));
   const captions = sliceCues(plan.cues, from, to);
+  // The craft gate measures the same plan the frames will follow, so a part
+  // nobody can read never becomes a file.
+  if (args.craft) {
+    const gate = spawnSync(process.execPath, [join(HERE, "legibility.mjs"), "--plan", join(work, "plan.json")], { stdio: "inherit" });
+    if (gate.status !== 0) throw new Error(`the craft gate refused this part (exit ${gate.status})`);
+  }
   console.log(`${plan.part} · ${plan.beats.length} beats · ${captions.length} cues · ${fmt(plan.total)}`);
 
-  const playwright = await loadPlaywright();
-  const server = await serve(ROOT);
-  const browser = await playwright.chromium.launch({ args: ["--force-color-profile=srgb", "--font-render-hinting=none"] });
+  const playwright = await loadPlaywright([ROOT]);
+  const stage = await openStage(playwright, plan, { root: ROOT });
   try {
-    const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
-    page.on("pageerror", (e) => console.error(`stage error: ${e.message}`));
-    await page.goto(`${server.url}/tools/video/src/page/index.html`);
-    await page.evaluate((p) => window.__boot(p), plan);
-    await page.evaluate(() => document.fonts.ready);
-
     if (args.stills) {
-      await stills(page, join(work, "stills"));
+      await stills(stage.page, join(work, "stills"));
     }
     if (args.video) {
-      await video(page, plan, beats, resolve(args.video));
+      await video(stage.page, plan, beats, resolve(args.video));
     }
   } finally {
-    await browser.close();
-    server.close();
+    await stage.close();
   }
   // The SRT is a deliverable, so it is written only once the work it describes
   // succeeded: a failed render must not leave captions that look finished.
@@ -172,45 +165,6 @@ function srt(cues) {
   return cues.map(([start, end, text], i) => `${i + 1}\n${clock(start)} --> ${clock(end)}\n${text}\n`).join("\n");
 }
 
-// Playwright is a tool dependency, not a package of this site: prefer a local
-// install, then the global one the machine already has.
-async function loadPlaywright() {
-  const roots = [];
-  if (process.env.PLAYWRIGHT_ROOT) roots.push(process.env.PLAYWRIGHT_ROOT);
-  roots.push(ROOT, join(HERE, "node_modules"), execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim());
-  for (const root of roots) {
-    for (const entry of [join(root, "playwright", "index.js"), join(root, "playwright-core", "index.js")]) {
-      if (existsSync(entry)) {
-        const mod = await import(pathToFileURL(entry).href);
-        return mod.chromium ? mod : mod.default;
-      }
-    }
-  }
-  const mod = await import("playwright");
-  return mod.chromium ? mod : mod.default;
-}
-
-function serve(root) {
-  return new Promise((done) => {
-    const server = createServer(async (req, res) => {
-      const path = resolve(root, "." + decodeURIComponent(new URL(req.url, "http://x").pathname));
-      if (!path.startsWith(root + sep) && path !== root) {
-        res.writeHead(403).end("forbidden");
-        return;
-      }
-      if (!existsSync(path) || !statSync(path).isFile()) {
-        res.writeHead(404).end("not found");
-        return;
-      }
-      const stream = createReadStream(path);
-      stream.on("error", () => res.destroy());
-      res.writeHead(200, { "content-type": MIME[extname(path)] || "application/octet-stream" });
-      stream.pipe(res);
-    });
-    server.listen(0, "127.0.0.1", () => done({ url: `http://127.0.0.1:${server.address().port}`, close: () => server.close() }));
-  });
-}
-
 function fmt(s) {
   const m = Math.floor(s / 60);
   return `${m}:${String(Math.round(s % 60)).padStart(2, "0")}`;
@@ -219,6 +173,9 @@ function fmt(s) {
 function checkArgs(args) {
   const unknown = Object.keys(args).filter((key) => !KNOWN_ARGS.has(key));
   if (unknown.length) usage(`unknown flag ${unknown.map((key) => `--${key}`).join(", ")}`);
+  if (args.video === undefined && args.stills === undefined) {
+    usage("nothing to render: pass --video <file> or --stills <instants>");
+  }
   if (args.stills !== undefined) {
     const values = String(args.stills).split(",");
     const bad = values.find((value) => !Number.isFinite(Number(value.trim())) || Number(value.trim()) < 0);

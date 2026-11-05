@@ -1014,12 +1014,20 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   // The theme boots before anything paints, ahead of the config the page reads.
   assert.match(page.body, /<head><script src="[^"]*\/kit\/theme\.js"><\/script><script>window\.LEARNING_BRIDGE = /);
   const config = JSON.parse(page.body.match(/<script>window\.LEARNING_BRIDGE = (.*?);<\/script>/)[1]);
+  const styleEntry = (style) => {
+    const name = `Parte 1 - Claves - ${style}.m4a`;
+    return { style, name, exists: false, srt: name.replace(/\.m4a$/, ".srt"), srtExists: false };
+  };
   assert.deepEqual(config, {
     submitUrl: `${prefix}submit`,
     quizUrl: `${prefix}api/quiz?topic=${TOPIC}&part=p1`,
     topic: TOPIC,
     part: "p1",
     video: "file/explicaciones/adjuntos/Parte%201%20-%20Claves.mp4",
+    audio: {
+      base: "file/explicaciones/adjuntos/audio/",
+      styles: ["debate", "entrevista", "charla", "formal"].map(styleEntry),
+    },
   });
   assert.match(page.body, /<h1>Rica<\/h1>/);
   assert.match(page.body, /<lk-video><\/lk-video>/, "a rich page without the video control gets one");
@@ -1111,6 +1119,37 @@ test("the part video control swaps the player in once the file exists", { skip: 
   assert.match(await player.getAttribute("src"), /file\/explicaciones\/adjuntos\/Parte%201%20-%20Claves\.mp4$/);
 });
 
+// The same promise for audio: the row that does not exist yet becomes a player
+// with its download once the tutor's file lands.
+test("the part audio row swaps the player in once the file exists", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view } = await setup();
+  const dir = join(topic, "explicaciones", "adjuntos", "audio");
+  rmSync(dir, { recursive: true, force: true });
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(url);
+  const rows = page.locator(".audio-row");
+  await rows.first().waitFor();
+  assert.equal(await rows.count(), 4, "one row per style");
+  await rows.first().locator("button").click();
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "Parte 1 - Claves - debate.m4a"), Buffer.from("0123456789"));
+  writeFileSync(join(dir, "Parte 1 - Claves - debate.srt"), "1\n00:00:00,000 --> 00:00:01,000\nhueco\n");
+  const player = rows.first().locator("audio");
+  await player.waitFor({ state: "attached", timeout: 33000 });
+  const src = await player.getAttribute("src");
+  assert.match(src, /file\/explicaciones\/adjuntos\/audio\/Parte%201%20-%20Claves%20-%20debate\.m4a$/);
+  const download = rows.first().locator("a.audio-download");
+  assert.equal(await download.getAttribute("href"), src);
+  assert.equal(await download.getAttribute("download"), "Parte 1 - Claves - debate.m4a");
+  assert.equal(await rows.first().locator("button").count(), 0, "the request becomes the player");
+  const transcript = rows.first().locator("a.audio-srt");
+  assert.equal(await transcript.getAttribute("download"), "Parte 1 - Claves - debate.srt");
+  assert.match(await transcript.getAttribute("href"), /Parte%201%20-%20Claves%20-%20debate\.srt$/);
+});
+
 test("a video request reaches the chat as a fixed message", async () => {
   const { view, host, shutdown } = await setup();
   const url = base(await view({}));
@@ -1123,6 +1162,88 @@ test("a video request reaches the chat as a fixed message", async () => {
   assert.equal((await submit(url, { kind: "video", topic: TOPIC })).status, 400);
   assert.equal((await submit(url, { kind: "video", topic: TOPIC, part: "p1", text: "x" })).status, 400);
   assert.equal(host.sent.length, 1);
+  await shutdown();
+});
+
+test("an audio request reaches the chat with the style and the path to deliver", async () => {
+  const { view, host, shutdown } = await setup();
+  const url = base(await view({}));
+  const res = await submit(url, { kind: "audio", topic: TOPIC, part: "p1", style: "debate" });
+  assert.equal(res.status, 200, res.body);
+  assert.equal(
+    host.sent[0].content,
+    "[Vista HTML · sql-demo · p1 · audio · debate]\nLa persona pide el audio de esta parte en estilo debate: escríbelo y prodúcelo con el motor de audio (skill learnings-audio), con la spec en tools/audio/specs/sql-demo-p1-debate.json y la entrega en explicaciones/adjuntos/audio/Parte 1 - Claves - debate.m4a.",
+  );
+  assert.equal((await submit(url, { kind: "audio", topic: TOPIC, part: "p1", style: "podcast" })).status, 400);
+  assert.equal((await submit(url, { kind: "audio", topic: TOPIC, part: "p1" })).status, 400);
+  assert.equal((await submit(url, { kind: "audio", topic: TOPIC, style: "debate" })).status, 400);
+  assert.equal((await submit(url, { kind: "audio", topic: TOPIC, part: "p1", style: "debate", text: "x" })).status, 400);
+  assert.equal(host.sent.length, 1);
+  await shutdown();
+});
+
+// The page offers all four ways to hear a part before any of them exists: the
+// name of each file is fixed by the bridge, never guessed by the browser.
+test("every part page carries one audio entry per style and serves the file once it exists", async () => {
+  const { topic, view, shutdown } = await setup();
+  const part = await view({ topic: TOPIC, part: "p1" });
+  const url = part.structuredContent.url;
+  const read = async () => {
+    const page = await http(url);
+    assert.equal(page.status, 200);
+    const json = /<script type="application\/json" id="view-data">([\s\S]*?)<\/script>/.exec(page.body);
+    assert.ok(json, "the part payload is embedded");
+    return JSON.parse(json[1]);
+  };
+  const before = await read();
+  assert.deepEqual(before.audio, {
+    base: "file/explicaciones/adjuntos/audio/",
+    styles: [
+      { style: "debate", name: "Parte 1 - Claves - debate.m4a", exists: false, srt: "Parte 1 - Claves - debate.srt", srtExists: false },
+      { style: "entrevista", name: "Parte 1 - Claves - entrevista.m4a", exists: false, srt: "Parte 1 - Claves - entrevista.srt", srtExists: false },
+      { style: "charla", name: "Parte 1 - Claves - charla.m4a", exists: false, srt: "Parte 1 - Claves - charla.srt", srtExists: false },
+      { style: "formal", name: "Parte 1 - Claves - formal.m4a", exists: false, srt: "Parte 1 - Claves - formal.srt", srtExists: false },
+    ],
+  });
+  assert.equal(before.video.exists, true, "the video still reports itself");
+
+  const dir = join(topic, "explicaciones", "adjuntos", "audio");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "Parte 1 - Claves - debate.m4a"), Buffer.from("0123456789"));
+  writeFileSync(join(dir, "Parte 1 - Claves - debate.srt"), "1\n00:00:00,000 --> 00:00:01,000\nhueco\n");
+  const after = await read();
+  assert.equal(after.audio.styles[0].exists, true);
+  assert.equal(after.audio.styles[0].srtExists, true, "the transcript is its own file");
+  assert.equal(after.audio.styles[1].exists, false);
+  assert.equal(after.audio.styles[1].srtExists, false);
+
+  // The page's own directory is where its relative `file/...` URLs resolve.
+  const pageDir = url.slice(0, url.lastIndexOf("/") + 1);
+  const file = await http(`${pageDir}file/explicaciones/adjuntos/audio/Parte%201%20-%20Claves%20-%20debate.m4a`);
+  assert.equal(file.status, 200);
+  assert.match(file.headers["content-type"], /^audio\/mp4/);
+  // The kit resolves its player and transcript from the payload alone, so the base
+  // has to name the route itself: without `file/` every rich page 404s its audio.
+  const own = await http(`${pageDir}${after.audio.base}${encodeURIComponent(after.audio.styles[0].name)}`);
+  assert.equal(own.status, 200);
+  assert.match(own.headers["content-type"], /^audio\/mp4/);
+  const ownSrt = await http(`${pageDir}${after.audio.base}${encodeURIComponent(after.audio.styles[0].srt)}`);
+  assert.equal(ownSrt.status, 200);
+  assert.match(ownSrt.headers["content-type"], /^text\/plain/);
+  await shutdown();
+});
+
+test("a rich page that never heard of audio gets the control anyway", async () => {
+  const { topic, view, shutdown } = await setup();
+  writeFileSync(
+    join(topic, "explicaciones", "Parte 1 - Claves.html"),
+    '<!doctype html><html lang="es"><head><title>Rica</title></head><body><h1>Rica</h1></body></html>',
+  );
+  const page = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.match(page.body, /<lk-audio><\/lk-audio>/);
+  assert.match(page.body, /<lk-video><\/lk-video>/);
+  assert.match(page.body, /kit\/kit\.js/);
   await shutdown();
 });
 
