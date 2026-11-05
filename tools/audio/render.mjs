@@ -4,7 +4,7 @@
 //
 //   node tools/audio/render.mjs --spec parts/parte1-debate.json \
 //        --audio ~/.cache/learning-audio/parte1-debate --out out/parte1.m4a
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadTurns } from "./lib/audio.mjs";
@@ -13,7 +13,12 @@ import { buildTimeline, estimate } from "./lib/timeline.mjs";
 
 const KNOWN_ARGS = new Set(["spec", "audio", "out", "srt", "work", "remote", "dry-run", "date"]);
 const SAMPLE_RATE = 48000;
-const LOUDNESS = "loudnorm=I=-16:TP=-1.5:LRA=11";
+// One-pass loudnorm cannot hold the peak it is given: it normalises loudness and
+// reports the true peak it saw. The limiter is what makes the ceiling true, and
+// probe() measures the result instead of trusting the filter chain.
+// The limiter sits below the documented ceiling because AAC overshoots what it
+// is given: -3 dBFS before encoding measures around -2 dBFS after it.
+const LOUDNESS = "loudnorm=I=-16:TP=-1.5:LRA=11,alimiter=limit=0.708:level=false";
 
 /** A wrong invocation is a usage error, never a stack trace. */
 class UsageError extends Error {}
@@ -74,6 +79,10 @@ async function main() {
   if (probed.codec !== "aac" || probed.sampleRate !== SAMPLE_RATE || probed.channels !== 1) {
     throw new Error(`unexpected stream ${probed.codec} ${probed.sampleRate} Hz ${probed.channels} ch`);
   }
+  // The level is a promise, so the file is measured, not the filter chain that
+  // made it: a limiter that misses by a fraction of a dB is still missing.
+  if (probed.peak > -1.4) throw new Error(`true peak ${probed.peak} dBFS exceeds the -1.5 dBFS ceiling`);
+  if (Math.abs(probed.lufs + 16) > 0.7) throw new Error(`loudness ${probed.lufs} LUFS left the -16 LUFS target`);
   const report = {
     part: spec.part,
     title: spec.title,
@@ -86,6 +95,7 @@ async function main() {
     chapters: timeline.chapters,
     cues: timeline.cues.length,
     duration: probed.duration,
+    level: { lufs: probed.lufs, peak: probed.peak },
     bytes: statSync(out).size,
     files: { audio: out, srt },
   };
@@ -162,12 +172,34 @@ function probe(file) {
   }
   const audio = (data.streams || []).find((stream) => stream.codec_type === "audio");
   if (!audio) throw new Error(`${file} has no audio stream`);
+  const measured = measure(file);
   return {
     codec: audio.codec_name,
     sampleRate: Number(audio.sample_rate),
     channels: Number(audio.channels),
     duration: Number(data.format?.duration ?? audio.duration),
+    lufs: measured.lufs,
+    peak: measured.peak,
   };
+}
+
+/** Integrated loudness and true peak, as ffmpeg's own meter reports them. */
+function measure(file) {
+  // The meter writes its summary to stderr, so stdout alone would read as silence.
+  // An 18-minute episode logs a line per frame: the default 1 MB buffer kills
+  // the meter mid-file and reads as a failure.
+  const run = spawnSync("ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-af", "ebur128=peak=true", "-f", "null", "-"], {
+    encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  if (run.status !== 0) throw new Error(`ffmpeg could not measure ${file}: ${run.stderr}`);
+  const text = `${run.stdout}\n${run.stderr}`;
+  // Per-frame lines also print `I:`; only the summary holds the programme values.
+  const summary = text.slice(text.lastIndexOf("Summary:"));
+  const lufs = /I:\s*(-?\d+(?:\.\d+)?)\s*LUFS/.exec(summary);
+  const peak = /True peak:[\s\S]*?Peak:\s*(-?\d+(?:\.\d+)?)\s*dBFS/.exec(summary);
+  if (!lufs || !peak) throw new Error(`ffmpeg measured nothing for ${file}`);
+  return { lufs: Number(lufs[1]), peak: Number(peak[1]) };
 }
 
 function parseArgs(argv) {
