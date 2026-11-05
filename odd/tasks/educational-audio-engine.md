@@ -15,14 +15,14 @@ Branch: feat/tutor-runtime (shared worktree; no branch switch while another sess
 
 ## Tasks
 
-- T1 S1,S5 engine core: spec schema + validation, turn cache keyed by voice+text, pure timeline (gaps, chapters, cues, duration estimate) — inline
-- T2 S5,S6 synthesis + assemble: `synth.py` (edge-tts per turn, boundaries, stale detection) and `render.mjs` (concat with gaps, loudnorm, m4a chapters, srt, report) — inline
-- T3 S1,S4 tests and CI: spec, timeline and render CLI suites with ffmpeg fixtures; glob added to the CI suite step — inline
-- T4 S6 delivery contract + docs: engine README, naming rule, skill `learnings-audio` — inline
-- T5 S7,S8 bridge: `partAudioInfo`, audio MIME types, payload in both routes, `ensureNodeAudio`, `{kind:"audio"}` prompt — inline
-- T6 S7,S8 kit and SPA: `lk-audio` component, kit.css, audio block in `view/app.js`, adapter tests — inline
-- T7 S9 real run: author the debate spec for RL Parte 1 (~2 900 words), synthesise and render on the VPS, deliver, verify the live page and the download — inline
-- T8 close: docs (`docs/kit.md`, `docs/integration.md`), full suites, review gate, memory — inline
+- T1 S1,S5 engine core: spec schema + validation, turn cache keyed by voice+text, pure timeline (gaps, chapters, cues, duration estimate) — inline ✅ c967c6b
+- T2 S5,S6 synthesis + assemble: `synth.py` (edge-tts per turn, boundaries, stale detection) and `render.mjs` (concat with gaps, loudnorm, m4a chapters, srt, report) — inline ✅ c967c6b
+- T3 S1,S4 tests and CI: spec, timeline and render CLI suites with ffmpeg fixtures; glob added to the CI suite step — inline ✅ b10ae48
+- T4 S6 delivery contract + docs: engine README, naming rule, skill `learnings-audio` — inline ✅ 5b1c0a7
+- T5 S7,S8 bridge: `partAudioInfo`, audio MIME types, payload in both routes, `ensureNodeMedia`, `{kind:"audio"}` prompt — inline ✅ fcd36d5
+- T6 S7,S8 kit and SPA: `lk-audio` component, kit.css, audio block in `view/app.js`, adapter tests — inline ✅ fcd36d5
+- T7 S9 real run: author the debate spec for RL Parte 1 (~2 900 words), synthesise and render on the VPS, deliver, verify the live page and the download — delegated (worker mw2sisg2-1-kzpe), in progress
+- T8 close: docs (`docs/kit.md`, `docs/integration.md`), full suites, review gate, memory — inline, docs ✅ b5f7da3, suites and gate pending
 
 ## Log
 
@@ -33,3 +33,8 @@ Branch: feat/tutor-runtime (shared worktree; no branch switch while another sess
 - L5 (evidence, seams): `integrations/pi/bridge.ts:1055` builds the page config, `:1080` the SPA part payload, `:1297` maps `{kind:"video"}` to a tutor prompt; `integrations/pi/kit/kit.js:147` is `lk-video`; `integrations/pi/view/app.js:526` is the SPA video block; `.github/workflows/ci.yml:90` runs the video suites.
 - L6 (decision): synthesis runs on the VPS with the existing `~/learnings-video/.venv` (edge-tts 7.3.1); assembly needs only ffmpeg, so the renderer runs locally too. No Chromium, no new host.
 - L7 (decision): the engine never invents audio content. The tutor authors the spec from the note (skill `learnings-audio`), the engine synthesises and assembles it, and a spec that names a claim its note lacks is a content defect the audit reports, not a rendering choice.
+- L8 (evidence, 2026-11-04): `node --test tools/audio/test/*.test.mjs tools/video/test/*.test.mjs` → 79 tests, 77 pass, 0 fail, ~5 s; the render e2e assembles 78.75 s of audio with two chapters and a 14-cue transcript.
+- L9 (defect caught by the first suite, 2026-11-04): `buildTimeline` started the clock at `GAPS.lead` without emitting the lead silence, so the m4a began 0.6 s before its own chapter and transcript; the plan now opens with an explicit `silence` event and the tests assert contiguity of every event.
+- L10 (evidence, 2026-11-04): the whole engine suite plus the adapter suites ran green together — 79 tests, 77 pass, 2 skipped (the video browser suites, no Playwright on PATH), 0 fail — and the four new adapter tests pass with the browser module supplied, including `lk-audio` swapping a request for a player.
+- L11 (evidence, 2026-11-04): `base(url)` from `learning_view` is the server root, not the topic root (`http://127.0.0.1:<port>/<token>/`), so a file URL is built from the part page's own directory; the audio file assertion had to do the same and now proves the route serves `audio/mp4`.
+- L12 (slice boundary): the audio feature is four reviewable units on `feat/tutor-runtime` — engine `c967c6b`, suites `b10ae48`, view and kit `fcd36d5`, engine docs `5b1c0a7`, kit and integration docs `b5f7da3`. The branch itself also carries another session's `studio/` work since `origin/main`; the audio review candidate is these commits, not the branch tip.
