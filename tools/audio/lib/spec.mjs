@@ -76,6 +76,9 @@ export function validate(spec) {
   if (spec.style !== "formal" && speakers.length < 2) {
     problems.push(`${spec.style} is a conversation: declare two speakers`);
   }
+  if (spec.style !== "formal" && speakers.length === 2 && voices.A.voice === voices.B.voice) {
+    problems.push(`${spec.style} needs two different voices: A and B both use ${voices.A.voice}`);
+  }
   let total = 0;
   const used = new Set();
   // The speaker rule is about the audio, not the structure: a chapter mark is a
@@ -117,7 +120,8 @@ export function validate(spec) {
   if (spec.style === "formal" && used.size > 1) {
     problems.push("formal is one voice: segments use more than one speaker");
   }
-  if (!problems.length && total < 200) {
+  // The floor is its own rule: one more problem must not hide it.
+  if (total < 200) {
     problems.push(`only ${total} words: a part's audio is not a summary`);
   }
   return problems;

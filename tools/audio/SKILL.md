@@ -24,7 +24,7 @@ Pick the style from what the user asked, and from what the note supports:
 | style | when it works | shape of a turn |
 | --- | --- | --- |
 | `debate` | the part has claims with limits, trade-offs, "it depends" | A states, B pushes with the counter-case or the edge, A refines |
-| `entrevista` | the part is new to the listener; questions are the syllabus | B asks 8–15 words, A answers 60–120 |
+| `entrevista` | the part is new to the listener; questions are the syllabus | A asks 8–15 words, B answers 60–120 |
 | `charla` | the part is a tour with many moving pieces | both build on each other, 40–90 words each |
 | `formal` | the user wants a lecture, or the part is procedure | one voice, 90–130 words, explicit signposts |
 
@@ -43,7 +43,7 @@ node tools/audio/render.mjs --spec <spec> --dry-run
 ```
 
 Run this after every chapter you write. The command prints each chapter's
-word count and the running estimate, and refuses a spec outside 12–28 minutes.
+word count and the estimate it derives from it, and refuses a spec outside 12–28 minutes.
 You want to land at 18–22 and be told so by the numbers, not by your sense of
 length.
 
@@ -53,7 +53,7 @@ length.
   needs a colon and a bullet list, it is two turns.
 - `debate` and `charla` alternate: never two consecutive turns by the same
   speaker, and both voices appear in every chapter.
-- `entrevista` never lets B answer their own question.
+- `entrevista` never lets A answer their own question.
 - `formal` may have one speaker throughout, but still changes its move every
   turn: claim, mechanism, example, limit, next.
 
