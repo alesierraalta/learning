@@ -31,7 +31,9 @@ export function estimate(spec) {
   const tags = turnTags(spec);
   const chapters = spec.chapters.length;
   const count = tags.reduce((sum, tag) => sum + tag.text.trim().split(/\s+/).filter(Boolean).length, 0);
-  const gaps = GAPS.lead + GAPS.tail + Math.max(0, tags.length - chapters) * GAPS.turn + chapters * GAPS.chapter;
+  // A chapter mark costs one gap, and the render writes it between chapters: the
+  // first chapter opens after the lead silence, so n chapters add n - 1 of them.
+  const gaps = GAPS.lead + GAPS.tail + Math.max(0, tags.length - chapters) * GAPS.turn + Math.max(0, chapters - 1) * GAPS.chapter;
   const seconds = (count / WORDS_PER_MINUTE) * 60 + gaps;
   return { turns: tags.length, chapters, words: count, gaps: round(gaps), seconds: round(seconds), minutes: round(seconds / 60), target: spec.minutes ?? TARGET_MINUTES };
 }
@@ -52,7 +54,7 @@ export function buildTimeline(spec, turns) {
   const turn = (tag, measured) => {
     if (!measured) throw new Error(`no recording for turn ${tag.key} (${tag.voice})`);
     events.push({ kind: "turn", start: round(clock), dur: round(measured.dur), key: tag.key, speaker: tag.speaker, chapter: tag.chapter });
-    for (const cue of cuesOf(measured.words, clock)) cues.push({ ...cue, chapter: tag.chapter });
+    for (const cue of cuesOf(measured.words, clock, measured.dur)) cues.push({ ...cue, chapter: tag.chapter });
     clock += measured.dur;
   };
 
@@ -90,7 +92,7 @@ export function buildTimeline(spec, turns) {
 }
 
 /** Groups a turn's word boundaries into cues of at most 7 s and 12 words. */
-function cuesOf(boundaries, offset) {
+function cuesOf(boundaries, offset, dur) {
   const list = (boundaries || []).map((b) => ({ t: Number(b.t), d: Number(b.d), w: String(b.w) }));
   if (!list.length) return [];
   const cues = [];
@@ -102,7 +104,10 @@ function cuesOf(boundaries, offset) {
     const elapsed = (next ? next.t : list[i].t + list[i].d) - list[start].t;
     if (!next || count >= 12 || elapsed >= 7) {
       const text = list.slice(start, i + 1).map((b) => b.w).join(" ").replace(/\s+([,.;:!?])/g, "$1");
-      cues.push({ start: round(offset + list[start].t), end: round(offset + list[i].t + list[i].d), text });
+      // A boundary can claim more time than the take holds (a trailing pause is
+      // often reported as speech). The recording decides: a cue never runs past it.
+      const end = Math.min(offset + list[i].t + list[i].d, offset + dur);
+      cues.push({ start: round(offset + list[start].t), end: round(Math.max(end, offset + list[start].t)), text });
       start = i + 1;
       count = 0;
     }

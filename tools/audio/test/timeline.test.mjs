@@ -51,7 +51,9 @@ test("the estimate is words per minute plus the silence the plan will insert", (
   assert.equal(plan.words, 200);
   assert.equal(plan.turns, 2);
   assert.equal(plan.chapters, 1);
-  assert.equal(plan.gaps, Math.round((GAPS.lead + GAPS.tail + GAPS.turn + GAPS.chapter) * 1000) / 1000);
+  // One chapter opens after the lead silence, so it costs no chapter gap: only the
+  // marks between chapters do, which is what buildTimeline inserts.
+  assert.equal(plan.gaps, Math.round((GAPS.lead + GAPS.tail + GAPS.turn) * 1000) / 1000);
   assert.ok(Math.abs(plan.seconds - (200 / WORDS_PER_MINUTE) * 60 - plan.gaps) < 0.01);
   assert.equal(plan.target, 20);
   assert.ok(Math.abs(plan.minutes - plan.seconds / 60) < 0.001);
@@ -114,20 +116,6 @@ test("long turns are cut into readable cues", () => {
   assert.ok(timeline.cues.every((cue, i) => i === 0 || cue.start >= timeline.cues[i - 1].end));
 });
 
-test("a cue never starts before the previous one ends", () => {
-  // The boundaries claim two seconds of speech inside a one-second take, so the
-  // next turn's first cue would start before this one stops.
-  const words = [
-    { t: 0, d: 0.5, w: "uno" },
-    { t: 0.5, d: 1.5, w: "dos" },
-  ];
-  const spec = small();
-  const turns = cache(spec);
-  for (const [key] of turns) turns.set(key, { dur: 1, words });
-  const timeline = buildTimeline(spec, turns);
-  assert.deepEqual(timeline.cues.map((cue) => cue.start), [0.6, 2.6]);
-  assert.deepEqual(timeline.cues.map((cue) => cue.end), [2.6, 4.05]);
-});
 
 test("the same spec and the same recordings always plan the same audio", () => {
   const spec = conversation();

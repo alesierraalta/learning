@@ -78,6 +78,9 @@ export function validate(spec) {
   }
   let total = 0;
   const used = new Set();
+  // The speaker rule is about the audio, not the structure: a chapter mark is a
+  // pause, so the voice that closes one chapter may not open the next.
+  let previous = null;
   spec.chapters.forEach((chapter, ci) => {
     const where = `chapter ${ci}`;
     if (!chapter || !chapter.title) {
@@ -88,7 +91,6 @@ export function validate(spec) {
       problems.push(`${where} has no segments`);
       return;
     }
-    let previous = null;
     const chapterSpeakers = new Set();
     chapter.segments.forEach((segment, si) => {
       const at = `${where} "${chapter.title}" segment ${si}`;
