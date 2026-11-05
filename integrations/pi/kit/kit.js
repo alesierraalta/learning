@@ -727,4 +727,42 @@
     this.append(figure);
     fitSceneText(stage, { minPx: 11, flagOverflow: true });
   });
+
+  // A figure drawn from its meaning by the visual engine (tools/visuals). The
+  // note carries the scene; the drawing only names tones, so it follows the
+  // paper it lands on: light, dark, or whatever the reader's system prefers.
+  define('lk-figure', function () {
+    const V = window.LKVisuals;
+    if (!V) throw new Error('Falta visuals/draw.js: no se puede dibujar la figura');
+    let scene;
+    try { scene = JSON.parse(this.querySelector('script[type="application/json"]').textContent); }
+    catch (error) { throw new Error(`La figura tiene un JSON inválido: ${error.message}`); }
+    // One token block for every figure on the page: the drawing itself names
+    // tones and never carries a colour of its own.
+    if (!document.getElementById('lk-visuals-theme')) {
+      const tokens = el('style'); tokens.id = 'lk-visuals-theme'; tokens.textContent = V.themeCss();
+      document.head.append(tokens);
+    }
+    const stage = el('div', undefined, { class: 'lk-figure-stage' });
+    let markup;
+    try { markup = V.renderScene(scene, { mode: 'vars', style: false }); }
+    catch (error) { throw new Error(`La figura no se pudo dibujar: ${error.message}`); }
+    // The engine draws only what it can read; a scene that would paint a blank
+    // box is not a figure, and it says so instead of showing an empty drawing.
+    if (!V.sceneDraws(scene)) throw new Error('La figura no dibuja nada: la escena está vacía');
+    // Parsed as an SVG document, never assigned as HTML: the markup is ours and
+    // already escaped, but a figure has no business executing anything.
+    const parsed = new DOMParser().parseFromString(markup, 'image/svg+xml');
+    if (parsed.querySelector('parsererror')) throw new Error('La figura no se pudo dibujar: SVG inválido');
+    stage.append(document.importNode(parsed.documentElement, true));
+    const svg = stage.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('role', 'img');
+      svg.setAttribute('aria-label', scene.aria || scene.title || 'Figura');
+    }
+    const figure = el('figure');
+    figure.append(stage);
+    this.classList.add('lk-figure');
+    this.append(figure);
+  });
 })();

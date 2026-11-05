@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"learning/internal/rules"
@@ -695,12 +698,12 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 		count := countVisuals(text, th.VisualBlocks, th.VisualElements)
 		if count == 0 {
 			return failCheck(decl.ID, fmt.Sprintf(
-				"part %s planned a visual but %s has none (an embed (![...]), a nonempty visual block (%s) or an inline visual element (%s))",
+				"part %s planned a visual but %s has none (an embed (![...]), a nonempty visual block (%s), an inline visual element (%s) or an <lk-figure> scene)",
 				c.part, rel, strings.Join(th.VisualBlocks, ", "), strings.Join(th.VisualElements, ", ")))
 		}
 		if th.MinVisuals > 0 && count < th.MinVisuals {
 			return failCheck(decl.ID, fmt.Sprintf(
-				"part %s planned a visual but %s has only %d visual(s), below the minimum of %d (an embed (![...]), a nonempty visual block (%s) or an inline visual element (%s))",
+				"part %s planned a visual but %s has only %d visual(s), below the minimum of %d (an embed (![...]), a nonempty visual block (%s), an inline visual element (%s) or an <lk-figure> scene)",
 				c.part, rel, count, th.MinVisuals, strings.Join(th.VisualBlocks, ", "), strings.Join(th.VisualElements, ", ")))
 		}
 		if th.HowToReadLine != "" {
@@ -775,6 +778,397 @@ func hasInlineElement(text string, elements []string) bool {
 	return false
 }
 
+// figureElement is the reader component that draws a note's JSON scene. It is
+// a visual in its own right: the note names meaning, the engine draws it.
+const figureElement = "lk-figure"
+
+// figureDraws reports whether an <lk-figure> block carries a JSON scene with
+// something to draw. A figure is the scene (S5), so an empty, wrongly typed or
+// unparsable payload is not a visual. The scene keys are lists of what is drawn
+// (`bars` is one object that holds a `bars` list), the same shapes the renderer
+// iterates, so the counter and the drawing accept the same scenes.
+func figureDraws(block string) bool {
+	lower := asciiLower(block)
+	start := strings.Index(lower, "<script")
+	if start < 0 {
+		return false
+	}
+	open := strings.IndexByte(lower[start:], '>')
+	if open < 0 || !strings.Contains(lower[start:start+open+1], "application/json") {
+		return false
+	}
+	from := start + open + 1
+	end := strings.Index(lower[from:], "</script")
+	if end < 0 {
+		return false
+	}
+	var scene map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(block[from:from+end]), &scene); err != nil {
+		return false
+	}
+	return sceneDraws(scene)
+}
+
+var figureCellKinds = map[string]bool{"free": true, "policy": true, "value": true, "exit": true, "wall": true, "hazard": true, "robot": true, "start": true}
+var figureDirections = map[string]bool{"up": true, "down": true, "left": true, "right": true}
+var figureTones = map[string]bool{"ink": true, "slate": true, "line": true, "soft": true, "blue": true, "green": true, "amber": true, "red": true, "muted": true, "paper": true}
+var figureAnchors = map[string]bool{"start": true, "middle": true, "end": true}
+var figureItemNumbers = map[string][]string{
+	"sheets": {"rx", "strokeWidth", "size", "subSize", "labelOffset", "alpha"},
+	"boxes":  {"rx", "strokeWidth", "size", "subSize", "labelOffset", "alpha"},
+	"panels": {"lineH", "size", "titleSize"},
+	"dashed": {"rx", "width", "size"},
+	"arrows": {"width"},
+	"paths":  {"width"},
+	"labels": {"size", "weight"},
+}
+var figureItemTones = map[string][]string{
+	"sheets": {"tone", "fill", "text"},
+	"boxes":  {"tone", "fill", "text"},
+	"panels": {"tone"},
+	"dashed": {"tone"},
+	"arrows": {"tone"},
+	"paths":  {"tone", "fill"},
+	"labels": {"tone"},
+}
+
+func figureTone(item map[string]json.RawMessage, field string) bool {
+	raw, ok := item[field]
+	if !ok {
+		return true
+	}
+	var tone string
+	if err := json.Unmarshal(raw, &tone); err != nil {
+		return false
+	}
+	return figureTones[tone]
+}
+
+func figureOptionalNumber(item map[string]json.RawMessage, field string) bool {
+	if _, ok := item[field]; !ok {
+		return true
+	}
+	_, ok := figureNumber(item[field])
+	return ok
+}
+
+// figureItemExtras validates the semantic fields the renderer reads directly:
+// a tone it may name, an anchor it may place, a size it may print and an alpha
+// it may mix. Free-form text is not validated here; the renderer escapes it.
+func figureItemExtras(key string, item map[string]json.RawMessage) bool {
+	for _, field := range figureItemNumbers[key] {
+		if !figureOptionalNumber(item, field) {
+			return false
+		}
+	}
+	for _, field := range figureItemTones[key] {
+		if !figureTone(item, field) {
+			return false
+		}
+	}
+	if key == "panels" {
+		if raw, ok := item["lines"]; ok {
+			var lines []json.RawMessage
+			if json.Unmarshal(raw, &lines) != nil {
+				return false
+			}
+		}
+	}
+	if key == "labels" {
+		if raw, ok := item["anchor"]; ok {
+			var anchor string
+			if json.Unmarshal(raw, &anchor) != nil || !figureAnchors[anchor] {
+				return false
+			}
+		}
+	}
+	if raw, ok := item["alpha"]; ok {
+		value, ok := figureNumber(raw)
+		if !ok || value < 0 || value > 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func figureNumber(raw json.RawMessage) (float64, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	var value float64
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func figureFields(item map[string]json.RawMessage, fields ...string) bool {
+	for _, field := range fields {
+		if _, ok := figureNumber(item[field]); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func figureObjects(raw json.RawMessage) ([]map[string]json.RawMessage, bool) {
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, false
+	}
+	return items, true
+}
+
+// figureGrid reports whether a grid entry is valid and whether it paints a
+// cell. An entry the renderer refuses makes the whole scene undrawable.
+func figureGrid(item map[string]json.RawMessage) (draws, valid bool) {
+	for _, field := range []string{"cols", "rows", "w", "h"} {
+		value, ok := figureNumber(item[field])
+		if !ok || value <= 0 {
+			return false, false
+		}
+	}
+	raw, found := item["cells"]
+	if !found {
+		return false, true
+	}
+	var cells []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &cells); err != nil {
+		return false, false
+	}
+	for _, cell := range cells {
+		if !figureFields(cell, "c", "r") {
+			return false, false
+		}
+		if !figureTone(cell, "tone") || !figureOptionalNumber(cell, "size") {
+			return false, false
+		}
+		kind := "free"
+		if rawKind, found := cell["kind"]; found {
+			if err := json.Unmarshal(rawKind, &kind); err != nil {
+				return false, false
+			}
+		}
+		if !figureCellKinds[kind] {
+			return false, false
+		}
+		if kind == "policy" {
+			var dir string
+			rawDir, found := cell["dir"]
+			if !found || json.Unmarshal(rawDir, &dir) != nil || !figureDirections[dir] {
+				return false, false
+			}
+		}
+		if kind == "value" || cell["value"] != nil {
+			// A value cell draws its own text when it has one; the number is only
+			// needed when there is no text to print (cell.text ?? signed(value)).
+			if rawText, hasText := cell["text"]; !hasText || string(rawText) == "null" {
+				if _, ok := figureNumber(cell["value"]); !ok {
+					return false, false
+				}
+			}
+		}
+	}
+	return len(cells) > 0, true
+}
+
+func figureBars(raw json.RawMessage) (draws, valid bool) {
+	var bars map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &bars); err != nil {
+		return false, false
+	}
+	if base, found := bars["baseline"]; found {
+		if _, ok := figureNumber(base); !ok {
+			return false, false
+		}
+	}
+	listRaw, found := bars["bars"]
+	if !found {
+		return false, true
+	}
+	var list []map[string]json.RawMessage
+	if err := json.Unmarshal(listRaw, &list); err != nil {
+		return false, false
+	}
+	for _, bar := range list {
+		if !figureFields(bar, "x", "h") {
+			return false, false
+		}
+		if w, found := bar["w"]; found {
+			if _, ok := figureNumber(w); !ok {
+				return false, false
+			}
+		}
+		if !figureTone(bar, "tone") {
+			return false, false
+		}
+		if height, _ := figureNumber(bar["h"]); height != 0 {
+			draws = true
+		}
+	}
+	return draws, true
+}
+
+// sceneDraws mirrors the renderer: every entry must be one it can read, and at
+// least one entry must paint something. A grid without cells and a bars object
+// without bars are valid JSON that draws a blank box, not a visual.
+func sceneDraws(scene map[string]json.RawMessage) bool {
+	if raw, ok := scene["viewBox"]; ok {
+		var viewBox string
+		if json.Unmarshal(raw, &viewBox) != nil {
+			return false
+		}
+		fields := strings.Fields(viewBox)
+		if len(fields) != 4 {
+			return false
+		}
+		for index, field := range fields {
+			value, err := strconv.ParseFloat(field, 64)
+			if err != nil || math.IsInf(value, 0) || math.IsNaN(value) {
+				return false
+			}
+			if index >= 2 && value <= 0 {
+				return false
+			}
+		}
+	}
+	draws := false
+	if raw, found := scene["grids"]; found {
+		items, ok := figureObjects(raw)
+		if !ok {
+			return false
+		}
+		for _, item := range items {
+			d, valid := figureGrid(item)
+			if !valid {
+				return false
+			}
+			draws = draws || d
+		}
+	}
+	for _, key := range []string{"sheets", "panels", "dashed", "boxes"} {
+		raw, found := scene[key]
+		if !found {
+			continue
+		}
+		items, ok := figureObjects(raw)
+		if !ok {
+			return false
+		}
+		for _, item := range items {
+			if !figureItemExtras(key, item) || !figureFields(item, "x", "y", "w", "h") {
+				return false
+			}
+			draws = true
+		}
+	}
+	if raw, found := scene["arrows"]; found {
+		items, ok := figureObjects(raw)
+		if !ok {
+			return false
+		}
+		for _, item := range items {
+			if !figureItemExtras("arrows", item) || !figureFields(item, "x1", "y1", "x2", "y2") {
+				return false
+			}
+			draws = true
+		}
+	}
+	if raw, found := scene["paths"]; found {
+		items, ok := figureObjects(raw)
+		if !ok {
+			return false
+		}
+		for _, item := range items {
+			if !figureItemExtras("paths", item) {
+				return false
+			}
+			var d string
+			rawD, foundD := item["d"]
+			if !foundD || json.Unmarshal(rawD, &d) != nil || strings.TrimSpace(d) == "" {
+				return false
+			}
+			draws = true
+		}
+	}
+	if raw, found := scene["labels"]; found {
+		items, ok := figureObjects(raw)
+		if !ok {
+			return false
+		}
+		for _, item := range items {
+			if !figureItemExtras("labels", item) || !figureFields(item, "x", "y") {
+				return false
+			}
+			var text string
+			rawText, foundText := item["text"]
+			if !foundText || json.Unmarshal(rawText, &text) != nil || text == "" {
+				return false
+			}
+			draws = true
+		}
+	}
+	if raw, found := scene["bars"]; found {
+		d, valid := figureBars(raw)
+		if !valid {
+			return false
+		}
+		draws = draws || d
+	}
+	return draws
+}
+
+// asciiLower lowercases ASCII letters only. Unicode case folding can change a
+// string's byte length (İ becomes i̇), and these offsets are used to slice the
+// original text, so the fold must keep every byte in place.
+func asciiLower(text string) string {
+	b := []byte(text)
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
+}
+
+// figuresOnLine counts closed <lk-figure> blocks on one line of prose, so a
+// one-line figure is judged by its scene instead of by a child element.
+func figuresOnLine(line string) int {
+	lower := asciiLower(line)
+	n, from := 0, 0
+	for from < len(lower) {
+		start := strings.Index(lower[from:], "<"+figureElement)
+		if start < 0 {
+			break
+		}
+		start += from
+		end := strings.Index(lower[start:], "</"+figureElement+">")
+		if end < 0 {
+			break
+		}
+		end += start
+		if figureDraws(line[start:end]) {
+			n++
+		}
+		from = end + len("</"+figureElement+">")
+	}
+	return n
+}
+
+// openingElement names the multiline element that starts on this line, if any.
+func openingElement(line string, elements []string) string {
+	lower := asciiLower(line)
+	for _, el := range elements {
+		if strings.Contains(lower, "<"+el) && !strings.Contains(lower, "</"+el+">") {
+			return el
+		}
+	}
+	if strings.Contains(lower, "<"+figureElement) && !strings.Contains(lower, "</"+figureElement+">") {
+		return figureElement
+	}
+	return ""
+}
+
 // countVisuals returns how many visuals the text contains: embeds, nonempty
 // fenced blocks in a declared visual format and declared inline elements.
 func countVisuals(text string, blocks, elements []string) int {
@@ -795,6 +1189,14 @@ func countVisuals(text string, blocks, elements []string) int {
 func countVisualsAndGuides(text string, blocks, elements []string, marker string) (total, missing int) {
 	inFence, fenceVisual, fenceBody := false, false, 0
 	openEl := ""
+	openBody := strings.Builder{}
+	// A figure is counted by its scene, never as a generic child-bearing element.
+	elements = slices.DeleteFunc(slices.Clone(elements), func(el string) bool { return strings.EqualFold(el, figureElement) })
+	open := func(el, line string) {
+		openEl = el
+		openBody.WriteString(line)
+		openBody.WriteByte('\n')
+	}
 	pending := false
 	judge := func(line string) {
 		if !pending {
@@ -836,10 +1238,29 @@ func countVisualsAndGuides(text string, blocks, elements []string, marker string
 		}
 		judge(trimmed) // the first non-blank line after a visual
 		if openEl != "" {
-			if strings.Contains(trimmed, "</"+openEl+">") {
-				openEl = ""
-				total++
-				pending = true
+			openBody.WriteString(line)
+			openBody.WriteByte('\n')
+			if at := strings.Index(asciiLower(trimmed), "</"+openEl+">"); at >= 0 {
+				closed, body := openEl, openBody.String()
+				openEl, openBody = "", strings.Builder{}
+				counted := 1
+				// A declared element counts when it has a child; a figure is its
+				// scene, so an empty or unparsable payload is not a visual.
+				if closed == figureElement && !figureDraws(body) {
+					counted = 0
+				}
+				// Another visual can share the closing line: both draw, so both count.
+				rest := trimmed[at+len("</"+closed+">"):]
+				counted += figuresOnLine(rest) + countInlineElements(rest, elements)
+				if counted > 0 {
+					total += counted
+					pending = true
+					missing += counted - 1
+				}
+				// The rest of the line may open the next multiline element.
+				if opened := openingElement(rest, elements); opened != "" {
+					open(opened, rest)
+				}
 			}
 			continue
 		}
@@ -849,18 +1270,21 @@ func countVisualsAndGuides(text string, blocks, elements []string, marker string
 			missing += n - 1
 			continue
 		}
-		if n := countInlineElements(trimmed, elements); n > 0 {
-			total += n
+		// A compact figure and a declared inline element can share a line: both
+		// draw, so both count.
+		closed := figuresOnLine(trimmed) + countInlineElements(trimmed, elements)
+		if closed > 0 {
+			total += closed
 			pending = true
-			missing += n - 1
+			missing += closed - 1
+		}
+		// A multiline element can start on the same line as a closed visual.
+		if opened := openingElement(trimmed, elements); opened != "" {
+			open(opened, line)
 			continue
 		}
-		for _, el := range elements {
-			lower := strings.ToLower(trimmed)
-			if strings.Contains(lower, "<"+el) && !strings.Contains(lower, "</"+el+">") {
-				openEl = el
-				break
-			}
+		if closed > 0 {
+			continue
 		}
 	}
 	if pending { // the note ended right after a visual: the guide is missing
