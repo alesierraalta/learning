@@ -10,7 +10,7 @@
  * Every route requires the per-run token; the Host header must be loopback and
  * a POST must come from this origin with a JSON body.
  */
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -40,7 +40,8 @@ import { buildPanorama } from "./panorama.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { AGENTES, PENSAMIENTOS, piArgs, readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
-import { createPiRuntime, transcriptOf } from "./runtime.ts";
+import { AGY_EFORT, createAgyRuntime } from "./agy.ts";
+import { createPiRuntime, transcriptOf, type RuntimeEvent, type RuntimeHandle } from "./runtime.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, tutorContext, validateSugerencia } from "./sugerencias.ts";
@@ -73,6 +74,8 @@ export interface StudioOptions {
   root?: string;
   /** Pi command line; the default resumes the studio's own persistent conversation. */
   piCommand?: string[];
+  /** Antigravity command line; the default runs the installed `agy`. */
+  agyCommand?: string[];
   port?: number;
   publicOrigin?: string;
   bridgePublicOrigin?: string;
@@ -239,11 +242,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   // reloaded tab still gets the question it has to answer.
   const openDialogs = new Map<string, Json>();
 
-  const command = [...tutorCommand()];
-  const runtime = createPiRuntime({
-    command,
-    cwd: root,
-    onEvent: (event) => {
+  const shutdownHandlers: (() => Promise<void> | void)[] = [];
+
+  /** The agent the settings name, reporting into what a learner sees. */
+  const createRuntime = (): RuntimeHandle => {
+    const onEvent = (event: RuntimeEvent) => {
       switch (event.type) {
         case "state":
           emit("state", { busy: event.busy, alive: event.alive });
@@ -296,15 +299,22 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           emit("error", { message: event.message });
           return;
       }
-    },
-  });
+    };
+    return tutor.agente === "agy"
+      ? createAgyRuntime({ command: options.agyCommand ?? ["agy"], cwd: root, config: tutor, onEvent })
+      : createPiRuntime({ command: [...tutorCommand()], cwd: root, onEvent });
+  };
+
+  let runtime: RuntimeHandle = createRuntime();
 
   /**
-   * The agent restarts with the settings the file already holds. The command is
-   * the studio's, so it is refreshed in place before the next start.
+   * The agent restarts with the settings the file already holds. A different agent
+   * is a different process, so the runtime itself is rebuilt.
    */
   const restart = () => {
-    command.splice(0, command.length, ...tutorCommand());
+    const previous = runtime;
+    runtime = createRuntime();
+    void previous.stop();
     runtime.start();
   };
 
@@ -312,7 +322,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const tools = new Map<string, { execute: (...args: unknown[]) => Promise<Json> }>();
   const fakePi = {
     on(event: string, handler: () => Promise<void> | void) {
-      if (event === "session_shutdown") runtime.onShutdown(handler);
+      if (event === "session_shutdown") shutdownHandlers.push(handler);
       return () => {};
     },
     registerTool(tool: { name: string; execute: (...args: unknown[]) => Promise<Json> }) {
@@ -518,7 +528,15 @@ ${scripts}
 
   // ---- Tutor settings ------------------------------------------------------
   /** An agent without a runtime yet is listed, but never offered as a choice. */
-  const agentes = () => AGENTES.map((agent) => ({ ...agent, disponible: agent.id === "pi" }));
+  /** Whether Antigravity is installed here, asked once so the selector tells the truth. */
+  let agyReady: boolean | undefined;
+  const agyAvailable = () => {
+    if (agyReady !== undefined) return agyReady;
+    const [installed] = options.agyCommand ?? ["agy"];
+    agyReady = spawnSync(installed, ["--version"], { stdio: "ignore", timeout: 5000 }).status === 0;
+    return agyReady;
+  };
+  const agentes = () => AGENTES.map((agent) => ({ ...agent, disponible: agent.id === "pi" || agyAvailable() }));
 
   /** What the running agent offers right now; a stopped agent offers nothing. */
   const catalogo = () => runtime.models();
@@ -764,7 +782,14 @@ ${scripts}
       case "api/preferences":
         return sendJson(res, 200, readPreferences(root));
       case "api/tutor":
-        return sendJson(res, 200, { config: tutor, agentes: agentes(), pensamientos: PENSAMIENTOS, modelos: await catalogo(), activo: await activo() });
+        return sendJson(res, 200, {
+          config: tutor,
+          agentes: agentes(),
+          // What this agent can do, not what Pi can: an effort it lacks is not offered.
+          pensamientos: tutor.agente === "agy" ? AGY_EFORT : PENSAMIENTOS,
+          modelos: await catalogo(),
+          activo: await activo(),
+        });
       case "api/preferences/candidatos": {
         const preferences = readPreferences(root);
         const taken = new Set([...preferences.aspectos.map((a) => a.id), ...(preferences.rechazados ?? [])]);
@@ -891,6 +916,7 @@ ${scripts}
       for (const res of clients) res.end();
       clients.clear();
       await runtime.stop();
+      for (const handler of shutdownHandlers) await handler();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

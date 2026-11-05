@@ -51,15 +51,53 @@ Pi's levels, both empty when the runtime's own default should stand. A missing
 file starts from the defaults without creating one, and a damaged file falls
 back to those defaults instead of stopping the studio: the tutor always starts.
 
-`GET api/tutor` returns `{config, agentes, pensamientos, modelos}`. `agentes`
-lists every runtime with `disponible`, so an agent whose adapter does not exist
-yet is visible but not selectable; `modelos` is what the running tutor reports
-and stays empty while it is not running. `POST api/tutor` validates the exact
-keys, atomically replaces the file, and then makes the running session follow
-it: the model and the thinking level switch in place (`set_model`,
-`set_thinking_level`), so the chat survives, and a different agent is started
-again with the same session id. The model is also a command-line flag, so the
-next start boots on it without switching.
+`GET api/tutor` returns `{config, agentes, pensamientos, modelos, activo}`.
+`agentes` lists every runtime with `disponible`, which is whether the agent's
+binary answers on this machine, probed once: a studio on a machine without
+`agy` shows Antigravity and does not offer it. `modelos` is what the running
+tutor reports and stays empty while it is not running, and `activo` is what the
+agent says it is doing (its model and thinking level), or `null` when it reports
+nothing. `POST api/tutor` validates the exact keys, atomically replaces the file,
+and then makes the running session follow it: with Pi the model and the thinking
+level switch in place (`set_model`, `set_thinking_level`), so the chat survives,
+and a different agent is started again with the same session id. The model is
+also a command-line flag, so the next start boots on it without switching.
+
+### Antigravity as tutor
+
+`agente: "agy"` runs the installed `agy` in print mode, one process per turn:
+`agy -p <prompt> --output-format stream-json --mode accept-edits [--model] [--effort]`.
+Its stream is read as the double it is for a chat: `step_update` with a
+`text_delta` is the tutor typing, a `tool` step is the tutor working, and
+`result` closes the turn with the full text. `--mode accept-edits` is what lets
+it write the explanation it was asked for. The conversation is the agent's, not
+the studio's: the first turn opens one and every later turn names it with
+`--conversation`, so the studio restarts without losing the thread.
+
+What that costs, stated rather than hidden:
+
+- `activo` is `null`, because `agy` has no state command and the settings are
+  not a report. The page says the settings are what the next turn uses.
+- `modelos` comes from `agy models`; `--effort` only carries the levels agy
+  knows (`low`, `medium`, `high`, `xhigh`, `max`), and anything else is left
+  unwritten so agy's own default stands.
+- `pensamiento` and `modelo` changes apply to the next turn, not the running
+  one: there is no live session to switch.
+- It asks no dialogs in print mode, so the studio's question UI is Pi's alone.
+- One prompt at a time: a second message while agy is answering is refused
+  with 409 instead of queued.
+- The engine stays the authority: agy reaches it through `run_command` on
+  `bin/learning`, and `learning mcp` is there for anyone who registers the
+  server with `agy mcp add`.
+
+### Why not OpenCode
+
+`opencode` 1.19.5 (and `opencode2`) are installed, and a third adapter is
+possible: `studio/runtime.ts` is the seam and `studio/agy.ts` is the proof that
+a second protocol fits behind it. It is not implemented because a third runtime
+costs a third protocol to maintain, and the free flash models it would bring are
+weaker than the two agents already offered at the long pedagogical HTML this
+studio writes. The decision is about the model quality, not the plumbing.
 
 ## Wide reading mode
 

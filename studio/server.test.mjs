@@ -42,6 +42,7 @@ test('transcriber settings must be paired', async () => {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
+const FAKE_AGY = join(HERE, "testdata", "fake-agy.mjs");
 const open = [];
 after(async () => {
   for (const studio of open) await studio.close();
@@ -49,11 +50,17 @@ after(async () => {
 
 async function setup(options = {}) {
   const { root, engine, log } = makeRoot();
+  const { tutor, ...rest } = options;
+  // A vault may already carry the learner's choice: the studio reads it at start.
+  if (tutor) writeFileSync(join(root, "tutor.json"), JSON.stringify(tutor));
   process.env.FAKE_PI_LOG = log;
-  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, ...options });
+  process.env.FAKE_AGY_LOG = `${log}.agy`;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], agyCommand: [process.execPath, FAKE_AGY], enginePath: engine, ...rest });
   open.push(studio);
-  const received = () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
-  return { studio, root, received };
+  const lines = (file) => (existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
+  const received = () => lines(log);
+  const receivedAgy = () => lines(`${log}.agy`);
+  return { studio, root, received, receivedAgy };
 }
 
 function http(url, { method = "GET", headers = {}, body } = {}) {
@@ -111,7 +118,7 @@ test("tutor API seeds the defaults, saves the choice, and applies it to the runn
   // Reading is not a decision: the file appears with the first save.
   assert.equal(existsSync(file), false);
   // An agent without a runtime is listed, but it cannot be chosen.
-  assert.deepEqual(data.agentes.map((a) => [a.id, a.disponible]), [["pi", true], ["agy", false]]);
+  assert.deepEqual(data.agentes.map((a) => [a.id, a.disponible]), [["pi", true], ["agy", true]]);
   assert.deepEqual(data.modelos.map((m) => [m.id, m.nombre]), [["opencode-go/deepseek-v4.1-flash", "DeepSeek Flash"]]);
   // The page reports what the agent runs, not what the file wishes.
   assert.deepEqual(data.activo, { modelo: "", pensamiento: "medium" });
@@ -1100,4 +1107,55 @@ test("a regeneration that is refused never moves the part", async () => {
   assert.equal(existsSync(page), true, "a refused regeneration took the part out of the library");
   assert.equal(existsSync(join(root, ".papelera")), false, "a refused regeneration left a backup behind");
   assert.equal(received().some((line) => line.type === "prompt"), false, "the tutor was asked to rewrite a part that failed");
+});
+
+test("Antigravity tutors the same studio: its turn streams and the next one resumes the conversation", async () => {
+  const { studio, receivedAgy } = await setup({ tutor: { version: 1, agente: "agy", modelo: "gemini-3.8-flash-high", pensamiento: "high" } });
+  const stream = sse(`${studio.url}events`);
+  await stream.next("state");
+  assert.equal((await post(studio, "prompt", { text: "Explica las capas." })).status, 200);
+  assert.deepEqual(await stream.next("user"), { text: "Explica las capas." });
+  const firstDelta = await stream.next("assistant_delta");
+  assert.equal(firstDelta.delta, "Hola", "agy's deltas reach the chat");
+  assert.match(firstDelta.id, /^a\d+$/, "under the studio's own assistant id");
+  const toolStart = await stream.next("tool", (t) => t.phase === "start");
+  assert.equal(toolStart.name, "run_command");
+  assert.equal((await stream.next("tool", (t) => t.phase === "end")).ok, true);
+  assert.deepEqual(await stream.next("assistant_end"), { id: firstDelta.id, text: "Hola desde agy." });
+  const first = receivedAgy()[0];
+  assert.equal(first.prompt, "Explica las capas.");
+  assert.deepEqual(first.args.slice(0, 6), ["-p", "Explica las capas.", "--output-format", "stream-json", "--mode", "accept-edits"]);
+  assert.equal(first.args[first.args.indexOf("--model") + 1], "gemini-3.8-flash-high");
+  assert.equal(first.args[first.args.indexOf("--effort") + 1], "high");
+  assert.equal(first.args.includes("--conversation"), false, "the first turn opens the conversation");
+  await post(studio, "prompt", { text: "¿Y el modelo TCP?" });
+  await stream.next("assistant_end");
+  const second = receivedAgy()[1];
+  assert.equal(second.args[second.args.indexOf("--conversation") + 1], "conv-fake-1", "the next turn resumes the conversation agy reported");
+  const late = sse(`${studio.url}events`);
+  const history = await late.next("history");
+  late.close();
+  assert.deepEqual(history.messages.map((m) => m.role), ["user", "assistant", "user", "assistant"], "the studio keeps what the learner heard");
+  assert.equal(history.messages[1].text, "Hola desde agy.");
+});
+
+test("a turn Antigravity reports as failed reaches the chat as an error", async () => {
+  const { studio } = await setup({ tutor: { version: 1, agente: "agy", modelo: "", pensamiento: "" } });
+  const stream = sse(`${studio.url}events`);
+  await stream.next("state");
+  assert.equal((await post(studio, "prompt", { text: "esto falla" })).status, 200);
+  const error = await stream.next("error");
+  assert.match(error.message, /ERROR/);
+  await stream.next("state", (s) => !s.busy);
+});
+
+test("stopping an Antigravity turn ends it without inventing an error", async () => {
+  const { studio } = await setup({ tutor: { version: 1, agente: "agy", modelo: "", pensamiento: "" } });
+  const stream = sse(`${studio.url}events`);
+  await stream.next("state");
+  assert.equal((await post(studio, "prompt", { text: "esto tarda" })).status, 200);
+  await stream.next("state", (s) => s.busy);
+  assert.equal((await post(studio, "abort", {})).status, 200);
+  await stream.next("state", (s) => !s.busy);
+  assert.equal(stream.events.some((e) => e.name === "error"), false, "a stop the learner asked for is not the agent failing");
 });

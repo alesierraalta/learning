@@ -81,10 +81,29 @@ The adapter may only treat the first group as passing.
 | `review` | `state.semantic[]` receipt | records one verdict | frontier stage only, objective checks must pass first |
 | `status` | none | never records | freshness + conditional recheck, next stage, completion |
 | `method` | `state.method` (and `state.scope` for pareto) | none | strict-flow runs only, once, right after the diagnosis; refused choices write nothing |
+| `mcp` | whatever the tool it serves writes | whatever the tool it serves records | JSON-RPC over stdio; no other command line |
 
 `--mode conceptual` reports `skipped` (exit 0) before anything else: no rules
 are read, no state exists, no review is requested or recorded. The conceptual
 teaching flow is untouched.
+
+### `learning mcp`
+
+An agent that cannot run a command as easily as it can call a tool reaches the
+same engine over MCP: `learning mcp` speaks newline-delimited JSON-RPC 2.0 on
+stdin and stdout, so any MCP client can add it as a stdio server. It offers five
+tools — `learning_status`, `learning_validate`, `learning_advance`,
+`learning_review`, `learning_init` — and each one runs the command of the same
+name with the arguments the call declares: `root`, `workspace`, `rules`, `mode`,
+`stage`, `scope`, `rule`, `verdict`, `reason`, `reviewer`.
+
+The tool answer is the command's own report, never a translation of it:
+`isError` is exactly `exit != 0`, and `structuredContent` carries the JSON the
+command printed. A tool declares only flags its command accepts — the test
+sends every declared flag back through the engine and fails on any
+`is only accepted by` refusal. `LEARNING_ROOT` and `LEARNING_WORKSPACE` stand in
+for the paths when a call omits them, and nothing else is inferred from the
+environment.
 
 ## Teaching scope (pareto)
 

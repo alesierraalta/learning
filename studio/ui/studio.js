@@ -512,15 +512,19 @@
       ...models.map((m) => option(m.id, `${m.nombre} · ${m.proveedor}`, m.id === config.modelo)));
     const effort = h("select", { name: "pensamiento", onchange: () => { config.pensamiento = effort.value; } },
       option("", "El que elija el tutor", config.pensamiento === ""),
+      ...(config.pensamiento && !(data.pensamientos ?? []).includes(config.pensamiento) ? [option(config.pensamiento, `${config.pensamiento} (no disponible)`, true)] : []),
       ...(data.pensamientos ?? []).map((level) => option(level, level, level === config.pensamiento)));
     const field = (label, hint, control) => h("label", { class: "tutor-field" }, h("span", {}, label), h("small", { class: "muted" }, hint), control);
     const save = h("button", { class: "btn primary", type: "submit" }, "Guardar el tutor");
     // What the agent says it runs now, so a saved file is never confused with an applied one.
-    const now = data.activo
-      ? h("p", { class: "muted" }, data.activo.modelo
-        ? `Ahora responde con ${data.activo.modelo}${data.activo.pensamiento ? ` · esfuerzo ${data.activo.pensamiento}` : ""}.`
-        : "El tutor está activo, sin un modelo fijado.")
-      : h("p", { class: "muted" }, "El tutor no está activo: la lista de modelos aparece cuando arranca.");
+    // Antigravity reports nothing about itself, and saying otherwise would be invented.
+    const now = data.config?.agente === "agy"
+      ? h("p", { class: "muted" }, "Antigravity no informa su estado: cada respuesta usa el modelo y el esfuerzo de tu configuración.")
+      : data.activo
+        ? h("p", { class: "muted" }, data.activo.modelo
+          ? `Ahora responde con ${data.activo.modelo}${data.activo.pensamiento ? ` · esfuerzo ${data.activo.pensamiento}` : ""}.`
+          : "El tutor está activo, sin un modelo fijado.")
+        : h("p", { class: "muted" }, "El tutor no está activo: la lista de modelos aparece cuando arranca.");
     const form = h("form", { class: "preferences-form", onsubmit: async (event) => {
       event.preventDefault();
       save.disabled = true;

@@ -58,7 +58,6 @@ export interface RuntimeHandle {
   apply(config: { modelo: string; pensamiento: string }): Promise<void>;
   /** A dialog answer, already built by the studio; the runtime writes it and closes the dialog. */
   respond(id: string, payload: Json): void;
-  onShutdown(handler: () => Promise<void> | void): void;
 }
 
 /** The text parts of an agent message, joined. */
@@ -106,7 +105,6 @@ export function createPiRuntime(options: {
   // A tool's end event may arrive without its arguments; the row keeps the ones its start carried.
   const toolArgs = new Map<string, unknown>();
   const dialogs = new Map<string, Json>();
-  const shutdownHandlers: Array<() => Promise<void> | void> = [];
 
   const handle = (record: Json) => {
     const type = record.type;
@@ -322,15 +320,10 @@ export function createPiRuntime(options: {
     emit({ type: "dialog_closed", id });
   };
 
-  const onShutdown = (handler: () => Promise<void> | void) => {
-    shutdownHandlers.push(handler);
-  };
-
   const stop = async () => {
     const proc = child;
     child = undefined;
     proc?.kill();
-    for (const handler of shutdownHandlers) await handler();
   };
 
   return {
@@ -346,6 +339,5 @@ export function createPiRuntime(options: {
     current,
     apply,
     respond,
-    onShutdown,
   };
 }
