@@ -1111,6 +1111,33 @@ test("the part video control swaps the player in once the file exists", { skip: 
   assert.match(await player.getAttribute("src"), /file\/explicaciones\/adjuntos\/Parte%201%20-%20Claves\.mp4$/);
 });
 
+// The same promise for audio: the row that does not exist yet becomes a player
+// with its download once the tutor's file lands.
+test("the part audio row swaps the player in once the file exists", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view } = await setup();
+  const dir = join(topic, "explicaciones", "adjuntos", "audio");
+  rmSync(dir, { recursive: true, force: true });
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(url);
+  const rows = page.locator(".audio-row");
+  await rows.first().waitFor();
+  assert.equal(await rows.count(), 4, "one row per style");
+  await rows.first().locator("button").click();
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "Parte 1 - Claves - debate.m4a"), Buffer.from("0123456789"));
+  const player = rows.first().locator("audio");
+  await player.waitFor({ state: "attached", timeout: 33000 });
+  const src = await player.getAttribute("src");
+  assert.match(src, /file\/explicaciones\/adjuntos\/audio\/Parte%201%20-%20Claves%20-%20debate\.m4a$/);
+  const download = rows.first().locator("a.audio-download");
+  assert.equal(await download.getAttribute("href"), src);
+  assert.equal(await download.getAttribute("download"), "Parte 1 - Claves - debate.m4a");
+  assert.equal(await rows.first().locator("button").count(), 0, "the request becomes the player");
+});
+
 test("a video request reaches the chat as a fixed message", async () => {
   const { view, host, shutdown } = await setup();
   const url = base(await view({}));
