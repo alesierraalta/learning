@@ -1174,6 +1174,20 @@ test("restarting the studio mid-turn does not report Antigravity failing", async
   assert.equal(stream.events.some((e) => e.name === "error"), false, "a restart the learner asked for is not the tutor failing");
 });
 
+test("a restart keeps the Antigravity conversation the learner already read", async () => {
+  const { studio } = await setup({ tutor: { version: 1, agente: "agy", modelo: "", pensamiento: "" } });
+  const stream = sse(`${studio.url}events`);
+  await stream.next("state");
+  assert.equal((await post(studio, "prompt", { text: "Explica las capas." })).status, 200);
+  await stream.next("assistant_end");
+  assert.equal((await post(studio, "restart", {})).status, 200);
+  await stream.next("state", (s) => s.alive);
+  const late = sse(`${studio.url}events`);
+  const history = await late.next("history");
+  late.close();
+  assert.deepEqual(history.messages.map((m) => m.role), ["user", "assistant"], "a restart starts the agent again, it does not erase what the learner heard");
+});
+
 test("clearing the model goes back to the agent default instead of keeping the old one", async () => {
   const { studio, received } = await setup({ tutor: { version: 1, agente: "pi", modelo: "opencode-go/deepseek-v4.1-flash", pensamiento: "high" } });
   assert.equal((await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "high" })).status, 200);

@@ -76,6 +76,8 @@ export function createAgyRuntime(options: {
   command?: string[];
   cwd: string;
   config: { modelo: string; pensamiento: string };
+  /** What the learner already read, carried across a restart of the studio. */
+  transcript?: TranscriptEntry[];
   onEvent: (event: RuntimeEvent) => void;
 }): RuntimeHandle {
   const emit = options.onEvent;
@@ -85,7 +87,7 @@ export function createAgyRuntime(options: {
   let conversation: string | null = null;
   let busy = false;
   let stopped = false;
-  const turns: TranscriptEntry[] = [];
+  const turns: TranscriptEntry[] = [...(options.transcript ?? [])];
   let current: Turn | undefined;
 
   /** One turn in flight: what agy said, what it wrote, and whether it ended. */

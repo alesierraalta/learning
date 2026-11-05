@@ -182,3 +182,25 @@ func TestCLIConceptualAndOutsideRoot(t *testing.T) {
 		t.Fatalf("outside root: status=%q exit=%d, want error/2", rep.Status, code)
 	}
 }
+
+// The synopsis documents `--workspace TOPIC`, so the topic a learner names inside
+// the root has to work. Today the relative name is resolved against the working
+// directory, compared as if it were absolute, and refused as escaping the root.
+func TestCLIRelativeWorkspaceInsideRoot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs the real binary")
+	}
+	f := newFixture(t)
+	c := cliRunner{t: t, bin: buildCLI(t), f: f}
+	topic := filepath.Base(f.ws)
+
+	rep, code := c.run("init", "--root", f.root, "--workspace", topic, "--rules", repoRulesPath, "--json")
+	if code != 0 || rep.Status == "error" {
+		t.Fatalf("init with a topic name inside the root: status=%q exit=%d detail=%q, want accepted/0", rep.Status, code, rep.Detail)
+	}
+
+	rep, code = c.run("status", "--root", f.root, "--workspace", topic, "--rules", repoRulesPath, "--mode", "deep", "--json")
+	if code != 0 || rep.Status == "error" {
+		t.Fatalf("status with a topic name inside the root: status=%q exit=%d, want a report/0", rep.Status, code)
+	}
+}

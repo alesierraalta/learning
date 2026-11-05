@@ -72,7 +72,8 @@ Its stream is read as the double it is for a chat: `step_update` with a
 `result` closes the turn with the full text. `--mode accept-edits` is what lets
 it write the explanation it was asked for. The conversation is the agent's, not
 the studio's: the first turn opens one and every later turn names it with
-`--conversation`, so the studio restarts without losing the thread.
+`--conversation`, and the studio hands the transcript it already showed to the
+runtime it builds on restart, so a restart does not lose the thread.
 
 What that costs, stated rather than hidden:
 

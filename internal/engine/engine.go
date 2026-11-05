@@ -141,11 +141,29 @@ func Run(opts Options) (Report, int) {
 		}, ExitOK
 	}
 
-	rootReal, err := filepath.EvalSymlinks(opts.Root)
+	// A relative --workspace names a topic inside the root, as the CLI synopsis
+	// documents. Both paths are absolutized before EvalSymlinks, which otherwise
+	// keeps a relative path relative and makes the containment check refuse it.
+	rootAbs, err := filepath.Abs(opts.Root)
 	if err != nil {
 		return errorReport("root unavailable: " + opts.Root), ExitOperational
 	}
-	wsReal, err := filepath.EvalSymlinks(opts.Workspace)
+	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return errorReport("root unavailable: " + opts.Root), ExitOperational
+	}
+	// The synopsis calls it --workspace TOPIC: a relative name is a topic inside
+	// the root, so it is resolved there and not against whatever directory the
+	// caller happens to stand in.
+	wsPath := opts.Workspace
+	if !filepath.IsAbs(wsPath) {
+		wsPath = filepath.Join(rootAbs, wsPath)
+	}
+	wsAbs, err := filepath.Abs(wsPath)
+	if err != nil {
+		return errorReport("workspace unavailable: " + opts.Workspace), ExitOperational
+	}
+	wsReal, err := filepath.EvalSymlinks(wsAbs)
 	if err != nil {
 		return errorReport("workspace unavailable: " + opts.Workspace), ExitOperational
 	}

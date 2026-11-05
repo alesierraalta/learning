@@ -41,7 +41,7 @@ import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { AGENTES, PENSAMIENTOS, piArgs, readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
 import { AGY_EFORT, createAgyRuntime } from "./agy.ts";
-import { createPiRuntime, transcriptOf, type RuntimeEvent, type RuntimeHandle } from "./runtime.ts";
+import { createPiRuntime, transcriptOf, type RuntimeEvent, type RuntimeHandle, type TranscriptEntry } from "./runtime.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, tutorContext, validateSugerencia } from "./sugerencias.ts";
@@ -245,7 +245,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const shutdownHandlers: (() => Promise<void> | void)[] = [];
 
   /** The agent the settings name, reporting into what a learner sees. */
-  const createRuntime = (): RuntimeHandle => {
+  const createRuntime = (transcript?: TranscriptEntry[]): RuntimeHandle => {
     const onEvent = (event: RuntimeEvent) => {
       switch (event.type) {
         case "state":
@@ -301,7 +301,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       }
     };
     return tutor.agente === "agy"
-      ? createAgyRuntime({ command: options.agyCommand ?? ["agy"], cwd: root, config: tutor, onEvent })
+      ? createAgyRuntime({ command: options.agyCommand ?? ["agy"], cwd: root, config: tutor, transcript, onEvent })
       : createPiRuntime({ command: [...tutorCommand()], cwd: root, onEvent });
   };
 
@@ -311,9 +311,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * The agent restarts with the settings the file already holds. A different agent
    * is a different process, so the runtime itself is rebuilt.
    */
-  const restart = () => {
+  const restart = async () => {
     const previous = runtime;
-    runtime = createRuntime();
+    // Antigravity keeps its conversation in the runtime, so the new one has to
+    // inherit what the learner already read; Pi reloads it from its session.
+    const carried = await previous.transcript();
+    runtime = createRuntime(carried);
     void previous.stop();
     runtime.start();
   };
@@ -573,16 +576,16 @@ ${scripts}
         // agent is touched, so a refused live change still leaves a valid choice.
         tutor = saveTutor(root, body);
         if (tutor.agente !== previous.agente) {
-          restart();
+          await restart();
         } else if (!runtime.alive) {
           // Nothing is running to switch: the file is what the next start reads.
         } else if (!tutor.modelo && previous.modelo) {
           // An agent cannot unset its model: the default comes from the command
           // line, so going back to it means starting the agent again.
-          restart();
+          await restart();
         } else {
           try { await applyTutor(tutor, previous); }
-          catch { restart(); }
+          catch { await restart(); }
         }
         // A restarted agent has nothing to report yet: the page re-reads it.
         return sendJson(res, 200, { config: tutor, agentes: agentes() });
@@ -712,7 +715,7 @@ ${scripts}
         break;
       }
       case "restart":
-        restart();
+        await restart();
         break;
       default:
         throw new HttpError(404, "not found");

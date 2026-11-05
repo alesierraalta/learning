@@ -33,7 +33,9 @@ learning help
 
 - `--root` and `--workspace` are canonical paths. Both are resolved with
   `realpath` (`EvalSymlinks`) and the workspace must stay inside the root;
-  traversal and symlink escapes are rejected before any file is touched.
+  traversal and symlink escapes are rejected before any file is touched. A
+  relative `--workspace` names a topic inside `--root` and is resolved there,
+  so the same command means the same topic from any directory.
 - With `--json`, stdout is exactly one JSON report object, never mixed with logs.
   Errors are JSON too when `--json` is present.
 - Exit codes: `0` accepted/completed/waiting/skipped, `1` failed mandatory
