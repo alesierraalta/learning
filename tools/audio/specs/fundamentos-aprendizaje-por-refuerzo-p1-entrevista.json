@@ -1,0 +1,318 @@
+{
+  "part": "p1",
+  "title": "Agente y entorno",
+  "topic": "fundamentos-aprendizaje-por-refuerzo",
+  "style": "entrevista",
+  "minutes": 20,
+  "chapters": [
+    {
+      "title": "1. Por qué existe",
+      "segments": [
+        {
+          "speaker": "A",
+          "text": "¿Por qué hace falta el aprendizaje por refuerzo si ya existen las reglas?"
+        },
+        {
+          "speaker": "B",
+          "text": "Porque una regla escrita resuelve el problema de otro, no el tuyo. Piensa en un termostato: enciende la calefacción si la habitación está fría, y funciona, pero no aprende. Alguien escribió antes la regla, si frío, encender, y el aparato solo la obedece. Ahí no hay descubrimiento: hay una instrucción que llega de fuera y se cumple. El aprendizaje empieza justo cuando esa instrucción no existe y el sistema tiene que averiguar por su cuenta qué hacer."
+        },
+        {
+          "speaker": "A",
+          "text": "¿Y qué cambia cuando nadie te entrega esa regla por escrito?"
+        },
+        {
+          "speaker": "B",
+          "text": "Cambia el problema entero. Tienes un edificio, una factura de luz y una sensación de frío, y nadie te dice la regla. No hay un manual que diga cuándo encender ni cuánto. Solo puedes actuar y mirar qué pasa: subir el termostato, bajar la persiana, esperar. Cada intento te devuelve una consecuencia, y de esa consecuencia tienes que sacar la próxima decisión. Esa es exactamente la situación del aprendizaje por refuerzo, y no se parece a obedecer una instrucción escrita."
+        },
+        {
+          "speaker": "A",
+          "text": "Entonces, ¿qué es el aprendizaje por refuerzo, en una sola frase?"
+        },
+        {
+          "speaker": "B",
+          "text": "Aprender qué hacer, qué acción tomar en cada situación, para maximizar una señal numérica que llega después de actuar. Fíjate en las dos piezas de la frase, porque las dos importan. La señal llega tarde: no sabes si acertaste hasta que ya actuaste. Y nadie te dice cuál era la acción correcta: solo ves lo que pagó la que elegiste. Con esas dos condiciones, el problema deja de ser obedecer y se convierte en aprender de la experiencia."
+        },
+        {
+          "speaker": "A",
+          "text": "¿Qué le falta al termostato para aprender, en concreto?"
+        },
+        {
+          "speaker": "B",
+          "text": "Le falta una consecuencia que no esté ya escrita en su regla. La regla dice si frío, encender, y con eso está todo decidido: no hay nada que probar ni nada que corregir. Aprender exige que lo que pasa después de una acción cambie lo que harás la próxima vez, y el termostato no tiene esa holgura: cumple, no elige. Por eso sirve tan bien como ejemplo de lo que el aprendizaje por refuerzo no es, y por eso el robot del almacén sí sirve."
+        }
+      ]
+    },
+    {
+      "title": "2. La frontera: quién es el agente y quién es el entorno",
+      "segments": [
+        {
+          "speaker": "A",
+          "text": "Todo el formalismo empieza con una decisión. ¿Dónde se traza la línea?"
+        },
+        {
+          "speaker": "B",
+          "text": "Entre el que aprende y el resto del mundo. Y la regla para trazarla es una sola: todo lo que el agente no puede cambiar a su antojo es entorno. No importa el tamaño, ni la cercanía, ni quién lo construyó; importa el control. Si el robot puede cambiarlo con sus acciones, está de su lado. Si no puede, está fuera, aunque lo toque con la mano. Esa frontera es una decisión de diseño, y todo lo que viene después se apoya en ella."
+        },
+        {
+          "speaker": "A",
+          "text": "Llévalo al almacén. ¿Quién es el agente y qué queda al otro lado?"
+        },
+        {
+          "speaker": "B",
+          "text": "El agente es el robot de reparto. Al otro lado quedan las paredes, la columna, la puerta, el charco y la batería. Y hay una pieza que sorprende a mucha gente: el estado. El estado lo produce el entorno; el agente solo lo observa. Estar en la casilla dos uno no lo decide el robot, lo dice el almacén. La acción sí es suya: subir. Y la recompensa vuelve del otro lado. Cada pieza tiene dueño, y el dueño no siempre es el que actúa."
+        },
+        {
+          "speaker": "A",
+          "text": "¿Y la recompensa? ¿No pertenece al que la recibe?"
+        },
+        {
+          "speaker": "B",
+          "text": "No, y ese es el detalle que la nota subraya. La recompensa es parte del entorno. El robot no decide que la puerta valga más uno: lo decide quien diseñó el almacén, y el robot solo cobra lo que le pagan. Si el agente pudiera fijar su propia recompensa, el problema desaparecería en el acto, porque se daría un premio enorme y no aprendería nada. Por eso el premio tiene que estar fuera: si puedes cambiarlo, ya no te enseña nada."
+        },
+        {
+          "speaker": "A",
+          "text": "La batería parece del robot. ¿Por qué la pones del lado del entorno?"
+        },
+        {
+          "speaker": "B",
+          "text": "Porque el robot no puede cambiarla a su antojo. La batería baja cuando el almacén cobra el paso, y el robot sufre ese cobro; no decide cuánto cuesta ni cuándo se repone. Está en la lista del entorno por la misma regla que la puerta: importa el control, no la cercanía. Y fíjate en lo que eso implica: el coste de cada paso es una regla del mundo, no una preferencia del que camina. Por eso se puede estudiar como parte del problema."
+        }
+      ]
+    },
+    {
+      "title": "3. Los cinco nombres, en una frase cada uno",
+      "segments": [
+        {
+          "speaker": "A",
+          "text": "Demos los cinco nombres. ¿Quién es el agente y quién el entorno?"
+        },
+        {
+          "speaker": "B",
+          "text": "El agente es el que aprende y decide: recibe el estado y la recompensa, y elige la acción. El entorno es todo lo que está al otro lado de la frontera: recibe la acción y entrega el estado siguiente junto con la recompensa. Nada más. Son dos papeles, y todo el vocabulario sale de repartirlos. Si te pierdes más adelante, vuelve a esta pareja: uno decide, el otro responde, y ninguno hace el trabajo del otro."
+        },
+        {
+          "speaker": "A",
+          "text": "Estado y acción. ¿Qué es cada uno en el almacén?"
+        },
+        {
+          "speaker": "B",
+          "text": "El estado, ese con subíndice te, es la información que describe la situación en el instante te. En el almacén es la casilla donde está el robot. La acción, ese con subíndice te también, es lo que el agente puede hacer en ese instante. Aquí son cuatro: arriba, abajo, izquierda y derecha. Fíjate en la asimetría: el estado no lo elige, la acción sí. Con esos dos nombres ya puedes describir cualquier momento del episodio sin decir una sola palabra de más."
+        },
+        {
+          "speaker": "A",
+          "text": "Y la recompensa, ¿cuándo llega y para qué sirve?"
+        },
+        {
+          "speaker": "B",
+          "text": "Llega después de la acción, siempre después, y sirve para definir la meta. Es un número que el entorno entrega, y lo único que el agente quiere es que su suma a lo largo del tiempo sea grande. No que un paso concreto pague mucho: que la suma crezca. Encadenar estado, acción y recompensa tiene nombre propio, trayectoria, y se lee así: ese cero, a cero, r uno, ese uno, a uno, r dos, y así hasta el terminal. Cinco nombres y una forma de encadenarlos: ese es todo el vocabulario de la parte."
+        }
+      ]
+    },
+    {
+      "title": "4. El almacén, dibujado",
+      "segments": [
+        {
+          "speaker": "A",
+          "text": "Dibújame el almacén, porque sospecho que el dibujo ya contiene todo."
+        },
+        {
+          "speaker": "B",
+          "text": "Cuatro columnas por tres filas. El robot sale de la esquina inferior izquierda, la casilla cero dos, y cada casilla se nombra con su par de coordenadas. Arriba a la derecha está la puerta: paga más uno y termina el episodio. Justo debajo, el charco: paga menos uno y también termina. En el centro, la casilla uno uno es una columna que no se puede pisar. Y cada paso normal cuesta menos cero coma cero cuatro de batería."
+        },
+        {
+          "speaker": "A",
+          "text": "¿Qué pasa si se sale del almacén o choca con la columna?"
+        },
+        {
+          "speaker": "B",
+          "text": "Se queda donde estaba. No hay movimiento y tampoco hay desastre: la casilla uno uno simplemente no cede, y el borde tampoco. Eso también es una decisión de quien diseñó el entorno, no del robot. Y es una decisión que se puede cambiar: otro almacén podría castigar el choque. Aquí no lo castiga, solo lo impide. Por eso conviene leer el dibujo como lo que es, un conjunto de reglas fijas que el agente sufre y no negocia."
+        },
+        {
+          "speaker": "A",
+          "text": "Cuenta lo que ya está en ese dibujo, sin añadir nada."
+        },
+        {
+          "speaker": "B",
+          "text": "Nueve casillas transitables, o sea nueve estados. Cuatro acciones, las cuatro direcciones. Tres recompensas distintas: menos cero coma cero cuatro, más uno y menos uno. Y dos terminales donde el episodio acaba. Tres tipos de casilla: las normales que se pisan, las terminales que cierran el episodio y el obstáculo que no se atraviesa. Eso es todo el problema, y por eso el mismo almacén vuelve en la parte tres: no es un ejemplo de usar y tirar."
+        },
+        {
+          "speaker": "A",
+          "text": "¿Y qué hay que mirar en el dibujo para no perderse?"
+        },
+        {
+          "speaker": "B",
+          "text": "Tres cosas, en este orden. Primero, las coordenadas: cada casilla tiene su par, y sin él no puedes decir dónde está nadie. Segundo, los tipos de casilla: las normales que se pisan, las terminales que cierran el episodio y el obstáculo que no se atraviesa. Tercero, los precios: menos cero coma cero cuatro por paso, más uno en la puerta, menos uno en el charco. Con esas tres capas leídas, el dibujo deja de ser un plano y se convierte en el problema entero."
+        }
+      ]
+    },
+    {
+      "title": "5. Un episodio, paso a paso",
+      "segments": [
+        {
+          "speaker": "A",
+          "text": "¿Qué es un episodio, y con qué política empieza la demo?"
+        },
+        {
+          "speaker": "B",
+          "text": "Un episodio es una trayectoria que empieza en un estado inicial y termina en un estado terminal. La política inicial de la demo es sencilla: en la fila de arriba todas las flechas apuntan a la derecha; en el resto, hacia arriba. Fíjate en que la política no es un plan largo: es una flecha por casilla, una instrucción que dice qué hacer si estás aquí. El episodio es lo que pasa cuando esas flechas se ejecutan, una detrás de otra."
+        },
+        {
+          "speaker": "A",
+          "text": "Recorramos los pasos. ¿Qué hace el robot desde la casilla cero dos?"
+        },
+        {
+          "speaker": "B",
+          "text": "En el paso cero está en cero dos, y su política dice arriba. Sube a cero uno y recibe menos cero coma cero cuatro. Otra vez arriba: llega a cero cero y cobra otros menos cero coma cero cuatro. Ahora la política dice derecha, porque está en la fila de arriba. Avanza a uno cero y luego a dos cero, dos pasos y dos recibos. Y en el paso siguiente entra en la puerta, la casilla tres cero, recibe más uno y el episodio termina."
+        },
+        {
+          "speaker": "A",
+          "text": "¿Cuánto suma todo eso, y qué enseña el total?"
+        },
+        {
+          "speaker": "B",
+          "text": "Cuatro pasos de menos cero coma cero cuatro, más el uno de la puerta: total acumulado, cero coma ochenta y cuatro. Y aquí está lo importante del episodio: la recompensa nunca dice qué acción era la correcta. Solo dice cuánto pagó lo que ocurrió. El robot no eligió la puerta, siguió su política, y la política resultó acertada. Aprender, entonces, es corregir flechas mirando facturas, no obedecer instrucciones."
+        },
+        {
+          "speaker": "A",
+          "text": "La política acertó, pero ¿acertó por casualidad o por diseño?"
+        },
+        {
+          "speaker": "B",
+          "text": "Acertó porque estaba escrita así: en la fila de arriba todas las flechas apuntan a la derecha. Nadie la corrigió durante el episodio. Y eso es lo que hay que ver: el episodio cuenta lo que pasó, no lo que debía pasar. La recompensa pagó el resultado, no la intención. Por eso este episodio sirve para leer el bucle, no para decir que el robot ya aprendió. El aprendizaje sería cambiar flechas a partir de esas facturas, y eso viene en las partes siguientes."
+        }
+      ]
+    },
+    {
+      "title": "6. Tres confusiones que cuestan horas",
+      "segments": [
+        {
+          "speaker": "A",
+          "text": "Dijiste que hay tres confusiones que cuestan horas. ¿Cuál es la primera?"
+        },
+        {
+          "speaker": "B",
+          "text": "Estado no es observación. El estado es la situación real del entorno; la observación es lo que el agente alcanza a ver. Si el robot tiene la cámara sucia, puede estar en dos uno y creer que está en uno uno. El estado real existe, la observación llega incompleta. Y cuando la observación no basta para decidir bien, el problema se llama parcialmente observable. No es que el robot esté perdido: es que su creencia es falsa, y actúa sobre ella."
+        },
+        {
+          "speaker": "A",
+          "text": "La segunda es recompensa no es valor. ¿Cómo se distinguen?"
+        },
+        {
+          "speaker": "B",
+          "text": "La recompensa es lo que pagó este paso; el valor es lo que esperas ganar desde aquí en adelante. No se contradicen, miden cosas distintas. En la casilla cero cero la recompensa es menos cero coma cero cuatro, y el valor es más cero coma setenta y tres. Uno es el recibo que acabas de cobrar; el otro, lo que te queda por cobrar si sigues bien. Confundirlos hace que un paso barato parezca malo, cuando puede ser la antesala de la puerta."
+        },
+        {
+          "speaker": "A",
+          "text": "Y la tercera: acción no es decisión en cada instante."
+        },
+        {
+          "speaker": "B",
+          "text": "Exacto. En el almacén se decide cada paso, pero un agente puede decidir cada cierto tiempo, por ejemplo cada minuto. Ese hueco se llama periodo de decisión, y forma parte del diseño del problema, no del algoritmo. Elegir cada cuánto se decide es una decisión de quien modela; el método que aprende viene después, sobre ese diseño ya hecho. Las tres confusiones comparten raíz: mezclar lo que el agente controla con lo que solo presencia."
+        },
+        {
+          "speaker": "A",
+          "text": "Si las tres confusiones comparten raíz, ¿se resuelven igual?"
+        },
+        {
+          "speaker": "B",
+          "text": "Se resuelven con la misma pregunta: quién produce cada pieza. El estado lo produce el entorno y la observación la produce el sensor, así que no son lo mismo. La recompensa la paga el paso y el valor lo calcula la expectativa, así que tampoco. Y el periodo de decisión lo fija quien modela, no el método que aprende. Con el vocabulario claro, cada confusión se resuelve sola: miras el dueño de la pieza y se acaba la discusión."
+        }
+      ]
+    },
+    {
+      "title": "7. En una frase",
+      "segments": [
+        {
+          "speaker": "A",
+          "text": "Resume la parte entera en lo que la nota llama llevarse."
+        },
+        {
+          "speaker": "B",
+          "text": "Cuatro ideas. El bucle es estado, acción, recompensa y estado nuevo, repetido. La frontera entre agente y entorno se traza por control: lo que el agente no puede cambiar, es entorno. La recompensa es del entorno y define la meta; el agente solo la recibe. Y el objetivo no es el paso siguiente, sino la suma de recompensas de la trayectoria, que se escribe ge igual a r uno más r dos más r tres, y así hasta el terminal."
+        },
+        {
+          "speaker": "A",
+          "text": "¿Por qué el objetivo es la suma y no la recompensa del paso siguiente?"
+        },
+        {
+          "speaker": "B",
+          "text": "Porque dos trayectorias pueden empezar igual y acabar una en la puerta y la otra en el charco. Lo que distingue una de otra es lo que se acumula, no lo que se cobra al principio. Un paso barato puede ser la antesala de un desastre, y un paso caro puede ser el camino a la puerta. Por eso una política se juzga por la trayectoria entera y no por su primer movimiento: mirar un solo recibo engaña."
+        },
+        {
+          "speaker": "A",
+          "text": "¿Y cómo se aprende, entonces, a hacer grande esa suma?"
+        },
+        {
+          "speaker": "B",
+          "text": "Eso es la parte tres, y esta parte deja el terreno preparado. Aquí hemos puesto los cinco nombres, la frontera y la suma; allí se ve cómo se calcula y cómo se aprende de ella, sobre este mismo almacén. Si tuvieras que quedarte con una sola frase, quédate con esta: el agente no decide el premio, decide la acción, y aprende mirando la suma, no el paso suelto."
+        }
+      ]
+    },
+    {
+      "title": "Mini-quiz",
+      "segments": [
+        {
+          "speaker": "A",
+          "text": "Primera pregunta: ¿de qué lado de la frontera está el precio de cada casilla?"
+        },
+        {
+          "speaker": "B",
+          "text": "Del entorno. El agente no puede cambiar lo que paga cada casilla; la decisión es de quien diseñó el almacén. Del agente es la acción, de la política es la elección, y del valor es otra cuenta distinta. El precio, en cambio, se decide fuera del robot, y por eso el robot solo puede descubrirlo actuando. El precio es del mundo."
+        },
+        {
+          "speaker": "A",
+          "text": "Segunda: el robot sube de cero dos a cero uno. ¿Cuál es el orden correcto?"
+        },
+        {
+          "speaker": "B",
+          "text": "Primero elige la acción; después el entorno cambia el estado y entrega la recompensa. No al revés: no cobra antes de actuar, no elige después de moverse y no decide qué recompensa quiere. Ese orden es el bucle entero, y si lo inviertes el formalismo deja de tener sentido, porque la recompensa dejaría de ser una consecuencia de la acción."
+        },
+        {
+          "speaker": "A",
+          "text": "Tercera: la cámara sucia confunde la casilla dos uno con la uno uno. ¿Qué falla?"
+        },
+        {
+          "speaker": "B",
+          "text": "La observación. El estado real existe, pero el agente no lo ve completo. No falla la recompensa, ni la política, ni el episodio: falla lo que alcanza a mirar. Y eso se arregla con más información, no con más premio. Cuando la observación no basta para decidir bien, el problema se llama parcialmente observable, y conviene nombrarlo así para no culpar al método de un problema del sensor."
+        },
+        {
+          "speaker": "A",
+          "text": "Y cuarta: en cero cero, ¿qué maximiza el agente, el paso siguiente?"
+        },
+        {
+          "speaker": "B",
+          "text": "La suma de recompensas de toda la trayectoria hasta el terminal. No la del paso siguiente, aunque sea lo único seguro, y no la del último paso sola. La suma, que es lo que ge representa y lo que el agente persigue. Y una última cosa: las respuestas del quiz se escriben en la vista, con el razonamiento y la confianza, no solo la letra. Aquí hemos dado la respuesta y el porqué; el resto lo pones tú, con tus palabras y tu confianza."
+        }
+      ]
+    },
+    {
+      "title": "Ejercicios",
+      "segments": [
+        {
+          "speaker": "A",
+          "text": "¿Cuál es el ejercicio fácil, y qué hay que dibujar exactamente?"
+        },
+        {
+          "speaker": "B",
+          "text": "El bucle agente-entorno de un termostato. Escribe qué es estado, qué es acción y qué es recompensa, y di dónde trazas la frontera. Luego comprueba tu respuesta con la demo de la vista. El termostato es buen ejercicio porque ya lo conoces de la primera sección, pero acuérdate de lo que vimos: si la regla la escribió alguien antes, el aparato obedece, no aprende. El ejercicio es dibujar la frontera y decidir qué cae de cada lado, no volverlo listo."
+        },
+        {
+          "speaker": "A",
+          "text": "¿Y el ejercicio medio? ¿Qué tiene que devolver la función?"
+        },
+        {
+          "speaker": "B",
+          "text": "Un paso del almacén. Recibe el estado y la acción, y devuelve tres cosas: el estado siguiente, la recompensa y si el episodio terminó. Es la misma tuerca de la que venimos hablando, escrita en código. Las reglas están en el código de la nota: si se sale del almacén o choca con la columna uno uno, se queda donde estaba. Puerta, más uno y terminado; charco, menos uno y terminado; paso normal, menos cero coma cero cuatro y sigue."
+        },
+        {
+          "speaker": "A",
+          "text": "Dame el caso concreto: desde la casilla dos cero, un paso a la derecha."
+        },
+        {
+          "speaker": "B",
+          "text": "La casilla tres cero, recompensa más uno y episodio terminado, porque esa casilla es la puerta. La función devuelve el estado nuevo, el uno y verdadero en el tercer valor. Y el ejercicio pide escribir la solución y el resultado en el recuadro de la vista, no solo pensarlos. Con eso cierras la parte: cinco nombres, una frontera, un bucle y una suma que hay que hacer grande."
+        }
+      ]
+    }
+  ]
+}

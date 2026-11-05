@@ -1,0 +1,101 @@
+Objective: every Learnings part can also become audio — a 20-minute podcast in four styles, authored from that part's note, with a generate-and-download control on the page — using our own engine, not a one-off script.
+Branch: feat/tutor-runtime (shared worktree; no branch switch while another session edits studio/) · Delivery: ask-on-risk · Runner: `node --test tools/audio/test/*.test.mjs`, `node --test integrations/pi/*.test.mjs`.
+
+## Specs
+
+- S1 (engine): audio is a versioned engine in this repository (`tools/audio/`), one spec per part and style; a new note needs a spec file and no engine change. ("necesito crear un motor ... que también tenga la posibilidad de ... solamente me genere un audio")
+- S2 (styles): four styles exist — `debate` (dos personas con posturas opuestas), `entrevista` (una pregunta, otra responde), `charla` (dos voces explicando juntas) and `formal` (una sola voz explicando). Every style draws only on the part's own note. ("Ya sea dos personas hablando, debatiendo sobre temas, obviamente de lo que involucra la nota o la explicación. De estilo explicación más formal, que sea alguien explicando el tema")
+- S3 (grounding): the script is authored section by section from `explicaciones/Parte N - <slug>.md`; it adds no claim, number, source or anecdote the note does not support. An example may be extended, never invented.
+- S4 (length): target 20 minutes, accepted window 18–22. The engine estimates duration from word counts before rendering and refuses a spec outside 12–28 minutes, so a five-minute fragment cannot ship as a podcast.
+- S5 (voices): the vault voices `es-ES-AlvaroNeural` and `es-ES-ElviraNeural` at `-4%`, one distinct voice per speaker; `formal` has exactly one speaker. Output 48 kHz.
+- S6 (delivery): `explicaciones/adjuntos/audio/Parte N - <slug> - <style>.m4a` plus the `.srt` transcript: AAC 128k, loudness −16 LUFS, one chapter per note section, and the part title exactly as the note names it.
+- S7 (control): every part node shows an audio control — the versions that exist as player and download, and a generate control per style. The control asks the tutor, then becomes a player when the file exists. ("en cada nota aparezca el botón de generar audio y se pueda descargar")
+- S8 (download): each delivered audio is downloadable as `.m4a`, and its transcript as `.srt`, from the same control.
+- S9 (proof): RL Parte 1 is delivered as a real debate of about twenty minutes, playable on its live page, with ffprobe evidence (duration, AAC 48 kHz, chapters) and a downloaded copy byte-compared with the vault file.
+
+## Tasks
+
+- T1 S1,S5 engine core: spec schema + validation, turn cache keyed by voice+text, pure timeline (gaps, chapters, cues, duration estimate) — inline ✅ 
+b09286
+- T2 S5,S6 synthesis + assemble: `synth.py` (edge-tts per turn, boundaries, stale detection) and `render.mjs` (concat with gaps, loudnorm, m4a chapters, srt, report) — inline ✅ 
+b09286
+- T3 S1,S4 tests and CI: spec, timeline and render CLI suites with ffmpeg fixtures; glob added to the CI suite step — inline ✅ 
+3e0159
+- T4 S6 delivery contract + docs: engine README, naming rule, skill `learnings-audio` — inline ✅ 5b1c0a7
+- T5 S7,S8 bridge: `partAudioInfo`, audio MIME types, payload in both routes, `ensureNodeMedia`, `{kind:"audio"}` prompt — inline ✅ 
+2a8ac1
+- T6 S7,S8 kit and SPA: `lk-audio` component, kit.css, audio block in `view/app.js`, adapter tests — inline ✅ 
+2a8ac1
+- T7 S9 real run: author the four style specs for RL Parte 1 (2 893 / 2 962 / 3 104 / 3 175 words), synthesise and render on the VPS, deliver, verify — delegated (workers mw2sisg2-1-kzpe then mw2uy6bx-3-2sxr) ✅ four specs committed, four deliveries on synchub
+- T8 close: docs (`docs/kit.md`, `docs/integration.md`), full suites, review gate, memory — inline ✅ docs 
+f42db6, verification gate found four defects, fixed in 
+6926e4, 
+232377, 
+76d357; TSP loop closed on `feat/educational-audio-engine`
+
+## Log
+
+- L1 (2026-11-04, user, verbatim): "¿Te acuerdas del motor que integramos para el tema de video? O sea, para generar videos y todo eso. Ahora necesito crear un motor, o llámalo como quieras, llama un framework, como le quieras decir, que también tenga la posibilidad de no generar videos solamente, o sea, no generar video y audio, sino que solamente me genere un audio. Como si fuese un podcast de 20 minutos con distintos estilos. Ya sea dos personas hablando, debatiendo sobre temas, obviamente de lo que involucra la nota o la explicación. De estilo explicación más formal, que sea alguien explicando el tema, etcétera, etcétera, etcétera. Pero necesito, y de paso que en cada nota aparezca el botón de generar audio y se pueda descargar, evidentemente. Entonces, bueno, eso."
+- L2 (decision, 2026-11-04): styles = the four in S2; length = 20-minute target adapted to the note; download = audio + transcript. The user was asked and answered "continua", so these defaults are adopted rather than blocking.
+- L3 (evidence, 2026-11-04): the VPS has exactly three `es-ES` voices (`AlvaroNeural`, `ElviraNeural`, `XimenaNeural`). Two hosts therefore use Alvaro + Elvira; `formal` uses Alvaro alone. No second locale is mixed in: one accent for the whole podcast.
+- L4 (decision): output is `.m4a` (AAC 128k, 48 kHz, −16 LUFS, chapters) plus `.srt`; a single `.mp3` was rejected because chapters and normalised loudness are what make a 20-minute file listenable on a phone. Delivered under `adjuntos/audio/` so video attachments stay legible.
+- L5 (evidence, seams): `integrations/pi/bridge.ts:1055` builds the page config, `:1080` the SPA part payload, `:1297` maps `{kind:"video"}` to a tutor prompt; `integrations/pi/kit/kit.js:147` is `lk-video`; `integrations/pi/view/app.js:526` is the SPA video block; `.github/workflows/ci.yml:90` runs the video suites.
+- L6 (decision): synthesis runs on the VPS with the existing `~/learnings-video/.venv` (edge-tts 7.3.1); assembly needs only ffmpeg, so the renderer runs locally too. No Chromium, no new host.
+- L7 (decision): the engine never invents audio content. The tutor authors the spec from the note (skill `learnings-audio`), the engine synthesises and assembles it, and a spec that names a claim its note lacks is a content defect the audit reports, not a rendering choice.
+- L8 (evidence, 2026-11-04): `node --test tools/audio/test/*.test.mjs tools/video/test/*.test.mjs` → 79 tests, 77 pass, 0 fail, ~5 s; the render e2e assembles 78.75 s of audio with two chapters and a 14-cue transcript.
+- L9 (defect caught by the first suite, 2026-11-04): `buildTimeline` started the clock at `GAPS.lead` without emitting the lead silence, so the m4a began 0.6 s before its own chapter and transcript; the plan now opens with an explicit `silence` event and the tests assert contiguity of every event.
+- L10 (evidence, 2026-11-04): the whole engine suite plus the adapter suites ran green together — 79 tests, 77 pass, 2 skipped (the video browser suites, no Playwright on PATH), 0 fail — and the four new adapter tests pass with the browser module supplied, including `lk-audio` swapping a request for a player.
+- L11 (evidence, 2026-11-04): `base(url)` from `learning_view` is the server root, not the topic root (`http://127.0.0.1:<port>/<token>/`), so a file URL is built from the part page's own directory; the audio file assertion had to do the same and now proves the route serves `audio/mp4`.
+- L12 (slice boundary): the audio feature is four reviewable units on `feat/tutor-runtime` — engine `
+b09286`, suites `
+3e0159`, view and kit `
+2a8ac1`, engine docs `5b1c0a7`, kit and integration docs `
+f42db6`. The branch itself also carries another session's `studio/` work since `origin/main`; the audio review candidate is these commits, not the branch tip.
+- L13 (defect found by the real run, 2026-11-04): `synth.py` called `edge_tts.Communicate(text, voice, rate=rate)` and edge-tts 7.3.1 defaults to `boundary="SentenceBoundary"`, so the first synthesis returned audio and no word timings and aborted with "edge-tts returned no word boundaries". Fixed in 
+028b03: `communicator()` asks for `boundary="WordBoundary"` and falls back on 6.x, which has no such keyword and always streamed words. The scratch copy on the VPS had been patched by hand, which is exactly the drift a committed fix removes.
+- L14 (calibration, 2026-11-04): the 145 wpm estimate over-predicts by ~9% for Alvaro + Elvira at −4%: the first render of 2 893 words estimated 20.57 min and measured 17.9, below the 18-minute floor. Measured speech rate is 158.8 wpm, so `WORDS_PER_MINUTE` is now 158, the fixture grew to clear the 12-minute floor, and the same spec now estimates 18.93 min against a measured 18.87. Evidence: 1 132.8 s total, 1 092.9 s of speech, 39.95 s of gap silence.
+- L15 (delivery, 2026-11-04): `synchub:~/Learnings/fundamentos-aprendizaje-por-refuerzo/explicaciones/adjuntos/audio/Parte 1 - Agente y entorno - debate.m4a` — 18:53, 16 666 524 bytes, aac / 48 000 Hz / mono, 9 chapters equal to the note's 9 `##` headings, 272 srt cues, decode check clean; the `.srt` sits beside it. The name matches `audioFile(plan, "p1", "debate")` exactly (`plan.json` slug is "Agente y entorno"), so the part page derives the same URL the vault holds.
+- L16 (S8 completed, 2026-11-04): the transcript is downloadable from the same control — the payload names each style's `.srt` and whether it exists, and both the kit and the reader link «Transcripción» (
+cc1500). The earlier slice shipped the audio link alone and left S8 half done.
+- L17 (slice boundary, updated): engine `
+b09286`, suites `
+3e0159`, view and kit `
+2a8ac1`, engine docs `5b1c0a7`, kit and integration docs `
+f42db6`, reader browser test `
+faa775`, boundary record `
+76a59c`, synthesis and estimate fix `
+028b03`, transcript link `
+cc1500`, delivered spec (this commit).
+- L18 (TSP pass, 2026-11-04): `tsp check --since origin/main --paths <the audio engine>` answered that no run is on record for the branch, so the discipline ran over the engine contract: 27 probes, three defects pinned red. F23 `tools/audio/lib/timeline.mjs:34` — `estimate()` charged a chapter gap for every chapter (10.1 s in the fixture) while `buildTimeline` writes one only between chapters (8.95 s), so the dry-run budget and the report were 1.15 s high. F24 `tools/audio/lib/spec.mjs:103` — the speaker rule reset at every chapter, so two turns by the same voice on either side of a chapter mark validated to `[]`. F25 `tools/audio/lib/timeline.mjs:105` — a word boundary may claim more seconds than the recording has, and the cue took them: a 4 s take whose last word claimed 8 s moved the next voice's first cue from 5.05 s to 10.6 s. Evidence E40–E42 admitted in `docs/testing/test-plan.md` with pinned digests; the pins are committed red in `
+553705`.
+- L19 (repair, 2026-11-04): one unit fixed all three — `estimate()` now adds `chapters - 1` chapter gaps, `cuesOf()` clamps every cue to its take's measured length, and `validate()` carries the previous speaker across the chapter mark. 26 of 26 engine tests green; the full adapter and engine run is 181 tests, 172 pass, 0 fail, 9 skipped. The old test "a cue never starts before the previous one ends" expected a cue to run 1.6 s past a 1 s take, so it defended the defect and was removed; the estimate formula test now follows the render. The delivered spec broke the repaired rule at five chapter marks, so those chapters were re-assigned by parity (same words, the other voice) before the episode could be rendered again.
+- L20 (re-delivery after the repair, 2026-11-04): the repaired rule rejected the shipped spec at five chapter marks, so those chapters were re-assigned by parity — same words, the other voice — and re-rendered on `synchub` from the turn cache: `36 new, 29 kept, 65 total` takes, `estimate 18.908 min`, measured `18.8 min · 272 cues · 16 584 842 bytes`. The vault file is now 1127.3 s (aac / 48 000 Hz / mono, 9 chapters), the transcript still holds 272 cues and its last one ends at `00:18:45,486` where the old file ended at `00:18:50,846`. The previous audio and transcript are kept at `/tmp/old-audio/` on the VPS for comparison. A re-synthesis with the same voice assignment costs nothing: the cache key is voice, rate and text, so only re-assigned turns were paid for.
+
+- L21 (independent verification, 2026-11-04): `gentle-ai-verify` judged the feature spec by spec and refused to bless it. Met: S1 (turn keys agree on all 65 turns), S3 (the nine chapter titles are the note's nine `##`, the quoted words are in it), S4 (`--dry-run` refuses 6.4 and 33.3 minutes), S9 (the artifact exists and was measured). Not met: S7 and S8 on rich pages, for one reason — `lk-audio` built `base + name` and the payload's base was `explicaciones/adjuntos/audio/`, while files are only served under `file/`; the kit browser test had injected a base with the segment, so it proved a URL the bridge never sends. Partial: S6, because one-pass `loudnorm` normalises loudness but cannot hold its true-peak target — the delivered file measured −1.0 dBFS against a documented −1.5. Also found: the 200-word floor was only reported when nothing else was wrong, `validate` accepted one voice for both speakers, and three doc sentences described behaviour the code does not have.
+- L22 (repairs after the gate, 2026-11-04): `
+6926e4` makes the payload's base name the route (`file/explicaciones/adjuntos/audio/`), teaches the SPA to resolve from it without doubling `file/`, and adds the test the defect deserved: the adapter resolves the URL from the payload alone and demands 200 for the audio and the transcript. `
+232377` puts a limiter below the ceiling to absorb AAC's overshoot, measures the finished file with `ebur128` (a 256 MB buffer, because an 18-minute episode logs a line per frame and the default 1 MB killed the meter), refuses a peak above −1.4 dBFS or a loudness more than 0.7 LUFS off −16, and records both in `report.json`. `
+76d357` refuses two speakers on one voice, reports the word floor independently, drops `synth.py --rate` (a rate the render cannot honour orphans the cache) and corrects the skill's entrevista direction and the README's `stale recordings` meaning. The episode was re-rendered from the same takes on `synchub`: `18.8 min · 272 cues · 16 553 180 bytes`, `level {lufs: -16.6, peak: -2.2}` measured on the delivered file.
+- L23 (slice boundary, final): the review candidate is `
+b09286`, `
+3e0159`, `
+2a8ac1`, `5b1c0a7`, `
+f42db6`, `
+faa775`, `
+76a59c`, `
+028b03`, `
+cc1500`, `
+e9ed76`, `
+553705`, `
+85f8d8`, `
+0efc3b`, `
+e11e72`, `
+6926e4`, `
+232377`, `
+76d357` and this documentation commit — the branch's `studio/`, `tools/video/`, `cmd/learning/` and `internal/engine/` work belongs to another session and is not part of this feature.
+
+- L24 (TSP loop, 2026-11-04): the loop could not be judged in the shared worktree — `tsp findings record` refuses a tree with another session's uncommitted work — so the feature moved to its own worktree `/home/ale/documents/learning-audio` on `feat/educational-audio-engine`, and the round ran over the pinned commit `
+553705` there: `F1/F2/F3 recorded` (the three witnesses), `fix: round 1 of 5 left 3 items unsettled`, then the repair commit replayed as `
+85f8d8` gave `review 2: 3 fixed, 0 open, 0 new, 0 regressed` and `done: converged after 2 rounds: 3 fixed, 0 rejected, 0 wontfix`. The branch now carries the record: `tsp check --since origin/main --paths tools/audio/lib/{spec,timeline}.mjs render.mjs synth.py` answers that the production change came with its tests instead of asking for a run. Probe quality and the architecture probe are reported `not measured` — there is no `.tsp-arch.json` and no JavaScript adapter for the quality probe, which is repository tooling, not this feature.
+
+- L25 (all four styles delivered, 2026-11-04): the three remaining episodes came from the same note with the same nine chapters. Independently measured on the delivered files (not taken from the worker's report): interview 1167.3 s / 269 cues / 17 129 419 B at `{lufs: -16.4, peak: -2.3}`, chat 1212.4 s / 287 cues / 18 029 317 B at `{-16.6, -2.4}`, lecture 1212.8 s / 279 cues / 18 369 543 B at `{-16.3, -2.5}` — all aac 48 kHz mono, nine chapters, clean decode, and inside the render's own gate. The committed specs hash-match the copies that produced the audio, and `--dry-run` reproduces 19.353 / 20.229 / 20.453 minutes. The worker's content work stayed inside the note's boundaries for the parts it quoted; the audit limit named in L7 still applies — grounding is authoring discipline, not a checker.

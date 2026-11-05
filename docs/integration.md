@@ -153,9 +153,9 @@ vault files on every request, so Obsidian stays the source of truth:
 |---|---|
 | `` (index) | topic folders with a `plan.json` (skips `_*`, `.*`, `rapidos`) |
 | `<topic>` | `plan.json`; a part is linked only when its note exists |
-| `<topic>/<part>` | `explicaciones/Parte N - <slug>.md` (or its rich page), the video control, `mini-quiz/<part>.json`, `explicaciones/demos/<part>-*.html` |
+| `<topic>/<part>` | `explicaciones/Parte N - <slug>.md` (or its rich page), the video and audio controls, `mini-quiz/<part>.json`, `explicaciones/demos/<part>-*.html` |
 | `<topic>/quiz` | `quiz.json` + `quiz.answers.json` (diagnosis rounds) |
-| `<topic>/file/<path>` | any file inside the topic folder, with HTTP Range (video seeking) |
+| `<topic>/file/<path>` | any file inside the topic folder, with HTTP Range (video and audio seeking) |
 | `submit` (POST) | learner submission, see below |
 
 Obsidian syntax is translated: frontmatter is dropped, `![[file.mp4]]` becomes a `<video>`
@@ -164,8 +164,11 @@ render in the browser. Answer keys never reach the browser before the quiz is an
 
 ### Submissions reach the chat
 
-A submission is one of three fixed shapes (`mini-quiz`, `diagnosis`, `question`; unknown fields
-are rejected). For a quiz the bridge validates every id and option against the quiz file,
+A submission is one of the fixed shapes the bridge accepts (`video`, `audio`, `mini-quiz`,
+`diagnosis`, `question`; unknown fields are rejected). A video or an audio request names only
+the part (and, for audio, the style: `debate`, `entrevista`, `charla` or `formal`); the bridge
+answers with a message naming the file the tutor must produce, never with the file itself.
+For a quiz the bridge validates every id and option against the quiz file,
 writes the answers file the engine already reads (`mini-quiz/<part>.answers.json`, or merges
 new ids into `quiz.answers.json`) atomically, and never overwrites recorded answers (`409`).
 Answers are what the bridge requires: every answered question must carry a valid option, and

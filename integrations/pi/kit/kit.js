@@ -169,6 +169,61 @@
     };
     this.append(generate, out); await check();
   });
+  // One part, up to four ways to hear it: an episode per style, plus the
+  // transcript the engine also wrote. A style that does not exist yet is a
+  // request button, and the same row becomes the player once the file lands.
+  const AUDIO_LABEL = { debate: 'Debate', entrevista: 'Entrevista', charla: 'Charla', formal: 'Explicación' };
+  define('lk-audio', async function () {
+    const b = config();
+    if (unreachable()) { this.append(el('p', b?.offline ? '🎧 El audio de esta parte necesita conexión.' : offline)); return; }
+    if (!b?.audio?.styles?.length) return;
+    this.append(el('span', 'Escuchar esta parte', { class: 'lk-audio-title' }));
+    for (const entry of b.audio.styles) {
+      const label = AUDIO_LABEL[entry.style] || entry.style;
+      const src = b.audio.base + encodeURIComponent(entry.name);
+      const row = el('div', undefined, { class: 'lk-audio-row' });
+      const head = el('span', label, { class: 'lk-audio-style' });
+      const srt = entry.srt ? b.audio.base + encodeURIComponent(entry.srt) : '';
+      const transcript = async () => {
+        if (!srt || entry.srtExists) {
+          if (srt && entry.srtExists) row.append(el('a', 'Transcripción', { href: srt, download: entry.srt, class: 'lk-audio-srt' }));
+          return;
+        }
+        try {
+          const head = await fetch(srt, { method: 'HEAD' });
+          if (!head.ok || !row.isConnected || row.querySelector('a.lk-audio-srt')) return;
+          row.append(el('a', 'Transcripción', { href: srt, download: entry.srt, class: 'lk-audio-srt' }));
+        } catch { /* A delivery without a transcript is still listenable. */ }
+      };
+      const play = () => {
+        const player = el('audio', undefined, { controls: '', preload: 'metadata', src });
+        const download = el('a', 'Descargar', { href: src, download: entry.name, class: 'lk-audio-download' });
+        row.replaceChildren(head, player, download);
+        void transcript();
+      };
+      if (entry.exists) play();
+      else {
+        const line = status();
+        const check = async () => {
+          if (!this.isConnected) { clearInterval(this.poll); return; }
+          try {
+            const response = await fetch(src, { method: 'HEAD' });
+            if (response.status === 200) { clearInterval(this.poll); play(); }
+          } catch { /* A missing file leaves the request available. */ }
+        };
+        const ask = button(`🎧 Generar ${label.toLowerCase()}`, async () => {
+          ask.disabled = true;
+          try {
+            await post({ kind: 'audio', style: entry.style });
+            line.textContent = 'Pedido al tutor: el audio aparece aquí cuando esté listo';
+            this.poll = setInterval(check, 30000);
+          } catch (e) { line.textContent = e.message; ask.disabled = false; }
+        });
+        row.append(head, ask, line);
+      }
+      this.append(row);
+    }
+  });
   function textField(label, name, required = false) {
     const wrapper = el('label', label, { class: 'lk-field' });
     const input = el('textarea', undefined, { name, rows: '3' }); input.required = required;
