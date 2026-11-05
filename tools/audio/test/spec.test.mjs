@@ -118,3 +118,26 @@ test("each style resolves its own voices, and an explicit map overrides it", () 
   assert.equal(resolveVoices({ style: "formal" }).B, undefined);
   assert.equal(resolveVoices({ style: "charla", voices: { A: "Elvira", B: "Alvaro" } }).A.voice, "es-ES-ElviraNeural");
 });
+
+test("a conversation does not repeat a speaker across a chapter boundary", () => {
+  const words = (n) => Array.from({ length: n }, (_, i) => `palabra${i}`).join(" ");
+  const turns = (first, count) =>
+    Array.from({ length: count }, (_, i) => ({ speaker: i % 2 ? "B" : first, text: words(60) }));
+  // Chapter one closes on A and chapter two opens on A: two turns by the same voice,
+  // which is what the rule forbids, and the chapter mark is only a marker.
+  const spec = {
+    part: "p1",
+    title: "Prueba",
+    topic: "rl",
+    style: "debate",
+    chapters: [
+      { title: "Primero", segments: turns("A", 7) },
+      { title: "Segundo", segments: turns("A", 7) },
+    ],
+  };
+  const problems = validate(spec);
+  assert.ok(
+    problems.some((problem) => /repeats speaker/.test(problem)),
+    `expected a repeated-speaker problem, got ${JSON.stringify(problems)}`,
+  );
+});

@@ -163,3 +163,35 @@ test("the transcript uses srt timecodes", () => {
   assert.equal(toSrt([]), "");
   assert.match(toSrt([{ start: 1, end: 2, text: "hola" }]), /^1\n00:00:01,000 --> 00:00:02,000\nhola\n$/);
 });
+
+test("the estimate counts the same silence the render inserts", () => {
+  // The dry run is the budget the author trusts before recording a word, and the
+  // report compares it with the measured minutes. Both must count the gaps the
+  // renderer actually writes, so the plan is the single source for both numbers.
+  const spec = conversation();
+  const timeline = buildTimeline(spec, cache(spec));
+  const silence = timeline.events
+    .filter((event) => event.kind === "silence")
+    .reduce((total, event) => total + event.dur, 0);
+  assert.equal(estimate(spec).gaps, Math.round(silence * 1000) / 1000);
+});
+
+test("a boundary that overruns its recording cannot desync the rest", () => {
+  const spec = small();
+  const turns = cache(spec);
+  const first = [...turns.values()][0];
+  // edge-tts reports the last word's offset and duration, and a trailing pause can
+  // make that duration longer than the take. A cue may not claim that time.
+  first.words[first.words.length - 1] = { t: 1.5, d: 8, w: "seis" };
+  const timeline = buildTimeline(spec, turns);
+  const audio = timeline.events.filter((event) => event.kind === "turn");
+  assert.ok(
+    timeline.cues[0].end <= audio[0].start + audio[0].dur + 1e-6,
+    `the first cue ends at ${timeline.cues[0].end}; its take ends at ${audio[0].start + audio[0].dur}`,
+  );
+  assert.equal(
+    timeline.cues.at(-1).start,
+    audio.at(-1).start,
+    "the next speaker's first cue starts with their take, not eight seconds late",
+  );
+});
