@@ -3,7 +3,12 @@
 // visual that never answered it.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import { LEXICON, promisesOf, drawnBy, audit, formatViolation } from "../lib/promises.mjs";
+import { extractDecks } from "../lib/note.mjs";
+
+const notePath = () => new URL("../.cache/parte3/note.md", import.meta.url).pathname;
+const hasCachedNote = () => existsSync(notePath());
 
 const specOf = (beats) => ({ part: "Parte T", title: "Prueba", topic: "x", sections: [{ kicker: "k", heading: "h", beats }] });
 const beatOf = (title, narration, visual) => ({ title, narration, visual });
@@ -140,4 +145,28 @@ test("a scene key the gate cannot read is surfaced, never silently passed", () =
   const violations = audit(spec, []);
   assert.equal(violations.length, 1);
   assert.match(violations[0].missing, /cannot read.*"heatmap"/);
+});
+
+test("a scene that declares its own viewBox is drawn, not unreadable", () => {
+  // The stage reads scene.viewBox on every frame, so it is a drawing key like
+  // any other. It used to be reported as a key the gate could not read, which
+  // made a perfectly answered claim look unanswered.
+  const beats = [beatOf("campo", "Una flecha por casilla en la rejilla.", {
+    scene: {
+      viewBox: "0 0 360 290",
+      boxes: [
+        ...Array.from({ length: 9 }, (_, i) => ({ x: 16 + (i % 4) * 88, y: 40 + Math.floor(i / 4) * 94, w: 56, h: 50, label: "↑" })),
+        { x: 280, y: 228, w: 56, h: 50, label: "×" },
+        { x: 280, y: 40, w: 56, h: 50, label: "+1" },
+        { x: 192, y: 134, w: 56, h: 50, label: "−1" },
+      ],
+    },
+  })];
+  assert.deepEqual(audit(specOf(beats)).map(formatViolation), []);
+});
+
+test("the shipped Parte 3 spec answers its own narration", { skip: !hasCachedNote() && "no cached note: the audit reads the part's decks from it" }, () => {
+  const spec = JSON.parse(readFileSync(new URL("../parts/parte3.json", import.meta.url), "utf8"));
+  const decks = extractDecks(readFileSync(notePath(), "utf8"));
+  assert.deepEqual(audit(spec, decks).map(formatViolation), []);
 });

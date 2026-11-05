@@ -19,6 +19,9 @@ export const KNOWN_SCENE_KEYS = new Set([
   "grids", "sheets", "dashed", "panels", "bars", "boxes", "nodes", "gears",
   "packets", "arrows", "curves", "paths", "lines", "badges", "formulas", "labels",
   "policy", "walls", "exits", "hazards",
+  // The drawing's own coordinate box. The stage reads it on every frame, so a
+  // scene that declares one carries no claim the gate cannot see.
+  "viewBox",
 ]);
 
 const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
