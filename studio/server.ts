@@ -574,7 +574,13 @@ ${scripts}
         tutor = saveTutor(root, body);
         if (tutor.agente !== previous.agente) {
           restart();
-        } else if (runtime.alive) {
+        } else if (!runtime.alive) {
+          // Nothing is running to switch: the file is what the next start reads.
+        } else if (!tutor.modelo && previous.modelo) {
+          // An agent cannot unset its model: the default comes from the command
+          // line, so going back to it means starting the agent again.
+          restart();
+        } else {
           try { await applyTutor(tutor, previous); }
           catch { restart(); }
         }

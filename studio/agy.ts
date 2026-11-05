@@ -244,6 +244,8 @@ export function createAgyRuntime(options: {
     },
     async stop() {
       stopped = true;
+      // A turn cut short by a restart is not the agent failing either.
+      if (current) current.aborted = true;
       child?.kill("SIGTERM");
       child = undefined;
     },

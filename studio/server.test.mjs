@@ -1159,3 +1159,25 @@ test("stopping an Antigravity turn ends it without inventing an error", async ()
   await stream.next("state", (s) => !s.busy);
   assert.equal(stream.events.some((e) => e.name === "error"), false, "a stop the learner asked for is not the agent failing");
 });
+
+test("restarting the studio mid-turn does not report Antigravity failing", async () => {
+  const { studio } = await setup({ tutor: { version: 1, agente: "agy", modelo: "", pensamiento: "" } });
+  const stream = sse(`${studio.url}events`);
+  await stream.next("state");
+  assert.equal((await post(studio, "prompt", { text: "esto tarda" })).status, 200);
+  await stream.next("state", (s) => s.busy);
+  assert.equal((await post(studio, "restart", {})).status, 200);
+  await stream.next("state", (s) => s.alive);
+  // The stopped process reports its own death a moment later; that is the event
+  // that used to reach the chat as the tutor failing.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(stream.events.some((e) => e.name === "error"), false, "a restart the learner asked for is not the tutor failing");
+});
+
+test("clearing the model goes back to the agent default instead of keeping the old one", async () => {
+  const { studio, received } = await setup({ tutor: { version: 1, agente: "pi", modelo: "opencode-go/deepseek-v4.1-flash", pensamiento: "high" } });
+  assert.equal((await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "high" })).status, 200);
+  const after = await (await fetch(`${studio.url}api/tutor`)).json();
+  assert.deepEqual(after.activo, { modelo: "", pensamiento: "medium" }, "a fresh agent process answers with its own defaults");
+  assert.equal(received().some((c) => c[0] === "set_model"), false, "an unset model is not applied in place");
+});
