@@ -20,12 +20,19 @@ if ! git -C "$repo" diff --quiet || ! git -C "$repo" diff --cached --quiet; then
   exit 1
 fi
 
-git -C "$repo" pull --ff-only
-# The fast-forward may have replaced this script. Re-exec so the deploy runs
-# the version it just pulled instead of the one loaded at start-up.
+# Pull once, then re-exec so the deploy runs the version it just pulled.
+# The second pass does not pull again: a repeated `git pull` adds nothing and
+# brings its own failure mode, which once aborted a deploy right after the
+# fast-forward had already moved the live tree.
 if [[ "${LEARNING_UPDATE_REEXEC:-0}" != 1 ]]; then
+  git -C "$repo" pull --ff-only
   echo 'Re-executing the updated deploy script' >&2
   exec env LEARNING_UPDATE_REEXEC=1 bash "$repo/deploy/vps/update.sh"
+fi
+git -C "$repo" fetch --quiet origin main
+if [[ "$(git -C "$repo" rev-parse HEAD)" != "$(git -C "$repo" rev-parse origin/main)" ]]; then
+  echo "Refusing to deploy: $repo is not at origin/main" >&2
+  exit 1
 fi
 commit=$(git -C "$repo" rev-parse --short HEAD)
 echo "Deploying $repo at $commit"
