@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { WORDS_PER_MINUTE } from "../lib/spec.mjs";
 import { GAPS, buildTimeline, estimate, timecode, toSrt, turnKey, turnTags } from "../lib/timeline.mjs";
 import { conversation } from "./fixtures.mjs";
 
@@ -51,7 +52,7 @@ test("the estimate is words per minute plus the silence the plan will insert", (
   assert.equal(plan.turns, 2);
   assert.equal(plan.chapters, 1);
   assert.equal(plan.gaps, Math.round((GAPS.lead + GAPS.tail + GAPS.turn + GAPS.chapter) * 1000) / 1000);
-  assert.ok(Math.abs(plan.seconds - (200 / 145) * 60 - plan.gaps) < 0.01);
+  assert.ok(Math.abs(plan.seconds - (200 / WORDS_PER_MINUTE) * 60 - plan.gaps) < 0.01);
   assert.equal(plan.target, 20);
   assert.ok(Math.abs(plan.minutes - plan.seconds / 60) < 0.001);
 });
@@ -137,10 +138,14 @@ test("the same spec and the same recordings always plan the same audio", () => {
   // no overlaps, which is what keeps the chapter marks honest.
   for (let i = 1; i < first.events.length; i += 1) {
     const previous = first.events[i - 1];
-    assert.equal(first.events[i].start, Math.round((previous.start + previous.dur) * 1000) / 1000);
+    // Float accumulation inside the clock is not a hole: tolerance, not equality.
+    assert.ok(
+      Math.abs(first.events[i].start - (previous.start + previous.dur)) < 1e-6,
+      `event ${i} starts at ${first.events[i].start}, previous ends at ${previous.start + previous.dur}`,
+    );
   }
   const last = first.events[first.events.length - 1];
-  assert.equal(first.duration, last.start + last.dur);
+  assert.ok(Math.abs(first.duration - (last.start + last.dur)) < 1e-6);
 });
 
 test("a missing recording stops the plan instead of leaving a hole", () => {

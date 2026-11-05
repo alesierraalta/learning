@@ -14,7 +14,10 @@ export const VOICES = {
 };
 
 export const RATE = "-4%";
-export const WORDS_PER_MINUTE = 145;
+// Measured on delivered audio: 2 893 words of Alvaro + Elvira at -4% rendered
+// 1 132.8 s, of which 1 092.9 s is speech — 159 words a minute, not 145. The
+// estimate is a budget, so it is calibrated once here instead of per spec.
+export const WORDS_PER_MINUTE = 158;
 export const TARGET_MINUTES = 20;
 // Below 12 minutes it is a fragment, not a podcast; above 28 it is a lecture.
 export const MINUTE_WINDOW = [12, 28];

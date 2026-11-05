@@ -37,8 +37,8 @@ test("a dry run prices the part without rendering it", () => {
   const run = render("--spec", specPath, "--out", out, "--dry-run");
   assert.equal(run.status, 0, run.stderr);
   assert.match(run.stdout, /p1 · Agentes que actúan · debate \(A=Alvaro B=Elvira\)/);
-  assert.match(run.stdout, /estimate 12\.\d+ min · 1820 words · 14 turns · 2 chapters/);
-  assert.match(run.stdout, /Qué es un agente · 7 turns · 910 words/);
+  assert.match(run.stdout, /estimate 13\.\d+ min · 2080 words · 16 turns · 2 chapters/);
+  assert.match(run.stdout, /Qué es un agente · 8 turns · 1040 words/);
   assert.equal(existsSync(out), false);
 });
 
@@ -72,7 +72,7 @@ test("a spec outside the delivery window is refused before any work", () => {
 test("missing recordings name the turns and the command that makes them", () => {
   const run = render("--spec", specPath, "--audio", join(dir, "empty"), "--out", join(dir, "empty.m4a"));
   assert.equal(run.status, 1);
-  assert.match(run.stderr, /missing 14 recording\(s\)/);
+  assert.match(run.stderr, /missing 16 recording\(s\)/);
   assert.match(run.stderr, /synthesise them first: python3 tools\/audio\/synth\.py/);
 });
 
@@ -109,12 +109,12 @@ test("renders one m4a with chapters, a transcript and a report", () => {
   assert.ok(Number(chapters[1].start_time) > Number(chapters[0].start_time));
 
   const report = JSON.parse(readFileSync(join(dir, ".parte1-work", "report.json"), "utf8"));
-  assert.equal(report.turns, 14);
-  assert.equal(report.cues, 14);
+  assert.equal(report.turns, 16);
+  assert.equal(report.cues, 16);
   assert.deepEqual(report.voices, { A: "Alvaro", B: "Elvira" });
   assert.ok(Math.abs(report.duration - Number(streams.format.duration)) < 0.5);
   // 14 takes of 5 s plus the planned silence, and the encode keeps the plan.
-  assert.ok(Math.abs(report.duration - 78.75) < 2, `rendered ${report.duration} s`);
+  assert.ok(Math.abs(report.duration - 89.4) < 2, `rendered ${report.duration} s`);
 
   const transcript = readFileSync(srt, "utf8");
   assert.match(transcript, /^1\n00:00:00,600 --> /);

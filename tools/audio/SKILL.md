@@ -30,10 +30,13 @@ Pick the style from what the user asked, and from what the note supports:
 
 ## 2. Budget the words before writing them
 
-Speech runs at 145 words a minute, plus ~30 s of silence across a whole part.
-A 20-minute episode is therefore **about 2 850 words**, and a part with six
-chapters needs about 470 words per chapter. Write the budget down first: a spec
-that undershoots is padded with filler, and a spec that overshoots is cut badly.
+Speech runs at about **158 words a minute** for Alvaro and Elvira at −4% — measured,
+not assumed: the delivered RL Parte 1 debate rendered 2 893 words as 18:53, gaps included.
+A 20-minute episode is therefore **about 3 000 words**, and a part with six chapters
+needs about 500 words each. (Older versions of this skill used 145 and produced a
+17-minute episode: the estimate is a budget, so it is calibrated on real audio.)
+Write the budget down first: a spec that undershoots is padded with filler, and a
+spec that overshoots is cut badly.
 
 ```bash
 node tools/audio/render.mjs --spec <spec> --dry-run
