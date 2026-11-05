@@ -263,6 +263,41 @@ function partVideoInfo(topicDir: string, plan: { parts: PlanPart[] }, partId: st
   return { src: file, exists };
 }
 
+/** The four ways a part can be told, in the order the page offers them. */
+const AUDIO_STYLES = ["debate", "entrevista", "charla", "formal"] as const;
+type AudioStyle = (typeof AUDIO_STYLES)[number];
+
+const isAudioStyle = (value: unknown): value is AudioStyle =>
+  typeof value === "string" && (AUDIO_STYLES as readonly string[]).includes(value);
+
+/** `explicaciones/adjuntos/audio/Parte N - <slug> - <style>.m4a`: one part, one style. */
+const audioFile = (plan: { parts: PlanPart[] }, partId: string, style: string) => {
+  const index = plan.parts.findIndex((p) => p.id === partId);
+  return `explicaciones/adjuntos/audio/Parte ${index + 1} - ${plan.parts[index].slug} - ${style}.m4a`;
+};
+
+/**
+ * The audio a part node owns: one entry per style, so the page can play what
+ * exists, offer the download, and ask for what does not — without either side
+ * inventing a file name the other has to guess.
+ */
+function partAudioInfo(topicDir: string, plan: { parts: PlanPart[] }, partId: string) {
+  return {
+    base: "explicaciones/adjuntos/audio/",
+    styles: AUDIO_STYLES.map((style) => {
+      const file = audioFile(plan, partId, style);
+      let exists = false;
+      try {
+        // A directory with the audio's name is not a file the route can serve.
+        exists = statSync(join(topicDir, file)).isFile();
+      } catch {
+        exists = false;
+      }
+      return { style, name: file.slice(file.lastIndexOf("/") + 1), exists };
+    }),
+  };
+}
+
 /**
  * Every node owes one video control. A rich page keeps its `<lk-video>`; a page
  * that forgot it gets one after <body>, and the kit assets when it never loaded
@@ -272,7 +307,7 @@ function injectHeadLast(html: string, content: string): string {
   return /<\/head\s*>/i.test(html) ? html.replace(/<\/head\s*>/i, () => content + "</head>") : html + content;
 }
 
-function ensureNodeVideo(html: string, token: string): string {
+function ensureNodeMedia(html: string, token: string): string {
   let out = html;
   const kitCss = `<link rel="stylesheet" href="/${token}/kit/kit.css">`;
   const kitJs = `<script src="/${token}/kit/kit.js" defer></script>`;
@@ -288,6 +323,10 @@ function ensureNodeVideo(html: string, token: string): string {
   const visible = out.replace(/<!--[\s\S]*?-->/g, "").replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
   if (!/<lk-video[\s/>]/i.test(visible)) {
     const control = "<lk-video></lk-video>";
+    out = /<body[^>]*>/i.test(out) ? out.replace(/<body[^>]*>/i, (body) => body + control) : control + out;
+  }
+  if (!/<lk-audio[\s/>]/i.test(visible)) {
+    const control = "<lk-audio></lk-audio>";
     out = /<body[^>]*>/i.test(out) ? out.replace(/<body[^>]*>/i, (body) => body + control) : control + out;
   }
   return out;
@@ -612,6 +651,7 @@ const ALLOWED_KEYS: Record<string, Set<string>> = {
   diagnosis: new Set(["kind", "topic", "answers", "reasoning"]),
   question: new Set(["kind", "topic", "part", "text", "demo"]),
   video: new Set(["kind", "topic", "part"]),
+  audio: new Set(["kind", "topic", "part", "style"]),
   code: new Set(["kind", "topic", "exercise", "code", "note"]),
 };
 
@@ -1043,13 +1083,14 @@ ${scripts}
     });
   };
 
-  const config = (topic: string, partId: string, plan: { parts: PlanPart[] }) => {
+  const config = (topic: string, partId: string, plan: { parts: PlanPart[] }, dir: string) => {
     const json = JSON.stringify({
       ...transcribeConfig(), submitUrl: `/${token}/submit`,
       quizUrl: `/${token}/api/quiz?topic=${encodeURIComponent(topic)}&part=${encodeURIComponent(partId)}`,
       topic,
       part: partId,
       video: `file/${partVideo(plan, partId).split("/").map(encodeURIComponent).join("/")}`,
+      audio: partAudioInfo(dir, plan, partId),
     }).replace(/</g, "\\u003c");
     // The theme boots first: the paper is chosen before any of this page paints.
     return `<script src="/${token}/kit/theme.js"></script><script>window.LEARNING_BRIDGE = ${json};</script><script src="/${token}/kit/dictate.js"></script>`;
@@ -1060,7 +1101,7 @@ ${scripts}
     const plan = readPlan(dir);
     const rich = plan && richPage(dir, plan, partId);
     if (plan && rich) {
-      let html = ensureNodeVideo(injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan)), token);
+      let html = ensureNodeMedia(injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan, dir)), token);
       // A hand-built part page carries its own design, so it gets only the
       // reading-mode assets: the book columns and the page-turn script. It runs
       // after the body, because the script looks for the page it paginates.
@@ -1092,6 +1133,7 @@ ${scripts}
       answered: questions ? gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))) : null,
       demos: partDemos(dir, partId),
       video: partVideoInfo(dir, plan, partId),
+      audio: partAudioInfo(dir, plan, partId),
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
     });
   };
@@ -1306,6 +1348,19 @@ ${scripts}
     const partId = payload.part;
     if (partId !== undefined && (typeof partId !== "string" || !plan?.parts.some((p) => p.id === partId))) {
       throw new HttpError(400, "part is not in plan.json");
+    }
+
+    if (kind === "audio") {
+      if (typeof partId !== "string") throw new HttpError(400, "part is required");
+      if (!isAudioStyle(payload.style)) {
+        throw new HttpError(400, `style must be one of ${AUDIO_STYLES.join(", ")}`);
+      }
+      const header = ["Vista HTML", topic, partId, `audio · ${payload.style}`].join(" · ");
+      await deliver(
+        `[${header}]\nLa persona pide el audio de esta parte en estilo ${payload.style}: escríbelo y prodúcelo con el motor de audio (skill learnings-audio), con la spec en tools/audio/specs/${topic}-${partId}-${payload.style}.json y la entrega en ${audioFile(plan!, partId, payload.style)}.`,
+      );
+      sendJson(res, 200, { sent: true });
+      return;
     }
 
     if (kind === "video") {

@@ -523,6 +523,7 @@
       const shortSubject = /\(([^)]+)\)\s*$/.exec(subject)?.[1] || subject;
       title.before(element("p", `Parte ${number} · ${shortSubject}`, "part-kicker"));
     }
+    let mediaAnchor = null;
     if (data.video) {
       const section = element("section", undefined, "video-block");
       section.append(element("h2", "Video de la parte"));
@@ -585,6 +586,63 @@
         section.append(request, line, note);
       }
       if (title) title.after(section);
+      else article.prepend(section);
+      mediaAnchor = section;
+    }
+    // The same part, spoken: one row per style, the player and the download when
+    // the file exists, the request when it does not.
+    if (data.audio?.styles?.length) {
+      const labels = { debate: "Debate", entrevista: "Entrevista", charla: "Charla", formal: "Explicación" };
+      const section = element("section", undefined, "audio-block");
+      section.append(element("h2", "Audio de la parte"));
+      const src = (entry) => data.topicBase + "file/" + (data.audio.base + entry.name).split("/").map(encodeURIComponent).join("/");
+      for (const entry of data.audio.styles) {
+        const label = labels[entry.style] || entry.style;
+        const row = element("div", undefined, "audio-row");
+        const head = element("span", label, "audio-style");
+        const showPlayer = () => {
+          const player = element("audio");
+          player.controls = true;
+          player.preload = "metadata";
+          player.src = src(entry);
+          const download = element("a", "Descargar", "audio-download");
+          download.href = src(entry);
+          download.download = entry.name;
+          row.replaceChildren(head, player, download);
+        };
+        if (entry.exists) showPlayer();
+        else {
+          const request = element("button", `🎧 Generar ${label.toLowerCase()}`);
+          request.type = "button";
+          const line = status();
+          const poll = () => {
+            const timer = setInterval(async () => {
+              try {
+                const response = await fetch(src(entry), { method: "HEAD", cache: "no-store" });
+                if (!response.ok) return;
+                clearInterval(timer);
+                showPlayer();
+              } catch { /* A missing file leaves the request available. */ }
+            }, 5000);
+          };
+          request.addEventListener("click", async () => {
+            request.disabled = true;
+            line.textContent = "Pidiendo el audio al tutor…";
+            try {
+              await post({ kind: "audio", topic: data.topic, part: data.part, style: entry.style });
+              line.textContent = "Pedido enviado. El tutor lo produce en el chat; esta página se actualiza cuando el archivo exista.";
+              poll();
+            } catch (error) {
+              request.disabled = false;
+              line.textContent = error.message;
+            }
+          });
+          row.append(head, request, line);
+        }
+        section.append(row);
+      }
+      if (mediaAnchor) mediaAnchor.after(section);
+      else if (title) title.after(section);
       else article.prepend(section);
     }
     app.append(article);
