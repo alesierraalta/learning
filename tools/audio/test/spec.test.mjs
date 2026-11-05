@@ -141,3 +141,33 @@ test("a conversation does not repeat a speaker across a chapter boundary", () =>
     `expected a repeated-speaker problem, got ${JSON.stringify(problems)}`,
   );
 });
+
+test("a conversation needs two different voices", () => {
+  const spec = conversation();
+  spec.voices = { A: "Elvira", B: "Elvira" };
+  const problems = validate(spec);
+  assert.deepEqual(problems, ["debate needs two different voices: A and B both use es-ES-ElviraNeural"]);
+});
+
+test("the word floor is reported even beside another problem", () => {
+  const spec = {
+    part: "p1",
+    title: "Corto",
+    topic: "t",
+    style: "debate",
+    minutes: 20,
+    chapters: [
+      {
+        title: "Uno",
+        segments: [
+          { speaker: "A", text: "uno dos tres cuatro cinco seis" },
+          { speaker: "A", text: "siete ocho nueve diez once doce" },
+          { speaker: "B", text: "trece catorce quince dieciseis diecisiete dieciocho" },
+        ],
+      },
+    ],
+  };
+  const problems = validate(spec);
+  assert.ok(problems.some((problem) => /repeats speaker "A"/.test(problem)), problems.join("; "));
+  assert.ok(problems.some((problem) => /only 18 words/.test(problem)), problems.join("; "));
+});

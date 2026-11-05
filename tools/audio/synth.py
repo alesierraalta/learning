@@ -100,7 +100,6 @@ async def main() -> int:
     parser = argparse.ArgumentParser(description="Synthesise an audio spec with edge-tts.")
     parser.add_argument("--spec", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--rate", default=RATE)
     parser.add_argument("--force", action="store_true", help="re-synthesise even when the cache matches")
     parser.add_argument("--dry-run", action="store_true", help="list the turns without calling the network")
     args = parser.parse_args()
@@ -117,7 +116,7 @@ async def main() -> int:
         print(f"cannot prepare {args.spec}: {error}", file=sys.stderr)
         return 2
 
-    planned = list(turns(spec, args.rate))
+    planned = list(turns(spec, RATE))
     if args.dry_run:
         print(f"{len(planned)} turn(s) -> {args.out}")
         for key, voice, _ in planned:
@@ -127,7 +126,7 @@ async def main() -> int:
     counts = {"new": 0, "kept": 0}
     for index, (key, voice, text) in enumerate(planned, 1):
         try:
-            state = await synthesise(edge_tts, key, voice, text, args.rate, args.out, args.force)
+            state = await synthesise(edge_tts, key, voice, text, RATE, args.out, args.force)
         except Exception as error:  # edge-tts raises network and service errors; stop and keep the cache
             print(f"[{index}/{len(planned)}] failed {key} {voice}: {error}", file=sys.stderr)
             print(f"{counts['new']} new, {counts['kept']} kept before the failure", file=sys.stderr)
