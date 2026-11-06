@@ -70,6 +70,27 @@ function http(url, { method = "GET", headers = {}, body } = {}) {
   });
 }
 
+test("a missing Antigravity binary is one actionable error, not a fake exit code", async () => {
+  const { studio } = await setup({ agyCommand: ["agy-not-installed-anywhere"] });
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Hola" })).status, 200);
+    const error = await stream.next("error");
+    // A failed spawn is reported once: waiting a beat proves no exit-code error follows it.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const errors = stream.events.filter((event) => event.name === "error");
+    assert.equal(errors.length, 1, `one error, got ${JSON.stringify(errors.map((event) => event.data))}`);
+    assert.match(error.message, /agy-not-installed-anywhere/);
+    assert.match(error.message, /PATH/);
+    assert.doesNotMatch(error.message, /código -2/);
+    const states = stream.events.filter((event) => event.name === "state");
+    assert.equal(states.at(-1).data.busy, false, "a tutor that never started is not left busy");
+  } finally { stream.close(); }
+});
+
 test("the selected Antigravity tutor answers a conversation", async () => {
   const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
   const stream = sse(`${studio.url}events`);
