@@ -890,13 +890,14 @@
     stage.replaceChildren(
       h(
         "div",
-        { class: "page pano" },
+        { class: `page pano${view === "mapa" ? " pano-map" : ""}` },
         h(
           "header",
           { class: "pano-head reveal", style: "--i:0" },
           btn("Volver", () => go(panoramaBack), "btn small ghost", "back"),
           h("p", { class: "eyebrow" }, "Panorama del tema"),
           h("h1", {}, topic.title),
+          view === "mapa" ? h("p", { class: "pano-intro" }, "Explora qué necesitas saber antes de avanzar a cada concepto.") : null,
           h(
             "div",
             { class: "pano-chips" },
@@ -1135,7 +1136,7 @@
         svgEl("text", { x: group.x + 16, y: group.y + 21 }, group.title),
       ),
     );
-    const links = layout.edges.map((edge) => svgEl("path", { class: "pano-edge", d: edge.path, "data-from": edge.from, "data-to": edge.to }));
+    const links = layout.edges.map((edge) => svgEl("path", { class: "pano-edge", d: edge.path, "data-from": edge.from, "data-to": edge.to, "marker-end": "url(#pano-arrow)" }));
     const boxes = layout.nodes.map((node) => {
       const paint = tone(node.status);
       const shape = svgEl(
@@ -1170,6 +1171,7 @@
       svgEl(
         "svg",
         { class: "pano-svg", role: "img", "aria-label": `Mapa de dependencias de ${topic.title}` },
+        svgEl("defs", {}, svgEl("marker", { id: "pano-arrow", markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: "auto" }, svgEl("path", { d: "M0 0L8 4L0 8z", fill: "var(--blue)" }))),
         camera,
       ),
     );
@@ -1250,7 +1252,10 @@
         h(
           "div",
           { class: "pano-map-bar" },
-          h("p", { class: "pano-lead" }, "Arrastra para recorrerlo, acércate con la rueda o con dos dedos y abre cualquier caja."),
+          h("div", { class: "pano-map-title" },
+            h("h2", {}, "Mapa de dependencias"),
+            h("p", { class: "pano-lead" }, "Arrastra para recorrerlo, acércate con la rueda o con dos dedos y abre cualquier caja."),
+          ),
           h(
             "div",
             { class: "pano-controls" },
@@ -1259,7 +1264,7 @@
             h("button", { class: "icon-btn", type: "button", title: "Ajustar a la ventana", "aria-label": "Ajustar a la ventana", onclick: () => fit(true) }, icon("fit")),
           ),
         ),
-        canvas,
+        h("div", { class: "pano-scroll", role: "region", "aria-label": "Grafo de dependencias", tabindex: "0" }, canvas),
         legend,
       ),
       h("aside", { class: "pano-aside" }, h("div", { class: "aside-sticky" }, detail)),
