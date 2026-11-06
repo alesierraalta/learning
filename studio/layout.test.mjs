@@ -134,6 +134,26 @@ test("preferences are reachable, editable and fit a phone", { skip: browser ? fa
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
 
+test("topic learning route follows the editorial layout on desktop and phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  for (const width of [1280, 390]) {
+    await topicPage(page, studio, width);
+    assert.equal(await page.getByRole("heading", { name: "Tu ruta de aprendizaje" }).count(), 1);
+    const style = await page.locator(".route .part-row").first().evaluate((row) => ({
+      font: getComputedStyle(row.querySelector("h3")).fontStyle,
+      border: getComputedStyle(row).borderBottomWidth,
+    }));
+    assert.equal(style.font, "normal");
+    assert.equal(style.border, "1px");
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  }
+});
+
 test("topic column keeps the card above its actions while scrolling", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;

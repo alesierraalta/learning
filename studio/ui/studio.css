@@ -679,6 +679,27 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 :root[data-theme="dark"] .editor-preview,
 :root[data-theme="dark"] .pano-canvas { background: var(--paper); }
 
+/* Topic route: an editorial list around the live progression and actions. */
+.topic-back { display: flex; align-items: center; width: fit-content; min-height: 44px; margin-bottom: 32px; color: var(--blue); text-underline-offset: 3px; }
+.topic-head { grid-template-columns: minmax(0, 1fr) 330px; gap: 72px; }
+.topic-head h1 { font-size: clamp(2.4rem, 3.8vw, 3rem); }
+.topic-route-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 48px; }
+.topic-route-heading h2 { margin: 0; font-size: 30px; }
+.topic-route-heading span { color: var(--muted); font: 13px var(--sans); }
+.topic-head .route { margin-top: 20px; border-top: 1px solid var(--line); }
+.topic-head .route::before { display: none; }
+.topic-head .part-row, .topic-head .part-row.current { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; padding: 22px 0; grid-template-columns: 36px minmax(0, 1fr) auto; }
+.topic-head .part-row + .part-row { margin-top: 0; }
+.topic-head .node, .topic-head .part-row.current .node, .topic-head .part-row.done .node, .topic-head .part-row.ready .node { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 0; background: var(--paper); color: var(--ink); font: 12px var(--sans); }
+.topic-head .part-row h3 { font-size: 20px; font-style: normal; }
+.topic-head .part-row .meta { font: 13px/1.5 var(--sans); }
+@container stage (max-width: 1000px) { .topic-head { grid-template-columns: minmax(0, 1fr); gap: 28px; } }
+@media (max-width: 720px) {
+  .topic-head .part-row, .topic-head .part-row.current { grid-template-columns: 36px minmax(0, 1fr); gap: 12px; }
+  .topic-route-heading { display: block; }
+  .topic-route-heading span { display: block; margin-top: 8px; }
+}
+
 /* The theme switch reads as one more quiet control in the bar. */
 .theme-btn { border-color: var(--line); }
 .theme-btn:hover { border-color: var(--ink); background: var(--soft); }

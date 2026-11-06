@@ -774,6 +774,7 @@
           h(
             "div",
             {},
+            h("a", { class: "topic-back", href: "#/" }, "← Volver a tus temas"),
             h("span", { class: `tag reveal${step.tone === "test" ? " test" : ""}`, style: "--i:0" }, step.tone === "test" ? "Prueba" : "Universitario"),
             h("h1", { class: "reveal", style: "--i:0" }, topic.title),
             h("div", { class: "reveal", style: "--i:1;max-width:520px" }, progress(topic)),
@@ -797,6 +798,7 @@
                   btn("Pedir las que faltan", () => say(prompts.fill(topic), topic.id), "btn small ghost", "spark"),
                 )
               : null,
+            h("div", { class: "topic-route-heading" }, h("h2", {}, "Tu ruta de aprendizaje"), h("span", {}, "Diagnóstico y partes")),
             h("ol", { class: "route", "aria-label": "Ruta del tema" }, rows),
           ),
           h(
