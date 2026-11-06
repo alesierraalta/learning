@@ -40,7 +40,7 @@ import { buildPanorama } from "./panorama.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
-import { createAgy } from "./agy.ts";
+import { createAgy, parseAgyModels } from "./agy.ts";
 import { checkDeep, enrolled } from "./gate.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
@@ -495,6 +495,14 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   // ---- library -------------------------------------------------------------
+  /** The models the chosen runtime offers, straight from its own CLI. */
+  const agyCatalog = (): Promise<string[]> =>
+    new Promise((resolve) => {
+      const [command, ...base] = options.agyCommand ?? ["agy"];
+      execFile(command, [...base, "models"], { cwd: root, timeout: 20000, encoding: "utf8" }, (_err, stdout) => {
+        resolve(parseAgyModels(String(stdout ?? "")));
+      });
+    });
   const engineStatus = (workspace: string): Promise<Json> =>
     new Promise((resolve) => {
       if (!existsSync(enginePath) || !existsSync(join(workspace, ".learning"))) return resolve({ status: "sin inscribir" });
@@ -929,6 +937,9 @@ ${scripts}
         return sendJson(res, 200, readPreferences(root));
       case "api/tutor":
         return sendJson(res, 200, readTutor(root));
+      case "api/tutor/modelos":
+        // The catalogue belongs to the chosen runtime: Antigravity reports its own.
+        return sendJson(res, 200, { modelos: readTutor(root).agente === "agy" ? await agyCatalog() : [] });
       case "api/tema":
         return sendJson(res, 200, { tema });
       case "api/preferences/candidatos": {

@@ -541,19 +541,39 @@
       const agente = h("select", { name: "agente" },
         h("option", { value: "pi", selected: tutor.agente === "pi" }, "Pi"),
         h("option", { value: "agy", selected: tutor.agente === "agy" }, "Antigravity"));
+      // The models belong to the chosen runtime, so the list follows the provider.
+      const modelo = h("select", { name: "modelo" });
+      const modelRow = h("div", { class: "preference-row" },
+        h("div", { class: "preference-description" },
+          h("p", { class: "muted" }, "Con qué modelo responde. El predeterminado es el del proveedor.")),
+        h("div", { class: "preference-levels" }, modelo));
+      const fillModels = async () => {
+        const chosen = modelo.value || tutor.modelo;
+        const ids = agente.value === "agy"
+          ? (await request("api/tutor/modelos").catch(() => ({ modelos: [] }))).modelos ?? []
+          : [];
+        modelo.replaceChildren(
+          h("option", { value: "" }, "Predeterminado del proveedor"),
+          ...ids.map((id) => h("option", { value: id, selected: id === chosen }, id)));
+      };
+      agente.addEventListener("change", () => { modelo.value = ""; fillModels(); });
+      await fillModels();
       const tutorField = h("fieldset", { class: "tutor-choice" },
         h("legend", {}, "Quién te da la tutoría"),
         h("div", { class: "preference-row" },
           h("div", { class: "preference-description" },
             h("p", { class: "muted" }, "El mismo motor comprueba tu trabajo con cualquiera de los dos.")),
-          h("div", { class: "preference-levels" }, agente)));
+          h("div", { class: "preference-levels" }, agente)),
+        modelRow);
       const save = h("button", { class: "btn primary", type: "submit" }, "Guardar preferencias");
       const form = h("form", { class: "preferences-form", onsubmit: async (event) => {
         event.preventDefault();
         save.disabled = true;
         status.textContent = "Guardando…";
         try {
-          if (agente.value !== tutor.agente) await post("api/tutor", { ...tutor, agente: agente.value });
+          if (agente.value !== tutor.agente || modelo.value !== tutor.modelo) {
+            await post("api/tutor", { ...tutor, agente: agente.value, modelo: modelo.value });
+          }
           await post("api/preferences", data);
           status.textContent = "Preferencias guardadas";
         } catch (error) { status.textContent = `No se pudo guardar: ${error.message}`; }
