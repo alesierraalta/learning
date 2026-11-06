@@ -6,12 +6,15 @@ import { AGY_LEVELS } from "./tutor.ts";
 type Json = Record<string, unknown>;
 const object = (value: unknown): value is Json => !!value && typeof value === "object" && !Array.isArray(value);
 
-/** `agy models` prints one model id per line; that listing is the only catalogue there is. */
+/**
+ * `agy models` prints `<id>\t<label>` per model after a progress line; that listing is the only
+ * catalogue there is. A line without a tab counts only when it is a bare id.
+ */
 export function parseAgyModels(output: string): string[] {
   const seen = new Set<string>();
   const models: string[] = [];
   for (const line of output.split("\n")) {
-    const id = line.trim();
+    const id = line.split("\t")[0].trim();
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(id) || seen.has(id)) continue;
     seen.add(id);
     models.push(id);
