@@ -44,6 +44,34 @@ test("the address wins, then the browser's choice, then the system", () => {
   assert.equal(boot({ search: "?theme=neon", system: "light" }).root.dataset.theme, "light");
 });
 
+test("black is a separate persistent theme passed to reader frames", () => {
+  assert.equal(boot({ search: "?theme=black", stored: "dark" }).root.dataset.theme, "black");
+  assert.equal(boot({ stored: "black" }).root.dataset.theme, "black");
+  const { root, sandbox, listeners } = boot();
+  sandbox.learningTheme.set("black");
+  assert.equal(root.dataset.theme, "black");
+  assert.equal(sandbox.written, "black");
+  send(listeners, "message", { data: { type: "learning-theme", theme: "dark" } });
+  send(listeners, "message", { data: { type: "learning-theme", theme: "black" } });
+  assert.equal(root.dataset.theme, "black");
+});
+
+test("black paper is available to studio, rich pages and figure rendering", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
+  const studio = readFileSync(join(root, "studio/ui/studio.js"), "utf8");
+  const studioCss = readFileSync(join(root, "studio/ui/studio.css"), "utf8");
+  const kitCss = readFileSync(join(root, "integrations/pi/kit/kit.css"), "utf8");
+  assert.match(studio, /current === "dark" \? "black" : current === "black" \? "light" : "dark"/);
+  assert.match(studioCss, /:root\[data-theme="black"\] \{[^}]*--paper: #000000/);
+  assert.match(kitCss, /:root\[data-theme="black"\] \{[^}]*--paper: #000000/);
+  const sandbox = { window: null };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(readFileSync(join(root, "tools/visuals/draw.js"), "utf8"), sandbox);
+  assert.equal(sandbox.LKVisuals.theme("black").paper, "#000000");
+  assert.match(sandbox.LKVisuals.themeCss(), /\[data-theme="black"\][^}]*--v-paper:#000000/);
+});
+
 test("the studio's choice is kept for this browser and paints the page", () => {
   const { root, sandbox } = boot({ system: "light" });
   sandbox.learningTheme.set("dark");
@@ -73,6 +101,31 @@ test("the dark paper keeps its figures legible: an island resets the ink, not on
   assert.match(island[0], /color: var\(--ink\)/, "text inherited from the page turns dark again inside the island");
   const mermaid = css.match(/:root\[data-theme="dark"\] pre\.mermaid \{[^}]*\}/);
   assert.ok(mermaid && /color: var\(--ink\)/.test(mermaid[0]), "a mermaid diagram is drawn on its own light paper");
+});
+
+test("interactive components use legible theme surfaces and light islands", () => {
+  const kit = readFileSync(join(import.meta.dirname, "kit/kit.css"), "utf8");
+  const studio = readFileSync(join(import.meta.dirname, "../../studio/ui/studio.css"), "utf8");
+  const sandbox = { window: null };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(readFileSync(join(import.meta.dirname, "../../tools/visuals/draw.js"), "utf8"), sandbox);
+  const { contrast } = sandbox.LKVisuals;
+  assert.match(kit, /textarea \{[^}]*background: var\(--paper\); color: var\(--ink\)/);
+  assert.match(kit, /\.lk-scene-caption \{[^}]*color: var\(--muted\)/);
+  assert.match(kit, /\.lk-edge-label \{ stroke: var\(--paper\)/);
+  for (const [selector, foreground] of [["correct", "--emerald"], ["error", "--crimson"]]) {
+    const rule = kit.match(new RegExp(`:root:is\\(\\[data-theme="dark"\\], \\[data-theme="black"\\]\\) \\.lk-qq-result\\.lk-${selector} \\{([^}]*)\\}`));
+    assert.ok(rule, `${selector} result applies to both night themes`);
+    assert.ok(rule[1].includes(`color: var(${foreground})`));
+    const background = rule[1].match(/background: (#[0-9a-f]{6})/i)[1];
+    const ink = foreground === "--emerald" ? "#7FCBAE" : "#EE93A4";
+    assert.ok(contrast(ink, background) >= 4.5, `${selector} result has readable contrast`);
+  }
+  const primary = studio.match(/\.deck-controls \.btn\.primary, \.deck > \.finale \.btn\.primary \{[^}]*background: (#\w+); color: (#\w+)/);
+  assert.ok(primary);
+  assert.ok(contrast(primary[1] === "#fff" ? "#ffffff" : primary[1], primary[2]) >= 4.5);
+  assert.match(kit, /pre\.mermaid \{ --ink: #0F2E3D; background: #fff; color: var\(--ink\)/);
 });
 
 // A reader figure is drawn from the note's scene by the visual engine. The

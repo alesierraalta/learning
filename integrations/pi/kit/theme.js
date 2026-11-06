@@ -5,7 +5,7 @@
 (() => {
   const KEY = "learnings.theme";
   const root = document.documentElement;
-  const known = (value) => (value === "dark" || value === "light" ? value : "");
+  const known = (value) => (value === "dark" || value === "light" || value === "black" ? value : "");
   const stored = () => {
     try {
       return known(localStorage.getItem(KEY));

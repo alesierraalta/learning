@@ -180,7 +180,7 @@ button { border: 1px solid var(--ink); border-radius: 0; padding: 9px 14px; back
 button:hover { background: var(--ink); color: var(--on-ink); }
 button:disabled { opacity: .35; background: transparent; color: var(--ink); cursor: default; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-textarea { border: 1px solid var(--ink); border-radius: 0; padding: 10px 12px; font-family: var(--mono); font-size: 14px; line-height: 1.5; }
+textarea { border: 1px solid var(--ink); border-radius: 0; padding: 10px 12px; background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: 14px; line-height: 1.5; }
 input, select { accent-color: var(--accent); }
 select { padding: 6px 8px; border: 1px solid var(--ink); border-radius: 0; background: #fff; color: var(--ink); font-size: 14px; }
 main label { font-size: 14px; }
@@ -195,7 +195,7 @@ lk-step { border-left: 1px solid var(--hair); padding: 4px 0 4px 16px; backgroun
 .lk-controls p { font-size: 13px; color: var(--muted); }
 .lk-node-label { font: 600 15px var(--sans), sans-serif; fill: var(--ink); }
 .lk-node-sub, .lk-edge-label { font: 12px var(--sans), sans-serif; fill: var(--muted); }
-.lk-edge-label { stroke: #fff; stroke-width: 4px; }
+.lk-edge-label { stroke: var(--paper); stroke-width: 4px; }
 lk-math[display] { padding: 8px 0; }
 pre.mermaid { background: none; border: 0; }
 .lk-progress { height: 2px; background: var(--hair); }
@@ -252,6 +252,7 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
    La misma página con la tinta invertida: el texto manda y los filetes se
    aclaran. Las figuras no se invierten: un dibujo se compone sobre papel claro,
    así que el deck y los diagramas de mermaid conservan su hoja y su tinta. */
+:root[data-theme="black"],
 :root[data-theme="dark"] {
   color-scheme: dark;
   --paper: #0E1A20; --ink: #E3EBEF; --muted: rgba(227, 235, 239, .62);
@@ -262,9 +263,16 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
   --on-ink: #0E1A20;
   color: var(--ink); background: var(--paper);
 }
+:root[data-theme="black"] { --paper: #000000; --on-ink: #000000; }
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-quick-quiz { background: #142228; }
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-qq-result.lk-correct { background: #11241e; color: var(--emerald); }
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-qq-result.lk-error { background: #2a151c; color: var(--crimson); }
+:root[data-theme="black"] a,
 :root[data-theme="dark"] a { text-decoration-color: rgba(143, 192, 224, .42); }
+:root[data-theme="black"] select,
 :root[data-theme="dark"] select { background: var(--paper); }
 /* La hoja del deck y su tinta vuelven a ser las del papel claro. */
+:root[data-theme="black"] .lk-walkthrough,
 :root[data-theme="dark"] .lk-walkthrough {
   background: #fff; color: var(--ink); color-scheme: light;
   --paper: #ffffff; --ink: #0F2E3D; --muted: rgba(15, 46, 61, .62);
@@ -273,10 +281,17 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
   --emerald: #059669; --amber: #d97706; --crimson: #dc2626;
   --on-ink: #ffffff;
 }
+:root[data-theme="black"] .lk-walkthrough:fullscreen,
+:root[data-theme="black"] .lk-walkthrough:-webkit-full-screen,
 :root[data-theme="dark"] .lk-walkthrough:fullscreen,
 :root[data-theme="dark"] .lk-walkthrough:-webkit-full-screen { background: #fff; }
 /* Un diagrama de mermaid se dibuja con su propio tema claro: se le deja el papel. */
-:root[data-theme="dark"] pre.mermaid { background: #fff; color: var(--ink); padding: 14px; color-scheme: light; }
+:root[data-theme="black"] pre.mermaid,
+:root[data-theme="dark"] pre.mermaid { --ink: #0F2E3D; background: #fff; color: var(--ink); padding: 14px; color-scheme: light; }
+:root[data-theme="black"] [class*="wall"],
+:root[data-theme="black"] .wall,
+:root[data-theme="black"] .inert,
+:root[data-theme="black"] [aria-disabled="true"],
 :root[data-theme="dark"] [class*="wall"],
 :root[data-theme="dark"] .wall,
 :root[data-theme="dark"] .inert,
@@ -295,7 +310,7 @@ lk-scene>.lk-title { display: block; margin-bottom: 12px; }
 lk-scene figure { margin: 0; }
 .lk-scene-stage { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; container-type: inline-size; }
 .lk-scene-stage svg { display: block; width: 100%; height: auto; }
-.lk-scene-caption { margin: 12px 0 0; font-size: .8rem; line-height: 1.55; color: rgba(15, 23, 42, .62); }
+.lk-scene-caption { margin: 12px 0 0; font-size: .8rem; line-height: 1.55; color: var(--muted); }
 /* La escena conserva su escala y hace scroll cuando no cabe. Se mide el hueco que
    ocupa, no el ancho de la ventana: una parte puede vivir en una columna estrecha
    dentro de una pantalla ancha. */
