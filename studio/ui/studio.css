@@ -343,7 +343,7 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 .deck-slide .finale .btn { font-size: 30px; padding: 18px 34px; border-width: 3px; }
 .deck-controls { display: flex; align-items: center; gap: 12px; color: #fff; }
 .deck-controls .btn, .deck > .finale .btn { border-color: #fff; color: #fff; }
-.deck-controls .btn.primary, .deck > .finale .btn.primary { border-color: #fff; background: #fff; color: var(--ink); }
+.deck-controls .btn.primary, .deck > .finale .btn.primary { border-color: #fff; background: #fff; color: #0F2E3D; }
 .deck-controls .btn:disabled { opacity: .4; }
 /* A 12 px dot drawn inside a 32 px touch target. */
 .deck-dots { display: flex; gap: 0; margin: 0 4px; }
@@ -696,7 +696,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
    One inversion of the same ink: night paper, the same three accents lifted to
    stay readable, and the same hairline rules. The slides, the reader and the
    rich pages share the palette token by token, so nothing needs a second skin. */
-:root[data-theme="dark"] {
+:root:is([data-theme="dark"], [data-theme="black"]) {
   --ink: #E4EDF1;
   --slate: #B7C9D1;
   --slate2: #92A8B2;
@@ -718,16 +718,17 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   --on-ink: #0D191F;
   color-scheme: dark;
 }
-:root[data-theme="dark"] ::selection { background: #1E3B52; color: var(--ink); }
-:root[data-theme="dark"] .tutor-pill.dead,
-:root[data-theme="dark"] .notice.error { color: var(--red); }
+:root[data-theme="black"] { --paper: #000000; --on-ink: #000000; }
+:root:is([data-theme="dark"], [data-theme="black"]) ::selection { background: #1E3B52; color: var(--ink); }
+:root:is([data-theme="dark"], [data-theme="black"]) .tutor-pill.dead,
+:root:is([data-theme="dark"], [data-theme="black"]) .notice.error { color: var(--red); }
 /* The reader frame draws its own paper: the bar keeps the seam visible. */
-:root[data-theme="dark"] .sheet,
-:root[data-theme="dark"] .sheet-wrap { background: var(--paper); }
-:root[data-theme="dark"] .modal-backdrop { background: rgba(2, 8, 11, .62); }
-:root[data-theme="dark"] .deck { background: rgba(2, 8, 11, .9); }
-:root[data-theme="dark"] .deck-slide { background: var(--paper); }
-:root[data-theme="dark"] .progress span.on { border-color: var(--blue); }
+:root:is([data-theme="dark"], [data-theme="black"]) .sheet,
+:root:is([data-theme="dark"], [data-theme="black"]) .sheet-wrap { background: var(--paper); }
+:root:is([data-theme="dark"], [data-theme="black"]) .modal-backdrop { background: rgba(2, 8, 11, .62); }
+:root:is([data-theme="dark"], [data-theme="black"]) .deck { background: rgba(2, 8, 11, .9); }
+:root:is([data-theme="dark"], [data-theme="black"]) .deck-slide { background: var(--paper); }
+:root:is([data-theme="dark"], [data-theme="black"]) .progress span.on { border-color: var(--blue); }
 
 /* Home follows the editorial library without changing shared topic components. */
 .home-page { max-width: 1260px; padding: 64px 36px 90px; }
@@ -779,8 +780,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   .home-page .cards { grid-template-columns: minmax(0, 1fr); }
   .home-page .progress-label { flex-wrap: wrap; }
 }
-:root[data-theme="dark"] .editor-preview,
-:root[data-theme="dark"] .pano-canvas { background: var(--paper); }
+:root:is([data-theme="dark"], [data-theme="black"]) .editor-preview,
+:root:is([data-theme="dark"], [data-theme="black"]) .pano-canvas { background: var(--paper); }
 
 /* Topic route: an editorial list around the live progression and actions. */
 .topic-back { display: flex; align-items: center; width: fit-content; min-height: 44px; margin-bottom: 32px; color: var(--blue); text-underline-offset: 3px; }
