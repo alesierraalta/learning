@@ -30,6 +30,8 @@ export function createAgy(options: { command: string[]; cwd: string; config: Tut
       let answer = "";
       let started = false;
       let result = false;
+      /** A process that never started has no exit code: its failure is reported once, here. */
+      let spawnFailed = false;
       options.onRecord({ type: "agent_start" });
       options.onRecord({ type: "message_start", message: { role: "user", content: text } });
       const consume = (line: string) => {
@@ -56,12 +58,20 @@ export function createAgy(options: { command: string[]; cwd: string; config: Tut
         while ((newline = buffer.indexOf("\n")) >= 0) { consume(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1); }
       });
       current.stderr.resume();
-      current.on("error", error => options.onError(`No se pudo iniciar Antigravity: ${error.message}`));
+      current.on("error", (error: NodeJS.ErrnoException) => {
+        spawnFailed = true;
+        options.onError(
+          error.code === "ENOENT"
+            ? `No se pudo iniciar Antigravity: no se encontró el ejecutable "${command}". Instálalo o añade su carpeta al PATH del estudio (por ejemplo ~/.local/bin).`
+            : `No se pudo iniciar Antigravity: ${error.message}`,
+        );
+      });
       current.on("close", code => {
         if (proc !== current) return;
         if (buffer.trim()) consume(buffer);
         proc = undefined;
-        if (!stopped && code !== 0 && !result) options.onError(`Antigravity terminó con código ${code}`);
+        // Node closes a failed spawn with code -2; that is the same failure, already reported.
+        if (!stopped && !spawnFailed && code !== 0 && !result) options.onError(`Antigravity terminó con código ${code}`);
         if (!stopped && answer) {
           if (!started) options.onRecord({ type: "message_start", message: { role: "assistant" } });
           options.onRecord({ type: "message_end", message: { role: "assistant", content: answer } });

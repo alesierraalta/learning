@@ -60,6 +60,12 @@ provider because the CLIs differ: Pi takes `off`, `minimal`, `low`, `medium`,
 `high`, `xhigh` and `max`. A level the chosen provider cannot apply is refused
 with 400 instead of being dropped.
 
+Antigravity needs its CLI reachable from the studio's own environment: the studio
+spawns `agy` from `PATH`, so a service whose `PATH` omits the CLI's directory
+reports one actionable error (`no se encontró el ejecutable "agy"`) instead of a
+bogus exit code. `deploy/vps/learning-studio.service` and its env example put
+`~/.local/bin` on that `PATH`.
+
 Deep tutoring names its topic instead of guessing it. The composer on a topic page
 sends `POST prompt {text, tema}`; the home chat and the quick notes send no `tema`
 and are never checked. The selection also lives in `GET api/tema` / `POST

@@ -156,6 +156,7 @@ After editing the environment file, run `systemctl --user restart learning-studi
 | Microphone unavailable | Use the HTTPS ZeroTier entry, not a plain-HTTP address, and accept the certificate warning once (or trust the Infra Root CA). Grant browser microphone permission. |
 | User bus unavailable | Install from an actual login as `ale`, not a root shell; ensure systemd user services are available. |
 | Pi not found or not authenticated | Check the env file's full `PATH`, profile setup and the user's own Pi login. |
+| Antigravity says `spawn agy ENOENT` | The `agy` CLI is not on the service's `PATH`. Install it under `~/.local/bin` (the unit and the env example already list it) or add its directory to `PATH` in `~/.config/learning-studio.env`, then `systemctl --user restart learning-studio`. Check with `systemctl --user show learning-studio -p Environment` and `command -v agy` as the same user. |
 | HTTPS check fails | `docker logs learning-studio-caddy`; confirm the ZeroTier interface is up (`zerotier-cli listnetworks`) and the certificate still lists `IP:10.154.59.151`. Do not touch the other Caddy containers. |
 
 ## Branch preview
