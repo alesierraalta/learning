@@ -124,6 +124,17 @@ test("preferences are reachable, editable and fit a phone", { skip: browser ? fa
   await page.goto(studio.url, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Configuración" }).click();
   await page.getByRole("heading", { name: "Preferencias" }).waitFor();
+  assert.equal(await page.getByRole("link", { name: /Volver al inicio/ }).count(), 1);
+  assert.equal(await page.getByText("Tu forma de aprender").count(), 1);
+  assert.equal(await page.locator("fieldset.preference").count(), 7);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const row = await page.locator("fieldset.preference").first().evaluate((el) => {
+    const description = el.querySelector("p").getBoundingClientRect();
+    const levels = el.querySelector(".preference-levels").getBoundingClientRect();
+    return { description, levels };
+  });
+  assert.ok(row.levels.left > row.description.left, "desktop levels sit beside the description");
+  await page.setViewportSize({ width: 375, height: 800 });
   const group = page.getByRole("group", { name: "Cantidad de texto" });
   await group.getByRole("radio", { name: "medio" }).check();
   await page.getByRole("button", { name: "Guardar preferencias" }).click();

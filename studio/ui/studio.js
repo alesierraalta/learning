@@ -493,7 +493,9 @@
   async function preferencesView() {
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Configuración" }, { text: "Preferencias" }]);
     const status = h("p", { role: "status", class: "muted" }, "Cargando…");
-    const page = h("div", { class: "page preferences-page" }, h("header", { class: "editor-head" }, h("span", { class: "tag" }, "Configuración"), h("h1", {}, "Preferencias"), h("p", { class: "muted" }, "Elige cómo prefieres que te expliquen.")), status);
+    const page = h("div", { class: "page preferences-page" },
+      h("a", { class: "preferences-back", href: "#/" }, "← Volver al inicio"),
+      h("header", { class: "preferences-head" }, h("p", { class: "preferences-eyebrow" }, "Tu forma de aprender"), h("h1", {}, "Preferencias"), h("p", { class: "preferences-lead" }, "Elige cómo prefieres que te expliquen.")), status);
     stage.replaceChildren(page);
     try {
       // The file is what the learner chose; the candidates are what their own
@@ -525,11 +527,13 @@
         const quit = discovered ? h("button", { class: "btn small ghost", type: "button", onclick: () => change(quit, () => post("api/preferences/olvidar", { id: aspect.id }), "No se pudo quitar") }, "Quitar") : null;
         return h("fieldset", { class: "preference" },
           h("legend", {}, aspect.titulo, discovered ? h("span", { class: "preference-badge" }, "descubierto por tu uso") : null),
-          h("p", { class: "muted" }, aspect.descripcion),
-          discovered ? h("p", { class: "preference-evidence" }, evidence(aspect.evidencia)) : null,
-          h("div", { class: "preference-levels" }, ["menos", "medio", "más"].map((level) => h("label", {},
-            h("input", { type: "radio", name: aspect.id, value: level, checked: aspect.nivel === level, onchange: () => { aspect.nivel = level; status.textContent = ""; } }), level))),
-          quit ? h("div", { class: "preference-actions" }, quit) : null,
+          h("div", { class: "preference-row" },
+            h("div", { class: "preference-description" },
+              h("p", { class: "muted" }, aspect.descripcion),
+              discovered ? h("p", { class: "preference-evidence" }, evidence(aspect.evidencia)) : null,
+              quit ? h("div", { class: "preference-actions" }, quit) : null),
+            h("div", { class: "preference-levels" }, ["menos", "medio", "más"].map((level) => h("label", {},
+              h("input", { type: "radio", name: aspect.id, value: level, checked: aspect.nivel === level, onchange: () => { aspect.nivel = level; status.textContent = ""; } }), level)))),
         );
       };
       const save = h("button", { class: "btn primary", type: "submit" }, "Guardar preferencias");
