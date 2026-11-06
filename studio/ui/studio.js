@@ -548,13 +548,14 @@
   }
 
   // ---------- home ----------
-  function continueCard(topic, step, compact = false) {
+  function continueCard(topic, step, compact = false, showProgress = false) {
     return h(
       "article",
       { class: "continue reveal", style: `--tone:${TONE[step.tone]};--i:1` },
       h("span", { class: "label" }, step.label),
       compact ? null : h("h3", {}, topic.title),
       h("p", { class: "next" }, step.text),
+      showProgress ? progress(topic) : null,
       h(
         "div",
         { class: "actions" },
@@ -569,7 +570,7 @@
     const total = topic.parts.length || 1;
     const chips = topic.parts.map((p) => h("span", { class: p.written ? "on" : "" }));
     return [
-      h("div", { class: "progress", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(written(topic)) }, chips),
+      h("div", { class: "progress", role: "progressbar", "aria-label": "Partes escritas", "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(written(topic)) }, chips),
       h("div", { class: "progress-label" }, h("span", {}, `${written(topic)} de ${topic.parts.length} partes escritas`), h("span", {}, STAGE[topic.nextStage || topic.stage] || "")),
     ];
   }
@@ -591,7 +592,7 @@
     };
     const page = h(
       "div",
-      { class: "page" },
+      { class: "page home-page" },
       h(
         "section",
         { class: "hero" },
@@ -599,7 +600,7 @@
           "div",
           { class: "reveal", style: "--i:0" },
           h("p", { class: "eyebrow" }, "Tu cuaderno de estudio"),
-          h("h1", {}, "¿Qué ", h("em", {}, "estudiamos"), " hoy?"),
+          h("h1", {}, "¿Qué ", h("em", {}, "estudiamos"), h("br"), "hoy?"),
           h("p", { class: "lede" }, "Elige un tema de tu biblioteca o pide uno nuevo. El tutor trabaja de fondo: prepara el plan, escribe las explicaciones, corrige tus respuestas y te guía."),
           h("form", { class: "ask-big", onsubmit: start }, input, h("button", { class: "btn primary", type: "submit" }, icon("spark"), "Empezar")),
           h(
@@ -609,7 +610,7 @@
             h("div", { class: "mode quick" }, h("b", {}, "Rápido: "), "una nota breve para entender algo hoy. El tutor te pregunta cuál prefieres."),
           ),
         ),
-        focus ? continueCard(focus.t, focus.s) : h("div", { class: "continue reveal", style: "--i:1" }, h("span", { class: "label" }, "Para empezar"), h("p", { class: "next" }, "Todavía no tienes temas. Escribe arriba lo que quieres aprender.")),
+        focus ? continueCard(focus.t, focus.s, false, true) : h("div", { class: "continue reveal", style: "--i:1" }, h("span", { class: "label" }, "Para empezar"), h("p", { class: "next" }, "Todavía no tienes temas. Escribe arriba lo que quieres aprender.")),
       ),
       h("div", { class: "section-title" }, h("h2", {}, "Tus temas"), h("p", {}, `${library.topics.length} en tu biblioteca`)),
       library.topics.length
@@ -617,7 +618,7 @@
             "div",
             { class: "cards" },
             byOpened.map(({ t, s }, i) =>
-              h("div", {},
+              h("div", { class: "topic-card" },
                 h(
                   "button",
                   { class: "card reveal", type: "button", style: `--i:${i + 2};--tone:${TONE[s.tone]}`, onclick: () => go(`#/tema/${t.id}`) },
@@ -656,26 +657,14 @@
             ),
           )
         : h("p", { class: "empty" }, "Cuando pidas algo en modo rápido, la nota aparecerá aquí."),
-      h("div", { class: "section-title" }, h("h2", {}, "Cómo funciona"), h("p", {}, `tutorial de ${window.StudioTutorial?.count ?? 6} diapositivas`)),
-      h(
-        "section",
-        { class: "how" },
-        window.StudioTutorial
-          ? h("button", { class: "preview", type: "button", "aria-label": "Abrir el tutorial", onclick: () => openTutorial() }, window.StudioTutorial.preview(0))
-          : null,
-        h(
-          "div",
-          {},
-          h(
-            "ol",
-            {},
-            h("li", {}, h("span", { class: "n" }, "1"), h("div", {}, h("b", {}, "Elige o pide"), h("span", { class: "t" }, "Abre un tema de tu biblioteca o escribe arriba lo que quieres aprender."))),
-            h("li", {}, h("span", { class: "n" }, "2"), h("div", {}, h("b", {}, "Lee, prueba y responde"), h("span", { class: "t" }, "Cada parte es una página con la explicación completa, demos, video y su quiz."))),
-            h("li", {}, h("span", { class: "n" }, "3"), h("div", {}, h("b", {}, "El tutor te guía"), h("span", { class: "t" }, "Corrige tu razonamiento concepto por concepto y prepara lo siguiente."))),
-          ),
-          h("div", { style: "margin-top:22px" }, btn("Ver el tutorial", () => openTutorial(), "btn primary", "deck")),
-        ),
-      ),
+      h("div", { class: "section-title has-action" },
+        h("div", {}, h("h2", {}, "Cómo funciona"), h("p", {}, `Un recorrido por el Estudio · ${window.StudioTutorial?.count ?? 6} diapositivas`)),
+        btn("Ver el tutorial", () => openTutorial(), "btn")),
+      h("section", { class: "how", "aria-label": "Tutorial del Estudio" },
+        h("div", {}, h("p", { class: "eyebrow" }, "Empieza por aquí"),
+          h("h3", {}, "Conoce tu espacio de aprendizaje"),
+          h("p", {}, "Descubre cómo empezar un tema, leer una parte y trabajar con tu tutor.")),
+        h("button", { class: "btn ghost", type: "button", "aria-label": "Abrir el tutorial", onclick: () => openTutorial() }, "Abrir tutorial")),
     );
     stage.replaceChildren(page);
   }

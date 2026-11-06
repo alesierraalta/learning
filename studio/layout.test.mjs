@@ -35,6 +35,89 @@ after(async () => {
   for (const studio of open) await studio.close();
 });
 
+test("home editorial layout preserves real progress and next action on desktop and mobile", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot({ status: { status: "waiting", stage: "explanation", nextStage: "explanation", part: "p2" } });
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+    const hero = page.locator(".home-page .hero");
+    const card = hero.locator("article.continue");
+    await card.waitFor();
+    const geometry = await hero.evaluate((el) => {
+      const [intro, card] = [...el.children].map((child) => child.getBoundingClientRect());
+      return { intro: { right: intro.right, bottom: intro.bottom }, card: { left: card.left, top: card.top }, overflow: document.documentElement.scrollWidth - innerWidth };
+    });
+    assert.ok(geometry.overflow <= 0);
+    if (width > 850) assert.ok(geometry.intro.right < geometry.card.left, "desktop columns");
+    else assert.ok(geometry.intro.bottom <= geometry.card.top, "mobile stack");
+    assert.equal(await card.locator('[role="progressbar"]').getAttribute("aria-valuenow"), "1");
+    assert.equal(await card.locator('[role="progressbar"]').getAttribute("aria-valuemax"), "2");
+    assert.match(await card.innerText(), /1 de 2 partes escritas/);
+    assert.match(await card.innerText(), /La Parte 2 todavía no está escrita/);
+  }
+  await page.locator(".home-page .hero .continue .actions button").first().click();
+  assert.match((await sentPrompts(log))[0], /Parte 2/);
+});
+
+test("home library uses editorial cards and retains tutorial and quick note actions", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 800 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  const card = page.locator(".home-page .cards .card").first();
+  await card.waitFor();
+  assert.equal(await card.evaluate((el) => getComputedStyle(el).borderRadius), "0px");
+  assert.equal(await page.locator(".home-page .topic-card").first().getByRole("button", { name: "Panorama del tema" }).count(), 1, "panorama action remains inside its library card");
+  assert.equal(await page.locator(".home-page .hero .continue").evaluate((el) => getComputedStyle(el).borderStyle), "solid");
+  await page.getByRole("button", { name: "Ver el tutorial" }).click();
+  assert.equal(await page.locator(".deck").count(), 1);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Nueva nota" }).click();
+  assert.match(page.url(), /#\/editar/);
+});
+
+test("home artboard heading cards form and tutorial stay compact and usable", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+    await page.locator(".home-page .topic-card").first().waitFor();
+    const actual = await page.evaluate(() => {
+      const get = (s) => document.querySelector(s);
+      const rect = (el) => el.getBoundingClientRect();
+      const input = rect(get(".ask-big input")), button = rect(get(".ask-big button"));
+      return {
+        headingBreak: !!get(".hero h1 br"),
+        titleStyles: [getComputedStyle(get(".hero .continue h3")).fontStyle, getComputedStyle(get(".topic-card h3")).fontStyle],
+        cardHeight: rect(get(".topic-card")).height,
+        inlineForm: input.right <= button.left && input.top < button.bottom && button.top < input.bottom,
+        compactTutorial: !get(".how .preview") && !get(".how ol") && rect(get(".how")).height < 220,
+      };
+    });
+    assert.deepEqual(actual, { headingBreak: true, titleStyles: ["normal", "normal"], cardHeight: actual.cardHeight, inlineForm: true, compactTutorial: true });
+    assert.ok(actual.cardHeight <= 310, `card height ${actual.cardHeight} at ${width}px`);
+    for (const name of ["Ver el tutorial", "Abrir el tutorial"]) {
+      await page.getByRole("button", { name }).click();
+      assert.equal(await page.locator(".deck").count(), 1);
+      await page.keyboard.press("Escape");
+    }
+  }
+});
+
 async function topicPage(page, studio, width, height = 800) {
   await page.setViewportSize({ width, height });
   await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
@@ -405,7 +488,7 @@ test("the home ask field and section headings fit a phone", { skip: browser ? fa
       pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
     };
   });
-  assert.ok(seen.inputShare >= 0.85, `the ask field gets ${Math.round(seen.inputShare * 100)}% of its form`);
+  assert.ok(seen.inputShare >= 0.5, `the ask field gets ${Math.round(seen.inputShare * 100)}% of its form alongside the start button`);
   assert.deepEqual(seen.wrapped, [], "section titles break into several lines");
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
 });
