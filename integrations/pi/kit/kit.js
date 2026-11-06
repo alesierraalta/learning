@@ -421,6 +421,9 @@
       }
     });
   });
+  // The index numbers its own entries and a note already numbers its headings
+  // ("1. Por qué existe"): without this the entry read "1. 1. Por qué existe".
+  const headingLabel = (text) => text.replace(/^\s*\d+(?:\.\d+)*[.)]?\s+/, '');
   async function decorate() {
     const main = document.querySelector('main') || document.body;
     const prose = main.id === 'app' ? main.querySelector(':scope > .prose') : null;
@@ -429,7 +432,7 @@
       const toc = el('nav', undefined, { class: 'lk-toc', 'aria-label': 'Índice de lectura' });
       const details = el('details'), summary = el('summary', 'En esta parte'), list = el('ol');
       details.open = true;
-      headings.forEach((h, i) => { if (!h.id) h.id = `lk-section-${i + 1}`; const li = el('li'); li.append(el('a', h.textContent, { href: `#${h.id}` })); list.append(li); });
+      headings.forEach((h, i) => { if (!h.id) h.id = `lk-section-${i + 1}`; const li = el('li'); li.append(el('a', headingLabel(h.textContent), { href: `#${h.id}` })); list.append(li); });
       details.append(summary, list); toc.append(details);
       const title = main.querySelector('h1');
       if (title) title.after(toc); else main.prepend(toc);

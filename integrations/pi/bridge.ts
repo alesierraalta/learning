@@ -329,14 +329,16 @@ function ensureNodeMedia(html: string, token: string): string {
   else if (!/kit\.css/i.test(markup)) out = injectHeadLast(out, kitCss);
   // A control inside a comment or a page script does not render either.
   const visible = out.replace(/<!--[\s\S]*?-->/g, "").replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
-  if (!/<lk-video[\s/>]/i.test(visible)) {
-    const control = "<lk-video></lk-video>";
-    out = /<body[^>]*>/i.test(out) ? out.replace(/<body[^>]*>/i, (body) => body + control) : control + out;
-  }
-  if (!/<lk-audio[\s/>]/i.test(visible)) {
-    const control = "<lk-audio></lk-audio>";
-    out = /<body[^>]*>/i.test(out) ? out.replace(/<body[^>]*>/i, (body) => body + control) : control + out;
-  }
+  // The part owns its media, so the control closes the article: inside <main> it
+  // inherits the measure and the title order, and only a page without one keeps
+  // the old <body> placement (which spread the control across the window).
+  const addControl = (html: string, control: string) => {
+    const end = html.toLowerCase().lastIndexOf("</main");
+    if (end > 0) return html.slice(0, end) + control + html.slice(end);
+    return /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, (body) => body + control) : control + html;
+  };
+  if (!/<lk-video[\s/>]/i.test(visible)) out = addControl(out, "<lk-video></lk-video>");
+  if (!/<lk-audio[\s/>]/i.test(visible)) out = addControl(out, "<lk-audio></lk-audio>");
   return out;
 }
 

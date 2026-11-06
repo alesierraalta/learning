@@ -1315,12 +1315,14 @@
     let saveButton;
     let menuSave;
     let modeMenuItem;
-    const setSaveState = (label, disabled, iconName) => {
+    // `short` is what the row shows; the full sentence stays the accessible
+    // name, because a 339px chip left the part's own title reading "Parte 5 Ta…".
+    const setSaveState = (label, disabled, iconName, short) => {
       if (seq !== readSeq || !saveButton.isConnected) return;
       saveButton.disabled = disabled;
       saveButton.setAttribute("aria-label", label);
       saveButton.title = label;
-      saveButton.replaceChildren(icon(iconName), h("span", { class: "label" }, label));
+      saveButton.replaceChildren(icon(iconName), h("span", { class: "label" }, short || label));
       // The menu entry keeps its own name (it promises the action); only its
       // availability follows the row it replaces.
       if (menuSave) menuSave.disabled = disabled;
@@ -1333,7 +1335,7 @@
       setSaveState("Descargando…", true, "doc");
       const ok = await savePart(topicId, part);
       if (seq !== readSeq || !saveButton.isConnected) return;
-      if (ok) setSaveState("Guardada en este dispositivo", true, "check");
+      if (ok) setSaveState("Guardada en este dispositivo", true, "check", "Guardada");
       else {
         setSaveState("Descargar para ver sin conexión", false, "doc");
         toast("No se pudo guardar: vuelve a intentarlo con conexión.");
@@ -1502,7 +1504,7 @@
       if (saveButton) {
         await savedReady;
         if (seq !== readSeq || !saveButton.isConnected) return;
-        if (saved.has(savedKey(topicId, part))) setSaveState("Guardada en este dispositivo", true, "check");
+        if (saved.has(savedKey(topicId, part))) setSaveState("Guardada en este dispositivo", true, "check", "Guardada");
         else if (!saveButton.disabled) saveReaderPart(true);
       }
     } catch (error) {
@@ -1511,7 +1513,7 @@
       await savedReady;
       if (seq !== readSeq) return;
       if (mode !== "app" && saved.has(savedKey(topicId, part))) {
-        setSaveState("Guardada en este dispositivo", true, "check");
+        setSaveState("Guardada en este dispositivo", true, "check", "Guardada");
         frame.src = offlineCopy(topicId, part);
       } else
         frame.replaceWith(
