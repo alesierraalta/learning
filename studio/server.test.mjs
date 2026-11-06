@@ -190,6 +190,23 @@ test("tutor settings default to Pi and persist the selected Antigravity provider
   assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), { version: 1, agente: "agy", modelo: "", pensamiento: "low" });
   // Pi keeps the levels Antigravity lacks.
   assert.equal((await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "minimal" })).status, 200);
+test("disabled tutor cannot start or restart, while the reader remains available", async () => {
+  const { studio, root, received } = await setup({ agentDisabled: true });
+  const page = await http(`${studio.url}api/view?topic=redes&part=p1`);
+  assert.equal(page.status, 200, page.body);
+  const prompt = await post(studio, "prompt", { text: "Hello" });
+  assert.equal(prompt.status, 503);
+  assert.equal(JSON.parse(prompt.body).error, "the tutor is disabled");
+  const restart = await post(studio, "restart", {});
+  assert.equal(restart.status, 503);
+  assert.equal(JSON.parse(restart.body).error, "the tutor is disabled");
+  const part = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
+  const before = readFileSync(part, "utf8");
+  const regenerate = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "shorter" });
+  assert.equal(regenerate.status, 503);
+  assert.equal(JSON.parse(regenerate.body).error, "the tutor is disabled");
+  assert.equal(readFileSync(part, "utf8"), before);
+  assert.deepEqual(received(), []);
 });
 
 test("preferences API seeds, saves, and rejects invalid changes without modifying the file", async () => {

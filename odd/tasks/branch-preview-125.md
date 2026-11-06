@@ -1,0 +1,37 @@
+# Branch preview
+Issue #125; branch feat/125-branch-preview.
+Production and its vault must remain untouched.
+
+## Specs
+- S1: "Si, tipo por rama, como un ambiente dev o algo asi"
+- S2: "Una instancia temporal por rama", "una sola instancia de prueba a la vez"
+- S3: "Datos de prueba independientes", "Sin acceso de escritura al vault real."
+- S4: "Acceso solo por ZeroTier", "con HTTPS"
+- S5: "Agente desactivado por defecto"
+- S6: "Al actualizar la rama, se actualiza su instancia; al cerrar el PR, se elimina únicamente esa instancia."
+- S7: "Playwright comprueba las interacciones y genera capturas para comparar los temas y componentes."
+- S8: "La rama del modo negro serviría como primer caso de uso."
+
+## Tasks
+- T1 [S1–S6] inline — implement isolated preview and tests — in_progress — commit pending.
+- T2 [S4,S7,S8] inline/verify — deploy and validate first preview, including black theme — pending — commit pending.
+- T3 [S1–S8] inline — deliver verified changes — pending — commit pending.
+
+## Log
+L1 — User: "Y si montamos un sistema de pruebas en la vps, para poder probar cambios directamente en la vps?"
+L2 — User: "Si, tipo por rama, como un ambiente dev o algo asi"
+L3 — User: "Hazlo" in response to proposal including S2–S8.
+L4 — Issue #125; isolated worktree; production Pi inherits credentials and vault access, so untrusted code must not execute as the production user or mount its home, vault, credentials, or Docker socket.
+L5 — Independent black-theme verifier could not provide visual proof; do not retry it or declare the theme verified on that basis.
+L6 — T1 partial: added STUDIO_AGENT_DISABLED=1, preventing initial Pi start, restart, prompts, and regeneration writes; this flag is not a sandbox. Focused test RED (200 !== 503), then GREEN; full studio/server.test.mjs 50/50; diff --check passed. Security controller, isolation, HTTPS and lifecycle remain unimplemented. Explorer investigating previewing older branches that lack the option.
+L7 — Investigated legacy branches: agentDisabled is not enforceable against older code; the container must provide the security boundary. VPS Docker has AppArmor/seccomp and rootlesskit installed; preview ports 8447/8448/14747/14748 were not listening; production service remained active. A Unix-socket relay to container loopback passed its RED/GREEN test; preview fixture startup test remains in progress. No deployment performed.
+L8 — Fixture startup and Unix relay tests passed (2/2). Added an unconnected sandbox argument builder: no network, read-only root and sources, non-root, no capabilities, limits and a pinned local image ID; checks include refusing unsafe or overlapping mounts. A scoped worker is implementing the PR lifecycle decision core. Neither the sandbox nor lifecycle is integrated or deployed; security is not yet verified.
+L9 — Worker implemented a pure PR-slot decision core in deploy/preview/lifecycle.mjs and 5 passing tests; independent review is in progress. A separate scoped worker is implementing a Docker argv adapter with canonical path checks, not deploying or invoking real Docker. Full lifecycle, isolation proof and HTTPS remain pending.
+L10 — Independent review found a lifecycle defect: switching PRs loses the active physical preview's owner before replacement. The lifecycle worker is correcting it; memory topic branch-preview/lifecycle-owner-handoff records the finding. Launcher worker added deploy/preview/launcher.mjs and tests (3/3), with no real Docker; independent security review is running. Native assess was unassessable because untracked files need explicit selection; it still requested independent verification due to security escalation. No implementation is deployed.
+L11 — Lifecycle correction separates pending and active owner, returning replaced/removed metadata; worker reports 8/8 focused tests, no physical integration proof. Independent launcher security review found untrusted mount provenance and TOCTOU, unsafe host identity and unverified image provenance; deployment remains blocked pending actual containment validation. Worker is hardening launcher, another prepares a separate internal-TLS proxy generator; production remains untouched.
+L12 — Launcher hardened with provisioned-root checks and operator-supplied forbidden identities/image equality (4/4 mock tests); assumptions remain unproven and TOCTOU remains. Separate TLS proxy generator and 2/2 tests added, without parsing by Caddy or actual deployment. Independent reviews of both corrected candidates are in progress; native assessments cannot select untracked scope automatically.
+L13 — Second launcher review: even hardened code relies on caller-supplied root contents, identities and trusted image, and remains vulnerable to path races under hostile replacement; real isolation unproven. Separate proxy review found sparse-array validation, Unix path, and auto HTTP listener issues; worker reports corrections and 2/2 tests. Caddy executable unavailable, no retry. Workers are checking fixture /tmp noexec compatibility and building an injected-adapter coordinator; no deployment performed.
+L14 — Confirmed fixture's fake engine is executed from /tmp, conflicting with tmpfs noexec; sandbox now permits /tmp execution (3/3 argv tests), with independent review pending and no real containment proof. Worker added injected-adapter serialized coordinator; independent review pending. The proxy generator corrections passed 2/2 tests; Caddy runtime remains unavailable and unverified.
+L15 — Coordinator corrected: ambiguous adapter failures block mutations until trusted reconciliation, post-start freshness is rechecked and stale starts are stopped before promotion. Local focused tests 18/18 (coordinator 10, lifecycle 8). The independent verifier for this correction failed with a quota error and was not retried; the correction therefore has no independent verdict. Remaining prerequisites: host-wide lock, authoritative adapter semantics, no atomic coupling to the PR provider. Deployment still blocked pending real containment validation.
+L16 — First real containment run on the VPS: branch source copied to ~/preview-lab/source (no .git/node_modules), sockets dir created, and the preview started in a detached container with --network=none, --read-only, uid 65534, --cap-drop=ALL, no-new-privileges, pids/memory/cpu limits, read-only branch mount, exec /tmp tmpfs. Container logs 'Preview is ready' and stays running. Reachability, network denial, absence of production home/.pi/docker.sock and production service health are being checked. Container name learning-branch-preview-test is temporary and must be removed after the check.
+L17 — Real containment run results: external network blocked (fetch TypeError), /home/ale, /home/ale/Learnings, /home/ale/.pi and /var/run/docker.sock absent inside the container, production learning-studio remained active. First socket check failed with 000 because the sandbox umask created owner-only sockets; fixed in relay.mjs with chmod 0666 after listen, RED (420 !== 438) then GREEN, 3/3 relay+preview tests. Container is being re-run to confirm HTTP reachability through the socket.

@@ -14,6 +14,10 @@ estudio --no-open  # print the URL only
 `node studio/server.ts` is the same without the engine rebuild. `LEARNING_ROOT`
 overrides the Learnings folder. Ctrl+C stops the studio and its Pi.
 
+Set `STUDIO_AGENT_DISABLED=1` to browse without starting Pi. Tutor requests,
+restarts and regeneration return 503. This option is not a security sandbox:
+use separate credentials, data and process isolation for untrusted previews.
+
 ## Configuración › Preferencias
 
 The header opens the preferences page, where each aspect has a menos, medio or más
