@@ -542,7 +542,7 @@ test("the desktop reader bar shows the whole part title (S3)", { skip: browser ?
   writeFileSync(planPath, JSON.stringify(plan));
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
   open.push(studio);
-  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 800 } }));
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1440, height: 900 } }));
   t.after(() => page.context().browser().close());
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
