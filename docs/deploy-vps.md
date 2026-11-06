@@ -157,3 +157,39 @@ After editing the environment file, run `systemctl --user restart learning-studi
 | User bus unavailable | Install from an actual login as `ale`, not a root shell; ensure systemd user services are available. |
 | Pi not found or not authenticated | Check the env file's full `PATH`, profile setup and the user's own Pi login. |
 | HTTPS check fails | `docker logs learning-studio-caddy`; confirm the ZeroTier interface is up (`zerotier-cli listnetworks`) and the certificate still lists `IP:10.154.59.151`. Do not touch the other Caddy containers. |
+
+## Branch preview
+
+A preview shows one branch at a time on the ZeroTier network, without the vault,
+Pi or the production credentials. It serves the studio's own UI over fixture
+data with the tutor disabled; it is not a second production studio.
+
+The pieces live in `deploy/preview`:
+
+| File | Role |
+| --- | --- |
+| `preview.mjs` | Entrypoint inside the container: fixture root, studio with `agentDisabled`, two Unix relays. |
+| `relay.mjs` | Forwards a Unix socket to a loopback port and makes the socket world-writable, so the proxy user can connect. |
+| `sandbox.mjs` | Docker arguments: no network, read-only root and sources, non-root, no capabilities, resource limits. |
+| `launcher.mjs` | Validates the provisioned workspace, identity and image, then spawns Docker without a shell. |
+| `lifecycle.mjs`, `coordinator.mjs` | One slot: freshness, ownership-scoped close, blocked state after an ambiguous failure. |
+| `proxy.mjs` | Two HTTPS sites bound to one address, internal TLS, Unix upstreams. |
+
+Prerequisites the operator owns, because no code here can prove them: a
+dedicated workspace whose contents are disposable, an image the operator has
+verified, an identity that is not the production user, and one host-wide lock so
+only one preview runs. A branch's own code cannot be trusted to honour
+`STUDIO_AGENT_DISABLED`; the container is the boundary.
+
+The first real run used uid 65534, `--network=none`, a read-only branch mount and
+an exec `/tmp` tmpfs. Inside it, `fetch` to the internet failed, `/home/ale`,
+`/home/ale/Learnings`, `/home/ale/.pi` and `/var/run/docker.sock` were absent,
+and the studio answered 302 through the relay for its allowed Host while the
+production service stayed healthy. That is evidence for those properties only: it
+does not prove the proxy, the firewall or the lifecycle.
+
+## Branch preview
+
+A preview shows one branch at a time, on the ZeroTier network, without the vault,
+Pi or the production credentials. It is not a replacement for the studio: the
+preview serves the studios

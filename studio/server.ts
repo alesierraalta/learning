@@ -76,6 +76,8 @@ export interface StudioOptions {
   /** Pi command line; the default resumes the studio's own persistent conversation. */
   piCommand?: string[];
   agyCommand?: string[];
+  /** Disable the tutor process and tutor actions; this is not a sandbox. */
+  agentDisabled?: boolean;
   port?: number;
   publicOrigin?: string;
   bridgePublicOrigin?: string;
@@ -395,6 +397,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   const write = (command: Json) => {
+    if (options.agentDisabled) throw new HttpError(503, "the tutor is disabled");
     if (!child || !alive) throw new HttpError(503, "the tutor is not running");
     child.stdin.write(`${JSON.stringify(command)}\n`);
   };
@@ -695,6 +698,7 @@ ${scripts}
       case "api/sugerencias":
         return sendJson(res, 200, recordSugerencia(root, body));
       case "api/regenerar": {
+        if (options.agentDisabled) throw new HttpError(503, "the tutor is disabled");
         if (!isRecord(body)) throw new HttpError(400, "invalid regeneration");
         const tema = typeof body.tema === "string" ? body.tema : "";
         const parte = typeof body.parte === "string" ? body.parte : "";
@@ -840,7 +844,9 @@ ${scripts}
         break;
       }
       case "restart":
+        if (options.agentDisabled) throw new HttpError(503, "the tutor is disabled");
         // Restart is the escape hatch for a turn that never settles, so it works while busy.
+        if (alive) child?.kill();
         startTutor(tutor);
         break;
       default:
@@ -1042,7 +1048,7 @@ ${scripts}
     throw new Error("the study-view bridge returned an invalid origin");
   }
   if (!bridgeOrigin) throw new Error("the study-view bridge did not start");
-  startTutor(tutor);
+  if (!options.agentDisabled) startTutor(tutor);
 
   return {
     url: `http://127.0.0.1:${port}/${token}/`,
@@ -1072,6 +1078,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const publicOrigin = process.env.STUDIO_PUBLIC_ORIGIN;
   const studio = await startStudio({
     root: process.env.LEARNING_ROOT?.trim() || undefined,
+    agentDisabled: process.env.STUDIO_AGENT_DISABLED === "1",
     port: Number(process.env.STUDIO_PORT) || 4747,
     publicOrigin,
     transcriberUrl: process.env.STUDIO_TRANSCRIBER_URL,

@@ -1150,3 +1150,23 @@ test("a regeneration that is refused never moves the part", async () => {
   assert.equal(existsSync(join(root, ".papelera")), false, "a refused regeneration left a backup behind");
   assert.equal(received().some((line) => line.type === "prompt"), false, "the tutor was asked to rewrite a part that failed");
 });
+
+
+test("disabled tutor cannot start or restart, while the reader remains available", async () => {
+  const { studio, root, received } = await setup({ agentDisabled: true });
+  const page = await http(`${studio.url}api/view?topic=redes&part=p1`);
+  assert.equal(page.status, 200, page.body);
+  const prompt = await post(studio, "prompt", { text: "Hello" });
+  assert.equal(prompt.status, 503);
+  assert.equal(JSON.parse(prompt.body).error, "the tutor is disabled");
+  const restart = await post(studio, "restart", {});
+  assert.equal(restart.status, 503);
+  assert.equal(JSON.parse(restart.body).error, "the tutor is disabled");
+  const part = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
+  const before = readFileSync(part, "utf8");
+  const regenerate = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "shorter" });
+  assert.equal(regenerate.status, 503);
+  assert.equal(JSON.parse(regenerate.body).error, "the tutor is disabled");
+  assert.equal(readFileSync(part, "utf8"), before);
+  assert.deepEqual(received(), []);
+});
