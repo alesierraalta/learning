@@ -150,6 +150,25 @@ test("the selected Antigravity tutor answers a conversation", async () => {
   } finally { stream.close(); }
 });
 
+test("an Antigravity write or edit reaches the chat as the note and topic it touched", async () => {
+  const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "writing-agy.mjs")] });
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1" })).status, 200);
+    await stream.next("assistant_end");
+    await stream.next("state", data => data.busy === false);
+    const ends = stream.events.filter(event => event.name === "tool" && event.data.phase === "end").map(event => event.data);
+    assert.deepEqual(ends.map(({ name, ok, note, topic }) => ({ name, ok, note, topic })), [
+      { name: "write", ok: true, note: { topic: "redes", index: 1 }, topic: "redes" },
+      { name: "edit", ok: true, note: undefined, topic: "redes" },
+    ]);
+    assert.equal(stream.events.filter(event => event.name === "tool" && event.data.phase === "start").length, 2, "one start per step");
+  } finally { stream.close(); }
+});
+
 test("a deep turn is refused for a topic the engine does not track, and reached for one it does", async () => {
   const { studio, root, received } = await setup();
   // A topic the learner can see but never enrolled: no .learning/state.json to track it.
