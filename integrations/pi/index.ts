@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { registerBridge } from "./bridge.ts";
+import { PASS_STATUSES, failCheckIds } from "./gate-rules.ts";
 import { resolveContained, safeTopic } from "./paths.ts";
 
 const execFileP = promisify(execFileCb);
@@ -32,7 +33,6 @@ const ENTRY_TYPE = "gentle-learning/enrollment";
 const GATE_TYPE = "gentle-learning/settle-gate";
 const ENGINE_TIMEOUT_MS = 120_000;
 const MAX_CORRECTIONS = 2;
-const PASS_STATUSES = new Set(["accepted", "completed", "waiting", "skipped"]);
 const CHECK_STATUSES = new Set(["PASS", "FAIL", "SKIP"]);
 /** Topic files only an enrolled run may hold: the plan and the diagnosis. */
 const ENROLLED_FILES = new Set(["plan.json", "quiz.json"]);
@@ -218,10 +218,6 @@ interface AdapterState {
 }
 
 const inactiveState = (): AdapterState => ({ phase: "inactive", corrections: 0 });
-
-function failCheckIds(report: EngineReport): string[] {
-  return (report.checks ?? []).filter((check) => check.status === "FAIL").map((check) => check.id);
-}
 
 function failureContent(report: EngineReport): string {
   const lines = [

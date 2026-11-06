@@ -3,7 +3,7 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { request, createServer } from "node:http";
 import { dirname, join } from "node:path";
@@ -69,6 +69,128 @@ function http(url, { method = "GET", headers = {}, body } = {}) {
     req.end();
   });
 }
+
+test("the selected Antigravity tutor answers a conversation", async () => {
+  const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    const selected = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" });
+    assert.equal(selected.status, 200, selected.body);
+    const response = await post(studio, "prompt", { text: "Hola" });
+    assert.equal(response.status, 200, response.body);
+    const answer = await stream.next("assistant_end", data => data.text === "Respuesta de Antigravity");
+    assert.equal(answer.text, "Respuesta de Antigravity");
+    await stream.next("state", data => data.busy === true);
+    await stream.next("state", data => data.busy === false);
+    const reopened = sse(`${studio.url}events`);
+    try {
+      const history = await reopened.next("history");
+      assert.deepEqual(history.messages.map(message => message.text), ["Hola", "Respuesta de Antigravity"]);
+    } finally { reopened.close(); }
+  } finally { stream.close(); }
+});
+
+test("a deep turn is refused for a topic the engine does not track, and reached for one it does", async () => {
+  const { studio, root, received } = await setup();
+  // A topic the learner can see but never enrolled: no .learning/state.json to track it.
+  mkdirSync(join(root, "sin-inscribir"), { recursive: true });
+  writeFileSync(join(root, "sin-inscribir", "plan.json"), JSON.stringify({ topic: "Sin inscribir", parts: [] }));
+  const refused = await post(studio, "prompt", { text: "Hola", tema: "sin-inscribir" });
+  assert.equal(refused.status, 400, refused.body);
+  assert.match(JSON.parse(refused.body).error, /not enrolled/);
+  assert.equal(received().length, 0, "a refused deep turn never reaches the tutor");
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const accepted = await post(studio, "prompt", { text: "Hola", tema: "redes" });
+  assert.equal(accepted.status, 200, accepted.body);
+  assert.equal(received().filter((command) => command.type === "prompt").length, 1);
+});
+
+test("Antigravity's deep turn goes through the engine gate and a failed gate blocks the next one", async () => {
+  const { root, engine, log } = makeRoot({ status: { status: "failed", stage: "explanation", nextStage: "explanation", checks: [{ id: "p1", status: "FAIL" }] } });
+  const calls = join(root, "engine-calls.log");
+  const counting = join(root, "counting-engine.sh");
+  writeFileSync(counting, `#!/bin/sh\necho "$@" >> ${JSON.stringify(calls)}\nexec ${JSON.stringify(engine)} "$@"\n`);
+  chmodSync(counting, 0o755);
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: counting, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Hola", tema: "redes" })).status, 200);
+    const gate = await stream.next("gate");
+    assert.equal(gate.tema, "redes");
+    assert.equal(gate.passing, false);
+    assert.deepEqual(gate.fails, ["p1"]);
+    assert.equal(readFileSync(calls, "utf8").trim().split("\n").length, 1, "the engine is asked once, not once per provider");
+    await stream.next("state", data => data.busy === false);
+    const blocked = await post(studio, "prompt", { text: "Otra vez", tema: "redes" });
+    assert.equal(blocked.status, 409, blocked.body);
+    // The engine is asked again before the refusal, so a topic that passes is released.
+    writeFileSync(engine, `#!/bin/sh\necho '{"status":"waiting","stage":"diagnosis","nextStage":"diagnosis"}'\n`);
+    assert.equal((await post(studio, "prompt", { text: "Sigo", tema: "redes" })).status, 200);
+    // Two passing verdicts follow: the re-check before the turn, then its settle gate.
+    await stream.next("gate", (data) => data.passing === true);
+    await stream.next("gate", (data) => data.passing === true);
+    // A general question is outside the gate: it is never refused for a failed deep turn.
+    const general = await post(studio, "prompt", { text: "¿Y un hash?" });
+    assert.equal(general.status, 200, general.body);
+  } finally { stream.close(); }
+});
+
+test("a refused prompt leaves the running turn alone, and restart recovers a busy tutor", async () => {
+  const { root, engine, log } = makeRoot({ status: { status: "failed", stage: "explanation", nextStage: "explanation", checks: [{ id: "p1", status: "FAIL" }] } });
+  // A tutor whose turn never settles on its own: only a restart gets the studio back.
+  const slow = join(root, "slow-agy.sh");
+  writeFileSync(slow, `#!/bin/sh\necho '{"type":"init","conversation_id":"c1"}'\nsleep 5\n`);
+  chmodSync(slow, 0o755);
+  mkdirSync(join(root, "hash", ".learning"), { recursive: true });
+  writeFileSync(join(root, "hash", "plan.json"), JSON.stringify({ topic: "Hash", parts: [] }));
+  writeFileSync(join(root, "hash", ".learning", "state.json"), "{}\n");
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: ["/bin/sh", slow] });
+  open.push(studio);
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Hola", tema: "redes" })).status, 200);
+    await stream.next("state", (data) => data.busy === true);
+    // A refused turn must not repoint the gate of the turn already running.
+    assert.equal((await post(studio, "prompt", { text: "Otra", tema: "hash" })).status, 409);
+    assert.equal(JSON.parse((await http(`${studio.url}api/tema`)).body).tema, "redes");
+    assert.equal((await post(studio, "restart", {})).status, 200);
+    // The restarted tutor accepts a turn again, which the wedged one could not.
+    assert.equal((await post(studio, "prompt", { text: "Hola de nuevo", tema: "redes" })).status, 200);
+  } finally { stream.close(); }
+});
+
+test("tutor settings default to Pi and persist the selected Antigravity provider", async () => {
+  const { studio } = await setup();
+  const initial = await http(`${studio.url}api/tutor`);
+  assert.equal(initial.status, 200);
+  assert.equal(JSON.parse(initial.body).agente, "pi");
+  const settings = { version: 1, agente: "agy", modelo: "", pensamiento: "" };
+  const saved = await post(studio, "api/tutor", settings);
+  assert.equal(saved.status, 200, saved.body);
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), settings);
+  // Antigravity cannot apply "minimal": that level is refused, never silently dropped.
+  const unsupported = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "minimal" });
+  assert.equal(unsupported.status, 400);
+  assert.match(JSON.parse(unsupported.body).error, /Antigravity does not accept the thinking level/);
+  const low = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "low" });
+  assert.equal(low.status, 200, low.body);
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), { version: 1, agente: "agy", modelo: "", pensamiento: "low" });
+  // Pi keeps the levels Antigravity lacks.
+  assert.equal((await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "minimal" })).status, 200);
+});
 
 test("preferences API seeds, saves, and rejects invalid changes without modifying the file", async () => {
   const { studio, root } = await setup();

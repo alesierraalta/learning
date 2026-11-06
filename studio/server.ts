@@ -39,6 +39,9 @@ import { resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
+import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
+import { createAgy } from "./agy.ts";
+import { checkDeep, enrolled } from "./gate.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, tutorContext, validateSugerencia } from "./sugerencias.ts";
@@ -72,6 +75,7 @@ export interface StudioOptions {
   root?: string;
   /** Pi command line; the default resumes the studio's own persistent conversation. */
   piCommand?: string[];
+  agyCommand?: string[];
   port?: number;
   publicOrigin?: string;
   bridgePublicOrigin?: string;
@@ -222,7 +226,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   if (options.token !== undefined && !TOKEN_SHAPE.test(options.token)) throw new Error("token must be 64 lowercase hex characters");
   const root = contained.rootReal;
   // Its own session id: terminal sessions in the same folder are never written by two processes.
-  const piCommand = options.piCommand ?? ["pi", "--mode", "rpc", "--session-id", "estudio"];
+  let tutor = readTutor(root);
+  const piCommand = () => options.piCommand ?? ["pi", "--mode", "rpc", "--session-id", "estudio", ...(tutor.modelo ? ["--model", tutor.modelo] : []), ...(tutor.pensamiento ? ["--thinking", tutor.pensamiento] : [])];
   const enginePath = options.enginePath ?? join(REPO, "bin", "learning");
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
   const token = options.token ?? randomBytes(32).toString("hex");
@@ -239,6 +244,14 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 
   // ---- Pi child (JSONL RPC) ----------------------------------------------
   let child: ChildProcessWithoutNullStreams | undefined;
+  /** Antigravity keeps its conversation per process, so the studio keeps what the learner read. */
+  let agy: ReturnType<typeof createAgy> | undefined;
+  const agyTurns: Array<{ role: "user" | "assistant"; text: string }> = [];
+  /** The topic the learner picked for deep tutoring; general chat and quick notes never set it. */
+  let tema: string | null = null;
+  let gateBlocked = false;
+  /** The topic this turn teaches, so a general question is never charged to a deep topic. */
+  let turnTema: string | null = null;
   let alive = false;
   let busy = false;
   let nextId = 0;
@@ -266,6 +279,13 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         busy = false;
         toolArgs.clear();
         emit("state", state());
+        // Pi runs this same check inside its settle gate; a provider without that hook gets it here.
+        // The topic is taken and cleared first: a later prompt must not decide what this turn taught.
+        {
+          const settled = turnTema;
+          turnTema = null;
+          if (agy && settled) void runGate(settled);
+        }
         emit("library_changed", {});
         return;
       case "message_start": {
@@ -286,6 +306,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         if (isRecord(message) && message.role === "assistant") {
           const text = messageText(message);
           if (text) emit("assistant_end", { id: assistantId, text });
+          if (agy && text) agyTurns.push({ role: "assistant", text });
         }
         return;
       }
@@ -331,7 +352,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   const startPi = () => {
-    const [cmd, ...args] = piCommand;
+    const [cmd, ...args] = piCommand();
     const proc = spawn(cmd, args, {
       cwd: root,
       env: { ...process.env, GENTLE_SHELL_INTERACTIVE_HOST: "1" },
@@ -398,8 +419,50 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       }
     });
 
+  const startTutor = (config: TutorConfig) => {
+    const previous = child;
+    child = undefined;
+    previous?.kill();
+    for (const resolve of waiting.values()) resolve({ success: false, error: "Tutor restarted" });
+    waiting.clear();
+    agy?.stop();
+    agy = undefined;
+    tutor = config;
+    if (config.agente === "pi") startPi();
+    else {
+      agy = createAgy({ command: options.agyCommand ?? ["agy"], cwd: root, config, onRecord: handle, onError: message => emit("error", { message }) });
+      alive = true;
+      busy = false;
+      emit("state", state());
+    }
+  };
+
+  /** A deep topic must be one the engine tracks; anything else would be tutored without a gate. */
+  const requireTopic = (value: unknown): string => {
+    if (typeof value !== "string" || !value) throw new HttpError(400, "tema must be a string");
+    if (!listTopics(root).some((t) => t.id === value)) throw new HttpError(404, `unknown topic: ${value}`);
+    if (!enrolled(root, value)) throw new HttpError(400, `topic ${value} is not enrolled in the learning engine`);
+    return value;
+  };
+
+  const runGate = async (topic: string) => {
+    const verdict = await checkDeep({ root, topic, enginePath, rulesPath });
+    // A gate for a topic the learner already left says nothing about the one they are on.
+    if (tema === topic) {
+      gateBlocked = !verdict.passing;
+      emit("gate", { tema: topic, ...verdict });
+    }
+    return verdict;
+  };
+
   /** A prompt while Pi works is queued until it finishes. */
   const prompt = async (text: string) => {
+    if (agy) {
+      // Antigravity refuses a second turn while it works: the transcript grows only after that.
+      agy.prompt(text);
+      agyTurns.push({ role: "user", text });
+      return;
+    }
     const reply = await call(busy ? { type: "prompt", message: text, streamingBehavior: "followUp" } : { type: "prompt", message: text });
     if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi rejected the prompt"));
   };
@@ -654,12 +717,37 @@ ${scripts}
         }
         return sendJson(res, 200, { ok: true, global: saveGlobalTelemetry(root, body) });
       }
+      case "api/tutor": {
+        if (busy) throw new HttpError(409, "the tutor is busy");
+        const config = saveTutor(root, body);
+        startTutor(config);
+        return sendJson(res, 200, config);
+      }
+      case "api/tema": {
+        if (busy) throw new HttpError(409, "the tutor is busy");
+        tema = requireTopic(body.tema);
+        gateBlocked = false;
+        return sendJson(res, 200, { tema });
+      }
       case "prompt": {
         const text = body.text;
         if (typeof text !== "string" || !text.trim() || text.length > MAX_PROMPT_CHARS) {
           throw new HttpError(400, `text must be non-empty, at most ${MAX_PROMPT_CHARS} characters`);
         }
+        // Nothing here moves the studio's state before the turn is accepted: a refused prompt
+        // must neither clear the gate of the turn in flight nor repoint it at another topic.
+        const deep = body.tema === undefined ? null : requireTopic(body.tema);
+        if (deep !== null && deep === tema && gateBlocked) {
+          // A blocked topic is re-asked before it is refused, so passing releases it again.
+          const verdict = await runGate(deep);
+          if (!verdict.passing) throw new HttpError(409, `the engine did not accept the last deep turn on ${deep}`);
+        }
         await prompt(text.trim());
+        if (deep !== null) {
+          tema = deep;
+          gateBlocked = false;
+        }
+        turnTema = deep;
         break;
       }
       case "dialog": {
@@ -676,7 +764,8 @@ ${scripts}
         break;
       }
       case "abort":
-        await call({ type: "abort" }, 60000);
+        if (agy) agy.abort();
+        else await call({ type: "abort" }, 60000);
         break;
       case "api/draft": {
         const written = (value: unknown) => (typeof value === "string" ? value : "");
@@ -751,8 +840,8 @@ ${scripts}
         break;
       }
       case "restart":
-        if (alive) child?.kill();
-        startPi();
+        // Restart is the escape hatch for a turn that never settles, so it works while busy.
+        startTutor(tutor);
         break;
       default:
         throw new HttpError(404, "not found");
@@ -761,7 +850,7 @@ ${scripts}
   };
 
   const history = async (): Promise<{ messages: Json[]; note: Note | null }> => {
-    if (!alive) return { messages: [], note: null };
+    if (!alive || agy) return { messages: agy ? [...agyTurns] : [], note: null };
     try {
       const reply = await call({ type: "get_messages" }, 10000);
       const raw = isRecord(reply.data) && Array.isArray(reply.data.messages) ? reply.data.messages : [];
@@ -832,6 +921,10 @@ ${scripts}
         return sendJson(res, 200, await library());
       case "api/preferences":
         return sendJson(res, 200, readPreferences(root));
+      case "api/tutor":
+        return sendJson(res, 200, readTutor(root));
+      case "api/tema":
+        return sendJson(res, 200, { tema });
       case "api/preferences/candidatos": {
         const preferences = readPreferences(root);
         const taken = new Set([...preferences.aspectos.map((a) => a.id), ...(preferences.rechazados ?? [])]);
@@ -949,7 +1042,7 @@ ${scripts}
     throw new Error("the study-view bridge returned an invalid origin");
   }
   if (!bridgeOrigin) throw new Error("the study-view bridge did not start");
-  startPi();
+  startTutor(tutor);
 
   return {
     url: `http://127.0.0.1:${port}/${token}/`,
@@ -960,6 +1053,7 @@ ${scripts}
       const proc = child;
       child = undefined;
       proc?.kill();
+      agy?.stop();
       for (const handler of shutdownHandlers) await handler();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
