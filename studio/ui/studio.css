@@ -364,6 +364,10 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
   .hero, .topic-head, .how { grid-template-columns: minmax(0, 1fr); }
   .hero > *, .topic-head > *, .how > * { min-width: 0; }
   .topic-head aside .aside-sticky { position: static; }
+  .reader-bar { flex-wrap: nowrap; }
+  .reader-bar .reader-action, .reader-bar .reader-mode { display: none; }
+  .reader-bar .reader-more { display: grid; flex: none; }
+  .reader-menu:not([hidden]) { display: flex; }
 }
 @media (max-width: 720px) {
   :root { --drawer: 100vw; --topbar: 54px; }

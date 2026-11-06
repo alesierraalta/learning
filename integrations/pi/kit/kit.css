@@ -185,8 +185,7 @@ input, select { accent-color: var(--accent); }
 select { padding: 6px 8px; border: 1px solid var(--ink); border-radius: 0; background: #fff; color: var(--ink); font-size: 14px; }
 main label { font-size: 14px; }
 /* Sin cajas: los componentes del kit se vuelven párrafos con filete. */
-lk-callout { padding: 0; border: 0; border-left: 0; border-radius: 0; background: none; }
-lk-callout[type] { border-left: 0; }
+lk-callout, lk-callout[type] { margin: 28px 0; padding: 0 0 0 18px; border: 0; border-left: 3px solid var(--accent); border-radius: 0; background: none; }
 .lk-title { font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 lk-widget { border: 1px solid var(--hair); border-radius: 0; padding: 18px 0 0; }
 lk-step { border-left: 1px solid var(--hair); padding: 4px 0 4px 16px; background: none; }
@@ -205,6 +204,9 @@ pre.mermaid { background: none; border: 0; }
 .lk-progress::-moz-progress-bar { background: var(--accent); }
 .lk-toc { border-bottom: 1px solid var(--hair); font-family: var(--sans); font-size: 12px; }
 .lk-toc summary { font-family: var(--sans); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+@media screen and (min-width: 1200px) {
+  body:not(.wide) main .lk-toc { position: fixed; top: 16px; left: calc(50% + 370px); width: 180px; max-height: calc(100vh - 32px); overflow-y: auto; border-left: 1px solid var(--hair); border-bottom: 0; padding-left: 16px; }
+}
 /* Quiz: campos llanos, sin tarjeta. */
 .lk-question { border: 0; padding: 0; border-radius: 0; margin: 30px 0; }
 legend { padding: 0; font-size: 20px; font-weight: 700; }
@@ -312,12 +314,13 @@ lk-figure figure { margin: 0; }
 .lk-figure-stage { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
 .lk-figure-stage svg { display: block; width: 100%; height: auto; }
 
-.lk-audio { padding:16px 20px; border:1px solid var(--rule); border-radius:8px; }
-.lk-audio-title { display:block; margin-bottom:10px; font-family:var(--sans,sans-serif); font-size:11px; font-weight:600; letter-spacing:.13em; text-transform:uppercase; }
-.lk-audio-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; padding:10px 0; border-top:1px solid var(--rule); }
+lk-video { margin:28px 0; padding:24px; border:1px solid var(--hair); background:var(--paper); }
+lk-audio { margin:28px 0; padding:20px 0; border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); }
+.lk-audio-title { display:block; margin-bottom:14px; font:600 15px var(--sans); }
+.lk-audio-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; padding:10px 0; border-top:1px solid var(--hair); }
 .lk-audio-row:first-of-type { border-top:0; padding-top:0; }
 .lk-audio-row:last-of-type { padding-bottom:0; }
-.lk-audio-style { flex:0 0 92px; font-family:var(--sans,sans-serif); font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
+.lk-audio-style { flex:0 0 100px; font:600 13px var(--sans); }
 .lk-audio-row audio { flex:1 1 260px; min-width:220px; }
 .lk-audio-download,
 .lk-audio-srt { font-family:var(--sans,sans-serif); font-size:12px; text-underline-offset:3px; }
