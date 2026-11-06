@@ -232,8 +232,14 @@
   function quiz() {
     if (!data.quiz) return;
     const diagnosis = data.kind === "diagnosis";
-    const section = element("section");
-    section.append(element("h2", diagnosis ? "Diagnóstico" : "Mini-quiz"));
+    const section = element("section", undefined, diagnosis ? "diagnosis" : undefined);
+    if (diagnosis) {
+      section.append(
+        element("p", "Antes de empezar · Diagnóstico", "part-kicker"),
+        element("h1", "¿Qué sabes hasta ahora?"),
+        element("p", "Responde con lo que sepas. Si no estás seguro, puedes elegir «No sé»: el tutor usará tus respuestas para adaptar el recorrido.")
+      );
+    } else section.append(element("h2", "Mini-quiz"));
     const form = element("form");
     form.noValidate = true;
     const recorded = new Map((data.answered || []).map((result) => [result.id, result]));
@@ -253,6 +259,7 @@
       }
       const field = element("fieldset", undefined, "quiz-question");
       const legend = element("legend");
+      if (diagnosis) legend.append(document.createTextNode(`${index + 1}. `));
       legend.append(markdown(question.enunciado, true));
       field.append(legend);
       if (typeof question.pieza?.contenido === "string") field.append(markdown(question.pieza.contenido));
@@ -495,8 +502,9 @@
   const embedded = window.self !== window.top;
   if (!embedded && data.topicBase) app.append(link(`← ${data.topicTitle || data.title}`, data.topicBase));
   else if (!embedded && data.kind !== "index") app.append(link("← Temas", data.home));
-  // A part note carries its own title.
-  if (data.kind !== "part") app.append(element("h1", data.title || "Learnings"));
+  // A part note and the diagnostic carry their own headings.
+  if (data.kind === "diagnosis") document.body.classList.add("diagnosis-page");
+  if (data.kind !== "part" && data.kind !== "diagnosis") app.append(element("h1", data.title || "Learnings"));
   if (data.kind === "code") { codePage(); return; }
   if (data.kind === "index" || data.kind === "topic") {
     const list = element("ul", undefined, "navigation");

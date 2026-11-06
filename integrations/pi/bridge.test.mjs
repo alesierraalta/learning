@@ -403,6 +403,43 @@ test('plain part and diagnosis share optional dictable reasoning', { skip: !play
   assert.match(asset.headers['content-type'], /javascript/);
 });
 
+test('diagnosis iframe presents the editorial layout and retains every question control', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { view } = await setup();
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
+  const result = await view({ topic: TOPIC, part: 'quiz' });
+  await page.goto(base(result));
+  await page.evaluate(url => {
+    const frame = document.createElement('iframe');
+    frame.src = url;
+    frame.style.cssText = 'width:100%;height:1800px;border:0';
+    document.body.append(frame);
+  }, result.structuredContent.url);
+  const frame = page.frameLocator('iframe');
+  const fields = frame.locator('fieldset.quiz-question');
+  await fields.first().waitFor();
+  assert.equal(await fields.count(), 3);
+  assert.equal(await frame.getByText('Ronda 1', { exact: true }).count(), 1);
+  assert.equal(await frame.getByText('Ronda 2', { exact: true }).count(), 1);
+  assert.equal(await fields.nth(0).locator('input[value=B]').isChecked(), true);
+  assert.equal(await fields.nth(0).locator('input[value=B]').isDisabled(), true);
+  for (const field of [fields.nth(1), fields.nth(2)]) {
+    assert.equal(await field.locator('input[type=radio][name^=question-]').count(), 5);
+    assert.equal(await field.locator('textarea').count(), 1);
+    assert.equal(await field.locator('.confidence input').count(), 3);
+  }
+  const heading = frame.getByRole('heading', { name: '¿Qué sabes hasta ahora?', exact: true });
+  assert.equal(await heading.count(), 1, 'diagnosis shows the approved editorial heading');
+  assert.equal(await heading.evaluate(node => getComputedStyle(node).fontSize), '34px');
+  const fieldStyle = await fields.nth(1).evaluate(node => ({
+    border: getComputedStyle(node).borderTopWidth,
+    width: node.getBoundingClientRect().width,
+  }));
+  assert.equal(fieldStyle.border, '1px');
+  assert.ok(fieldStyle.width <= 700, `diagnosis measure is ${fieldStyle.width}px`);
+});
+
 test('«No sé» needs no confidence and a framed submit notifies the studio', { skip: !playwright && 'playwright not installed' }, async t => {
   const { view } = await setup();
   const browser = await playwright.chromium.launch();
