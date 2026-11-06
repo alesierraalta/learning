@@ -280,7 +280,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         toolArgs.clear();
         emit("state", state());
         // Pi runs this same check inside its settle gate; a provider without that hook gets it here.
-        if (agy && turnTema) void runGate(turnTema);
+        // The topic is taken and cleared first: a later prompt must not decide what this turn taught.
+        {
+          const settled = turnTema;
+          turnTema = null;
+          if (agy && settled) void runGate(settled);
+        }
         emit("library_changed", {});
         return;
       case "message_start": {
@@ -443,16 +448,20 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const runGate = async (topic: string) => {
     const verdict = await checkDeep({ root, topic, enginePath, rulesPath });
     // A gate for a topic the learner already left says nothing about the one they are on.
-    if (tema !== topic) return;
-    gateBlocked = !verdict.passing;
-    emit("gate", { tema: topic, ...verdict });
+    if (tema === topic) {
+      gateBlocked = !verdict.passing;
+      emit("gate", { tema: topic, ...verdict });
+    }
+    return verdict;
   };
 
   /** A prompt while Pi works is queued until it finishes. */
   const prompt = async (text: string) => {
     if (agy) {
+      // Antigravity refuses a second turn while it works: the transcript grows only after that.
+      agy.prompt(text);
       agyTurns.push({ role: "user", text });
-      return agy.prompt(text);
+      return;
     }
     const reply = await call(busy ? { type: "prompt", message: text, streamingBehavior: "followUp" } : { type: "prompt", message: text });
     if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi rejected the prompt"));
@@ -725,17 +734,20 @@ ${scripts}
         if (typeof text !== "string" || !text.trim() || text.length > MAX_PROMPT_CHARS) {
           throw new HttpError(400, `text must be non-empty, at most ${MAX_PROMPT_CHARS} characters`);
         }
-        if (body.tema !== undefined) {
-          const picked = requireTopic(body.tema);
-          if (picked !== tema) {
-            tema = picked;
-            gateBlocked = false;
-          } else if (gateBlocked) {
-            throw new HttpError(409, `the engine did not accept the last deep turn on ${tema}`);
-          }
+        // Nothing here moves the studio's state before the turn is accepted: a refused prompt
+        // must neither clear the gate of the turn in flight nor repoint it at another topic.
+        const deep = body.tema === undefined ? null : requireTopic(body.tema);
+        if (deep !== null && deep === tema && gateBlocked) {
+          // A blocked topic is re-asked before it is refused, so passing releases it again.
+          const verdict = await runGate(deep);
+          if (!verdict.passing) throw new HttpError(409, `the engine did not accept the last deep turn on ${deep}`);
         }
-        turnTema = body.tema !== undefined ? tema : null;
         await prompt(text.trim());
+        if (deep !== null) {
+          tema = deep;
+          gateBlocked = false;
+        }
+        turnTema = deep;
         break;
       }
       case "dialog": {
@@ -828,7 +840,7 @@ ${scripts}
         break;
       }
       case "restart":
-        if (busy) throw new HttpError(409, "the tutor is busy");
+        // Restart is the escape hatch for a turn that never settles, so it works while busy.
         startTutor(tutor);
         break;
       default:

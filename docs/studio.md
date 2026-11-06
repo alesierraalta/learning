@@ -50,7 +50,11 @@ it atomically in `<LEARNING_ROOT>/tutor.json`. `agente` is `pi` or `agy`: Pi run
 `pi --mode rpc` and Antigravity runs `agy -p … --output-format stream-json`, one
 process per turn and `--conversation` for the turns after the first. `modelo` and
 `pensamiento` are empty by default, which leaves each CLI its own setting, and an
-unknown field, model name or thinking level is refused with 400.
+unknown field or model name is refused with 400. The thinking levels are per
+provider because the CLIs differ: Pi takes `off`, `minimal`, `low`, `medium`,
+`high`, `xhigh` and `max`, while Antigravity's `--effort` takes `low`, `medium`,
+`high`, `xhigh` and `max`. A level the chosen provider cannot apply is refused
+with 400 instead of being dropped.
 
 Deep tutoring names its topic instead of guessing it. The composer on a topic page
 sends `POST prompt {text, tema}`; the home chat and the quick notes send no `tema`
@@ -65,8 +69,10 @@ and no check reads `FAIL`. Pi applies it inside its settle gate, where it can al
 push the next stage; Antigravity has no such hook, so the studio applies the same
 rule once after `agent_settled` and streams a `gate` event with the verdict. Pi's
 gate is never run a second time. A failing verdict blocks the next deep turn on
-that topic with 409 until the topic passes or the learner selects another one;
-an engine that is missing or prints no report counts as failing.
+that topic with 409, but only after the engine is asked once more, so a topic that
+passes again is released; an engine that is missing or prints no report counts as
+failing. `POST api/restart` works while a turn is still running and replaces the
+tutor, which is the way out of a turn that never settles.
 
 ## Wide reading mode
 

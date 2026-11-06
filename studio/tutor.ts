@@ -7,6 +7,13 @@ import { resolveContained } from "../integrations/pi/paths.ts";
 export type TutorConfig = { version: 1; agente: "pi" | "agy"; modelo: string; pensamiento: string };
 const DEFAULT: TutorConfig = { version: 1, agente: "pi", modelo: "", pensamiento: "" };
 const LEVELS = ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"];
+/** What Antigravity's `--effort` accepts; a level outside this list would be dropped, so it is refused. */
+export const AGY_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+
+function supported(agente: "pi" | "agy", pensamiento: string): boolean {
+  if (agente !== "agy" || pensamiento === "") return LEVELS.includes(pensamiento);
+  return AGY_LEVELS.includes(pensamiento);
+}
 
 function validate(input: unknown): TutorConfig {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new HttpError(400, "invalid tutor settings");
@@ -16,6 +23,9 @@ function validate(input: unknown): TutorConfig {
       (data.modelo !== "" && !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,119}$/.test(data.modelo)) ||
       typeof data.pensamiento !== "string" || !LEVELS.includes(data.pensamiento)) {
     throw new HttpError(400, "invalid tutor settings");
+  }
+  if (!supported(data.agente, data.pensamiento)) {
+    throw new HttpError(400, `Antigravity does not accept the thinking level "${data.pensamiento}"; choose ${AGY_LEVELS.join(", ")} or leave it empty`);
   }
   return { version: 1, agente: data.agente, modelo: data.modelo, pensamiento: data.pensamiento };
 }
@@ -40,7 +50,13 @@ export function readTutor(root: string): TutorConfig {
     throw error;
   }
   try { return validate(JSON.parse(text)); }
-  catch { throw new HttpError(500, "invalid saved tutor settings"); }
+  catch (error) {
+    // A saved level the provider cannot apply is reported, never silently replaced.
+    if (error instanceof HttpError && error.status === 400 && error.message.startsWith("Antigravity does not accept")) {
+      throw new HttpError(500, `tutor.json: ${error.message}`);
+    }
+    throw new HttpError(500, "invalid saved tutor settings");
+  }
 }
 
 export function saveTutor(root: string, input: unknown): TutorConfig {

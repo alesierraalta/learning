@@ -131,8 +131,44 @@ test("Antigravity's deep turn goes through the engine gate and a failed gate blo
     await stream.next("state", data => data.busy === false);
     const blocked = await post(studio, "prompt", { text: "Otra vez", tema: "redes" });
     assert.equal(blocked.status, 409, blocked.body);
+    // The engine is asked again before the refusal, so a topic that passes is released.
+    writeFileSync(engine, `#!/bin/sh\necho '{"status":"waiting","stage":"diagnosis","nextStage":"diagnosis"}'\n`);
+    assert.equal((await post(studio, "prompt", { text: "Sigo", tema: "redes" })).status, 200);
+    // Two passing verdicts follow: the re-check before the turn, then its settle gate.
+    await stream.next("gate", (data) => data.passing === true);
+    await stream.next("gate", (data) => data.passing === true);
     // A general question is outside the gate: it is never refused for a failed deep turn.
-    assert.equal((await post(studio, "prompt", { text: "¿Y un hash?" })).status, 200);
+    const general = await post(studio, "prompt", { text: "¿Y un hash?" });
+    assert.equal(general.status, 200, general.body);
+  } finally { stream.close(); }
+});
+
+test("a refused prompt leaves the running turn alone, and restart recovers a busy tutor", async () => {
+  const { root, engine, log } = makeRoot({ status: { status: "failed", stage: "explanation", nextStage: "explanation", checks: [{ id: "p1", status: "FAIL" }] } });
+  // A tutor whose turn never settles on its own: only a restart gets the studio back.
+  const slow = join(root, "slow-agy.sh");
+  writeFileSync(slow, `#!/bin/sh\necho '{"type":"init","conversation_id":"c1"}'\nsleep 5\n`);
+  chmodSync(slow, 0o755);
+  mkdirSync(join(root, "hash", ".learning"), { recursive: true });
+  writeFileSync(join(root, "hash", "plan.json"), JSON.stringify({ topic: "Hash", parts: [] }));
+  writeFileSync(join(root, "hash", ".learning", "state.json"), "{}\n");
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: ["/bin/sh", slow] });
+  open.push(studio);
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Hola", tema: "redes" })).status, 200);
+    await stream.next("state", (data) => data.busy === true);
+    // A refused turn must not repoint the gate of the turn already running.
+    assert.equal((await post(studio, "prompt", { text: "Otra", tema: "hash" })).status, 409);
+    assert.equal(JSON.parse((await http(`${studio.url}api/tema`)).body).tema, "redes");
+    assert.equal((await post(studio, "restart", {})).status, 200);
+    // The restarted tutor accepts a turn again, which the wedged one could not.
+    assert.equal((await post(studio, "prompt", { text: "Hola de nuevo", tema: "redes" })).status, 200);
   } finally { stream.close(); }
 });
 
@@ -145,6 +181,15 @@ test("tutor settings default to Pi and persist the selected Antigravity provider
   const saved = await post(studio, "api/tutor", settings);
   assert.equal(saved.status, 200, saved.body);
   assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), settings);
+  // Antigravity cannot apply "minimal": that level is refused, never silently dropped.
+  const unsupported = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "minimal" });
+  assert.equal(unsupported.status, 400);
+  assert.match(JSON.parse(unsupported.body).error, /Antigravity does not accept the thinking level/);
+  const low = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "low" });
+  assert.equal(low.status, 200, low.body);
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), { version: 1, agente: "agy", modelo: "", pensamiento: "low" });
+  // Pi keeps the levels Antigravity lacks.
+  assert.equal((await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "minimal" })).status, 200);
 });
 
 test("preferences API seeds, saves, and rejects invalid changes without modifying the file", async () => {

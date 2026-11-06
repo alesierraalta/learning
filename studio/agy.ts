@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { HttpError } from "../integrations/pi/bridge.ts";
 import type { TutorConfig } from "./tutor.ts";
+import { AGY_LEVELS } from "./tutor.ts";
 
 type Json = Record<string, unknown>;
 const object = (value: unknown): value is Json => !!value && typeof value === "object" && !Array.isArray(value);
@@ -15,7 +16,12 @@ export function createAgy(options: { command: string[]; cwd: string; config: Tut
       if (proc) throw new HttpError(409, "Antigravity is busy");
       const args = ["-p", text, "--output-format", "stream-json", "--mode", "accept-edits"];
       if (options.config.modelo) args.push("--model", options.config.modelo);
-      if (["low", "medium", "high", "xhigh", "max"].includes(options.config.pensamiento)) args.push("--effort", options.config.pensamiento);
+      const effort = options.config.pensamiento;
+      if (effort) {
+        // Only a level the CLI applies is worth forwarding; the rest is refused, never dropped.
+        if (!AGY_LEVELS.includes(effort)) throw new HttpError(400, `Antigravity does not accept the thinking level "${effort}"`);
+        args.push("--effort", effort);
+      }
       if (conversation) args.push("--conversation", conversation);
       const [command, ...base] = options.command;
       const current = spawn(command, [...base, ...args], { cwd: options.cwd, stdio: ["pipe", "pipe", "pipe"] });
