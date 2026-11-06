@@ -71,7 +71,14 @@ export function createAgy(options: { command: string[]; cwd: string; config: Tut
         if (buffer.trim()) consume(buffer);
         proc = undefined;
         // Node closes a failed spawn with code -2; that is the same failure, already reported.
-        if (!stopped && !spawnFailed && code !== 0 && !result) options.onError(`Antigravity terminó con código ${code}`);
+        // A turn that produced no text is reported too: silence would look like a dead chat.
+        if (!stopped && !spawnFailed && !answer) {
+          options.onError(
+            !result && code !== 0
+              ? `Antigravity terminó con código ${code}`
+              : "Antigravity terminó sin responder; vuelve a intentarlo.",
+          );
+        }
         if (!stopped && answer) {
           if (!started) options.onRecord({ type: "message_start", message: { role: "assistant" } });
           options.onRecord({ type: "message_end", message: { role: "assistant", content: answer } });
