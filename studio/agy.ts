@@ -6,17 +6,36 @@ import { AGY_LEVELS } from "./tutor.ts";
 type Json = Record<string, unknown>;
 const object = (value: unknown): value is Json => !!value && typeof value === "object" && !Array.isArray(value);
 
-/** `agy models` prints one model id per line; that listing is the only catalogue there is. */
+/**
+ * `agy models` prints `<id>\t<label>` per model after a progress line; that listing is the only
+ * catalogue there is. A line without a tab counts only when it is a bare id.
+ */
 export function parseAgyModels(output: string): string[] {
   const seen = new Set<string>();
   const models: string[] = [];
   for (const line of output.split("\n")) {
-    const id = line.trim();
+    const id = line.split("\t")[0].trim();
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(id) || seen.has(id)) continue;
     seen.add(id);
     models.push(id);
   }
   return models;
+}
+
+/** agy's file tools under the names the studio offers notes and topics from. */
+const FILE_TOOLS: Record<string, string> = {
+  write_to_file: "write",
+  write_file: "write",
+  replace_file_content: "edit",
+  multi_replace_file_content: "edit",
+};
+
+/** One agy tool step as the studio's tool record: file tools carry the path they touched. */
+function toolCall(step: Json): { toolName: string; args: Json } {
+  const name = String(step.tool_name);
+  const info = object(step.tool_info) && object(step.tool_info.parameters) ? step.tool_info.parameters : {};
+  const path = [info.Path, info.TargetFile, info.AbsolutePath].find((value) => typeof value === "string");
+  return FILE_TOOLS[name] ? { toolName: FILE_TOOLS[name], args: { path } } : { toolName: name, args: info };
 }
 
 export function createAgy(options: { command: string[]; cwd: string; config: TutorConfig; onRecord: (record: Json) => void; onError: (message: string) => void }) {
@@ -45,6 +64,8 @@ export function createAgy(options: { command: string[]; cwd: string; config: Tut
       let result = false;
       /** A process that never started has no exit code: its failure is reported once, here. */
       let spawnFailed = false;
+      /** Steps whose start was reported, so each step starts and ends once. */
+      const running = new Set<string>();
       options.onRecord({ type: "agent_start" });
       options.onRecord({ type: "message_start", message: { role: "user", content: text } });
       const consume = (line: string) => {
@@ -57,6 +78,16 @@ export function createAgy(options: { command: string[]; cwd: string; config: Tut
           if (!started) { options.onRecord({ type: "message_start", message: { role: "assistant" } }); started = true; }
           answer += delta;
           options.onRecord({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta } });
+        }
+        if (record.event === "step_update" && object(record.step_update) && record.step_update.step_type === "tool") {
+          const step = record.step_update;
+          const toolCallId = `agy-${String(step.step_index)}`;
+          if (step.state === "ACTIVE") {
+            if (!running.has(toolCallId)) options.onRecord({ type: "tool_execution_start", toolCallId, ...toolCall(step) });
+            running.add(toolCallId);
+          } else if (running.delete(toolCallId)) {
+            options.onRecord({ type: "tool_execution_end", toolCallId, ...toolCall(step), isError: step.state !== "DONE" });
+          }
         }
         if (record.event === "result" && object(record.result)) {
           result = true;
