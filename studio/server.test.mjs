@@ -109,6 +109,25 @@ test("a missing Antigravity binary is one actionable error, not a fake exit code
   } finally { stream.close(); }
 });
 
+test("the Antigravity model catalogue is offered and the chosen model reaches the runtime", async () => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const argv = join(root, "agy-argv.log");
+  process.env.FAKE_AGY_ARGV = argv;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  open.push(studio);
+  // With Pi there is no Antigravity catalogue to offer.
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body), { modelos: [] });
+  assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body).modelos, ["gemini-3.8-flash-high", "claude-sonnet-4-6"]);
+  const saved = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "claude-sonnet-4-6", pensamiento: "" });
+  assert.equal(saved.status, 200, saved.body);
+  assert.equal(JSON.parse(saved.body).modelo, "claude-sonnet-4-6");
+  assert.equal((await post(studio, "prompt", { text: "Hola" })).status, 200);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.match(readFileSync(argv, "utf8"), /--model claude-sonnet-4-6/);
+});
+
 test("the selected Antigravity tutor answers a conversation", async () => {
   const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
   const stream = sse(`${studio.url}events`);
