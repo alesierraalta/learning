@@ -183,18 +183,18 @@
    * gets the theme in its address instead, which makes its first paint the right one.
    */
   const paintTheme = (button) => {
-    const dark = document.documentElement.dataset.theme === "dark";
-    const label = dark ? "Cambiar a modo claro" : "Cambiar a modo oscuro";
+    const current = document.documentElement.dataset.theme;
+    const label = current === "dark" ? "Cambiar a modo negro" : current === "black" ? "Cambiar a modo claro" : "Cambiar a modo oscuro";
     button.setAttribute("aria-label", label);
     button.title = label;
-    button.setAttribute("aria-pressed", String(dark));
-    button.replaceChildren(icon(dark ? "sun" : "moon"));
+    button.replaceChildren(icon(current === "black" ? "sun" : "moon"));
   };
   const themeButton = () => {
     const button = h("button", { class: "icon-btn theme-btn", type: "button" });
     paintTheme(button);
     button.addEventListener("click", () => {
-      const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      const current = document.documentElement.dataset.theme;
+      const next = current === "dark" ? "black" : current === "black" ? "light" : "dark";
       if (window.learningTheme?.set) window.learningTheme.set(next);
       else document.documentElement.dataset.theme = next;
       paintTheme(button);

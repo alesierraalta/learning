@@ -41,6 +41,8 @@
     },
   };
 
+  THEMES.black = { ...THEMES.dark, paper: "#000000" };
+
   function theme(name) {
     const found = THEMES[name];
     if (!found) throw new Error(`unknown theme "${name}" (themes: ${Object.keys(THEMES).join(", ")})`);
@@ -167,10 +169,12 @@
   function themeCss() {
     const light = themeBlock("light");
     const dark = themeBlock("dark");
+    const black = themeBlock("black");
     return [
       `svg,[data-theme]{${light}}`,
       `@media(prefers-color-scheme:dark){svg,[data-theme]{${dark}}}`,
       `[data-theme="dark"] svg,[data-theme="dark"]{${dark}}`,
+      `[data-theme="black"] svg,[data-theme="black"]{${black}}`,
       `[data-theme="light"] svg,[data-theme="light"]{${light}}`,
     ].join("");
   }
