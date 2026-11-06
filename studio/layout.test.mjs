@@ -52,6 +52,39 @@ async function sentPrompts(log) {
   return [];
 }
 
+test("dependency map presents real relationships in a horizontally scrollable mobile frame", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/panorama/redes/mapa`, { waitUntil: "networkidle" });
+
+  assert.equal(await page.getByRole("heading", { name: "Mapa de dependencias" }).count(), 1);
+  const map = page.locator(".pano-svg");
+  const scroll = await map.evaluate((svg) => {
+    for (let el = svg.parentElement; el; el = el.parentElement) {
+      if (el.scrollWidth > el.clientWidth && /auto|scroll/.test(getComputedStyle(el).overflowX)) {
+        el.scrollLeft = el.scrollWidth;
+        return el.scrollLeft > 0;
+      }
+    }
+    return false;
+  });
+  assert.ok(scroll, "the map itself scrolls horizontally on a phone");
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "the page does not overflow");
+  const edges = page.locator(".pano-edge");
+  assert.ok(await edges.count() > 0, "real dependency edges are drawn");
+  assert.notEqual(await edges.first().evaluate((edge) => getComputedStyle(edge).markerEnd), "none", "edges show direction");
+  await page.locator('[data-node="N1_1_1"]').click();
+  assert.match(await page.locator(".pano-detail").innerText(), /Necesita|Abre paso a/i);
+  const camera = page.locator(".pano-cam");
+  const before = await camera.getAttribute("transform");
+  await page.getByRole("button", { name: "Acercar" }).click();
+  assert.notEqual(await camera.getAttribute("transform"), before, "zoom changes the real graph camera");
+});
+
 test("panorama verdict colors and detail link follow recorded evidence (S12-S14)", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine } = makeRoot();
   writeFileSync(join(root, "redes", "diagnostico-conceptos.json"), JSON.stringify({ conceptos: [

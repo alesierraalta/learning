@@ -621,6 +621,39 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   .pano-detail { padding: 18px 16px; }
 }
 
+/* Editorial treatment is scoped to the dependency view, not the plan. */
+.pano-map .pano-head > .btn { align-self: flex-start; }
+.pano-map .pano-head > .eyebrow { margin-top: 28px; font: 11px/1.5 var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.pano-map .pano-head h1 { font-size: 48px; line-height: 1.1; letter-spacing: -.02em; font-weight: 400; margin-bottom: 16px; }
+.pano-intro { margin: 0 0 20px; max-width: 620px; font-size: 20px; line-height: 1.6; }
+.pano-map .pano-chips { margin-bottom: 8px; }
+.pano-map .pano-tabs { gap: 26px; border-bottom: 1px solid var(--line); margin: 24px 0 32px; overflow-x: auto; }
+.pano-map .pano-tab { flex: none; padding: 14px 0; margin-bottom: 0; border-bottom-width: 2px; font: 600 12px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.pano-map .pano-tab.on { color: var(--ink); border-bottom-color: var(--blue); }
+.pano-body-map { grid-template-columns: minmax(0, 1fr) 290px; gap: 28px; }
+.pano-body-map .pano-main { gap: 12px; }
+.pano-map-bar { align-items: end; }
+.pano-map-title { flex: 1; min-width: 220px; }
+.pano-map-title h2 { font-size: 30px; line-height: 1.2; }
+.pano-map-bar .pano-lead { margin: 6px 0 0; font: 13px/1.5 var(--sans); color: var(--muted); }
+.pano-controls { gap: 8px; }
+.pano-controls .icon-btn { border: 1px solid var(--ink); border-radius: 0; }
+.pano-scroll { min-width: 0; overflow-x: auto; border: 1px solid var(--line); }
+.pano-map .pano-canvas { border: 0; border-radius: 0; }
+.pano-map .pano-edge { stroke: var(--blue); opacity: 1; }
+.pano-map .pano-frame rect { fill: var(--paper); stroke-width: 1; }
+.pano-map .pano-detail { padding: 22px; border: 1px solid var(--line); border-radius: 0; }
+.pano-map .pano-detail .eyebrow { font: 11px/1.5 var(--sans); letter-spacing: .16em; font-variant: small-caps; color: var(--muted); }
+.pano-map .pano-detail h3 { font-size: 25px; font-weight: 400; }
+.pano-map .pano-legend { font: 13px/1.5 var(--sans); color: var(--muted); }
+@container stage (max-width: 1000px) {
+  .pano-body-map { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .pano-map .pano-head h1 { font-size: 38px; }
+  .pano-map .pano-canvas { min-width: 680px; touch-action: pan-x pan-y; }
+}
+
 /* ---------- the tutor over the page, and a finger as the pointer ---------- */
 .scrim { display: none; position: fixed; inset: var(--topbar) 0 0 0; z-index: 14; background: rgba(15, 46, 61, .28); }
 /* A finger needs 44px (Apple's minimum); a mouse keeps the compact controls. */
