@@ -70,6 +70,39 @@ function http(url, { method = "GET", headers = {}, body } = {}) {
   });
 }
 
+test("the selected Antigravity tutor answers a conversation", async () => {
+  const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    const selected = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" });
+    assert.equal(selected.status, 200, selected.body);
+    const response = await post(studio, "prompt", { text: "Hola" });
+    assert.equal(response.status, 200, response.body);
+    const answer = await stream.next("assistant_end", data => data.text === "Respuesta de Antigravity");
+    assert.equal(answer.text, "Respuesta de Antigravity");
+    await stream.next("state", data => data.busy === true);
+    await stream.next("state", data => data.busy === false);
+    const reopened = sse(`${studio.url}events`);
+    try {
+      const history = await reopened.next("history");
+      assert.deepEqual(history.messages.map(message => message.text), ["Hola", "Respuesta de Antigravity"]);
+    } finally { reopened.close(); }
+  } finally { stream.close(); }
+});
+
+test("tutor settings default to Pi and persist the selected Antigravity provider", async () => {
+  const { studio } = await setup();
+  const initial = await http(`${studio.url}api/tutor`);
+  assert.equal(initial.status, 200);
+  assert.equal(JSON.parse(initial.body).agente, "pi");
+  const settings = { version: 1, agente: "agy", modelo: "", pensamiento: "" };
+  const saved = await post(studio, "api/tutor", settings);
+  assert.equal(saved.status, 200, saved.body);
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), settings);
+});
+
 test("preferences API seeds, saves, and rejects invalid changes without modifying the file", async () => {
   const { studio, root } = await setup();
   const file = join(root, "preferencias.json");
