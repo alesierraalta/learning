@@ -1939,3 +1939,66 @@ test("two regenerations in the same millisecond keep both previous versions", ()
     .map((name) => readFileSync(join(root, ".papelera", name), "utf8"));
   assert.deepEqual(kept.sort(), ["<p>primera version</p>", "<p>segunda version</p>"]);
 });
+
+test("a rich page keeps its media controls inside the article and one number per index entry", { skip: playwright ? false : "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup();
+  mkdirSync(join(topic, "explicaciones"), { recursive: true });
+  writeFileSync(
+    join(topic, "explicaciones", "Parte 1 - Claves.html"),
+    `<!doctype html><html lang="es"><head><title>Claves</title></head><body><main>
+      <h1>Parte 5 — Tareas episódicas y continuas</h1>
+      <h2>1. Por qué existe</h2><p>${"Texto de la explicación. ".repeat(20)}</p>
+      <h2>2. El almacén es episódico</h2><p>${"Texto. ".repeat(30)}</p>
+      <h2>3. La cámara que no se apaga</h2><p>${"Texto. ".repeat(30)}</p>
+    </main></body></html>`,
+  );
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.goto(url);
+  await page.waitForTimeout(800);
+
+  const layout = await page.evaluate(() => {
+    const rect = (node) => {
+      const r = node.getBoundingClientRect();
+      return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), width: Math.round(r.width) };
+    };
+    const main = document.querySelector("main");
+    const audio = document.querySelector("lk-audio");
+    const video = document.querySelector("lk-video");
+    const toc = document.querySelector(".lk-toc");
+    return {
+      main: rect(main),
+      title: rect(main.querySelector("h1")),
+      audio: audio ? rect(audio) : null,
+      video: video ? rect(video) : null,
+      insideMain: !!document.querySelector("main lk-audio"),
+      toc: toc ? rect(toc) : null,
+      entries: [...document.querySelectorAll(".lk-toc li")].map((li) => li.textContent.trim()),
+      page: document.documentElement.scrollWidth,
+    };
+  });
+
+  // The audio and the video belong to the part: inside its measure, after the title.
+  assert.equal(layout.insideMain, true, "the audio control is outside the article");
+  for (const [name, control] of [["audio", layout.audio], ["video", layout.video]]) {
+    assert.ok(control, `the page lost its ${name} control`);
+    assert.ok(control.left >= layout.main.left - 1, `${name} starts left of the article: ${JSON.stringify(control)}`);
+    assert.ok(control.right <= layout.main.right + 1, `${name} spills past the article: ${JSON.stringify(control)}`);
+    assert.ok(control.top >= layout.title.top, `${name} sits above the title: ${JSON.stringify(control)}`);
+  }
+
+  // The list numbers the entries; a heading that already says "1." would count twice.
+  assert.deepEqual(layout.entries, ["Por qué existe", "El almacén es episódico", "La cámara que no se apaga"]);
+
+  // A 180 px column broke a title into a lone word on a desktop screen.
+  assert.ok(layout.toc.width >= 220, `the index is too narrow: ${layout.toc.width}px`);
+  assert.ok(layout.toc.left >= layout.main.right, "the index covers the article");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+  const phone = await page.evaluate(() => document.documentElement.scrollWidth);
+  assert.ok(phone <= 390, `the phone page overflows horizontally: ${phone}px`);
+  await shutdown();
+});

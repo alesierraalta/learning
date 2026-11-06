@@ -204,8 +204,8 @@ pre.mermaid { background: none; border: 0; }
 .lk-progress::-moz-progress-bar { background: var(--accent); }
 .lk-toc { border-bottom: 1px solid var(--hair); font-family: var(--sans); font-size: 12px; }
 .lk-toc summary { font-family: var(--sans); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-@media screen and (min-width: 1200px) {
-  body:not(.wide) main .lk-toc { position: fixed; top: 16px; left: calc(50% + 370px); width: 180px; max-height: calc(100vh - 32px); overflow-y: auto; border-left: 1px solid var(--hair); border-bottom: 0; padding-left: 16px; }
+@media screen and (min-width: 1360px) {
+  body:not(.wide) main .lk-toc { position: fixed; top: 16px; left: calc(50% + 370px); width: 240px; max-height: calc(100vh - 32px); overflow-y: auto; border-left: 1px solid var(--hair); border-bottom: 0; padding-left: 16px; }
 }
 /* Quiz: campos llanos, sin tarjeta. */
 .lk-question { border: 0; padding: 0; border-radius: 0; margin: 30px 0; }

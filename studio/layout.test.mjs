@@ -531,6 +531,28 @@ test("the reader bar keeps its controls in the row on a desktop (S3, S5)", { ski
   assert.deepEqual(seen.controls.map((c) => c.name).filter((name) => !saves.includes(name)), ["Volver", "Preguntar", "Sugerir", "Regenerar", "Borrar"]);
 });
 
+// The row must not starve the part's own name: the save control used to take
+// 339px of it, so a real title read "Parte 5 Ta…".
+test("the desktop reader bar shows the whole part title (S3)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const planPath = join(root, "redes", "plan.json");
+  const plan = JSON.parse(readFileSync(planPath, "utf8"));
+  plan.parts[0].title = "Tareas episódicas y continuas";
+  writeFileSync(planPath, JSON.stringify(plan));
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 800 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  const title = page.locator(".reader-bar .title");
+  await title.waitFor();
+  await page.waitForTimeout(300);
+  const seen = await title.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth, text: el.textContent }));
+  assert.ok(seen.client + 1 >= seen.scroll, `the part title is cut off: ${JSON.stringify(seen)}`);
+});
+
 test("reader actions remain reachable when the tutor narrows the desktop", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
