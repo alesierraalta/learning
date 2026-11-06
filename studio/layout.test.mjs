@@ -261,6 +261,30 @@ test("preferences are reachable, editable and fit a phone", { skip: browser ? fa
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
 
+test("the tutor teaches the topic its page is on, and the home chat stays general", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const selected = async () => (await (await fetch(`${studio.url}api/tema`)).json()).tema;
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.getByLabel("Mensaje para el tutor").fill("¿Qué es un hash?");
+  await page.getByLabel("Mensaje para el tutor").press("Enter");
+  await sentPrompts(log);
+  assert.equal(await selected(), null, "a general question never claims a deep topic");
+  await topicPage(page, studio, 1280);
+  await page.locator(".tutor-pill").click();
+  await page.getByLabel("Mensaje para el tutor").fill("Explícame las capas");
+  await page.getByLabel("Mensaje para el tutor").press("Enter");
+  for (let i = 0; i < 50 && (await selected()) !== "redes"; i++) await page.waitForTimeout(100);
+  assert.equal(await selected(), "redes", "the topic page binds the tutor to that topic");
+});
+
 test("topic learning route follows the editorial layout on desktop and phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;

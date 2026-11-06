@@ -133,14 +133,26 @@ the adapter's business.
    explicit blocked entry, no engine call, no continuation.
 3. `status` returns passing → silence (waiting is a legitimate pause, never completion;
    completion is the engine saying so).
-4. `status` returns a failing report → one `custom_message` correction entry; `continue:
-   true` only when `event.context.canContinue` **and** the budget (2 corrections per user
-   input, reset on `input` or on a passing status) is not exhausted.
+4. `status` returns a failing report → one `custom_message` correction entry with
+   `continue: true`. The handler does not gate on `event.context.canContinue`: Pi
+   computes it before the handler runs, so it is false at a normal end of turn;
+   Pi re-evaluates it after the gate's own message. The budget (2 corrections per
+   user input, reset on `input` or on a passing status) is what bounds the gate.
 5. Missing/malformed engine output → blocked entry and **no** continuation — an unavailable
    engine cannot be argued with, and the transcript keeps the explicit blocked status.
 
 Pi's lifecycle limits are accepted, not hidden: no infinite retry, no claim that prose is
 suppressed, no hard prohibition of assistant messages. Engine status remains the authority.
+
+## Provider parity
+
+The rule, not the transport, is shared: `integrations/pi/gate-rules.ts` holds the
+passing statuses and the failed-check rule. Pi applies it in its settle gate, which
+can also push the next stage. The studio applies the same rule for a tutor that has
+no settle hook (Antigravity), once per turn, and never a second time for Pi. The
+studio refuses a deep turn for a topic without `.learning/state.json`, so no
+provider can be tutored outside the gate; general conversation and quick notes name
+no topic and are never checked. See `docs/studio.md`.
 
 ## Study view (HTML)
 

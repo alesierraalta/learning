@@ -500,9 +500,10 @@
     try {
       // The file is what the learner chose; the candidates are what their own
       // answers suggest. The second is offered, never applied on its own.
-      const [data, found] = await Promise.all([
+      const [data, found, tutor] = await Promise.all([
         request("api/preferences"),
         request("api/preferences/candidatos").then((r) => r.candidatos ?? []).catch(() => []),
+        request("api/tutor"),
       ]);
       if (!page.isConnected) return;
       status.textContent = "";
@@ -536,17 +537,28 @@
               h("input", { type: "radio", name: aspect.id, value: level, checked: aspect.nivel === level, onchange: () => { aspect.nivel = level; status.textContent = ""; } }), level)))),
         );
       };
+      // Who tutors is a choice of its own: it restarts the tutor, so it is not part of the preferences file.
+      const agente = h("select", { name: "agente" },
+        h("option", { value: "pi", selected: tutor.agente === "pi" }, "Pi"),
+        h("option", { value: "agy", selected: tutor.agente === "agy" }, "Antigravity"));
+      const tutorField = h("fieldset", { class: "tutor-choice" },
+        h("legend", {}, "Quién te da la tutoría"),
+        h("div", { class: "preference-row" },
+          h("div", { class: "preference-description" },
+            h("p", { class: "muted" }, "El mismo motor comprueba tu trabajo con cualquiera de los dos.")),
+          h("div", { class: "preference-levels" }, agente)));
       const save = h("button", { class: "btn primary", type: "submit" }, "Guardar preferencias");
       const form = h("form", { class: "preferences-form", onsubmit: async (event) => {
         event.preventDefault();
         save.disabled = true;
         status.textContent = "Guardando…";
         try {
+          if (agente.value !== tutor.agente) await post("api/tutor", { ...tutor, agente: agente.value });
           await post("api/preferences", data);
           status.textContent = "Preferencias guardadas";
         } catch (error) { status.textContent = `No se pudo guardar: ${error.message}`; }
         finally { save.disabled = false; }
-      } }, data.aspectos.map(field), save);
+      } }, tutorField, data.aspectos.map(field), save);
       page.append(form);
     } catch (error) { if (page.isConnected) status.textContent = `No se pudieron cargar las preferencias: ${error.message}`; }
   }
@@ -1907,14 +1919,22 @@
       return typeof data.texto === "string" && data.texto ? `${text}\n\n${data.texto}` : text;
     } catch { return text; }
   };
-  async function say(text, tema) {
+  async function say(text, tema, { deep = false } = {}) {
     openDrawer();
     try {
-      await post("prompt", { text: tema ? await withContext(text, tema) : text });
+      const body = { text: tema ? await withContext(text, tema) : text };
+      // Deep tutoring names the topic so the engine checks that topic, never a guess.
+      if (deep && tema) body.tema = tema;
+      await post("prompt", body);
     } catch (error) {
       append(h("div", { class: "notice error" }, `No se pudo enviar: ${error.message}`));
     }
   }
+  /** The topic being taught right now: only its page binds the tutor, the rest of the app chats. */
+  const deepTopic = () => {
+    const [, view, a] = location.hash.split("/").map(decodeURIComponent);
+    return view === "tema" && a ? a : "";
+  };
   function grow() {
     composerText.style.height = "auto";
     composerText.style.height = `${Math.min(composerText.scrollHeight, 180)}px`;
@@ -1924,7 +1944,8 @@
     if (!text) return;
     composerText.value = "";
     grow();
-    say(text);
+    const tema = deepTopic();
+    say(text, tema || undefined, { deep: Boolean(tema) });
   };
   composerText.addEventListener("input", grow);
   composerText.addEventListener("keydown", (event) => {
