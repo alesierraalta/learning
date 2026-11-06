@@ -41,6 +41,7 @@ import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
 import { createAgy } from "./agy.ts";
+import { checkDeep, enrolled } from "./gate.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, tutorContext, validateSugerencia } from "./sugerencias.ts";
@@ -246,6 +247,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   /** Antigravity keeps its conversation per process, so the studio keeps what the learner read. */
   let agy: ReturnType<typeof createAgy> | undefined;
   const agyTurns: Array<{ role: "user" | "assistant"; text: string }> = [];
+  /** The topic the learner picked for deep tutoring; general chat and quick notes never set it. */
+  let tema: string | null = null;
+  let gateBlocked = false;
+  /** The topic this turn teaches, so a general question is never charged to a deep topic. */
+  let turnTema: string | null = null;
   let alive = false;
   let busy = false;
   let nextId = 0;
@@ -273,6 +279,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         busy = false;
         toolArgs.clear();
         emit("state", state());
+        // Pi runs this same check inside its settle gate; a provider without that hook gets it here.
+        if (agy && turnTema) void runGate(turnTema);
         emit("library_changed", {});
         return;
       case "message_start": {
@@ -422,6 +430,22 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       busy = false;
       emit("state", state());
     }
+  };
+
+  /** A deep topic must be one the engine tracks; anything else would be tutored without a gate. */
+  const requireTopic = (value: unknown): string => {
+    if (typeof value !== "string" || !value) throw new HttpError(400, "tema must be a string");
+    if (!listTopics(root).some((t) => t.id === value)) throw new HttpError(404, `unknown topic: ${value}`);
+    if (!enrolled(root, value)) throw new HttpError(400, `topic ${value} is not enrolled in the learning engine`);
+    return value;
+  };
+
+  const runGate = async (topic: string) => {
+    const verdict = await checkDeep({ root, topic, enginePath, rulesPath });
+    // A gate for a topic the learner already left says nothing about the one they are on.
+    if (tema !== topic) return;
+    gateBlocked = !verdict.passing;
+    emit("gate", { tema: topic, ...verdict });
   };
 
   /** A prompt while Pi works is queued until it finishes. */
@@ -690,11 +714,27 @@ ${scripts}
         startTutor(config);
         return sendJson(res, 200, config);
       }
+      case "api/tema": {
+        if (busy) throw new HttpError(409, "the tutor is busy");
+        tema = requireTopic(body.tema);
+        gateBlocked = false;
+        return sendJson(res, 200, { tema });
+      }
       case "prompt": {
         const text = body.text;
         if (typeof text !== "string" || !text.trim() || text.length > MAX_PROMPT_CHARS) {
           throw new HttpError(400, `text must be non-empty, at most ${MAX_PROMPT_CHARS} characters`);
         }
+        if (body.tema !== undefined) {
+          const picked = requireTopic(body.tema);
+          if (picked !== tema) {
+            tema = picked;
+            gateBlocked = false;
+          } else if (gateBlocked) {
+            throw new HttpError(409, `the engine did not accept the last deep turn on ${tema}`);
+          }
+        }
+        turnTema = body.tema !== undefined ? tema : null;
         await prompt(text.trim());
         break;
       }
@@ -871,6 +911,8 @@ ${scripts}
         return sendJson(res, 200, readPreferences(root));
       case "api/tutor":
         return sendJson(res, 200, readTutor(root));
+      case "api/tema":
+        return sendJson(res, 200, { tema });
       case "api/preferences/candidatos": {
         const preferences = readPreferences(root);
         const taken = new Set([...preferences.aspectos.map((a) => a.id), ...(preferences.rechazados ?? [])]);

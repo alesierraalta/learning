@@ -541,7 +541,7 @@
       const agente = h("select", { name: "agente" },
         h("option", { value: "pi", selected: tutor.agente === "pi" }, "Pi"),
         h("option", { value: "agy", selected: tutor.agente === "agy" }, "Antigravity"));
-      const tutorField = h("fieldset", { class: "preference" },
+      const tutorField = h("fieldset", { class: "tutor-choice" },
         h("legend", {}, "Quién te da la tutoría"),
         h("div", { class: "preference-row" },
           h("div", { class: "preference-description" },
@@ -1917,14 +1917,22 @@
       return typeof data.texto === "string" && data.texto ? `${text}\n\n${data.texto}` : text;
     } catch { return text; }
   };
-  async function say(text, tema) {
+  async function say(text, tema, { deep = false } = {}) {
     openDrawer();
     try {
-      await post("prompt", { text: tema ? await withContext(text, tema) : text });
+      const body = { text: tema ? await withContext(text, tema) : text };
+      // Deep tutoring names the topic so the engine checks that topic, never a guess.
+      if (deep && tema) body.tema = tema;
+      await post("prompt", body);
     } catch (error) {
       append(h("div", { class: "notice error" }, `No se pudo enviar: ${error.message}`));
     }
   }
+  /** The topic being taught right now: only its page binds the tutor, the rest of the app chats. */
+  const deepTopic = () => {
+    const [, view, a] = location.hash.split("/").map(decodeURIComponent);
+    return view === "tema" && a ? a : "";
+  };
   function grow() {
     composerText.style.height = "auto";
     composerText.style.height = `${Math.min(composerText.scrollHeight, 180)}px`;
@@ -1934,7 +1942,8 @@
     if (!text) return;
     composerText.value = "";
     grow();
-    say(text);
+    const tema = deepTopic();
+    say(text, tema || undefined, { deep: Boolean(tema) });
   };
   composerText.addEventListener("input", grow);
   composerText.addEventListener("keydown", (event) => {
