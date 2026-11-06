@@ -423,10 +423,12 @@
   });
   async function decorate() {
     const main = document.querySelector('main') || document.body;
-    const headings = [...main.querySelectorAll('h2')];
+    const prose = main.id === 'app' ? main.querySelector(':scope > .prose') : null;
+    const headings = [...(prose || main).querySelectorAll('h2')].filter(h => !prose || !h.closest('.video-block, .audio-block'));
     if (headings.length) {
       const toc = el('nav', undefined, { class: 'lk-toc', 'aria-label': 'Índice de lectura' });
       const details = el('details'), summary = el('summary', 'En esta parte'), list = el('ol');
+      details.open = true;
       headings.forEach((h, i) => { if (!h.id) h.id = `lk-section-${i + 1}`; const li = el('li'); li.append(el('a', h.textContent, { href: `#${h.id}` })); list.append(li); });
       details.append(summary, list); toc.append(details);
       const title = main.querySelector('h1');

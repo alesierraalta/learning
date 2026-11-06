@@ -384,6 +384,121 @@ test("the reader bar keeps its controls in the row on a desktop (S3, S5)", { ski
   assert.deepEqual(seen.controls.map((c) => c.name).filter((name) => !saves.includes(name)), ["Volver", "Preguntar", "Sugerir", "Regenerar", "Borrar"]);
 });
 
+test("reader actions remain reachable when the tutor narrows the desktop", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 800 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.waitForFunction(() => document.querySelector(".stage").getBoundingClientRect().width <= 1000);
+  const more = page.getByRole("button", { name: "Más acciones" });
+  assert.equal(await more.isVisible(), true, "the narrowed reader must expose the overflow menu");
+  const geometry = await page.locator(".reader-bar").evaluate((bar) => {
+    const box = bar.getBoundingClientRect();
+    return [...bar.querySelectorAll("button, select")].filter((node) => node.getBoundingClientRect().width > 0).map((node) => ({ name: node.getAttribute("aria-label"), right: node.getBoundingClientRect().right, barRight: box.right }));
+  });
+  for (const item of geometry) assert.ok(item.right <= item.barRight + 1, `${item.name} is clipped by the tutor`);
+  await more.click();
+  for (const name of ["Preguntar", "Sugerir", "Regenerar", "Borrar"]) assert.equal(await page.getByRole("menuitem", { name }).isVisible(), true, `${name} must remain reachable`);
+});
+
+test("the reading index follows the real markdown headings", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), "# Parte 1 — Capas\n\n> [!note] Conexión\n> Una explicación relacionada.\n\n## Por qué existe\n\nUna explicación.\n\n## Las piezas\n\nOtra explicación.\n");
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1440, height: 900 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  const frame = await (await page.waitForSelector("iframe.sheet[src]")).contentFrame();
+  const toc = frame.getByRole("navigation", { name: "Índice de lectura" });
+  assert.equal(await toc.count(), 1);
+  const callout = frame.locator(".callout");
+  assert.match(await callout.textContent(), /Conexión.*Una explicación relacionada/s);
+  assert.ok(parseFloat(await callout.evaluate((node) => getComputedStyle(node).borderLeftWidth)) >= 3, "the real callout needs the editorial accent rule");
+  assert.deepEqual(await toc.locator("a").allTextContents(), ["Por qué existe", "Las piezas"]);
+  const link = toc.getByRole("link", { name: "Las piezas" });
+  const target = await link.getAttribute("href");
+  assert.ok(target?.startsWith("#"));
+  assert.equal(await frame.locator(target).textContent(), "Las piezas");
+  const bounds = await frame.evaluate(() => {
+    const article = document.querySelector(".prose").getBoundingClientRect();
+    const index = document.querySelector(".lk-toc").getBoundingClientRect();
+    return { articleRight: article.right, indexLeft: index.left, indexRight: index.right, width: innerWidth };
+  });
+  assert.ok(bounds.indexLeft >= bounds.articleRight && bounds.indexRight <= bounds.width, "the index must sit beside the text without overlap");
+});
+
+test("the rich reader keeps its index and anchors on desktop and mobile", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.html"), "<!doctype html><html><head></head><body><main><h1>Capas</h1><lk-callout type=note>Una conexión real.</lk-callout><h2 id=existente>Primera sección</h2><p>Texto</p><h2>Segunda sección</h2></main></body></html>");
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1440, height: 900 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  const frame = await (await page.waitForSelector("iframe.sheet[src]")).contentFrame();
+  const toc = frame.getByRole("navigation", { name: "Índice de lectura" });
+  assert.deepEqual(await toc.locator("a").allTextContents(), ["Primera sección", "Segunda sección"]);
+  const callout = frame.locator("lk-callout");
+  assert.match(await callout.textContent(), /Una conexión real/);
+  assert.ok(parseFloat(await callout.evaluate((node) => getComputedStyle(node).borderLeftWidth)) >= 3, "the rich callout needs the editorial accent rule");
+  assert.equal(await toc.locator("a").first().getAttribute("href"), "#existente");
+  const desktop = await frame.evaluate(() => ({ index: document.querySelector(".lk-toc").getBoundingClientRect().left, main: document.querySelector("main").getBoundingClientRect().right, viewport: innerWidth, indexRight: document.querySelector(".lk-toc").getBoundingClientRect().right }));
+  assert.ok(desktop.index >= desktop.main && desktop.indexRight <= desktop.viewport);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobile = await frame.evaluate(() => ({ position: getComputedStyle(document.querySelector(".lk-toc")).position, right: document.querySelector(".lk-toc").getBoundingClientRect().right, width: innerWidth }));
+  assert.equal(mobile.position, "static");
+  assert.ok(mobile.right <= mobile.width);
+  assert.equal(await toc.getByRole("link", { name: "Segunda sección" }).isVisible(), true);
+});
+
+test("reader media uses editorial sections and keeps real controls on desktop and mobile", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const instance = await (browser.chromium ?? browser.default).launch();
+  t.after(() => instance.close());
+  for (const rich of [false, true]) {
+    const { root, engine, log } = makeRoot();
+    const attachments = join(root, "redes", "explicaciones", "adjuntos");
+    mkdirSync(join(attachments, "audio"), { recursive: true });
+    writeFileSync(join(attachments, "Parte 1 - Capas.mp4"), "video fixture");
+    writeFileSync(join(attachments, "audio", "Parte 1 - Capas - entrevista.m4a"), "audio fixture");
+    if (rich) writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.html"), "<!doctype html><html><head></head><body><main><h1>Capas</h1><lk-video></lk-video><lk-audio></lk-audio></main></body></html>");
+    process.env.FAKE_PI_LOG = log;
+    const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+    open.push(studio);
+    const page = await instance.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+    await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+    const frame = await (await page.waitForSelector("iframe.sheet[src]")).contentFrame();
+    const audio = frame.locator(rich ? "lk-audio" : ".audio-block");
+    const video = frame.locator(rich ? "lk-video" : ".video-block");
+    await video.locator("video[controls]").waitFor();
+    assert.equal(await audio.locator("audio[controls]").count(), 1);
+    assert.equal(await audio.getByRole("link", { name: "Descargar" }).count(), 1);
+    assert.equal(await audio.getByRole("button", { name: /Generar debate/ }).count(), 1);
+    for (const width of [1440, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      const layout = await audio.evaluate((node) => {
+        const style = getComputedStyle(node), box = node.getBoundingClientRect();
+        const player = node.querySelector("audio").getBoundingClientRect();
+        return { top: parseFloat(style.borderTopWidth), bottom: parseFloat(style.borderBottomWidth), left: box.left, right: box.right, playerLeft: player.left, playerRight: player.right, viewport: innerWidth };
+      });
+      assert.ok(layout.top >= 1 && layout.bottom >= 1, `${rich ? "rich" : "markdown"} audio needs editorial rules`);
+      assert.ok(layout.left >= 0 && layout.right <= layout.viewport && layout.playerLeft >= layout.left && layout.playerRight <= layout.right + 1, JSON.stringify(layout));
+      assert.ok(parseFloat(await video.evaluate((node) => getComputedStyle(node).borderTopWidth)) >= 1, "video needs its editorial frame");
+    }
+    await page.close();
+  }
+});
+
 test("the home ask field and section headings fit a phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
