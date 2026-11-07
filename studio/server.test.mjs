@@ -142,7 +142,9 @@ test("the model catalogue follows the provider selected in the page, not the sav
 });
 
 test("the selected Antigravity tutor answers a conversation", async () => {
-  const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  const { studio, root } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  const argv = join(root, "agy-argv.log");
+  process.env.FAKE_AGY_ARGV = argv;
   const stream = sse(`${studio.url}events`);
   try {
     await stream.next("history");
@@ -160,6 +162,13 @@ test("the selected Antigravity tutor answers a conversation", async () => {
       const history = await reopened.next("history");
       assert.deepEqual(history.messages.map(message => message.text), ["Hola", "Respuesta de Antigravity"]);
     } finally { reopened.close(); }
+    // Antigravity has no learning_view tool: the studio's own contract travels with the turn,
+    // after the learner's text, so answers go through the page and the tutor speaks neutral Spanish.
+    const sent = readFileSync(argv, "utf8");
+    assert.match(sent, /^-p Hola\n/);
+    assert.match(sent, /«Responder el diagnóstico»/);
+    assert.match(sent, /«Ir al quiz»/);
+    assert.match(sent, /voseo/);
   } finally { stream.close(); }
 });
 
