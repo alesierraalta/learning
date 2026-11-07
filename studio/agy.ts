@@ -22,6 +22,17 @@ export function parseAgyModels(output: string): string[] {
   return models;
 }
 
+/**
+ * What Pi learns from its learning_view tool, Antigravity gets with every turn: the vault's
+ * AGENTS.md alone would send the learner to answer in the chat, where the engine never reads it.
+ */
+const STUDIO_CONTRACT = [
+  "[Learnings studio]",
+  "The learner works in the Learnings studio. Quizzes are answered on the studio page, never in this chat: after writing a diagnosis round, tell the learner to press «Responder el diagnóstico»; after a mini-quiz, «Ir al quiz». Never ask for answers in a typed format such as d1-B or seguro/dudo/adivine.",
+  "A message starting with [Vista HTML · ...] is the learner's own submission; the answers file it names is already written.",
+  "Reply in neutral Spanish with tú, never voseo (escribe, responde, mira; never escribí, respondé, mirá, acá).",
+].join("\n");
+
 /** agy's file tools under the names the studio offers notes and topics from. */
 const FILE_TOOLS: Record<string, string> = {
   write_to_file: "write",
@@ -46,7 +57,7 @@ export function createAgy(options: { command: string[]; cwd: string; config: Tut
     prompt(text: string) {
       if (stopped) throw new HttpError(503, "the tutor is not running");
       if (proc) throw new HttpError(409, "Antigravity is busy");
-      const args = ["-p", text, "--output-format", "stream-json", "--mode", "accept-edits"];
+      const args = ["-p", `${text}\n\n${STUDIO_CONTRACT}`, "--output-format", "stream-json", "--mode", "accept-edits"];
       if (options.config.modelo) args.push("--model", options.config.modelo);
       const effort = options.config.pensamiento;
       if (effort) {
