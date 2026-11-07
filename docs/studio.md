@@ -53,8 +53,11 @@ returns `{version: 1, agente, modelo, pensamiento}` and `POST api/tutor` replace
 it atomically in `<LEARNING_ROOT>/tutor.json`. `agente` is `pi` or `agy`: Pi runs
 `pi --mode rpc` and Antigravity runs `agy -p … --output-format stream-json`, one
 process per turn and `--conversation` for the turns after the first. `modelo` and
-`pensamiento` are empty by default, which leaves each CLI its own setting, and an
-unknown field or model name is refused with 400. The thinking levels are per
+`pensamiento` are empty by default, which leaves each CLI its own setting;
+`GET api/tutor/modelos?agente=pi|agy` lists the models of the provider selected
+in the page (Pi's from `pi --list-models` as `provider/model`, Antigravity's from
+`agy models`), the saved provider when `agente` is absent, and any other value is
+refused with 400. An unknown field or model name is refused with 400. The thinking levels are per
 provider because the CLIs differ: Pi takes `off`, `minimal`, `low`, `medium`,
 `high`, `xhigh` and `max`, while Antigravity's `--effort` takes `low`, `medium`,
 `high`, `xhigh` and `max`. A level the chosen provider cannot apply is refused

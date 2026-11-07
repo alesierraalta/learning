@@ -116,8 +116,8 @@ test("the Antigravity model catalogue is offered and the chosen model reaches th
   process.env.FAKE_AGY_ARGV = argv;
   const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
   open.push(studio);
-  // With Pi there is no Antigravity catalogue to offer.
-  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body), { modelos: [] });
+  // With Pi saved, the unqualified catalogue is Pi's, never Antigravity's.
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body), { modelos: PI_MODELS });
   assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
   assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body).modelos, ["gemini-3.8-flash-high", "claude-sonnet-4-6"]);
   const saved = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "claude-sonnet-4-6", pensamiento: "" });
@@ -126,6 +126,19 @@ test("the Antigravity model catalogue is offered and the chosen model reaches th
   assert.equal((await post(studio, "prompt", { text: "Hola" })).status, 200);
   await new Promise((resolve) => setTimeout(resolve, 200));
   assert.match(readFileSync(argv, "utf8"), /--model claude-sonnet-4-6/);
+});
+
+const PI_MODELS = ["claude-bridge/claude-fable-5", "claude-bridge/claude-sonnet-4-6", "opencode-go/glm-5.3", "opencode-go/gpt-6-luna"];
+
+test("the model catalogue follows the provider selected in the page, not the saved one", async () => {
+  const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  const models = async (query) => JSON.parse((await http(`${studio.url}api/tutor/modelos${query}`)).body).modelos;
+  assert.deepEqual(await models("?agente=pi"), PI_MODELS);
+  assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+  assert.deepEqual(await models("?agente=pi"), PI_MODELS);
+  assert.deepEqual(await models("?agente=agy"), ["gemini-3.8-flash-high", "claude-sonnet-4-6"]);
+  assert.deepEqual(await models(""), ["gemini-3.8-flash-high", "claude-sonnet-4-6"]);
+  assert.equal((await http(`${studio.url}api/tutor/modelos?agente=gemini`)).status, 400);
 });
 
 test("the selected Antigravity tutor answers a conversation", async () => {
