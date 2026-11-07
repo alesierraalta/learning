@@ -3,6 +3,21 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+if (process.argv.includes("--list-models")) {
+  // pi's real listing: noise on both streams, then the table on stdout.
+  process.stderr.write('Warning: No models match pattern "openai-codex/gpt-6-luna"\n');
+  process.stdout.write("[relay-timeout] bound fijado en 3600000ms\n");
+  process.stdout.write([
+    "provider       model                       context  max-out  thinking  images",
+    "claude-bridge  claude-fable-5              1M       128K     yes       yes   ",
+    "claude-bridge  claude-sonnet-4-6           200K     128K     yes       yes   ",
+    "opencode-go    glm-5.3                     1M       131.1K   yes       no    ",
+    "opencode-go    gpt-6-luna                  1.1M     128K     yes       yes   ",
+    "",
+  ].join("\n"));
+  process.exit(0);
+}
+
 const log = process.env.FAKE_PI_LOG;
 const out = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
 const record = (command) => log && appendFileSync(log, `${JSON.stringify({ ...command, interactiveHost: process.env.GENTLE_SHELL_INTERACTIVE_HOST, cwd: process.cwd() })}\n`);

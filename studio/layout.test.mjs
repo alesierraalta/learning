@@ -261,6 +261,26 @@ test("preferences are reachable, editable and fit a phone", { skip: browser ? fa
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
 
+test("a saved tutor model the catalogue no longer lists survives saving the preferences", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  const saved = { version: 1, agente: "pi", modelo: "retired/model-x", pensamiento: "" };
+  writeFileSync(join(root, "tutor.json"), `${JSON.stringify(saved, null, 2)}\n`);
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(studio.url, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Configuración" }).click();
+  const modelo = page.locator("select[name=modelo]");
+  await modelo.locator("option[value='claude-bridge/claude-sonnet-4-6']").waitFor({ state: "attached" });
+  assert.equal(await modelo.inputValue(), "retired/model-x", "the saved model stays selected");
+  await page.getByRole("button", { name: "Guardar preferencias" }).click();
+  await page.getByText("Preferencias guardadas").waitFor();
+  assert.deepEqual(JSON.parse(readFileSync(join(root, "tutor.json"), "utf8")), saved);
+});
+
 test("the tutor teaches the topic its page is on, and the home chat stays general", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");

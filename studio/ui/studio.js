@@ -547,17 +547,24 @@
         h("div", { class: "preference-description" },
           h("p", { class: "muted" }, "Con qué modelo responde. El predeterminado es el del proveedor.")),
         h("div", { class: "preference-levels" }, modelo));
+      // The saved model stays listed (and selected) while the catalogue loads or when it is
+      // missing from it, so saving the page never silently drops it.
+      const showModels = (ids, chosen) => modelo.replaceChildren(
+        h("option", { value: "" }, "Predeterminado del proveedor"),
+        ...(chosen && !ids.includes(chosen) ? [chosen] : []).concat(ids)
+          .map((id) => h("option", { value: id, selected: id === chosen }, id)));
+      let modelsFor = 0;
       const fillModels = async () => {
-        const chosen = modelo.value || tutor.modelo;
-        const ids = agente.value === "agy"
-          ? (await request("api/tutor/modelos").catch(() => ({ modelos: [] }))).modelos ?? []
-          : [];
-        modelo.replaceChildren(
-          h("option", { value: "" }, "Predeterminado del proveedor"),
-          ...ids.map((id) => h("option", { value: id, selected: id === chosen }, id)));
+        const ask = ++modelsFor;
+        const chosen = modelo.value || (agente.value === tutor.agente ? tutor.modelo : "");
+        showModels([], chosen);
+        const ids = (await request(`api/tutor/modelos?agente=${agente.value}`).catch(() => ({ modelos: [] }))).modelos ?? [];
+        // A slower answer for a provider the learner already left is dropped.
+        if (ask === modelsFor) showModels(ids, modelo.value || chosen);
       };
       agente.addEventListener("change", () => { modelo.value = ""; fillModels(); });
-      await fillModels();
+      // Not awaited: `pi --list-models` can take seconds and must not hold the page back.
+      fillModels();
       const tutorField = h("fieldset", { class: "tutor-choice" },
         h("legend", {}, "Quién te da la tutoría"),
         h("div", { class: "preference-row" },
