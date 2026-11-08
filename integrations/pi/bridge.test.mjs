@@ -1779,6 +1779,59 @@ test('wide reading mode is opt-in, spreads the prose and survives a reload', { s
   assert.equal((await measure()).columns, 'auto', 'a narrow screen keeps one column even in wide mode');
 });
 
+// The toggle belongs to the page, not to the template that served it: a
+// hand-built part is authored as one narrow column and must still offer the
+// same control, and the same persisted choice, as a generated one.
+test('a hand-built part page offers the same wide reading toggle', { skip: !playwright && 'playwright not installed' }, async (t) => {
+  const { view, topic } = await setup();
+  const sections = Array.from(
+    { length: 12 },
+    (_, i) =>
+      `<section><h2>Sección ${i + 1}</h2><p>Un párrafo de prueba con suficiente texto como para que el reparto en dos columnas se observe en una pantalla ancha, sin depender de una figura.</p></section>`,
+  ).join('');
+  writeFileSync(
+    join(topic, 'explicaciones', 'Parte 1 - Claves.html'),
+    `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>main { max-width: 648px; margin: 0 auto; padding: 0 24px; }</style></head><body><main>${sections}</main></body></html>`,
+  );
+  const result = await view({ topic: TOPIC, part: 'p1' });
+
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  const measure = () =>
+    page.evaluate(() => {
+      const main = document.querySelector('main');
+      const toggle = document.querySelector('.reading-toggle');
+      return {
+        columns: getComputedStyle(main).columnCount,
+        width: Math.round(main.getBoundingClientRect().width),
+        pressed: toggle?.getAttribute('aria-pressed') ?? null,
+        label: toggle?.textContent ?? '',
+        overflow: document.documentElement.scrollWidth - window.innerWidth,
+      };
+    });
+
+  await page.goto(result.structuredContent.url);
+  const narrow = await measure();
+  assert.match(narrow.label, /modo ancho/i, 'a hand-built part offers the toggle too');
+  assert.equal(narrow.pressed, 'false', 'the wide mode is off by default');
+  assert.ok(narrow.width <= 800, `the hand-built page keeps its own narrow column (${narrow.width}px)`);
+  assert.equal(narrow.overflow, 0, 'the narrow hand-built page never overflows horizontally');
+
+  await page.getByRole('button', { name: /modo ancho/i }).click();
+  const wide = await measure();
+  assert.equal(wide.pressed, 'true', 'the toggle reports the mode as on');
+  assert.ok(wide.width > 1200, `the wide mode uses the horizontal space (${wide.width}px)`);
+  assert.equal(wide.columns, '2', 'the wide mode splits the hand-built page into two columns');
+  assert.equal(wide.overflow, 0, 'the wide mode never overflows horizontally');
+
+  await page.reload();
+  assert.equal((await measure()).pressed, 'true', 'the chosen mode survives a reload');
+
+  await page.setViewportSize({ width: 900, height: 900 });
+  assert.equal(await page.locator('.reading-toggle').isVisible(), false, 'below 1080 px the toggle is hidden');
+});
+
 test('every reader page declares the shared icon and serves it under the token', async () => {
   const { view } = await setup();
   const result = await view({ topic: TOPIC, part: 'p1' });

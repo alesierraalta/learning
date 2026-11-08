@@ -223,22 +223,11 @@ button.secondary { background: transparent; color: var(--ink); }
 .lk-thought-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .lk-mic[data-state="listening"] { background: var(--ink); color: var(--on-ink); }
 
-/* Wide reading mode: opt-in, for horizontal screens. Two 648 px columns with
-   56 px between them; headings, tables and figures cross both. */
-.reading-toggle {
-  position: fixed; top: 14px; right: 16px; z-index: 20;
-  padding: 7px 11px; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); color: var(--ink);
-  font-family: var(--sans); font-size: 10px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; cursor: pointer;
-}
-.reading-toggle:hover { background: var(--ink); color: var(--on-ink); }
-.reading-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.reading-toggle[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
-.reading-toggle .mark { font-size: 11px; line-height: 1; }
-/* Wide mode only applies from 1080 px: below that the toggle would do nothing. */
-@media (max-width: 1079px) { .reading-toggle { display: none; } }
-
+/* Wide reading mode: the control and the widened frame live in book.css, because
+   a hand-built part page loads that file and never this one. What stays here is
+   the reader's own share: two 648 px columns with 56 px between them, and
+   headings, tables and figures crossing both. */
 @media (min-width: 1080px) {
-  body.wide #app { max-width: min(1352px, 94vw); }
   body.wide .prose { column-count: 2; column-gap: 56px; }
   body.wide .prose > * { break-inside: avoid; }
   /* Las secciones de una nota envuelven sus títulos: sin esto el h2 de dentro

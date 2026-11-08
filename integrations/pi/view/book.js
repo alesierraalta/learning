@@ -9,6 +9,50 @@
   // page this mode paginates.
   const scroller = document.getElementById("app") ?? document.querySelector("main");
   if (!scroller) return;
+  // Wide reading: an opt-in layout for horizontal screens, offered by every part
+  // page because this file is the only script both templates load. The default
+  // keeps one narrow column; the wide mode gives the page the monitor and splits
+  // a single flow of blocks in two. The choice belongs to the device, under the
+  // key the reader has always used.
+  const WIDE_KEY = "learnings.wide-reading";
+  const storedWide = () => {
+    try {
+      return localStorage.getItem(WIDE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  };
+  const setWide = (wide, remember = true) => {
+    document.body.classList.toggle("wide", wide);
+    if (!remember) return;
+    try {
+      if (wide) localStorage.setItem(WIDE_KEY, "1");
+      else localStorage.removeItem(WIDE_KEY);
+    } catch {
+      // A frame without storage keeps the choice for this page only.
+    }
+  };
+  const readingToggle = () => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "reading-toggle";
+    button.title = "Leer en dos columnas, para pantallas horizontales";
+    const mark = document.createElement("span");
+    mark.className = "mark";
+    mark.textContent = "▭▭";
+    const label = document.createElement("span");
+    label.textContent = "Modo ancho";
+    button.append(mark, label);
+    const pressed = () => String(document.body.classList.contains("wide"));
+    button.setAttribute("aria-pressed", pressed());
+    button.addEventListener("click", () => {
+      setWide(!document.body.classList.contains("wide"));
+      button.setAttribute("aria-pressed", pressed());
+    });
+    document.body.append(button);
+  };
+  setWide(storedWide(), false);
+  readingToggle();
   const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const width = () => scroller.clientWidth || 1;
   const state = () => {

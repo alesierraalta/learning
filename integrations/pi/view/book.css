@@ -14,3 +14,40 @@ body.book > main > figure { width: min(816px, 100vw - 96px); }
 /* A reading-progress bar pinned above the page would otherwise eat the first
    page's height. */
 body.book > .lk-progress { position: fixed; top: 0; left: 0; right: 0; z-index: 2; }
+
+/* Wide reading: the control belongs to the page, not to the template that served
+   it, so it lives here — the one stylesheet a generated part and a hand-built
+   one both load. The palette variables carry fallbacks because a hand-built page
+   never loads app.css, where the paper palette is defined. */
+.reading-toggle {
+  position: fixed; top: 14px; right: 16px; z-index: 20;
+  padding: 7px 11px; border: 1px solid var(--ink, #0F2E3D); border-radius: 0;
+  background: var(--paper, #fff); color: var(--ink, #0F2E3D);
+  font-family: var(--sans, ui-sans-serif, system-ui, sans-serif);
+  font-size: 10px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; cursor: pointer;
+}
+.reading-toggle:hover { background: var(--ink, #0F2E3D); color: var(--on-ink, #fff); }
+.reading-toggle:focus-visible { outline: 2px solid var(--accent, #004276); outline-offset: 2px; }
+.reading-toggle[aria-pressed="true"] { background: var(--ink, #0F2E3D); color: var(--on-ink, #fff); }
+.reading-toggle .mark { font-size: 11px; line-height: 1; }
+/* Wide mode only applies from 1080 px: below that the toggle would do nothing. */
+@media (max-width: 1079px) { .reading-toggle { display: none; } }
+
+@media (min-width: 1080px) {
+  /* The frame widens on both templates. A hand-built page authors its own
+     max-width for the narrow column; this selector is what beats it. */
+  body.wide #app,
+  body.wide main:not(#app) { max-width: min(1352px, 94vw); margin-left: auto; margin-right: auto; }
+  /* The generated reader splits its article, never #app: its columns belong to
+     .prose, in app.css. A hand-built page has no .prose, so its own flow of
+     blocks splits instead, with the headings and the wide blocks crossing both. */
+  body.wide main:not(#app) { column-count: 2; column-gap: 56px; }
+  body.wide main:not(#app) > * { break-inside: avoid; }
+  body.wide main:not(#app) > h1,
+  body.wide main:not(#app) > h2,
+  body.wide main:not(#app) > h3,
+  body.wide main:not(#app) > table,
+  body.wide main:not(#app) > pre,
+  body.wide main:not(#app) > figure,
+  body.wide main:not(#app) > iframe { column-span: all; }
+}
