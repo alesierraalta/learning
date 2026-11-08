@@ -42,7 +42,15 @@ body.book > .lk-progress { position: fixed; top: 0; left: 0; right: 0; z-index: 
      .prose, in app.css. A hand-built page has no .prose, so its own flow of
      blocks splits instead, with the headings and the wide blocks crossing both. */
   body.wide main:not(#app) { column-count: 2; column-gap: 56px; }
-  body.wide main:not(#app) > * { break-inside: avoid; }
+  /* A hand-built page usually wraps its content in one element, and that element
+     carries the authored max-width. Wide mode is the one thing allowed to
+     override it: a wrapper that cannot break leaves the right half of the page
+     empty, which reads as a hole where the tutor would be. */
+  body.wide main:not(#app) > * { max-width: none; }
+  /* The blocks stay whole; the wrappers between them do not, so the content can
+     reach the second column. */
+  body.wide main:not(#app) :is(p, li, blockquote, h1, h2, h3, h4, figure, table, pre, iframe, img, svg) { break-inside: avoid; }
+  body.wide main:not(#app) :is(h1, h2, h3, h4) { break-after: avoid; }
   body.wide main:not(#app) > h1,
   body.wide main:not(#app) > h2,
   body.wide main:not(#app) > h3,
