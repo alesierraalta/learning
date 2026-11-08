@@ -1832,6 +1832,54 @@ test('a hand-built part page offers the same wide reading toggle', { skip: !play
   assert.equal(await page.locator('.reading-toggle').isVisible(), false, 'below 1080 px the toggle is hidden');
 });
 
+// A hand-built page usually wraps its content in one element, and that element
+// carries the authored max-width. Wide mode is the one thing allowed to override
+// it: a wrapper that cannot break leaves the right half of the page empty.
+test('wide mode spreads a wrapped hand-built page across both columns', { skip: !playwright && 'playwright not installed' }, async (t) => {
+  const { view, topic } = await setup();
+  const sections = Array.from(
+    { length: 10 },
+    (_, i) =>
+      `<section><h2>Sección ${i + 1}</h2><p>Un párrafo de prueba con suficiente texto como para que el reparto en dos columnas se observe en una pantalla ancha, sin depender de una figura.</p></section>`,
+  ).join('');
+  writeFileSync(
+    join(topic, 'explicaciones', 'Parte 1 - Claves.html'),
+    `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>main { padding: 0 24px; } .wrap { max-width: 648px; margin: 0 auto; }</style></head><body><main><div class="wrap">${sections}</div></main></body></html>`,
+  );
+  const result = await view({ topic: TOPIC, part: 'p1' });
+
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  const spread = () =>
+    page.evaluate(() => {
+      const main = document.querySelector('main');
+      const box = main.getBoundingClientRect();
+      const middle = box.left + box.width / 2;
+      const blocks = [...document.querySelectorAll('main .wrap > *')];
+      return {
+        columns: getComputedStyle(main).columnCount,
+        wrapper: Math.round(document.querySelector('.wrap').getBoundingClientRect().width),
+        left: blocks.filter((b) => b.getBoundingClientRect().left < middle).length,
+        right: blocks.filter((b) => b.getBoundingClientRect().left >= middle).length,
+        overflow: document.documentElement.scrollWidth - window.innerWidth,
+      };
+    });
+
+  await page.goto(result.structuredContent.url);
+  const narrow = await spread();
+  assert.equal(narrow.columns, 'auto', 'the narrow page is a single flow');
+  assert.equal(narrow.right, 0, 'the narrow page keeps everything in one column');
+
+  await page.getByRole('button', { name: /modo ancho/i }).click();
+  const wide = await spread();
+  assert.equal(wide.columns, '2', 'the wide mode splits the wrapped page into two columns');
+  assert.ok(wide.left > 0, `the first column carries content (${wide.left} blocks)`);
+  assert.ok(wide.right > 0, `the second column carries content, not a hole (${wide.right} blocks)`);
+  assert.ok(wide.wrapper > 1200, `an authored max-width on the wrapper is overridden (${wide.wrapper}px)`);
+  assert.equal(wide.overflow, 0, 'the wide mode never overflows horizontally');
+});
+
 test('every reader page declares the shared icon and serves it under the token', async () => {
   const { view } = await setup();
   const result = await view({ topic: TOPIC, part: 'p1' });
