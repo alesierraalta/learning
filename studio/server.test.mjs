@@ -51,7 +51,9 @@ after(async () => {
 async function setup(options = {}) {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
-  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, ...options });
+  // Every test owns its conversation index: a shared one would leak chats between tests.
+  const chatsFile = join(dirname(log), "chats.json");
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, chatsFile, ...options });
   open.push(studio);
   const received = () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
   return { studio, root, received };
@@ -650,8 +652,10 @@ test("a prompt streams text, tool activity and a dialog whose answer goes back t
   assert.deepEqual(await stream.next("state", (s) => s.busy), { busy: true, alive: true });
   const delta = await stream.next("assistant_delta");
   assert.equal(delta.delta, "Hola, ");
-  assert.deepEqual(await stream.next("tool", (t) => t.phase === "start"), { phase: "start", id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true, note: { topic: "tema", index: 1 }, topic: "tema" });
-  assert.deepEqual(await stream.next("tool", (t) => t.phase === "end"), { phase: "end", id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true, note: { topic: "tema", index: 1 }, topic: "tema" }, "the end keeps the arguments its start carried");
+  // A tool row belongs to the conversation that produced it.
+  const chat = JSON.parse((await http(`${studio.url}api/chats`)).body).activo;
+  assert.deepEqual(await stream.next("tool", (t) => t.phase === "start"), { phase: "start", chat, id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true, note: { topic: "tema", index: 1 }, topic: "tema" });
+  assert.deepEqual(await stream.next("tool", (t) => t.phase === "end"), { phase: "end", chat, id: "t1", name: "write", label: "Escribiendo Parte 1 - Algo.md", ok: true, note: { topic: "tema", index: 1 }, topic: "tema" }, "the end keeps the arguments its start carried");
   assert.deepEqual(await stream.next("notice"), { level: "info", message: "Aviso del tutor" });
   const dialog = await stream.next("dialog");
   assert.deepEqual(dialog, { id: "d1", method: "select", title: "¿Cómo quieres aprender?", message: "", options: ["Universitario", "Rápido con quiz"], placeholder: "" });
@@ -1268,4 +1272,150 @@ test("disabled tutor cannot start or restart, while the reader remains available
   assert.equal(JSON.parse(regenerate.body).error, "the tutor is disabled");
   assert.equal(readFileSync(part, "utf8"), before);
   assert.deepEqual(received(), []);
+});
+// ---- conversations ---------------------------------------------------------
+
+test("the conversation the studio already had becomes the first chat", async () => {
+  const { studio } = await setup();
+  const chats = JSON.parse((await http(`${studio.url}api/chats`)).body);
+  assert.equal(chats.version, 1);
+  assert.equal(chats.chats.length, 1);
+  assert.equal(chats.chats[0].nombre, "Chat general");
+  assert.equal(chats.activo, chats.chats[0].id);
+  assert.match(chats.chats[0].piSession, /fake-session-0\.jsonl$/);
+  assert.deepEqual(chats.chats[0].contexto, { tokens: 60000, ventana: 200000, porcentaje: 30 });
+});
+
+test("a new chat starts its own session and the list keeps both", async () => {
+  const { studio, received } = await setup();
+  const before = JSON.parse((await http(`${studio.url}api/chats`)).body);
+
+  const created = await post(studio, "api/chats", { nombre: "  dudas de MDP  " });
+  assert.equal(created.status, 200, created.body);
+  const after = JSON.parse(created.body);
+
+  assert.deepEqual(after.chats.map((c) => c.nombre), ["Chat general", "dudas de MDP"]);
+  const chat = after.chats.find((c) => c.id === after.activo);
+  assert.equal(chat.ambito, null, "a chat the learner names is not bound to a part");
+  assert.notEqual(chat.piSession, before.chats[0].piSession, "a new chat is a new session file");
+  assert.ok(received().some((c) => c.type === "new_session"));
+});
+
+test("opening a chat switches Pi to its session and reloads the thread", async () => {
+  const { studio, received } = await setup();
+  const general = JSON.parse((await http(`${studio.url}api/chats`)).body).chats[0];
+  await post(studio, "api/chats", { nombre: "otra" });
+
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  const opened = await post(studio, "api/chats/abrir", { id: general.id });
+  assert.equal(opened.status, 200, opened.body);
+  assert.equal(JSON.parse(opened.body).activo, general.id);
+  assert.equal(received().find((c) => c.type === "switch_session").sessionPath, general.piSession);
+  assert.ok(await stream.next("history"), "the browser is handed the thread it just opened");
+  stream.close();
+});
+
+test("renaming a chat updates the list and Pi's own name", async () => {
+  const { studio, received } = await setup();
+  const chats = JSON.parse((await http(`${studio.url}api/chats`)).body);
+
+  const renamed = await post(studio, "api/chats/renombrar", { id: chats.activo, nombre: "repaso examen" });
+  assert.equal(renamed.status, 200, renamed.body);
+  assert.equal(JSON.parse(renamed.body).chats[0].nombre, "repaso examen");
+  assert.equal(received().find((c) => c.type === "set_session_name").name, "repaso examen");
+
+  const refused = await post(studio, "api/chats/renombrar", { id: chats.activo, nombre: "   " });
+  assert.equal(refused.status, 400);
+  assert.equal((await post(studio, "api/chats/renombrar", { id: "nope", nombre: "x" })).status, 404);
+});
+
+test("the active chat cannot be deleted, and another one can", async () => {
+  const { studio } = await setup();
+  const general = JSON.parse((await http(`${studio.url}api/chats`)).body).chats[0];
+  await post(studio, "api/chats", { nombre: "otra" });
+  const active = JSON.parse((await http(`${studio.url}api/chats`)).body).activo;
+
+  assert.equal((await post(studio, "api/chats/borrar", { id: active })).status, 409);
+
+  const removed = await post(studio, "api/chats/borrar", { id: general.id });
+  assert.equal(removed.status, 200, removed.body);
+  assert.deepEqual(JSON.parse(removed.body).chats.map((c) => c.nombre), ["otra"]);
+});
+
+test("deleting a chat removes Pi's session file, and nothing outside Pi's store", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-sessions-"));
+  process.env.FAKE_PI_SESSION_DIR = dir;
+  process.env.PI_CODING_AGENT_SESSION_DIR = dir;
+  try {
+    const { studio } = await setup();
+    const general = JSON.parse((await http(`${studio.url}api/chats`)).body).chats[0];
+    assert.ok(existsSync(general.piSession), "the fake Pi created the session file");
+
+    await post(studio, "api/chats", { nombre: "otra" });
+    assert.equal((await post(studio, "api/chats/borrar", { id: general.id })).status, 200);
+    assert.equal(existsSync(general.piSession), false);
+  } finally {
+    delete process.env.FAKE_PI_SESSION_DIR;
+    delete process.env.PI_CODING_AGENT_SESSION_DIR;
+  }
+});
+
+test("a chat cannot be opened while the tutor is busy", async () => {
+  const { studio } = await setup();
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await post(studio, "prompt", { text: "hola" });
+  await stream.next("state", (s) => s.busy);
+
+  const refused = await post(studio, "api/chats/abrir", { ambito: "parte:redes/p2" });
+  assert.equal(refused.status, 409);
+  assert.match(JSON.parse(refused.body).error, /busy/);
+  stream.close();
+});
+
+test("opening a part creates its chat once and comes back to it", async () => {
+  const { studio } = await setup();
+  const first = await post(studio, "api/chats/abrir", { ambito: "parte:redes/p2", nombre: "Parte 2 · TCP" });
+  assert.equal(first.status, 200, first.body);
+  const anchored = JSON.parse(first.body).chats.find((c) => c.ambito === "parte:redes/p2");
+  assert.equal(anchored.nombre, "Parte 2 · TCP");
+
+  await post(studio, "api/chats", { nombre: "otra" });
+  const again = JSON.parse((await post(studio, "api/chats/abrir", { ambito: "parte:redes/p2" })).body);
+  assert.equal(again.activo, anchored.id, "the same part comes back to the same chat");
+  assert.equal(again.chats.filter((c) => c.ambito === "parte:redes/p2").length, 1);
+
+  assert.equal((await post(studio, "api/chats/abrir", { ambito: "../escape" })).status, 400);
+});
+
+test("Antigravity records its conversation on the chat, and a new chat starts without one", async () => {
+  const argv = join(mkdtempSync(join(tmpdir(), "agy-argv-")), "argv.log");
+  process.env.FAKE_AGY_ARGV = argv;
+  try {
+    const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+
+    await post(studio, "prompt", { text: "hola" });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const chats = JSON.parse((await http(`${studio.url}api/chats`)).body);
+    assert.equal(chats.chats.find((c) => c.id === chats.activo).agyConversation, "test-conversation");
+
+    // The same chat continues its own conversation.
+    await post(studio, "prompt", { text: "sigo" });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Each turn is one `-p ...` argv, and the prompt itself spans lines.
+    const turns = () => readFileSync(argv, "utf8").split(/\n(?=-p )/).filter((turn) => turn.trim());
+    assert.equal(turns().length, 2);
+    assert.ok(turns()[1].includes("--conversation test-conversation"), "the next turn continues the chat's conversation");
+
+    // A new chat is a new conversation, not a silent carry-over.
+    await post(studio, "api/chats", { nombre: "otra" });
+    await post(studio, "prompt", { text: "otra vez" });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(turns().length, 3);
+    assert.ok(!turns()[2].includes("--conversation"), "a new chat starts its own conversation");
+  } finally {
+    delete process.env.FAKE_AGY_ARGV;
+  }
 });

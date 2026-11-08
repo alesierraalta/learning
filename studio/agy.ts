@@ -49,11 +49,29 @@ function toolCall(step: Json): { toolName: string; args: Json } {
   return FILE_TOOLS[name] ? { toolName: FILE_TOOLS[name], args: { path } } : { toolName: name, args: info };
 }
 
-export function createAgy(options: { command: string[]; cwd: string; config: TutorConfig; onRecord: (record: Json) => void; onError: (message: string) => void }) {
+export function createAgy(options: {
+  command: string[];
+  cwd: string;
+  config: TutorConfig;
+  onRecord: (record: Json) => void;
+  onError: (message: string) => void;
+  /** The id Antigravity assigned to this conversation, so the studio can record it on the chat. */
+  onConversation?: (id: string) => void;
+}) {
   let proc: ChildProcessWithoutNullStreams | undefined;
   let conversation: string | undefined;
   let stopped = false;
+  /** A turn that names a new conversation is reported once, not on every later record. */
+  const remember = (id: string) => {
+    if (id === conversation) return;
+    conversation = id;
+    options.onConversation?.(id);
+  };
   return {
+    /** The conversation this runtime is in; the studio stores it on the chat it belongs to. */
+    conversation() { return conversation; },
+    /** Point the next turn at a chat's own conversation, or start a fresh one with no id. */
+    open(id?: string) { conversation = id; },
     prompt(text: string) {
       if (stopped) throw new HttpError(503, "the tutor is not running");
       if (proc) throw new HttpError(409, "Antigravity is busy");
@@ -83,7 +101,7 @@ export function createAgy(options: { command: string[]; cwd: string; config: Tut
         let record: unknown;
         try { record = JSON.parse(line); } catch { return; }
         if (!object(record)) return;
-        if (record.event === "init" && typeof record.conversation_id === "string") conversation = record.conversation_id;
+        if (record.event === "init" && typeof record.conversation_id === "string") remember(record.conversation_id);
         if (record.event === "step_update" && object(record.step_update) && typeof record.step_update.text_delta === "string") {
           const delta = record.step_update.text_delta;
           if (!started) { options.onRecord({ type: "message_start", message: { role: "assistant" } }); started = true; }
@@ -102,7 +120,7 @@ export function createAgy(options: { command: string[]; cwd: string; config: Tut
         }
         if (record.event === "result" && object(record.result)) {
           result = true;
-          if (typeof record.result.conversation_id === "string") conversation = record.result.conversation_id;
+          if (typeof record.result.conversation_id === "string") remember(record.result.conversation_id);
           if (record.result.status && record.result.status !== "SUCCESS") options.onError(`Antigravity terminó con estado ${record.result.status}`);
           if (!answer && typeof record.result.response === "string") answer = record.result.response;
         }
