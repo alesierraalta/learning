@@ -477,8 +477,10 @@
     );
   }
 
+  let enteredPart = "";
   function render() {
     const [, view, a, b] = location.hash.split("/").map(decodeURIComponent);
+    if (view !== "leer" || enteredPart !== `${a}/${b}`) enteredPart = "";
     window.scrollTo(0, 0);
     if (view === "tema" && a) return topicView(a);
     if (view === "panorama" && a) return panoramaView(a, b);
@@ -1323,6 +1325,10 @@
     const exercise = topic?.exercises?.find((e) => part === `codigo/${e.id}`);
     const title = quick ? quick.title : exercise ? exercise.titulo : part === "quiz" ? "Diagnóstico inicial" : info ? info.title : "";
     const kicker = quick ? "Nota rápida" : exercise ? "Ejercicio de código" : part === "quiz" ? "Diagnóstico" : `Parte ${index + 1}`;
+    if (info && enteredPart !== `${topicId}/${part}`) {
+      enteredPart = `${topicId}/${part}`;
+      post("api/chats/abrir", { ambito: `parte:${topicId}/${part}`, nombre: `${kicker} · ${title}` }).then(setChats).catch((error) => toast(error.message));
+    }
     setCrumbs(
       quick
         ? [{ text: "Inicio", href: "#/" }, { text: "Notas rápidas" }, { text: quick.title }]
@@ -1865,6 +1871,41 @@
 
   // ---------- tutor ----------
   const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null, turnNote: null, turnTopic: null };
+  let chats = { activo: "", chats: [] };
+  let chatRevision = 0;
+  const chatHeading = h("strong", {}, "Chats");
+  const chatList = h("div", { class: "chat-list", "aria-label": "Conversaciones" });
+  const relativeUse = (time) => {
+    const minutes = Math.max(0, Math.floor((Date.now() - time) / 60000));
+    if (minutes < 1) return "Ahora";
+    if (minutes < 60) return `Hace ${minutes} min`;
+    if (minutes < 1440) return `Hace ${Math.floor(minutes / 60)} h`;
+    return `Hace ${Math.floor(minutes / 1440)} días`;
+  };
+  function setChats(doc) {
+    chats = doc;
+    chatRevision++;
+    chatHeading.textContent = doc.chats.find((chat) => chat.id === doc.activo)?.nombre || "Chats";
+    chatList.replaceChildren(...doc.chats.map((chat) => {
+      const open = h("button", { type: "button", class: "chat-open", "aria-current": chat.id === doc.activo ? "true" : null, onclick: () => chatAction("api/chats/abrir", { id: chat.id }) },
+        h("span", { class: "chat-name" }, chat.nombre), h("span", { class: "chat-used" }, relativeUse(chat.usado)),
+        chat.contexto && h("span", { class: "chat-context" }, h("span", { role: "progressbar", "aria-label": `Contexto de ${chat.nombre}`, "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": chat.contexto.porcentaje, class: "chat-meter" }, h("span", { style: `width:${Math.max(0, Math.min(100, chat.contexto.porcentaje))}%` })), `${chat.contexto.porcentaje}%`));
+      const options = h("details", { class: "chat-options" }, h("summary", { "aria-label": `Opciones de ${chat.nombre}` }, "⋯"),
+        h("div", { class: "chat-menu" },
+          btn("Renombrar", () => { options.open = false; const nombre = prompt("Nombre de la conversación", chat.nombre); if (nombre !== null) chatAction("api/chats/renombrar", { id: chat.id, nombre }); }),
+          btn("Borrar", () => { options.open = false; if (confirm(`¿Borrar la conversación «${chat.nombre}»?`)) chatAction("api/chats/borrar", { id: chat.id }); }),
+          btn("Exportar", () => { options.open = false; chatAction("api/chats/exportar", { id: chat.id }, true); })));
+      return h("div", { class: "chat-row" }, open, options);
+    }));
+  }
+  async function chatAction(path, body, exportOnly = false) {
+    try {
+      const result = await post(path, body);
+      if (exportOnly) toast(result.path);
+      else setChats(result);
+    } catch (error) { toast(error.message); }
+  }
+  const createChat = () => { const nombre = prompt("Nombre de la conversación"); if (nombre !== null) chatAction("api/chats", { nombre }); };
   const thread = h("div", { class: "thread", "aria-live": "polite" });
   const composerText = h("textarea", { rows: "1", "aria-label": "Mensaje para el tutor", placeholder: "Escribe al tutor…" });
   const stateLine = h("span", { class: "state" }, "Conectando…");
@@ -2042,6 +2083,9 @@
       }
       fn(data);
     });
+  on("chats", setChats);
+  const initialChatRevision = chatRevision;
+  request("api/chats").then((doc) => { if (chatRevision === initialChatRevision) setChats(doc); }).catch((error) => toast(error.message));
   on("history", ({ messages, note }) => {
     thread.replaceChildren();
     assistant.clear();
@@ -2123,7 +2167,9 @@
     noteBtn.style.display = tutor.note ? "" : "none";
     noteBtn.title = !tutor.note ? "" : tutor.note.quick ? "Ir a la nota rápida" : `Ir a la nota: Parte ${tutor.note.index}`;
   };
-  on("tool", ({ phase, id, label, ok, note, topic }) => {
+  on("tool", ({ phase, id, label, ok, note, topic, chat }) => {
+    // A row belongs to the chat that produced it; before the list loads there is nothing to compare.
+    if (chat && chats.activo && chat !== chats.activo) return;
     if (phase === "start") {
       const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), label);
       activities.set(id, row);
@@ -2173,6 +2219,8 @@
       h("button", { class: "icon-btn", type: "button", "aria-label": "Cerrar el tutor", onclick: closeDrawer }, icon("x")),
       menu,
     ),
+    h("section", { class: "chats", "aria-label": "Chats" },
+      h("div", { class: "chats-head" }, chatHeading, btn("＋ Chat", createChat, "btn small")), chatList),
     thread,
     h(
       "div",
