@@ -138,7 +138,9 @@ process.stdin.on("data", (chunk) => {
         out({ id: command.id, type: "response", command: "set_session_name", success: true, data: {} });
         break;
       case "export_html": {
-        const path = join(sessionDir, "export.html");
+        // Pi honours outputPath and answers with the path it wrote, absolute as given.
+        const path = typeof command.outputPath === "string" ? command.outputPath : join(sessionDir, "export.html");
+        mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, "<html></html>");
         out({ id: command.id, type: "response", command: "export_html", success: true, data: { path } });
         break;

@@ -75,3 +75,17 @@ it is reused and the extra scope was added as a comment there instead of a dupli
 uncommitted `feat/tutor-runtime` branch of the main checkout. This branch therefore extends
 `studio/agy.ts` and the inline Pi dispatch in `studio/server.ts` directly, and will conflict
 with that refactor when both land.
+
+**L5** — T3 (Antigravity) was implemented before T2, because the server's switch needs the
+`open`/`onConversation` seam agy had to expose first. Both landed in one commit: a commit
+that referenced `agy.open` before it existed would have broken Antigravity at runtime.
+
+**L6** — Regression found and fixed during T2: `get_session_stats` had a 10 s bound, and the
+fake Pi did not answer it, so `ready` stalled the first turn of five layout tests that pass
+on the base. The stub now answers `get_session_stats`, `switch_session`, `set_session_name`
+and `export_html` like the real runtime, and the probe is bounded at 2.5 s so an older Pi
+that cannot report its session never holds a conversation.
+
+**L7** — Each test owns its `chatsFile`. The default lives in `$XDG_STATE_HOME`, which
+`testdata/root.mjs` sets once per process, so a shared index would leak chats between tests
+and into the real user state.

@@ -87,6 +87,44 @@ passes again is released; an engine that is missing or prints no report counts a
 failing. `POST api/restart` works while a turn is still running and replaces the
 tutor, which is the way out of a turn that never settles.
 
+## Conversaciones
+
+El cajón del tutor lleva arriba la lista de conversaciones. Cada una tiene el nombre que le
+diste, un ancla opcional a la parte desde la que se abrió, y el identificador que cada
+runtime necesita para retomarla. La lista vive fuera del vault, junto a `opened.json`
+(`$XDG_STATE_HOME/learning-studio/chats.json`); un archivo dañado se reporta y arranca vacío
+en vez de impedir que el estudio abra.
+
+La conversación que el estudio ya tenía es la primera de la lista, «Chat general»: no se
+borra ni se reinicia al actualizar. Abrir una parte (`#/leer/<tema>/<parte>`) activa la
+conversación anclada a esa parte y la crea la primera vez, así que volver a abrirla no
+multiplica chats. Una parte tiene como mucho una conversación anclada.
+
+| Ruta | Qué hace |
+|---|---|
+| `GET api/chats` | La lista, con el uso de contexto de la conversación activa |
+| `POST api/chats` | Crea una conversación con `{nombre, ambito?}` y la activa |
+| `POST api/chats/abrir` | Abre por `{id}`, o por `{ambito}` creándola si aún no existe |
+| `POST api/chats/renombrar` | Cambia el nombre: 1 a 80 caracteres, recortados |
+| `POST api/chats/borrar` | Borra una conversación que no sea la activa |
+| `POST api/chats/exportar` | Exporta la conversación activa a HTML y devuelve su ruta |
+
+Borrar la conversación activa se rechaza con 409: el archivo de sesión que un agente está
+escribiendo no se borra. Al borrar otra, el estudio elimina su `.jsonl` solo si está dentro
+del directorio de sesiones de Pi; cualquier otra ruta se deja intacta.
+
+Cada runtime retoma su conversación a su manera. Pi cambia de sesión con `switch_session`
+sobre su único proceso y registra el archivo que `get_session_stats` reporta. Antigravity
+lleva un id de `--conversation` guardado en el chat, porque su turno es un proceso aparte.
+Una conversación empezada con un agente no se traslada en silencio al otro: al cambiar de
+agente, el nuevo empieza la suya y la guarda en ese mismo chat.
+
+El uso de contexto solo lo puede medir la sesión en la que Pi está, así que la barra muestra
+el valor de la conversación activa y el último conocido de las demás; Antigravity no informa
+ninguno y su fila no muestra barra. Las filas de herramientas pertenecen a la conversación
+que las produjo: el evento `tool` lleva el id del chat y el navegador descarta las que no son
+de la activa.
+
 ## Wide reading mode
 
 Every part page carries a **Modo ancho** toggle in its top-right corner. Off by

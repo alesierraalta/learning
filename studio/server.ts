@@ -1051,7 +1051,16 @@ ${scripts}
         const id = chatIdOf(body);
         if (agy) throw new HttpError(400, "Antigravity does not export conversations");
         if (id !== chats.activo) throw new HttpError(409, "open the chat before exporting it");
-        const reply = await call({ type: "export_html" }, 30000);
+        const chat = chatById(chats, id);
+        // Pi writes the export into its working directory, which here is the vault.
+        // The file is named outside it instead, next to the conversation index.
+        const dir = join(dirname(chatsFile), "exports");
+        mkdirSync(dir, { recursive: true });
+        const slug = chat.nombre.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "chat";
+        const outputPath = join(dir, `${slug}-${new Date().toISOString().replace(/[:.]/g, "-")}.html`);
+        const reply = await call({ type: "export_html", outputPath }, 30000);
+        // Pi's own refusal is the answer: an empty conversation cannot be exported.
+        if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused the export"));
         const path = isRecord(reply.data) && typeof reply.data.path === "string" ? reply.data.path : "";
         if (!path) throw new HttpError(502, "Pi did not export the conversation");
         return sendJson(res, 200, { path });

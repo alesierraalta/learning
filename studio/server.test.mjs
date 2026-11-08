@@ -51,8 +51,9 @@ after(async () => {
 async function setup(options = {}) {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
-  // Every test owns its conversation index: a shared one would leak chats between tests.
-  const chatsFile = join(dirname(log), "chats.json");
+  // Every test owns its conversation index, and it lives outside the vault like the real one:
+  // a shared file would leak chats between tests, and an in-vault one would hide export leaks.
+  const chatsFile = join(mkdtempSync(join(tmpdir(), "chats-")), "chats.json");
   const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, chatsFile, ...options });
   open.push(studio);
   const received = () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
@@ -1418,4 +1419,22 @@ test("Antigravity records its conversation on the chat, and a new chat starts wi
   } finally {
     delete process.env.FAKE_AGY_ARGV;
   }
+});
+
+test("exporting a chat answers with the file, and only for the chat that is open", async () => {
+  const { studio, root } = await setup();
+  const general = JSON.parse((await http(`${studio.url}api/chats`)).body).chats[0];
+
+  const exported = await post(studio, "api/chats/exportar", { id: general.id });
+  assert.equal(exported.status, 200, exported.body);
+  const path = JSON.parse(exported.body).path;
+  assert.match(path, /exports\/Chat-general-[\w-]+\.html$/);
+  assert.ok(existsSync(path), "the export was really written");
+  // Pi writes into its working directory, which is the vault: the studio names it outside.
+  assert.equal(path.startsWith(root), false, "an export never lands in the vault");
+
+  await post(studio, "api/chats", { nombre: "otra" });
+  const refused = await post(studio, "api/chats/exportar", { id: general.id });
+  assert.equal(refused.status, 409);
+  assert.match(JSON.parse(refused.body).error, /open the chat/);
 });
