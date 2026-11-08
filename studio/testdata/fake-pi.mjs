@@ -1,7 +1,7 @@
 // A stand-in for `pi --mode rpc`: JSONL on stdin/stdout, scripted events, and a
 // log of every command received (FAKE_PI_LOG) for the studio tests.
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 if (process.argv.includes("--list-models")) {
   // pi's real listing: noise on both streams, then the table on stdout.
@@ -22,6 +22,13 @@ const log = process.env.FAKE_PI_LOG;
 const out = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
 const record = (command) => log && appendFileSync(log, `${JSON.stringify({ ...command, interactiveHost: process.env.GENTLE_SHELL_INTERACTIVE_HOST, cwd: process.cwd() })}\n`);
 let pendingDialog = null;
+// Pi keeps one file per session: a new session is a new file, and a switch names one.
+// FAKE_PI_SESSION_DIR lets a test own the directory the studio is allowed to delete from.
+const sessionDir = process.env.FAKE_PI_SESSION_DIR ?? "/tmp";
+let sessionSeq = 0;
+let sessionFile = join(sessionDir, "fake-session-0.jsonl");
+mkdirSync(sessionDir, { recursive: true });
+writeFileSync(sessionFile, "");
 // The writes the scripted turn makes; a test points them at notes of its own root.
 // FAKE_PI_WRITES is a JSON list of {path, isError?, content?}: with content the file
 // is really written, as the tutor would, before the tool reports it.
@@ -108,9 +115,44 @@ process.stdin.on("data", (chunk) => {
           finish(command.value ?? (command.cancelled ? "nada" : String(command.confirmed)));
         }
         break;
+      case "get_session_stats":
+        out({
+          id: command.id, type: "response", command: "get_session_stats", success: true,
+          data: {
+            sessionFile,
+            sessionId: `fake-${sessionSeq}`,
+            userMessages: 1,
+            assistantMessages: 1,
+            totalMessages: 2,
+            tokens: { input: 1000, output: 200, cacheRead: 0, cacheWrite: 0, total: 1200 },
+            cost: 0.01,
+            contextUsage: { tokens: 60000, contextWindow: 200000, percent: 30 },
+          },
+        });
+        break;
+      case "switch_session":
+        sessionFile = String(command.sessionPath ?? sessionFile);
+        out({ id: command.id, type: "response", command: "switch_session", success: true, data: { cancelled: false } });
+        break;
+      case "set_session_name":
+        out({ id: command.id, type: "response", command: "set_session_name", success: true, data: {} });
+        break;
+      case "export_html": {
+        // Pi honours outputPath and answers with the path it wrote, absolute as given.
+        const path = typeof command.outputPath === "string" ? command.outputPath : join(sessionDir, "export.html");
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, "<html></html>");
+        out({ id: command.id, type: "response", command: "export_html", success: true, data: { path } });
+        break;
+      }
       case "abort":
-      case "new_session":
         out({ id: command.id, type: "response", command: command.type, success: true, data: {} });
+        break;
+      case "new_session":
+        sessionSeq += 1;
+        sessionFile = join(sessionDir, `fake-session-${sessionSeq}.jsonl`);
+        writeFileSync(sessionFile, "");
+        out({ id: command.id, type: "response", command: "new_session", success: true, data: {} });
         break;
     }
   }

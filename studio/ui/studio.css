@@ -264,7 +264,25 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 .menu button { display: flex; width: 100%; gap: 10px; align-items: center; padding: 9px 12px; border: 0; background: transparent; border-radius: 4px; cursor: pointer; text-align: left; font-weight: 700; }
 .menu button:hover { background: var(--soft); }
 .menu button svg { width: 17px; height: 17px; }
-.thread { flex: 1; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.chats { flex: none; padding: 10px 16px; border-bottom: 2px solid var(--line); }
+.chats-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chats-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-list { max-height: 160px; overflow-y: auto; margin-top: 6px; }
+.chat-row { display: flex; align-items: start; border-radius: 6px; }
+.chat-row:has([aria-current="true"]) { background: var(--blue-s); }
+.chat-open { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; text-align: left; border: 0; background: transparent; color: var(--ink); padding: 6px 8px; cursor: pointer; }
+.chat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.chat-used, .chat-context { color: var(--muted); font-size: .8rem; }
+.chat-context { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; }
+.chat-meter { display: block; width: 70px; height: 5px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.chat-meter span { display: block; height: 100%; background: var(--blue); }
+.chat-options { position: relative; }
+.chat-options summary { cursor: pointer; list-style: none; padding: 6px 10px; color: var(--ink); }
+.chat-options summary::-webkit-details-marker { display: none; }
+.chat-menu { position: absolute; right: 0; z-index: 3; min-width: 130px; background: var(--paper); border: 2px solid var(--line); border-radius: 6px; }
+.chat-menu button { display: block; width: 100%; padding: 8px; border: 0; text-align: left; background: transparent; color: var(--ink); cursor: pointer; }
+.chat-menu button:hover { background: var(--soft); }
+.thread { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
 /* bubbles like the illustrated chat window: tutor on the left in blue, you on the right in green */
 .msg { max-width: 92%; padding: 10px 16px; border-radius: 18px; font-size: 1.02rem; line-height: 1.45; overflow-wrap: anywhere; }
 .msg.user { align-self: flex-end; background: var(--green-s); white-space: pre-wrap; }

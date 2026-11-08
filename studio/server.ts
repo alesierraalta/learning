@@ -12,7 +12,7 @@
  */
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -41,6 +41,22 @@ import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
 import { createAgy, parseAgyModels } from "./agy.ts";
+import {
+  chatById,
+  chatForAmbito,
+  createChat,
+  deleteChat,
+  openChat,
+  readChats,
+  recordContexto,
+  renameChat,
+  saveChats,
+  setAgyConversation,
+  setPiSession,
+  type Chat,
+  type ChatContexto,
+  type ChatDoc,
+} from "./chats.ts";
 import { parsePiModels } from "./pi-models.ts";
 import { checkDeep, enrolled } from "./gate.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
@@ -91,6 +107,8 @@ export interface StudioOptions {
   token?: string;
   /** When each topic was last opened; kept outside the vault. Default: the user's state directory. */
   openedFile?: string;
+  /** The conversation index; kept outside the vault. Default: next to `openedFile`. */
+  chatsFile?: string;
   /** Where the CDN libraries of saved parts are kept after the first download. Default: the user's cache directory. */
   offlineCacheDir?: string;
 }
@@ -235,6 +253,16 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
   const token = options.token ?? randomBytes(32).toString("hex");
   const openedFile = options.openedFile ?? join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "learning-studio", "opened.json");
+  const chatsFile = options.chatsFile ?? join(dirname(openedFile), "chats.json");
+  /** The learner's conversations; the active one is the session the tutor talks in. */
+  let chats: ChatDoc = readChats(chatsFile);
+  // The list always holds the conversation the studio already had, whatever the runtime.
+  if (!chats.chats.some((chat) => chat.id === chats.activo)) {
+    chats = chats.chats.length === 0 ? createChat(chats, { nombre: "Chat general" }).doc : { ...chats, activo: chats.chats[0].id };
+    chats = saveChats(chatsFile, chats);
+  }
+  /** Adopting the boot session must finish before the first prompt decides where it lands. */
+  let ready: Promise<void> = Promise.resolve();
   const offlineCacheDir = options.offlineCacheDir ?? join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "learning-studio", "cdn");
   let port = 0;
 
@@ -282,6 +310,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         busy = false;
         toolArgs.clear();
         emit("state", state());
+        // Only the session Pi is in can report its usage, so it is read while it is active.
+        if (!agy) void refreshContexto();
         // Pi runs this same check inside its settle gate; a provider without that hook gets it here.
         // The topic is taken and cleared first: a later prompt must not decide what this turn taught.
         {
@@ -319,7 +349,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         toolArgs.set(id, record.args);
         const note = toolNote(name, record.args, root);
         const topic = toolTopic(name, record.args, root);
-        emit("tool", { phase: "start", id: record.toolCallId, name: record.toolName, label: toolLabel(name, record.args), ok: true, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
+        emit("tool", { phase: "start", chat: chats.activo, id: record.toolCallId, name: record.toolName, label: toolLabel(name, record.args), ok: true, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
       }
       case "tool_execution_end": {
@@ -329,7 +359,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         toolArgs.delete(id);
         const note = toolNote(name, args, root);
         const topic = toolTopic(name, args, root);
-        emit("tool", { phase: "end", id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
+        emit("tool", { phase: "end", chat: chats.activo, id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
       }
       case "extension_ui_request": {
@@ -423,6 +453,121 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       }
     });
 
+  // ---- conversations -------------------------------------------------------
+  /** The index is the list; every change is written before the browser hears about it. */
+  const persist = (doc: ChatDoc): ChatDoc => {
+    chats = saveChats(chatsFile, doc);
+    return chats;
+  };
+
+  const activeChat = (): Chat | null => chats.chats.find((chat) => chat.id === chats.activo) ?? null;
+
+  const chatIdOf = (body: unknown): string => {
+    if (!isRecord(body) || typeof body.id !== "string") throw new HttpError(400, "id must be a string");
+    return body.id;
+  };
+
+  /** The only session files the studio may delete are the ones Pi keeps for this folder. */
+  const piSessionsRoot = () => process.env.PI_CODING_AGENT_SESSION_DIR || join(homedir(), ".pi", "agent", "sessions");
+
+  /** Pi's own report of the session it is in: the file, and how full its context is. */
+  const piStats = async (): Promise<{ file: string | null; contexto: ChatContexto | null }> => {
+    if (!child || !alive) return { file: null, contexto: null };
+    try {
+      // A short bound: a runtime that cannot report its session must not stall a turn.
+      const reply = await call({ type: "get_session_stats" }, 2500);
+      const data = isRecord(reply.data) ? reply.data : {};
+      const file = typeof data.sessionFile === "string" ? data.sessionFile : null;
+      const usage = isRecord(data.contextUsage) ? data.contextUsage : null;
+      // Right after a compaction Pi reports null until a fresh response measures the window.
+      const contexto = usage && typeof usage.tokens === "number" && typeof usage.contextWindow === "number" && usage.contextWindow > 0
+        ? {
+            tokens: usage.tokens,
+            ventana: usage.contextWindow,
+            porcentaje: typeof usage.percent === "number" ? usage.percent : Math.round((usage.tokens / usage.contextWindow) * 100),
+          }
+        : null;
+      return { file, contexto };
+    } catch {
+      return { file: null, contexto: null };
+    }
+  };
+
+  /** The last usage Pi measured for the active chat, so the list shows how full it is. */
+  const refreshContexto = async () => {
+    const current = activeChat();
+    if (!current) return;
+    const stats = await piStats();
+    if (stats.contexto) persist(recordContexto(chats, current.id, stats.contexto));
+    emit("chats", chats);
+  };
+
+  /**
+   * Opening a chat points the runtime at that chat's own conversation. A chat with
+   * no handle yet starts one and records it, so the next open comes back to it.
+   */
+  const switchTo = async (chat: Chat) => {
+    if (busy) throw new HttpError(409, "the tutor is busy");
+    if (agy) {
+      // Antigravity names its conversation per turn, so switching is choosing the id.
+      agy.open(chat.agyConversation ?? undefined);
+      return;
+    }
+    if (chat.piSession) {
+      const reply = await call({ type: "switch_session", sessionPath: chat.piSession });
+      if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused the switch"));
+      if (isRecord(reply.data) && reply.data.cancelled === true) throw new HttpError(409, "an extension cancelled the session switch");
+      return;
+    }
+    const reply = await call({ type: "new_session" });
+    if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused a new session"));
+    const stats = await piStats();
+    if (stats.file) persist(setPiSession(chats, chat.id, stats.file));
+  };
+
+  const openConversation = async (id: unknown): Promise<ChatDoc> => {
+    const chat = chatById(chats, id);
+    if (chat.id === chats.activo) return chats;
+    await switchTo(chat);
+    const doc = persist(openChat(chats, chat.id));
+    emit("history", await history());
+    emit("chats", doc);
+    return doc;
+  };
+
+  const newConversation = async (input: { nombre: unknown; ambito?: unknown }): Promise<{ doc: ChatDoc; chat: Chat }> => {
+    if (busy) throw new HttpError(409, "the tutor is busy");
+    const { doc, chat } = createChat(chats, input);
+    persist(doc);
+    await switchTo(chat);
+    emit("history", await history());
+    emit("chats", chats);
+    return { doc: chats, chat };
+  };
+
+  /**
+   * The conversation the studio already had becomes the first entry of the list, and
+   * a later boot returns to the active chat's own session instead of the boot one.
+   */
+  const adoptBoot = async () => {
+    if (agy) return;
+    const stats = await piStats();
+    if (!alive) return;
+    const current = activeChat();
+    if (!current) return;
+    if (!current.piSession && stats.file) {
+      persist(setPiSession(chats, current.id, stats.file));
+      emit("chats", chats);
+      return;
+    }
+    // A restart boots the studio's own session; the active chat may be another one.
+    if (current.piSession && stats.file && current.piSession !== stats.file) {
+      try { await switchTo(current); } catch (error) { emit("error", { message: (error as Error).message }); }
+      emit("history", await history());
+    }
+    emit("chats", chats);
+  };
+
   const startTutor = (config: TutorConfig) => {
     const previous = child;
     child = undefined;
@@ -432,9 +577,20 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     agy?.stop();
     agy = undefined;
     tutor = config;
-    if (config.agente === "pi") startPi();
-    else {
-      agy = createAgy({ command: options.agyCommand ?? ["agy"], cwd: root, config, onRecord: handle, onError: message => emit("error", { message }) });
+    if (config.agente === "pi") {
+      startPi();
+      ready = adoptBoot();
+    } else {
+      agy = createAgy({
+        command: options.agyCommand ?? ["agy"],
+        cwd: root,
+        config,
+        onRecord: handle,
+        onError: message => emit("error", { message }),
+        // The id belongs to the chat that is talking, so it is recorded where it can be found again.
+        onConversation: id => { if (activeChat()) persist(setAgyConversation(chats, chats.activo, id)); },
+      });
+      ready = Promise.resolve();
       alive = true;
       busy = false;
       emit("state", state());
@@ -461,6 +617,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 
   /** A prompt while Pi works is queued until it finishes. */
   const prompt = async (text: string) => {
+    // Never route a turn before the studio knows which conversation it belongs to.
+    await ready;
     if (agy) {
       // Antigravity refuses a second turn while it works: the transcript grows only after that.
       agy.prompt(text);
@@ -853,10 +1011,63 @@ ${scripts}
         recordOpened(topic);
         break;
       }
+      case "api/chats": {
+        const nombre = isRecord(body) ? body.nombre : undefined;
+        const ambito = isRecord(body) ? body.ambito : undefined;
+        const { doc } = await newConversation({ nombre, ambito });
+        return sendJson(res, 200, doc);
+      }
+      case "api/chats/abrir": {
+        // The reader opens a part by its address: the first open creates the chat it comes back to.
+        if (isRecord(body) && typeof body.ambito === "string") {
+          const found = chatForAmbito(chats, body.ambito);
+          if (found) return sendJson(res, 200, await openConversation(found.id));
+          const { doc } = await newConversation({ nombre: typeof body.nombre === "string" ? body.nombre : body.ambito, ambito: body.ambito });
+          return sendJson(res, 200, doc);
+        }
+        return sendJson(res, 200, await openConversation(chatIdOf(body)));
+      }
+      case "api/chats/renombrar": {
+        const id = chatIdOf(body);
+        const doc = persist(renameChat(chats, id, isRecord(body) ? body.nombre : undefined));
+        // Pi's own name is cosmetic; the index is the list, so a refusal here is not fatal.
+        if (!agy && id === chats.activo) await call({ type: "set_session_name", name: chatById(doc, id).nombre }).catch(() => undefined);
+        emit("chats", doc);
+        return sendJson(res, 200, doc);
+      }
+      case "api/chats/borrar": {
+        const id = chatIdOf(body);
+        const chat = chatById(chats, id);
+        const doc = persist(deleteChat(chats, id));
+        // The file goes only after the index stopped pointing at it, and only inside Pi's own store.
+        if (chat.piSession) {
+          const contained = resolveContained(piSessionsRoot(), chat.piSession);
+          if (contained.ok) rmSync(contained.targetReal, { force: true });
+        }
+        emit("chats", doc);
+        return sendJson(res, 200, doc);
+      }
+      case "api/chats/exportar": {
+        const id = chatIdOf(body);
+        if (agy) throw new HttpError(400, "Antigravity does not export conversations");
+        if (id !== chats.activo) throw new HttpError(409, "open the chat before exporting it");
+        const chat = chatById(chats, id);
+        // Pi writes the export into its working directory, which here is the vault.
+        // The file is named outside it instead, next to the conversation index.
+        const dir = join(dirname(chatsFile), "exports");
+        mkdirSync(dir, { recursive: true });
+        const slug = chat.nombre.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "chat";
+        const outputPath = join(dir, `${slug}-${new Date().toISOString().replace(/[:.]/g, "-")}.html`);
+        const reply = await call({ type: "export_html", outputPath }, 30000);
+        // Pi's own refusal is the answer: an empty conversation cannot be exported.
+        if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused the export"));
+        const path = isRecord(reply.data) && typeof reply.data.path === "string" ? reply.data.path : "";
+        if (!path) throw new HttpError(502, "Pi did not export the conversation");
+        return sendJson(res, 200, { path });
+      }
       case "new-session": {
-        const reply = await call({ type: "new_session" });
-        if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused a new session"));
-        emit("history", { messages: [], note: null });
+        // The old control now creates a chat: the list is the only source of conversations.
+        await newConversation({ nombre: `Chat ${chats.chats.length + 1}` });
         break;
       }
       case "restart":
@@ -941,6 +1152,17 @@ ${scripts}
         return events(res);
       case "api/library":
         return sendJson(res, 200, await library());
+      case "api/chats": {
+        // The list is only true once the boot session has been adopted.
+        await ready;
+        // The active Pi chat reports its usage live; the others keep the last value seen.
+        if (!agy) {
+          const stats = await piStats();
+          const current = activeChat();
+          if (current && stats.contexto) persist(recordContexto(chats, current.id, stats.contexto));
+        }
+        return sendJson(res, 200, chats);
+      }
       case "api/preferences":
         return sendJson(res, 200, readPreferences(root));
       case "api/tutor":

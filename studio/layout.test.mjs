@@ -35,6 +35,39 @@ after(async () => {
   for (const studio of open) await studio.close();
 });
 
+test("chat drawer creates and opens conversations and reuses the part chat", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  // Its own conversation index: the shared one would carry chats from another test.
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine, chatsFile: join(root, ".chats.json") });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  const rows = page.locator(".chat-open");
+  await rows.first().waitFor();
+  const original = await rows.first().locator(".chat-name").innerText();
+  assert.equal(await rows.first().getAttribute("aria-current"), "true");
+  page.once("dialog", (dialog) => dialog.accept("Repaso"));
+  await page.getByRole("button", { name: "＋ Chat" }).click();
+  const created = page.locator(".chat-open", { hasText: "Repaso" });
+  await created.waitFor();
+  await page.waitForFunction(() => document.querySelector('.chat-open[aria-current="true"] .chat-name')?.textContent === "Repaso");
+  const first = page.locator(".chat-open", { hasText: original });
+  await first.click();
+  await page.waitForFunction((name) => document.querySelector('.chat-open[aria-current="true"] .chat-name')?.textContent === name, original);
+  await page.locator(".thread").getByText("¡Hola!", { exact: true }).waitFor();
+  await page.locator('.chat-open[aria-current="true"] [role="progressbar"][aria-valuenow="30"]').waitFor();
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => document.querySelector('.chat-open[aria-current="true"] .chat-name')?.textContent.startsWith("Parte 1 ·"));
+  const count = await rows.count();
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => document.querySelector('.chat-open[aria-current="true"] .chat-name')?.textContent.startsWith("Parte 1 ·"));
+  assert.equal(await rows.count(), count);
+});
+
 test("home editorial layout preserves real progress and next action on desktop and mobile", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot({ status: { status: "waiting", stage: "explanation", nextStage: "explanation", part: "p2" } });
   process.env.FAKE_PI_LOG = log;
