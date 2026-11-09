@@ -1,6 +1,32 @@
 (() => {
   "use strict";
   const app = document.getElementById("app");
+  // The parent cannot inspect this cross-origin document's scroll position.
+  let scrollAnchor = window.scrollY;
+  let scrollDirection = "";
+  let scrollPending = false;
+  let lastHeight = window.innerHeight;
+  window.addEventListener("scroll", () => {
+    if (scrollPending) return;
+    scrollPending = true;
+    requestAnimationFrame(() => {
+      scrollPending = false;
+      // The parent hides its bar by growing this frame, which fires a scroll of its
+      // own: reporting it would hide the bar, grow the frame, and flap forever.
+      if (window.innerHeight !== lastHeight) {
+        lastHeight = window.innerHeight;
+        scrollAnchor = window.scrollY;
+        return;
+      }
+      const y = window.scrollY;
+      if (y > 0 && Math.abs(y - scrollAnchor) < 24) return;
+      const direction = y <= 0 || y < scrollAnchor ? "up" : "down";
+      scrollAnchor = y;
+      if (direction === scrollDirection) return;
+      scrollDirection = direction;
+      window.parent.postMessage({ type: "learning:scroll", direction }, "*");
+    });
+  }, { passive: true });
   const CONFIDENCE = { seguro: "seguro", dudo: "dudo", adivine: "adiviné" };
   // «No sé» already says how sure the learner is: it asks for no confidence.
   const dontKnow = (text) => /^no se\.?$/i.test(String(text ?? "").normalize("NFD").replace(/\p{M}/gu, "").trim());

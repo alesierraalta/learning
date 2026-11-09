@@ -189,19 +189,20 @@
     button.title = label;
     button.replaceChildren(icon(current === "black" ? "sun" : "moon"));
   };
+  const toggleTheme = () => {
+    const current = document.documentElement.dataset.theme;
+    const next = current === "dark" ? "black" : current === "black" ? "light" : "dark";
+    if (window.learningTheme?.set) window.learningTheme.set(next);
+    else document.documentElement.dataset.theme = next;
+    for (const painted of document.querySelectorAll(".theme-btn")) paintTheme(painted);
+    for (const frame of document.querySelectorAll("iframe.sheet")) {
+      frame.contentWindow?.postMessage({ type: "learning-theme", theme: next }, "*");
+    }
+  };
   const themeButton = () => {
     const button = h("button", { class: "icon-btn theme-btn", type: "button" });
     paintTheme(button);
-    button.addEventListener("click", () => {
-      const current = document.documentElement.dataset.theme;
-      const next = current === "dark" ? "black" : current === "black" ? "light" : "dark";
-      if (window.learningTheme?.set) window.learningTheme.set(next);
-      else document.documentElement.dataset.theme = next;
-      paintTheme(button);
-      for (const frame of document.querySelectorAll("iframe.sheet")) {
-        frame.contentWindow?.postMessage({ type: "learning-theme", theme: next }, "*");
-      }
-    });
+    button.addEventListener("click", toggleTheme);
     return button;
   };
   const withTheme = (url) => {
@@ -467,8 +468,33 @@
   const topicById = (id) => library.topics.find((t) => t.id === id);
   const crumbs = h("nav", { class: "crumbs", "aria-label": "Ubicación" });
   const stage = h("main", { class: "stage", id: "stage" });
+  const mobileBack = h("a", { class: "mobile-back", hidden: true }, "←");
+  let scrollAnchor = 0;
+  function showChrome() { document.body.classList.remove("chrome-hidden"); }
+  function scrollChrome(direction) {
+    if (!matchMedia("(max-width: 720px)").matches) return;
+    if (direction === "up") return showChrome();
+    if (document.body.classList.contains("drawer-open") || document.activeElement?.closest(".topbar, .reader-head")) return;
+    document.body.classList.add("chrome-hidden");
+  }
+  document.addEventListener("focusin", (event) => {
+    if (event.target.closest?.(".topbar, .reader-head")) showChrome();
+  });
+  window.addEventListener("scroll", () => {
+    const y = window.scrollY;
+    if (y <= 0) { scrollAnchor = 0; showChrome(); return; }
+    if (Math.abs(y - scrollAnchor) < 24) return;
+    scrollChrome(y > scrollAnchor ? "down" : "up");
+    scrollAnchor = y;
+  }, { passive: true });
 
   function setCrumbs(items) {
+    const destination = [...items].reverse().find((item) => item.href);
+    mobileBack.hidden = !destination;
+    if (destination) {
+      mobileBack.href = destination.href;
+      mobileBack.setAttribute("aria-label", `Volver a ${destination.text}`);
+    }
     crumbs.replaceChildren(
       ...items.flatMap((item, i) => [
         ...(i ? [h("span", { class: "sep" }, "/")] : []),
@@ -481,6 +507,8 @@
   function render() {
     const [, view, a, b] = location.hash.split("/").map(decodeURIComponent);
     if (view !== "leer" || enteredPart !== `${a}/${b}`) enteredPart = "";
+    showChrome();
+    scrollAnchor = 0;
     window.scrollTo(0, 0);
     if (view === "tema" && a) return topicView(a);
     if (view === "panorama" && a) return panoramaView(a, b);
@@ -1428,6 +1456,15 @@
               }),
           }
         : null,
+      // The phone gives the studio bar's room to the lesson, so what that bar carried
+      // lives here: nothing becomes unreachable when the chrome leaves.
+      // The phone gives the studio bar's room to the lesson, so what that bar carried
+      // lives here: nothing becomes unreachable when the chrome leaves. They are menu
+      // only: the row has no room for them, and on a wide screen the bar still has them.
+      { label: "Conversación de esta parte", icon: "chat", cls: "btn small ghost", menuOnly: true, run: () => openDrawer() },
+      { label: "Tema oscuro", icon: "moon", cls: "btn small ghost", menuOnly: true, run: toggleTheme },
+      { label: "Configuración", icon: "settings", cls: "btn small ghost", menuOnly: true, run: () => go("#/preferencias") },
+      { label: "Tutorial", icon: "deck", cls: "btn small ghost", menuOnly: true, run: () => openTutorial() },
     ].filter(Boolean);
 
     // The phone menu: a positioned list, closed by Escape or a click outside.
@@ -1494,15 +1531,17 @@
     const bar = h(
       "div",
       { class: "reader-bar" },
-      h("button", { class: "icon-btn", type: "button", "aria-label": "Volver", title: "Volver", onclick: () => go(quick ? "#/" : `#/tema/${topicId}`) }, icon("back")),
+      h("button", { class: "icon-btn reader-back", type: "button", "aria-label": "Volver", title: "Volver", onclick: () => go(quick ? "#/" : `#/tema/${topicId}`) }, icon("back")),
       h("div", { class: "title" }, h("small", {}, kicker), title),
       saveAction ? actionButton(saveAction) : null,
       prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost nav", "back") : null,
       next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost nav", "next") : null,
-      ...actions.filter((action) => !action.save && !action.mode).map(actionButton),
+      ...actions.filter((action) => !action.save && !action.mode && !action.menuOnly).map(actionButton),
       modeSwitch,
       moreButton,
     );
+    const readerBack = bar.querySelector(".reader-back");
+    if (matchMedia("(max-width: 720px)").matches) readerBack.setAttribute("aria-label", `Volver a ${quick ? "Inicio" : topic?.title || topicId}`);
     const pageLabel = h("span", { class: "reader-page" }, "1 / 1");
     const pagePrev = h("button", { class: "icon-btn", type: "button", "aria-label": "Página anterior", title: "Página anterior", onclick: () => turnPage(-1) }, icon("back"));
     const pageNext = h("button", { class: "icon-btn", type: "button", "aria-label": "Página siguiente", title: "Página siguiente", onclick: () => turnPage(1) }, icon("next"));
@@ -1570,6 +1609,11 @@
   let showResultsStatus = () => {};
   window.addEventListener("message", (event) => {
     const data = event.data;
+    if (data && data.type === "learning:scroll") {
+      const frame = stage.querySelector("iframe.sheet");
+      if (frame && event.source === frame.contentWindow && (data.direction === "up" || data.direction === "down")) scrollChrome(data.direction);
+      return;
+    }
     if (data && data.type === "learning-book") {
       const bar = document.querySelector(".reader-pages");
       const frame = document.querySelector(".reader iframe.sheet");
@@ -1961,6 +2005,7 @@
     updatePill();
   };
   function openDrawer(prefill) {
+    showChrome();
     document.body.classList.add("drawer-open");
     pill.setAttribute("aria-expanded", "true");
     tutor.unread = 0;
@@ -2246,6 +2291,7 @@
     h(
       "header",
       { class: "topbar" },
+      mobileBack,
       h("a", { class: "brand", href: "#/" }, h("b", {}, "Estudio"), h("span", {}, "Learnings")),
       crumbs,
       h("div", { class: "top-actions" }, themeButton(), h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
