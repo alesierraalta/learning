@@ -514,9 +514,47 @@ test("the reader bar stays compact and readable on a phone", { skip: browser ? f
     assert.ok(c.right <= 360, `control off screen: ${JSON.stringify(c)}`);
   }
   // The five actions leave the row; the trigger that opens them takes their place.
-  assert.deepEqual(seen.controls.map((c) => c.name), ["Volver", "Más acciones"]);
+  assert.deepEqual(seen.controls.map((c) => c.name), ["Volver a Redes", "Más acciones"]);
   assert.ok(seen.sheetTop <= 150, `the sheet starts at ${seen.sheetTop}px`);
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
+});
+
+test("mobile chrome follows the cross-origin reader and preserves its escape routes", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  const sheet = await page.waitForSelector("iframe.sheet[src]");
+  const frame = await sheet.contentFrame();
+  await frame.evaluate(() => { const spacer = document.createElement("div"); spacer.style.height = "3000px"; document.body.append(spacer); });
+  const chip = page.locator(".reader-back");
+  assert.match(await chip.getAttribute("aria-label"), /Redes/i);
+  const rect = await chip.boundingBox();
+  assert.ok(rect.width >= 44 && rect.height >= 44);
+  // The lesson owns the whole screen from the start; the bar floats over it and leaves.
+  assert.equal(Math.round((await sheet.boundingBox()).y), 0, "the lesson keeps the whole screen");
+  const barBefore = (await page.locator(".reader-head").boundingBox()).y;
+  await frame.evaluate(() => window.scrollTo(0, 400));
+  await page.waitForFunction(() => document.body.classList.contains("chrome-hidden"));
+  await page.waitForTimeout(300);
+  const barAfter = (await page.locator(".reader-head").boundingBox())?.y ?? -999;
+  console.log(`mobile bar y: ${barBefore} -> ${barAfter}`);
+  assert.ok(barAfter < barBefore, `the bar did not leave: ${barBefore} -> ${barAfter}`);
+  assert.equal(Math.round((await sheet.boundingBox()).y), 0, "hiding the bar resized the lesson");
+  await frame.evaluate(() => window.scrollTo(0, 200));
+  await page.waitForFunction(() => !document.body.classList.contains("chrome-hidden"));
+  await page.getByRole("button", { name: "Más acciones" }).click();
+  await page.getByRole("menuitem", { name: "Preguntar" }).click();
+  await frame.evaluate(() => window.scrollTo(0, 500));
+  await page.waitForTimeout(150);
+  assert.equal(await page.evaluate(() => document.body.classList.contains("chrome-hidden")), false);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.setViewportSize({ width: 1280, height: 844 });
+  assert.equal(await page.locator(".crumbs a").count(), 2);
+  assert.equal(await page.locator(".crumbs").isVisible(), true);
 });
 
 // S1-S2: one row on a phone, and the actions that leave the row stay reachable
@@ -554,7 +592,12 @@ test("the reader bar is one row and its overflow menu holds the five actions (S1
   assert.equal(await menu.isVisible(), true);
   // The five actions, plus the reading mode: on a phone the three modes are
   // reached here, because the row belongs to the title.
-  assert.deepEqual((await menu.locator("button").allInnerTexts()).map((text) => text.trim()), ["Descargar para ver sin conexión", "Preguntar", "Sugerir", "Regenerar", "Modo: art.", "Borrar"]);
+  // The part's actions, plus what the phone's studio bar used to carry: it is gone
+  // on the reader, so its controls live here instead of becoming unreachable.
+  assert.deepEqual((await menu.locator("button").allInnerTexts()).map((text) => text.trim()), [
+    "Descargar para ver sin conexión", "Preguntar", "Sugerir", "Regenerar", "Modo: art.", "Borrar",
+    "Conversación de esta parte", "Tema oscuro", "Configuración", "Tutorial",
+  ]);
   assert.equal(await page.evaluate(() => !!document.activeElement.closest?.(".reader-menu")), true, "the menu is not keyboard reachable");
 
   await page.keyboard.press("Escape");
@@ -1021,7 +1064,7 @@ test("a quick note is created, listed first and edited through the reader", { sk
   await created.locator("lk-walkthrough svg").first().waitFor({ timeout: 15000 });
   assert.equal(readFileSync(join(root, "rapidos", "nota-con-diapositivas.md"), "utf8"), noteBody(heading, steps()));
 
-  await page.locator("a.brand").click();
+  await page.locator(".reader-back").click();
   await page.waitForFunction(() => location.hash === "#/");
   const first = page.locator(".quick-card").first();
   assert.match(await first.innerText(), /Nota con diapositivas/, "the new note is at the top of the library");
@@ -1030,7 +1073,7 @@ test("a quick note is created, listed first and edited through the reader", { sk
   const reopened = await readerFrame(page);
   await reopened.locator("lk-walkthrough svg").first().waitFor({ timeout: 15000 });
 
-  await page.locator("a.brand").click();
+  await page.locator(".reader-back").click();
   await page.waitForFunction(() => location.hash === "#/");
   await page.locator(".quick-card").first().getByRole("button", { name: "Editar" }).click();
   await page.waitForFunction(() => location.hash.startsWith("#/editar/"));

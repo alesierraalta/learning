@@ -1,0 +1,9 @@
+{
+  "title": "Navegación móvil del estudio",
+  "brief": "Tres estructuras para maximizar la lectura móvil, ofrecer una única ubicación por acción, conectar la conversación de la parte y garantizar controles de al menos 44 × 44 px.",
+  "artboards": [
+    {"file":"01-barra-inferior.html","title":"Barra inferior","tradeoff":"Acciones al alcance del pulgar; ocupa aproximadamente 56 px al pie.","width":390,"height":844},
+    {"file":"02-cromo-que-se-va.html","title":"Cromo que se va","tradeoff":"Máxima área de lectura; volver queda oculto hasta desplazar hacia arriba.","width":390,"height":844},
+    {"file":"03-un-solo-boton.html","title":"Un solo botón","tradeoff":"Cromo mínimo; cada acción secundaria requiere dos pulsaciones.","width":390,"height":844}
+  ]
+}

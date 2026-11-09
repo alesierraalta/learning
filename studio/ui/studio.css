@@ -34,6 +34,8 @@ body { margin: 0; color: var(--ink); background: var(--paper); font: 20px/1.6 va
 button, input, textarea, select { font: inherit; color: inherit; }
 a { color: var(--blue); }
 
+.mobile-back { display: none; }
+
 /* ---------- top bar ---------- */
 .topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 20px; height: var(--topbar); padding: 0 32px; background: var(--paper); border-bottom: 2px solid var(--line); }
 .brand { display: flex; align-items: baseline; gap: 10px; padding-block: 7px; text-decoration: none; color: var(--ink); }
@@ -389,24 +391,35 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 }
 @media (max-width: 720px) {
   :root { --drawer: 100vw; --topbar: 54px; }
-  .topbar { padding: 0 14px; gap: 10px; }
+  .topbar { padding: 0 8px; gap: 8px; transition: margin-bottom .2s, transform .2s; }
   .brand span, .crumbs, .top-actions .tutorial-btn { display: none; }
+  .mobile-back:not([hidden]) { display: grid; place-items: center; min-width: 44px; height: 44px; border: 1px solid var(--line); text-decoration: none; }
+  .topbar button, .topbar .brand { min-width: 44px; min-height: 44px; }
+  body:has(.reader) .topbar { display: none; }
+  /* The lesson keeps the whole screen and the bar floats over it: hiding the bar
+     must not resize the frame, or the frame's own scroll would hide it again. */
+  body:has(.reader) .reader { position: relative; height: 100vh; }
+  body:has(.reader) .reader-head { position: absolute; inset: 0 0 auto 0; z-index: 30; background: var(--paper); transition: transform .2s; }
+  body.chrome-hidden:not(:has(.reader)) .topbar { transform: translateY(-100%); }
+  body.chrome-hidden .reader-head { transform: translateY(-100%); }
   .page { padding: 30px 18px 80px; }
   .part-row { grid-template-columns: 42px minmax(0, 1fr); }
   .part-row .row-actions { grid-column: 2; justify-content: flex-start; }
   /* One row, never two: back, the truncated title, the arrows while they fit
      and the overflow trigger. The five actions live in the menu so the text
      gets the screen; the title gives up width first, never a line. */
-  .reader-bar { flex-wrap: nowrap; gap: 4px; padding: 6px 8px; }
+  .reader-bar { flex-wrap: nowrap; gap: 4px; padding: 4px 8px; }
   .reader-bar::after { content: none; }
   .reader-bar .nav { margin-top: 0; flex: none; }
   .reader-bar .reader-action { display: none; }
   .reader-bar .title { font-size: .92rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; hyphens: none; }
   .reader-bar .title small { display: none; }
-  .reader-bar .btn { min-width: 38px; min-height: 38px; justify-content: center; padding: 0; flex: none; }
+  .reader-bar .btn, .reader-bar .icon-btn { min-width: 44px; min-height: 44px; justify-content: center; padding: 0; flex: none; }
   .reader-bar .btn .label { display: none; }
   .reader-bar .reader-more { display: grid; flex: none; }
   .reader-menu:not([hidden]) { display: flex; }
+  /* A thumb needs 44px: the menu is the phone's only way to the part's actions. */
+  .reader-menu button { min-height: 44px; }
   .reader-bar .switch { flex: 1 1 auto; }
   .reader-bar .switch button { flex: 1; min-height: 38px; padding: 0 8px; }
   /* The three modes live in the overflow menu: the title needs the row. */
