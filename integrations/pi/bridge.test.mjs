@@ -474,8 +474,9 @@ test('«No sé» needs no confidence and a framed submit notifies the studio', {
   const payload = (await sent).postDataJSON();
   assert.deepEqual(payload.reasoning.q1, { razonamiento: '' });
   assert.deepEqual(payload.reasoning.q2, { razonamiento: '', confianza: 'seguro' });
-  await page.waitForFunction(() => window.received.length > 0);
-  assert.deepEqual(await page.evaluate(() => window.received), [{
+  // The frame also reports scroll direction, so wait for the submission itself.
+  await page.waitForFunction(() => window.received.some((message) => message.type === 'learning:submitted'));
+  assert.deepEqual((await page.evaluate(() => window.received)).filter((message) => message.type === 'learning:submitted'), [{
     type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
     results: [
       { id: 'q1', enunciado: 'Pregunta q1', chosen: 'E', chosenText: 'No sé', correct: 'B', correctText: 'b', ok: false },
@@ -523,8 +524,9 @@ test('rich-page quiz: «No sé» hides confidence and a framed submit notifies t
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
   const payload = (await sent).postDataJSON();
   assert.deepEqual(payload.reasoning.q1, { razonamiento: 'ni idea' });
-  await page.waitForFunction(() => window.received.length > 0);
-  assert.deepEqual(await page.evaluate(() => window.received), [{
+  // The frame also reports scroll direction, so wait for the submission itself.
+  await page.waitForFunction(() => window.received.some((message) => message.type === 'learning:submitted'));
+  assert.deepEqual((await page.evaluate(() => window.received)).filter((message) => message.type === 'learning:submitted'), [{
     type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
     results: [
       { id: 'q1', enunciado: 'Pregunta q1', chosen: 'E', chosenText: 'No sé', correct: 'B', correctText: 'b', ok: false },
