@@ -1882,6 +1882,55 @@ test('wide mode spreads a wrapped hand-built page across both columns', { skip: 
   assert.equal(wide.overflow, 0, 'the wide mode never overflows horizontally');
 });
 
+// The studio offers Artículo / Ancho / Libro and posts the choice to the page.
+// Ancho is the document's wide mode: one control, not two, and the button has to
+// report the mode the studio chose.
+test("the studio's Ancho mode turns on the document's wide reading", { skip: !playwright && 'playwright not installed' }, async (t) => {
+  const { view, topic } = await setup();
+  const sections = Array.from(
+    { length: 24 },
+    (_, i) =>
+      `## Sección ${i + 1}\n\nUn párrafo de prueba con suficiente texto como para que el reparto en dos columnas se observe en una pantalla ancha, sin depender de una figura.\n`,
+  ).join('\n');
+  writeFileSync(join(topic, 'explicaciones', 'Parte 1 - Claves.md'), `# Parte 1 — Claves\n\n${sections}`);
+  const result = await view({ topic: TOPIC, part: 'p1' });
+
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  const measure = () =>
+    page.evaluate(() => ({
+      wide: document.body.classList.contains('wide'),
+      book: document.body.classList.contains('book'),
+      columns: getComputedStyle(document.querySelector('.prose')).columnCount,
+      pressed: document.querySelector('.reading-toggle')?.getAttribute('aria-pressed') ?? null,
+    }));
+  const say = (mode) => page.evaluate((m) => window.postMessage({ type: 'learning-reading-mode', mode: m }, '*'), mode);
+
+  await page.goto(result.structuredContent.url);
+  assert.deepEqual(await measure(), { wide: false, book: false, columns: 'auto', pressed: 'false' }, 'the page starts narrow');
+
+  await say('ancho');
+  await page.waitForTimeout(150);
+  const wide = await measure();
+  assert.equal(wide.wide, true, 'Ancho in the studio turns on the wide mode');
+  assert.equal(wide.columns, '2', 'Ancho in the studio splits the prose into two columns');
+  assert.equal(wide.pressed, 'true', 'the button reports the mode the studio chose');
+
+  await say('articulo');
+  await page.waitForTimeout(150);
+  const back = await measure();
+  assert.equal(back.wide, false, 'Artículo turns the wide mode off again');
+  assert.equal(back.columns, 'auto', 'Artículo returns to one column');
+  assert.equal(back.pressed, 'false', 'the button follows the studio back');
+
+  await say('libro');
+  await page.waitForTimeout(150);
+  const book = await measure();
+  assert.equal(book.book, true, 'Libro still paginates');
+  assert.equal(book.wide, false, 'Libro is not the wide mode');
+});
+
 test('every reader page declares the shared icon and serves it under the token', async () => {
   const { view } = await setup();
   const result = await view({ topic: TOPIC, part: 'p1' });

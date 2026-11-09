@@ -22,8 +22,11 @@
       return false;
     }
   };
+  let wideButton = null;
   const setWide = (wide, remember = true) => {
     document.body.classList.toggle("wide", wide);
+    // The button and the studio's reading mode are two faces of one state.
+    if (wideButton) wideButton.setAttribute("aria-pressed", String(wide));
     if (!remember) return;
     try {
       if (wide) localStorage.setItem(WIDE_KEY, "1");
@@ -43,12 +46,9 @@
     const label = document.createElement("span");
     label.textContent = "Modo ancho";
     button.append(mark, label);
-    const pressed = () => String(document.body.classList.contains("wide"));
-    button.setAttribute("aria-pressed", pressed());
-    button.addEventListener("click", () => {
-      setWide(!document.body.classList.contains("wide"));
-      button.setAttribute("aria-pressed", pressed());
-    });
+    button.setAttribute("aria-pressed", String(document.body.classList.contains("wide")));
+    button.addEventListener("click", () => setWide(!document.body.classList.contains("wide")));
+    wideButton = button;
     document.body.append(button);
   };
   setWide(storedWide(), false);
@@ -78,6 +78,10 @@
   };
   const setMode = (mode) => {
     document.body.classList.toggle("book", mode === "libro");
+    // The studio's Ancho IS the document's wide mode: one control, not two. It is
+    // not remembered, because the studio keeps its own reading preference and
+    // this page keeps the button's choice for reading it on its own.
+    setWide(mode === "ancho", false);
     scroller.scrollTo({ left: 0, top: 0, behavior: "auto" });
     requestAnimationFrame(tell);
   };
