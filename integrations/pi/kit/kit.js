@@ -496,6 +496,29 @@
       const t = tone(n.tone);
       out += S.node(n.x, n.y, n.label || '', { stroke: t.stroke, fill: t.fill, color: t.color, r: n.r || 30 });
     }
+    for (const ic of scene.icons || []) {
+      const t = tone(ic.tone);
+      out += S.icon(ic.kind || 'doc', ic.x, ic.y, ic.size || 64, { stroke: t.stroke, fill: ic.fill || '#ffffff' });
+    }
+    // Un número pegado al dibujo: dice «mira acá» sin repetir el nombre de la pieza.
+    for (const c of scene.callouts || []) {
+      const t = tone(c.tone || 'blue');
+      if (Array.isArray(c.to)) out += S.line(c.x, c.y, c.to[0], c.to[1], { color: t.stroke, width: 2, arrow: false });
+      out += S.badge(c.x, c.y, c.n);
+    }
+    for (const fm of scene.formulas || (scene.formula ? [scene.formula] : [])) {
+      out += S.formula(fm.x ?? 380, fm.y ?? 120, fm.atoms || [], {
+        size: fm.size ?? 64, color: tone(fm.tone || 'ink').stroke,
+      });
+    }
+    for (const b of scene.bars || []) {
+      out += S.bars(b.x ?? 40, b.y ?? 60, (b.rows || []).map((r) => ({ ...r, color: tone(r.tone || 'blue').stroke })), {
+        width: b.width ?? 560, rowH: b.rowH ?? 56,
+      });
+    }
+    for (const st of scene.stats || []) {
+      out += S.stat(st.x, st.y, st.value, st.label || '', { color: tone(st.tone || 'ink').stroke, size: st.size || 54 });
+    }
     // A policy field is one fixed arrow per cell, the drawing a sentence like
     // "la fila de arriba apunta a la derecha" promises. Drawn before the plain
     // arrows so a beat's movement arrow stays the loudest thing on screen.
@@ -634,10 +657,10 @@
     const hint = el('p', 'Desliza el diagrama para verlo completo', { class: 'lk-wt-hint' });
     const count = el('span', undefined, { class: 'lk-wt-count' });
     const dots = el('div', undefined, { class: 'lk-wt-dots' });
-    let index = 0, whole = false;
+    let index = 0;
     const prev = button('◀ Anterior', () => go(index - 1));
     const next = button('Siguiente ▶', () => go(index + 1));
-    const reveal = button('Ver todo', () => { whole = !whole; draw(); });
+    const reveal = button('Ir al final', () => go(steps.length - 1));
     // The figure is the lesson: letting it own the screen is what makes the
     // small labels readable on a laptop and in class.
     const full = button('Pantalla completa', () => {
@@ -677,22 +700,21 @@
       dot.setAttribute('aria-label', `Paso ${i + 1}`);
       dots.append(dot);
     });
-    function go(to) { index = Math.max(0, Math.min(steps.length - 1, to)); whole = false; draw(); }
+    function go(to) { index = Math.max(0, Math.min(steps.length - 1, to)); draw(); }
     function draw() {
       // One scene per step: the figure shows the state that step describes, and
-      // «Ver todo» shows the last one. Cumulative scenes still work, because
-      // their last step already contains every earlier element.
+      // Un escenario por paso: la figura muestra el estado que ese paso describe.
+      // «Ir al final» salta al último paso en vez de fingir que muestra todos: las
+      // escenas se redibujan, no se acumulan.
       stage.querySelectorAll('[data-step]').forEach((g) => {
-        const shown = whole ? steps.length : index + 1;
-        g.style.display = Number(g.dataset.step) === shown ? '' : 'none';
+        g.style.display = Number(g.dataset.step) === index + 1 ? '' : 'none';
       });
       const step = steps[index];
       captionTitle.textContent = step.title || '';
       captionText.textContent = step.text || '';
-      count.textContent = whole ? `${steps.length} pasos` : `Paso ${index + 1} de ${steps.length}`;
+      count.textContent = `Paso ${index + 1} de ${steps.length}`;
       prev.disabled = index === 0;
       next.disabled = index === steps.length - 1;
-      reveal.textContent = whole ? 'Ver por pasos' : 'Ver todo';
       [...dots.children].forEach((dot, i) => dot.setAttribute('aria-current', String(i === index)));
     }
     this.addEventListener('keydown', (event) => {
