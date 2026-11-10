@@ -49,7 +49,7 @@ export async function transcribeAudio(target: Transcriber, audio: Buffer, mediaT
     return response;
   };
   try {
-    const uploaded: unknown = await (await call(`${jobs}?filename=dictado.${ext}&diarize=false`, { method: "PUT", body: audio })).json();
+    const uploaded: unknown = await (await call(`${jobs}?filename=dictado.${ext}&diarize=false`, { method: "PUT", body: new Uint8Array(audio) })).json();
     if (!isRecord(uploaded) || typeof uploaded.id !== "string" || !uploaded.id) throw new Error("missing job");
     job = `${jobs}/${encodeURIComponent(uploaded.id)}`;
     while (true) {

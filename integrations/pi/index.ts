@@ -8,7 +8,7 @@
  * learner chooses deep mode, or the learner uses /learning — no global prompt
  * injection, no conceptual-mode gate.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { execFile as execFileCb } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
@@ -542,7 +542,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     return {
       content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
       details: payload,
-      structuredContent: payload as Record<string, unknown>,
+      structuredContent: payload,
       isError: true,
     };
   };
@@ -662,7 +662,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
           content: [{ type: "text" as const, text: JSON.stringify(enrollOutcome.report, null, 2) }],
           details: { command: requested, exitCode: enrollOutcome.code },
           // SAFETY: parseReport only admits a single JSON object, so the report is a plain record.
-          structuredContent: enrollOutcome.report as unknown as Record<string, unknown>,
+          structuredContent: enrollOutcome.report as unknown as AgentToolResult["structuredContent"],
           isError: enrollOutcome.code !== 0,
         };
       }
@@ -712,7 +712,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
         content: [{ type: "text" as const, text: JSON.stringify(outcome.report, null, 2) }],
         details: { command: action, exitCode: outcome.code },
         // SAFETY: parseReport only admits a single JSON object, so the report is a plain record.
-        structuredContent: outcome.report as unknown as Record<string, unknown>,
+        structuredContent: outcome.report as unknown as AgentToolResult["structuredContent"],
         isError: outcome.code !== 0,
       };
     },
