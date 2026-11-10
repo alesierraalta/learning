@@ -56,7 +56,7 @@ test('scene-lint deja pasar una escena donde todo convive', () => {
     viewBox: '0 0 760 240',
     scene: {
       boxes: [{ x: 40, y: 60, w: 200, h: 100, label: 'AGENTE', sub: 'robot', tone: 'blue', rx: 0, size: 20 }],
-      arrows: [{ x1: 260, y1: 110, x2: 460, y2: 110, tone: 'slate', width: 2 }],
+      arrows: [{ x1: 244, y1: 110, x2: 564, y2: 110, tone: 'slate', width: 2 }],
       icons: [{ kind: 'house', x: 600, y: 120, size: 90 }],
     },
   }) + '\n</script>\n</lk-scene>\n```\n');
