@@ -2282,19 +2282,116 @@
     stateLine.textContent = "Reconectando…";
   };
 
+  // ---------- the panel's own controls ----------
+  // The tutor is a workspace, not a fixed rail: its left edge is a handle, its list
+  // of conversations folds away and its reading mode gives the chat the window.
+  // Every choice is kept on the device, so the tutor opens the way it was left.
+  const WIDTH_KEY = "estudio.tutor.ancho";
+  const LIST_KEY = "estudio.tutor.lista";
+  const FOCUS_KEY = "estudio.tutor.completo";
+  const WIDTH = { min: 360, default: 520, max: 1100 };
+  const kept = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
+  const keep = (key, value) => { try { localStorage.setItem(key, value); } catch { /* private mode */ } };
+  // Beside the page the panel keeps it a readable column; over the page (below
+  // 1100px) it may take almost the whole window, and no more.
+  const panelMax = () => (innerWidth > 1100 ? Math.min(WIDTH.max, innerWidth - 420) : Math.round(innerWidth * 0.92));
+  // What the learner asked for, kept across windows; a narrow one only shrinks it.
+  let asked = Number.parseInt(kept(WIDTH_KEY) ?? "", 10);
+  if (!Number.isFinite(asked)) asked = WIDTH.default;
+  asked = Math.max(WIDTH.min, Math.min(WIDTH.max, asked));
+  const panelWidth = () => Math.max(WIDTH.min, Math.min(panelMax(), asked));
+  const splitter = h("div", {
+    class: "drawer-splitter",
+    role: "separator",
+    "aria-orientation": "vertical",
+    "aria-label": "Ancho del tutor",
+    tabindex: "0",
+    "aria-valuemin": String(WIDTH.min),
+    "aria-valuemax": String(panelMax()),
+    "aria-valuenow": String(panelWidth()),
+  });
+  function applyWidth(persist = false) {
+    if (persist) keep(WIDTH_KEY, String(asked));
+    // A phone gives the panel the window: there the stylesheet owns the width.
+    if (innerWidth <= 720) document.documentElement.style.removeProperty("--drawer");
+    else document.documentElement.style.setProperty("--drawer", `${panelWidth()}px`);
+    splitter.setAttribute("aria-valuemax", String(panelMax()));
+    splitter.setAttribute("aria-valuenow", String(panelWidth()));
+  }
+  function setWidth(width, persist = true) {
+    asked = Math.max(WIDTH.min, Math.min(WIDTH.max, Math.round(width)));
+    applyWidth(persist);
+  }
+  // The edge follows the pointer: dragging left widens the panel.
+  let dragging = null;
+  splitter.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    dragging = { x: event.clientX, width: panelWidth() };
+    splitter.setPointerCapture(event.pointerId);
+    document.body.classList.add("drawer-resizing");
+    event.preventDefault();
+  });
+  splitter.addEventListener("pointermove", (event) => {
+    if (dragging) setWidth(dragging.width + (dragging.x - event.clientX), false);
+  });
+  const endDrag = (event) => {
+    if (!dragging) return;
+    dragging = null;
+    document.body.classList.remove("drawer-resizing");
+    applyWidth(true);
+    if (splitter.hasPointerCapture?.(event.pointerId)) splitter.releasePointerCapture(event.pointerId);
+  };
+  splitter.addEventListener("pointerup", endDrag);
+  splitter.addEventListener("pointercancel", endDrag);
+  splitter.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 96 : 24;
+    if (event.key === "ArrowLeft") setWidth(panelWidth() + step);
+    else if (event.key === "ArrowRight") setWidth(panelWidth() - step);
+    else return;
+    event.preventDefault();
+  });
+  splitter.addEventListener("dblclick", () => setWidth(WIDTH.default));
+
+  let listOpen = kept(LIST_KEY) !== "cerrada";
+  const listBtn = h("button", { class: "icon-btn", type: "button", "aria-controls": "tutor-chats", onclick: () => setListOpen(!listOpen) }, icon("chat"));
+  function setListOpen(open) {
+    listOpen = open;
+    keep(LIST_KEY, open ? "abierta" : "cerrada");
+    document.body.classList.toggle("tutor-list-hidden", !open);
+    const label = open ? "Ocultar la lista de chats" : "Mostrar la lista de chats";
+    listBtn.setAttribute("aria-expanded", String(open));
+    listBtn.setAttribute("aria-label", label);
+    listBtn.title = label;
+  }
+
+  let fullWindow = kept(FOCUS_KEY) === "si";
+  const focusBtn = h("button", { class: "icon-btn drawer-focus-btn", type: "button", onclick: () => setFullWindow(!fullWindow) }, icon("fit"));
+  function setFullWindow(on) {
+    fullWindow = on;
+    keep(FOCUS_KEY, on ? "si" : "no");
+    document.body.classList.toggle("drawer-focus", on);
+    const label = on ? "Dejar de ver el tutor a pantalla completa" : "Ver el tutor a pantalla completa";
+    focusBtn.setAttribute("aria-pressed", String(on));
+    focusBtn.setAttribute("aria-label", label);
+    focusBtn.title = label;
+  }
+
   const drawer = h(
     "aside",
     { class: "drawer", id: "drawer", "aria-label": "Tutor" },
+    splitter,
     h(
       "div",
       { class: "drawer-head" },
       h("h2", {}, "Tutor", stateLine),
       noteBtn,
+      listBtn,
+      focusBtn,
       h("button", { class: "icon-btn", type: "button", "aria-label": "Más opciones", onclick: () => menu.classList.toggle("open") }, icon("more")),
       h("button", { class: "icon-btn", type: "button", "aria-label": "Cerrar el tutor", onclick: closeDrawer }, icon("x")),
       menu,
     ),
-    h("section", { class: "chats", "aria-label": "Chats" },
+    h("section", { class: "chats", id: "tutor-chats", "aria-label": "Chats" },
       h("div", { class: "chats-head" }, chatHeading, btn("＋ Chat", createChat, "btn small")), chatList),
     thread,
     h(
@@ -2334,8 +2431,16 @@
     drawer,
   );
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") { menu.classList.remove("open"); }
+    if (event.key !== "Escape") return;
+    menu.classList.remove("open");
+    // Escape leaves the tutor, like its close button; a dialog on top owns the key.
+    if (document.querySelector(".modal-backdrop")) return;
+    closeDrawer();
   });
+  applyWidth();
+  setListOpen(listOpen);
+  setFullWindow(fullWindow);
+  addEventListener("resize", () => applyWidth());
   window.addEventListener("hashchange", render);
   updatePill();
   // Keeps the studio and its saved parts readable with no connection (studio/ui/sw.js).

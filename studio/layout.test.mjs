@@ -1957,3 +1957,181 @@ test("the feedback page lists what the learner said, readable in light and dark 
     assert.notEqual(ink, paper, `${theme}: text and page share a colour`);
   }
 });
+
+// ---------- the tutor panel ----------
+// The tutor is a workspace, not a fixed rail: its left edge is a handle, its list
+// of conversations folds away and its reading mode gives the chat the window. Each
+// test opens a topic page, so the page beside the panel has real words to keep
+// readable. `.stage` carries a .28s margin transition: geometry is measured after
+// it settles, never mid-animation.
+async function tutorPanel(t, width, height) {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width, height } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  return { page, studio, log };
+}
+
+const panelGeometry = (page) =>
+  page.evaluate(() => {
+    const box = (selector) => {
+      const rect = document.querySelector(selector)?.getBoundingClientRect();
+      return rect ? { left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width), height: Math.round(rect.height) } : null;
+    };
+    return { drawer: box(".drawer"), stage: box(".stage"), list: box(".chat-list"), thread: box(".thread") };
+  });
+
+async function openedTutor(t, width, height) {
+  const { page, studio } = await tutorPanel(t, width, height);
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(500);
+  return { page, studio };
+}
+
+test("the tutor panel widens from its left edge and leaves the page a readable column", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await openedTutor(t, 1440, 900);
+  const start = await panelGeometry(page);
+  assert.equal(start.drawer.width, 520, "the panel opens at its default width");
+  const splitter = page.locator(".drawer-splitter");
+  assert.equal(await splitter.getAttribute("role"), "separator");
+  assert.equal(await splitter.getAttribute("aria-orientation"), "vertical");
+  assert.equal(await splitter.getAttribute("aria-label"), "Ancho del tutor");
+  assert.equal(await splitter.getAttribute("aria-valuemin"), "360");
+  assert.equal(await splitter.getAttribute("aria-valuemax"), "1020", "beside the page the panel stops at 1100px or leaves it 420px");
+  assert.equal(await splitter.getAttribute("aria-valuenow"), "520");
+  await splitter.focus();
+  for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(500);
+  const wide = await panelGeometry(page);
+  assert.equal(wide.drawer.width, 616, "four presses of 24px widen the chat");
+  assert.equal(await splitter.getAttribute("aria-valuenow"), "616");
+  assert.ok(wide.stage.width >= 420, `the page keeps a readable column: ${wide.stage.width}px`);
+  assert.ok(wide.stage.right <= 1440 - wide.drawer.width, `the page is not under the panel: ${JSON.stringify(wide.stage)}`);
+  // A panel this size still reads as one column, not as a 600px line of prose.
+  assert.equal(await page.locator(".thread").evaluate((n) => Math.round(parseFloat(getComputedStyle(n).paddingLeft))), 20);
+  // Shift moves four presses at once, and the pointer drags the same edge.
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.up("Shift");
+  await page.waitForTimeout(500);
+  assert.equal((await panelGeometry(page)).drawer.width, 712, "Shift widens by 96px");
+  const edge = await splitter.boundingBox();
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + edge.width / 2 - 80, edge.y + 200, { steps: 8 });
+  assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-resizing")), true, "the page does not read the drag as its own");
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  assert.equal((await panelGeometry(page)).drawer.width, 792, "the edge follows the pointer");
+  assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-resizing")), false);
+  await splitter.dblclick();
+  await page.waitForTimeout(500);
+  assert.equal((await panelGeometry(page)).drawer.width, 520, "a double click returns it to its own width");
+});
+
+test("the tutor panel stops at both bounds", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await openedTutor(t, 1440, 900);
+  const splitter = page.locator(".drawer-splitter");
+  await splitter.focus();
+  for (let i = 0; i < 40; i++) await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(500);
+  assert.equal((await panelGeometry(page)).drawer.width, 1020, "the panel never eats the page's column");
+  for (let i = 0; i < 40; i++) await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(500);
+  assert.equal((await panelGeometry(page)).drawer.width, 360, "and it never shrinks under a readable chat");
+  assert.equal(await splitter.getAttribute("aria-valuenow"), "360");
+});
+
+test("the tutor keeps the width it was given", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await openedTutor(t, 1440, 900);
+  const splitter = page.locator(".drawer-splitter");
+  await splitter.focus();
+  for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(500);
+  assert.equal(await page.evaluate(() => localStorage.getItem("estudio.tutor.ancho")), "616");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(500);
+  assert.equal((await panelGeometry(page)).drawer.width, 616, "the panel opens as wide as it was left");
+});
+
+test("the tutor can take the whole window and give the page back", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await openedTutor(t, 1440, 900);
+  const expand = page.getByRole("button", { name: "Ver el tutor a pantalla completa" });
+  assert.equal(await expand.getAttribute("aria-pressed"), "false");
+  await expand.click();
+  await page.waitForTimeout(500);
+  const full = await panelGeometry(page);
+  assert.equal(full.drawer.width, 1440, "the chat gets the whole window");
+  assert.equal(full.stage.width, 1440, "and the page keeps its own width behind it");
+  // A panel the size of the window is a page: its words keep a column, not a line.
+  const column = await page.locator(".thread").evaluate((n) => {
+    const style = getComputedStyle(n);
+    const padding = parseFloat(style.paddingLeft);
+    return { padding: Math.round(padding), width: Math.round(n.clientWidth - padding - parseFloat(style.paddingRight)) };
+  });
+  assert.ok(column.padding > 100, `the wide panel centres its column: ${column.padding}px`);
+  assert.ok(column.width <= 780, `the conversation is not one 1400px line: ${column.width}px`);
+  assert.equal(await page.locator(".drawer-splitter").isVisible(), false, "a panel the size of the window has no edge to drag");
+  const shrink = page.getByRole("button", { name: "Dejar de ver el tutor a pantalla completa" });
+  assert.equal(await shrink.getAttribute("aria-pressed"), "true");
+  await shrink.click();
+  await page.waitForTimeout(500);
+  const restored = await panelGeometry(page);
+  assert.equal(restored.drawer.width, 520, "leaving the reading mode gives the page its column back");
+  assert.equal(restored.stage.width, 920);
+});
+
+test("the conversation list folds away and gives its room to the conversation", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await openedTutor(t, 1440, 900);
+  const before = await panelGeometry(page);
+  assert.ok(before.list.width > 0 && before.list.height > 0, "the list is shown when the panel opens");
+  const hide = page.getByRole("button", { name: "Ocultar la lista de chats" });
+  assert.equal(await hide.getAttribute("aria-expanded"), "true");
+  assert.equal(await hide.getAttribute("aria-controls"), "tutor-chats");
+  await hide.click();
+  await page.waitForTimeout(500);
+  const after = await panelGeometry(page);
+  assert.equal(after.list.width, 0, "a folded list takes no room");
+  assert.equal(await page.locator(".chat-list").isVisible(), false);
+  assert.equal(await page.locator(".chats").isVisible(), false, "no heading is left over an empty list");
+  // The list is a band above the conversation, so what it returns is room: the
+  // chat grows by the band's height and already owns the panel's whole width.
+  assert.ok(after.thread.height > before.thread.height + 40, `the conversation gets the room back: ${before.thread.height} → ${after.thread.height}`);
+  assert.ok(after.thread.width >= after.drawer.width - 4, `the conversation spans the panel: ${after.thread.width} of ${after.drawer.width}`);
+  assert.ok(after.thread.width * after.thread.height > before.thread.width * before.thread.height, "the conversation has more room to read in");
+  const show = page.getByRole("button", { name: "Mostrar la lista de chats" });
+  assert.equal(await show.getAttribute("aria-expanded"), "false");
+  // The conversation is still a conversation while the list is away.
+  await page.locator(".composer textarea").fill("sigo leyendo");
+  assert.equal(await page.locator(".composer textarea").inputValue(), "sigo leyendo");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator(".chats").isVisible(), false, "the choice survives a reload");
+  assert.equal((await panelGeometry(page)).list.width, 0);
+});
+
+test("a tablet keeps its whole page width under the panel", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await openedTutor(t, 820, 1180);
+  const tablet = await panelGeometry(page);
+  assert.equal(tablet.stage.width, 820, "the page is not cut to a sliver behind the panel");
+  assert.equal(tablet.drawer.width, 520);
+  assert.equal(await page.locator(".scrim").isVisible(), true, "the page behind the panel is dimmed");
+  assert.equal(await page.locator(".drawer-splitter").isVisible(), true);
+  // A phone gives the panel the window: no handle, and no width of its own.
+  await page.setViewportSize({ width: 360, height: 760 });
+  await page.waitForTimeout(500);
+  const phone = await panelGeometry(page);
+  assert.equal(phone.drawer.width, 360);
+  assert.equal(await page.locator(".drawer-splitter").isVisible(), false);
+  assert.equal(await page.evaluate(() => document.documentElement.style.getPropertyValue("--drawer")), "", "the stylesheet owns the width there");
+  // Narrowing the window shrinks the panel without forgetting the width asked for.
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await page.waitForTimeout(500);
+  assert.equal((await panelGeometry(page)).drawer.width, 520);
+});
