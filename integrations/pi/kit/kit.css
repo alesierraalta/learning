@@ -287,6 +287,16 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
 :root[data-theme="dark"] .lk-walkthrough:-webkit-full-screen { background: #fff; }
 /* Un diagrama de mermaid se dibuja con su propio tema claro: se le deja el papel. */
 :root[data-theme="black"] pre.mermaid,
+/* Una escena conserva el papel claro, como la hoja del deck: la geometría y la tinta
+   las eligió quien la dibujó y no cambian con el tema del lector. Sin tarjeta. */
+:root[data-theme="dark"] lk-scene {
+  background: #fff; color-scheme: light; padding: 4px 0;
+  --paper: #ffffff; --ink: #0F2E3D; --muted: rgba(15, 46, 61, .62);
+  --rule: #e2e8f0; --cobalt: #2563eb; --emerald: #059669; --amber: #d97706; --crimson: #dc2626;
+  --on-ink: #ffffff;
+}
+:root[data-theme="dark"] lk-scene .lk-scene-caption { color: rgba(15, 46, 61, .62); }
+
 :root[data-theme="dark"] pre.mermaid { --ink: #0F2E3D; background: #fff; color: var(--ink); padding: 14px; color-scheme: light; }
 :root[data-theme="black"] [class*="wall"],
 :root[data-theme="black"] .wall,

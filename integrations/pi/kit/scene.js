@@ -106,6 +106,81 @@
   const line = (x1, y1, x2, y2, { color = C.slate, arrow = true, width = 4, dashedLine = false } = {}) =>
     `<path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerIds[color] || "a-slate"})"` : ""}/>`;
 
+  // Una fórmula puesta en escena: cada símbolo es un átomo propio, así una llamada
+  // puede señalar «esta V» o «esta s» sin adivinar coordenadas de la cadena entera.
+  const formula = (cx, cy, atoms, { size = 64, color = C.ink, anchor: anchorMode = "middle" } = {}) => {
+    const parts = atoms.map((a, i) => {
+      const kind = typeof a === "string" ? { t: a } : a;
+      const dy = kind.sub ? "12" : kind.sup ? "-18" : "0";
+      const fs = kind.sub || kind.sup ? size * 0.52 : size;
+      const style = kind.italic === false ? "" : ' font-style="italic"';
+      return `<tspan data-atom="${i}" font-size="${f(fs)}" dy="${dy}"${style}>${esc(kind.t)}</tspan>`;
+    }).join("");
+    return `<text x="${f(cx)}" y="${f(cy)}" text-anchor="${anchorMode}" font-size="${f(size)}" font-weight="700" fill="${color}">${parts}</text>`;
+  };
+
+  // Objetos dibujados: lo que se mueve o cambia es el objeto, no una caja con su nombre.
+  const icon = (kind, cx, cy, size = 64, { stroke = C.ink, fill = "#ffffff" } = {}) => {
+    const s = size;
+    const sw = Math.max(2, s * 0.045);
+    const st = `fill="none" stroke="${stroke}" stroke-width="${f(sw)}" stroke-linecap="round" stroke-linejoin="round"`;
+    if (kind === "robot") {
+      return `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(s * 0.5)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<circle cx="${f(cx)}" cy="${f(cy - s * 0.08)}" r="${f(s * 0.13)}" fill="${stroke}"/>`
+        + `<path d="M ${f(cx - s * 0.32)} ${f(cy + s * 0.22)} H ${f(cx + s * 0.32)}" ${st}/>`
+        + `<path d="M ${f(cx - s * 0.1)} ${f(cy + s * 0.34)} H ${f(cx + s * 0.1)}" fill="none" stroke="${stroke}" stroke-width="${f(sw * 1.6)}" stroke-linecap="round"/>`;
+    }
+    if (kind === "house") {
+      return `<path d="M ${f(cx - s * 0.46)} ${f(cy - s * 0.04)} L ${f(cx)} ${f(cy - s * 0.44)} L ${f(cx + s * 0.46)} ${f(cy - s * 0.04)}" ${st}/>`
+        + `<rect x="${f(cx - s * 0.36)}" y="${f(cy - s * 0.04)}" width="${f(s * 0.72)}" height="${f(s * 0.48)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<rect x="${f(cx - s * 0.11)}" y="${f(cy + s * 0.14)}" width="${f(s * 0.22)}" height="${f(s * 0.3)}" fill="${stroke}"/>`;
+    }
+    if (kind === "doc") {
+      const fold = s * 0.24;
+      return `<path d="M ${f(cx - s * 0.3)} ${f(cy - s * 0.42)} H ${f(cx + s * 0.3 - fold)} L ${f(cx + s * 0.3)} ${f(cy - s * 0.42 + fold)} V ${f(cy + s * 0.42)} H ${f(cx - s * 0.3)} Z" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<path d="M ${f(cx + s * 0.3 - fold)} ${f(cy - s * 0.42)} V ${f(cy - s * 0.42 + fold)} H ${f(cx + s * 0.3)}" ${st}/>`
+        + [0, 1, 2].map((i) => `<path d="M ${f(cx - s * 0.18)} ${f(cy - s * 0.08 + i * s * 0.16)} H ${f(cx + s * 0.18)}" fill="none" stroke="${stroke}" stroke-width="${f(sw * 0.8)}" stroke-linecap="round"/>`).join("");
+    }
+    if (kind === "person") {
+      return `<circle cx="${f(cx)}" cy="${f(cy - s * 0.2)}" r="${f(s * 0.17)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<path d="M ${f(cx - s * 0.3)} ${f(cy + s * 0.44)} Q ${f(cx)} ${f(cy - s * 0.02)} ${f(cx + s * 0.3)} ${f(cy + s * 0.44)}" ${st}/>`;
+    }
+    if (kind === "coin") {
+      return `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(s * 0.42)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<path d="M ${f(cx - s * 0.14)} ${f(cy - s * 0.12)} H ${f(cx + s * 0.14)} M ${f(cx)} ${f(cy - s * 0.12)} V ${f(cy + s * 0.16)}" fill="none" stroke="${stroke}" stroke-width="${f(sw)}" stroke-linecap="round"/>`;
+    }
+    if (kind === "gear") {
+      const teeth = 10, r = s * 0.42, pts = [];
+      for (let i = 0; i < teeth * 2; i++) {
+        const ang = (Math.PI * i) / teeth;
+        const rr = i % 2 === 0 ? r : r * 0.78;
+        for (const d of [-0.12, 0.12]) pts.push(`${f(cx + rr * Math.cos(ang + d))} ${f(cy + rr * Math.sin(ang + d))}`);
+      }
+      return `<path d="M ${pts.join(" L ")} Z" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(r * 0.34)}" fill="none" stroke="${stroke}" stroke-width="${f(sw)}"/>`;
+    }
+    return "";
+  };
+
+  // Una proporción se ve, no se lee: barra, etiqueta y valor al final.
+  const bars = (x, y, rows, { width = 560, rowH = 56, labelW = 175, valueW = 95 } = {}) => {
+    const barW = width - labelW - valueW;
+    const max = Math.max(...rows.map((r) => (r.max ?? r.value)), 1);
+    return rows.map((r, i) => {
+      const yy = y + i * rowH;
+      const w = Math.max(3, (r.value / max) * barW);
+      return `<text x="${f(x)}" y="${f(yy + rowH * 0.62)}" font-size="20" fill="${C.ink}" font-weight="700">${esc(r.label)}</text>`
+        + `<rect x="${f(x + labelW)}" y="${f(yy + rowH * 0.22)}" width="${f(barW)}" height="${f(rowH * 0.44)}" fill="${C.soft}"/>`
+        + `<rect x="${f(x + labelW)}" y="${f(yy + rowH * 0.22)}" width="${f(w)}" height="${f(rowH * 0.44)}" fill="${r.color || C.blue}"/>`
+        + `<text x="${f(x + labelW + barW + 14)}" y="${f(yy + rowH * 0.62)}" font-size="20" fill="${C.slate}" font-weight="700">${esc(r.display || String(r.value) + (r.unit || ""))}</text>`;
+    }).join("");
+  };
+
+  // Una cifra que importa, grande, con su nombre debajo.
+  const stat = (cx, cy, value, label = "", { color = C.ink, size = 54 } = {}) =>
+    txt(cx, cy, String(value), { size, color })
+    + (label ? txt(cx, cy + size * 0.78, label, { size: 18, color: C.slate, bold: false, italic: true }) : "");
+
   const badge = (cx, cy, n) => `<circle cx="${cx}" cy="${cy}" r="24" fill="${C.blue}"/>` + txt(cx, cy + 9, String(n), { size: 26, color: "#ffffff" });
 
   /** A complete SVG document showing markup, sized by its viewBox. */
@@ -113,7 +188,7 @@
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${defs()}${markup}</svg>`;
 
   window.LKScene = {
-    C, esc, f, txt, lbl, step, gear, packet, dashed, sheet, box, node, badge, grid, defs,
+    C, esc, f, txt, lbl, step, gear, packet, dashed, sheet, box, node, badge, grid, icon, bars, stat, formula, defs,
     curve, path, line, svg,
   };
 })();
