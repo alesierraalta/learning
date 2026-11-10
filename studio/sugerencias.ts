@@ -189,6 +189,39 @@ export function listSugerencias(root: string, filter: { tema?: string; parte?: s
   return { entradas, motivos, directrices: directrices(data.entradas) };
 }
 
+/** Each chip with how often it was chosen, most chosen first; ties keep the catalogue order. */
+function conteo(entradas: Sugerencia[]) {
+  const n = new Map<string, number>();
+  for (const entrada of entradas) for (const motivo of entrada.motivos) n.set(motivo, (n.get(motivo) ?? 0) + 1);
+  return motivos
+    .filter((m) => n.has(m.id))
+    .map((m) => ({ id: m.id, texto: m.texto, n: n.get(m.id)! }))
+    .sort((a, b) => b.n - a.n);
+}
+
+/** Everything the learner said, by topic and part, for the feedback page. */
+export function resumenSugerencias(root: string) {
+  const entradas = readSugerencias(root).entradas;
+  const temas = [...new Set(entradas.map((e) => e.tema))].sort((a, b) => a.localeCompare(b)).map((tema) => {
+    const delTema = entradas.filter((e) => e.tema === tema);
+    const partes = [...new Set(delTema.map((e) => e.parte))]
+      .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+      .map((parte) => {
+        const deLaParte = delTema.filter((e) => e.parte === parte);
+        return {
+          parte,
+          total: deLaParte.length,
+          motivos: conteo(deLaParte),
+          entradas: deLaParte
+            .map(({ id, texto, motivos: elegidos, origen, timestamp }) => ({ id, texto, motivos: elegidos, origen, timestamp }))
+            .reverse(),
+        };
+      });
+    return { tema, total: delTema.length, partes };
+  });
+  return { total: entradas.length, motivos: conteo(entradas), temas };
+}
+
 export function directrices(entradas: Sugerencia[]) {
   const lines: string[] = [];
   const repetidos = costumbres(entradas);

@@ -333,7 +333,7 @@ The loop leans on what is already stored: before writing, the prompts for a part
 plan and the map carry a compact context built from the stored preferences, the weak
 telemetry categories and the last suggestions. The
 token-gated routes are `GET api/sugerencias?tema=&parte=` (entries, chips and derived
-lines), `POST api/sugerencias` (record), `POST api/regenerar` (record, back up, prompt)
+lines), `GET api/sugerencias/resumen` (every entry grouped by topic and part, with chip counts), `POST api/sugerencias` (record), `POST api/regenerar` (record, back up, prompt)
 and `GET api/contexto?tema=` (the lines a writing prompt carries). Malformed input
 returns 400; nothing is written on a failure.
 
@@ -471,3 +471,11 @@ imported once, as they are, in one transaction, and `meta.importado_v1` records 
 files are never modified or deleted, and a later open imports nothing even if they changed.
 `deploy/vps/learnings-backup.sh` commits a consistent snapshot, `learning.db.backup`
 (`VACUUM INTO`), and keeps the live database files out of Git.
+
+## Feedback page
+
+`#/sugerencias` («Tu feedback», linked from the preferences page as «Ver tu feedback»)
+lists everything said through «Sugerir» and «Regenerar»: the chip counts over all
+entries, then one block per topic and part with its counts and the learner's words,
+newest first. It reads `GET api/sugerencias/resumen` from the learner database, so it
+works without SSH and in every theme.

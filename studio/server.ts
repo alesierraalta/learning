@@ -61,7 +61,7 @@ import { parsePiModels } from "./pi-models.ts";
 import { checkDeep, enrolled } from "./gate.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
-import { listSugerencias, motivos, recordSugerencia, tutorContext, validateSugerencia } from "./sugerencias.ts";
+import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, tutorContext, validateSugerencia } from "./sugerencias.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -1180,6 +1180,8 @@ ${scripts}
         const taken = new Set([...preferences.aspectos.map((a) => a.id), ...(preferences.rechazados ?? [])]);
         return sendJson(res, 200, { candidatos: candidatos(readGlobalTelemetry(root)).filter((c) => !taken.has(c.id)) });
       }
+      case "api/sugerencias/resumen":
+        return sendJson(res, 200, resumenSugerencias(root));
       case "api/sugerencias":
         return sendJson(res, 200, listSugerencias(root, {
           tema: url.searchParams.get("tema") ?? undefined,

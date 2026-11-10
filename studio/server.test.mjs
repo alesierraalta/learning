@@ -1444,3 +1444,36 @@ test("exporting a chat answers with the file, and only for the chat that is open
 test('the studio refuses to start without a data root', async () => {
   await assert.rejects(() => startStudio({}), /LEARNING_ROOT is not set/);
 });
+
+test("the feedback summary groups every suggestion by topic, part and reason", async () => {
+  const { studio } = await setup();
+  const empty = await http(`${studio.url}api/sugerencias/resumen`);
+  assert.equal(empty.status, 200);
+  assert.deepEqual(JSON.parse(empty.body), { total: 0, motivos: [], temas: [] });
+
+  await post(studio, "api/sugerencias", { tema: "redes", parte: "p2", motivos: ["faltan-visuales"], texto: "más diagramas" });
+  await post(studio, "api/sugerencias", { tema: "redes", parte: "p10", motivos: ["faltan-visuales", "sin-paso-a-paso"], texto: "" });
+  await post(studio, "api/sugerencias", { tema: "algebra", parte: "p1", motivos: [], texto: "la fórmula sin leyenda" });
+  await post(studio, "api/sugerencias", { tema: "redes", parte: "p2", motivos: ["faltan-ejemplos"], texto: "otro ejemplo" });
+
+  const answer = await http(`${studio.url}api/sugerencias/resumen`);
+  assert.equal(answer.status, 200);
+  const resumen = JSON.parse(answer.body);
+  assert.equal(resumen.total, 4);
+  assert.deepEqual(resumen.motivos, [
+    { id: "faltan-visuales", texto: "Faltan visuales", n: 2 },
+    { id: "faltan-ejemplos", texto: "Faltan ejemplos", n: 1 },
+    { id: "sin-paso-a-paso", texto: "Sin paso a paso", n: 1 },
+  ]);
+  assert.deepEqual(resumen.temas.map((t) => [t.tema, t.total, t.partes.map((p) => [p.parte, p.total])]), [
+    ["algebra", 1, [["p1", 1]]],
+    ["redes", 3, [["p2", 2], ["p10", 1]]],
+  ]);
+  const p2 = resumen.temas[1].partes[0];
+  assert.deepEqual(p2.motivos, [
+    { id: "faltan-ejemplos", texto: "Faltan ejemplos", n: 1 },
+    { id: "faltan-visuales", texto: "Faltan visuales", n: 1 },
+  ]);
+  assert.deepEqual(p2.entradas.map((e) => e.texto), ["otro ejemplo", "más diagramas"], "newest first");
+  assert.deepEqual(Object.keys(p2.entradas[0]).sort(), ["id", "motivos", "origen", "texto", "timestamp"]);
+});
