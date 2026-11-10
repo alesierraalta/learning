@@ -26,6 +26,12 @@ Si miras la hora siguiente, cargar gana. Con la batería llena, vuelve y limpia 
 
 Esa pregunta es todo el tema.
 
+<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","title":"El mismo robot, dos horizontes","caption":"La misma decisión se juzga distinto según dónde pongas el final de la cuenta.","scene":{"icons":[{"kind":"robot","x":8,"y":40,"size":56,"tone":"blue"}],"boxes":[{"x":88,"y":24,"w":212,"h":100,"label":"aspiro ahora","sub":"+10 · a la hora 1 habitación","tone":"amber","size":22,"subSize":14,"subDy":22},{"x":460,"y":24,"w":212,"h":100,"label":"cargo ahora","sub":"0 · a la hora 6 habitaciones","tone":"green","size":22,"subSize":14,"subDy":22}],"arrows":[{"x1":304,"y1":74,"x2":456,"y2":74,"label":"la hora decide","tone":"slate","labelSize":15,"width":3,"labelAt":0.5}]}}
+</script>
+</lk-scene>
+
 ## 2. Nadie te dice la respuesta
 
 En **supervisado**, alguien te da la respuesta para cada entrada.
