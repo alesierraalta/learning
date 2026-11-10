@@ -25,10 +25,6 @@ const execFileP = promisify(execFileCb);
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 
-/** Canonical Obsidian vault folder (S1): notes/04-RECURSOS/Learnings (plural on disk). */
-export const CANONICAL_LEARNINGS_ROOT =
-  "/mnt/c/Users/ismar/Documents/obsidian/ale/notes/04-RECURSOS/Learnings";
-
 const ENTRY_TYPE = "gentle-learning/enrollment";
 const GATE_TYPE = "gentle-learning/settle-gate";
 const ENGINE_TIMEOUT_MS = 120_000;
@@ -50,7 +46,7 @@ export interface AdapterDeps {
 
 export function defaultDeps(): Omit<AdapterDeps, "execFile"> {
   return {
-    root: (process.env.LEARNING_ROOT ?? "").trim() || CANONICAL_LEARNINGS_ROOT,
+    root: (process.env.LEARNING_ROOT ?? "").trim(),
     enginePath: join(REPO_ROOT, "bin", "learning"),
     rulesPath: join(REPO_ROOT, "rules", "deep.json"),
   };

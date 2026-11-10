@@ -2,10 +2,14 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, relative, sep } from "node:path";
 
+/** The data root has no default: the app's data lives where LEARNING_ROOT says. */
+export const ROOT_UNSET = "LEARNING_ROOT is not set: point it at the Learnings data folder";
+
 export function resolveContained(
   root: string,
   target: string,
 ): { ok: true; rootReal: string; targetReal: string } | { ok: false; reason: string } {
+  if (!root) return { ok: false, reason: ROOT_UNSET };
   let rootReal: string;
   try {
     rootReal = realpathSync(root);

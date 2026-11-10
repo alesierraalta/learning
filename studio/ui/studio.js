@@ -517,6 +517,7 @@
     if (view === "resultados" && a) return resultsView(a, b);
     if (view === "editar") return editorView(a);
     if (view === "preferencias") return preferencesView();
+    if (view === "sugerencias") return feedbackView();
     return homeView();
   }
 
@@ -525,7 +526,7 @@
     const status = h("p", { role: "status", class: "muted" }, "Cargando…");
     const page = h("div", { class: "page preferences-page" },
       h("a", { class: "preferences-back", href: "#/" }, "← Volver al inicio"),
-      h("header", { class: "preferences-head" }, h("p", { class: "preferences-eyebrow" }, "Tu forma de aprender"), h("h1", {}, "Preferencias"), h("p", { class: "preferences-lead" }, "Elige cómo prefieres que te expliquen.")), status);
+      h("header", { class: "preferences-head" }, h("p", { class: "preferences-eyebrow" }, "Tu forma de aprender"), h("h1", {}, "Preferencias"), h("p", { class: "preferences-lead" }, "Elige cómo prefieres que te expliquen."), h("a", { class: "btn small ghost", href: "#/sugerencias" }, "Ver tu feedback")), status);
     stage.replaceChildren(page);
     try {
       // The file is what the learner chose; the candidates are what their own
@@ -618,6 +619,35 @@
       } }, tutorField, data.aspectos.map(field), save);
       page.append(form);
     } catch (error) { if (page.isConnected) status.textContent = `No se pudieron cargar las preferencias: ${error.message}`; }
+  }
+
+  /** What the learner said with «Sugerir» and «Regenerar», by topic and part. */
+  async function feedbackView() {
+    setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Configuración", href: "#/preferencias" }, { text: "Tu feedback" }]);
+    const status = h("p", { role: "status", class: "muted" }, "Cargando…");
+    const page = h("div", { class: "page preferences-page feedback-page" },
+      h("a", { class: "preferences-back", href: "#/preferencias" }, "← Volver a preferencias"),
+      h("header", { class: "preferences-head" }, h("p", { class: "preferences-eyebrow" }, "Lo que dijiste del material"), h("h1", {}, "Tu feedback")), status);
+    stage.replaceChildren(page);
+    const count = (n) => `${n} ${n === 1 ? "sugerencia" : "sugerencias"}`;
+    const reasons = (list) => h("ul", { class: "feedback-reasons" }, list.map((m) => h("li", { class: "chip" }, `${m.texto} · ${m.n}`)));
+    const when = (iso) => { const date = new Date(iso); return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("es", { dateStyle: "medium", timeStyle: "short" }); };
+    try {
+      const resumen = await request("api/sugerencias/resumen");
+      if (!page.isConnected) return;
+      if (resumen.total === 0) { status.textContent = "Todavía no hay sugerencias: usa «Sugerir» o «Regenerar» al leer una parte."; return; }
+      status.textContent = count(resumen.total);
+      page.append(reasons(resumen.motivos), ...resumen.temas.flatMap((tema) => tema.partes.map((parte) => h("section", { class: "feedback-part" },
+        h("h2", {}, `${tema.tema} · ${parte.parte}`),
+        h("p", { class: "muted" }, count(parte.total)),
+        parte.motivos.length ? reasons(parte.motivos) : null,
+        ...parte.entradas.filter((e) => e.texto).map((e) => h("figure", {},
+          // A long paste is folded, never cut: the words stay whole one click away.
+          e.texto.length > 280
+            ? h("details", {}, h("summary", {}, `${e.texto.replace(/\s+/g, " ").slice(0, 200).trim()}… `, h("span", { class: "feedback-more" }, "Ver completo")), h("blockquote", {}, e.texto))
+            : h("blockquote", {}, e.texto),
+          h("figcaption", { class: "muted" }, `${e.origen === "regenerar" ? "Regenerar" : "Sugerencia"} · ${when(e.timestamp)}`)))))));
+    } catch (error) { if (page.isConnected) status.textContent = `No se pudo cargar el feedback: ${error.message}`; }
   }
 
   // ---------- home ----------
@@ -2285,7 +2315,7 @@
     const [, view] = location.hash.split("/");
     // Never re-render the editor from a library change: it would drop typed text.
     // The results page refreshes its own status instead of being drawn again.
-    if (view !== "leer" && view !== "rapido" && view !== "editar" && view !== "resultados" && view !== "preferencias") render();
+    if (view !== "leer" && view !== "rapido" && view !== "editar" && view !== "resultados" && view !== "preferencias" && view !== "sugerencias") render();
   }
   root.replaceChildren(
     h(

@@ -315,7 +315,7 @@ func fixtureMisPalabras(parts []partCfg) string {
 }
 
 // indexNote lists every part as plain text: no part is written yet, and a
-// link to a missing note makes Obsidian create it empty.
+// link to a missing note opens an empty page.
 func indexNote(parts []partCfg) string {
 	var b strings.Builder
 	b.WriteString("---\ntipo: indice\n---\n# Índice\n")

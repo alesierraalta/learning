@@ -7,14 +7,15 @@ import (
 	"testing"
 )
 
-// Obsidian creates the target of an unresolved link, empty. So the index
-// links a part only once its note is written, by its canonical note (plan
-// slug) through the vault-relative path; pending parts are plain text.
+// A link to a missing note would open an empty page. So the index links a
+// part only once its note is written, by its canonical note (plan slug)
+// relative to the topic folder; pending parts are plain text. A leftover
+// .obsidian folder above the data root changes nothing.
 func TestIndexLinksOnlyWrittenParts(t *testing.T) {
 	// Slugs differ from ids (p_1 -> p-1) so a link built from the id is wrong.
 	parts := []partCfg{{id: "p_1", ex: true, vis: true, title: "Uno"}, {id: "p_2", ex: true, vis: false, title: "Dos"}}
 	link := func(i int, slug, title string) string {
-		return "- [[Learnings/consensus/explicaciones/Parte " + itoa(i) + " - " + slug + "|Parte " + itoa(i) + " — " + title + "]] — 🔓 abierta"
+		return "- [[explicaciones/Parte " + itoa(i) + " - " + slug + "|Parte " + itoa(i) + " — " + title + "]] — 🔓 abierta"
 	}
 	pending := func(i int, title string) string { return "- Parte " + itoa(i) + " — " + title + " — ⬜ pendiente" }
 	cases := []struct {
@@ -24,13 +25,13 @@ func TestIndexLinksOnlyWrittenParts(t *testing.T) {
 		reason  string
 	}{
 		{"pending parts as plain text", false, []string{pending(1, "Uno"), pending(2, "Dos")}, ""},
-		{"empty note Obsidian created from a click is not written", false, []string{link(1, "p-1", "Uno"), pending(2, "Dos")}, "not written yet"},
+		{"empty note is not written", false, []string{link(1, "p-1", "Uno"), pending(2, "Dos")}, "not written yet"},
 		{"link to a part not written yet", false, []string{link(1, "p-1", "Uno"), pending(2, "Dos")}, "not written yet"},
 		{"pending part title missing", false, []string{pending(1, "Uno")}, "Dos"},
 		{"written part linked canonically", true, []string{link(1, "p-1", "Uno"), pending(2, "Dos")}, ""},
-		{"written part not linked", true, []string{pending(1, "Uno"), pending(2, "Dos")}, "Learnings/consensus/explicaciones/Parte 1 - p-1"},
-		{"written part linked from the topic folder", true, []string{"- [[explicaciones/Parte 1 - p-1|Uno]]", pending(2, "Dos")}, "Learnings/consensus/explicaciones/Parte 1 - p-1"},
-		{"written part linked by id", true, []string{link(1, "p_1", "Uno"), pending(2, "Dos")}, "Learnings/consensus/explicaciones/Parte 1 - p-1"},
+		{"written part not linked", true, []string{pending(1, "Uno"), pending(2, "Dos")}, "explicaciones/Parte 1 - p-1"},
+		{"written part linked by the old vault path", true, []string{"- [[Learnings/consensus/explicaciones/Parte 1 - p-1|Uno]]", pending(2, "Dos")}, "does not link written part"},
+		{"written part linked by id", true, []string{link(1, "p_1", "Uno"), pending(2, "Dos")}, "explicaciones/Parte 1 - p-1"},
 		{"link to a part the plan does not define", false, []string{pending(1, "Uno"), pending(2, "Dos"), link(3, "p-3", "Tres")}, "Parte 3 - p-3"},
 	}
 	for _, tc := range cases {

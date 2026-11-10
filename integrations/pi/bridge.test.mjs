@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { backupPartForRegeneration, countVisuals, obsidianToMarkdown, registerBridge, listTopics } from "./bridge.ts";
+import { stored } from "../../studio/testdata/stored.mjs";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { loadRunners } from "./coderun.ts";
 
@@ -1461,7 +1462,7 @@ test("a question to the tutor is sent with its context and writes no file", asyn
 });
 
 test("quick-quiz submit records telemetry and delivers notification to chat", async () => {
-  const { view, root, topic, host, shutdown } = await setup();
+  const { view, root, host, shutdown } = await setup();
   const url = base(await view({}));
   const res = await submit(url, {
     kind: "quick-quiz",
@@ -1480,8 +1481,8 @@ test("quick-quiz submit records telemetry and delivers notification to chat", as
   assert.equal(res.status, 200, res.body);
   assert.ok(host.sent[0].content.includes("[Vista HTML · sql-demo · p1 · quiz rápido · 1. Por qué existe]"));
   assert.ok(host.sent[0].content.includes("✔ Correcto"));
-  assert.ok(existsSync(join(root, "telemetria.json")));
-  assert.ok(existsSync(join(topic, "telemetria.json")));
+  assert.equal(JSON.parse(stored(root, "telemetria")).estadisticas_globales.total_quizzes, 1);
+  assert.equal(JSON.parse(stored(root, `telemetria/${TOPIC}`)).quizzes.length, 1);
   await shutdown();
 });
 

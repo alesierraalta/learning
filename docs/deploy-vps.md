@@ -25,7 +25,7 @@ Run as `ale`, not root. Install Git, Go (the version required by `go.mod`), curl
    ```
    Complete the repository's Pi profile setup before starting the service; the studio starts `pi --mode rpc --session-id estudio` inside the vault.
 4. Give Pi its model credential and default model. The studio's tutor uses `opencode-go/deepseek-v4.1-flash` with thinking `high`: the `opencode-go` API key lives in `~/.pi/agent/auth.json` (mode 600; log in with `pi` → `/login`, or copy only that entry from the PC with the owner's consent), and `~/.pi/agent/settings.json` sets `defaultProvider: opencode-go`, `defaultModel: deepseek-v4.1-flash`, `defaultThinkingLevel: high`. Check with `pi -p --mode json "di hola" | grep -o '"thinkingLevel":"[a-z]*"'`, then `systemctl --user restart learning-studio`.
-5. Put the vault in place. The VPS holds the only working copy of Learnings at `/home/ale/Learnings` (copied once from the PC's Obsidian vault; there is no live sync). The installer turns it into a Git repository backup only if it already is one (see [Content backup](#content-backup)).
+5. Put the data folder in place. The VPS holds the only copy of Learnings at `/home/ale/Learnings`; the app does not read or write the Obsidian vault, and `LEARNING_ROOT` is required (the studio refuses to start without it). Indexes copied from the old vault may still link parts through the vault path: `node tools/relink-index.mjs ~/Learnings` lists them and `--write` rewrites them to topic-relative links. The installer turns it into a Git repository backup only if it already is one (see [Content backup](#content-backup)).
 6. Preview and install:
    ```sh
    bash deploy/vps/install.sh --dry-run
@@ -61,7 +61,7 @@ HTTPS is still required by the browser for microphone access, even with this mod
 
 ## Content backup
 
-The VPS holds the only working copy of Learnings (migrated once from Obsidian). `~/Learnings`
+The VPS holds the only copy of Learnings. The learner data (preferences, suggestions, telemetry) lives in `~/Learnings/learning.db`; each backup run commits a consistent snapshot of it as `learning.db.backup` and ignores the live database files (see docs/studio.md, «Learner data»). To restore, stop the studio and copy the snapshot over `learning.db`. `~/Learnings`
 is a Git repository pushed to the private `alesierraalta/learnings` with a repository-scoped
 deploy key (`~/.ssh/learnings_deploy`, SSH host alias `github-learnings`). Lesson videos
 (`*.mp4`, `*.mov`, `*.webm`) are versioned alongside the notes; Pi's `.pi/` and `.atl/`,

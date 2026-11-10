@@ -11,6 +11,7 @@ import { startStudio } from "./server.ts";
 import { defaultGlobalTelemetry, saveGlobalTelemetry } from "../integrations/pi/telemetry.ts";
 import { readPreferences } from "./preferences.ts";
 import { makeRoot } from "./testdata/root.mjs";
+import { stored } from "./testdata/stored.mjs";
 
 const CANDIDATES = [
   process.env.PLAYWRIGHT_MODULE,
@@ -1781,8 +1782,8 @@ test("the suggestion box asks for a reason before it can be sent, and reads like
   assert.equal(await accept.isEnabled(), true, "one reason is enough to send it");
   await accept.click();
   await page.getByText("Sugerencia guardada").waitFor();
-  const stored = JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8"));
-  assert.deepEqual(stored.entradas.map((e) => [e.tema, e.parte, e.motivos.length]), [["redes", "p1", 1]]);
+  const saved = JSON.parse(stored(root, "sugerencias"));
+  assert.deepEqual(saved.entradas.map((e) => [e.tema, e.parte, e.motivos.length]), [["redes", "p1", 1]]);
 });
 
 test("the reader offers three modes and starts in the article one (S1, S4)", { skip: browser ? false : "playwright not installed" }, async (t) => {
@@ -1919,4 +1920,40 @@ test("a discovered aspect is marked and reversible (S3)", { skip: browser ? fals
   // callout must not offer it again.
   assert.equal(await page.locator(".preference-found").count(), 0);
   assert.deepEqual(readPreferences(root).rechazados, ["derivadas"]);
+});
+
+test("the feedback page lists what the learner said, readable in light and dark (S6)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 800 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/preferencias`, { waitUntil: "networkidle" });
+  for (const body of [
+    { tema: "redes", parte: "p1", motivos: ["faltan-visuales"], texto: "faltan diagramas entre punto y punto" },
+    { tema: "redes", parte: "p1", motivos: ["faltan-visuales", "matematicas-confusas"], texto: "" },
+  ]) {
+    const status = await page.evaluate(async (payload) => (await fetch("api/sugerencias", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) })).status, body);
+    assert.equal(status, 200);
+  }
+  await page.getByRole("link", { name: "Ver tu feedback" }).click();
+  await page.getByRole("heading", { name: "Tu feedback" }).waitFor();
+  await page.getByText("2 sugerencias").first().waitFor();
+  const reasons = page.locator(".feedback-page > .feedback-reasons");
+  await reasons.getByText("Faltan visuales · 2").waitFor();
+  await reasons.getByText("Matemáticas confusas · 1").waitFor();
+  const part = page.locator(".feedback-part", { hasText: "redes · p1" });
+  await part.getByText("faltan diagramas entre punto y punto").waitFor();
+  const fits = () => document.documentElement.scrollWidth <= innerWidth;
+  assert.ok(await page.evaluate(fits), "the page fits a phone");
+  // The words stay readable whichever theme the learner chose.
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+    const [ink, paper] = await part.locator("blockquote").first().evaluate((node) => {
+      const style = getComputedStyle(node);
+      return [style.color, getComputedStyle(document.body).backgroundColor];
+    });
+    assert.notEqual(ink, paper, `${theme}: text and page share a colour`);
+  }
 });

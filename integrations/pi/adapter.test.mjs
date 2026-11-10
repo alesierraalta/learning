@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import extension, { defaultDeps } from "./index.ts";
+import { resolveContained } from "./paths.ts";
 
 const execFileP = promisify(execFileCb);
 
@@ -889,4 +890,19 @@ test("settle does not push the chat when the next stage waits on the learner", a
   }));
   await enroll(host);
   assert.equal(await settle(host), undefined);
+});
+
+test("the Learnings root comes only from LEARNING_ROOT", () => {
+  const saved = process.env.LEARNING_ROOT;
+  try {
+    delete process.env.LEARNING_ROOT;
+    assert.equal(defaultDeps().root, "", "no fixed vault path is the default");
+    const unset = resolveContained("", tmpdir());
+    assert.equal(unset.ok, false);
+    assert.match(unset.reason, /^LEARNING_ROOT is not set/);
+    process.env.LEARNING_ROOT = "  /srv/learnings  ";
+    assert.equal(defaultDeps().root, "/srv/learnings");
+  } finally {
+    if (saved === undefined) delete process.env.LEARNING_ROOT; else process.env.LEARNING_ROOT = saved;
+  }
 });

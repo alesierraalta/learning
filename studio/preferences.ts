@@ -1,8 +1,5 @@
-import { randomBytes } from "node:crypto";
-import { lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { HttpError } from "../integrations/pi/bridge.ts";
-import { resolveContained } from "../integrations/pi/paths.ts";
+import { readDoc, writeDoc } from "../integrations/pi/store.ts";
 
 /** The numbers that justify an aspect the learner did not choose. */
 export interface Evidencia {
@@ -85,36 +82,13 @@ function validate(value: unknown): Preferences {
   return value as unknown as Preferences;
 }
 
-function filePath(root: string) {
-  const file = join(root, "preferencias.json");
-  try {
-    lstatSync(file);
-    if (!resolveContained(root, file).ok) throw new HttpError(400, "invalid preferences path");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  return file;
-}
-
 export function readPreferences(root: string): Preferences {
-  const file = filePath(root);
-  try { return validate(JSON.parse(readFileSync(file, "utf8"))); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return structuredClone(defaults);
-    throw error;
-  }
+  const text = readDoc(root, "preferencias");
+  return text === undefined ? structuredClone(defaults) : validate(JSON.parse(text));
 }
 
 export function savePreferences(root: string, input: unknown): Preferences {
   const data = validate(input);
-  const file = filePath(root);
-  const temp = join(root, `.preferencias-${randomBytes(12).toString("hex")}.tmp`);
-  try {
-    writeFileSync(temp, `${JSON.stringify(data, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    renameSync(temp, file);
-  } catch (error) {
-    try { unlinkSync(temp); } catch { /* no temporary file */ }
-    throw error;
-  }
+  writeDoc(root, "preferencias", `${JSON.stringify(data, null, 2)}\n`);
   return data;
 }

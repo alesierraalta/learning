@@ -79,8 +79,8 @@ go build -o bin/learning ./cmd/learning
 |---|---|---|
 | Engine binary | `<repo>/bin/learning` | `import.meta.url` of `integrations/pi/index.ts`, two levels up |
 | Rules | `<repo>/rules/deep.json` | same |
-| Learnings root | `LEARNING_ROOT` env, default `/mnt/c/Users/ismar/Documents/obsidian/ale/notes/04-RECURSOS/Learnings` | read at extension load |
-| Canonical target | notes under `04-RECURSOS/Learnings/` in the `ale` Obsidian vault | spec S1 calls it `Learning`; on disk it is `Learnings` (plural), see task log L4 |
+| Learnings root | `LEARNING_ROOT` env, required (no default; unset refuses every enrollment with `LEARNING_ROOT is not set`) | read at extension load |
+| Canonical target | `/home/ale/Learnings` on the VPS | the Obsidian vault is no longer read or written |
 
 Missing binary → explicit `binary-missing` error naming the path and the build command;
 the adapter never falls back to a PATH lookup.
