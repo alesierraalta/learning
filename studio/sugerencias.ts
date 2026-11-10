@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { HttpError } from "../integrations/pi/bridge.ts";
-import { resolveContained, safeTopic } from "../integrations/pi/paths.ts";
+import { safeTopic } from "../integrations/pi/paths.ts";
+import { readDoc, writeDoc } from "../integrations/pi/store.ts";
 import { readGlobalTelemetry } from "../integrations/pi/telemetry.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 
@@ -60,17 +61,6 @@ const MAX_CONTEXTO = 1400;
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const known = (id: string) => motivos.some((m) => m.id === id);
 
-function filePath(root: string) {
-  const file = join(root, "sugerencias.json");
-  try {
-    lstatSync(file);
-    if (!resolveContained(root, file).ok) throw new HttpError(400, "invalid sugerencias path");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  return file;
-}
-
 function clean(entrada: unknown): Sugerencia | null {
   if (!isRecord(entrada)) return null;
   const { id, tema, parte, motivos: reasons, texto, origen, timestamp } = entrada;
@@ -93,13 +83,8 @@ interface Lectura {
 }
 
 function read(root: string): Lectura {
-  const file = filePath(root);
-  let text: string;
-  try { text = readFileSync(file, "utf8"); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { data: empty(), descartadas: [] };
-    throw error;
-  }
+  const text = readDoc(root, "sugerencias");
+  if (text === undefined) return { data: empty(), descartadas: [] };
   let data: unknown;
   try { data = JSON.parse(text); } catch { return { data: empty(), crudo: text, descartadas: [] }; }
   if (!isRecord(data) || data.version !== 1 || !Array.isArray(data.entradas)) return { data: empty(), crudo: text, descartadas: [] };
@@ -115,27 +100,15 @@ export function readSugerencias(root: string): SugerenciasFile {
   return read(root).data;
 }
 
-function write(file: string, data: SugerenciasFile) {
-  const temp = `${file}.tmp-${randomBytes(6).toString("hex")}`;
-  try {
-    writeFileSync(temp, `${JSON.stringify(data, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    renameSync(temp, file);
-  } catch (error) {
-    try { unlinkSync(temp); } catch { /* no temporary file */ }
-    throw error;
-  }
-}
-
 /**
  * Suggestions are the learner's words, not a cache: whatever the next write cannot keep
  * is put beside it first. An empty store keeps nothing and is left alone.
  */
 function keepAside(root: string, lectura: Lectura) {
-  const file = filePath(root);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const aside = join(root, `sugerencias.corrupta-${stamp}.json`);
   if (lectura.crudo !== undefined) {
-    try { renameSync(file, aside); } catch { /* nothing to keep */ }
+    try { writeFileSync(aside, lectura.crudo, { flag: "wx", mode: 0o600 }); } catch { /* nothing to keep */ }
     return;
   }
   if (lectura.descartadas.length === 0) return;
@@ -216,6 +189,39 @@ export function listSugerencias(root: string, filter: { tema?: string; parte?: s
   return { entradas, motivos, directrices: directrices(data.entradas) };
 }
 
+/** Each chip with how often it was chosen, most chosen first; ties keep the catalogue order. */
+function conteo(entradas: Sugerencia[]) {
+  const n = new Map<string, number>();
+  for (const entrada of entradas) for (const motivo of entrada.motivos) n.set(motivo, (n.get(motivo) ?? 0) + 1);
+  return motivos
+    .filter((m) => n.has(m.id))
+    .map((m) => ({ id: m.id, texto: m.texto, n: n.get(m.id)! }))
+    .sort((a, b) => b.n - a.n);
+}
+
+/** Everything the learner said, by topic and part, for the feedback page. */
+export function resumenSugerencias(root: string) {
+  const entradas = readSugerencias(root).entradas;
+  const temas = [...new Set(entradas.map((e) => e.tema))].sort((a, b) => a.localeCompare(b)).map((tema) => {
+    const delTema = entradas.filter((e) => e.tema === tema);
+    const partes = [...new Set(delTema.map((e) => e.parte))]
+      .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+      .map((parte) => {
+        const deLaParte = delTema.filter((e) => e.parte === parte);
+        return {
+          parte,
+          total: deLaParte.length,
+          motivos: conteo(deLaParte),
+          entradas: deLaParte
+            .map(({ id, texto, motivos: elegidos, origen, timestamp }) => ({ id, texto, motivos: elegidos, origen, timestamp }))
+            .reverse(),
+        };
+      });
+    return { tema, total: delTema.length, partes };
+  });
+  return { total: entradas.length, motivos: conteo(entradas), temas };
+}
+
 export function directrices(entradas: Sugerencia[]) {
   const lines: string[] = [];
   const repetidos = costumbres(entradas);
@@ -268,6 +274,6 @@ export function recordSugerencia(root: string, raw: unknown) {
   data.entradas.push(entrada);
   if (data.entradas.length > MAX_ENTRADAS) data.entradas = data.entradas.slice(-MAX_ENTRADAS);
   data.actualizado = entrada.timestamp;
-  write(filePath(root), data);
+  writeDoc(root, "sugerencias", `${JSON.stringify(data, null, 2)}\n`);
   return { entrada, preferencias, directrices: directrices(data.entradas) };
 }

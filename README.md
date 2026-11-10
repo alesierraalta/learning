@@ -6,9 +6,9 @@ Separate repository for the deep-learning validation system (spec: `odd/tasks/le
 A Go engine owns every rule, validation, semantic judgment and completion decision; a thin,
 project-scoped Pi adapter only activates, executes and reports the engine's CLI.
 
-> "Todo este sistema debe aplicarse específicamente cuando se esté trabajando dentro de mi
-> vault/carpeta de Obsidian llamada **`Learning`**" (S1) — on disk the folder is
-> `notes/04-RECURSOS/Learnings` (plural); see [docs/integration.md](docs/integration.md).
+The data lives in one folder on the VPS (`LEARNING_ROOT`, `/home/ale/Learnings`); the app no
+longer reads or writes the Obsidian vault. See [docs/integration.md](docs/integration.md) and
+[docs/deploy-vps.md](docs/deploy-vps.md).
 
 ## Authority and honesty
 

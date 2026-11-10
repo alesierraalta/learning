@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, symlinkSy
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HttpError } from "../integrations/pi/bridge.ts";
+import { stored } from "./testdata/stored.mjs";
 
 import {
   readGlobalTelemetry,
@@ -22,7 +23,7 @@ test("readGlobalTelemetry returns default telemetry when file is absent", () => 
     assert.equal(data.version, 1);
     assert.equal(data.estadisticas_globales.total_quizzes, 0);
     assert.ok(data.perfil_alumno.tendencias.matematicas);
-    assert.equal(existsSync(join(root, "telemetria.json")), false);
+    assert.equal(stored(root, "telemetria"), undefined);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -34,7 +35,7 @@ test("saveGlobalTelemetry persists telemetry atomically and validates format", (
     const initial = readGlobalTelemetry(root);
     initial.perfil_alumno.fortalezas.push("Prueba");
     const saved = saveGlobalTelemetry(root, initial);
-    assert.ok(existsSync(join(root, "telemetria.json")));
+    assert.deepEqual(JSON.parse(stored(root, "telemetria")).perfil_alumno.fortalezas, saved.perfil_alumno.fortalezas);
     assert.deepEqual(readGlobalTelemetry(root).perfil_alumno.fortalezas, saved.perfil_alumno.fortalezas);
 
     // Rejection of invalid structure
@@ -190,16 +191,21 @@ test("recordQuizTelemetry does not pollute Object.prototype when categoria is __
   }
 });
 
-test("saveTopicTelemetry and readTopicTelemetry reject symlinks escaping the Learnings root", () => {
+test("topic telemetry is keyed by the folder name and never writes through a symlink", () => {
   const root = mkdtempSync(join(tmpdir(), "telemetry-escape-root-"));
   const outside = mkdtempSync(join(tmpdir(), "telemetry-escape-outside-"));
   try {
     symlinkSync(outside, join(root, "symlink-topic"));
-    assert.throws(
-      () => saveTopicTelemetry(root, "symlink-topic", { tema: "symlink-topic", quizzes: [], resumen: {} }),
-      (err) => err instanceof HttpError && err.status === 400
-    );
+    for (const name of ["../escape", "a/b", "..", ""]) {
+      assert.throws(
+        () => saveTopicTelemetry(root, name, { tema: name, quizzes: [], resumen: {} }),
+        (err) => err instanceof HttpError && err.status === 400
+      );
+      assert.throws(() => readTopicTelemetry(root, name), (err) => err instanceof HttpError && err.status === 400);
+    }
+    saveTopicTelemetry(root, "symlink-topic", { tema: "symlink-topic", quizzes: [], resumen: {} });
     assert.equal(existsSync(join(outside, "telemetria.json")), false, "must not write outside root");
+    assert.equal(JSON.parse(stored(root, "telemetria/symlink-topic")).tema, "symlink-topic");
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });

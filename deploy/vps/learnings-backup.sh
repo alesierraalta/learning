@@ -8,6 +8,24 @@ set -euo pipefail
 root=${LEARNING_ROOT:-$HOME/Learnings}
 lint=${LEARNING_DECK_LINT:-$HOME/learning/tools/deck-lint.mjs}
 cd "$root"
+# The learner's data lives in SQLite; Git gets a consistent snapshot, never the live file.
+db=${STUDIO_DB:-$root/learning.db}
+if [ -f "$db" ]; then
+  for ignored in learning.db learning.db-wal learning.db-shm; do
+    grep -qxF "$ignored" .gitignore 2>/dev/null || echo "$ignored" >> .gitignore
+  done
+  node_bin=$HOME/.local/node/bin/node
+  [ -x "$node_bin" ] || node_bin=node
+  snapshot="$root/learning.db.backup"
+  "$node_bin" --no-warnings -e '
+    const { DatabaseSync } = require("node:sqlite");
+    const [db, tmp] = process.argv.slice(1);
+    const live = new DatabaseSync(db, { readOnly: true });
+    live.exec("PRAGMA busy_timeout = 5000");
+    live.prepare("VACUUM INTO ?").run(tmp);
+    live.close();' "$db" "$snapshot.tmp"
+  mv -f "$snapshot.tmp" "$snapshot"
+fi
 git add -A
 if git diff --cached --quiet; then
   # A commit can exist without being published: a push that failed, or a hand-made commit.

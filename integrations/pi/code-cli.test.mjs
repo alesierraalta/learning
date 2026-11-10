@@ -76,3 +76,16 @@ test('compilación fallida muestra diagnóstico y sale 1', { skip: gcc.status !=
   assert.equal(result.status, 1); assert.equal(result.stderr, '');
   assert.match(result.stdout, /^💥 Error de compilación:/); assert.match(result.stdout, /error:/); assert.match(result.stdout, /Puntaje: 0\/1\n$/);
 });
+
+test('la raíz sale de --root o LEARNING_ROOT, nunca de una ruta fija', () => {
+  const { root } = fixture();
+  const env = { ...process.env }; delete env.LEARNING_ROOT; delete env.LEARNINGS_ROOT;
+  const none = spawnSync(process.execPath, [cli, 'list'], { encoding: 'utf8', env });
+  assert.equal(none.status, 2);
+  assert.equal(none.stdout, '');
+  assert.match(none.stderr, /^Error: LEARNING_ROOT no está definido/);
+  const fromEnv = spawnSync(process.execPath, [cli, 'list'], { encoding: 'utf8', env: { ...env, LEARNING_ROOT: root } });
+  assert.equal(fromEnv.status, 0);
+  assert.equal(fromEnv.stdout, 'lab\nsuma · Suma · python · mejor: — · entregas: 0\n');
+  assert.equal(spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8', env }).status, 0);
+});

@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import { entryUrl, noteFromMessages, noteFromPath, startStudio, topicFromPath } from "./server.ts";
 import { makeRoot } from "./testdata/root.mjs";
+import { stored, writeDoc } from "./testdata/stored.mjs";
 
 test('configured studio bridge reaches the transcriber from its framed origin', async t => {
   let uploads = 0;
@@ -294,22 +295,22 @@ test("tutor settings default to Pi and persist the selected Antigravity provider
   assert.equal((await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "minimal" })).status, 200);
 });
 
-test("preferences API seeds, saves, and rejects invalid changes without modifying the file", async () => {
+test("preferences API seeds, saves, and rejects invalid changes without modifying the stored preferences", async () => {
   const { studio, root } = await setup();
-  const file = join(root, "preferencias.json");
   const initial = await http(`${studio.url}api/preferences`);
   assert.equal(initial.status, 200);
   const data = JSON.parse(initial.body);
   assert.equal(data.version, 1);
   assert.ok(data.aspectos.length > 0);
   assert.equal(data.aspectos.find((a) => a.id === "texto").nivel, "menos");
-  assert.equal(existsSync(file), false);
+  assert.equal(stored(root, "preferencias"), undefined);
   data.aspectos[0].nivel = "medio";
   const saved = await post(studio, "api/preferences", data);
   assert.equal(saved.status, 200, saved.body);
   assert.deepEqual(JSON.parse(saved.body), data);
   assert.deepEqual(JSON.parse((await http(`${studio.url}api/preferences`)).body), data);
-  const before = readFileSync(file, "utf8");
+  const before = stored(root, "preferencias");
+  assert.deepEqual(JSON.parse(before), data);
   for (const bad of [
     { ...data, extra: true },
     { ...data, version: 2 },
@@ -322,20 +323,19 @@ test("preferences API seeds, saves, and rejects invalid changes without modifyin
     const response = await post(studio, "api/preferences", bad);
     assert.equal(response.status, 400, response.body);
     assert.ok(JSON.parse(response.body).error);
-    assert.equal(readFileSync(file, "utf8"), before);
+    assert.equal(stored(root, "preferencias"), before);
   }
 });
 
 test("telemetry API reads, records quiz entries, and serves global and topic telemetry", async () => {
   const { studio, root } = await setup();
-  const file = join(root, "telemetria.json");
   const initial = await http(`${studio.url}api/telemetry`);
   assert.equal(initial.status, 200);
   const data = JSON.parse(initial.body);
   assert.equal(data.version, 1);
   assert.equal(data.estadisticas_globales.total_quizzes, 0);
   assert.ok(data.perfil_alumno.tendencias.matematicas);
-  assert.equal(existsSync(file), false);
+  assert.equal(stored(root, "telemetria"), undefined);
 
   const entry = {
     punto: "1. Por qué existe",
@@ -353,7 +353,8 @@ test("telemetry API reads, records quiz entries, and serves global and topic tel
   assert.ok(res.ok);
   assert.equal(res.global.estadisticas_globales.total_quizzes, 1);
   assert.equal(res.global.estadisticas_globales.total_aciertos, 1);
-  assert.ok(existsSync(file));
+  assert.equal(JSON.parse(stored(root, "telemetria")).estadisticas_globales.total_quizzes, 1);
+  assert.equal(JSON.parse(stored(root, "telemetria/sql-demo")).quizzes.length, 1);
 
   // Query by topic
   const byTopic = await http(`${studio.url}api/telemetry?topic=sql-demo`);
@@ -1076,7 +1077,7 @@ test("a suggestion is stored, moves one preference level and never stacks", asyn
   const { studio, root } = await setup();
   const first = await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["faltan-ejemplos"], texto: "El ejemplo del TCP no me cuadró" });
   assert.equal(first.status, 200, first.body);
-  const saved = JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8"));
+  const saved = JSON.parse(stored(root, "sugerencias"));
   assert.equal(saved.version, 1);
   assert.equal(saved.entradas.length, 1);
   assert.equal(saved.entradas[0].origen, "sugerencia");
@@ -1098,21 +1099,21 @@ test("a suggestion is stored, moves one preference level and never stacks", asyn
   assert.ok(view.directrices.some((line) => line.includes("El ejemplo del TCP no me cuadró")));
 });
 
-test("a suggestion needs a reason or words, and cannot replace the file it cannot read", async () => {
+test("a suggestion needs a reason or words, and cannot replace the store it cannot read", async () => {
   const { studio, root } = await setup();
   assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1" })).status, 400, "an empty suggestion asks for nothing");
   assert.equal((await post(studio, "api/sugerencias", { tema: "../etc", parte: "p1", texto: "x" })).status, 400, "a topic never leaves the vault");
   assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["no-existe"], texto: "x" })).status, 400);
-  assert.equal(existsSync(join(root, "sugerencias.json")), false, "a rejected suggestion writes nothing");
+  assert.equal(stored(root, "sugerencias"), undefined, "a rejected suggestion writes nothing");
 
-  // A file that cannot be parsed is kept aside, never replaced unseen.
-  writeFileSync(join(root, "sugerencias.json"), "{ esto no es json");
+  // A store that cannot be parsed is kept aside, never replaced unseen.
+  writeDoc(root, "sugerencias", "{ esto no es json");
   const seen = await http(`${studio.url}api/sugerencias`);
   assert.equal(seen.status, 200);
   assert.deepEqual(JSON.parse(seen.body).entradas, []);
   assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", texto: "sigue aquí" })).status, 200);
   const kept = readdirSync(root).filter((name) => name.startsWith("sugerencias.corrupta-"));
-  assert.equal(kept.length, 1, "the unreadable file is kept aside");
+  assert.equal(kept.length, 1, "the unreadable store is kept aside");
   assert.equal(readFileSync(join(root, kept[0]), "utf8"), "{ esto no es json");
 });
 
@@ -1179,7 +1180,7 @@ test("the studio dictates through its own proxy and refuses when no transcriber 
 
 test("a store with no suggestions is not a broken store", async () => {
   const { studio, root } = await setup();
-  writeFileSync(join(root, "sugerencias.json"), JSON.stringify({ version: 1, actualizado: "", entradas: [] }));
+  writeDoc(root, "sugerencias", JSON.stringify({ version: 1, actualizado: "", entradas: [] }));
 
   const response = await http(`${studio.url}api/sugerencias`, {
     method: "POST",
@@ -1192,14 +1193,14 @@ test("a store with no suggestions is not a broken store", async () => {
     [],
     "a store that parses with no entries was kept aside as corrupt",
   );
-  assert.equal(JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8")).entradas.length, 1);
+  assert.equal(JSON.parse(stored(root, "sugerencias")).entradas.length, 1);
 });
 
 test("an entry the store cannot read is never thrown away", async () => {
   const { studio, root } = await setup();
   const good = { id: "s-1", tema: "redes", parte: "p1", motivos: [], texto: "buena", origen: "sugerencia", timestamp: "2026-01-01T00:00:00Z" };
   const unreadable = { id: 7, texto: "no la entiendo" };
-  writeFileSync(join(root, "sugerencias.json"), JSON.stringify({ version: 1, actualizado: "", entradas: [good, unreadable] }));
+  writeDoc(root, "sugerencias", JSON.stringify({ version: 1, actualizado: "", entradas: [good, unreadable] }));
 
   const response = await http(`${studio.url}api/sugerencias`, {
     method: "POST",
@@ -1212,25 +1213,26 @@ test("an entry the store cannot read is never thrown away", async () => {
   // words without leaving them somewhere is not.
   const preserved =
     readdirSync(root).some((name) => name.startsWith("sugerencias.corrupta-") && readFileSync(join(root, name), "utf8").includes("no la entiendo")) ||
-    JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8")).entradas.some((e) => e.texto === "no la entiendo");
+    JSON.parse(stored(root, "sugerencias")).entradas.some((e) => e.texto === "no la entiendo");
   assert.ok(preserved, "the unreadable entry vanished without a copy");
 });
 
 test("recording a suggestion never half-succeeds", async () => {
   const { studio, root } = await setup();
-  writeFileSync(join(root, "preferencias.json"), "{ roto");
+  writeDoc(root, "preferencias", "{ roto");
 
   const response = await http(`${studio.url}api/sugerencias`, {
     method: "POST",
     headers: { origin: new URL(studio.url).origin, "content-type": "application/json" },
     body: JSON.stringify({ tema: "redes", parte: "p1", motivos: ["faltan-ejemplos"], texto: "mas ejemplos de capas" }),
   });
-  const stored = existsSync(join(root, "sugerencias.json")) ? JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8")).entradas.length : 0;
+  const kept = stored(root, "sugerencias");
+  const count = kept === undefined ? 0 : JSON.parse(kept).entradas.length;
 
   // Either the whole request failed (nothing stored) or it succeeded (exactly one entry):
   // a stored entry behind an error makes the learner retry and write it twice.
-  if (response.status === 200) assert.equal(stored, 1, "the studio said yes but the entry is not there");
-  else assert.equal(stored, 0, `the studio answered ${response.status} after storing the entry`);
+  if (response.status === 200) assert.equal(count, 1, "the studio said yes but the entry is not there");
+  else assert.equal(count, 0, `the studio answered ${response.status} after storing the entry`);
 });
 
 test("a regeneration that is refused never moves the part", async () => {
@@ -1437,4 +1439,41 @@ test("exporting a chat answers with the file, and only for the chat that is open
   const refused = await post(studio, "api/chats/exportar", { id: general.id });
   assert.equal(refused.status, 409);
   assert.match(JSON.parse(refused.body).error, /open the chat/);
+});
+
+test('the studio refuses to start without a data root', async () => {
+  await assert.rejects(() => startStudio({}), /LEARNING_ROOT is not set/);
+});
+
+test("the feedback summary groups every suggestion by topic, part and reason", async () => {
+  const { studio } = await setup();
+  const empty = await http(`${studio.url}api/sugerencias/resumen`);
+  assert.equal(empty.status, 200);
+  assert.deepEqual(JSON.parse(empty.body), { total: 0, motivos: [], temas: [] });
+
+  await post(studio, "api/sugerencias", { tema: "redes", parte: "p2", motivos: ["faltan-visuales"], texto: "más diagramas" });
+  await post(studio, "api/sugerencias", { tema: "redes", parte: "p10", motivos: ["faltan-visuales", "sin-paso-a-paso"], texto: "" });
+  await post(studio, "api/sugerencias", { tema: "algebra", parte: "p1", motivos: [], texto: "la fórmula sin leyenda" });
+  await post(studio, "api/sugerencias", { tema: "redes", parte: "p2", motivos: ["faltan-ejemplos"], texto: "otro ejemplo" });
+
+  const answer = await http(`${studio.url}api/sugerencias/resumen`);
+  assert.equal(answer.status, 200);
+  const resumen = JSON.parse(answer.body);
+  assert.equal(resumen.total, 4);
+  assert.deepEqual(resumen.motivos, [
+    { id: "faltan-visuales", texto: "Faltan visuales", n: 2 },
+    { id: "faltan-ejemplos", texto: "Faltan ejemplos", n: 1 },
+    { id: "sin-paso-a-paso", texto: "Sin paso a paso", n: 1 },
+  ]);
+  assert.deepEqual(resumen.temas.map((t) => [t.tema, t.total, t.partes.map((p) => [p.parte, p.total])]), [
+    ["algebra", 1, [["p1", 1]]],
+    ["redes", 3, [["p2", 2], ["p10", 1]]],
+  ]);
+  const p2 = resumen.temas[1].partes[0];
+  assert.deepEqual(p2.motivos, [
+    { id: "faltan-ejemplos", texto: "Faltan ejemplos", n: 1 },
+    { id: "faltan-visuales", texto: "Faltan visuales", n: 1 },
+  ]);
+  assert.deepEqual(p2.entradas.map((e) => e.texto), ["otro ejemplo", "más diagramas"], "newest first");
+  assert.deepEqual(Object.keys(p2.entradas[0]).sort(), ["id", "motivos", "origen", "texto", "timestamp"]);
 });

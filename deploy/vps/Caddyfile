@@ -10,12 +10,20 @@
 https://learnings.infra.local {
 	bind 10.154.59.151
 	tls /certs/infra.pem /certs/infra-key.pem
+	route /preview/* {
+		uri strip_prefix /preview
+		reverse_proxy 127.0.0.1:8899
+	}
 	reverse_proxy 127.0.0.1:4747
 }
 
 :8445 {
 	bind 10.154.59.151
 	tls /certs/infra.pem /certs/infra-key.pem
+	route /preview/* {
+		uri strip_prefix /preview
+		reverse_proxy 127.0.0.1:8899
+	}
 	reverse_proxy 127.0.0.1:4747
 }
 
