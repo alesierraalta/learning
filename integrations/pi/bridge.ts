@@ -3,7 +3,7 @@
  * (note, video, demos, live quiz) on 127.0.0.1 and turns the learner's
  * submissions into chat messages, so nothing is copied by hand.
  *
- * Obsidian stays the source of truth: pages are rendered from the vault files
+ * The data root stays the source of truth: pages are rendered from its files
  * on every request, and the only write is the answers file the engine already
  * reads (never overwriting recorded answers). Every route requires the
  * per-session token; the Host header must be loopback (DNS rebinding) and a

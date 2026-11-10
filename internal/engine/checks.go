@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -521,23 +520,22 @@ func evalIndexNote(c *evalCtx, decl rules.CheckDecl) Check {
 	if strings.TrimSpace(text) == "" {
 		return failCheck(decl.ID, "index note is empty: "+decl.Path)
 	}
-	prefix := vaultLinkPrefix(c.ws)
 	parts := c.planParts()
 	defined := map[string]bool{}
 	for i, p := range parts {
-		target := prefix + "explicaciones/Parte " + itoa(i+1) + " - " + p.Slug
+		target := "explicaciones/Parte " + itoa(i+1) + " - " + p.Slug
 		defined[target] = true
 		if partWritten(c.ws, i, p) {
 			if !linksTo(text, target) {
 				return failCheck(decl.ID, fmt.Sprintf(
-					"index does not link written part %s as [[%s|...]]: written parts are linked by the plan slug and the vault-relative path",
+					"index does not link written part %s as [[%s|...]]: written parts are linked by the plan slug, relative to the topic folder",
 					p.ID, target))
 			}
 			continue
 		}
 		if linksTo(text, target) {
 			return failCheck(decl.ID, fmt.Sprintf(
-				"index links part %s, which is not written yet: list pending parts as plain text, a link to a missing note makes Obsidian create it empty",
+				"index links part %s, which is not written yet: list pending parts as plain text, a link to a missing note opens an empty page",
 				p.ID))
 		}
 		if !strings.Contains(text, p.Title) {
@@ -547,8 +545,8 @@ func evalIndexNote(c *evalCtx, decl rules.CheckDecl) Check {
 	for _, target := range partLinkTargets(text) {
 		if !defined[target] {
 			return failCheck(decl.ID, fmt.Sprintf(
-				"index links [[%s]], which is not a part of the plan: link only %s\"explicaciones/Parte N - <slug>\" for written plan parts",
-				target, prefix))
+				"index links [[%s]], which is not a part of the plan: link only \"explicaciones/Parte N - <slug>\" for written plan parts",
+				target))
 		}
 	}
 	return passCheck(decl.ID, fmt.Sprintf("%s lists all %d plan parts and links exactly the written ones", decl.Path, len(parts)))
@@ -558,24 +556,6 @@ func evalIndexNote(c *evalCtx, decl rules.CheckDecl) Check {
 func partWritten(ws string, i int, p planPartDoc) bool {
 	fi, err := os.Stat(absPath(ws, "explicaciones/Parte "+itoa(i+1)+" - "+p.Slug+".md"))
 	return err == nil && fi.Size() > 0
-}
-
-// vaultLinkPrefix returns the workspace path relative to the enclosing
-// Obsidian vault (the nearest ancestor holding .obsidian), with a trailing
-// slash, or "" outside a vault.
-func vaultLinkPrefix(ws string) string {
-	for dir := filepath.Dir(ws); ; dir = filepath.Dir(dir) {
-		if fi, err := os.Stat(filepath.Join(dir, ".obsidian")); err == nil && fi.IsDir() {
-			rel, err := filepath.Rel(dir, ws)
-			if err != nil {
-				return ""
-			}
-			return filepath.ToSlash(rel) + "/"
-		}
-		if parent := filepath.Dir(dir); parent == dir {
-			return ""
-		}
-	}
 }
 
 // linksTo reports a wikilink to target, with or without .md and alias.
@@ -726,7 +706,7 @@ func evalExplanationContent(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	if index := declPathByKind(c.r, "planning", "index_note"); index != "" {
 		raw, err := os.ReadFile(absPath(c.ws, index))
-		target := vaultLinkPrefix(c.ws) + strings.TrimSuffix(rel, ".md")
+		target := strings.TrimSuffix(rel, ".md")
 		if err != nil || !linksTo(string(raw), target) {
 			return failCheck(decl.ID, fmt.Sprintf("%s does not link this part as [[%s|...]]: link each part in the index once it is written", index, target))
 		}

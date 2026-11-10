@@ -42,7 +42,7 @@ learning code submit tema id [archivo] --note "Mi duda"
 learning code setup [lenguaje...]
 ```
 
-La raíz se elige por `--root`, después `LEARNINGS_ROOT`, y finalmente `/mnt/c/Users/ismar/Documents/obsidian/ale/notes/04-RECURSOS/Learnings` (la raíz de `aprender` en `.bashrc`). Los temas son sus carpetas directas.
+La raíz se elige por `--root` y, si no se pasa, por `LEARNING_ROOT`. No hay ruta por defecto: sin ninguna de las dos el comando falla con `LEARNING_ROOT no está definido` (salida 2). `setup` y `--help` no necesitan raíz. Los temas son sus carpetas directas.
 
 `open` crea `codigo/<id>/mi-solucion.<ext>` desde la plantilla, **sin sobrescribirlo**. Para Java crea `codigo/<id>/mi-solucion/Main.java`, conservando el nombre exigido por la clase pública `Main`. Imprime la ruta absoluta. `test` y `submit` usan ese archivo salvo que se indique otro.
 

@@ -1438,3 +1438,7 @@ test("exporting a chat answers with the file, and only for the chat that is open
   assert.equal(refused.status, 409);
   assert.match(JSON.parse(refused.body).error, /open the chat/);
 });
+
+test('the studio refuses to start without a data root', async () => {
+  await assert.rejects(() => startStudio({}), /LEARNING_ROOT is not set/);
+});

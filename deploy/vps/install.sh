@@ -50,7 +50,7 @@ if [[ ! -x "$repo/bin/learning" ]]; then
   missing=1
 fi
 if [[ ! -d "$LEARNING_ROOT" ]]; then
-  echo "Missing prerequisite: LEARNING_ROOT directory $LEARNING_ROOT (configure Syncthing first)" >&2
+  echo "Missing prerequisite: LEARNING_ROOT directory $LEARNING_ROOT (copy the Learnings data folder there first)" >&2
   missing=1
 fi
 run() {

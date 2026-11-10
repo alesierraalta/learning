@@ -35,7 +35,7 @@ import {
 } from "../integrations/pi/bridge.ts";
 import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio } from "../integrations/pi/transcribe.ts";
 import { lintMarkdown } from "../tools/deck-lint.mjs";
-import { resolveContained } from "../integrations/pi/paths.ts";
+import { ROOT_UNSET, resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
@@ -66,7 +66,6 @@ import { listSugerencias, motivos, recordSugerencia, tutorContext, validateSuger
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
 const UI_DIR = join(HERE, "ui");
-const CANONICAL_ROOT = "/mnt/c/Users/ismar/Documents/obsidian/ale/notes/04-RECURSOS/Learnings";
 const MAX_BODY_BYTES = 64 * 1024;
 /** A draft preview is bounded like a saved note; the reader refuses anything longer. */
 const DRAFT_MAX_CHARS = 200_000;
@@ -242,7 +241,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   }
   const publicOrigins = parsePublicOrigins("publicOrigin", options.publicOrigin);
   parsePublicOrigins("bridgePublicOrigin", options.bridgePublicOrigin);
-  const contained = resolveContained(options.root ?? CANONICAL_ROOT, options.root ?? CANONICAL_ROOT);
+  if (!options.root) throw new Error(ROOT_UNSET);
+  const contained = resolveContained(options.root, options.root);
   if (!contained.ok) throw new Error(contained.reason);
   if (options.token !== undefined && !TOKEN_SHAPE.test(options.token)) throw new Error("token must be 64 lowercase hex characters");
   const root = contained.rootReal;

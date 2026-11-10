@@ -5,8 +5,7 @@ import { CodeRunError, DockerDaemonError, forPage, ImageMissingError, loadRunner
 import { exerciseFile, listExercises, saveSubmission } from './codevault.ts';
 import { resolveContained, safeTopic } from './paths.ts';
 
-const HELP = 'Uso: learning code [--root <directorio>] <comando>\n  list [<tema>]\n  open <tema> <id>\n  test <tema> <id> [archivo]\n  submit <tema> <id> [archivo] [--note "nota"]\n  setup [<lenguaje>...]\n';
-const DEFAULT_ROOT = '/mnt/c/Users/ismar/Documents/obsidian/ale/notes/04-RECURSOS/Learnings';
+const HELP = 'Uso: learning code [--root <directorio>] <comando>   (sin --root: LEARNING_ROOT)\n  list [<tema>]\n  open <tema> <id>\n  test <tema> <id> [archivo]\n  submit <tema> <id> [archivo] [--note "nota"]\n  setup [<lenguaje>...]\n';
 const fail = (message: string): never => { throw new Error(message); };
 function docker(args: string[]) {
   return new Promise<void>((ok, reject) => {
@@ -17,7 +16,7 @@ function docker(args: string[]) {
 }
 async function main() {
   const args: string[] = process.argv.slice(2);
-  let root = process.env.LEARNINGS_ROOT || DEFAULT_ROOT;
+  let root = process.env.LEARNING_ROOT?.trim() ?? '';
   let note: string | undefined;
   for (let i = 0; i < args.length;) {
     if (args[i] === '--root' || args[i] === '--note') {
@@ -41,6 +40,7 @@ async function main() {
     }
     return;
   }
+  if (!root) fail('LEARNING_ROOT no está definido: pasa --root <directorio> o define LEARNING_ROOT.');
   const topicDir = (topic: string) => {
     if (!safeTopic(topic)) fail('Tema no válido.');
     const found = resolveContained(resolve(root), resolve(root, topic));
