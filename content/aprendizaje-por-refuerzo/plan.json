@@ -1,1 +1,53 @@
-{"topic":"Aprendizaje por refuerzo","parts":[{"id":"p1","title":"Qué es y qué aprende","slug":"Qué es y qué aprende","subtema":"que-es-y-que-aprende","examplesPlanned":true,"visualsPlanned":true}]}
+{
+  "topic": "Aprendizaje por refuerzo",
+  "parts": [
+    {
+      "id": "p1",
+      "title": "El problema que solo existe en el tiempo",
+      "slug": "El problema que solo existe en el tiempo",
+      "subtema": "el-problema-que-solo-existe-en-el-tiempo",
+      "examplesPlanned": true,
+      "visualsPlanned": false
+    },
+    {
+      "id": "p2",
+      "title": "Las cinco piezas",
+      "slug": "Las cinco piezas",
+      "subtema": "las-cinco-piezas",
+      "examplesPlanned": true,
+      "visualsPlanned": true
+    },
+    {
+      "id": "p3",
+      "title": "Un paso completo",
+      "slug": "Un paso completo",
+      "subtema": "un-paso-completo",
+      "examplesPlanned": true,
+      "visualsPlanned": true
+    },
+    {
+      "id": "p4",
+      "title": "Los cuatro conceptos que se confunden",
+      "slug": "Los cuatro conceptos que se confunden",
+      "subtema": "los-cuatro-conceptos",
+      "examplesPlanned": true,
+      "visualsPlanned": true
+    },
+    {
+      "id": "p5",
+      "title": "Explorar o explotar",
+      "slug": "Explorar o explotar",
+      "subtema": "explorar-o-explotar",
+      "examplesPlanned": true,
+      "visualsPlanned": true
+    },
+    {
+      "id": "p6",
+      "title": "El retorno y el descuento",
+      "slug": "El retorno y el descuento",
+      "subtema": "el-retorno-y-el-descuento",
+      "examplesPlanned": true,
+      "visualsPlanned": true
+    }
+  ]
+}
