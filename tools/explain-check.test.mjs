@@ -89,3 +89,25 @@ test('una viñeta con tres frases es un párrafo muro', () => {
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALLA parrafos/);
 });
+
+// «Las partes de matemáticas deben indicar qué es cada elemento» y «dices c/(1−γ)
+// pero no lo habías nombrado antes»: una fórmula sin su leyenda de símbolos es un muro.
+const CON_FORMULA = CUMPLE.replace('El estado es lo que hace falta saber para decidir.',
+  'El valor se escribe así:\n\n<lk-math>Q(s,a) = c/(1-\\gamma)</lk-math>\n');
+
+test('una fórmula con su leyenda de símbolos pasa', () => {
+  const f = join(dir, 'formula-con-leyenda.md');
+  writeFileSync(f, CON_FORMULA + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
+  const r = run(f);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+leyenda/);
+});
+
+test('una fórmula con símbolos sin nombrar falla la leyenda', () => {
+  const f = join(dir, 'formula-sin-leyenda.md');
+  writeFileSync(f, CON_FORMULA);
+  const r = run(f);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA leyenda/);
+  assert.match(r.stdout, /gamma/);
+});

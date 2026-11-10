@@ -99,6 +99,25 @@ const prosa = src
   .trim().split(/\s+/).filter(Boolean).length;
 add('tamaño', prosa <= maxWords, `${prosa} palabra(s) de prosa (tope ${maxWords})`);
 
+// 7b. La leyenda: una fórmula que no nombra sus símbolos no se entiende. Cada símbolo
+// que aparece en una fórmula (latino de una letra o griega) se nombra en las líneas
+// siguientes, en la forma `x` es ... o «x → ...».
+const formulas = [...src.matchAll(/<lk-math[^>]*>([\s\S]*?)<\/lk-math>/g)].map((m) => m[1]);
+const simbolos = new Set();
+for (const f of formulas) {
+  // Las macros primero: \\gamma es un símbolo, no una palabra que se descarta.
+  for (const m of f.match(/\\[A-Za-z]+/g) || []) simbolos.add(m);
+  const limpio = f.replace(/\\[A-Za-z]+/g, ' ').replace(/\{[^}]*\}/g, ' ');
+  for (const w of limpio.match(/[A-Za-z]+/g) || []) if (w.length === 1) simbolos.add(w);
+}
+const sinNombrar = [...simbolos].filter((s) => {
+  // Un símbolo está nombrado si aparece entre comillas o seguido de = → : o "es".
+  const nombre = s.replace(/^\\/, '');
+  const patron = new RegExp('(\\x60|«|")\\s*\\\\?' + nombre + '\\s*(\\x60|»|")|\\b' + nombre + '\\s*(=|→|->|:|es\\b)', 'i');
+  return !patron.test(src);
+});
+add('leyenda', sinNombrar.length === 0, formulas.length === 0 ? 'sin fórmulas' : sinNombrar.length ? `símbolo(s) sin nombrar: ${sinNombrar.join(', ')}` : '');
+
 // 8. Las figuras conviven: se delega en scene-lint, que abre un navegador.
 let figuras = { ok: true, detail: 'sin figuras' };
 if (escenas || recorridos) {
