@@ -1935,11 +1935,48 @@
     if (!document.body.classList.contains("drawer-open")) tutor.unread++;
     updatePill();
   };
+  // The panel's width is the learner's: dragged by its edge, moved with the arrows,
+  // remembered between visits. It stops before the page beside it becomes a sliver;
+  // the whole window is what the expand button is for.
+  const WIDTH = { min: 360, max: 1100, def: 520, page: 420 };
+  const phone = matchMedia("(max-width: 720px)");
+  const remembered = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
+  const remember = (key, value) => { try { localStorage.setItem(key, value); } catch { /* private mode */ } };
+  let drawerWidth = (() => {
+    const n = Number(remembered("estudio.tutor.ancho"));
+    return Number.isFinite(n) && n >= WIDTH.min ? Math.min(n, WIDTH.max) : WIDTH.def;
+  })();
+  let drawerHandle = null;
+  let drawerFocus = null;
+  // Beside the page the panel stops at the width that still leaves the page a column
+  // of its own; over the page (a tablet, a phone) it may take almost all of it.
+  const widest = () => Math.min(WIDTH.max, innerWidth > 1100 ? innerWidth - WIDTH.page : Math.round(innerWidth * 0.92));
+  // A narrow window shrinks the panel without forgetting the width it was given.
+  const widthNow = () => (phone.matches ? innerWidth : Math.min(drawerWidth, widest()));
+  const applyWidth = () => {
+    // On a phone the panel is the window, and the stylesheet owns that width.
+    if (phone.matches) document.documentElement.style.removeProperty("--drawer");
+    else document.documentElement.style.setProperty("--drawer", `${widthNow()}px`);
+    drawerHandle?.setAttribute("aria-valuenow", String(drawerWidth));
+  };
+  const setWidth = (width) => {
+    drawerWidth = Math.round(Math.min(Math.max(width, WIDTH.min), widest()));
+    applyWidth();
+    remember("estudio.tutor.ancho", String(drawerWidth));
+  };
+  const setFocus = (on) => {
+    document.body.classList.toggle("drawer-focus", on);
+    drawerFocus?.setAttribute("aria-pressed", String(on));
+    drawerFocus?.setAttribute("aria-label", on ? "Dejar de ver el tutor a pantalla completa" : "Ver el tutor a pantalla completa");
+    if (on) thread.scrollTop = thread.scrollHeight;
+    remember("estudio.tutor.completo", on ? "si" : "no");
+  };
   function openDrawer(prefill) {
     document.body.classList.add("drawer-open");
     pill.setAttribute("aria-expanded", "true");
     tutor.unread = 0;
     updatePill();
+    applyWidth();
     if (typeof prefill === "string") {
       composerText.value = prefill;
       grow();
@@ -2168,14 +2205,55 @@
     stateLine.textContent = "Reconectando…";
   };
 
+  // The splitter on the panel's edge: dragged with the pointer, moved with the arrows
+  // (Shift moves it further), and a double click gives back the width it started with.
+  const resizeHandle = h("div", {
+    class: "drawer-resize",
+    role: "separator",
+    "aria-orientation": "vertical",
+    "aria-label": "Ancho del tutor",
+    tabindex: "0",
+    "aria-valuemin": String(WIDTH.min),
+    "aria-valuemax": String(WIDTH.max),
+    "aria-valuenow": String(drawerWidth),
+  });
+  let dragging = false;
+  resizeHandle.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    resizeHandle.setPointerCapture?.(event.pointerId);
+    document.body.classList.add("drawer-resizing");
+    event.preventDefault();
+  });
+  resizeHandle.addEventListener("pointermove", (event) => { if (dragging) setWidth(innerWidth - event.clientX); });
+  const stopDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove("drawer-resizing");
+  };
+  resizeHandle.addEventListener("pointerup", stopDrag);
+  resizeHandle.addEventListener("pointercancel", stopDrag);
+  resizeHandle.addEventListener("dblclick", () => setWidth(WIDTH.def));
+  resizeHandle.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 96 : 24;
+    const delta = event.key === "ArrowLeft" ? step : event.key === "ArrowRight" ? -step : 0;
+    if (!delta) return;
+    event.preventDefault();
+    setWidth(drawerWidth + delta);
+  });
+  drawerHandle = resizeHandle;
+  const focusBtn = h("button", { class: "icon-btn drawer-focus-btn", type: "button", "aria-label": "Ver el tutor a pantalla completa", "aria-pressed": "false", onclick: () => setFocus(!document.body.classList.contains("drawer-focus")) }, icon("fit"));
+  drawerFocus = focusBtn;
+
   const drawer = h(
     "aside",
     { class: "drawer", id: "drawer", "aria-label": "Tutor" },
+    resizeHandle,
     h(
       "div",
       { class: "drawer-head" },
       h("h2", {}, "Tutor", stateLine),
       noteBtn,
+      focusBtn,
       h("button", { class: "icon-btn", type: "button", "aria-label": "Más opciones", onclick: () => menu.classList.toggle("open") }, icon("more")),
       h("button", { class: "icon-btn", type: "button", "aria-label": "Cerrar el tutor", onclick: closeDrawer }, icon("x")),
       menu,
@@ -2217,9 +2295,20 @@
     drawer,
   );
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") { menu.classList.remove("open"); }
+    if (event.key !== "Escape") return;
+    menu.classList.remove("open");
+    // Escape gives the page back, unless a dialog of its own is asking something.
+    if (document.body.classList.contains("drawer-open") && !document.querySelector(".modal-backdrop")) closeDrawer();
   });
   window.addEventListener("hashchange", render);
+  // Turning the phone, or resizing the window, changes how much room the page has.
+  window.addEventListener("resize", applyWidth);
+  phone.addEventListener("change", applyWidth);
+  // The tutor opens the way it was left: full window or beside the page, at its width.
+  document.body.classList.toggle("drawer-focus", remembered("estudio.tutor.completo") === "si");
+  focusBtn.setAttribute("aria-pressed", String(document.body.classList.contains("drawer-focus")));
+  if (document.body.classList.contains("drawer-focus")) focusBtn.setAttribute("aria-label", "Dejar de ver el tutor a pantalla completa");
+  applyWidth();
   updatePill();
   // Keeps the studio and its saved parts readable with no connection (studio/ui/sw.js).
   // Browsers allow it only on loopback or a trusted HTTPS certificate; elsewhere the

@@ -1058,6 +1058,89 @@ test("on an upright iPad the open tutor dims the page and a tap outside closes i
   assert.equal(await scrim.isVisible(), false);
 });
 
+// The width of the chat is the learner's: a splitter on the panel's edge, a width
+// remembered between visits, and one button that gives the chat the whole window
+// when the page beside it is what stands between the reader and a long answer.
+async function tutorPanel(t, width, height) {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width, height } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(400);
+  return page;
+}
+
+const drawerWidth = (page) => page.evaluate(() => Math.round(document.querySelector(".drawer").getBoundingClientRect().width));
+const stageBox = (page) =>
+  page.evaluate(() => {
+    const r = document.querySelector(".stage").getBoundingClientRect();
+    return { left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width) };
+  });
+
+test("the tutor widens by its splitter and the page keeps a readable column", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const page = await tutorPanel(t, 1440, 900);
+  assert.equal(await drawerWidth(page), 520, "the chat starts at the width its answers read at");
+  const handle = page.locator(".drawer-resize");
+  await handle.focus();
+  for (let i = 0; i < 4; i++) await handle.press("ArrowLeft");
+  // The page follows the splitter with a .28s transition: measure once it settles.
+  await page.waitForTimeout(500);
+  assert.equal(await drawerWidth(page), 616, "each arrow press widens the chat by 24px");
+  const stage = await stageBox(page);
+  assert.ok(stage.width >= 420, `the page keeps a column of its own: ${stage.width}px`);
+  assert.ok(stage.right <= 1440 - 616 + 1, `the page ends where the chat begins: ${stage.right}px`);
+});
+
+test("the splitter stops before the page becomes a sliver, and the arrows narrow it too", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const page = await tutorPanel(t, 1440, 900);
+  const handle = page.locator(".drawer-resize");
+  await handle.focus();
+  for (let i = 0; i < 40; i++) await handle.press("ArrowLeft");
+  await page.waitForTimeout(200);
+  assert.equal(await drawerWidth(page), 1020, "the chat stops where the page still has 420px");
+  for (let i = 0; i < 40; i++) await handle.press("ArrowRight");
+  await page.waitForTimeout(200);
+  assert.equal(await drawerWidth(page), 360, "and it stops at a width where a message still reads");
+});
+
+test("on a tablet the tutor lies over the page instead of taking a column from it", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const page = await tutorPanel(t, 820, 1180);
+  assert.equal(await drawerWidth(page), 520, "the chat keeps the width it reads at");
+  assert.equal((await stageBox(page)).width, 820, "the page behind keeps its whole width, dimmed instead of squeezed");
+});
+
+test("the tutor remembers the width it was given", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const page = await tutorPanel(t, 1440, 900);
+  const handle = page.locator(".drawer-resize");
+  await handle.focus();
+  await handle.press("ArrowLeft");
+  await handle.press("ArrowLeft");
+  await page.waitForTimeout(200);
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(400);
+  assert.equal(await drawerWidth(page), 568, "the width survives a reload");
+});
+
+test("the tutor takes the whole window to read a long answer, and gives the page back", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const page = await tutorPanel(t, 1440, 900);
+  const expand = page.getByRole("button", { name: "Ver el tutor a pantalla completa" });
+  await expand.click();
+  await page.waitForTimeout(500);
+  assert.equal(await drawerWidth(page), 1440, "the chat gets the whole window");
+  assert.equal((await stageBox(page)).width, 1440, "the page is no longer squeezed beside it");
+  assert.equal(await expand.getAttribute("aria-pressed"), "true");
+  await expand.click();
+  await page.waitForTimeout(500);
+  assert.equal(await drawerWidth(page), 520, "the page comes back and the chat returns to its width");
+  assert.equal((await stageBox(page)).width, 920, "the page is beside the chat again");
+});
+
 test("every control on an iPad is a finger-sized target", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page, studio } = await ipadPage(t, 820, 1180);
   const small = () =>

@@ -25,7 +25,7 @@
   --serif: "Liberation Serif", "DejaVu Serif", "Hoefler Text", Georgia, "Times New Roman", Times, serif;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: "Liberation Mono", "DejaVu Sans Mono", Consolas, monospace;
-  --drawer: 440px;
+  --drawer: 520px;
   --topbar: 64px;
 }
 * { box-sizing: border-box; }
@@ -62,6 +62,8 @@ a { color: var(--blue); }
 .app { display: flex; min-height: calc(100vh - var(--topbar)); }
 .stage { flex: 1; min-width: 0; transition: margin-right .28s ease; container: stage / inline-size; }
 body.drawer-open .stage { margin-right: var(--drawer); }
+/* The whole window for the chat: the page steps aside instead of sharing it. */
+body.drawer-open.drawer-focus .stage { margin-right: 0; }
 .page { max-width: 1180px; margin: 0 auto; padding: 56px 48px 110px; }
 .reveal { opacity: 0; transform: translateY(8px); animation: rise .45s ease forwards; animation-delay: calc(var(--i, 0) * 55ms); }
 @keyframes rise { to { opacity: 1; transform: none; } }
@@ -244,8 +246,21 @@ h3 { font-weight: 700; }
 .sheet { width: 100%; height: 100%; border: 0; background: var(--paper); }
 
 /* ---------- tutor drawer ---------- */
-.drawer { position: fixed; top: var(--topbar); right: 0; bottom: 0; width: var(--drawer); z-index: 15; display: flex; flex-direction: column; background: var(--paper); border-left: 2px solid var(--line); transform: translateX(100%); visibility: hidden; transition: transform .28s ease, visibility 0s linear .28s; }
+/* The panel's edge is a splitter: the chat takes the width its answers need, the
+   page keeps a readable column of its own, and one button gives the chat the whole
+   window when the learner wants to read without the page beside it. */
+.drawer { position: fixed; top: var(--topbar); right: 0; bottom: 0; width: var(--drawer); max-width: 100vw; z-index: 15; display: flex; flex-direction: column; background: var(--paper); border-left: 2px solid var(--line); transform: translateX(100%); visibility: hidden; transition: transform .28s ease, visibility 0s linear .28s; container: drawer / inline-size; }
 body.drawer-open .drawer { transform: none; visibility: visible; transition: transform .28s ease; }
+/* One long answer, the whole window; the same button brings the page back. */
+body.drawer-focus .drawer { width: 100vw; }
+body.drawer-focus .drawer-resize { display: none; }
+/* The splitter: a 12px grip on the panel's edge, dragged or moved with the arrows. */
+.drawer-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 12px; margin-left: -6px; cursor: col-resize; touch-action: none; display: grid; place-items: center; z-index: 2; }
+.drawer-resize::before { content: ""; width: 4px; height: 46px; border-radius: 2px; background: var(--line); transition: background .12s; }
+.drawer-resize:hover::before, .drawer-resize:focus-visible::before, body.drawer-resizing .drawer-resize::before { background: var(--blue); }
+.drawer-resize:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+body.drawer-resizing { cursor: col-resize; user-select: none; }
+body.drawer-resizing .stage { pointer-events: none; }
 .drawer-head { position: relative; display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 2px solid var(--line); }
 .drawer-head h2 { font-size: 1.6rem; flex: 1; line-height: 1.1; }
 .drawer-head .state { display: block; font-size: 1rem; color: var(--muted); font-style: italic; }
@@ -259,7 +274,12 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 .menu button svg { width: 17px; height: 17px; }
 .thread { flex: 1; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
 /* bubbles like the illustrated chat window: tutor on the left in blue, you on the right in green */
-.msg { max-width: 92%; padding: 10px 16px; border-radius: 18px; font-size: 1.02rem; line-height: 1.45; overflow-wrap: anywhere; }
+/* A wide panel keeps a readable measure: lines stop at about 68 characters
+   instead of running the whole width of a stretched chat. */
+.msg { max-width: min(92%, 68ch); padding: 10px 16px; border-radius: 18px; font-size: 1.02rem; line-height: 1.45; overflow-wrap: anywhere; }
+@container drawer (min-width: 760px) {
+  .thread, .composer { padding-inline: max(20px, calc((100% - 76ch) / 2)); }
+}
 .msg.user { align-self: flex-end; background: var(--green-s); white-space: pre-wrap; }
 .msg.assistant { align-self: flex-start; background: var(--blue-s); }
 .msg.assistant p { margin: 0 0 .55em; } .msg.assistant p:last-child { margin: 0; }
@@ -346,7 +366,8 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
 .deck-caption, .deck > .finale { display: none; }
 .deck-skip { color: #cbd5e1; background: none; border: 0; cursor: pointer; font-style: italic; text-decoration: underline; }
 
-/* Below 1100px the tutor lies over the page instead of pushing it. */
+/* Below 1100px the tutor lies over the page instead of taking a column from it:
+   the page keeps its width, dims, and a tap on it closes the tutor. */
 @media (max-width: 1100px) {
   body.drawer-open .stage { margin-right: 0; }
   body.drawer-open .scrim { display: block; }
@@ -359,7 +380,9 @@ body.drawer-open .drawer { transform: none; visibility: visible; transition: tra
   .topic-head aside .aside-sticky { position: static; }
 }
 @media (max-width: 720px) {
+  /* The panel is the window: no splitter to drag and nothing to expand. */
   :root { --drawer: 100vw; --topbar: 54px; }
+  .drawer-resize, .drawer-focus-btn { display: none; }
   .topbar { padding: 0 14px; gap: 10px; }
   .brand span, .crumbs, .top-actions .tutorial-btn { display: none; }
   .page { padding: 30px 18px 80px; }
