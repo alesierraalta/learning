@@ -110,6 +110,15 @@ try {
           }
         }
 
+        // 2c. una flecha que no sale ni llega a nada: sus dos extremos tienen que tocar
+        // una caja, un icono o un texto. Una punta en el vacío no explica nada.
+        const anchors = [...svg.querySelectorAll('rect, circle, path:not([marker-end]), text')]
+          .filter((el) => !el.closest('[data-step]') || true)
+          .map((el) => el.getBBox())
+          .filter((b) => b.width > 2 && b.height > 2);
+        const near = (pt, tol = 18) => anchors.some((b) =>
+          pt.x >= b.x - tol && pt.x <= b.x + b.width + tol && pt.y >= b.y - tol && pt.y <= b.y + b.height + tol);
+
         // 3 y 4. trazo sobre texto y punta enterrada
         for (const a of arrows) {
           if (!a.getTotalLength) continue;
@@ -127,7 +136,9 @@ try {
             }
             if (hit) { add('trazo-sobre-texto', t.s.slice(0, 40), ''); break; }
           }
+          const start = a.getPointAtLength(0);
           const end = a.getPointAtLength(len);
+          if (!near(start) || !near(end)) add('flecha-al-aire', '', `extremo(s) fuera de toda pieza (${len.toFixed(0)}u)`);
           const buried = rects.some(({ b }) => end.x > b.x + 3 && end.x < b.x + b.width - 3 && end.y > b.y + 3 && end.y < b.y + b.height - 3);
           if (buried) add('punta-enterrada', '', 'la punta termina dentro de una caja');
         }

@@ -54,6 +54,25 @@ add('mini-quiz', quiz, quiz ? '' : 'no hay mini-quiz');
 const ascii = src.split('\n').filter((l) => /[┌┐└┘├┤┬┴┼│╔╗╚╝║█▓▒░]|─+[►▶▸]/.test(l));
 add('ascii', ascii.length === 0, ascii.length ? `${ascii.length} línea(s) dibujadas con caracteres` : '');
 
+// 6b. El ritmo: frases cortas y un párrafo que no sea un muro. El estándar
+// pide una idea por frase; una frase de 40 palabras no se lee, se atraviesa.
+const parrafos = src
+  .replace(/```[\s\S]*?```/g, '\n\n')
+  .replace(/<lk-(scene|walkthrough|quiz|quick-quiz)[\s\S]*?<\/lk-\1>/g, '\n\n')
+  .split(/\n\s*\n/)
+  .map((b) => b.trim())
+  .filter((b) => b && !/^[#>|\-*\d]/.test(b));
+const frases = parrafos
+  .flatMap((b) => b.split(/(?<=[.!?])\s+/))
+  .map((f) => f.trim())
+  .filter((f) => f.length > 1);
+const palabras = (t) => t.split(/\s+/).filter(Boolean).length;
+const largas = frases.filter((f) => palabras(f) > 18);
+const media = frases.length ? Math.round(frases.reduce((a, f) => a + palabras(f), 0) / frases.length) : 0;
+add('frases', largas.length === 0, `${largas.length} frase(s) de más de 18 palabras · media ${media}`);
+const muros = parrafos.filter((b) => (b.match(/[.!?](\s|$)/g) || []).length > 2);
+add('parrafos', muros.length === 0, `${muros.length} párrafo(s) con más de dos frases`);
+
 // 7. Tamaño: la prosa que se lee, sin código, tablas ni figuras.
 const prosa = src
   .replace(/```[\s\S]*?```/g, ' ')

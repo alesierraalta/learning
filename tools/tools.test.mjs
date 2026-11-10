@@ -76,3 +76,44 @@ test('scene-lint rechaza una caja que se sale del lienzo', () => {
   assert.equal(r.status, 1, 'una caja cortada se ve sin base: la puerta la rechaza');
   assert.match(r.stdout, /fuera-del-lienzo/);
 });
+
+test('explain-check rechaza una frase de más de 18 palabras', () => {
+  const file = join(dir, 'frase-larga.md');
+  writeFileSync(file, [
+    '# Parte', '', '## Ruta', '', '1. Uno', '2. Dos', '3. Tres', '',
+    '## 1. Algo', '',
+    'Esta frase tiene muchísimas palabras porque nunca se decide a terminar y sigue y sigue sin punto hasta el final de la línea entera.', '',
+    '<lk-quiz>{"id":"q"}</lk-quiz>',
+  ].join('\n'));
+  const r = run('explain-check.mjs', [file]);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA frases/);
+});
+
+test('explain-check rechaza un párrafo de tres frases', () => {
+  const file = join(dir, 'muro.md');
+  writeFileSync(file, [
+    '# Parte', '', '## Ruta', '', '1. Uno', '2. Dos', '3. Tres', '',
+    '## 1. Algo', '',
+    'Una. Dos. Tres.', '',
+    '<lk-quiz>{"id":"q"}</lk-quiz>',
+  ].join('\n'));
+  const r = run('explain-check.mjs', [file]);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA parrafos/);
+});
+
+test('scene-lint rechaza una flecha que termina en el vacío', () => {
+  const file = join(dir, 'al-aire.md');
+  writeFileSync(file, '<lk-scene>\n<script type="application/json">\n' + JSON.stringify({
+    viewBox: '0 0 760 260',
+    scene: {
+      boxes: [{ x: 300, y: 80, w: 160, h: 96, label: 'un paso', tone: 'ink', rx: 0, size: 20 }],
+      arrows: [{ x1: 294, y1: 128, x2: 60, y2: 128, tone: 'amber', width: 2 }],
+    },
+  }) + '\n</script>\n</lk-scene>\n');
+  const r = run('scene-lint.mjs', [file]);
+  if (/playwright no está disponible/.test(r.stderr + r.stdout)) return;
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /flecha-al-aire/);
+});
