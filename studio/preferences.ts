@@ -82,7 +82,7 @@ function validate(value: unknown): Preferences {
   }
   // A file that lost one of the shipped aspects is not a preference, it is damage.
   if (!SHIPPED.every((id) => seen.has(id))) throw new HttpError(400, "invalid preferences");
-  return value as Preferences;
+  return value as unknown as Preferences;
 }
 
 function filePath(root: string) {
