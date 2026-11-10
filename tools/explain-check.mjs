@@ -47,7 +47,7 @@ add('escena', escenas <= 1, `${escenas} escena(s)`);
 add('recorrido', recorridos <= 1, `${recorridos} recorrido(s)`);
 
 // 5. Mini-quiz: la parte se cierra con preguntas, no con un resumen.
-const quiz = /lk-quiz|mini-quiz|##\s*Mini-quiz/i.test(src);
+const quiz = /lk-(quick-)?quiz|mini-quiz|##\s*Mini-quiz/i.test(src);
 add('mini-quiz', quiz, quiz ? '' : 'no hay mini-quiz');
 
 // 6. ASCII dibujado: la geometría se dibuja, no se escribe.
@@ -56,12 +56,18 @@ add('ascii', ascii.length === 0, ascii.length ? `${ascii.length} línea(s) dibuj
 
 // 6b. El ritmo: frases cortas y un párrafo que no sea un muro. El estándar
 // pide una idea por frase; una frase de 40 palabras no se lee, se atraviesa.
-const parrafos = src
+const lineasProsa = src
   .replace(/```[\s\S]*?```/g, '\n\n')
   .replace(/<lk-(scene|walkthrough|quiz|quick-quiz)[\s\S]*?<\/lk-\1>/g, '\n\n')
+  .split('\n')
+  // Títulos, tablas y etiquetas no son prosa; las citas y las viñetas sí: una ficha
+  // con tres frases dentro de `>` es un muro igual que un párrafo suelto.
+  .filter((l) => !/^\s*(#{1,6}\s|\||<)/.test(l));
+const parrafos = lineasProsa
+  .join('\n')
   .split(/\n\s*\n/)
-  .map((b) => b.trim())
-  .filter((b) => b && !/^[#>|\-*\d]/.test(b));
+  .map((b) => b.split('\n').map((l) => l.replace(/^\s*(>\s?|[-*]\s+|\d+[.)]\s+)/, '')).join(' ').trim())
+  .filter(Boolean);
 const frases = parrafos
   .flatMap((b) => b.split(/(?<=[.!?])\s+/))
   .map((f) => f.trim())

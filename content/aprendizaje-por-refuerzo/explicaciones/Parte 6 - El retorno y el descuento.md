@@ -50,4 +50,8 @@ Si está cerca de 1, el horizonte se alarga.
 
 Con el factor en cero, el agente solo ve la siguiente recompensa.
 
-<lk-quiz>{"id":"q-p6-a","pregunta":"Con factor de descuento 0,9, ¿por qué el tercer +10 aporta 8,1 y no 10?","opciones":{"A":"Porque la recompensa se hizo más pequeña","B":"Porque llega dos pasos más tarde y cada paso la descuenta","C":"Por un error de redondeo","E":"No sé"},"correcta":"B","explicacion":"La recompensa no cambia: cambia su peso, porque el futuro se descuenta paso a paso."}</lk-quiz>
+<lk-quick-quiz point="Parte 6 - El retorno y el descuento" tag="conceptual">
+<script type="application/json">
+{"id": "q-p6-a", "pregunta": "Con factor de descuento 0,9, ¿por qué el tercer +10 aporta 8,1 y no 10?", "opciones": {"A": "Porque la recompensa se hizo más pequeña", "B": "Porque llega dos pasos más tarde y cada paso la descuenta", "C": "Por un error de redondeo", "E": "No sé"}, "correcta": "B", "explicacion": "La recompensa no cambia: cambia su peso, porque el futuro se descuenta paso a paso."}
+</script>
+</lk-quick-quiz>

@@ -117,3 +117,16 @@ test('scene-lint rechaza una flecha que termina en el vacío', () => {
   assert.equal(r.status, 1);
   assert.match(r.stdout, /flecha-al-aire/);
 });
+
+test('explain-check mide también la prosa dentro de una cita', () => {
+  const file = join(dir, 'cita-muro.md');
+  writeFileSync(file, [
+    '# Parte', '', '## Ruta', '', '1. Uno', '2. Dos', '3. Tres', '',
+    '## 1. Algo', '',
+    '> Esta cita esconde un párrafo enorme que no se corta nunca y sigue y sigue acumulando palabras sin pausa hasta aburrir. Y además tiene una segunda frase larguísima. Y una tercera, para rematar el muro.', '',
+    '<lk-quiz>{"id":"q"}</lk-quiz>',
+  ].join('\n'));
+  const r = run('explain-check.mjs', [file]);
+  assert.equal(r.status, 1, 'una cita con tres frases también es un muro');
+  assert.match(r.stdout, /FALLA (frases|parrafos)/);
+});

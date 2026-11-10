@@ -87,4 +87,8 @@ En nuestro ejemplo:
 
 > La recompensa valora lo que acaba de pasar. No dice si la decisión fue buena.
 
-<lk-quiz>{"id":"qq-p1-1","pregunta":"El robot aspira con el 4 % de batería y recibe +10. ¿Qué acaba de decirnos esa recompensa?","opciones":{"A":"Que aspirar fue la decisión correcta a largo plazo","B":"Que la acción produjo una consecuencia deseable en ese instante, sin decir nada sobre el futuro","E":"No sé"},"correcta":"B","explicacion":"La recompensa es una señal inmediata. Si era la mejor decisión depende de lo que venga después, y eso lo mide el valor."}</lk-quiz>
+<lk-quick-quiz point="Parte 2 - Las cinco piezas" tag="conceptual">
+<script type="application/json">
+{"id": "qq-p1-1", "pregunta": "El robot aspira con el 4 % de batería y recibe +10. ¿Qué acaba de decirnos esa recompensa?", "opciones": {"A": "Que aspirar fue la decisión correcta a largo plazo", "B": "Que la acción produjo una consecuencia deseable en ese instante, sin decir nada sobre el futuro", "E": "No sé"}, "correcta": "B", "explicacion": "La recompensa es una señal inmediata. Si era la mejor decisión depende de lo que venga después, y eso lo mide el valor."}
+</script>
+</lk-quick-quiz>

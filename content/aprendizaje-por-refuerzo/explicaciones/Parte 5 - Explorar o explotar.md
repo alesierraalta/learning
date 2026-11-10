@@ -42,4 +42,8 @@ De vez en cuando, eliges otra al azar.
 
 Ese «de vez en cuando» se ajusta con un número: cuanto más alto, más se explora.
 
-<lk-quiz>{"id":"q-p5-a","pregunta":"La acción A suele dar +8 y la B nunca se ha probado. ¿Qué compra exactamente explorar B?","opciones":{"A":"Una recompensa más alta garantizada","B":"Información: saber si B era mejor de lo que parecía","C":"Nada: es tiempo perdido","E":"No sé"},"correcta":"B","explicacion":"Explorar no garantiza premio: compra información, y a veces cuesta recompensa inmediata."}</lk-quiz>
+<lk-quick-quiz point="Parte 5 - Explorar o explotar" tag="conceptual">
+<script type="application/json">
+{"id": "q-p5-a", "pregunta": "La acción A suele dar +8 y la B nunca se ha probado. ¿Qué compra exactamente explorar B?", "opciones": {"A": "Una recompensa más alta garantizada", "B": "Información: saber si B era mejor de lo que parecía", "C": "Nada: es tiempo perdido", "E": "No sé"}, "correcta": "B", "explicacion": "Explorar no garantiza premio: compra información, y a veces cuesta recompensa inmediata."}
+</script>
+</lk-quick-quiz>

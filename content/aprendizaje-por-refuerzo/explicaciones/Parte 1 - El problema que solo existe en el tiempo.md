@@ -48,4 +48,8 @@ El supervisado te dice la respuesta.
 
 El refuerzo te deja actuar y mirar qué pasó.
 
-<lk-quiz>{"id":"q-p1-a","pregunta":"El robot aspira con 4 % de batería y recibe +10. ¿Qué acaba de decir esa recompensa?","opciones":{"A":"Que aspirar fue la decisión correcta a largo plazo","B":"Que la acción produjo una consecuencia deseable en ese instante, sin decir nada del futuro","E":"No sé"},"correcta":"B","explicacion":"La recompensa valora lo que acaba de pasar. Si era la mejor decisión depende de lo que venga después."}</lk-quiz>
+<lk-quick-quiz point="Parte 1 - El problema que solo existe en el tiempo" tag="conceptual">
+<script type="application/json">
+{"id": "q-p1-a", "pregunta": "El robot aspira con 4 % de batería y recibe +10. ¿Qué acaba de decir esa recompensa?", "opciones": {"A": "Que aspirar fue la decisión correcta a largo plazo", "B": "Que la acción produjo una consecuencia deseable en ese instante, sin decir nada del futuro", "E": "No sé"}, "correcta": "B", "explicacion": "La recompensa valora lo que acaba de pasar. Si era la mejor decisión depende de lo que venga después."}
+</script>
+</lk-quick-quiz>

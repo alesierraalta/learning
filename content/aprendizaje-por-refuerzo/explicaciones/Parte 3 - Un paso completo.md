@@ -40,4 +40,8 @@ La batería al 68 % es lo que condiciona el paso siguiente.
 
 Ese ciclo —estado, acción, recompensa, estado nuevo— se repite. Es el corazón de todo lo que sigue.
 
-<lk-quiz>{"id":"q-p3-a","pregunta":"Después de aspirar, el robot recibe +10 y la sala queda limpia con 68 % de batería. ¿Qué de esas tres cosas condiciona el paso siguiente?","opciones":{"A":"El +10, porque ya está cobrado","B":"El estado nuevo: sala limpia y 68 % de batería","C":"Las tres por igual","E":"No sé"},"correcta":"B","explicacion":"La recompensa se cobró y no vuelve. Lo que decide el siguiente paso es el estado en que quedó el robot."}</lk-quiz>
+<lk-quick-quiz point="Parte 3 - Un paso completo" tag="conceptual">
+<script type="application/json">
+{"id": "q-p3-a", "pregunta": "Después de aspirar, el robot recibe +10 y la sala queda limpia con 68 % de batería. ¿Qué de esas tres cosas condiciona el paso siguiente?", "opciones": {"A": "El +10, porque ya está cobrado", "B": "El estado nuevo: sala limpia y 68 % de batería", "C": "Las tres por igual", "E": "No sé"}, "correcta": "B", "explicacion": "La recompensa se cobró y no vuelve. Lo que decide el siguiente paso es el estado en que quedó el robot."}
+</script>
+</lk-quick-quiz>

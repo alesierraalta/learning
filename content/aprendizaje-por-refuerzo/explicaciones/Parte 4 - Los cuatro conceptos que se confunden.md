@@ -45,4 +45,8 @@ Dos estados pueden parecer idénticos —la misma habitación sucia— y valer m
 </script>
 </lk-scene>
 
-<lk-quiz>{"id":"qq-p1-2","pregunta":"Dos estados idénticos salvo la batería (4 % y 100 %). ¿Qué número los distingue?","opciones":{"A":"La recompensa que se cobró al llegar","B":"El valor, porque mide lo que todavía se puede conseguir desde ahí","E":"No sé"},"correcta":"B","explicacion":"La recompensa ya se cobró y es la misma para los dos. El valor mira hacia adelante: con 4 % quedan pocas acciones posibles."}</lk-quiz>
+<lk-quick-quiz point="Parte 4 - Los cuatro conceptos que se confunden" tag="conceptual">
+<script type="application/json">
+{"id": "qq-p1-2", "pregunta": "Dos estados idénticos salvo la batería (4 % y 100 %). ¿Qué número los distingue?", "opciones": {"A": "La recompensa que se cobró al llegar", "B": "El valor, porque mide lo que todavía se puede conseguir desde ahí", "E": "No sé"}, "correcta": "B", "explicacion": "La recompensa ya se cobró y es la misma para los dos. El valor mira hacia adelante: con 4 % quedan pocas acciones posibles."}
+</script>
+</lk-quick-quiz>
