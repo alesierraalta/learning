@@ -142,7 +142,7 @@ export function validateGlobalTelemetry(value: unknown): GlobalTelemetry {
   if (!Array.isArray(value.directrices_tutor) || !Array.isArray(value.historial_reciente)) {
     throw new HttpError(400, "invalid telemetry: malformed directrices or history");
   }
-  return value as GlobalTelemetry;
+  return value as unknown as GlobalTelemetry;
 }
 
 function globalTelemetryPath(root: string): string {
@@ -220,7 +220,7 @@ export function readTopicTelemetry(root: string, topic: string): TopicTelemetry 
   try {
     const raw = JSON.parse(readFileSync(file, "utf8"));
     if (record(raw) && typeof raw.tema === "string" && Array.isArray(raw.quizzes)) {
-      return raw as TopicTelemetry;
+      return raw as unknown as TopicTelemetry;
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

@@ -588,17 +588,18 @@ export function deleteNote(root: string, target: DeleteTarget, now = new Date())
     if (existsSync(dir)) files = [dir];
   } else if (target.kind === "part") {
     if (!safeTopic(target.topic) || RESERVED_DIRS.has(target.topic)) throw new HttpError(400, "invalid topic id");
-    if (!/^p\d+$/.test(String(target.part))) throw new HttpError(400, "invalid part id");
+    const part = target.part;
+    if (typeof part !== "string" || !/^p\d+$/.test(part)) throw new HttpError(400, "invalid part id");
     const topicDir = join(rootReal, target.topic);
     // A malformed plan must abort before anything moves.
     plan = readPlan(topicDir);
     if (!plan) throw new HttpError(404, `topic ${target.topic} has no plan`);
-    removedPart = plan.parts.find((p) => p.id === target.part);
-    label = `${target.topic}-${target.part}`;
+    removedPart = plan.parts.find((p) => p.id === part);
+    label = `${target.topic}-${part}`;
     detail.topic = target.topic;
-    detail.part = target.part;
+    detail.part = part;
     detail.planPart = removedPart ?? null;
-    files = partFiles(topicDir, plan, target.part);
+    files = partFiles(topicDir, plan, part);
   } else {
     throw new HttpError(400, "kind must be topic, part or quick");
   }
@@ -1535,7 +1536,7 @@ ${scripts}
 
     if (kind === "quick-quiz") {
       const entry = payload.entry;
-      if (!entry || typeof entry !== "object") throw new HttpError(400, "entry is required for quick-quiz");
+      if (!isRecord(entry)) throw new HttpError(400, "entry is required for quick-quiz");
       const punto = typeof entry.punto === "string" ? entry.punto : "";
       const ok = Boolean(entry.ok);
       const por_que = typeof entry.por_que === "string" ? entry.por_que : (ok ? "Acierto" : "Fallo");
@@ -1728,7 +1729,7 @@ ${scripts}
   const viewError = (detail: string) => ({
     content: [{ type: "text" as const, text: `learning_view: ${detail}` }],
     details: { error: detail },
-    structuredContent: { error: detail } as Record<string, unknown>,
+    structuredContent: { error: detail },
     isError: true,
   });
 
@@ -1774,7 +1775,7 @@ ${scripts}
       return {
         content: [{ type: "text" as const, text: `Vista HTML: ${url}` }],
         details: { url },
-        structuredContent: { url, base: base(), localBase: localBase() } as Record<string, unknown>,
+        structuredContent: { url, base: base(), localBase: localBase() },
         isError: false,
       };
     },
