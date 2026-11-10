@@ -17,11 +17,19 @@ Vamos a construirlo en este orden:
 | Función de valor | ¿Cuánto puedo conseguir desde aquí? |
 | Modelo | ¿Qué pasaría si hago esto? |
 
-La **política** puede ser una tabla (sucio → aspirar, batería baja → cargar) o una distribución: la probabilidad de elegir cada acción estando en un estado.
+La **política** puede ser una tabla.
+
+> sucio → aspirar · batería baja → cargar
+
+O una distribución: la probabilidad de elegir cada acción estando en un estado.
 
 La **recompensa** ya la conoces: es inmediata y no opina del futuro.
 
-El **valor** mira hacia adelante. Se escribe de dos formas: el valor de un estado, o el valor de un estado **y** una acción concreta.
+El **valor** mira hacia adelante. Se escribe de dos formas.
+
+El valor de un estado.
+
+El valor de un estado **y** una acción concreta.
 
 El **modelo** predice qué ocurrirá si actúas. Tenerlo o no parte el campo en dos familias, y no es obligatorio.
 

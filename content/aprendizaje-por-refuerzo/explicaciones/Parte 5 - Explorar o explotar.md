@@ -10,7 +10,11 @@ Vamos a construirlo en este orden:
 
 ## 1. Dos caminos, ninguno gratis
 
-El robot conoce dos acciones. La primera suele dar +8. La segunda apenas la ha probado.
+El robot conoce dos acciones.
+
+La primera suele dar +8.
+
+La segunda apenas la ha probado.
 
 **Explotar** es usar lo que ya parece mejor: cobras una recompensa conocida y te quedas sin saber si había algo mejor.
 
@@ -24,9 +28,17 @@ El robot conoce dos acciones. La primera suele dar +8. La segunda apenas la ha p
 
 ## 2. El equilibrio más simple
 
-Ningún extremo funciona: explorar siempre es probar cosas malas a propósito, y explotar siempre es quedarse con una estrategia mediocre.
+Ningún extremo funciona.
 
-La regla más usada reparte el tiempo con una sola probabilidad: casi siempre usas la mejor acción conocida y, de vez en cuando, eliges otra al azar.
+Explorar siempre es probar cosas malas a propósito.
+
+Explotar siempre es quedarse con una estrategia mediocre.
+
+La regla más usada reparte el tiempo con una sola probabilidad.
+
+Casi siempre usas la mejor acción conocida.
+
+De vez en cuando, eliges otra al azar.
 
 Ese «de vez en cuando» se ajusta con un número: cuanto más alto, más se explora.
 

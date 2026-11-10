@@ -158,6 +158,11 @@ prosa donde iba una ficha, la corrección se hace aquí, no en la nota.
 
 ## 3. Ritmo
 
+- Frases cortas. Una idea por frase. **Ninguna frase pasa de 18 palabras**: si las pasa, son
+  dos frases. La media de la parte debe quedar por debajo de 12.
+- **Un párrafo, como mucho dos frases.** Tres frases seguidas ya son un muro: se separan en
+  líneas, una idea por línea. El ritmo que se lee es el de una lista de ideas cortas, no el de
+  un ensayo. `explain-check` lo cuenta (`frases`, `parrafos`) y falla si no se cumple.
 - Frases cortas. Una idea por frase. Cuando una frase necesita dos comas explicativas, son
   dos frases.
 - Párrafos de tres a seis líneas. Nunca un muro.
@@ -226,6 +231,10 @@ sitio. Un paso que solo cambia una etiqueta —una caja suelta en un lienzo anch
 veces— no es un recorrido: es una escena estática con prosa numerada `T0`, `T1`, `T2`. Regla
 práctica: si al pasar de paso no se puede señalar **qué cambió en el dibujo**, no va como
 recorrido.
+
+**Una flecha sale y llega a algo.** Sus dos extremos tocan una caja, un icono, un texto o un
+trazo; una punta en el vacío se lee como un error de dibujo. `scene-lint` lo mide
+(`flecha-al-aire`) y falla si un extremo queda suelto.
 
 **El texto no pisa una caja.** Un rótulo que cruza el borde de una caja queda tapado por ella
 y se lee como texto perdido. El gate del kit mide texto sobre texto, pero **no** mide esto: se
