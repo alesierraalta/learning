@@ -63,10 +63,20 @@ const lineasProsa = src
   // Títulos, tablas y etiquetas no son prosa; las citas y las viñetas sí: una ficha
   // con tres frases dentro de `>` es un muro igual que un párrafo suelto.
   .filter((l) => !/^\s*(#{1,6}\s|\||<)/.test(l));
-const parrafos = lineasProsa
-  .join('\n')
-  .split(/\n\s*\n/)
-  .map((b) => b.split('\n').map((l) => l.replace(/^\s*(>\s?|[-*]\s+|\d+[.)]\s+)/, '')).join(' ').trim())
+// Cada viñeta es su propia unidad: una lista es una idea por línea, no un párrafo.
+// Las citas siguen agrupándose, para que tres frases dentro de `>` cuenten como muro.
+const bloques = [];
+let actual = [];
+for (const linea of lineasProsa) {
+  const esVineta = /^\s*(?:[-*]\s+|\d+[.)]\s+)/.test(linea);
+  if (esVineta || linea.trim() === '') {
+    if (actual.length) bloques.push(actual);
+    actual = esVineta ? [linea] : [];
+  } else actual.push(linea);
+}
+if (actual.length) bloques.push(actual);
+const parrafos = bloques
+  .map((b) => b.map((l) => l.replace(/^\s*(>\s?|[-*]\s+|\d+[.)]\s+)/, '')).join(' ').trim())
   .filter(Boolean);
 const frases = parrafos
   .flatMap((b) => b.split(/(?<=[.!?])\s+/))

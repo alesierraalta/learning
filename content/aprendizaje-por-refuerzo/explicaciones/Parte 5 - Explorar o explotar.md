@@ -16,9 +16,15 @@ La primera suele dar +8.
 
 La segunda apenas la ha probado.
 
-**Explotar** es usar lo que ya parece mejor: cobras una recompensa conocida y te quedas sin saber si había algo mejor.
+**Explotar** es usar lo que ya parece mejor: cobras lo conocido.
 
-**Explorar** es probar lo desconocido: puede salir mal (+2) y puede salir extraordinariamente bien (+15), y entonces acabas de descubrir algo que no sabías que existía.
+Te quedas sin saber si había algo mejor.
+
+**Explorar** es probar lo desconocido: puede salir mal (+2).
+
+Puede salir extraordinariamente bien (+15).
+
+Y entonces descubres algo que no sabías que existía.
 
 <lk-scene>
 <script type="application/json">

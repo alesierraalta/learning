@@ -70,3 +70,22 @@ test('rechaza una parte sin mini-quiz', () => {
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALLA mini-quiz/);
 });
+
+// Una lista es una idea por línea: tres viñetas cortas, cada una con su punto,
+// no son un párrafo de tres frases. Una viñeta con tres frases dentro sí lo es.
+test('una lista de viñetas cortas no es un párrafo muro', () => {
+  const f = join(dir, 'lista-corta.md');
+  writeFileSync(f, CUMPLE.replace('1. Qué es el estado\n2. Qué es la acción\n3. Cómo se combinan',
+    '1. Qué es el estado.\n2. Qué es la acción.\n3. Cómo se combinan.'));
+  const r = run(f);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+parrafos/);
+});
+
+test('una viñeta con tres frases es un párrafo muro', () => {
+  const f = join(dir, 'vineta-muro.md');
+  writeFileSync(f, CUMPLE.replace('1. Qué es el estado', '- El estado es lo que hace falta saber. Cambia en cada paso. Sin él no se decide.'));
+  const r = run(f);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA parrafos/);
+});
