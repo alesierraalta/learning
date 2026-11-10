@@ -14,7 +14,11 @@ El agente no quiere maximizar la próxima recompensa: quiere maximizar la suma d
 
 Si recibe +10, luego −1, luego +10, la suma es 19. Ese 19 es el **retorno**.
 
-Pero cobrar +10 ahora no vale lo mismo que cobrarlo dentro de cinco mil pasos. Para eso existe el factor de descuento: cada paso que pasa, la recompensa pesa un poco menos.
+Pero cobrar +10 ahora no vale lo mismo que cobrarlo dentro de cinco mil pasos.
+
+Para eso existe el factor de descuento.
+
+Cada paso que pasa, la recompensa pesa un poco menos.
 
 | Recompensa | Distancia | Peso | Aporta |
 |---:|---:|---:|---:|
@@ -40,6 +44,14 @@ El retorno con descuento de esas tres es 17,2, no 19.
 
 En forma compacta, el retorno suma cada recompensa multiplicada por el factor elevado a su distancia.
 
-Que el factor sea pequeño significa mirar sobre todo el corto plazo. Que esté cerca de 1 alarga el horizonte. Con el factor en cero, el agente solo ve la siguiente recompensa.
+Si el factor es pequeño, se mira sobre todo el corto plazo.
 
-<lk-quiz>{"id":"q-p6-a","pregunta":"Con factor de descuento 0,9, ¿por qué el tercer +10 aporta 8,1 y no 10?","opciones":{"A":"Porque la recompensa se hizo más pequeña","B":"Porque llega dos pasos más tarde y cada paso la descuenta","C":"Por un error de redondeo","E":"No sé"},"correcta":"B","explicacion":"La recompensa no cambia: cambia su peso, porque el futuro se descuenta paso a paso."}</lk-quiz>
+Si está cerca de 1, el horizonte se alarga.
+
+Con el factor en cero, el agente solo ve la siguiente recompensa.
+
+<lk-quick-quiz point="Parte 6 - El retorno y el descuento" tag="conceptual">
+<script type="application/json">
+{"id": "q-p6-a", "pregunta": "Con factor de descuento 0,9, ¿por qué el tercer +10 aporta 8,1 y no 10?", "opciones": {"A": "Porque la recompensa se hizo más pequeña", "B": "Porque llega dos pasos más tarde y cada paso la descuenta", "C": "Por un error de redondeo", "E": "No sé"}, "correcta": "B", "explicacion": "La recompensa no cambia: cambia su peso, porque el futuro se descuenta paso a paso."}
+</script>
+</lk-quick-quiz>

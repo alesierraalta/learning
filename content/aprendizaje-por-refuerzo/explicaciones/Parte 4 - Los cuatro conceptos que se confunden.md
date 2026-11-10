@@ -17,11 +17,19 @@ Vamos a construirlo en este orden:
 | Función de valor | ¿Cuánto puedo conseguir desde aquí? |
 | Modelo | ¿Qué pasaría si hago esto? |
 
-La **política** puede ser una tabla (sucio → aspirar, batería baja → cargar) o una distribución: la probabilidad de elegir cada acción estando en un estado.
+La **política** puede ser una tabla.
+
+> sucio → aspirar · batería baja → cargar
+
+O una distribución: la probabilidad de elegir cada acción estando en un estado.
 
 La **recompensa** ya la conoces: es inmediata y no opina del futuro.
 
-El **valor** mira hacia adelante. Se escribe de dos formas: el valor de un estado, o el valor de un estado **y** una acción concreta.
+El **valor** mira hacia adelante. Se escribe de dos formas.
+
+El valor de un estado.
+
+El valor de un estado **y** una acción concreta.
 
 El **modelo** predice qué ocurrirá si actúas. Tenerlo o no parte el campo en dos familias, y no es obligatorio.
 
@@ -37,4 +45,8 @@ Dos estados pueden parecer idénticos —la misma habitación sucia— y valer m
 </script>
 </lk-scene>
 
-<lk-quiz>{"id":"qq-p1-2","pregunta":"Dos estados idénticos salvo la batería (4 % y 100 %). ¿Qué número los distingue?","opciones":{"A":"La recompensa que se cobró al llegar","B":"El valor, porque mide lo que todavía se puede conseguir desde ahí","E":"No sé"},"correcta":"B","explicacion":"La recompensa ya se cobró y es la misma para los dos. El valor mira hacia adelante: con 4 % quedan pocas acciones posibles."}</lk-quiz>
+<lk-quick-quiz point="Parte 4 - Los cuatro conceptos que se confunden" tag="conceptual">
+<script type="application/json">
+{"id": "qq-p1-2", "pregunta": "Dos estados idénticos salvo la batería (4 % y 100 %). ¿Qué número los distingue?", "opciones": {"A": "La recompensa que se cobró al llegar", "B": "El valor, porque mide lo que todavía se puede conseguir desde ahí", "E": "No sé"}, "correcta": "B", "explicacion": "La recompensa ya se cobró y es la misma para los dos. El valor mira hacia adelante: con 4 % quedan pocas acciones posibles."}
+</script>
+</lk-quick-quiz>

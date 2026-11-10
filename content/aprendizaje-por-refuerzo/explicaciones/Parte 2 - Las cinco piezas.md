@@ -5,14 +5,20 @@
 Vamos a construirlo en este orden:
 
 1. La caja negra: qué entra y qué sale.
-2. Las cinco piezas, con el robot de ejemplo.
-3. La advertencia que sostiene todo el resto.
+2. Las cinco piezas, una por una.
+3. La advertencia que sostiene el resto.
 
 ## 1. La caja negra
 
-Usaremos siempre el mismo ejemplo: un robot aspirador en una casa.
+Siempre el mismo ejemplo: un robot aspirador en una casa.
 
-Antes de definirlo, míralo como una caja negra: entra un estado, sale una acción, vuelve una recompensa.
+Antes de nombrar nada, míralo como una caja.
+
+Entra un estado.
+
+Sale una acción.
+
+Vuelve una recompensa.
 
 <lk-scene>
 <script type="application/json">
@@ -27,28 +33,62 @@ Antes de definirlo, míralo como una caja negra: entra un estado, sale una acci�
 
 ## 2. Las cinco piezas
 
-**Agente** es quien toma decisiones. Aquí, el robot.
+**Agente**
+
+Es quien toma decisiones.
 
 En nuestro ejemplo:
 
 > agente = robot aspirador.
 
-Podría ser también un personaje de videojuego, un sistema de recomendaciones, un algoritmo de trading, un controlador de tráfico o un modelo que aprende a resolver problemas.
+Podría ser también un personaje de videojuego, un recomendador, un controlador de tráfico.
 
-**Entorno** es todo aquello con lo que interactúa el agente.
+---
+
+**Entorno**
+
+Es todo aquello con lo que interactúa el agente.
+
+En nuestro ejemplo:
 
 > entorno = casa + suciedad + batería + obstáculos.
 
-El agente elige sus acciones, pero **no elige las consecuencias**.
+El agente elige sus acciones. No elige las consecuencias.
 
-**Estado** es la información que hace falta para decidir ahora.
+---
+
+**Estado**
+
+Es lo que hace falta saber para decidir ahora.
+
+En nuestro ejemplo:
 
 > estado = sala sucia, cocina limpia, en la sala, batería 70 %.
 
-**Acción** es lo que el agente puede hacer: aspirar, moverse, ir al cargador, esperar.
+---
 
-**Recompensa** es un número que dice qué tan deseable fue una consecuencia: limpiar una habitación +10, un movimiento inútil −1, quedarse sin batería −5.
+**Acción**
 
-> La recompensa valora lo que acaba de pasar, no si la decisión fue buena.
+Es lo que el agente puede hacer.
 
-<lk-quiz>{"id":"qq-p1-1","pregunta":"El robot aspira con el 4 % de batería y recibe +10. ¿Qué acaba de decirnos esa recompensa?","opciones":{"A":"Que aspirar fue la decisión correcta a largo plazo","B":"Que la acción produjo una consecuencia deseable en ese instante, sin decir nada sobre el futuro","E":"No sé"},"correcta":"B","explicacion":"La recompensa es una señal inmediata sobre una consecuencia. Si era la mejor decisión depende de lo que venga después, y eso lo mide la función de valor."}</lk-quiz>
+En nuestro ejemplo:
+
+> acciones = aspirar, moverse, ir al cargador, esperar.
+
+---
+
+**Recompensa**
+
+Es un número que dice qué tan deseable fue una consecuencia.
+
+En nuestro ejemplo:
+
+> limpiar +10 · movimiento inútil −1 · quedarse sin batería −5
+
+> La recompensa valora lo que acaba de pasar. No dice si la decisión fue buena.
+
+<lk-quick-quiz point="Parte 2 - Las cinco piezas" tag="conceptual">
+<script type="application/json">
+{"id": "qq-p1-1", "pregunta": "El robot aspira con el 4 % de batería y recibe +10. ¿Qué acaba de decirnos esa recompensa?", "opciones": {"A": "Que aspirar fue la decisión correcta a largo plazo", "B": "Que la acción produjo una consecuencia deseable en ese instante, sin decir nada sobre el futuro", "E": "No sé"}, "correcta": "B", "explicacion": "La recompensa es una señal inmediata. Si era la mejor decisión depende de lo que venga después, y eso lo mide el valor."}
+</script>
+</lk-quick-quiz>

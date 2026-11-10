@@ -56,7 +56,7 @@ test('scene-lint deja pasar una escena donde todo convive', () => {
     viewBox: '0 0 760 240',
     scene: {
       boxes: [{ x: 40, y: 60, w: 200, h: 100, label: 'AGENTE', sub: 'robot', tone: 'blue', rx: 0, size: 20 }],
-      arrows: [{ x1: 260, y1: 110, x2: 460, y2: 110, tone: 'slate', width: 2 }],
+      arrows: [{ x1: 244, y1: 110, x2: 564, y2: 110, tone: 'slate', width: 2 }],
       icons: [{ kind: 'house', x: 600, y: 120, size: 90 }],
     },
   }) + '\n</script>\n</lk-scene>\n```\n');
@@ -75,4 +75,58 @@ test('scene-lint rechaza una caja que se sale del lienzo', () => {
   if (/playwright no está disponible/.test(r.stderr + r.stdout)) return;
   assert.equal(r.status, 1, 'una caja cortada se ve sin base: la puerta la rechaza');
   assert.match(r.stdout, /fuera-del-lienzo/);
+});
+
+test('explain-check rechaza una frase de más de 18 palabras', () => {
+  const file = join(dir, 'frase-larga.md');
+  writeFileSync(file, [
+    '# Parte', '', '## Ruta', '', '1. Uno', '2. Dos', '3. Tres', '',
+    '## 1. Algo', '',
+    'Esta frase tiene muchísimas palabras porque nunca se decide a terminar y sigue y sigue sin punto hasta el final de la línea entera.', '',
+    '<lk-quiz>{"id":"q"}</lk-quiz>',
+  ].join('\n'));
+  const r = run('explain-check.mjs', [file]);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA frases/);
+});
+
+test('explain-check rechaza un párrafo de tres frases', () => {
+  const file = join(dir, 'muro.md');
+  writeFileSync(file, [
+    '# Parte', '', '## Ruta', '', '1. Uno', '2. Dos', '3. Tres', '',
+    '## 1. Algo', '',
+    'Una. Dos. Tres.', '',
+    '<lk-quiz>{"id":"q"}</lk-quiz>',
+  ].join('\n'));
+  const r = run('explain-check.mjs', [file]);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA parrafos/);
+});
+
+test('scene-lint rechaza una flecha que termina en el vacío', () => {
+  const file = join(dir, 'al-aire.md');
+  writeFileSync(file, '<lk-scene>\n<script type="application/json">\n' + JSON.stringify({
+    viewBox: '0 0 760 260',
+    scene: {
+      boxes: [{ x: 300, y: 80, w: 160, h: 96, label: 'un paso', tone: 'ink', rx: 0, size: 20 }],
+      arrows: [{ x1: 294, y1: 128, x2: 60, y2: 128, tone: 'amber', width: 2 }],
+    },
+  }) + '\n</script>\n</lk-scene>\n');
+  const r = run('scene-lint.mjs', [file]);
+  if (/playwright no está disponible/.test(r.stderr + r.stdout)) return;
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /flecha-al-aire/);
+});
+
+test('explain-check mide también la prosa dentro de una cita', () => {
+  const file = join(dir, 'cita-muro.md');
+  writeFileSync(file, [
+    '# Parte', '', '## Ruta', '', '1. Uno', '2. Dos', '3. Tres', '',
+    '## 1. Algo', '',
+    '> Esta cita esconde un párrafo enorme que no se corta nunca y sigue y sigue acumulando palabras sin pausa hasta aburrir. Y además tiene una segunda frase larguísima. Y una tercera, para rematar el muro.', '',
+    '<lk-quiz>{"id":"q"}</lk-quiz>',
+  ].join('\n'));
+  const r = run('explain-check.mjs', [file]);
+  assert.equal(r.status, 1, 'una cita con tres frases también es un muro');
+  assert.match(r.stdout, /FALLA (frases|parrafos)/);
 });

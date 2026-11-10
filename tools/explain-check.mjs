@@ -47,12 +47,47 @@ add('escena', escenas <= 1, `${escenas} escena(s)`);
 add('recorrido', recorridos <= 1, `${recorridos} recorrido(s)`);
 
 // 5. Mini-quiz: la parte se cierra con preguntas, no con un resumen.
-const quiz = /lk-quiz|mini-quiz|##\s*Mini-quiz/i.test(src);
+const quiz = /lk-(quick-)?quiz|mini-quiz|##\s*Mini-quiz/i.test(src);
 add('mini-quiz', quiz, quiz ? '' : 'no hay mini-quiz');
 
 // 6. ASCII dibujado: la geometría se dibuja, no se escribe.
 const ascii = src.split('\n').filter((l) => /[┌┐└┘├┤┬┴┼│╔╗╚╝║█▓▒░]|─+[►▶▸]/.test(l));
 add('ascii', ascii.length === 0, ascii.length ? `${ascii.length} línea(s) dibujadas con caracteres` : '');
+
+// 6b. El ritmo: frases cortas y un párrafo que no sea un muro. El estándar
+// pide una idea por frase; una frase de 40 palabras no se lee, se atraviesa.
+const lineasProsa = src
+  .replace(/```[\s\S]*?```/g, '\n\n')
+  .replace(/<lk-(scene|walkthrough|quiz|quick-quiz)[\s\S]*?<\/lk-\1>/g, '\n\n')
+  .split('\n')
+  // Títulos, tablas y etiquetas no son prosa; las citas y las viñetas sí: una ficha
+  // con tres frases dentro de `>` es un muro igual que un párrafo suelto.
+  .filter((l) => !/^\s*(#{1,6}\s|\||<)/.test(l));
+// Cada viñeta es su propia unidad: una lista es una idea por línea, no un párrafo.
+// Las citas siguen agrupándose, para que tres frases dentro de `>` cuenten como muro.
+const bloques = [];
+let actual = [];
+for (const linea of lineasProsa) {
+  const esVineta = /^\s*(?:[-*]\s+|\d+[.)]\s+)/.test(linea);
+  if (esVineta || linea.trim() === '') {
+    if (actual.length) bloques.push(actual);
+    actual = esVineta ? [linea] : [];
+  } else actual.push(linea);
+}
+if (actual.length) bloques.push(actual);
+const parrafos = bloques
+  .map((b) => b.map((l) => l.replace(/^\s*(>\s?|[-*]\s+|\d+[.)]\s+)/, '')).join(' ').trim())
+  .filter(Boolean);
+const frases = parrafos
+  .flatMap((b) => b.split(/(?<=[.!?])\s+/))
+  .map((f) => f.trim())
+  .filter((f) => f.length > 1);
+const palabras = (t) => t.split(/\s+/).filter(Boolean).length;
+const largas = frases.filter((f) => palabras(f) > 18);
+const media = frases.length ? Math.round(frases.reduce((a, f) => a + palabras(f), 0) / frases.length) : 0;
+add('frases', largas.length === 0, `${largas.length} frase(s) de más de 18 palabras · media ${media}`);
+const muros = parrafos.filter((b) => (b.match(/[.!?](\s|$)/g) || []).length > 2);
+add('parrafos', muros.length === 0, `${muros.length} párrafo(s) con más de dos frases`);
 
 // 7. Tamaño: la prosa que se lee, sin código, tablas ni figuras.
 const prosa = src
@@ -63,6 +98,25 @@ const prosa = src
   .replace(/<[^>]+>/g, ' ')
   .trim().split(/\s+/).filter(Boolean).length;
 add('tamaño', prosa <= maxWords, `${prosa} palabra(s) de prosa (tope ${maxWords})`);
+
+// 7b. La leyenda: una fórmula que no nombra sus símbolos no se entiende. Cada símbolo
+// que aparece en una fórmula (latino de una letra o griega) se nombra en las líneas
+// siguientes, en la forma `x` es ... o «x → ...».
+const formulas = [...src.matchAll(/<lk-math[^>]*>([\s\S]*?)<\/lk-math>/g)].map((m) => m[1]);
+const simbolos = new Set();
+for (const f of formulas) {
+  // Las macros primero: \\gamma es un símbolo, no una palabra que se descarta.
+  for (const m of f.match(/\\[A-Za-z]+/g) || []) simbolos.add(m);
+  const limpio = f.replace(/\\[A-Za-z]+/g, ' ').replace(/\{[^}]*\}/g, ' ');
+  for (const w of limpio.match(/[A-Za-z]+/g) || []) if (w.length === 1) simbolos.add(w);
+}
+const sinNombrar = [...simbolos].filter((s) => {
+  // Un símbolo está nombrado si aparece entre comillas o seguido de = → : o "es".
+  const nombre = s.replace(/^\\/, '');
+  const patron = new RegExp('(\\x60|«|")\\s*\\\\?' + nombre + '\\s*(\\x60|»|")|\\b' + nombre + '\\s*(=|→|->|:|es\\b)', 'i');
+  return !patron.test(src);
+});
+add('leyenda', sinNombrar.length === 0, formulas.length === 0 ? 'sin fórmulas' : sinNombrar.length ? `símbolo(s) sin nombrar: ${sinNombrar.join(', ')}` : '');
 
 // 8. Las figuras conviven: se delega en scene-lint, que abre un navegador.
 let figuras = { ok: true, detail: 'sin figuras' };
