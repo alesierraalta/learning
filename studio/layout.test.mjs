@@ -11,6 +11,7 @@ import { startStudio } from "./server.ts";
 import { defaultGlobalTelemetry, saveGlobalTelemetry } from "../integrations/pi/telemetry.ts";
 import { readPreferences } from "./preferences.ts";
 import { makeRoot } from "./testdata/root.mjs";
+import { stored } from "./testdata/stored.mjs";
 
 const CANDIDATES = [
   process.env.PLAYWRIGHT_MODULE,
@@ -1781,8 +1782,8 @@ test("the suggestion box asks for a reason before it can be sent, and reads like
   assert.equal(await accept.isEnabled(), true, "one reason is enough to send it");
   await accept.click();
   await page.getByText("Sugerencia guardada").waitFor();
-  const stored = JSON.parse(readFileSync(join(root, "sugerencias.json"), "utf8"));
-  assert.deepEqual(stored.entradas.map((e) => [e.tema, e.parte, e.motivos.length]), [["redes", "p1", 1]]);
+  const saved = JSON.parse(stored(root, "sugerencias"));
+  assert.deepEqual(saved.entradas.map((e) => [e.tema, e.parte, e.motivos.length]), [["redes", "p1", 1]]);
 });
 
 test("the reader offers three modes and starts in the article one (S1, S4)", { skip: browser ? false : "playwright not installed" }, async (t) => {

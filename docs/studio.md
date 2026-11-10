@@ -21,7 +21,7 @@ use separate credentials, data and process isolation for untrusted previews.
 ## Configuración › Preferencias
 
 The header opens the preferences page, where each aspect has a menos, medio or más
-choice. Saving writes `<LEARNING_ROOT>/preferencias.json` in C1 format; the human
+choice. Saving stores the preferences (C1 format) in the learner database (see «Learner data»); the human
 history in `preferencias.md` is not changed. JSON levels take precedence over the
 history when the tutor uses the preferences method. Before a JSON file exists,
 the page starts from the seeded defaults without creating a file.
@@ -212,7 +212,7 @@ their own detail panel needs geometry the client owns.
 
 The studio and the bridge maintain student telemetry to adapt explanations dynamically:
 - In every explanatory point, an embedded quick-quiz evaluates understanding immediately.
-- Results (right/wrong, confidence, and diagnostic 'por qué') are recorded locally per explanation (`<topic>/telemetria.json`) and globally (`telemetria.json` in the root).
+- Results (right/wrong, confidence, and diagnostic 'por qué') are recorded locally per explanation (document `telemetria/<topic>`) and globally (document `telemetria`) in the learner database.
 - `api/telemetry` (GET/POST) serves and persists the student profile: cognitive tendencies (e.g. reinforcing mathematical parts, visual anchors), statistics per category, and tutor adaptation directives.
 
 
@@ -312,10 +312,10 @@ chip or one sentence; the accept button stays disabled until then.
   over the limit — is decided before the first write, so a refused regeneration leaves
   the part exactly where it was.
 
-`<LEARNING_ROOT>/sugerencias.json` holds every entry (`{id, tema, parte, motivos, texto,
+The `sugerencias` document of the learner database holds every entry (`{id, tema, parte, motivos, texto,
 origen: sugerencia|regenerar, timestamp}`, version 1). It is validated on read and
-nothing is repaired behind the learner's back: a file that cannot be parsed reads as
-empty and is renamed to `sugerencias.corrupta-<stamp>.json` before the next write, and an
+nothing is repaired behind the learner's back: a document that cannot be parsed reads as
+empty and is copied to `sugerencias.corrupta-<stamp>.json` before the next write, and an
 entry that no longer matches the shape is copied to `sugerencias.corrupta-<stamp>.json`
 before the store is rewritten without it. An empty, healthy store keeps nothing aside.
 The learner's words are never lost to a bad edit.
@@ -325,13 +325,13 @@ Each chip moves one preference level, deterministically: «Faltan ejemplos» set
 `matematicas` and raises `pasos`. Repeating a suggestion does not stack; it keeps the
 aspect where the learner asked for it. The preferences page shows the result, so
 the change is visible and reversible. Moving a preference is the only part that can
-fail without losing the feedback: if `preferencias.json` cannot be read, the entry is
+fail without losing the feedback: if the stored preferences cannot be read, the entry is
 still stored and the adaptation simply waits, because a file the learner cannot repair
 must not swallow their words.
 
 The loop leans on what is already stored: before writing, the prompts for a part, the
-plan and the map carry a compact context built from `preferencias.json`, the weak
-categories in `telemetria.json` and the last words from `sugerencias.json`. The
+plan and the map carry a compact context built from the stored preferences, the weak
+telemetry categories and the last suggestions. The
 token-gated routes are `GET api/sugerencias?tema=&parte=` (entries, chips and derived
 lines), `POST api/sugerencias` (record), `POST api/regenerar` (record, back up, prompt)
 and `GET api/contexto?tema=` (the lines a writing prompt carries). Malformed input
@@ -456,3 +456,18 @@ never touches the vault.
 ```bash
 node --test studio/*.test.mjs   # real server, fake Pi (studio/testdata/fake-pi.mjs)
 ```
+
+## Learner data
+
+Preferences, suggestions and telemetry live in one SQLite database (built-in
+`node:sqlite`, WAL): `STUDIO_DB` when set, otherwise `<LEARNING_ROOT>/learning.db`. Table
+`documentos(clave, json, actualizado)` keeps each store's JSON document under its key
+(`preferencias`, `sugerencias`, `telemetria`, `telemetria/<topic>`), validated on read
+exactly as the files were. The studio and Pi's bridge share it from separate processes.
+
+On the first open of a database, the JSON files the studio used to write
+(`preferencias.json`, `sugerencias.json`, `telemetria.json`, `<topic>/telemetria.json`) are
+imported once, as they are, in one transaction, and `meta.importado_v1` records it. The
+files are never modified or deleted, and a later open imports nothing even if they changed.
+`deploy/vps/learnings-backup.sh` commits a consistent snapshot, `learning.db.backup`
+(`VACUUM INTO`), and keeps the live database files out of Git.

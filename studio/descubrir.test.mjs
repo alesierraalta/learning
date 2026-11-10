@@ -2,7 +2,8 @@
 // preferences file, and the bridge between them is the only thing tested here.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { writeDoc } from "./testdata/stored.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -126,6 +127,6 @@ test("a file that lost a shipped aspect is damage, not a preference", () => {
   const base = readPreferences(dir);
   const broken = { version: 1, aspectos: base.aspectos.slice(1) };
   assert.throws(() => savePreferences(dir, broken), /invalid preferences/);
-  writeFileSync(join(dir, "preferencias.json"), JSON.stringify(broken));
+  writeDoc(dir, "preferencias", JSON.stringify(broken));
   assert.throws(() => readPreferences(dir), /invalid preferences/);
 });

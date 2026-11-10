@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { resolveContained, safeTopic } from "./paths.ts";
+import { safeTopic } from "./paths.ts";
+import { readDoc, writeDoc } from "./store.ts";
 import { HttpError } from "./errors.ts";
 
 export interface QuizTelemetryEntry {
@@ -145,85 +144,31 @@ export function validateGlobalTelemetry(value: unknown): GlobalTelemetry {
   return value as unknown as GlobalTelemetry;
 }
 
-function globalTelemetryPath(root: string): string {
-  const file = join(root, "telemetria.json");
-  try {
-    lstatSync(file);
-    if (!resolveContained(root, file).ok) throw new HttpError(400, "invalid telemetry path");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  return file;
-}
-
-function topicTelemetryPath(root: string, topic: string): string {
-  if (!safeTopic(topic)) {
-    throw new HttpError(400, `invalid topic name: ${topic}`);
-  }
-  const topicDir = join(root, topic);
-  const check = resolveContained(root, topicDir);
-  if (!check.ok) {
-    if (check.reason.includes("escapes")) {
-      throw new HttpError(400, "invalid topic name: escapes root");
-    }
-    try {
-      const st = lstatSync(topicDir);
-      if (st.isSymbolicLink()) {
-        throw new HttpError(400, "invalid topic name: symlinks not allowed");
-      }
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-    }
-    return join(root, topic, "telemetria.json");
-  }
-  const file = join(check.targetReal, "telemetria.json");
-  try {
-    lstatSync(file);
-    if (!resolveContained(root, file).ok) {
-      throw new HttpError(400, "invalid topic telemetry path");
-    }
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-  }
-  return file;
+/** A topic's telemetry is stored under its folder name, which must be one. */
+function topicKey(topic: string): string {
+  if (!safeTopic(topic)) throw new HttpError(400, `invalid topic name: ${topic}`);
+  return `telemetria/${topic}`;
 }
 
 export function readGlobalTelemetry(root: string): GlobalTelemetry {
-  const file = globalTelemetryPath(root);
-  try {
-    return validateGlobalTelemetry(JSON.parse(readFileSync(file, "utf8")));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return structuredClone(defaultGlobalTelemetry);
-    }
-    throw error;
-  }
+  const text = readDoc(root, "telemetria");
+  return text === undefined ? structuredClone(defaultGlobalTelemetry) : validateGlobalTelemetry(JSON.parse(text));
 }
 
 export function saveGlobalTelemetry(root: string, input: unknown): GlobalTelemetry {
   const data = validateGlobalTelemetry(input);
   data.ultima_actualizacion = new Date().toISOString();
-  const file = globalTelemetryPath(root);
-  const temp = join(root, `.telemetria-${randomBytes(12).toString("hex")}.tmp`);
-  try {
-    writeFileSync(temp, `${JSON.stringify(data, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    renameSync(temp, file);
-  } catch (error) {
-    try { unlinkSync(temp); } catch { /* ignore */ }
-    throw error;
-  }
+  writeDoc(root, "telemetria", `${JSON.stringify(data, null, 2)}\n`);
   return data;
 }
 
 export function readTopicTelemetry(root: string, topic: string): TopicTelemetry {
-  const file = topicTelemetryPath(root, topic);
-  try {
-    const raw = JSON.parse(readFileSync(file, "utf8"));
+  const text = readDoc(root, topicKey(topic));
+  if (text !== undefined) {
+    const raw = JSON.parse(text);
     if (record(raw) && typeof raw.tema === "string" && Array.isArray(raw.quizzes)) {
       return raw as unknown as TopicTelemetry;
     }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   return {
     tema: topic,
@@ -243,17 +188,7 @@ export function readTopicTelemetry(root: string, topic: string): TopicTelemetry 
 
 export function saveTopicTelemetry(root: string, topic: string, data: TopicTelemetry): TopicTelemetry {
   data.ultima_actualizacion = new Date().toISOString();
-  const file = topicTelemetryPath(root, topic);
-  const dir = dirname(file);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const temp = join(dir, `.telemetria-${randomBytes(12).toString("hex")}.tmp`);
-  try {
-    writeFileSync(temp, `${JSON.stringify(data, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    renameSync(temp, file);
-  } catch (error) {
-    try { unlinkSync(temp); } catch { /* ignore */ }
-    throw error;
-  }
+  writeDoc(root, topicKey(topic), `${JSON.stringify(data, null, 2)}\n`);
   return data;
 }
 

@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { HttpError } from "../integrations/pi/bridge.ts";
-import { resolveContained, safeTopic } from "../integrations/pi/paths.ts";
+import { safeTopic } from "../integrations/pi/paths.ts";
+import { readDoc, writeDoc } from "../integrations/pi/store.ts";
 import { readGlobalTelemetry } from "../integrations/pi/telemetry.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 
@@ -60,17 +61,6 @@ const MAX_CONTEXTO = 1400;
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const known = (id: string) => motivos.some((m) => m.id === id);
 
-function filePath(root: string) {
-  const file = join(root, "sugerencias.json");
-  try {
-    lstatSync(file);
-    if (!resolveContained(root, file).ok) throw new HttpError(400, "invalid sugerencias path");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  return file;
-}
-
 function clean(entrada: unknown): Sugerencia | null {
   if (!isRecord(entrada)) return null;
   const { id, tema, parte, motivos: reasons, texto, origen, timestamp } = entrada;
@@ -93,13 +83,8 @@ interface Lectura {
 }
 
 function read(root: string): Lectura {
-  const file = filePath(root);
-  let text: string;
-  try { text = readFileSync(file, "utf8"); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { data: empty(), descartadas: [] };
-    throw error;
-  }
+  const text = readDoc(root, "sugerencias");
+  if (text === undefined) return { data: empty(), descartadas: [] };
   let data: unknown;
   try { data = JSON.parse(text); } catch { return { data: empty(), crudo: text, descartadas: [] }; }
   if (!isRecord(data) || data.version !== 1 || !Array.isArray(data.entradas)) return { data: empty(), crudo: text, descartadas: [] };
@@ -115,27 +100,15 @@ export function readSugerencias(root: string): SugerenciasFile {
   return read(root).data;
 }
 
-function write(file: string, data: SugerenciasFile) {
-  const temp = `${file}.tmp-${randomBytes(6).toString("hex")}`;
-  try {
-    writeFileSync(temp, `${JSON.stringify(data, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    renameSync(temp, file);
-  } catch (error) {
-    try { unlinkSync(temp); } catch { /* no temporary file */ }
-    throw error;
-  }
-}
-
 /**
  * Suggestions are the learner's words, not a cache: whatever the next write cannot keep
  * is put beside it first. An empty store keeps nothing and is left alone.
  */
 function keepAside(root: string, lectura: Lectura) {
-  const file = filePath(root);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const aside = join(root, `sugerencias.corrupta-${stamp}.json`);
   if (lectura.crudo !== undefined) {
-    try { renameSync(file, aside); } catch { /* nothing to keep */ }
+    try { writeFileSync(aside, lectura.crudo, { flag: "wx", mode: 0o600 }); } catch { /* nothing to keep */ }
     return;
   }
   if (lectura.descartadas.length === 0) return;
@@ -268,6 +241,6 @@ export function recordSugerencia(root: string, raw: unknown) {
   data.entradas.push(entrada);
   if (data.entradas.length > MAX_ENTRADAS) data.entradas = data.entradas.slice(-MAX_ENTRADAS);
   data.actualizado = entrada.timestamp;
-  write(filePath(root), data);
+  writeDoc(root, "sugerencias", `${JSON.stringify(data, null, 2)}\n`);
   return { entrada, preferencias, directrices: directrices(data.entradas) };
 }

@@ -14,7 +14,7 @@ feedback; no code path depends on the Obsidian vault. Branch `feat/166-standalon
 
 ## Tasks
 
-- T1 (#166) S1-S3: drop vault paths, require the root, drop `.obsidian` link prefix — route inline
+- [x] T1 (#166) S1-S3: drop vault paths, require the root, drop `.obsidian` link prefix — inline — commit 506171d
 - T2 (#167) S1, S4-S5: SQLite store and one-time import of the VPS JSON files — route inline
 - T3 (#168) S5-S6: feedback page in the studio — route inline
 

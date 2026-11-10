@@ -61,7 +61,7 @@ HTTPS is still required by the browser for microphone access, even with this mod
 
 ## Content backup
 
-The VPS holds the only copy of Learnings. `~/Learnings`
+The VPS holds the only copy of Learnings. The learner data (preferences, suggestions, telemetry) lives in `~/Learnings/learning.db`; each backup run commits a consistent snapshot of it as `learning.db.backup` and ignores the live database files (see docs/studio.md, «Learner data»). To restore, stop the studio and copy the snapshot over `learning.db`. `~/Learnings`
 is a Git repository pushed to the private `alesierraalta/learnings` with a repository-scoped
 deploy key (`~/.ssh/learnings_deploy`, SSH host alias `github-learnings`). Lesson videos
 (`*.mp4`, `*.mov`, `*.webm`) are versioned alongside the notes; Pi's `.pi/` and `.atl/`,
