@@ -1135,8 +1135,8 @@ test("a deck whose word does not fit is refused and the typed text stays", { ski
 
 // After the tutor builds an explanation, its reply ends with the way to the note it wrote.
 // `writes(root)` scripts the turn's writes (see FAKE_PI_WRITES in testdata/fake-pi.mjs).
-async function tutorTurn(t, writes) {
-  const { root, engine, log } = makeRoot();
+async function tutorTurn(t, writes, options = {}) {
+  const { root, engine, log } = makeRoot(options);
   process.env.FAKE_PI_LOG = log;
   process.env.FAKE_PI_WRITES = JSON.stringify(writes(root));
   t.after(() => delete process.env.FAKE_PI_WRITES);
@@ -1171,6 +1171,22 @@ async function offersAndOpens(t, written, hash) {
   await page.waitForFunction((expected) => location.hash === expected, hash, { timeout: 5000 });
   assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "the note is not hidden behind the tutor");
 }
+
+test("the tutor head and the end of the turn offer the diagnosis just written", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await tutorTurn(t, (root) => [
+    { path: join(root, "redes", "quiz.json"), content: "{}" },
+    { path: join(root, "redes", "quiz.md"), content: "# Diagnóstico\n" },
+  ], { status: { status: "waiting", stage: "diagnosis", nextStage: "diagnosis" } });
+  const offer = page.locator(".thread .note-cta");
+  await offer.waitFor({ timeout: 10000 });
+  assert.equal(await offer.count(), 1, "one offer per turn");
+  assert.equal(await offer.getByRole("button", { name: "Ir al diagnóstico" }).count(), 1, "the offer names what it opens");
+  const button = page.locator(".drawer-head").getByRole("button", { name: "Ir al diagnóstico" });
+  await button.waitFor({ timeout: 5000 });
+  assert.equal(await button.getAttribute("title"), "Ir al diagnóstico inicial");
+  await button.click();
+  await page.waitForFunction(() => location.hash === "#/leer/redes/quiz", null, { timeout: 5000 });
+});
 
 test("the chat offers the part the tutor just wrote and opens it", { skip: browser ? false : "playwright not installed" }, (t) =>
   offersAndOpens(t, "redes/explicaciones/Parte 1 - Capas.html", "#/leer/redes/p1"));

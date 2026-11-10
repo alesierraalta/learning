@@ -2198,6 +2198,7 @@
   const noteRoute = (note) => {
     if (note?.quick) return library.quick.some((q) => q.id === note.quick) ? `#/rapido/${encodeURIComponent(note.quick)}` : null;
     const topic = note ? topicById(note.topic) : null;
+    if (note?.diagnosis) return topic ? `#/leer/${note.topic}/quiz` : null;
     const part = topic ? topic.parts[note.index - 1] : null;
     return part ? `#/leer/${note.topic}/${part.id}` : null;
   };
@@ -2207,7 +2208,8 @@
     closeDrawer();
     go(route);
   };
-  const noteButton = (note) => (noteRoute(note) ? btn("Ir a la nota", () => openNote(note), "btn small ghost", "book") : null);
+  const noteLabel = (note) => note?.diagnosis ? "Ir al diagnóstico" : "Ir a la nota";
+  const noteButton = (note) => (noteRoute(note) ? btn(noteLabel(note), () => openNote(note), "btn small ghost", "book") : null);
   // A turn ends with what to do next, right under the explanation: the topic it worked on
   // offers its next step (the learner never has to guess it from the reply), and a turn that
   // wrote a note offers the way to it. The turn may have created the topic, so the library is
@@ -2240,7 +2242,8 @@
   const showNote = (note) => {
     tutor.note = noteRoute(note) ? note : null;
     noteBtn.style.display = tutor.note ? "" : "none";
-    noteBtn.title = !tutor.note ? "" : tutor.note.quick ? "Ir a la nota rápida" : `Ir a la nota: Parte ${tutor.note.index}`;
+    noteBtn.replaceChildren(icon("book"), noteLabel(tutor.note));
+    noteBtn.title = !tutor.note ? "" : tutor.note.quick ? "Ir a la nota rápida" : tutor.note.diagnosis ? "Ir al diagnóstico inicial" : `Ir a la nota: Parte ${tutor.note.index}`;
   };
   on("tool", ({ phase, id, label, ok, note, topic, chat }) => {
     // A row belongs to the chat that produced it; before the list loads there is nothing to compare.
