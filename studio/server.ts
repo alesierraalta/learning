@@ -58,7 +58,9 @@ import {
   type ChatDoc,
 } from "./chats.ts";
 import { parsePiModels } from "./pi-models.ts";
-import { checkDeep, enrolled } from "./gate.ts";
+import { enrolled } from "./gate.ts";
+import { gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
+import { createSettleGate, isGatePrompt } from "./runtime.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, tutorContext, validateSugerencia } from "./sugerencias.ts";
@@ -160,6 +162,15 @@ function toolLabel(name: string, args: unknown): string {
       return name;
   }
 }
+
+/**
+ * The one tutor turn the studio has accepted and not yet decided against the engine. A turn is only
+ * decided against the engine when it names a topic, and a correction is never a learner's turn.
+ */
+type Turn = { topic: string | null; correction: boolean };
+
+/** The learner reads this when the studio refuses a second turn: one turn at a time, studio-wide. */
+const TURN_ACTIVE = "El tutor está trabajando; espera a que termine.";
 
 /** A note the studio can open: a part of a topic, or a quick note. */
 export type Note = { topic: string; index: number } | { quick: string };
@@ -281,10 +292,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   /** The topic the learner picked for deep tutoring; general chat and quick notes never set it. */
   let tema: string | null = null;
   let gateBlocked = false;
-  /** The topic this turn teaches, so a general question is never charged to a deep topic. */
-  let turnTema: string | null = null;
+  /**
+   * The one turn in flight, from the moment the studio accepts it until its settle is decided —
+   * gate corrections included. Holding it is what makes a second turn impossible by construction:
+   * every turn start refuses while it is held, and every exit releases it.
+   */
+  let turn: Turn | null = null;
+  /** The failing-stage rule: one gate for every runtime, its counters reset when the learner talks. */
+  const settleGate = createSettleGate();
   let alive = false;
-  let busy = false;
   let nextId = 0;
   let assistantSeq = 0;
   let assistantId = "";
@@ -292,7 +308,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   // A tool's end event may arrive without its arguments; the row keeps the ones its start carried.
   const toolArgs = new Map<string, unknown>();
   const dialogs = new Map<string, Json>();
-  const state = () => ({ busy, alive });
+  const state = () => ({ busy: turn !== null, alive });
 
   const handle = (record: Json) => {
     const type = record.type;
@@ -303,27 +319,34 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     }
     switch (type) {
       case "agent_start":
-        busy = true;
-        emit("state", state());
         return;
-      case "agent_settled":
-        busy = false;
+      case "agent_settled": {
         toolArgs.clear();
-        emit("state", state());
         // Only the session Pi is in can report its usage, so it is read while it is active.
         if (!agy) void refreshContexto();
-        // Pi runs this same check inside its settle gate; a provider without that hook gets it here.
-        // The topic is taken and cleared first: a later prompt must not decide what this turn taught.
-        {
-          const settled = turnTema;
-          turnTema = null;
-          if (agy && settled) void runGate(settled);
-        }
         emit("library_changed", {});
+        // There is exactly one turn in flight, so the settle always belongs to it. The engine is the
+        // authority on whether it is over; a turn that teaches no topic simply ends.
+        const settled = turn;
+        if (!settled) return;
+        if (!settled.topic) {
+          releaseTurn(settled);
+          return;
+        }
+        void settleTurn(settled);
         return;
+      }
       case "message_start": {
         const message = record.message;
-        if (isRecord(message) && message.role === "user") emit("user", { text: messageText(message) });
+        if (isRecord(message) && message.role === "user") {
+          const text = messageText(message);
+          // The gate's instruction is the studio's prompt, never the learner's own words.
+          if (isGatePrompt(text)) return;
+          if (text) {
+            emit("user", { text });
+            if (agy) agyTurns.push({ role: "user", text });
+          }
+        }
         if (isRecord(message) && message.role === "assistant") assistantId = `a${++assistantSeq}`;
         return;
       }
@@ -388,12 +411,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const [cmd, ...args] = piCommand();
     const proc = spawn(cmd, args, {
       cwd: root,
-      env: { ...process.env, GENTLE_SHELL_INTERACTIVE_HOST: "1" },
+      env: { ...process.env, GENTLE_SHELL_INTERACTIVE_HOST: "1", LEARNING_SETTLE_GATE: "studio" },
       stdio: ["pipe", "pipe", "pipe"],
     });
     child = proc;
     alive = true;
-    busy = false;
     let buffer = Buffer.alloc(0);
     proc.stdout.on("data", (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
@@ -415,11 +437,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     proc.on("exit", () => {
       if (child !== proc) return;
       alive = false;
-      busy = false;
       for (const resolve of waiting.values()) resolve({ success: false, error: "Pi exited" });
       waiting.clear();
       for (const id of dialogs.keys()) emit("dialog_closed", { id });
       dialogs.clear();
+      // A dead runtime cannot finish its turn: releasing it is what keeps nothing latched.
+      releaseTurn();
       emit("state", state());
       emit("error", { message: "El tutor se detuvo." });
     });
@@ -507,7 +530,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * no handle yet starts one and records it, so the next open comes back to it.
    */
   const switchTo = async (chat: Chat) => {
-    if (busy) throw new HttpError(409, "the tutor is busy");
+    if (turn) throw new HttpError(409, TURN_ACTIVE);
     if (agy) {
       // Antigravity names its conversation per turn, so switching is choosing the id.
       agy.open(chat.agyConversation ?? undefined);
@@ -536,7 +559,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   const newConversation = async (input: { nombre: unknown; ambito?: unknown }): Promise<{ doc: ChatDoc; chat: Chat }> => {
-    if (busy) throw new HttpError(409, "the tutor is busy");
+    if (turn) throw new HttpError(409, TURN_ACTIVE);
     const { doc, chat } = createChat(chats, input);
     persist(doc);
     await switchTo(chat);
@@ -570,6 +593,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 
   const startTutor = (config: TutorConfig) => {
     const previous = child;
+    // A restart ends the turn the previous tutor was running, and restores the front of the rule.
+    releaseTurn();
+    settleGate.reset();
     child = undefined;
     previous?.kill();
     for (const resolve of waiting.values()) resolve({ success: false, error: "Tutor restarted" });
@@ -592,7 +618,6 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       });
       ready = Promise.resolve();
       alive = true;
-      busy = false;
       emit("state", state());
     }
   };
@@ -605,28 +630,145 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     return value;
   };
 
+  /**
+   * The topic a delivery from the page teaches. Every submission the hosted view sends opens with
+   * `[Vista HTML · <topic> · …]` and the bridge already validated that topic, so the studio reads it
+   * from there. A delivery that names no enrolled topic is the general chat, and it is not gated.
+   */
+  const bridgeTopic = (text: string): string | null => {
+    const named = /^\[Vista HTML · ([^·\]\n]+) ·/.exec(text)?.[1]?.trim() ?? "";
+    return named && listTopics(root).some((topic) => topic.id === named) && enrolled(root, named) ? named : null;
+  };
+
+  /**
+   * The engine's own report on a topic: the call the library makes, so the gate and the library can
+   * never describe the same topic differently, with the error handling that call already has.
+   */
   const runGate = async (topic: string) => {
-    const verdict = await checkDeep({ root, topic, enginePath, rulesPath });
+    const report = await engineStatus(join(root, topic));
+    const verdict = gateVerdict(report as GateReport);
     // A gate for a topic the learner already left says nothing about the one they are on.
     if (tema === topic) {
       gateBlocked = !verdict.passing;
       emit("gate", { tema: topic, ...verdict });
     }
-    return verdict;
+    return { report, verdict };
   };
 
-  /** A prompt while Pi works is queued until it finishes. */
-  const prompt = async (text: string) => {
+  /** One turn at a time: a turn start while another is held is refused, in the learner's language. */
+  const requireNoTurn = () => {
+    if (turn) throw new HttpError(409, TURN_ACTIVE);
+  };
+
+  /** Holds the one turn and tells the page the tutor is working. */
+  const holdTurn = (started: Turn) => {
+    turn = started;
+    emit("state", state());
+  };
+
+  /**
+   * Every exit of a turn goes through here: settled and decided, aborted, restarted, a dead runtime
+   * or an engine call that could not answer. Nothing may leave a turn held.
+   *
+   * A release that resumes after an `await` names the turn it was called for (`owner`), so a settle
+   * that finishes late can never release the turn the learner started after it: an abort or a
+   * restart may have released that turn and a new one may be in flight. The studio's own immediate
+   * decisions (abort, restart, a dead runtime, a turn that teaches no topic) release the live turn.
+   */
+  const releaseTurn = (owner?: Turn) => {
+    if (!turn) return;
+    if (owner !== undefined && turn !== owner) return;
+    turn = null;
+    emit("state", state());
+  };
+
+  /** One prompt to the runtime. A refusal is the studio's log, never the learner's words. */
+  const deliver = async (text: string, started: Turn) => {
+    try {
+      if (agy) {
+        agy.prompt(text);
+      } else {
+        // One turn at a time: the studio never queues a follow-up behind a running turn.
+        const reply = await call({ type: "prompt", message: text });
+        if (reply.success === false) throw new HttpError(409, String(reply.error ?? "el tutor rechazó el turno"));
+      }
+    } catch (error) {
+      const cause = error instanceof HttpError ? `${error.status} ${error.message}` : (error as Error).message;
+      process.stderr.write(`estudio: el turno de ${started.topic ?? "chat general"} no llegó al tutor · ${cause}\n`);
+      // A studio refusal the route already explains (disabled or stopped tutor) keeps its status;
+      // anything the runtime said in its own words is replaced by the studio's.
+      if (error instanceof HttpError && error.status !== 409) throw error;
+      throw new HttpError(409, "El tutor no pudo empezar el turno; vuelve a pedírselo.");
+    }
+  };
+
+  /** What the learner is told when a correction could not be sent; the cause stays in the log. */
+  const correctionRefused = (topic: string) => {
+    emit("error", { message: `El tutor no pudo retomar «${topic}»: el motor sigue sin darlo por cerrado. Vuelve a pedírselo.` });
+  };
+
+  /**
+   * The only way a tutor turn starts, whatever path asks for it: the composer, a submission from the
+   * page, a regeneration. Every one names the topic it teaches, or says in code why it teaches none.
+   * The turn is held until its settle is decided; only an accepted learner turn restores the budget.
+   */
+  const startTurn = async (text: string, spec: { topic: string | null; correction?: boolean }) => {
+    requireNoTurn();
     // Never route a turn before the studio knows which conversation it belongs to.
     await ready;
-    if (agy) {
-      // Antigravity refuses a second turn while it works: the transcript grows only after that.
-      agy.prompt(text);
-      agyTurns.push({ role: "user", text });
-      return;
+    // `ready` can take a moment, and the studio must not hold two turns because of it.
+    requireNoTurn();
+    const started: Turn = { topic: spec.topic, correction: spec.correction === true };
+    holdTurn(started);
+    try {
+      await deliver(text, started);
+    } catch (error) {
+      releaseTurn(started);
+      throw error;
     }
-    const reply = await call(busy ? { type: "prompt", message: text, streamingBehavior: "followUp" } : { type: "prompt", message: text });
-    if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi rejected the prompt"));
+    if (!started.correction) settleGate.reset();
+    // The topic the tutor is teaching is the topic the page is on, whatever path started the turn.
+    if (started.topic) {
+      tema = started.topic;
+      gateBlocked = false;
+    }
+  };
+
+  /**
+   * What a settled turn still owes the engine, for every runtime. The report decides: a cleared
+   * turn ends, a failing stage comes back as one more prompt of the same turn carrying the engine's
+   * own reasons, and a spent budget tells the learner instead of stopping silently. Every path out
+   * releases the turn; only a correction that was sent keeps it.
+   */
+  const settleTurn = async (settled: Turn) => {
+    const topic = settled.topic;
+    let corrected = false;
+    try {
+      if (!topic) return;
+      const { report } = await runGate(topic);
+      // Aborted or restarted while the engine answered: this turn is no longer the studio's.
+      if (turn !== settled) return;
+      const decision = settleGate.decide(report);
+      if (decision.action === "ask") {
+        // The correction is the same turn, one more prompt: it is not a new turn start.
+        try {
+          await deliver(decision.text, settled);
+          corrected = true;
+        } catch {
+          correctionRefused(topic);
+        }
+      } else if (decision.action === "stop") {
+        emit("error", { message: decision.text });
+      } else if (decision.action === "unreadable") {
+        emit("notice", { level: "warning", message: `El motor no pudo revisar «${topic}»: el turno termina sin comprobarlo.` });
+      }
+    } catch (error) {
+      correctionRefused(topic ?? "el tema");
+      process.stderr.write(`estudio: el motor no pudo decidir el turno · ${(error as Error).message}\n`);
+    } finally {
+      // Only the turn this settle was called for: a late answer may belong to a turn already gone.
+      if (!corrected) releaseTurn(settled);
+    }
   };
 
   // ---- hosted study-view bridge -------------------------------------------
@@ -641,7 +783,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       tools.set(tool.name, tool);
     },
     sendUserMessage(text: string) {
-      return prompt(text);
+      // The page's own submissions are deep turns when they belong to an enrolled topic.
+      return startTurn(text, { topic: bridgeTopic(text) });
     },
   };
   const view = async (topic?: string, part?: string) => {
@@ -874,6 +1017,8 @@ ${scripts}
       case "api/regenerar": {
         if (options.agentDisabled) throw new HttpError(503, "the tutor is disabled");
         if (!isRecord(body)) throw new HttpError(400, "invalid regeneration");
+        // A regeneration starts a turn: it is refused before anything is written or moved aside.
+        requireNoTurn();
         const tema = typeof body.tema === "string" ? body.tema : "";
         const parte = typeof body.parte === "string" ? body.parte : "";
         if (!/^[\w-]+$/.test(tema) || !/^p\d+$/.test(parte)) throw new HttpError(400, "invalid regeneration target");
@@ -885,7 +1030,8 @@ ${scripts}
         if (text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "the regeneration prompt is too long");
         const saved = recordSugerencia(root, { ...input, origen: "regenerar" });
         const backup = backupPartForRegeneration(root, { topic: tema, part: parte }, new Date(), planned.trash || undefined);
-        await prompt(text);
+        // A part lives in a deep topic: a regeneration the engine does not clear is not an end.
+        await startTurn(text, { topic: enrolled(root, tema) ? tema : null });
         return sendJson(res, 200, { ok: true, prompt: text, trash: backup.trash, entrada: saved.entrada });
       }
       case "api/telemetry": {
@@ -896,13 +1042,13 @@ ${scripts}
         return sendJson(res, 200, { ok: true, global: saveGlobalTelemetry(root, body) });
       }
       case "api/tutor": {
-        if (busy) throw new HttpError(409, "the tutor is busy");
+        if (turn) throw new HttpError(409, TURN_ACTIVE);
         const config = saveTutor(root, body);
         startTutor(config);
         return sendJson(res, 200, config);
       }
       case "api/tema": {
-        if (busy) throw new HttpError(409, "the tutor is busy");
+        if (turn) throw new HttpError(409, TURN_ACTIVE);
         tema = requireTopic(body.tema);
         gateBlocked = false;
         return sendJson(res, 200, { tema });
@@ -912,20 +1058,20 @@ ${scripts}
         if (typeof text !== "string" || !text.trim() || text.length > MAX_PROMPT_CHARS) {
           throw new HttpError(400, `text must be non-empty, at most ${MAX_PROMPT_CHARS} characters`);
         }
-        // Nothing here moves the studio's state before the turn is accepted: a refused prompt
-        // must neither clear the gate of the turn in flight nor repoint it at another topic.
+        // One turn at a time, studio-wide. This early check only saves the engine call below;
+        // `startTurn` refuses the turn itself, so no path can slip in through the gate window.
+        requireNoTurn();
+        // A prompt with no tema is the general chat or a quick note: the engine tracks no topic
+        // there, so there is nothing to gate. Nothing else in this route moves the studio's state
+        // before the turn is accepted: a refused prompt must neither clear the gate of the turn in
+        // flight nor repoint it at another topic.
         const deep = body.tema === undefined ? null : requireTopic(body.tema);
         if (deep !== null && deep === tema && gateBlocked) {
           // A blocked topic is re-asked before it is refused, so passing releases it again.
-          const verdict = await runGate(deep);
-          if (!verdict.passing) throw new HttpError(409, `the engine did not accept the last deep turn on ${deep}`);
+          const { verdict } = await runGate(deep);
+          if (!verdict.passing) throw new HttpError(409, `El motor no dio por cerrado el último turno de «${deep}»; vuelve a pedírselo.`);
         }
-        await prompt(text.trim());
-        if (deep !== null) {
-          tema = deep;
-          gateBlocked = false;
-        }
-        turnTema = deep;
+        await startTurn(text.trim(), { topic: deep });
         break;
       }
       case "dialog": {
@@ -942,6 +1088,9 @@ ${scripts}
         break;
       }
       case "abort":
+        // A turn the learner stopped is not the engine's business, and not a correction either:
+        // releasing it here is what makes the abort final, whatever the runtime does afterwards.
+        releaseTurn();
         if (agy) agy.abort();
         else await call({ type: "abort" }, 60000);
         break;
@@ -1090,7 +1239,8 @@ ${scripts}
       const messages = raw
         .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
         .map((m) => ({ role: m.role, text: messageText(m) }))
-        .filter((m) => m.text);
+        // The gate's instruction is the studio's own prompt: the thread keeps the learner's words.
+        .filter((m) => m.text && !(m.role === "user" && isGatePrompt(m.text)));
       return { messages, note: noteFromMessages(raw, root) };
     } catch {
       return { messages: [], note: null };
@@ -1287,7 +1437,17 @@ ${scripts}
   port = (server.address() as { port: number }).port;
 
   // The reader's token follows the studio's: a configured studio token keeps open pages working across restarts.
-  registerBridge(fakePi as never, { root, tokenSeed: token, transcriber: options.transcriberUrl === undefined ? undefined : { url: options.transcriberUrl, token: options.transcriberToken! }, port: options.bridgePort, publicOrigin: options.bridgePublicOrigin, publicEmbedder: options.publicOrigin, frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] });
+  registerBridge(fakePi as never, {
+    root,
+    // One turn at a time: a submission from the page is refused before it writes anything.
+    refuseTurn: () => (turn ? TURN_ACTIVE : null),
+    tokenSeed: token,
+    transcriber: options.transcriberUrl === undefined ? undefined : { url: options.transcriberUrl, token: options.transcriberToken! },
+    port: options.bridgePort,
+    publicOrigin: options.bridgePublicOrigin,
+    publicEmbedder: options.publicOrigin,
+    frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
+  });
   try {
     bridgeOrigin = new URL(String((await view()).base)).origin;
   } catch {

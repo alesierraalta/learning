@@ -1064,6 +1064,11 @@ export interface BridgeOptions {
    * working; the token is a keyed hash, never the secret itself. Random per start when absent.
    */
   tokenSeed?: string;
+  /**
+   * Why a new tutor turn cannot start right now, or null when it can. A submission is a turn, so it
+   * is refused with this message before anything is written for it.
+   */
+  refuseTurn?: () => string | null;
 }
 
 export function validatePublicOrigin(option: string, value: string | undefined): URL | undefined {
@@ -1415,15 +1420,24 @@ ${scripts}
       req.on("error", reject);
     });
 
+  /** A submission starts a tutor turn: while one is active it is refused before any write. */
+  const requireTurn = () => {
+    const refused = options.refuseTurn?.();
+    if (refused) throw new HttpError(409, refused);
+  };
+
   const deliver = async (text: string) => {
     try {
       await pi.sendUserMessage(text, { deliverAs: "followUp" });
     } catch (err) {
+      // The studio's own refusal is the answer: its message reaches the page as it was written.
+      if (err instanceof HttpError) throw err;
       throw new HttpError(502, `could not send to the chat: ${(err as Error).message}`);
     }
   };
 
   const codeRequest = async (res: ServerResponse, payload: Record<string, unknown>, submit: boolean) => {
+    if (submit) requireTurn();
     const dir = topicDir(payload.topic);
     const file = exerciseFile(dir, payload.exercise);
     const runners = loadRunners(options.runnersFile);
@@ -1487,6 +1501,8 @@ ${scripts}
     const unknownKey = Object.keys(payload).find((key) => !ALLOWED_KEYS[kind].has(key));
     if (unknownKey) throw new HttpError(400, `unknown field: ${unknownKey}`);
     if (kind === "code") return codeRequest(res, payload, true);
+    // One turn at a time in the studio: refusing here keeps the answers' file untouched.
+    requireTurn();
     const dir = topicDir(payload.topic);
     const topic = payload.topic as string;
     const plan = readPlan(dir);

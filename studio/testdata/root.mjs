@@ -8,8 +8,10 @@ import { join } from "node:path";
 process.env.XDG_STATE_HOME = realpathSync(mkdtempSync(join(tmpdir(), "studio-state-")));
 
 /**
- * @param {{status?: Record<string, unknown>}} [options] `status` is what the fake engine
- *   answers, so a test can put the topic in the stage it studies.
+ * @param {{status?: Record<string, unknown>, statuses?: Record<string, unknown>[], delayMs?: number}} [options]
+ *   `status` is what the fake engine answers, so a test can put the topic in the stage it studies;
+ *   `statuses` answers a different report per call, so a test can fail a stage and then clear it;
+ *   `delayMs` makes every answer slow, so a test can act while the studio waits for the engine.
  */
 export function makeRoot(options = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "studio-")));
@@ -87,8 +89,25 @@ export function makeRoot(options = {}) {
   mkdirSync(join(root, "rapidos"));
   writeFileSync(join(root, "rapidos", "hash.md"), "---\ntipo: rapido\n---\n# Qué es un hash\n");
   const engine = join(root, "fake-engine.sh");
-  const status = JSON.stringify(options.status ?? { status: "waiting", stage: "diagnosis", nextStage: "diagnosis" }).replace(/'/g, `'\\''`);
-  writeFileSync(engine, `#!/bin/sh\necho '${status}'\n`);
+  const asEcho = (report) => JSON.stringify(report ?? { status: "waiting", stage: "diagnosis", nextStage: "diagnosis" }).replace(/'/g, `'\\''`);
+  const slow = options.delayMs ? `sleep ${(options.delayMs / 1000).toFixed(2)}\n` : "";
+  const script = options.statuses
+    ? [
+        "#!/bin/sh",
+        `calls=${JSON.stringify(join(root, ".engine-calls"))}`,
+        'n=$(cat "$calls" 2>/dev/null || echo 0)',
+        "n=$((n+1))",
+        'echo $n > "$calls"',
+        // The call is counted before it answers, so a test can act while the studio waits on it.
+        slow,
+        "case $n in",
+        ...options.statuses.map((report, index) => `  ${index + 1}) echo '${asEcho(report)}' ;;`),
+        // A sequence that runs out keeps answering its last report: the engine is the authority.
+        `  *) echo '${asEcho(options.statuses.at(-1))}' ;;`,
+        "esac",
+      ].join("\n") + "\n"
+    : `#!/bin/sh\n${slow}echo '${asEcho(options.status)}'\n`;
+  writeFileSync(engine, script);
   chmodSync(engine, 0o755);
   return { root, engine, log: join(root, "pi.log") };
 }

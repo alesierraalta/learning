@@ -331,12 +331,39 @@ test("the tutor teaches the topic its page is on, and the home chat stays genera
   await page.getByLabel("Mensaje para el tutor").press("Enter");
   await sentPrompts(log);
   assert.equal(await selected(), null, "a general question never claims a deep topic");
+  // One turn at a time: the tutor's question has to be answered before another message is sent.
+  await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).click();
+  await page.waitForFunction(() => /Listo/.test(document.querySelector(".drawer-head h2")?.textContent ?? ""), null, { timeout: 10000 });
   await topicPage(page, studio, 1280);
   await page.locator(".tutor-pill").click();
   await page.getByLabel("Mensaje para el tutor").fill("Explícame las capas");
   await page.getByLabel("Mensaje para el tutor").press("Enter");
   for (let i = 0; i < 50 && (await selected()) !== "redes"; i++) await page.waitForTimeout(100);
   assert.equal(await selected(), "redes", "the topic page binds the tutor to that topic");
+});
+
+test("a refused message gives the learner back exactly what they typed", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  const box = page.getByLabel("Mensaje para el tutor");
+  await box.fill("primera pregunta");
+  await box.press("Enter");
+  await sentPrompts(log);
+  // The tutor is still working (its question is unanswered): this one is refused, not queued.
+  const typed = "segunda pregunta: ¿capas y TCP?";
+  await box.fill(typed);
+  await box.press("Enter");
+  const refusal = page.locator(".thread .notice.error").last();
+  await refusal.waitFor({ timeout: 5000 });
+  assert.match(await refusal.innerText(), /El tutor está trabajando/);
+  assert.equal(await box.inputValue(), typed, "the refused message is still the learner's to send");
 });
 
 test("topic learning route follows the editorial layout on desktop and phone", { skip: browser ? false : "playwright not installed" }, async (t) => {

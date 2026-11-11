@@ -2062,6 +2062,7 @@
       return typeof data.texto === "string" && data.texto ? `${text}\n\n${data.texto}` : text;
     } catch { return text; }
   };
+  /** Sends one message to the tutor. Returns whether the studio accepted the turn. */
   async function say(text, tema, { deep = false } = {}) {
     openDrawer();
     try {
@@ -2069,8 +2070,10 @@
       // Deep tutoring names the topic so the engine checks that topic, never a guess.
       if (deep && tema) body.tema = tema;
       await post("prompt", body);
+      return true;
     } catch (error) {
       append(h("div", { class: "notice error" }, `No se pudo enviar: ${error.message}`));
+      return false;
     }
   }
   /** The topic being taught right now: only its page binds the tutor, the rest of the app chats. */
@@ -2085,10 +2088,14 @@
   const sendComposer = () => {
     const text = composerText.value.trim();
     if (!text) return;
-    composerText.value = "";
-    grow();
     const tema = deepTopic();
-    say(text, tema || undefined, { deep: Boolean(tema) });
+    // The typed text belongs to the learner until the studio accepts the turn: it is cleared only
+    // then, so a refused or failed send leaves it there to send again.
+    say(text, tema || undefined, { deep: Boolean(tema) }).then((sent) => {
+      if (!sent || composerText.value.trim() !== text) return;
+      composerText.value = "";
+      grow();
+    });
   };
   composerText.addEventListener("input", grow);
   composerText.addEventListener("keydown", (event) => {
