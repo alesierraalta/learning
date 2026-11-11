@@ -6,6 +6,12 @@
  */
 export const PASS_STATUSES = new Set(["accepted", "completed", "waiting", "skipped"]);
 
+/**
+ * Corrections a failing stage gets before the tutor stops and the learner is told. The Pi adapter
+ * and the studio's gate spend the same budget: it bounds the rule, so it lives with the rule.
+ */
+export const MAX_CORRECTIONS = 2;
+
 /** The shape the engine prints with `--json`; only what the gate reads. */
 export interface GateReport {
   status?: string;

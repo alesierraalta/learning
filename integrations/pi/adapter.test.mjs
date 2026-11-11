@@ -870,6 +870,29 @@ test("settle makes the tutor write the remedial part a failed part owes", async 
   assert.notEqual((await settle(host))?.continue, true, "bounded");
 });
 
+// S3: inside the studio the adapter surrenders only a failing stage; every stage push stays its own
+// until the page owns them, so a Pi tutor inside the studio still asks the method question.
+test("inside the studio a passing stage is still pushed while a failing one is left to the studio", async () => {
+  const env = tempEnv();
+  let report = { status: "accepted", stage: "method", checks: [passCheck], nextStage: "method" };
+  const { host, engine } = install(env, async () => ({ code: 0, stdout: JSON.stringify(report), stderr: "" }), { settleGate: "studio" });
+  await enroll(host);
+
+  const method = await settle(host);
+  assert.equal(method?.continue, true, "the method question is still the tutor's to ask inside the studio");
+  assert.match(method.entries[0].content, /pareto/i);
+  assert.match(method.entries[0].content, /preferencias/i);
+  assert.equal(engine.calls.length, 1, "the pushes cost one engine call per settle, and that report is used");
+
+  // The stage keeps its own bounded push budget, exactly as a standalone session.
+  assert.equal((await settle(host))?.continue, true, "the same stage is pushed until its budget is spent");
+  assert.notEqual((await settle(host))?.continue, true, "and no further: bounded inside the studio too");
+
+  // A failing stage is the studio's: the adapter ends the turn instead of correcting it here.
+  report = { status: "blocked", stage: "explanation", checks: [failCheck], nextStage: "explanation" };
+  assert.equal(await settle(host), undefined, "no re-prompt for a failing stage: the studio gate owns corrections");
+});
+
 test("settle does not plan on its own for a run without a chosen method", async () => {
   const env = tempEnv();
   const { host } = install(env, async () => ({
