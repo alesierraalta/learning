@@ -127,7 +127,10 @@
       "minRutaLines": 3,
       "maxRutaLines": 4,
       "maxScenes": 1,
-      "maxWalkthroughs": 1
+      "maxWalkthroughs": 1,
+      "minScenes": 1,
+      "maxSentencesPerParagraph": 2,
+      "formulaElement": "lk-math"
     },
     "pareto": {
       "maxParts": 4,

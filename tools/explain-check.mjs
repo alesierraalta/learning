@@ -45,7 +45,10 @@ const secciones = [...src.matchAll(/^##\s+(.+)$/gm)]
   .filter((t) => !/^Ruta$/i.test(t) && !/mini-quiz/i.test(t));
 add('secciones', secciones.length <= 2, `${secciones.length} sección(es) de contenido`);
 
-// 4. Una escena y como mucho un recorrido.
+// 4. Una escena y como mucho un recorrido. El motor (`explanation-standard`,
+// `minScenes`) exige además que haya una escena y que su payload dibuje: eso
+// necesita leer el JSON, y el rechazo del motor nombra el arreglo («dibuja el
+// ejemplo con <lk-scene>»). Aquí se cuenta la presencia y el tope.
 const escenas = (src.match(/<lk-scene[\s>]/g) || []).length;
 const recorridos = (src.match(/<lk-walkthrough[\s>]/g) || []).length;
 add('escena', escenas <= 1, `${escenas} escena(s)`);
@@ -92,7 +95,11 @@ const largas = frases.filter((f) => palabras(f) > 18);
 const media = frases.length ? Math.round(frases.reduce((a, f) => a + palabras(f), 0) / frases.length) : 0;
 add('frases', largas.length === 0, `${largas.length} frase(s) de más de 18 palabras · media ${media}`);
 const muros = parrafos.filter((b) => (b.match(/[.!?](\s|$)/g) || []).length > 2);
-add('parrafos', muros.length === 0, `${muros.length} párrafo(s) con más de dos frases`);
+// El rechazo cita el primer muro: sin sus primeras palabras el tutor no sabe cuál
+// de los párrafos partir. El motor cuenta igual (`wallParagraphs` en
+// `internal/engine/standard.go`) y un test cruza las dos cuentas.
+const abre = (b) => b.split(/\s+/).slice(0, 8).join(' ');
+add('parrafos', muros.length === 0, `${muros.length} párrafo(s) con más de dos frases${muros.length ? ` · el primero abre «${abre(muros[0])}»` : ''}`);
 
 // 7. Tamaño: la prosa que se lee, sin código, tablas ni figuras.
 const prosa = src
@@ -108,8 +115,16 @@ add('tamaño', prosa <= maxWords, `${prosa} palabra(s) de prosa (tope ${maxWords
 // que aparece en una fórmula (latino de una letra o griega) se nombra en las líneas
 // siguientes, en la forma `x` es ... o «x → ...».
 const formulas = [...src.matchAll(/<lk-math[^>]*>([\s\S]*?)<\/lk-math>/g)].map((m) => m[1]);
+// La fórmula también puede venir en LaTeX plano, `$$…$$` o `$…$`: se lee igual, y
+// cuando aparece así el arreglo es el elemento del kit, `<lk-math>`. Un `$…$` con
+// espacios y sin operadores es prosa con precios, no una fórmula.
+const planas = [...src.matchAll(/\$\$([\s\S]+?)\$\$/g)].map((m) => m[1]).concat(
+  [...src.replace(/\$\$[\s\S]+?\$\$/g, ' ').matchAll(/\$([^$\n]+?)\$/g)]
+    .map((m) => m[1])
+    .filter((t) => /[\\^_=]/.test(t) || !/\s/.test(t)),
+);
 const simbolos = new Set();
-for (const f of formulas) {
+for (const f of formulas.concat(planas)) {
   // Las macros primero: \\gamma es un símbolo, no una palabra que se descarta.
   for (const m of f.match(/\\[A-Za-z]+/g) || []) simbolos.add(m);
   const limpio = f.replace(/\\[A-Za-z]+/g, ' ').replace(/\{[^}]*\}/g, ' ');
@@ -121,7 +136,8 @@ const sinNombrar = [...simbolos].filter((s) => {
   const patron = new RegExp('(\\x60|«|")\\s*\\\\?' + nombre + '\\s*(\\x60|»|")|\\b' + nombre + '\\s*(=|→|->|:|es\\b)', 'i');
   return !patron.test(src);
 });
-add('leyenda', sinNombrar.length === 0, formulas.length === 0 ? 'sin fórmulas' : sinNombrar.length ? `símbolo(s) sin nombrar: ${sinNombrar.join(', ')}` : '');
+const sinFormula = formulas.length === 0 && planas.length === 0;
+add('leyenda', sinNombrar.length === 0, sinFormula ? 'sin fórmulas' : sinNombrar.length ? `símbolo(s) sin nombrar: ${sinNombrar.join(', ')}${planas.length ? ' · escribe la fórmula con <lk-math> para que el kit la dibuje' : ''}` : '');
 
 // 8. Las figuras conviven: se delega en scene-lint, que abre un navegador.
 let figuras = { ok: true, detail: 'sin figuras' };
