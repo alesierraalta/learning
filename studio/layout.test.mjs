@@ -1240,7 +1240,7 @@ async function tutorTurn(t, writes, options = {}) {
   // The turn is over once the tutor is idle again and the library it changed is loaded.
   await page.waitForFunction(() => /Listo/.test(document.querySelector(".drawer-head h2")?.textContent ?? ""), null, { timeout: 10000 });
   await page.waitForLoadState("networkidle");
-  return { root, page, studio };
+  return { root, page, studio, log };
 }
 
 async function offersAndOpens(t, written, hash) {
@@ -1335,6 +1335,179 @@ test("a turn that touched no topic offers no next step", { skip: browser ? false
   const { page } = await tutorTurn(t, (root) => [{ path: join(root, "rapidos", "hash.md") }]);
   await page.locator(".thread .note-cta").waitFor({ timeout: 10000 });
   assert.equal(await page.locator(".thread .next-cta").count(), 0);
+});
+
+// ---------- S5 (#187): the turn ends with the step the engine calls for ----------
+// The button is the engine's report on the topic — the library re-reads it at the end of the
+// turn — never the file the turn happened to write. The fake engine answers the state each
+// scenario really produces, so these tests pin the mapping and the button the learner presses.
+
+/** The route of a topic with a part after the one that failed: the passed quiz's next part. */
+const THREE_PARTS = [
+  { id: "p1", title: "Capas", slug: "Capas", subtema: "1.1" },
+  { id: "p2", title: "TCP", slug: "TCP", subtema: "1.2.1" },
+  { id: "p3", title: "Flujo", slug: "Flujo", subtema: "1.2.2" },
+];
+
+// The diagnosis is answered, the method chosen and Parte 1 written and advanced: the engine
+// waits for its mini-quiz, which the learner answers on the part's own page.
+test("the turn that ends with Parte 1 written offers «Ir a Parte 1»", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await tutorTurn(t, (root) => [{ path: join(root, "redes", "explicaciones", "Parte 1 - Capas.md") }], {
+    status: { status: "waiting", stage: "quiz", nextStage: "quiz", part: "p1" },
+  });
+  const next = page.locator(".thread .next-cta");
+  await next.waitFor({ timeout: 10000 });
+  assert.equal(await next.count(), 1, "one next step per turn");
+  const button = next.getByRole("button", { name: "Ir a Parte 1" });
+  assert.equal(await button.count(), 1, "the button names the part the engine points at");
+  await button.click();
+  await page.waitForFunction(() => location.hash === "#/leer/redes/p1", null, { timeout: 5000 });
+});
+
+// A reload used to lose the offer: the topic page keeps the same step, so it is never gone.
+test("the topic page keeps the same next step after a reload", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await tutorTurn(t, (root) => [{ path: join(root, "redes", "explicaciones", "Parte 1 - Capas.md") }], {
+    status: { status: "waiting", stage: "quiz", nextStage: "quiz", part: "p1" },
+  });
+  await page.locator(".thread .next-cta").getByRole("button", { name: "Ir a Parte 1" }).waitFor({ timeout: 10000 });
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  const card = page.locator(".continue");
+  await card.waitFor({ timeout: 10000 });
+  assert.equal(await card.getByRole("button", { name: "Ir a Parte 1" }).count(), 1, "the reload finds the same step");
+});
+
+// Parte 2's mini-quiz passed and the tutor advanced it: the engine now points at Parte 3.
+test("the mini-quiz of Parte 2 passed offers «Ir a Parte 3»", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await tutorTurn(t, (root) => [{ path: join(root, "redes", "explicaciones", "Parte 3 - Flujo.md"), content: "# Parte 3 — Flujo\n" }], {
+    parts: THREE_PARTS,
+    status: { status: "accepted", stage: "explanation", nextStage: "explanation", part: "p3" },
+  });
+  const next = page.locator(".thread .next-cta");
+  await next.waitFor({ timeout: 10000 });
+  const button = next.getByRole("button", { name: "Ir a Parte 3" });
+  assert.equal(await button.count(), 1, "the next part is offered by its own name");
+  await button.click();
+  await page.waitForFunction(() => location.hash === "#/leer/redes/p3", null, { timeout: 5000 });
+});
+
+// The engine's own words after a failed mini-quiz: the part is closed and owes its remedial
+// part, which the tutor declares in plan.json and teaches. The learner asks for it once.
+test("a failed mini-quiz offers «Regenerar Parte 2» and one click starts one turn", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, log } = await tutorTurn(t, (root) => [
+    // The topic is enrolled, so the remediation turn can name it and be gated on it.
+    { path: join(root, "redes", ".learning", "state.json"), content: "{}\n" },
+    { path: join(root, "redes", "mini-quiz", "p2.answers.json"), content: "{}" },
+  ], {
+    status: { status: "blocked", stage: "remedial", nextStage: "remedial", part: "p2" },
+  });
+  const next = page.locator(".thread .next-cta");
+  await next.waitFor({ timeout: 10000 });
+  const button = next.getByRole("button", { name: "Regenerar Parte 2" });
+  assert.equal(await button.count(), 1, "the failed part is the one offered");
+  await button.click();
+  // The composer's own turn was the first prompt; the click adds exactly one more.
+  const sent = await promptsAtLeast(log, 2);
+  assert.equal(sent.length, 2, "one click, one turn");
+  assert.match(sent[1], /Parte 2/);
+  assert.match(sent[1], /remedia/, "the turn asks for the remedial part the engine demands");
+  await page.waitForTimeout(500);
+  assert.equal((await sentPrompts(log)).length, 2, "and no second turn");
+});
+
+// A turn the page starts on a topic with no writes at all: the studio still knows the topic.
+async function topicTurn(t, options = {}) {
+  const { root, engine, log } = makeRoot(options);
+  // A deep turn names an enrolled topic: the engine tracks «redes» in these tests.
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  process.env.FAKE_PI_LOG = log;
+  process.env.FAKE_PI_WRITES = "[]";
+  t.after(() => delete process.env.FAKE_PI_WRITES);
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  return { root, studio, page, log };
+}
+
+/** The prompts the tutor received, waiting until there are at least `count` of them. */
+async function promptsAtLeast(log, count) {
+  for (let i = 0; i < 50; i++) {
+    const prompts = existsSync(log)
+      ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)).filter((command) => command.type === "prompt").map((command) => command.message)
+      : [];
+    if (prompts.length >= count) return prompts;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return [];
+}
+
+/** One prompt on «redes», answered by the fake tutor's own question: the turn ends there. */
+async function turnOnTopic(page, text = "Sigamos con redes.") {
+  await page.evaluate(async (message) => {
+    const response = await fetch("prompt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: message, tema: "redes" }) });
+    if (!response.ok) throw new Error(`prompt ${response.status}`);
+  }, text);
+  await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).click();
+  await page.waitForFunction(() => /Listo/.test(document.querySelector(".drawer-head h2")?.textContent ?? ""), null, { timeout: 10000 });
+}
+
+test("a turn that writes nothing still ends with the topic's next step", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await topicTurn(t, { status: { status: "waiting", stage: "quiz", nextStage: "quiz", part: "p1" } });
+  await turnOnTopic(page);
+  const next = page.locator(".thread .next-cta");
+  await next.waitFor({ timeout: 10000 });
+  assert.equal(await next.getByRole("button", { name: "Ir a Parte 1" }).count(), 1, "the topic comes from the turn, not from a write");
+});
+
+// One turn at a time (#180): a step pressed while the tutor works is refused in Spanish and
+// starts nothing. The button stays where it is, so the learner presses it again.
+test("a next step refused while the tutor works says so in Spanish and starts nothing", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, log } = await topicTurn(t, { status: { status: "blocked", stage: "remedial", nextStage: "remedial", part: "p2" } });
+  await page.locator(".tutor-pill").click();
+  await page.getByLabel("Mensaje para el tutor").fill("Explícame algo.");
+  await page.getByLabel("Mensaje para el tutor").press("Enter");
+  await page.locator(".ask-card").waitFor({ timeout: 10000 });
+  // The topic page offers the same step while the turn is still open on the tutor's question.
+  await page.evaluate(() => { document.body.classList.remove("drawer-open"); location.hash = "#/tema/redes"; });
+  const card = page.locator(".continue");
+  await card.waitFor({ timeout: 10000 });
+  const button = card.getByRole("button", { name: "Regenerar Parte 2" });
+  await button.click();
+  const notice = page.locator(".thread .notice.error");
+  await notice.waitFor({ timeout: 5000 });
+  assert.match(await notice.textContent(), /El tutor está trabajando; espera a que termine\./);
+  assert.equal((await sentPrompts(log)).length, 1, "the refusal starts nothing");
+  assert.equal(await button.isEnabled(), true, "the button stays usable");
+});
+
+// Both runtimes end a turn the same way: Antigravity writes nothing here, so the step can only
+// come from the turn's own topic.
+test("the next step arrives at the end of an Antigravity turn too", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot({ status: { status: "waiting", stage: "quiz", nextStage: "quiz", part: "p1" } });
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  writeFileSync(join(root, "tutor.json"), JSON.stringify({ version: 1, agente: "agy", modelo: "", pensamiento: "" }));
+  const studio = await startStudio({
+    root,
+    piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")],
+    agyCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-agy.mjs")],
+    enginePath: engine,
+  });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  // Antigravity asks nothing mid-turn, so the panel is opened the way the learner opens it.
+  await page.locator(".tutor-pill").click();
+  await page.evaluate(async () => {
+    const response = await fetch("prompt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Sigamos con redes.", tema: "redes" }) });
+    if (!response.ok) throw new Error(`prompt ${response.status}`);
+  });
+  const next = page.locator(".thread .next-cta");
+  await next.waitFor({ timeout: 15000 });
+  assert.equal(await next.getByRole("button", { name: "Ir a Parte 1" }).count(), 1, "Antigravity ends its turn with the engine's step too");
 });
 
 // A plain studio page for the flows below: the fake Pi runs one turn per prompt.

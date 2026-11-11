@@ -8,10 +8,12 @@ import { join } from "node:path";
 process.env.XDG_STATE_HOME = realpathSync(mkdtempSync(join(tmpdir(), "studio-state-")));
 
 /**
- * @param {{status?: Record<string, unknown>, statuses?: Record<string, unknown>[], delayMs?: number}} [options]
+ * @param {{status?: Record<string, unknown>, statuses?: Record<string, unknown>[], delayMs?: number,
+ *   parts?: Array<{id: string, title: string, slug: string, subtema?: string}>}} [options]
  *   `status` is what the fake engine answers, so a test can put the topic in the stage it studies;
  *   `statuses` answers a different report per call, so a test can fail a stage and then clear it;
- *   `delayMs` makes every answer slow, so a test can act while the studio waits for the engine.
+ *   `delayMs` makes every answer slow, so a test can act while the studio waits for the engine;
+ *   `parts` is the topic's plan, so a test can study a route longer than the default two parts.
  */
 export function makeRoot(options = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "studio-")));
@@ -22,7 +24,7 @@ export function makeRoot(options = {}) {
     join(topic, "plan.json"),
     JSON.stringify({
       topic: "Redes",
-      parts: [
+      parts: options.parts ?? [
         { id: "p1", title: "Capas", slug: "Capas", subtema: "1.1" },
         { id: "p2", title: "TCP", slug: "TCP", subtema: "1.2.1" },
       ],

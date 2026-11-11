@@ -179,7 +179,7 @@ test("the selected Antigravity tutor answers a conversation", async () => {
     const sent = readFileSync(argv, "utf8");
     assert.match(sent, /^-p Hola\n/);
     assert.match(sent, /«Responder el diagnóstico»/);
-    assert.match(sent, /«Ir al quiz»/);
+    assert.match(sent, /«Ir a Parte N»/);
     assert.match(sent, /voseo/);
   } finally { stream.close(); }
 });
@@ -1087,7 +1087,8 @@ test("a dead runtime releases the turn", async () => {
   try {
     assert.equal((await post(studio, "prompt", { text: "crash", tema: "redes" })).status, 200);
     await stream.next("state", (data) => data.alive === false);
-    assert.deepEqual(stream.events.filter((event) => event.name === "state").at(-1)?.data, { busy: false, alive: false });
+    // `tema` is the topic the last turn taught: the page offers its next step when it ends.
+    assert.deepEqual(stream.events.filter((event) => event.name === "state").at(-1)?.data, { busy: false, alive: false, tema: "redes" });
     // The turn the dead runtime could not finish is gone: these routes need an idle studio.
     assert.equal((await post(studio, "api/tema", { tema: "redes" })).status, 200);
     assert.equal((await post(studio, "restart", {})).status, 200);
@@ -1563,7 +1564,7 @@ test("Pi runs in the Learnings folder as an interactive RPC host and the history
     { role: "user", text: "hola" },
     { role: "assistant", text: "¡Hola!" },
   ]);
-  assert.deepEqual(await stream.next("state"), { busy: false, alive: true });
+  assert.deepEqual(await stream.next("state"), { busy: false, alive: true, tema: null });
   assert.deepEqual(history.note, { topic: "tema", index: 1 }, "the reloaded tab still knows the note the tutor wrote");
   const first = received().find((c) => c.type === "get_messages");
   assert.equal(first.interactiveHost, "1");
@@ -1653,7 +1654,8 @@ test("a prompt streams text, tool activity and a dialog whose answer goes back t
   assert.equal(res.status, 200, res.body);
   assert.equal(received().find((c) => c.type === "prompt").message, "Quiero aprender redes.");
   assert.deepEqual(await stream.next("user"), { text: "Quiero aprender redes." });
-  assert.deepEqual(await stream.next("state", (s) => s.busy), { busy: true, alive: true });
+  // A turn that teaches no topic says so: the page offers no next step for it.
+  assert.deepEqual(await stream.next("state", (s) => s.busy), { busy: true, alive: true, tema: null });
   const delta = await stream.next("assistant_delta");
   assert.equal(delta.delta, "Hola, ");
   // A tool row belongs to the conversation that produced it.
@@ -1682,7 +1684,7 @@ test("a prompt streams text, tool activity and a dialog whose answer goes back t
     type: "extension_ui_response", id: "d1", value: "Rápido con quiz", interactiveHost: "1", cwd: received()[0].cwd,
   });
   assert.equal(end.id, delta.id);
-  assert.deepEqual(await stream.next("state", (s) => !s.busy), { busy: false, alive: true });
+  assert.deepEqual(await stream.next("state", (s) => !s.busy), { busy: false, alive: true, tema: null });
   await stream.next("library_changed");
 
   // The turn is over, so a new one is accepted: nothing stays latched behind a settled turn.
@@ -1807,11 +1809,11 @@ test("if Pi stops the studio reports it and restart brings it back", async () =>
   const stream = sse(`${studio.url}events`);
   await stream.next("history");
   await post(studio, "prompt", { text: "crash" });
-  assert.deepEqual(await stream.next("state", (s) => !s.alive), { busy: false, alive: false });
+  assert.deepEqual(await stream.next("state", (s) => !s.alive), { busy: false, alive: false, tema: null });
   assert.equal((await stream.next("error")).message, "El tutor se detuvo.");
   assert.equal((await post(studio, "prompt", { text: "hola" })).status, 503);
   assert.equal((await post(studio, "restart", {})).status, 200);
-  assert.deepEqual(await stream.next("state", (s) => s.alive), { busy: false, alive: true });
+  assert.deepEqual(await stream.next("state", (s) => s.alive), { busy: false, alive: true, tema: null });
   assert.equal((await post(studio, "new-session", {})).status, 200);
   assert.ok(received().some((c) => c.type === "new_session"));
   stream.close();
