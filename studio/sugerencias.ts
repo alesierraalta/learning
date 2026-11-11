@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { HttpError } from "../integrations/pi/bridge.ts";
 import { safeTopic } from "../integrations/pi/paths.ts";
@@ -33,6 +33,12 @@ export const niveles: readonly string[] = ["menos", "medio", "más"];
 
 export type Origen = "sugerencia" | "regenerar";
 
+/**
+ * What a review is about. `parte` is one passage of one part and is read only when that part is
+ * written again; `general` is how an explanation is made anywhere and is read on every turn.
+ */
+export type Alcance = "parte" | "general";
+
 export interface Sugerencia {
   id: string;
   tema: string;
@@ -41,6 +47,10 @@ export interface Sugerencia {
   texto: string;
   origen: Origen;
   timestamp: string;
+  /** Decided from the chips when the review is recorded, never sent by the page. */
+  alcance?: Alcance;
+  /** The standing rule a general review leaves behind, in the learner's imperative. */
+  regla?: string;
 }
 
 export interface SugerenciasFile {
@@ -67,7 +77,20 @@ function clean(entrada: unknown): Sugerencia | null {
   if (typeof id !== "string" || typeof tema !== "string" || typeof parte !== "string") return null;
   if (!Array.isArray(reasons) || typeof texto !== "string" || typeof timestamp !== "string") return null;
   if (origen !== "sugerencia" && origen !== "regenerar") return null;
-  return { id, tema, parte, motivos: reasons.filter((r): r is string => typeof r === "string" && known(r)), texto, origen, timestamp };
+  const kept: Sugerencia = {
+    id,
+    tema,
+    parte,
+    motivos: reasons.filter((r): r is string => typeof r === "string" && known(r)),
+    texto,
+    origen,
+    timestamp,
+  };
+  // A classification the file already carries survives every rewrite: it is what makes a lesson
+  // general, and losing it would silently demote the learner's rules to one part.
+  if (entrada.alcance === "general" || entrada.alcance === "parte") kept.alcance = entrada.alcance;
+  if (typeof entrada.regla === "string" && entrada.regla.trim()) kept.regla = clip(entrada.regla.trim(), MAX_REGLA);
+  return kept;
 }
 
 /**
@@ -159,6 +182,36 @@ function applyMotivos(root: string, chosen: string[]) {
 const label = (id: string) => motivos.find((m) => m.id === id)?.texto ?? id;
 const clip = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`);
 
+/**
+ * The chips whose lesson is about how an explanation is made anywhere: «dibuja la cosa misma»,
+ * «un ejemplo al lado de la fórmula», «los pasos intermedios». The rest name a passage —«no
+ * entendí una idea», «matemáticas confusas»— and stay with that part.
+ *
+ * Each rule is written once: the same words the seed file carries, so a review that repeats a
+ * lesson already known adds nothing to the block.
+ */
+const REGLA_POR_MOTIVO: Record<string, string> = {
+  "faltan-visuales": "Dibuja la cosa misma, no una caja con su nombre: la curva, el icono, el estado que cambia",
+  "faltan-ejemplos": "Después de cada fórmula, muéstrala funcionando con números y con la misma notación",
+  "sin-paso-a-paso": "Da el paso intermedio de cada cálculo, uno por línea, también en los ejercicios largos",
+};
+
+/** A rule is read on every turn, so it stays one line. */
+const MAX_REGLA = 140;
+
+/**
+ * What a review is about, decided from its chips alone: never a model, never a reading of the
+ * learner's prose. Words with no chip that names a way of explaining stay with their part, and the
+ * repo's seed file is where the lessons those words taught were written down.
+ */
+export function clasificar(motivos: string[]): { alcance: Alcance; regla?: string } {
+  // One rule per review, the first general chip's: a review that picks three chips still says one
+  // thing, and the block never grows a line that is three rules glued together.
+  const motivo = motivos.find((elegido) => elegido in REGLA_POR_MOTIVO);
+  if (motivo === undefined) return { alcance: "parte" };
+  return { alcance: "general", regla: clip(REGLA_POR_MOTIVO[motivo], MAX_REGLA) };
+}
+
 /** The words worth remembering, newest first, each said once. */
 function citas(entradas: Sugerencia[]) {
   const seen = new Set<string>();
@@ -234,6 +287,74 @@ export function directrices(entradas: Sugerencia[]) {
 }
 
 /**
+ * The standing lessons: how this learner wants every explanation made, in every topic.
+ *
+ * The repo's seed carries the lessons of the reviews already read (the first topic's), so they
+ * apply from the first deploy without editing the live store; the learner's newest general
+ * reviews come first, so a lesson that just landed is never crowded out by the bound.
+ */
+export const LECCIONES_TITULO = "Lecciones del alumno (aplícalas siempre)";
+/** How many rules a turn reads: enough to steer, few enough to stay a block and not a manual. */
+export const MAX_LECCIONES = 10;
+const MAX_LECCIONES_CHARS = 1200;
+
+/** The repo's own lessons, tracked and reviewed with the code, never written by the studio. */
+const SEED = join(import.meta.dirname, "lecciones-base.json");
+
+function seed(): string[] {
+  try {
+    const data: unknown = JSON.parse(readFileSync(SEED, "utf8"));
+    if (!isRecord(data) || !Array.isArray(data.lecciones)) return [];
+    return data.lecciones
+      .map((leccion) => (isRecord(leccion) && typeof leccion.regla === "string" ? leccion.regla.trim() : ""))
+      .filter((regla) => regla.length > 0);
+  } catch {
+    // A studio without its seed still applies the learner's own lessons: a missing file is not a
+    // reason to teach without them, and it is not a reason to fail a turn either.
+    return [];
+  }
+}
+
+/** Each rule once, newest first, bounded: what a turn reads as its standing lessons. */
+export function lecciones(root: string): string[] {
+  const vivas = readSugerencias(root).entradas
+    .filter((entrada) => entrada.alcance === "general" && typeof entrada.regla === "string" && entrada.regla.trim().length > 0)
+    .map((entrada) => entrada.regla!.trim())
+    .reverse();
+  const dichas = new Set<string>();
+  const out: string[] = [];
+  let chars = 0;
+  for (const regla of [...vivas, ...seed()]) {
+    const clave = regla.toLowerCase().replace(/\s+/g, " ").replace(/[.;:]$/, "");
+    if (dichas.has(clave)) continue;
+    if (out.length >= MAX_LECCIONES || chars + regla.length > MAX_LECCIONES_CHARS) break;
+    dichas.add(clave);
+    out.push(regla);
+    chars += regla.length;
+  }
+  return out;
+}
+
+/** The block a turn carries, or nothing at all when the learner has taught no lesson yet. */
+export function leccionesBlock(root: string): string {
+  const reglas = lecciones(root);
+  if (reglas.length === 0) return "";
+  return `[${LECCIONES_TITULO}\n${reglas.map((regla) => `- ${regla}`).join("\n")}\n]`;
+}
+
+/** The prompt of a turn: the learner's words first, the standing lessons last, where they are read. */
+export function withLecciones(text: string, root: string): string {
+  const block = leccionesBlock(root);
+  return block ? `${text}\n\n${block}` : text;
+}
+
+/** What the learner actually said: the block is the studio's, so the chat never shows it as theirs. */
+export function stripLecciones(text: string): string {
+  const at = text.indexOf(`\n\n[${LECCIONES_TITULO}`);
+  return at < 0 ? text : text.slice(0, at);
+}
+
+/**
  * What the tutor must know before writing again, in the fewest lines that change the
  * result: the preferences on disk, what the quizzes say is weak, and the learner's words.
  */
@@ -270,7 +391,12 @@ export function recordSugerencia(root: string, raw: unknown) {
   catch { /* adaptation stops, the learner's feedback does not */ }
   keepAside(root, lectura);
   const data = lectura.data;
-  const entrada: Sugerencia = { id: `s-${randomBytes(6).toString("hex")}`, ...input, timestamp: new Date().toISOString() };
+  const entrada: Sugerencia = {
+    id: `s-${randomBytes(6).toString("hex")}`,
+    ...input,
+    ...clasificar(input.motivos),
+    timestamp: new Date().toISOString(),
+  };
   data.entradas.push(entrada);
   if (data.entradas.length > MAX_ENTRADAS) data.entradas = data.entradas.slice(-MAX_ENTRADAS);
   data.actualizado = entrada.timestamp;

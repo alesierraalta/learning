@@ -131,7 +131,9 @@ process.stdin.on("data", (chunk) => {
         }
         out({ id: command.id, type: "response", command: "prompt", success: true, data: { disposition: command.streamingBehavior ? "queued" : "started" } });
         receivedPrompts.push(message);
-        if (message === "crash") process.exit(3);
+        // The studio appends the learner's standing lessons to every prompt, so this hook reads
+        // the words the turn starts with, not the whole prompt.
+        if (message.startsWith("crash")) process.exit(3);
         if (!command.streamingBehavior) run(message);
         break;
       }

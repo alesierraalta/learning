@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "lecciones": [
+    {
+      "regla": "Dibuja la cosa misma, no una caja con su nombre: la curva, el icono, el estado que cambia",
+      "de": ["s-7f611d27884e", "s-29ac62640001", "s-62bc1a495862", "s-4df6b6e60382"],
+      "cubre": "visuales.md §1 y §9; scene-lint (trazo-sobre-texto, flecha-al-aire); explain-check (escena dibujada)"
+    },
+    {
+      "regla": "Cada idea con forma lleva su figura: si el lector tiene que imaginarla, falta la escena",
+      "de": ["s-7f611d27884e", "s-62bc1a495862"],
+      "cubre": "estandar-explicacion.md §5; explain-check (0 drawn lk-scene)"
+    },
+    {
+      "regla": "Cada fórmula se anota símbolo por símbolo: un callout numerado por símbolo, con su nombre",
+      "de": ["s-d0378399ae26", "s-a6a019ecbccc"],
+      "cubre": "visuales.md §8; explain-check (formula symbol … never named)"
+    },
+    {
+      "regla": "Después de cada fórmula, muéstrala funcionando con números y con la misma notación",
+      "de": ["s-dc97d9e3dc99", "s-3f8702407643", "s-ce663b847937"],
+      "cubre": "estandar-explicacion.md §4 (aritmética)"
+    },
+    {
+      "regla": "Da el paso intermedio de cada cálculo, uno por línea, también en los ejercicios largos",
+      "de": ["s-52c82db30f91", "s-29ac62640001"],
+      "cubre": "estandar-explicacion.md §4 (aritmética, línea por línea)"
+    },
+    {
+      "regla": "Un solo ejemplo conductor: el escenario y sus números no cambian entre partes",
+      "de": ["s-b190c735ccbf", "s-f22267f0b54e", "s-f6bf81632440"],
+      "cubre": "estandar-explicacion.md §2.2 y §4 (los números se quedan pegados al ejemplo)"
+    },
+    {
+      "regla": "Presenta el ejemplo antes de usarlo: nunca asumas datos que el alumno no tiene",
+      "de": ["s-f22267f0b54e", "s-f6bf81632440"],
+      "cubre": "estandar-explicacion.md §2.1 (caja negra primero, definición después)"
+    },
+    {
+      "regla": "Ninguna flecha ni trazo cruza el texto: la punta cae sobre la pieza que nombra",
+      "de": ["s-7f611d27884e", "s-29ac62640001"],
+      "cubre": "scene-lint (trazo-sobre-texto, flecha-al-aire); SKILL.md «Parámetros mínimos de calidad»"
+    }
+  ]
+}
