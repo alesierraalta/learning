@@ -5,7 +5,10 @@
   const C = {
     ink: "#0F2E3D", slate: "#3F5B69", slate2: "#5A7481", line: "rgba(15,46,61,.30)", soft: "#F6F7F7", soft2: "#FAFBFB",
     blue: "#004276", blueS: "rgba(0,66,118,0.06)", green: "#21594F", greenS: "rgba(15,46,61,0.05)", amber: "#8A6B3F", amberS: "rgba(166,127,89,0.08)",
-    red: "#DD4A68", redS: "rgba(221,74,104,0.07)", gold: "#a67f59", muted: "rgba(15,46,61,.62)", meta: "#555555",
+    // El rojo de la figura es tinta, no un filete: se lee a 11 px sobre el papel
+    // claro y el #DD4A68 de la página daba 4,0:1. Este da 4,7:1 y sigue siendo el
+    // mismo acento magenta.
+    red: "#CC405C", redS: "rgba(204,64,92,0.07)", gold: "#a67f59", muted: "rgba(15,46,61,.62)", meta: "#555555",
   };
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -110,13 +113,15 @@
 
   // Una fórmula puesta en escena: cada símbolo es un átomo propio, así una llamada
   // puede señalar «esta V» o «esta s» sin adivinar coordenadas de la cadena entera.
-  const formula = (cx, cy, atoms, { size = 64, color = C.ink, anchor: anchorMode = "middle" } = {}) => {
+  // `offset` numera los átomos de una escena con varias fórmulas: un callout nombra
+  // el símbolo por su número en la escena, no por su lugar dentro de una fórmula.
+  const formula = (cx, cy, atoms, { size = 64, color = C.ink, anchor: anchorMode = "middle", offset = 0 } = {}) => {
     const parts = atoms.map((a, i) => {
       const kind = typeof a === "string" ? { t: a } : a;
       const dy = kind.sub ? "12" : kind.sup ? "-18" : "0";
       const fs = kind.sub || kind.sup ? size * 0.52 : size;
       const style = kind.italic === false ? "" : ' font-style="italic"';
-      return `<tspan data-atom="${i}" font-size="${f(fs)}" dy="${dy}"${style}>${esc(kind.t)}</tspan>`;
+      return `<tspan data-atom="${offset + i}" font-size="${f(fs)}" dy="${dy}"${style}>${esc(kind.t)}</tspan>`;
     }).join("");
     return `<text x="${f(cx)}" y="${f(cy)}" text-anchor="${anchorMode}" font-size="${f(size)}" font-weight="700" fill="${color}">${parts}</text>`;
   };

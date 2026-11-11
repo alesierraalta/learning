@@ -115,7 +115,11 @@ legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; ma
 .lk-wt-caption strong { font-size:1.05rem; }
 .lk-wt-caption p { margin:6px 0 0; font-size:.95rem; line-height:1.6; }
 .lk-walkthrough:focus-visible { outline:3px solid var(--cobalt); outline-offset:4px; }
-.lk-wt-stage { max-width:100%; }
+/* Una figura se dibuja a 1 unidad ≈ 1 píxel: su ancho es el del `viewBox` que el
+autor escribió (`--lk-vb`, que pone `kit.js`). En modo ancho la columna mide el
+doble y, sin este tope, la escena se estiraba a 1,7× y sus etiquetas crecían por
+encima del tamaño de lectura. Centrada, con el resto de la columna en blanco. */
+.lk-wt-stage { max-width: min(100%, var(--lk-vb, 100%)); margin-inline: auto; }
 lk-walkthrough.lk-wt-compact .lk-wt-stage { max-width:320px; margin-inline:auto; }
 .lk-wt-hint { display:none; margin:6px 0 0; font-size:.72rem; letter-spacing:.02em; color:#64748b; }
 @media(max-width:640px) {
@@ -128,7 +132,10 @@ lk-walkthrough.lk-wt-compact .lk-wt-stage { max-width:320px; margin-inline:auto;
 }
 /* Full screen: the figure takes the whole screen, letters included */
 .lk-walkthrough:fullscreen, .lk-walkthrough:-webkit-full-screen { display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; width:100%; height:100%; margin:0; border:0; border-radius:0; box-shadow:none; padding:22px 34px; background:#fff; }
-.lk-walkthrough:fullscreen .lk-wt-stage, .lk-walkthrough:-webkit-full-screen .lk-wt-stage { flex:0 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+/* El escenario ocupa el ancho de la pantalla: un `margin-inline: auto` —el del deck
+   compacto— impide que un ítem flex se estire, y la figura se quedaba en los 300 px
+   por defecto del SVG dentro de una pantalla de 1920. */
+.lk-walkthrough:fullscreen .lk-wt-stage, .lk-walkthrough:-webkit-full-screen .lk-wt-stage { flex:0 1 auto; width:100%; max-width:none; margin-inline:0; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
 .lk-walkthrough:fullscreen .lk-wt-stage svg, .lk-walkthrough:-webkit-full-screen .lk-wt-stage svg { width:100%; height:auto; max-height:74vh; }
 /* A compact deck keeps its narrow column on the page only: full screen lifts the cap so the letters grow. */
 .lk-walkthrough.lk-wt-compact:fullscreen .lk-wt-stage, .lk-walkthrough.lk-wt-compact:-webkit-full-screen .lk-wt-stage { max-width:none; }
@@ -285,19 +292,20 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
 :root[data-theme="black"] .lk-walkthrough:-webkit-full-screen,
 :root[data-theme="dark"] .lk-walkthrough:fullscreen,
 :root[data-theme="dark"] .lk-walkthrough:-webkit-full-screen { background: #fff; }
-/* Un diagrama de mermaid se dibuja con su propio tema claro: se le deja el papel. */
-:root[data-theme="black"] pre.mermaid,
 /* Una escena conserva el papel claro, como la hoja del deck: la geometría y la tinta
-   las eligió quien la dibujó y no cambian con el tema del lector. Sin tarjeta. */
-:root[data-theme="dark"] lk-scene {
-  background: #fff; color-scheme: light; padding: 4px 0;
+   las eligió quien la dibujó y no cambian con el tema del lector. Sin tarjeta. Los
+   dos papeles de noche van en la misma lista: separarlos en dos selectores dejó la
+   escena sin hoja en el papel negro, con su tinta oscura sobre el fondo negro. */
+:root:is([data-theme="dark"], [data-theme="black"]) lk-scene {
+  background: #fff; color: var(--ink); color-scheme: light; padding: 4px 0;
   --paper: #ffffff; --ink: #0F2E3D; --muted: rgba(15, 46, 61, .62);
   --rule: #e2e8f0; --cobalt: #2563eb; --emerald: #059669; --amber: #d97706; --crimson: #dc2626;
   --on-ink: #ffffff;
 }
-:root[data-theme="dark"] lk-scene .lk-scene-caption { color: rgba(15, 46, 61, .62); }
+:root:is([data-theme="dark"], [data-theme="black"]) lk-scene .lk-scene-caption { color: rgba(15, 46, 61, .62); }
 
-:root[data-theme="dark"] pre.mermaid { --ink: #0F2E3D; background: #fff; color: var(--ink); padding: 14px; color-scheme: light; }
+/* Un diagrama de mermaid se dibuja con su propio tema claro: se le deja el papel. */
+:root:is([data-theme="dark"], [data-theme="black"]) pre.mermaid { --ink: #0F2E3D; background: #fff; color: var(--ink); padding: 14px; color-scheme: light; }
 :root[data-theme="black"] [class*="wall"],
 :root[data-theme="black"] .wall,
 :root[data-theme="black"] .inert,
@@ -318,14 +326,17 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
 lk-scene { display: block; margin: 30px 0; }
 lk-scene>.lk-title { display: block; margin-bottom: 12px; }
 lk-scene figure { margin: 0; }
-.lk-scene-stage { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; container-type: inline-size; }
+.lk-scene-stage { max-width: min(100%, var(--lk-vb, 100%)); margin-inline: auto; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; container-type: inline-size; }
 .lk-scene-stage svg { display: block; width: 100%; height: auto; }
 .lk-scene-caption { margin: 12px 0 0; font-size: .8rem; line-height: 1.55; color: var(--muted); }
 /* La escena conserva su escala y hace scroll cuando no cabe. Se mide el hueco que
    ocupa, no el ancho de la ventana: una parte puede vivir en una columna estrecha
    dentro de una pantalla ancha. */
 @container (max-width: 700px) {
-  .lk-scene-stage svg { width: auto; min-width: 660px; }
+  /* El suelo de 660 px es para una escena ancha en una columna estrecha: una
+     escena escrita a 360 no se agranda a 660, que es la misma tinta por encima
+     del tamaño de lectura que el modo ancho provocaba. */
+  .lk-scene-stage svg { width: auto; min-width: min(660px, var(--lk-vb, 660px)); }
 }
 @media (max-width: 720px) {
   .lk-scene-caption { font-size: .74rem; }
@@ -336,7 +347,7 @@ lk-scene figure { margin: 0; }
    island: it follows the reader's light or dark choice. */
 lk-figure { display: block; margin: 30px 0; }
 lk-figure figure { margin: 0; }
-.lk-figure-stage { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.lk-figure-stage { max-width: min(100%, var(--lk-vb, 100%)); margin-inline: auto; overflow-x: auto; overflow-y: hidden; }
 .lk-figure-stage svg { display: block; width: 100%; height: auto; }
 
 lk-video { margin:28px 0; padding:24px; border:1px solid var(--hair); background:var(--paper); }

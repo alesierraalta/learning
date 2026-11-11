@@ -215,13 +215,19 @@ La forma, pieza por pieza:
 | Pieza | Qué lleva |
 |---|---|
 | `scene.formulas` | **un átomo por símbolo** (`{"t":"σ"}`), no la fórmula entera en un átomo: así cada símbolo tiene su posición |
-| `scene.callouts` | un badge numerado por símbolo, con `to` en la posición **medida** del símbolo |
+| `scene.callouts` | un badge numerado por símbolo, que **nombra su símbolo**: `"symbol":"μ"` o `"at":22` |
 | `scene.labels` | una línea por número: `① μ: el centro, dónde está el pico` |
 
 Reglas de la escena:
 
-- El `to` de cada callout se mide, no se adivina: se renderiza la escena y se leen las cajas de
-  los átomos (`tspan[data-atom]`). Un callout que apunta al aire no explica nada.
+- **El callout nombra el símbolo, nunca una coordenada.** `"symbol":"x"` toma el primer átomo
+  cuyo texto es `x`; `"at":2` es el índice del átomo en la escena (las fórmulas se numeran
+  seguidas, en orden de dibujo). El número se queda donde el autor lo puso (`x`, `y`); la guía
+  la mide el kit contra el `tspan[data-atom]` que el lector dibujó, y la vuelve a medir cuando
+  cargan las fuentes, cambia el ancho o cambia el papel. Así acierta con cualquier tipografía,
+  tamaño, tema y ancho. Una x medida contra una tipografía acierta solo en esa tipografía: es
+  lo que puso el ① sobre el «=», el ② sobre el «1» y el ⑥ sobre nada en el lector del alumno,
+  que dibuja la fórmula con su propia fuente. Una nota vieja con `to` sigue dibujándose igual.
 - **Dos callouts no se tocan**: el círculo de un número (radio 24) no puede cruzar el círculo de
   otro número ni la guía de otro. Si dos símbolos quedan a menos de 60 unidades, uno va **arriba**
   y el otro **abajo** de la fórmula (`y` 30 y `y` 170), nunca los dos en la misma fila a 20
@@ -247,7 +253,7 @@ del producto anotados:
 <script type="application/json">
 {"viewBox":"0 0 760 410","title":"La densidad gaussiana, símbolo por símbolo","caption":"Cada número señala un símbolo de la fórmula y dice qué es.","scene":{
   "formulas":[{"x":380,"y":130,"size":28,"atoms":[{"t":"f"},{"t":"("},{"t":"x"},{"t":")"},{"t":" = "},{"t":"1"},{"t":"/"},{"t":"("},{"t":"σ"},{"t":"√"},{"t":"("},{"t":"2"},{"t":"π"},{"t":")"},{"t":")"},{"t":" · "},{"t":"exp"},{"t":"("},{"t":"−"},{"t":"("},{"t":"x"},{"t":"−"},{"t":"μ"},{"t":")"},{"t":"²"},{"t":"/"},{"t":"("},{"t":"2"},{"t":"σ"},{"t":"²"},{"t":")"},{"t":")"}]}],
-  "callouts":[{"n":1,"x":173,"y":30,"to":[173,112],"tone":"blue"},{"n":2,"x":192,"y":170,"to":[192,142],"tone":"amber"},{"n":3,"x":493,"y":30,"to":[493,112],"tone":"green"},{"n":4,"x":278,"y":76,"to":[278,112],"tone":"slate"},{"n":5,"x":299,"y":170,"to":[299,142],"tone":"red"},{"n":6,"x":520,"y":170,"to":[493,142],"tone":"blue"}],
+  "callouts":[{"n":1,"x":173,"y":30,"symbol":"f","tone":"blue"},{"n":2,"x":192,"y":170,"symbol":"x","tone":"amber"},{"n":3,"x":493,"y":30,"symbol":"μ","tone":"green"},{"n":4,"x":278,"y":76,"symbol":"σ","tone":"slate"},{"n":5,"x":299,"y":170,"at":5,"tone":"red"},{"n":6,"x":400,"y":170,"symbol":"exp","tone":"blue"}],
   "labels":[
     {"x":380,"y":220,"text":"① f: la densidad, la altura de la curva"},
     {"x":380,"y":252,"text":"② x: el valor que miras, la latencia"},
@@ -260,9 +266,10 @@ del producto anotados:
 </lk-scene>
 ```
 
-Los números de este ejemplo salen de medir la escena renderizada: `f` cae en 173, `x` en 192,
-`σ` en 278, `μ` en 493. Si cambia el texto de la fórmula, se vuelven a medir; copiar los
-números de otro ejemplo deja los callouts apuntando al aire.
+Los números de este ejemplo no salen de medir nada: cada uno nombra su símbolo y el kit dibuja la
+guía hasta el glifo que el lector tenga. Si cambia el texto de la fórmula, el callout que nombra
+un símbolo que ya no está deja de llegar a un glifo y `scene-lint` lo llama `callout-desviado`:
+se corrige el nombre, no la coordenada.
 
 La misma fórmula, cuando la parte la opera, va con `<lk-math>` y su cuenta renglón a renglón. No
 se escribe dos veces la misma fórmula: se anota una vez y, si hay cuenta, se escribe la cuenta.

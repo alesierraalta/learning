@@ -22,6 +22,12 @@ const KIT = fileURLToPath(new URL('../integrations/pi/kit', import.meta.url));
 // lee de ninguna manera.
 const MAX_HEAD_RATIO = 0.45;
 const MIN_SHAFT = 24;
+// Dos trazos se tocan cuando sus centros están a menos de la mitad de cada
+// grosor: 2 de la flecha + 4 de la curva = 3, más medio punto de redondeo.
+const CROSS = 3.5;
+// Una pieza a menos de 40 unidades de otra ya se lee con ella; más lejos y sin
+// nada que la alcance es una palabra flotando al lado de la figura.
+const LOOSE = 40;
 
 async function loadPlaywright() {
   const attempts = [];
@@ -66,8 +72,12 @@ try {
   await page.goto(pathToFileURL(join(dir, 'page.html')).href);
   await page.waitForSelector('lk-scene svg, lk-walkthrough svg', { timeout: 15000 });
   await page.waitForTimeout(400);
-  const report = await page.evaluate(({ minShaft, maxRatio }) => {
+  const report = await page.evaluate(({ minShaft, maxRatio, cross, loose }) => {
     const out = [];
+    // Un paso oculto mide cero: se mide con todos los pasos puestos.
+    const hiddenSteps = [...document.querySelectorAll('[data-step]')];
+    const wasShown = hiddenSteps.map((g) => g.style.display);
+    hiddenSteps.forEach((g) => { g.style.display = ''; });
     document.querySelectorAll('lk-scene, lk-walkthrough').forEach((host, i) => {
       const title = host.querySelector('svg')?.getAttribute('aria-label') || '';
       host.querySelectorAll('svg').forEach((svg) => {
@@ -77,7 +87,10 @@ try {
         // uno: dos textos de pasos distintos no se pisan en pantalla, así que se
         // comparan solo dentro del mismo paso.
         const stepOf = (el) => el.closest('[data-step]')?.dataset.step || '0';
+        // El número de un callout se dibuja sobre el centro de su guía: su texto no
+        // es una palabra de la escena y no se mide como tal.
         const texts = [...svg.querySelectorAll('text')]
+          .filter((t) => !t.closest('[data-callout]'))
           .map((t) => ({ el: t, step: stepOf(t), s: t.textContent.trim(), b: t.getBBox() }))
           .filter((t) => t.s);
         // Las flechas también viven en un paso: una flecha del paso 2 no atraviesa
@@ -187,7 +200,9 @@ try {
           if (ink.has(step)) return ink.get(step);
           const pts = [];
           for (const p of svg.querySelectorAll('path')) {
-            if (p.closest('marker') || p.hasAttribute('marker-end') || stepOf(p) !== step) continue;
+            // La tinta de una flecha no es una pieza: medirla contra sí misma deja
+            // pasar una punta que solo se toca a sí misma.
+            if (p.closest('marker') || p.closest('[data-arrow]') || p.hasAttribute('marker-end') || stepOf(p) !== step) continue;
             if (!p.getTotalLength) continue;
             const len = p.getTotalLength();
             if (!len) continue;
@@ -200,6 +215,48 @@ try {
         // 12 unidades: la mitad del radio de un callout. Más lejos, la punta no
         // está sobre nada que el lector pueda ver.
         const nearInk = (pt, step, tol = 12) => inkOf(step).some((q) => Math.hypot(q.x - pt.x, q.y - pt.y) <= tol);
+
+        // 2e. la guía de un callout tampoco cruza texto. Una flecha se mide arriba
+        // por sus extremos; la guía no tiene punta y su destino es un glifo, así que
+        // se mide punto por punto contra las palabras del mismo paso. La flecha que
+        // entraba en la etiqueta «μ−σ» del eje es este defecto.
+        for (const guide of svg.querySelectorAll('[data-callout-guide] path')) {
+          const step = stepOf(guide);
+          const len = guide.getTotalLength ? guide.getTotalLength() : 0;
+          if (!len) continue;
+          for (const t of texts) {
+            if (t.step !== step) continue;
+            let hit = false;
+            for (let k = 0; k <= 40 && !hit; k++) {
+              const pt = guide.getPointAtLength((len * k) / 40);
+              hit = pt.x > t.b.x + 2 && pt.x < t.b.x + t.b.width - 2 && pt.y > t.b.y + 2 && pt.y < t.b.y + t.b.height - 2;
+            }
+            if (hit) { add('trazo-sobre-texto', t.s.slice(0, 40), 'la guía de un callout cruza el texto'); break; }
+          }
+        }
+
+        // 2f. un callout declara el símbolo que señala. Si la fórmula cambió y el
+        // número sigue nombrando el símbolo viejo, la guía no llega a ningún glifo:
+        // el número apunta al aire, que es lo que el alumno vio con el ⑥.
+        const atomBoxes = new Map([...svg.querySelectorAll('tspan[data-atom]')].map((t) => [Number(t.dataset.atom), t.getBBox()]));
+        for (const guide of svg.querySelectorAll('[data-callout-guide]')) {
+          const n = guide.dataset.calloutGuide;
+          const missing = guide.dataset.calloutMissing;
+          if (missing !== undefined) {
+            add('callout-desviado', n, `el símbolo «${missing}» no está en la fórmula: el número no señala nada`);
+            continue;
+          }
+          if (guide.dataset.atom === undefined) continue;
+          const box = atomBoxes.get(Number(guide.dataset.atom));
+          const path = guide.querySelector('path');
+          if (!box || !path || !path.getTotalLength) {
+            add('callout-desviado', n, `declara el átomo ${guide.dataset.atom}, que la fórmula no tiene`);
+            continue;
+          }
+          const end = path.getPointAtLength(path.getTotalLength());
+          const gap = Math.hypot(Math.max(box.x - end.x, 0, end.x - (box.x + box.width)), Math.max(box.y - end.y, 0, end.y - (box.y + box.height)));
+          if (gap > 3) add('callout-desviado', n, `la guía termina a ${gap.toFixed(0)}u de la caja de su glifo`);
+        }
 
         // 3 y 4. trazo sobre texto y punta enterrada
         for (const { el: a, step, from, to } of arrows) {
@@ -233,6 +290,60 @@ try {
           }
           const buried = rects.some(({ el, b }) => stepOf(el) === step && end.x > b.x + 3 && end.x < b.x + b.width - 3 && end.y > b.y + 3 && end.y < b.y + b.height - 3);
           if (buried) add('punta-enterrada', '', 'la punta termina dentro de una caja');
+          // 3b. la flecha llega a su destino sin atravesar la tinta de otra pieza.
+          // El trazo de «el pico» entraba a la campana desde abajo y cortaba el
+          // flanco derecho a 156 unidades de la punta: el lector veía una línea
+          // metida dentro de la curva. Se mide sobre los extremos que escribió el
+          // autor, no sobre los tramos que deja el hueco de las palabras.
+          const reach = Math.hypot(end.x - start.x, end.y - start.y);
+          if (reach > 12) {
+            const inkPoints = inkOf(step);
+            const step12 = Math.max(0.5, reach / 500);
+            let cut = null;
+            for (let at = 0; at <= reach - 12 && !cut; at += step12) {
+              const p = { x: start.x + ((end.x - start.x) * at) / reach, y: start.y + ((end.y - start.y) * at) / reach };
+              if (inkPoints.some((q) => Math.hypot(q.x - p.x, q.y - p.y) <= cross)) cut = reach - at;
+            }
+            if (cut !== null) add('flecha-cruza-trazo', '', `el trazo atraviesa otra pieza a ${cut.toFixed(0)}u de la punta`);
+          }
+        }
+
+        // 4b. una pieza suelta: una caja o una etiqueta que ninguna flecha ni guía
+        // alcanza y que queda lejos de todo lo dibujado. La caja «μ = 120 ms» del
+        // resumen flotaba sola al pie de la figura y el lector no sabía qué medía.
+        const pieceBoxes = [...svg.querySelectorAll('rect, circle, text')]
+          .filter((el) => !el.closest('[data-callout]') && !el.closest('[data-arrow]'))
+          .map((el) => ({ el, step: stepOf(el), b: el.getBBox() }))
+          .filter(({ b }) => b.width > 1 || b.height > 1);
+        const gapTo = (a, b) => Math.hypot(
+          Math.max(b.x - (a.x + a.width), 0, a.x - (b.x + b.width)),
+          Math.max(b.y - (a.y + a.height), 0, a.y - (b.y + b.height)));
+        const union = (boxes) => boxes.reduce((a, b) => ({
+          x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+          width: Math.max(a.x + a.width, b.x + b.width) - Math.min(a.x, b.x),
+          height: Math.max(a.y + a.height, b.y + b.height) - Math.min(a.y, b.y),
+        }));
+        const reachedBy = (box, step) => {
+          const near = (pt) => pt && pt.x >= box.x - 18 && pt.x <= box.x + box.width + 18 && pt.y >= box.y - 18 && pt.y <= box.y + box.height + 18;
+          if (arrows.some(({ step: s, from, to }) => s === step && (near(from) || near(to)))) return true;
+          for (const guide of guides.values()) if (guide && guide.step === step && (near(guide.a) || near(guide.z))) return true;
+          return false;
+        };
+        for (const group of svg.querySelectorAll('[data-box], [data-label]')) {
+          const step = stepOf(group);
+          const parts = [...group.querySelectorAll('rect, circle, text')].map((el) => el.getBBox()).filter((b) => b.width || b.height);
+          if (!parts.length) continue;
+          const box = union(parts);
+          if (reachedBy(box, step)) continue;
+          const others = pieceBoxes.filter(({ el, step: s }) => s === step && !group.contains(el));
+          const inkPoints = inkOf(step);
+          // Una caja sola no está suelta: es la figura entera. El hallazgo es una
+          // pieza separada de lo que dibuja, no un dibujo de una pieza.
+          if (!others.length && !inkPoints.length) continue;
+          if (others.some(({ b }) => gapTo(box, b) <= loose)) continue;
+          if (inkPoints.some((q) => gapTo(box, { x: q.x, y: q.y, width: 0, height: 0 }) <= loose)) continue;
+          const what = group.textContent.trim().slice(0, 40) || (group.dataset.box ? 'una caja' : 'una etiqueta');
+          add('pieza-suelta', what, `ninguna flecha la alcanza y queda a más de ${loose}u de lo dibujado`);
         }
 
         // 5. un conector que termina en el aire: la guía de un callout o el tramo de
@@ -282,10 +393,26 @@ try {
             if (run > 40) add('trazos-encimados', '', `dos trazos corren a menos de 6u durante ${Math.round(run)}u`);
           }
         }
+
+        // 9. una flecha cortada por su etiqueta se lee como dos conectores: el tramo
+        // que llega al número y otro que sale de él. La flecha va entera, con las
+        // palabras al lado (`labelBeside`).
+        for (const group of svg.querySelectorAll('[data-arrow]')) {
+          const paths = [...group.querySelectorAll('path')].filter((p) => p.getTotalLength);
+          const label = group.querySelector('text');
+          if (paths.length < 2 || !label) continue;
+          const lb = label.getBBox();
+          const nearLabel = (pt) => pt.x >= lb.x - 8 && pt.x <= lb.x + lb.width + 8 && pt.y >= lb.y - 8 && pt.y <= lb.y + lb.height + 8;
+          const ends = paths.map((p) => ({ a: p.getPointAtLength(0), z: p.getPointAtLength(p.getTotalLength()) }));
+          if (ends.some((e) => nearLabel(e.z)) && ends.some((e) => nearLabel(e.a))) {
+            add('flecha-quebrada', label.textContent.trim().slice(0, 24), 'la etiqueta corta el trazo: la flecha va entera y las palabras al lado');
+          }
+        }
       });
     });
+    hiddenSteps.forEach((g, i) => { g.style.display = wasShown[i]; });
     return out;
-  }, { minShaft: MIN_SHAFT, maxRatio: MAX_HEAD_RATIO });
+  }, { minShaft: MIN_SHAFT, maxRatio: MAX_HEAD_RATIO, cross: CROSS, loose: LOOSE });
   findings.push(...report);
 } finally {
   await browser.close();

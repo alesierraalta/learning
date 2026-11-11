@@ -474,7 +474,69 @@
     const len = Math.hypot(dx, dy) || 1;
     return [dx / len, dy / len];
   }
-  function walkScene(scene, stageWidth) {
+  // Un callout declara el símbolo que señala, nunca una coordenada: una x medida
+  // contra una tipografía acierta solo en esa tipografía, y el lector dibuja la
+  // fórmula con la suya (numerales de otro alto, anchos distintos), así que cada
+  // número caía sobre el símbolo vecino. Las coordenadas de los números viejos se
+  // siguen dibujando tal cual.
+  const sceneAtoms = (scene) => (scene.formulas || (scene.formula ? [scene.formula] : []))
+    .flatMap((fm) => (fm.atoms || []).map((a) => (typeof a === "string" ? a : a.t)));
+  // El número del átomo que el callout nombra, o null si la escena no lo tiene.
+  function calloutAtom(callout, atoms) {
+    if (Number.isInteger(callout.at)) return callout.at >= 0 && callout.at < atoms.length ? callout.at : null;
+    if (typeof callout.symbol === "string") {
+      const at = atoms.findIndex((t) => String(t).trim() === callout.symbol.trim());
+      return at === -1 ? null : at;
+    }
+    return null;
+  }
+  // El punto de la caja del glifo más cercano al número: la guía termina en el
+  // borde del símbolo, nunca encima ni al lado. Se retira una unidad —la mitad del
+  // trazo— para que la línea toque la caja sin comerse el glifo.
+  function edgeOf(box, x, y) {
+    const cx = Math.min(Math.max(x, box.x), box.x + box.width);
+    const cy = Math.min(Math.max(y, box.y), box.y + box.height);
+    const dx = x - cx, dy = y - cy, len = Math.hypot(dx, dy);
+    if (!len) return { x: cx, y: cy };
+    const pull = Math.min(1, len / 2);
+    return { x: cx + (dx / len) * pull, y: cy + (dy / len) * pull };
+  }
+  // La medida se hace sobre lo que el navegador dibujó, así que se repite cuando
+  // las fuentes terminan de cargar, cuando cambia el ancho y cuando el lector
+  // cambia de tema: la misma nota acierta en cualquier tipografía, tamaño y papel.
+  function placeCallouts(stage) {
+    const svg = stage.querySelector("svg");
+    if (!svg) return;
+    const guides = [...svg.querySelectorAll("[data-callout-guide][data-atom]")];
+    if (!guides.length) return;
+    // Un paso oculto mide cero: se mide con todos los pasos puestos.
+    const groups = [...svg.querySelectorAll("[data-step]")];
+    const shown = groups.map((g) => g.style.display);
+    groups.forEach((g) => { g.style.display = ""; });
+    const atoms = [...svg.querySelectorAll("tspan[data-atom]")];
+    for (const guide of guides) {
+      const path = guide.querySelector("path");
+      const atom = atoms[Number(guide.dataset.atom)];
+      if (!path || !atom) continue;
+      const [x, y] = String(guide.dataset.from || "").split(",").map(Number);
+      const box = atom.getBBox();
+      if (!box.width && !box.height) continue;
+      const end = edgeOf(box, x, y);
+      path.setAttribute("d", `M ${x} ${y} L ${end.x.toFixed(1)} ${end.y.toFixed(1)}`);
+    }
+    groups.forEach((g, i) => { g.style.display = shown[i]; });
+  }
+  const watched = new WeakSet();
+  function watchCallouts(stage, refit) {
+    if (watched.has(stage)) return;
+    watched.add(stage);
+    const place = () => { refit?.(); placeCallouts(stage); };
+    document.fonts?.ready.then(place).catch(() => {});
+    let frame = 0;
+    addEventListener("resize", () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(place); }, { passive: true });
+    new MutationObserver(place).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  }
+  function walkScene(scene, stageWidth, stageTop = 0) {
     const S = window.LKScene;
     const tones = WALK_TONES();
     const tone = (name) => tones[name] || tones.slate;
@@ -484,13 +546,15 @@
     for (const s of scene.sheets || []) out += S.sheet(s.x, s.y, s.w, s.h, s.title || '', s.lines ?? 4, tone(s.tone).stroke);
     for (const g of scene.grids || []) out += S.grid(g.x, g.y, g.cols, g.rows, g);
     for (const g of scene.gears || []) out += S.gear(g.x, g.y, g.r || 60, g.teeth || 10, tone(g.tone).stroke);
+    // Una caja y una etiqueta se marcan: el lint mide si alguna flecha las alcanza
+    // o si quedan lejos de todo lo dibujado, que es una palabra flotando.
     for (const b of scene.boxes || []) {
       const t = tone(b.tone);
-      out += S.box(b.x, b.y, b.w, b.h, b.label || '', {
+      out += '<g data-box="1">' + S.box(b.x, b.y, b.w, b.h, b.label || '', {
         stroke: b.stroke || t.stroke, fill: b.fill || t.fill, color: b.color || t.color,
         size: b.size || 26, sub: b.sub || '', rx: b.rx ?? 10,
         subDy: b.subDy ?? 30, subSize: b.subSize ?? 22,
-      });
+      }) + '</g>';
     }
     for (const n of scene.nodes || []) {
       const t = tone(n.tone);
@@ -501,17 +565,31 @@
       out += S.icon(ic.kind || 'doc', ic.x, ic.y, ic.size || 64, { stroke: t.stroke, fill: ic.fill || '#ffffff' });
     }
     // Un número pegado al dibujo: dice «mira acá» sin repetir el nombre de la pieza.
+    const atoms = sceneAtoms(scene);
     for (const c of scene.callouts || []) {
       const t = tone(c.tone || 'blue');
       // El número y su guía van marcados: el lint mide si un callout se apoya en el
       // de al lado, y un círculo sobre la guía ajena deja de saberse de quién es.
-      if (Array.isArray(c.to)) out += `<g data-callout-guide="${c.n}">` + S.line(c.x, c.y, c.to[0], c.to[1], { color: t.stroke, width: 2, arrow: false }) + `</g>`;
+      const at = calloutAtom(c, atoms);
+      if (at !== null) {
+        // La guía nace sin destino: `placeCallouts` la lleva al glifo que el lector
+        // dibujó, después de que el navegador componga la fórmula.
+        out += `<g data-callout-guide="${c.n}" data-atom="${at}" data-from="${S.f(c.x)},${S.f(c.y)}">` + S.line(c.x, c.y, c.x, c.y, { color: t.stroke, width: 2, arrow: false }) + `</g>`;
+      } else if (c.at !== undefined || c.symbol !== undefined) {
+        // El callout nombra un símbolo que la fórmula no tiene: la escena lo dice en
+        // vez de dibujar una guía al aire, y el lint lo llama `callout-desviado`.
+        out += `<g data-callout-guide="${c.n}" data-callout-missing="${S.esc(c.symbol ?? c.at)}"></g>`;
+      } else if (Array.isArray(c.to)) {
+        out += `<g data-callout-guide="${c.n}">` + S.line(c.x, c.y, c.to[0], c.to[1], { color: t.stroke, width: 2, arrow: false }) + `</g>`;
+      }
       out += `<g data-callout="${c.n}">` + S.badge(c.x, c.y, c.n) + `</g>`;
     }
+    let atomBase = 0;
     for (const fm of scene.formulas || (scene.formula ? [scene.formula] : [])) {
       out += S.formula(fm.x ?? 380, fm.y ?? 120, fm.atoms || [], {
-        size: fm.size ?? 64, color: tone(fm.tone || 'ink').stroke,
+        size: fm.size ?? 64, color: tone(fm.tone || 'ink').stroke, offset: atomBase,
       });
+      atomBase += (fm.atoms || []).length;
     }
     for (const b of scene.bars || []) {
       out += S.bars(b.x ?? 40, b.y ?? 60, (b.rows || []).map((r) => ({ ...r, color: tone(r.tone || 'blue').stroke })), {
@@ -585,7 +663,14 @@
       const at = Math.min(0.88, Math.max(0.12, a.labelAt ?? 0.5));
       const before = len * at - cut / 2;
       const after = len * (1 - at) - cut / 2;
-      if (a.label && cut >= captionRun && cut > size * 1.2 && before > size * 0.6 && after > headBack) {
+      // Las palabras van al lado de un trazo entero: cortar la flecha para meterlas
+      // dentro se lee como dos conectores —uno que llega al número y otro que sale
+      // de él—, y el lint lo llama `flecha-quebrada`. Solo se meten en el trazo
+      // cuando arriba no hay aire para ponerlas (`labelBeside` fuerza el lado).
+      const gap = 11 * shaft / 2 + 4;
+      const besideTop = Math.min(a.y1, a.y2) - gap - size * 0.3 - size * 0.8;
+      const besideFits = vertical || besideTop >= stageTop + 12;
+      if (a.label && !a.labelBeside && !besideFits && cut >= captionRun && cut > size * 1.2 && before > size * 0.6 && after > headBack) {
         const ux = dx / len, uy = dy / len;
         const half = cut / 2;
         const midX = a.x1 + ux * len * at, midY = a.y1 + uy * len * at;
@@ -601,7 +686,6 @@
         else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, width: shaft });
         if (a.label) {
           const midY = (a.y1 + a.y2) / 2 - (a.bend === undefined ? 0 : Math.abs(dy) * 0.18);
-          const gap = 11 * shaft / 2 + 4;
           const left = Math.min(a.x1, a.x2) - gap, right = Math.max(a.x1, a.x2) + gap;
           const side = left - 4 > stageWidth - right - 4 ? -1 : 1;
           // Las palabras pertenecen a la flecha, así que su ancho disponible es el
@@ -626,7 +710,7 @@
     }
     for (const b of scene.badges || []) out += S.badge(b.x, b.y, b.n);
     for (const d of scene.dashed || []) out += S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke, d.fill);
-    for (const l of scene.labels || []) out += S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 });
+    for (const l of scene.labels || []) out += '<g data-label="1">' + S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 }) + '</g>';
     return out;
   }
   // No word may leave the box that holds it. Measuring the real glyphs is the
@@ -679,7 +763,11 @@
     if (!steps.length) throw new Error('El recorrido no tiene pasos');
     const stage = el('div', undefined, { class: 'lk-wt-stage' });
     const stageWidth = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[2]) || 1200;
-    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth))).join(''), spec.viewBox || '0 0 1200 640');
+    // El ancho declarado es el techo de la figura: 1 unidad ≈ 1 píxel. En modo
+    // ancho la columna mide el doble y, sin esto, la escena se estiraba a 1,7×.
+    stage.style.setProperty('--lk-vb', `${stageWidth}px`);
+    const stageTop = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[1]) || 0;
+    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth, stageTop))).join(''), spec.viewBox || '0 0 1200 640');
     stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
     const captionTitle = el('strong');
     const captionText = el('p');
@@ -725,6 +813,8 @@
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
     this.append(full, stage, hint, bar, caption);
     fitSceneText(stage);
+    placeCallouts(stage);
+    watchCallouts(stage, () => fitSceneText(stage));
     steps.forEach((_, i) => {
       const dot = button(String(i + 1), () => go(i));
       dot.className = 'lk-wt-dot';
@@ -767,9 +857,11 @@
     const viewBox = spec.viewBox || '0 0 1200 520';
     const stageWidth = Number(viewBox.trim().split(/[\s,]+/)[2]) || 1200;
     const stage = el('div', undefined, { class: 'lk-scene-stage' });
+    stage.style.setProperty('--lk-vb', `${stageWidth}px`);
     // Parsed as an SVG document, never assigned as HTML: the markup is ours and
     // already escaped, but a figure has no business executing anything.
-    const parsed = new DOMParser().parseFromString(S.svg(walkScene(spec.scene || {}, stageWidth), viewBox), 'image/svg+xml');
+    const stageTop = Number(viewBox.trim().split(/[\s,]+/)[1]) || 0;
+    const parsed = new DOMParser().parseFromString(S.svg(walkScene(spec.scene || {}, stageWidth, stageTop), viewBox), 'image/svg+xml');
     if (parsed.querySelector('parsererror')) throw new Error('La escena no se pudo dibujar: SVG inválido');
     stage.append(document.importNode(parsed.documentElement, true));
     const svg = stage.querySelector('svg');
@@ -784,6 +876,8 @@
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
     this.append(figure);
     fitSceneText(stage, { minPx: 11, flagOverflow: true });
+    placeCallouts(stage);
+    watchCallouts(stage, () => fitSceneText(stage, { minPx: 11, flagOverflow: true }));
   });
 
   // A figure drawn from its meaning by the visual engine (tools/visuals). The
@@ -802,6 +896,8 @@
       document.head.append(tokens);
     }
     const stage = el('div', undefined, { class: 'lk-figure-stage' });
+    const viewWidth = Number(String(scene.viewBox || '').trim().split(/[\s,]+/)[2]);
+    if (viewWidth > 0) stage.style.setProperty('--lk-vb', `${viewWidth}px`);
     let markup;
     try { markup = V.renderScene(scene, { mode: 'vars', style: false }); }
     catch (error) { throw new Error(`La figura no se pudo dibujar: ${error.message}`); }

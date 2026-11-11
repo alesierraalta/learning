@@ -105,8 +105,10 @@ test('ningún texto de una escena se dibuja por debajo de 11 px', { skip: SKIP }
     scene: {
       boxes: [{ ...BOX_A, label: 'WWWWWWWW' }, { ...BOX_B, label: 'WWWWWWWW' }],
       // Glifos anchos: el ajuste de texto llegaba al suelo del 55 % del tamaño
-      // declarado y dejaba la etiqueta a 7 px sin decírselo a nadie.
-      arrows: [{ x1: 208, y1: 108, x2: 552, y2: 108, label: 'WWWWWWWWWWWWWWWW', tone: 'ink', labelSize: 15, width: 3 }],
+      // declarado y dejaba la etiqueta a 7 px sin decírselo a nadie. La etiqueta
+      // va al lado del trazo entero, así que tiene que ser larga para no caber ni
+      // en el tramo libre de la flecha.
+      arrows: [{ x1: 208, y1: 108, x2: 552, y2: 108, label: 'WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW', tone: 'ink', labelSize: 15, width: 3 }],
     },
   };
   const [shot] = await measure(page({ s: spec }), ['s']);

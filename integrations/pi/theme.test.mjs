@@ -99,7 +99,7 @@ test("the dark paper keeps its figures legible: an island resets the ink, not on
   const island = css.match(/:root\[data-theme="dark"\] \.lk-walkthrough \{[^}]*\}/);
   assert.ok(island, "the walkthrough keeps a light paper inside the dark page");
   assert.match(island[0], /color: var\(--ink\)/, "text inherited from the page turns dark again inside the island");
-  const mermaid = css.match(/:root\[data-theme="dark"\] pre\.mermaid \{[^}]*\}/);
+  const mermaid = css.match(/:root:is\(\[data-theme="dark"\], \[data-theme="black"\]\) pre\.mermaid \{[^}]*\}/);
   assert.ok(mermaid && /color: var\(--ink\)/.test(mermaid[0]), "a mermaid diagram is drawn on its own light paper");
 });
 
@@ -142,4 +142,24 @@ test("the figure renderer runs as a classic script and names tones, not colours"
   assert.match(svg, /var\(--v-blue\)/, "a figure names a tone");
   assert.doesNotMatch(svg, /<style>/, "the token block is injected once per page, not once per figure");
   assert.match(visuals.themeCss(), /--v-ink:#F1EFE8/, "the dark paper travels with the renderer");
+});
+
+// #207: the learner read the annotated formula on the black paper and the figure
+// had no sheet at all — dark ink on black. The two night themes were written as
+// one selector list, so each rule applied to only half of them: `lk-scene` got
+// its paper in dark and lost it in black.
+const ruleBody = (css, head) => {
+  const at = css.indexOf(head);
+  return at === -1 ? null : css.slice(at + head.length, css.indexOf("}", at));
+};
+
+test("a figure keeps its light paper on both night themes, not on one of them", () => {
+  const css = readFileSync(join(import.meta.dirname, "kit", "kit.css"), "utf8");
+  const night = ':root:is([data-theme="dark"], [data-theme="black"])';
+  for (const [selector, what] of [["lk-scene", "la escena"], ["pre.mermaid", "el diagrama de mermaid"]]) {
+    const body = ruleBody(css, `${night} ${selector} {`);
+    assert.ok(body, `${what} no tiene hoja clara en los dos papeles de noche: en el negro queda con tinta oscura sobre el fondo`);
+    assert.match(body, /background: #fff/, `${what} no conserva su hoja`);
+    assert.match(body, /color: var\(--ink\)/, `${what} hereda la tinta clara del papel de noche`);
+  }
 });

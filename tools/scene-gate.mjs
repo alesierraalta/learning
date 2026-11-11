@@ -18,6 +18,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const KIT = fileURLToPath(new URL('../integrations/pi/kit', import.meta.url));
 const MIN_PX = 11;
+// Aire mínimo en el borde del lienzo, y alto máximo de una franja vacía: una
+// figura no se corta en el borde ni deja un tercio de su lienzo en blanco.
+const EDGE = 12;
+const BAND = 60;
 
 async function loadPlaywright() {
   const attempts = [];
@@ -97,7 +101,7 @@ try {
       await page.goto(pathToFileURL(join(dir, 'page.html')).href);
       await page.waitForSelector('lk-scene svg', { timeout: 15000 });
       await page.waitForTimeout(400);
-      const report = await page.evaluate((minPx) => [...document.querySelectorAll('lk-scene')].map((host) => {
+      const report = await page.evaluate(({ minPx, EDGE, BAND }) => [...document.querySelectorAll('lk-scene')].map((host) => {
         const svg = host.querySelector('svg');
         const width = svg.getBoundingClientRect().width;
         const bounds = svg.viewBox.baseVal.width;
@@ -111,6 +115,27 @@ try {
         for (const t of texts) if (t.px < minPx) problems.push({ kind: 'text-too-small', text: t.text, detail: `${t.px.toFixed(1)} px` });
         if (host.querySelector('.lk-scene-stage')?.dataset.overflow) problems.push({ kind: 'scene-overflow', text: host.getAttribute('title') || '', detail: 'el ajuste no pudo encajar el texto sin comprimirlo' });
         for (const t of texts) if (t.x < -1 || t.x + t.w > bounds + 1) problems.push({ kind: 'text-outside-canvas', text: t.text, detail: `x ${t.x.toFixed(0)}–${(t.x + t.w).toFixed(0)} fuera de 0–${bounds}` });
+        // Una pieza pegada al borde se corta en cuanto el lector cambia el ancho:
+        // la caja «μ = 120 ms» vivía a 0 unidades del tope y en pantalla completa
+        // se veía sin su filete de arriba.
+        const vb = svg.viewBox.baseVal;
+        const pieces = [
+          ...[...svg.querySelectorAll('rect, circle, text')].map((el) => ({ el, b: el.getBBox() })),
+          ...[...svg.querySelectorAll('path')].filter((p) => !p.closest('marker')).map((el) => ({ el, b: el.getBBox() })),
+        ].filter(({ b }) => b.width > 1 || b.height > 1);
+        for (const { el, b } of pieces) {
+          const air = Math.min(b.x - vb.x, b.y - vb.y, vb.x + vb.width - (b.x + b.width), vb.y + vb.height - (b.y + b.height));
+          if (air < EDGE) problems.push({ kind: 'al-borde', text: (el.textContent || '').trim().slice(0, 40) || el.tagName.toLowerCase(), detail: `a ${air.toFixed(0)}u del borde (mínimo ${EDGE}u)` });
+        }
+        // Una franja vacía más alta que 60 unidades es lienzo que nadie mira: el
+        // resumen dejaba un tercio de su alto en blanco debajo de las etiquetas.
+        const spans = pieces.map(({ b }) => [b.y, b.y + b.height]).sort((a, b) => a[0] - b[0]);
+        let cursor = vb.y;
+        for (const [start, end] of spans) {
+          if (start - cursor > BAND) problems.push({ kind: 'lienzo-vacio', text: host.getAttribute('title') || '', detail: `franja vacía de ${(start - cursor).toFixed(0)}u entre y ${cursor.toFixed(0)} y y ${start.toFixed(0)}` });
+          cursor = Math.max(cursor, end);
+        }
+        if (vb.y + vb.height - cursor > BAND) problems.push({ kind: 'lienzo-vacio', text: host.getAttribute('title') || '', detail: `franja vacía de ${(vb.y + vb.height - cursor).toFixed(0)}u al pie del lienzo` });
         for (let i = 0; i < texts.length; i++) {
           for (let j = i + 1; j < texts.length; j++) {
             const a = texts[i], b = texts[j];
@@ -122,7 +147,7 @@ try {
           }
         }
         return { title: host.getAttribute('title') || '', problems };
-      }), MIN_PX);
+      }), { minPx: MIN_PX, EDGE, BAND });
 
       scenes += report.length;
       report.forEach((scene, i) => {

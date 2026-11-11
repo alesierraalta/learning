@@ -42,9 +42,9 @@ El ejemplo sigue: el robot aspira la sala.
 
 <lk-scene>
 <script type="application/json">
-{"viewBox":"0 0 760 230","title":"La flecha sobre el texto","scene":{"boxes":[
-{"x":8,"y":64,"w":196,"h":110,"label":"A","tone":"blue"},
-{"x":556,"y":64,"w":196,"h":110,"label":"B","tone":"green"}],
+{"viewBox":"0 0 760 210","title":"La flecha sobre el texto","scene":{"boxes":[
+{"x":20,"y":50,"w":196,"h":110,"label":"A","tone":"blue"},
+{"x":556,"y":50,"w":184,"h":110,"label":"B","tone":"green"}],
 "arrows":[{"x1":208,"y1":119,"x2":552,"y2":119,"tone":"blue","width":3}],
 "labels":[{"x":380,"y":128,"text":"encima","size":26}]}}
 </script>
@@ -60,6 +60,12 @@ const CLEAN = BROKEN.replace(
   '"arrows":[{"x1":208,"y1":119,"x2":552,"y2":119,"tone":"blue","width":3}],\n"labels":[{"x":380,"y":128,"text":"encima","size":26}]',
   '"arrows":[{"x1":208,"y1":119,"x2":552,"y2":119,"label":"acción","tone":"blue","width":3,"labelAt":0.5}]',
 );
+
+/** A part whose box sits on the canvas edge: `al-borde`, in scene-gate's words. */
+const AT_THE_EDGE = BROKEN.replace(
+  '"boxes":[\n{"x":20,"y":50,"w":196,"h":110,"label":"A","tone":"blue"},',
+  '"boxes":[\n{"x":0,"y":50,"w":208,"h":110,"label":"A","tone":"blue"},',
+).replace('"title":"La flecha sobre el texto"', '"title":"La caja en el borde"');
 
 function note(name, body) {
   const path = join(dir, name);
@@ -82,9 +88,22 @@ test("a part whose arrow crosses its own text is a finding, in the tool's words"
   );
 });
 
-test("a part that passes the three tools is clean", { skip: needsBrowser }, async () => {
+test("a part that passes the four tools is clean", { skip: needsBrowser }, async () => {
   const checked = await runPartChecks([note("limpia.md", CLEAN)]);
-  assert.deepEqual(checked, { kind: "clean" });
+  assert.deepEqual(checked, { kind: "clean" }, "the canvas gate has nothing to say about a figure with air");
+});
+
+// The studio measured the ink inside the boxes but never the canvas: a piece on the
+// viewBox edge was clipped in the reader and the turn was offered as done.
+test("a piece on the viewBox edge reaches the tutor as an al-borde finding", { skip: needsBrowser }, async () => {
+  const checked = await runPartChecks([note("al-borde.md", AT_THE_EDGE)]);
+  assert.equal(checked.kind, "findings", JSON.stringify(checked));
+  const gate = checked.tools.find((found) => found.tool === "scene-gate.mjs");
+  assert.ok(gate, "scene-gate is what measured the canvas");
+  assert.match(gate.findings[0], /^al-borde: rect \(a 0u del borde/, "the finding is the tool's own line");
+  assert.match(gate.output, /escena 1/, "its output is kept whole for the tutor");
+  assert.match(gate.output, /1 problema\(s\) en 1 escena\(s\)/, "the tool's own summary travels with it");
+  assert.equal(checked.first, gate.findings[0], "the learner hears the canvas finding first");
 });
 
 test("a tool that cannot run is a check failure, not a finding for the tutor", async () => {
@@ -92,8 +111,11 @@ test("a tool that cannot run is a check failure, not a finding for the tutor", a
   const empty = mkdtempSync(join(tmpdir(), "no-tools-"));
   const checked = await runPartChecks([note("sin-herramientas.md", BROKEN)], { toolsDir: empty });
   assert.equal(checked.kind, "crashed", JSON.stringify(checked));
-  assert.equal(checked.failures.length, 3, "every tool reports its own failure");
-  assert.match(checked.failures[0], /scene-lint\.mjs no pudo medir sin-herramientas\.md/);
+  assert.equal(checked.failures.length, 4, "every tool reports its own failure");
+  assert.ok(
+    checked.failures.some((failure) => /scene-lint\.mjs no pudo medir sin-herramientas\.md/.test(failure)),
+    checked.failures.join(" | "),
+  );
 });
 
 test("a tool that fails without naming a finding is a failure, not an empty finding", async () => {
@@ -101,6 +123,7 @@ test("a tool that fails without naming a finding is a failure, not an empty find
   // would send the tutor to fix a part the tool never measured.
   const broken = mkdtempSync(join(tmpdir(), "throwing-tools-"));
   mkdirSync(broken, { recursive: true });
+  writeFileSync(join(broken, "scene-gate.mjs"), "process.exit(0);\n");
   writeFileSync(join(broken, "scene-lint.mjs"), "throw new Error('boom');\n");
   writeFileSync(join(broken, "deck-gate.mjs"), "process.exit(0);\n");
   writeFileSync(join(broken, "explain-check.mjs"), "process.exit(0);\n");
@@ -115,6 +138,7 @@ test("a deck gate without a browser is a check failure, never a clean pass", asy
   // The VPS prints this when Playwright cannot be found. Reading it as "no findings"
   // would offer a part nobody measured as done; it belongs to the studio's log.
   const noBrowser = mkdtempSync(join(tmpdir(), "no-browser-tools-"));
+  writeFileSync(join(noBrowser, "scene-gate.mjs"), "process.exit(0);\n");
   writeFileSync(join(noBrowser, "scene-lint.mjs"), "process.exit(0);\n");
   writeFileSync(
     join(noBrowser, "deck-gate.mjs"),
