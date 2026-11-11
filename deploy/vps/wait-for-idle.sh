@@ -21,12 +21,19 @@ wait_seconds="${LEARNING_DEPLOY_IDLE_WAIT:-600}"
 poll_seconds="${LEARNING_DEPLOY_IDLE_POLL:-15}"
 turn_timeout_ms="${LEARNING_TURN_TIMEOUT_MS:-3600000}"
 
-# The studio runs on Node; the marker is read by the studio's own module.
-node_bin=$(command -v node 2>/dev/null || true)
+# The marker is read by the studio's own TypeScript module, so the reader must be
+# the Node the studio itself runs: the distro's older Node cannot execute .ts and
+# once aborted a deploy after the pull. STUDIO_NODE wins, then the studio's own
+# binary, then whatever PATH offers.
+node_bin="${STUDIO_NODE:-}"
 if [[ -z "$node_bin" && -x "$HOME/.local/node/bin/node" ]]; then
   node_bin="$HOME/.local/node/bin/node"
 fi
+if [[ -z "$node_bin" ]]; then
+  node_bin=$(command -v node 2>/dev/null || true)
+fi
 [[ -n "$node_bin" ]] || { echo 'wait-for-idle: missing prerequisite: Node' >&2; exit 1; }
+[[ -x "$node_bin" ]] || { echo "wait-for-idle: node is not executable: $node_bin" >&2; exit 1; }
 
 status() { "$node_bin" "$repo/studio/state.ts" --busy "$busy_file" --timeout-ms "$turn_timeout_ms"; }
 

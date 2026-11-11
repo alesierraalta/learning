@@ -81,6 +81,31 @@ function markBusyFile(s, mark) {
   writeFileSync(s.busy, JSON.stringify(mark));
 }
 
+/** A PATH node that cannot run TypeScript, like the distro's older Node on the VPS. */
+function misleadingNode(s) {
+  const path = join(s.bin, "node");
+  writeFileSync(path, `#!/usr/bin/env bash\nexec 1 >&2\necho 'TypeError [ERR_UNKNOWN_FILE_EXTENSION]: Unknown file extension ".ts"' >&2\n`);
+  chmodSync(path, 0o755);
+  return path;
+}
+
+test("the idle reader uses the studio's own node, not an older one on PATH", () => {
+  const s = sandbox();
+  misleadingNode(s);
+  // The studio runs on ~/.local/node/bin/node; a deploy must read the marker with it.
+  const run = deploy(s, { STUDIO_NODE: process.execPath });
+  assert.equal(run.status, 0, `expected the deploy to read the marker with STUDIO_NODE: ${run.stderr}`);
+  assert.deepEqual(restarts(s), ["--user restart learning-studio"]);
+});
+
+test("an unreadable idle marker aborts the deploy instead of guessing", () => {
+  const s = sandbox();
+  misleadingNode(s);
+  const run = deploy(s, { STUDIO_NODE: join(s.bin, "node") });
+  assert.notEqual(run.status, 0, "a reader that cannot run must not restart the studio or report idle");
+  assert.deepEqual(restarts(s), [], "never restart on an unreadable marker");
+});
+
 test("an idle studio is restarted after the build", () => {
   const s = sandbox();
   const run = deploy(s);
