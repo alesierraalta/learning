@@ -94,6 +94,10 @@ export interface StudioOptions {
   agyCommand?: string[];
   /** Disable the tutor process and tutor actions; this is not a sandbox. */
   agentDisabled?: boolean;
+  /** Time without an SSE client before calling onIdle; disabled when absent or nonpositive. */
+  idleMs?: number;
+  /** Called once when the idle timer expires. */
+  onIdle?: () => void;
   port?: number;
   publicOrigin?: string;
   bridgePublicOrigin?: string;
@@ -268,6 +272,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 
   // ---- Server-Sent Events ------------------------------------------------
   const clients = new Set<ServerResponse>();
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let closing = false;
+  const clearIdle = () => { clearTimeout(idleTimer); idleTimer = undefined; };
+  const armIdle = () => {
+    if (closing || clients.size !== 0 || !(options.idleMs! > 0)) return;
+    clearIdle();
+    idleTimer = setTimeout(() => { idleTimer = undefined; options.onIdle?.(); }, options.idleMs);
+    idleTimer.unref();
+  };
   const emit = (event: string, data: unknown) => {
     const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const res of clients) res.write(frame);
@@ -1098,12 +1111,13 @@ ${scripts}
   };
 
   const events = async (res: ServerResponse) => {
+    clients.add(res);
+    clearIdle();
+    res.on("close", () => { clients.delete(res); armIdle(); });
     res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", "x-content-type-options": "nosniff" });
     res.write(`event: history\ndata: ${JSON.stringify(await history())}\n\n`);
     res.write(`event: state\ndata: ${JSON.stringify(state())}\n\n`);
     for (const dialog of dialogs.values()) res.write(`event: dialog\ndata: ${JSON.stringify(dialog)}\n\n`);
-    clients.add(res);
-    res.on("close", () => clients.delete(res));
   };
 
   const tokenMatches = (candidate: string) => {
@@ -1295,11 +1309,14 @@ ${scripts}
   }
   if (!bridgeOrigin) throw new Error("the study-view bridge did not start");
   if (!options.agentDisabled) startTutor(tutor);
+  armIdle();
 
   return {
     url: `http://127.0.0.1:${port}/${token}/`,
     port,
     close: async () => {
+      closing = true;
+      clearIdle();
       for (const res of clients) res.end();
       clients.clear();
       const proc = child;
@@ -1322,7 +1339,17 @@ export function entryUrl(publicOrigin: string | undefined, port: number): string
 /** `node studio/server.ts` starts the studio and opens it in the Windows browser (WSL). */
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const publicOrigin = process.env.STUDIO_PUBLIC_ORIGIN;
+  const minutes = process.env.STUDIO_IDLE_MINUTES !== undefined ? Number(process.env.STUDIO_IDLE_MINUTES) : publicOrigin !== undefined ? 0 : 30;
+  const stop = async () => {
+    await studio.close();
+    process.exit(0);
+  };
   const studio = await startStudio({
+    idleMs: minutes * 60_000,
+    onIdle: () => {
+      console.log(`Estudio cerrado: ${minutes} min sin páginas abiertas.`);
+      void stop();
+    },
     root: process.env.LEARNING_ROOT?.trim() || undefined,
     agentDisabled: process.env.STUDIO_AGENT_DISABLED === "1",
     port: Number(process.env.STUDIO_PORT) || 4747,
@@ -1338,10 +1365,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (publicOrigin === undefined && !process.argv.includes("--no-open")) {
     spawn("cmd.exe", ["/c", "start", "", entry], { cwd: "/mnt/c", stdio: "ignore", detached: true }).on("error", () => {});
   }
-  const stop = async () => {
-    await studio.close();
-    process.exit(0);
-  };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 }

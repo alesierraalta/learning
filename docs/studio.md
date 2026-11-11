@@ -18,6 +18,10 @@ Set `STUDIO_AGENT_DISABLED=1` to browse without starting Pi. Tutor requests,
 restarts and regeneration return 503. This option is not a security sandbox:
 use separate credentials, data and process isolation for untrusted previews.
 
+`STUDIO_IDLE_MINUTES` sets how long the studio may have no open page before it
+stops itself and Pi (default 30 minutes locally; 0 disables it). Deployed studios
+with `STUDIO_PUBLIC_ORIGIN` set do not idle out unless this variable is set.
+
 ## Configuración › Preferencias
 
 The header opens the preferences page, where each aspect has a menos, medio or más

@@ -74,6 +74,33 @@ function http(url, { method = "GET", headers = {}, body } = {}) {
   });
 }
 
+test("an idle studio calls onIdle once with no client", async () => {
+  let calls = 0;
+  await setup({ idleMs: 150, onIdle: () => { calls++; } });
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(calls, 1);
+});
+
+test("a connected client keeps the studio alive until it leaves", async () => {
+  let calls = 0;
+  const { studio } = await setup({ idleMs: 150, onIdle: () => { calls++; } });
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(calls, 0);
+  } finally { stream.close(); }
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(calls, 1);
+});
+
+test("idleMs zero disables idle shutdown", async () => {
+  let calls = 0;
+  await setup({ idleMs: 0, onIdle: () => { calls++; } });
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(calls, 0);
+});
+
 test("an Antigravity turn that ends with nothing says so", async () => {
   const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "silent-agy.mjs")] });
   const stream = sse(`${studio.url}events`);
