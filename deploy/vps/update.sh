@@ -14,7 +14,9 @@ if [[ "$branch" != main ]]; then
   exit 1
 fi
 # A dirty live tree means someone edited the server by hand: stop and let a
-# person decide instead of pulling on top of it or discarding the work.
+# person decide instead of pulling on top of it or discarding the work. The
+# tutor's links live outside the tree and are re-made below, so they never
+# count as local changes.
 if ! git -C "$repo" diff --quiet || ! git -C "$repo" diff --cached --quiet; then
   echo "Refusing to deploy: $repo has uncommitted changes" >&2
   exit 1
@@ -40,6 +42,15 @@ echo "Deploying $repo at $commit"
 command -v go >/dev/null 2>&1 || { echo 'Missing prerequisite: Go; install Go to rebuild the engine' >&2; exit 1; }
 (cd "$repo" && GOOS=linux GOARCH=amd64 go build -o bin/learning ./cmd/learning)
 [[ -x "$repo/bin/learning" ]] || { echo "Missing executable: $repo/bin/learning" >&2; exit 1; }
+
+# The tutor reads its skill and the Learnings `AGENTS.md` from links this repo
+# owns: a link left pointing at an older copy would teach with another standard,
+# so the deploy links them and refuses to restart when a link does not resolve.
+# The Learnings root is the studio's own (`learning-studio.env`), not a guess,
+# and the linker reads that file the way the shell does: one parser for the
+# deploy and the installer, so quotes and inline comments never reach a path.
+bash "$repo/deploy/vps/link-tutor-context.sh" --env-file "$HOME/.config/learning-studio.env"
+
 systemctl --user restart learning-studio
 bash "$repo/deploy/vps/health.sh"
 echo "Deployed $commit"

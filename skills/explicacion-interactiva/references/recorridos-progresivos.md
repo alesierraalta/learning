@@ -5,7 +5,7 @@ Cada parte enseña su ejemplo con un recorrido a pasos, como el tutorial del est
 ## Cuándo
 
 - **Siempre** en la sección donde aparece el ejemplo que acompaña la parte, antes de pedirle a la persona que lo imagine.
-- Además, en cada sección donde algo **cambia de estado** (un movimiento, una cuenta que se propaga, una decisión, un antes/después).
+- **Una vez por parte**: «Tamaño de parte» fija 1 recorrido. Si la otra sección cambia de estado (un movimiento, una cuenta que se propaga, una decisión, un antes/después), ese cambio es un paso del mismo recorrido, no un segundo recorrido.
 - Una app aparte (`explicaciones/apps/`) o un `lk-widget` no sustituyen al recorrido.
 
 ## Receta (primera versión correcta)
