@@ -37,7 +37,12 @@ const cierre = /(^|\n)#{1,6}\s*(Resumen para guardar|Apuntes comprimidos|En resu
 add('sin-resumen', !cierre, cierre ? 'cierra con un resumen, prohibido' : '');
 
 // 3. Una parte es una idea: dos secciones de contenido como máximo, sin contar Ruta.
-const secciones = [...src.matchAll(/^##\s+(.+)$/gm)].map((m) => m[1].trim()).filter((t) => !/^Ruta$/i.test(t));
+// La Ruta es el mapa y el mini-quiz es el quiz que el mismo estándar pide: no son
+// secciones de contenido. El motor cuenta igual (`contentSections` en
+// `internal/engine/standard.go`), para que su rechazo y esta medición coincidan.
+const secciones = [...src.matchAll(/^##\s+(.+)$/gm)]
+  .map((m) => m[1].trim())
+  .filter((t) => !/^Ruta$/i.test(t) && !/mini-quiz/i.test(t));
 add('secciones', secciones.length <= 2, `${secciones.length} sección(es) de contenido`);
 
 // 4. Una escena y como mucho un recorrido.

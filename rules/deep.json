@@ -100,7 +100,7 @@
     "visualElements": [
       "svg"
     ],
-    "minVisuals": 2,
+    "minVisuals": 1,
     "howToReadLine": "Cómo leerlo",
     "minDemos": 1,
     "demoElements": [
@@ -121,6 +121,14 @@
       "post-preguntas",
       "bitácora"
     ],
+    "partStandard": {
+      "maxProseWords": 450,
+      "maxContentSections": 2,
+      "minRutaLines": 3,
+      "maxRutaLines": 4,
+      "maxScenes": 1,
+      "maxWalkthroughs": 1
+    },
     "pareto": {
       "maxParts": 4,
       "minCriterioChars": 24,
@@ -222,6 +230,11 @@
       {
         "id": "explanation-file",
         "kind": "part_file",
+        "path": "explicaciones/Parte {index} - {slug}.md"
+      },
+      {
+        "id": "explanation-standard",
+        "kind": "part_standard",
         "path": "explicaciones/Parte {index} - {slug}.md"
       },
       {

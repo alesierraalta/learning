@@ -45,6 +45,7 @@ var KnownCheckKinds = map[string]bool{
 	"pareto_plan":               true,
 	"pareto_part":               true,
 	"demo_part":                 true,
+	"part_standard":             true,
 }
 
 // partPathKinds require a {part}/{index}/{slug} placeholder: their artifact is
@@ -54,6 +55,7 @@ var partPathKinds = map[string]bool{
 	"feedback_valid":            true,
 	"feedback_evidence":         true,
 	"explanation_content":       true,
+	"part_standard":             true,
 	"changed_after_failed_quiz": true,
 	"quiz_questions":            true,
 	"quiz_answers":              true,
@@ -205,6 +207,21 @@ type ConceptThresholds struct {
 	MinPassingRatio       Ratio    `json:"minPassingRatio"`
 }
 
+// PartStandardThresholds bound the measured explanation standard a part must
+// meet: the prose budget, the number of content sections and route lines, and
+// the one scene and one walkthrough a part may carry. The block also turns on
+// the standard's non-numeric rules (no ASCII drawing, every formula symbol
+// named, no closing summary), so a rules file that omits it keeps the part
+// checks it started with.
+type PartStandardThresholds struct {
+	MaxProseWords      int `json:"maxProseWords"`
+	MaxContentSections int `json:"maxContentSections"`
+	MinRutaLines       int `json:"minRutaLines"`
+	MaxRutaLines       int `json:"maxRutaLines"`
+	MaxScenes          int `json:"maxScenes"`
+	MaxWalkthroughs    int `json:"maxWalkthroughs"`
+}
+
 // ParetoThresholds bound a pareto-scope run: only the vital slice of each
 // part is taught, and the trim has to be declared before it is applied.
 type ParetoThresholds struct {
@@ -226,6 +243,11 @@ type Thresholds struct {
 	Quiz       QuizThresholds       `json:"quiz"`
 	Concepts   *ConceptThresholds   `json:"concepts,omitempty"`
 	Pareto     *ParetoThresholds    `json:"pareto,omitempty"`
+	// PartStandard turns on the measured explanation standard (a part is one
+	// idea: prose budget, two content sections, a short route, one scene, one
+	// walkthrough). Snapshots without it keep the part checks they started
+	// with.
+	PartStandard *PartStandardThresholds `json:"partStandard,omitempty"`
 	// StrictFlow asks the learner, once the diagnosis settles, how to be taught
 	// (pareto or preferencias) before anything is planned. Snapshots without it
 	// keep going straight from the diagnosis to planning.
@@ -354,6 +376,23 @@ func (r *Rules) validate() error {
 	}
 	if err := r.validateDemo(); err != nil {
 		return err
+	}
+	if err := r.validatePartStandard(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validatePartStandard keeps the explanation-standard check fail-closed: the
+// check that enforces it is rejected unless the rules also bound it.
+func (r *Rules) validatePartStandard() error {
+	usesStandard := r.Thresholds.PartStandard != nil
+	for stage, decls := range r.Checks {
+		for _, d := range decls {
+			if d.Kind == "part_standard" && !usesStandard {
+				return fmt.Errorf("stage %q check %q needs the partStandard thresholds", stage, d.ID)
+			}
+		}
 	}
 	return nil
 }
@@ -577,6 +616,27 @@ func (r *Rules) validateThresholds() error {
 	if t.MinVisuals > 0 && strings.TrimSpace(t.HowToReadLine) == "" {
 		return fmt.Errorf("minVisuals needs howToReadLine: every counted visual carries its reading guide")
 	}
+	if p := t.PartStandard; p != nil {
+		if err := p.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p PartStandardThresholds) validate() error {
+	if p.MaxProseWords < 1 {
+		return fmt.Errorf("partStandard maxProseWords must be positive")
+	}
+	if p.MaxContentSections < 1 {
+		return fmt.Errorf("partStandard maxContentSections must be positive")
+	}
+	if p.MinRutaLines < 1 || p.MaxRutaLines < p.MinRutaLines {
+		return fmt.Errorf("partStandard minRutaLines/maxRutaLines must satisfy 1 <= min <= max")
+	}
+	if p.MaxScenes < 1 || p.MaxWalkthroughs < 1 {
+		return fmt.Errorf("partStandard maxScenes and maxWalkthroughs must be positive")
+	}
 	return nil
 }
 
@@ -627,7 +687,7 @@ func validateDecl(d CheckDecl) error {
 		"changed_after_failed_quiz", "quiz_questions", "feedback_valid",
 		"planificador_sections", "index_note", "mis_palabras_structure",
 		"mis_palabras_area", "exercises_note", "mermaid_graph",
-		"pareto_plan", "pareto_part", "demo_part":
+		"pareto_plan", "pareto_part", "demo_part", "part_standard":
 		err = need("path")
 	case "diagnostic_questions":
 		err = need("path", "note")

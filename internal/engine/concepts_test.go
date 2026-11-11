@@ -440,8 +440,10 @@ func TestOldRunsKeepTheirQuizRules(t *testing.T) {
 }
 
 // Runs started before concept diagnosis keep testdata/rules-adaptive-diagnosis.json;
-// production differs only by the concept-diagnosis additions and the later
-// walkthrough-progression review.
+// production differs only by the concept-diagnosis additions, the later
+// walkthrough-progression review and the explanation standard (a part built to
+// the standard carries one scene, so new runs ask for one visual and measure the
+// part; the frozen snapshot keeps its own two-visual minimum and no standard).
 func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	load := func(path string) map[string]any {
 		raw, err := os.ReadFile(path)
@@ -458,12 +460,14 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	delete(prod["thresholds"].(map[string]any), "concepts")
 	undoStrictFlow(prod)
 	delete(prod["thresholds"].(map[string]any), "strictFlow")
+	delete(prod["thresholds"].(map[string]any), "partStandard")
+	prod["thresholds"].(map[string]any)["minVisuals"] = float64(2)
 	checks := prod["checks"].(map[string]any)
 	for stage, list := range checks {
 		var keep []any
 		for _, item := range list.([]any) {
 			decl := item.(map[string]any)
-			if decl["kind"] == "concept_verdicts" {
+			if decl["kind"] == "concept_verdicts" || decl["kind"] == "part_standard" {
 				continue
 			}
 			delete(decl, "verdicts")

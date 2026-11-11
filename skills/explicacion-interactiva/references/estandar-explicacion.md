@@ -18,7 +18,7 @@ Presupuesto, medido, no estimado:
 | Qué | Tope |
 |---|---|
 | Prosa de la parte (sin código, tablas ni bloques visuales) | **450 palabras** |
-| Secciones de contenido además de `## Ruta` | 2 |
+| Secciones de contenido además de `## Ruta` y del heading del mini-quiz | 2 |
 | Líneas de `## Ruta` | 4 |
 | Escenas | 1 |
 | Recorridos (`lk-walkthrough`) | 1 |
@@ -29,6 +29,14 @@ Se cuenta antes de entregar:
 ```bash
 sed '/^```/,/^```/d; /<lk-scene>/,/<\/lk-scene>/d; /<lk-walkthrough>/,/<\/lk-walkthrough>/d' "Parte N.md" | wc -w
 ```
+
+Esa cuenta es la estimación rápida en el baúl. La medida exacta es la del motor
+(`explanation-standard`, `thresholds.partStandard` en `rules/deep.json`): prosa sin bloques de
+código, sin filas de tabla, sin títulos, sin etiquetas HTML sueltas y sin los bloques
+`lk-scene`/`lk-walkthrough`. El motor rechaza la parte con el número medido, el tope y la
+corrección («split the part in two»), así que no hay que adivinar: se entrega y, si el motor la
+rechaza, se parte. El heading del mini-quiz no cuenta como sección de contenido: es el quiz que
+este mismo estándar pide.
 
 Si pasa de 450, **la parte se divide**; nunca se comprime. Dividir es barato: el motor ya
 gobierna partes y mini-quizzes. Meter tres ideas en una parte para «no hacer más partes» es el
