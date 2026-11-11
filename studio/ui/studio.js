@@ -413,14 +413,43 @@
       const ids = ((t.gaps && t.gaps.missing) || []).join(", ");
       return `Escribe las partes que faltan de ${t.title} (carpeta ${t.id}): ${ids}. Cada una con sus visuales, sus ejemplos y su mini-quiz.`;
     },
+    /**
+     * A failed part is not rewritten: the engine closes it as failed and owes the intermediate
+     * part declared right after it in plan.json (SKILL.md, «Reprobar»). The turn asks for that
+     * part, with its own diagnosis and a mini-quiz whose questions are new.
+     */
+    redo: (t, part) => {
+      const n = partNumber(t, part);
+      return [
+        `Rehaz la Parte ${n} «${part.title}» de ${t.title} (carpeta ${t.id}): su mini-quiz salió mal.`,
+        `Analiza por qué falló y qué sí entendió, y declara justo después en plan.json su parte intermedia`,
+        `(id «${part.id}r<n>», con "remedia": "${part.id}" y "analisis": ese diagnóstico).`,
+        `Esa parte nueva explica exactamente la carencia, con sus visuales, sus ejemplos y un mini-quiz`,
+        `con preguntas nuevas, ninguna repetida de los intentos anteriores.`,
+        `La Parte ${n} reprobada no se borra: queda cerrada como reprobada.`,
+      ].join(" ");
+    },
   };
 
-  /** One sentence and one button: what to do next in a topic. */
+  /**
+   * One sentence and one button: what to do next in a topic. It reads the engine's own report on
+   * the topic (status, stage, part), so the step is the one the engine calls for and never a guess
+   * from what the tutor happened to write.
+   */
   function nextStep(topic) {
     const stage = topic.nextStage || topic.stage;
     const where = STAGE_IN[stage] || stage || "";
     const part = topic.part ? partName(topic, topic.part) : "";
     const read = (id) => Object.assign(() => go(`#/leer/${topic.id}/${id}`), { route: `#/leer/${topic.id}/${id}` });
+    /** The part the engine points at, if the plan still has it. */
+    const current = topic.part ? topic.parts[partIndex(topic, topic.part)] : undefined;
+    /** A written part is read and quizzed on its own page: one button, the part's own name. */
+    const readPart = (p) => ({
+      tone: "you",
+      label: "Te toca a ti",
+      text: stage === "quiz" ? `Responde el mini-quiz de la Parte ${partNumber(topic, p)}: ${p.title}.` : `Lee la Parte ${partNumber(topic, p)}: ${p.title}.`,
+      cta: [`Ir a Parte ${partNumber(topic, p)}`, read(p.id)],
+    });
     if (topic.status === "sin inscribir") {
       const owed = owedPart(topic);
       if (owed) return { ...askWrite(topic, owed), tone: "test", label: "Sin seguimiento del motor" };
@@ -429,27 +458,36 @@
     if (topic.status === "completed") {
       return { tone: "done", label: "Terminado", text: "Completaste este tema. Puedes repasarlo cuando quieras.", cta: ["Repasar mis lagunas", () => say(prompts.gaps(topic))] };
     }
+    // The engine's remediation: the part failed its mini-quiz and owes its intermediate part,
+    // which the tutor declares in plan.json and teaches. It comes before «blocked», because a
+    // failed part is exactly what the engine reports as blocked.
+    if (stage === "remedial" && current) {
+      const n = partNumber(topic, current);
+      return {
+        tone: "alert",
+        label: "Reprobaste",
+        text: `Reprobaste el mini-quiz de la Parte ${n}: el tutor puede rehacerla como la parte intermedia que el motor pide.`,
+        cta: [`Regenerar Parte ${n}`, () => say(prompts.redo(topic, current), topic.id, { deep: true })],
+      };
+    }
     if (topic.status === "waiting") {
       if (stage === "diagnosis") return { tone: "you", label: "Te toca a ti", text: "Responde el diagnóstico inicial: con tus respuestas el tutor entiende qué sabes y enfoca el plan de tu ruta.", cta: ["Responder el diagnóstico", read("quiz")] };
       // A part with no file yet cannot be read, quizzed or poured into own words:
       // the tutor writes it first, and that is the step the learner asks for.
-      const current = topic.part ? topic.parts[partIndex(topic, topic.part)] : undefined;
       if (current && !current.written) return askWrite(topic, current);
       if (stage === "explanation") {
         const owed = owedPart(topic);
         if (owed) return askWrite(topic, owed);
       }
-      if (stage === "quiz" && topic.part) return { tone: "you", label: "Te toca a ti", text: `Responde el mini-quiz de ${part}.`, cta: ["Ir al quiz", read(topic.part)] };
+      if (stage === "quiz" && current) return readPart(current);
       if (stage === "own_words") return { tone: "you", label: "Te toca a ti", text: `Escribe con tus palabras lo que entendiste de ${part}.`, cta: ["Escribírselo al tutor", () => openDrawer(`Mi vuelco de ${part} de ${topic.title}: `)] };
       return { tone: "you", label: "Te toca a ti", text: `El tutor espera tu respuesta (${where}).`, cta: ["Abrir el tutor", () => openDrawer()] };
     }
     if (topic.status === "blocked") {
       return { tone: "alert", label: "Pendiente del tutor", text: `El tutor dejó algo sin terminar en ${where}${part ? ` de ${part}` : ""}. Pídele que lo resuelva.`, cta: ["Pedir que lo termine", () => say(prompts.resume(topic))] };
     }
-    if (stage === "explanation" && topic.part) {
-      const p = topic.parts[partIndex(topic, topic.part)];
-      if (p && p.written) return { tone: "tutor", label: "Sigue leyendo", text: `Lee ${part}: ${p.title}.`, cta: ["Leer ahora", read(p.id)] };
-    }
+    // The engine points at a part the learner has not read or quizzed yet: that part is the step.
+    if ((stage === "explanation" || stage === "quiz") && current && current.written) return readPart(current);
     if (stage === "explanation") {
       const owed = owedPart(topic);
       if (owed) return askWrite(topic, owed);
@@ -2013,7 +2051,7 @@
   }
 
   // ---------- tutor ----------
-  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null, turnNote: null, turnTopic: null };
+  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null, turnNote: null, turnTopic: null, turnTema: null };
   let chats = { activo: "", chats: [] };
   let chatRevision = 0;
   const chatHeading = h("strong", {}, "Chats");
@@ -2247,6 +2285,9 @@
     thread.scrollTop = thread.scrollHeight;
   });
   on("state", (s) => {
+    // The topic the turn teaches, from the studio: the end of a turn that wrote nothing still
+    // knows which topic to offer the next step of.
+    if (s.tema !== undefined) tutor.turnTema = s.tema;
     if (tutor.busy && !s.busy) offerTurnEnd();
     tutor.busy = s.busy;
     tutor.alive = s.alive;
@@ -2288,11 +2329,13 @@
   const noteButton = (note) => (noteRoute(note) ? btn(noteLabel(note), () => openNote(note), "btn small ghost", "book") : null);
   // A turn ends with what to do next, right under the explanation: the topic it worked on
   // offers its next step (the learner never has to guess it from the reply), and a turn that
-  // wrote a note offers the way to it. The turn may have created the topic, so the library is
-  // read again before deciding.
+  // wrote a note offers the way to it. The step comes from the engine's own report on the topic
+  // — the library is read again, because the turn may have created or advanced it — and never
+  // from which file the turn happened to write: a turn that wrote nothing still ends with it.
   const offerTurnEnd = async () => {
     const note = tutor.turnNote;
-    const topicId = tutor.turnTopic;
+    // The topic the turn taught, even when it wrote nothing: the studio knows it from the turn.
+    const topicId = tutor.turnTopic || tutor.turnTema;
     tutor.turnNote = null;
     tutor.turnTopic = null;
     if (!note && !topicId) return;
@@ -2300,14 +2343,19 @@
     const topic = topicId ? topicById(topicId) : null;
     const step = topic ? nextStep(topic) : null;
     const [label, action] = step ? step.cta : [];
-    if (step && !(note && action.route && action.route === noteRoute(note))) {
+    // One button per destination: when the engine's step already opens the note the turn wrote,
+    // only one of the two is drawn. A part is offered by its own name («Ir a Parte N»), so the
+    // step wins there; the diagnosis keeps the offer #179 gave it («Ir al diagnóstico»).
+    const sameRoute = Boolean(note && action && action.route && action.route === noteRoute(note));
+    const stepWins = sameRoute && !note.diagnosis;
+    if (step && !(sameRoute && note.diagnosis)) {
       const run = () => {
         closeDrawer();
         action();
       };
       append(h("div", { class: "next-cta" }, h("p", {}, h("strong", {}, `${step.label}: `), step.text), btn(label, run, "btn small primary", "next")));
     }
-    if (!note) return;
+    if (!note || stepWins) return;
     showNote(note);
     const button = noteButton(note);
     if (button) append(h("div", { class: "note-cta" }, button));

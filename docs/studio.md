@@ -150,6 +150,43 @@ runs and replaces the tutor: the way out of a turn that never settles.
   starts exactly one deep turn so the tutor plans with it. Inside the studio the Pi adapter no
   longer pushes the method question; a standalone Pi session still does.
 
+### The next step at the end of a turn
+
+Every tutor turn ends with **exactly one** next-step button, under the reply (`.next-cta` in the
+chat, `offerTurnEnd` and `nextStep` in `studio/ui/studio.js`). The step is read from the engine's
+own report on the topic the turn taught — the library is fetched again when the turn ends, so the
+engine decides, never the files the turn happened to write. A turn that wrote nothing still gets
+it: the `state` event carries `tema`, the topic of the last turn start (`null` when the turn
+taught none), and the topic of the last successful `write`/`edit` is the fallback for a turn that
+bound its topic while it ran. A turn that taught no topic offers none.
+
+What the engine reports decides the button:
+
+| Engine report | Button |
+| --- | --- |
+| `waiting`, stage `diagnosis` | «Responder el diagnóstico» → `#/leer/<topic>/quiz` |
+| stage `method` with no recorded method | «Elegir el método» → the topic page's method card |
+| a part that is written and still owes `explanation` or `quiz` | «Ir a Parte N» → `#/leer/<topic>/<part>` |
+| a part the engine points at that is not written | «Escribir la Parte N» → one turn (`POST prompt`) |
+| `remedial` (the part's mini-quiz failed) | «Regenerar Parte N» → one deep turn (`POST prompt {text, tema}`) |
+| `completed` | «Repasar mis lagunas» |
+
+A failed mini-quiz is the engine's remediation, not a rewrite: the part stays closed as failed and
+owes the intermediate part declared right after it in `plan.json` (`<parte>r<n>`, with `remedia`
+and `analisis`, and a mini-quiz whose questions are new). «Regenerar Parte N» asks the tutor for
+exactly that, in a deep turn, so the gate judges it against the engine like any other turn. It does
+not go through `POST api/regenerar`, whose contract is the opposite one — move the part to the
+trash and keep the plan unchanged.
+
+The same step is on the topic page (`continueCard` in `topicView`), so a reload never loses it, and
+the results view of a submitted quiz offers it once the tutor has read the answers. One button per
+destination: when the engine's step already opens the note the turn wrote, the note is not offered
+a second time under the same reply, and the head keeps «Ir a la nota» / «Ir al diagnóstico».
+
+Every button that starts a turn goes through the existing post path, so the single-turn rule holds:
+pressed while the tutor works, it starts nothing and the chat shows the Spanish
+`El tutor está trabajando; espera a que termine.` The button stays usable — nothing is queued.
+
 ### What tests prove, and what they do not
 
 Byte for byte, the tests assert the prompts each tutor receives: the mode line inside the turn, the
@@ -158,9 +195,11 @@ the engine's failing reason, the bound topic of a creation turn, and the Spanish
 conformance scenario runs unchanged against both runtimes: the turn is held while it runs, one
 correction per failing settle carrying the engine's reason, the turn released when the engine
 clears, the Spanish stop when it never clears, the hosted view refused with the Spanish `409`
-while the turn is held, and the gate prompt never served as the learner's message. What no test can
-prove is a model's compliance: the instructions are asserted as text, and only the engine's verdict
-binds the outcome.
+while the turn is held, and the gate prompt never served as the learner's message. The next step is
+proven for both runtimes too: the button each engine state calls for (Parte 1 written, a passed
+mini-quiz, a failed one), the same step after a reload, a turn that writes nothing, and the Spanish
+refusal that starts nothing. What no test can prove is a model's compliance: the instructions are
+asserted as text, and only the engine's verdict binds the outcome.
 
 ## Conversaciones
 

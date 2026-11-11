@@ -309,6 +309,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const agyTurns: Array<{ role: "user" | "assistant"; text: string }> = [];
   /** The topic the learner picked for deep tutoring; general chat and quick notes never set it. */
   let tema: string | null = null;
+  /**
+   * The topic the last turn taught, or null when it taught none. The page needs it at the end of
+   * the turn to offer that topic's next step: a turn that writes nothing still teaches a topic.
+   */
+  let turnTopic: string | null = null;
   let gateBlocked = false;
   /**
    * The one turn in flight, from the moment the studio accepts it until its settle is decided —
@@ -326,7 +331,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   // A tool's end event may arrive without its arguments; the row keeps the ones its start carried.
   const toolArgs = new Map<string, unknown>();
   const dialogs = new Map<string, Json>();
-  const state = () => ({ busy: turn !== null, alive });
+  const state = () => ({ busy: turn !== null, alive, tema: turnTopic });
 
   const handle = (record: Json) => {
     const type = record.type;
@@ -699,6 +704,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   /** Holds the one turn and tells the page the tutor is working. */
   const holdTurn = (started: Turn) => {
     turn = started;
+    turnTopic = started.topic;
     emit("state", state());
   };
 
