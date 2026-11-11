@@ -830,13 +830,6 @@ const MODE_LINE = {
   rapido: "[Modo de estudio: rápido — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
   universitario: "[Modo de estudio: universitario — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
 };
-/** What the engine reports once the learner is owed the method question. */
-const METHOD_STAGE = {
-  status: "accepted",
-  stage: "method",
-  nextStage: "method",
-  checks: [{ id: "method-chosen", status: "SKIP", reason: "the learner has not chosen how to be taught yet" }],
-};
 /** What the engine reports when the method is recorded and planning is next. */
 const METHOD_RECORDED = { status: "accepted", stage: "method", nextStage: "planning", method: "pareto", checks: [{ id: "method-chosen", status: "PASS", reason: "the learner chose pareto" }] };
 
@@ -2577,4 +2570,91 @@ test("a drifted tutor context refuses the Antigravity turn and starts nothing", 
     assert.match((await stream.next("error")).message, /deploy\/vps\/update\.sh/);
     assert.equal(turns().length, 1, "the refused turn never started Antigravity");
   } finally { stream.close(); }
+});
+
+// ---- the turn boundary: the idle marker and the conversation copy ------------
+/**
+ * A studio whose state directory the test owns: the idle marker a deploy reads
+ * and the conversation copy a restart comes back to live next to `opened.json`.
+ */
+async function stateSetup(options = {}) {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const stateDir = mkdtempSync(join(tmpdir(), "studio-state-"));
+  const studio = await startStudio({
+    root,
+    piCommand: [process.execPath, FAKE_PI],
+    enginePath: engine,
+    openedFile: join(stateDir, "opened.json"),
+    ...options,
+  });
+  open.push(studio);
+  return { studio, root, stateDir, busy: join(stateDir, "busy.json"), snapshot: join(stateDir, "conversacion.json") };
+}
+
+test("a held turn is readable as busy and the conversation is written as it happens", async () => {
+  const { studio, busy, snapshot } = await stateSetup();
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "Responde el diagnóstico" })).status, 200);
+    await stream.next("user");
+
+    const mark = JSON.parse(readFileSync(busy, "utf8"));
+    assert.equal(mark.busy, true, "a deploy can read the turn without a token");
+    assert.equal(mark.pid, process.pid, "the marker names the process that holds it");
+    const held = JSON.parse(readFileSync(snapshot, "utf8"));
+    assert.deepEqual(held.messages.slice(-1), [{ role: "user", text: "Responde el diagnóstico" }], "the learner's message is on disk while the turn runs");
+    assert.ok(held.messages.length >= 3, "the copy keeps the thread the runtime served at boot");
+    assert.ok(held.interrupted, "a turn in flight is marked, so a process that dies leaves it marked");
+
+    assert.equal((await post(studio, "dialog", { id: "d1", value: "Universitario" })).status, 200);
+    await stream.next("state", (s) => s.busy === false);
+    assert.equal(existsSync(busy), false, "a finished turn leaves no marker");
+    const ended = JSON.parse(readFileSync(snapshot, "utf8"));
+    assert.deepEqual(ended.messages.slice(-2).map((m) => m.role), ["user", "assistant"], "the answer is on disk too");
+    assert.equal(ended.interrupted, null, "a turn that ended is not interrupted");
+  } finally { stream.close(); }
+});
+
+test("a turn a restart interrupted comes back with its topic and the resume action", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "studio-state-"));
+  const chatId = "abc123abc123";
+  writeFileSync(join(stateDir, "chats.json"), JSON.stringify({
+    version: 1,
+    activo: chatId,
+    chats: [{ id: chatId, nombre: "Chat general", ambito: null, piSession: null, agyConversation: null, creado: 1, usado: 1, contexto: null }],
+  }));
+  writeFileSync(join(stateDir, "conversacion.json"), JSON.stringify({
+    version: 1,
+    chat: chatId,
+    messages: [{ role: "user", text: "Responde el diagnóstico" }],
+    interrupted: { topic: "redes", at: 1 },
+  }));
+  // The runtime lost its session: its history is empty and the studio's copy is all there is.
+  process.env.FAKE_PI_HISTORY = "1";
+  const { studio } = await stateSetup({ openedFile: join(stateDir, "opened.json") });
+  delete process.env.FAKE_PI_HISTORY;
+  const stream = sse(`${studio.url}events`);
+  try {
+    const history = await stream.next("history");
+    assert.deepEqual(history.interrupted, { topic: "redes", title: "Redes" }, "the chat says the turn was interrupted");
+    assert.deepEqual(history.messages, [{ role: "user", text: "Responde el diagnóstico" }], "the conversation is not lost with the runtime session");
+  } finally { stream.close(); }
+});
+
+test("closing the studio, as SIGTERM does, writes the conversation and the turn it held", async () => {
+  const { studio, snapshot } = await stateSetup();
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1" })).status, 200);
+  await stream.next("user");
+  // The CLI's SIGTERM handler is `studio.close()`: the process goes away mid-turn.
+  await studio.close();
+  stream.close();
+  const doc = JSON.parse(readFileSync(snapshot, "utf8"));
+  assert.deepEqual(doc.messages.slice(-1), [{ role: "user", text: "Escribe la Parte 1" }], "the turn reached the copy before the process went away");
+  assert.ok(doc.interrupted, "the turn it was holding is marked as interrupted");
 });

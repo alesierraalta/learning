@@ -3,7 +3,8 @@
 // scrolling compose. Geometry is asserted, not eyeballed.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -2411,4 +2412,38 @@ test("a tablet keeps its whole page width under the panel", { skip: browser ? fa
   await page.setViewportSize({ width: 820, height: 1180 });
   await page.waitForTimeout(500);
   assert.equal((await panelGeometry(page)).drawer.width, 520);
+});
+
+test("an interrupted turn shows in Spanish with the way back", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const stateDir = mkdtempSync(join(tmpdir(), "studio-state-"));
+  const chatId = "abc123abc123";
+  writeFileSync(join(stateDir, "chats.json"), JSON.stringify({
+    version: 1,
+    activo: chatId,
+    chats: [{ id: chatId, nombre: "Chat general", ambito: null, piSession: null, agyConversation: null, creado: 1, usado: 1, contexto: null }],
+  }));
+  writeFileSync(join(stateDir, "conversacion.json"), JSON.stringify({
+    version: 1,
+    chat: chatId,
+    messages: [{ role: "user", text: "Responde el diagnóstico" }],
+    interrupted: { topic: "redes", at: 1 },
+  }));
+  const studio = await startStudio({
+    root,
+    piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")],
+    enginePath: engine,
+    openedFile: join(stateDir, "opened.json"),
+  });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  const notice = page.locator(".next-cta.interrupted");
+  await notice.waitFor();
+  assert.match(await notice.innerText(), /El turno se interrumpió; el tutor puede seguir con Redes/);
+  // The button's CSS uppercases it; the words are the resume action's.
+  assert.match((await notice.locator("button").innerText()).trim(), /^seguir con redes$/i);
 });

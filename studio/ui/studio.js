@@ -2275,13 +2275,24 @@
   on("chats", setChats);
   const initialChatRevision = chatRevision;
   request("api/chats").then((doc) => { if (chatRevision === initialChatRevision) setChats(doc); }).catch((error) => toast(error.message));
-  on("history", ({ messages, note }) => {
+  /**
+   * A turn the studio lost (a deploy stopped it) is not a silent empty chat: the chat says
+   * so in Spanish and offers the way back to the topic it was teaching.
+   */
+  function interruptedCard({ topic, title }) {
+    const name = title || topic || "";
+    const text = name ? `El turno se interrumpió; el tutor puede seguir con ${name}.` : "El turno se interrumpió; el tutor puede seguir.";
+    const resume = () => (topic ? say(`Sigamos con ${name} (carpeta ${topic}).`, topic, { deep: true }) : say("Sigamos."));
+    return h("div", { class: "next-cta interrupted" }, h("p", {}, text), btn(name ? `Seguir con ${name}` : "Seguir", resume, "btn small primary", "next"));
+  }
+  on("history", ({ messages, note, interrupted }) => {
     thread.replaceChildren();
     assistant.clear();
     activities.clear();
     showNote(note);
     if (!messages.length) thread.append(intro);
     for (const m of messages) thread.append(m.role === "user" ? h("div", { class: "msg user" }, m.text) : h("div", { class: "msg assistant" }, ...markdown(m.text).childNodes));
+    if (interrupted) append(interruptedCard(interrupted));
     thread.scrollTop = thread.scrollHeight;
   });
   on("state", (s) => {

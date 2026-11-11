@@ -106,6 +106,20 @@ Update fast-forwards Git, rebuilds and verifies the engine, links the tutor's in
 
 `update.sh` refuses to run when `~/learning` is on a branch other than `main` or has uncommitted changes, so a hand edit on the server is never pulled over or discarded.
 
+### The restart waits for the tutor
+
+A restart ends whatever turn the studio is running, and a turn killed mid-write is a learner left with an empty chat (issue #194). So the deploy never restarts a busy studio: after the build and the tutor links, and before `systemctl --user restart`, it reads the studio's idle marker and waits while a turn is in flight.
+
+The marker is `$XDG_STATE_HOME/learning-studio/busy.json` (`~/.local/state/learning-studio/busy.json` by default, next to `opened.json`): `{"busy": true, "pid": <pid>, "startedAt": <epoch ms>, "topic": <topic or null>}`. The studio writes it when it accepts a turn and removes it when the turn ends; it needs no token, so the deploy reads it as the same user. `deploy/vps/wait-for-idle.sh` asks the studio's own module (`studio/state.ts`) whether the marker holds: a marker whose pid is gone, or whose turn started more than the turn timeout ago (one hour), is a crashed studio's leftover and never blocks a deploy.
+
+The wait is bounded at ten minutes (poll every 15 s; `LEARNING_DEPLOY_IDLE_WAIT` and `LEARNING_DEPLOY_IDLE_POLL` override it). If the turn is still running, the deploy **defers** and exits 3 with:
+
+```
+deferring: the tutor is working on <topic>; the studio keeps serving and the next deploy will restart it
+```
+
+A deferred deploy is a **swapped-but-not-restarted** half state, on purpose: `bin/learning` and the tutor links are already the new commit, the studio process keeps serving the previous Node code, and the service is never stopped. That is safe because the engine binary is invoked per call from the same commit and the studio passes it the same flags, and because the next deploy is idempotent: the tree is already at `origin/main`, the build is reproducible, the links verify, and only the restart is still owed. The deploy workflow marks the run red (the deploy did not finish); the next push to `main`, or *Actions → Deploy studio → Run workflow*, retries it. There is no timer that retries on its own.
+
 ### Tutor instructions
 
 The tutor reads its instructions from outside this repo: the skill `explicacion-interactiva` from `~/.claude/skills/` and `~/.agents/skills/`, and the Learnings `AGENTS.md` (`<LEARNING_ROOT>/AGENTS.md`) that frames a study session. `deploy/vps/update.sh` — and `install.sh` on a first install — links them with `deploy/vps/link-tutor-context.sh`, after the build and before the restart: every directory under `skills/` that has a `SKILL.md` is linked into both skills directories, and `deploy/vps/learnings/AGENTS.md` becomes the Learnings `AGENTS.md`. The Learnings root is the studio's own `LEARNING_ROOT` (from `~/.config/learning-studio.env`), `~/Learnings` by default. Both the deploy and the installer hand that file to the linker with `--env-file <path>`, which sources it in a subshell: a quoted value and an inline `# comment` behave the way the shell defines them, so `LEARNING_ROOT="/srv/learnings"` links `/srv/learnings` and not a directory whose name carries the quote. A missing file falls back to `~/Learnings`, and a `LEARNING_ROOT` that is not an absolute path fails the deploy with `LEARNING_ROOT must be an absolute path` instead of linking relative to whatever directory it ran from.
@@ -118,7 +132,7 @@ The studio refuses a tutor turn while a link points elsewhere: it names the drif
 
 `.github/workflows/ci.yml` runs on GitHub-hosted runners for every pull request and every push to `main`: `gofmt`, `go vet`, `go test ./...`, `go test -race ./...`, the engine build, the digest-pinned sandbox images, Playwright Chromium, and the adapter and studio suites. A second job, `Deploy scripts`, runs on pull requests only: it checks every script under `deploy/vps` with `bash -n` and `shellcheck --severity=warning`, so a broken deploy script fails review instead of the next merge. Reproduce it locally with the commands in [README](../README.md#verification); set `PLAYWRIGHT_MODULE` to the global Playwright entry point when the module is installed globally.
 
-`.github/workflows/deploy.yml` runs on the VPS itself, through a repository-scoped self-hosted runner labelled `learning-vps`. It triggers on `push` to `main` and on manual `workflow_dispatch`; pull requests never target it. The job calls `deploy/vps/update.sh`, so delivery follows the same path as a manual update: fast-forward, rebuild, restart, health. The script re-executes itself after the fast-forward, so a merge that changes it takes effect in that same deploy. A failed build stops before the restart and marks the run red; the service keeps serving the previous binary.
+`.github/workflows/deploy.yml` runs on the VPS itself, through a repository-scoped self-hosted runner labelled `learning-vps`. It triggers on `push` to `main` and on manual `workflow_dispatch`; pull requests never target it. The job calls `deploy/vps/update.sh`, so delivery follows the same path as a manual update: fast-forward, rebuild, restart, health. The script re-executes itself after the fast-forward, so a merge that changes it takes effect in that same deploy. A failed build stops before the restart and marks the run red; the service keeps serving the previous binary. A deploy that finds a tutor turn still running after the wait also marks the run red and exits 3 without restarting; the service keeps serving, and the next run only has to restart it (see [The restart waits for the tutor](#the-restart-waits-for-the-tutor)).
 
 ### Install or re-register the runner
 

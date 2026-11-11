@@ -239,6 +239,29 @@ ninguno y su fila no muestra barra. Las filas de herramientas pertenecen a la co
 que las produjo: el evento `tool` lleva el id del chat y el navegador descarta las que no son
 de la activa.
 
+## La señal de ocupado y el turno interrumpido
+
+El estudio escribe, junto a `opened.json`, dos archivos de estado que un despliegue lee sin
+token (`$XDG_STATE_HOME/learning-studio/`):
+
+- `busy.json`: `{"busy": true, "pid", "startedAt", "topic"}` mientras un turno está en
+  vuelo. Se escribe al aceptar el turno (antes de pedirle nada al runtime) y se borra cuando
+  el turno termina. `deploy/vps/update.sh` lo lee para no reiniciar el estudio mientras el
+  tutor trabaja; la regla vive en `studio/state.ts` y el despliegue la consulta con
+  `node studio/state.ts --busy <archivo>`. Un marcador cuyo proceso ya no existe, o cuyo
+  turno empezó hace más de una hora, es un resto de un estudio caído y nunca bloquea un
+  despliegue.
+- `conversacion.json`: la copia que el estudio guarda de la conversación activa
+  (`{version, chat, messages, interrupted}`). Se escribe al aceptar el turno, cada vez que
+  llega un mensaje del alumno o del tutor, y otra vez al cerrar el proceso (SIGTERM). Si el
+  runtime pierde su sesión, el chat se abre con esta copia en vez de quedar vacío.
+
+Un turno que no llegó a terminar queda marcado (`interrupted: {topic, at}`) porque el
+proceso que lo sostenía desapareció. Al arrancar, el chat lo dice en español y ofrece el
+camino de vuelta: «El turno se interrumpió; el tutor puede seguir con <tema>», con el botón
+«Seguir con <tema>», que retoma el tema como un turno profundo. La marca se limpia cuando el
+turno termina o cuando el alumno empieza otro; mientras tanto sobrevive a las recargas.
+
 ## Wide reading mode
 
 Every part page carries a **Modo ancho** toggle in its top-right corner. Off by

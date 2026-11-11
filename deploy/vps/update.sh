@@ -51,6 +51,27 @@ command -v go >/dev/null 2>&1 || { echo 'Missing prerequisite: Go; install Go to
 # deploy and the installer, so quotes and inline comments never reach a path.
 bash "$repo/deploy/vps/link-tutor-context.sh" --env-file "$HOME/.config/learning-studio.env"
 
-systemctl --user restart learning-studio
+# The restart is what ends a tutor turn, so the deploy waits for the studio to be
+# idle first: a turn that is still writing is never killed. The marker lives next
+# to opened.json and the rule is the studio's own (studio/state.ts). Past the bound
+# the deploy defers and exits 3: the new engine and links are already in place, the
+# service keeps serving, and the next deploy only has to restart it (idempotent).
+topic=""
+wait_status=0
+topic=$(bash "$repo/deploy/vps/wait-for-idle.sh") || wait_status=$?
+if (( wait_status == 3 )); then
+  echo "deferring: the tutor is working on ${topic:-un tema}; the studio keeps serving and the next deploy will restart it" >&2
+  exit 3
+fi
+if (( wait_status != 0 )); then
+  # A broken gate is not a busy tutor: say which one it is and leave the service alone.
+  echo "wait-for-idle failed (exit $wait_status); not restarting" >&2
+  exit "$wait_status"
+fi
+
+# The restart command is overridable so the deploy tests record it instead of
+# touching a service.
+systemctl_bin="${SYSTEMCTL:-systemctl}"
+"$systemctl_bin" --user restart learning-studio
 bash "$repo/deploy/vps/health.sh"
 echo "Deployed $commit"
