@@ -189,9 +189,24 @@ test("an Antigravity write or edit reaches the chat as the note and topic it tou
     const ends = stream.events.filter(event => event.name === "tool" && event.data.phase === "end").map(event => event.data);
     assert.deepEqual(ends.map(({ name, ok, note, topic }) => ({ name, ok, note, topic })), [
       { name: "write", ok: true, note: { topic: "redes", index: 1 }, topic: "redes" },
-      { name: "edit", ok: true, note: undefined, topic: "redes" },
+      { name: "edit", ok: true, note: { topic: "redes", diagnosis: true }, topic: "redes" },
     ]);
     assert.equal(stream.events.filter(event => event.name === "tool" && event.data.phase === "start").length, 2, "one start per step");
+  } finally { stream.close(); }
+});
+
+test("an Antigravity diagnosis write reaches the chat as a note and topic", async () => {
+  const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "diagnosis-agy.mjs")] });
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Escribe el diagnóstico" })).status, 200);
+    await stream.next("assistant_end");
+    await stream.next("state", data => data.busy === false);
+    const end = stream.events.find(event => event.name === "tool" && event.data.phase === "end").data;
+    assert.deepEqual({ note: end.note, topic: end.topic }, { note: { topic: "redes", diagnosis: true }, topic: "redes" });
   } finally { stream.close(); }
 });
 
@@ -589,6 +604,11 @@ test("a path inside a topic folder names that topic, whatever file it is", () =>
 });
 
 test("a part note path resolves to the topic and part the reader routes on", () => {
+  assert.deepEqual(noteFromPath("/home/ale/Learnings/redes/quiz.md"), { topic: "redes", diagnosis: true });
+  assert.deepEqual(noteFromPath("/home/ale/Learnings/redes/quiz.md", "/home/ale/Learnings"), { topic: "redes", diagnosis: true });
+  assert.equal(noteFromPath("/home/ale/Learnings/redes/sub/quiz.md", "/home/ale/Learnings"), null);
+  assert.equal(noteFromPath("redes/explicaciones/quiz.md"), null, "a quiz nested in a topic's folders is not the diagnosis");
+  assert.equal(noteFromPath("/home/ale/Learnings/redes/quiz.json", "/home/ale/Learnings"), null);
   assert.deepEqual(noteFromPath("/home/ale/Learnings/redes/explicaciones/Parte 3 - Capas.md"), { topic: "redes", index: 3 });
   assert.deepEqual(noteFromPath("redes/explicaciones/Parte 1 - Algo.md"), { topic: "redes", index: 1 });
   assert.deepEqual(noteFromPath("C:\\Users\\ismar\\Learnings\\redes\\explicaciones\\Parte 12 - Redes.md"), { topic: "redes", index: 12 });
@@ -602,6 +622,7 @@ test("a part note path resolves to the topic and part the reader routes on", () 
 });
 
 test("a quick note path resolves to the quick note the reader opens", () => {
+  assert.deepEqual(noteFromPath("/home/ale/Learnings/rapidos/quiz.md", "/home/ale/Learnings"), { quick: "quiz" });
   assert.deepEqual(noteFromPath("/home/ale/Learnings/rapidos/hash.md"), { quick: "hash" });
   assert.deepEqual(noteFromPath("C:\\Users\\ismar\\Learnings\\rapidos\\que-es-dns.md"), { quick: "que-es-dns" });
   assert.equal(noteFromPath("/home/ale/Learnings/rapidos/notas.txt"), null);
@@ -610,6 +631,7 @@ test("a quick note path resolves to the quick note the reader opens", () => {
 
 test("the conversation remembers the last part note the tutor wrote", () => {
   const call = (name, path) => ({ role: "assistant", content: [{ type: "toolCall", id: "t", name, arguments: { path } }] });
+  assert.deepEqual(noteFromMessages([call("write", "redes/quiz.md")]), { topic: "redes", diagnosis: true });
   assert.deepEqual(noteFromMessages([call("write", "redes/explicaciones/Parte 1 - Capas.md")]), { topic: "redes", index: 1 });
   assert.deepEqual(
     noteFromMessages([call("write", "redes/explicaciones/Parte 1 - Capas.md"), call("edit", "redes/explicaciones/Parte 3 - TCP.md")]),
