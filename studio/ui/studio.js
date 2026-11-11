@@ -454,6 +454,10 @@
       const owed = owedPart(topic);
       if (owed) return askWrite(topic, owed);
     }
+    // The method is the page's question, never the tutor's.
+    if (stage === "method" && !topic.method) {
+      return { tone: "you", label: "Te toca a ti", text: "Elige cómo quieres que te enseñe: el 20% vital o a tu ritmo, con tus preferencias.", cta: ["Elegir el método", () => go(`#/tema/${topic.id}`)] };
+    }
     return { tone: "tutor", label: "Siguiente paso", text: `El tutor puede seguir con ${where || "el tema"}.`, cta: ["Seguir", () => say(prompts.resume(topic))] };
   }
 
@@ -678,6 +682,84 @@
     ];
   }
 
+  /**
+   * «Aprender algo nuevo»: the learner writes what to learn and picks the mode before sending, so no
+   * tutor asks it. The mode travels in the prompt; sending without one is impossible from here.
+   */
+  function newLearningEntry() {
+    const input = h("input", { type: "text", name: "topic", "aria-label": "¿Qué quieres aprender?", placeholder: "Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…", autocomplete: "off" });
+    let modo = "";
+    const pick = (id) => {
+      modo = id;
+      for (const b of picks) b.setAttribute("aria-pressed", String(b.dataset.modo === id));
+      refresh();
+    };
+    const refresh = () => {
+      submit.disabled = !modo || !input.value.trim();
+    };
+    const picks = [
+      ["universitario", "Universitario", "plan, diagnóstico y partes con quiz"],
+      ["rapido", "Rápido", "una nota breve para entenderlo hoy"],
+    ].map(([id, title, hint]) =>
+      h("button", { type: "button", class: "mode-pick", "data-modo": id, "aria-pressed": "false", onclick: () => pick(id) }, h("b", {}, title), h("span", {}, hint)),
+    );
+    const submit = h("button", { class: "btn primary", type: "submit", disabled: true }, icon("spark"), "Empezar");
+    const send = async () => {
+      const text = input.value.trim();
+      // No mode, no send: the disabled button is the affordance, this is the rule.
+      if (!text || !modo) return input.focus();
+      openDrawer();
+      try {
+        await post("api/aprender", { text, modo });
+      } catch (error) {
+        append(h("div", { class: "notice error" }, `No se pudo enviar: ${error.message}`));
+        return; // what the learner wrote and chose stays where it is
+      }
+      input.value = "";
+      modo = "";
+      for (const b of picks) b.setAttribute("aria-pressed", "false");
+      refresh();
+    };
+    input.addEventListener("input", refresh);
+    return h(
+      "section",
+      { class: "new-learning", "aria-label": "Aprender algo nuevo" },
+      h("p", { class: "learn-hint" }, "Elige rápido o universitario: el tutor no te lo pregunta."),
+      h("form", { class: "ask-big", onsubmit: (event) => { event.preventDefault(); send(); } }, input, submit),
+      h("div", { class: "mode-picks", role: "group", "aria-label": "Modo de estudio" }, picks),
+    );
+  }
+
+  /**
+   * The engine's method stage: the page asks how to be taught and records the choice with the
+   * engine's own command; the tutor then plans with it. The tutor never asks this in the chat.
+   */
+  function methodCard(topic) {
+    const card = h(
+      "section",
+      { class: "method-card reveal", "aria-label": "Cómo quieres que te enseñe" },
+      h("h2", {}, "¿Cómo quieres que te enseñe?"),
+      h("p", { class: "muted" }, "El método cambia el plan: elige una vez y el tutor sigue."),
+      h(
+        "div",
+        { class: "methods" },
+        h("button", { class: "method", type: "button", onclick: () => choose("pareto") }, h("b", {}, "Pareto"), h("span", {}, "El 20% vital: lo que más se usa, sin rodeos.")),
+        h("button", { class: "method", type: "button", onclick: () => choose("preferencias") }, h("b", {}, "Preferencias"), h("span", {}, "A tu ritmo, con tus ejemplos y lo que ya sabes.")),
+      ),
+    );
+    async function choose(metodo) {
+      const buttons = [...card.querySelectorAll("button")];
+      for (const b of buttons) b.disabled = true;
+      try {
+        await post("api/metodo", { tema: topic.id, metodo });
+      } catch (error) {
+        for (const b of buttons) b.disabled = false;
+        toast(error.message);
+      }
+    }
+    return card;
+  }
+
   function homeView() {
     setCrumbs([{ text: "Inicio" }]);
     const order = { you: 0, tutor: 1, alert: 2, done: 4, test: 5 };
@@ -685,14 +767,6 @@
     const focus = ranked.find((r) => r.s.tone !== "test" && r.s.tone !== "done") || ranked[0];
     // The cards follow the last time each topic was opened; never-opened ones keep the order above.
     const byOpened = [...ranked].sort((x, y) => (y.t.opened || 0) - (x.t.opened || 0));
-    const input = h("input", { type: "text", name: "topic", "aria-label": "¿Qué quieres aprender?", placeholder: "Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…", autocomplete: "off" });
-    const start = (event) => {
-      event.preventDefault();
-      const text = input.value.trim();
-      if (!text) return input.focus();
-      say(`Quiero aprender ${text}.`);
-      input.value = "";
-    };
     const page = h(
       "div",
       { class: "page home-page" },
@@ -705,13 +779,7 @@
           h("p", { class: "eyebrow" }, "Tu cuaderno de estudio"),
           h("h1", {}, "¿Qué ", h("em", {}, "estudiamos"), h("br"), "hoy?"),
           h("p", { class: "lede" }, "Elige un tema de tu biblioteca o pide uno nuevo. El tutor trabaja de fondo: prepara el plan, escribe las explicaciones, corrige tus respuestas y te guía."),
-          h("form", { class: "ask-big", onsubmit: start }, input, h("button", { class: "btn primary", type: "submit" }, icon("spark"), "Empezar")),
-          h(
-            "div",
-            { class: "modes" },
-            h("div", { class: "mode uni" }, h("b", {}, "Universitario: "), "plan, diagnóstico, partes con quiz y seguimiento hasta dominarlo."),
-            h("div", { class: "mode quick" }, h("b", {}, "Rápido: "), "una nota breve para entender algo hoy. El tutor te pregunta cuál prefieres."),
-          ),
+          newLearningEntry(),
         ),
         focus ? continueCard(focus.t, focus.s, false, true) : h("div", { class: "continue reveal", style: "--i:1" }, h("span", { class: "label" }, "Para empezar"), h("p", { class: "next" }, "Todavía no tienes temas. Escribe arriba lo que quieres aprender.")),
       ),
@@ -890,6 +958,7 @@
                   btn("Pedir las que faltan", () => say(prompts.fill(topic), topic.id), "btn small ghost", "spark"),
                 )
               : null,
+            (topic.nextStage || topic.stage) === "method" && !topic.method ? methodCard(topic) : null,
             h("div", { class: "topic-route-heading" }, h("h2", {}, "Tu ruta de aprendizaje"), h("span", {}, "Diagnóstico y partes")),
             h("ol", { class: "route", "aria-label": "Ruta del tema" }, rows),
           ),
@@ -2005,7 +2074,7 @@
     "div",
     { class: "intro" },
     h("h3", {}, "Tu tutor"),
-    h("p", {}, "Trabaja de fondo con tu método de siempre. Pídele lo que necesites; cuando tenga que preguntarte algo (por ejemplo, si lo quieres universitario o rápido) verás aquí unos botones."),
+    h("p", {}, "Trabaja de fondo con tu método de siempre. Pídele lo que necesites; cuando tenga que preguntarte algo verás aquí unos botones. Para empezar algo nuevo, usa «Aprender algo nuevo» y elige el modo ahí."),
     h(
       "div",
       { class: "chips" },
@@ -2401,6 +2470,7 @@
     h("section", { class: "chats", id: "tutor-chats", "aria-label": "Chats" },
       h("div", { class: "chats-head" }, chatHeading, btn("＋ Chat", createChat, "btn small")), chatList),
     thread,
+    h("details", { class: "panel-learning" }, h("summary", {}, "Aprender algo nuevo"), newLearningEntry()),
     h(
       "div",
       { class: "composer" },

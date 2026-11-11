@@ -59,8 +59,8 @@ import {
 } from "./chats.ts";
 import { parsePiModels } from "./pi-models.ts";
 import { enrolled } from "./gate.ts";
-import { gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
-import { createSettleGate, isGatePrompt } from "./runtime.ts";
+import { PASS_STATUSES, gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
+import { STUDY_MODES, createSettleGate, isStudioPrompt, modeLine } from "./runtime.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, tutorContext, validateSugerencia } from "./sugerencias.ts";
@@ -167,7 +167,12 @@ function toolLabel(name: string, args: unknown): string {
  * The one tutor turn the studio has accepted and not yet decided against the engine. A turn is only
  * decided against the engine when it names a topic, and a correction is never a learner's turn.
  */
-type Turn = { topic: string | null; correction: boolean };
+type Turn = {
+  topic: string | null;
+  correction: boolean;
+  /** A Universitario request whose topic does not exist yet: the first topic folder it writes. */
+  creation?: boolean;
+};
 
 /** The learner reads this when the studio refuses a second turn: one turn at a time, studio-wide. */
 const TURN_ACTIVE = "El tutor está trabajando; espera a que termine.";
@@ -330,6 +335,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         const settled = turn;
         if (!settled) return;
         if (!settled.topic) {
+          // A Universitario request whose tutor wrote no topic folder has nothing to gate; the
+          // learner is told instead of being left with a silent stop.
+          if (settled.creation) emit("notice", { level: "warning", message: "El tutor no creó ningún tema todavía." });
           releaseTurn(settled);
           return;
         }
@@ -341,7 +349,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         if (isRecord(message) && message.role === "user") {
           const text = messageText(message);
           // The gate's instruction is the studio's prompt, never the learner's own words.
-          if (isGatePrompt(text)) return;
+          if (isStudioPrompt(text)) return;
           if (text) {
             emit("user", { text });
             if (agy) agyTurns.push({ role: "user", text });
@@ -382,6 +390,13 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         toolArgs.delete(id);
         const note = toolNote(name, args, root);
         const topic = toolTopic(name, args, root);
+        // A Universitario request creates the topic its own writes name: the first folder the tutor
+        // writes into becomes the held turn's topic, so the gate can ask the engine about it.
+        if (turn?.creation && turn.topic === null && !record.isError && topic !== null) {
+          turn.topic = topic;
+          tema = topic;
+          gateBlocked = false;
+        }
         emit("tool", { phase: "end", chat: chats.activo, id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
       }
@@ -640,12 +655,19 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     return named && listTopics(root).some((topic) => topic.id === named) && enrolled(root, named) ? named : null;
   };
 
+  /** The tutor's continuation once the page recorded the method: the instruction the push carried. */
+  const methodPrompt = (metodo: string) =>
+    `Learning engine: the learner chose the ${metodo} method. Plan the route now with that method (planificador.md and plan.json), ` +
+    "validate and advance planning, then continue to part 1. The plan is yours: never show it or list future parts to the learner.";
+
   /**
    * The engine's own report on a topic: the call the library makes, so the gate and the library can
    * never describe the same topic differently, with the error handling that call already has.
    */
   const runGate = async (topic: string) => {
-    const report = await engineStatus(join(root, topic));
+    // The engine's own answer, even for a folder with no run yet: a topic a Universitario request
+    // just created must still hear the engine's words ("run not initialized: …"), not a shortcut.
+    const report = await engineReport(join(root, topic));
     const verdict = gateVerdict(report as GateReport);
     // A gate for a topic the learner already left says nothing about the one they are on.
     if (tema === topic) {
@@ -712,13 +734,13 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * page, a regeneration. Every one names the topic it teaches, or says in code why it teaches none.
    * The turn is held until its settle is decided; only an accepted learner turn restores the budget.
    */
-  const startTurn = async (text: string, spec: { topic: string | null; correction?: boolean }) => {
+  const startTurn = async (text: string, spec: { topic: string | null; correction?: boolean; creation?: boolean }) => {
     requireNoTurn();
     // Never route a turn before the studio knows which conversation it belongs to.
     await ready;
     // `ready` can take a moment, and the studio must not hold two turns because of it.
     requireNoTurn();
-    const started: Turn = { topic: spec.topic, correction: spec.correction === true };
+    const started: Turn = { topic: spec.topic, correction: spec.correction === true, creation: spec.creation === true };
     holdTurn(started);
     try {
       await deliver(text, started);
@@ -812,12 +834,34 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         resolve(parsePiModels(String(stdout ?? "")));
       });
     });
-  const engineStatus = (workspace: string): Promise<Json> =>
+  const engineReport = (workspace: string): Promise<Json> =>
     new Promise((resolve) => {
-      if (!existsSync(enginePath) || !existsSync(join(workspace, ".learning"))) return resolve({ status: "sin inscribir" });
+      if (!existsSync(enginePath)) return resolve({ status: "desconocido" });
       execFile(
         enginePath,
         ["status", "--root", root, "--workspace", workspace, "--rules", rulesPath, "--mode", "deep", "--json"],
+        { timeout: 20000, encoding: "utf8" },
+        (_err, stdout) => {
+          try {
+            const report = JSON.parse(stdout);
+            resolve(isRecord(report) ? report : { status: "desconocido" });
+          } catch {
+            resolve({ status: "desconocido" });
+          }
+        },
+      );
+    });
+
+  /** The library's list: a topic the engine does not track yet has no report to show. */
+  const engineStatus = (workspace: string): Promise<Json> =>
+    !existsSync(enginePath) || !existsSync(join(workspace, ".learning")) ? Promise.resolve({ status: "sin inscribir" }) : engineReport(workspace);
+
+  /** The engine records the learner's method choice with its own command; the studio never guesses it. */
+  const recordMethod = (topic: string, metodo: string): Promise<Json> =>
+    new Promise((resolve) => {
+      execFile(
+        enginePath,
+        ["method", "--root", root, "--workspace", join(root, topic), "--rules", rulesPath, "--method", metodo, "--json"],
         { timeout: 20000, encoding: "utf8" },
         (_err, stdout) => {
           try {
@@ -1053,6 +1097,38 @@ ${scripts}
         gateBlocked = false;
         return sendJson(res, 200, { tema });
       }
+      case "api/aprender": {
+        // One of the learner's questions, asked by the page: the mode is decided before the turn.
+        requireNoTurn();
+        const text = typeof body.text === "string" ? body.text.trim() : "";
+        if (!text || text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "escribe qué quieres aprender");
+        const modo = STUDY_MODES.find((mode) => mode === body.modo);
+        if (!modo) throw new HttpError(400, "elige rápido o universitario antes de enviar");
+        // The topic a university request teaches does not exist yet: its own first write under a
+        // topic folder binds it, and the gate asks the engine about that folder when it settles.
+        await startTurn(`Quiero aprender ${text}.\n\n${modeLine(modo)}`, { topic: null, creation: modo === "universitario" });
+        return sendJson(res, 200, { ok: true, modo });
+      }
+      case "api/metodo": {
+        // The engine's method stage, answered on the page: recorded with the engine's own command.
+        requireNoTurn();
+        const topic = requireTopic(body.tema);
+        const metodo = body.metodo === "pareto" || body.metodo === "preferencias" ? body.metodo : "";
+        if (!metodo) throw new HttpError(400, "elige pareto o preferencias");
+        const report = await recordMethod(topic, metodo);
+        if (!PASS_STATUSES.has(String(report.status))) {
+          const failed = Array.isArray(report.checks) ? report.checks.find((check) => isRecord(check) && check.status === "FAIL") : undefined;
+          const reason = isRecord(failed) && typeof failed.reason === "string" ? failed.reason : String(report.status);
+          process.stderr.write(`estudio: el motor no aceptó el método ${metodo} en ${topic} · ${reason}\n`);
+          throw new HttpError(409, "El motor no aceptó esa elección: el tema no está en el momento de elegir el método.");
+        }
+        tema = topic;
+        gateBlocked = false;
+        emit("library_changed", {});
+        // The tutor continues to planning with the method the learner just chose.
+        await startTurn(methodPrompt(metodo), { topic });
+        return sendJson(res, 200, { ok: true, metodo });
+      }
       case "prompt": {
         const text = body.text;
         if (typeof text !== "string" || !text.trim() || text.length > MAX_PROMPT_CHARS) {
@@ -1240,7 +1316,7 @@ ${scripts}
         .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
         .map((m) => ({ role: m.role, text: messageText(m) }))
         // The gate's instruction is the studio's own prompt: the thread keeps the learner's words.
-        .filter((m) => m.text && !(m.role === "user" && isGatePrompt(m.text)));
+        .filter((m) => m.text && !(m.role === "user" && isStudioPrompt(m.text)));
       return { messages, note: noteFromMessages(raw, root) };
     } catch {
       return { messages: [], note: null };

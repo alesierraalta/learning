@@ -11,8 +11,25 @@ import { MAX_CORRECTIONS, PASS_STATUSES, type GateReport } from "../integrations
 /** A learner reads this message in the chat; the gate writes it and the chat knows its own words. */
 export const GATE_PREFIX = "Learning gate:";
 
-/** The gate's instruction, told apart from what the learner typed, in the events and in the thread. */
-export const isGatePrompt = (text: string): boolean => text.startsWith(GATE_PREFIX);
+/** Every prompt the studio writes itself, told apart from what the learner typed: the gate's
+ * correction and the method hand-off are instructions, never the learner's words. */
+const STUDIO_PREFIXES = [GATE_PREFIX, "Learning engine:"];
+
+/** The studio's own instruction, told apart from the learner's words in the events and the thread. */
+export const isStudioPrompt = (text: string): boolean => STUDIO_PREFIXES.some((prefix) => text.startsWith(prefix));
+
+/** The two study modes the page offers; the learner picks one before a new request is sent. */
+export const STUDY_MODES = ["rapido", "universitario"] as const;
+export type StudyMode = (typeof STUDY_MODES)[number];
+
+/**
+ * The line that carries the learner's mode inside the prompt of the turn, so neither tutor asks it
+ * again: the mode is decided in the page, before the turn exists.
+ */
+export function modeLine(mode: StudyMode): string {
+  const label = mode === "rapido" ? "rápido" : "universitario";
+  return `[Modo de estudio: ${label} — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]`;
+}
 
 /**
  * What means "no report at all", never "a failing stage": the engine's own error report, and the

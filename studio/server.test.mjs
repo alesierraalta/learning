@@ -700,6 +700,206 @@ test("a correction the runtime refuses is told in Spanish, not in the runtime's 
   }
 });
 
+// ---- T2: the learner's questions are asked by the page, never by the tutor -------
+
+/** The mode line the studio writes into an «Aprender algo nuevo» prompt. */
+const MODE_LINE = {
+  rapido: "[Modo de estudio: rápido — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
+  universitario: "[Modo de estudio: universitario — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
+};
+/** What the engine reports once the learner is owed the method question. */
+const METHOD_STAGE = {
+  status: "accepted",
+  stage: "method",
+  nextStage: "method",
+  checks: [{ id: "method-chosen", status: "SKIP", reason: "the learner has not chosen how to be taught yet" }],
+};
+/** What the engine reports when the method is recorded and planning is next. */
+const METHOD_RECORDED = { status: "accepted", stage: "method", nextStage: "planning", method: "pareto", checks: [{ id: "method-chosen", status: "PASS", reason: "the learner chose pareto" }] };
+
+/** The arguments the engine was called with, one line per call. */
+const engineArgs = (log) => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean) : []);
+
+test("a request from «Aprender algo nuevo» carries the mode to each tutor", async () => {
+  const pi = await piStudio();
+  try {
+    const asked = await post(pi.studio, "api/aprender", { text: "redes neuronales", modo: "universitario" });
+    assert.equal(asked.status, 200, asked.body);
+    await until(() => pi.prompts().length === 1);
+    const message = pi.prompts()[0].message;
+    assert.match(message, /^Quiero aprender redes neuronales\./, "the request is the learner's own words");
+    assert.ok(message.includes(MODE_LINE.universitario), `the mode travels in the prompt: ${message}`);
+  } finally { pi.stream.close(); }
+
+  const agy = await agyStudio();
+  try {
+    const asked = await post(agy.studio, "api/aprender", { text: "qué es un hash", modo: "rapido" });
+    assert.equal(asked.status, 200, asked.body);
+    await until(() => agyTurns(agy.turns).length === 1);
+    const sent = agyTurns(agy.turns)[0].join(" ");
+    assert.ok(sent.includes(MODE_LINE.rapido), `the mode travels in the Antigravity prompt: ${sent}`);
+  } finally {
+    agy.stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+test("«Aprender algo nuevo» refuses a request with no mode and sends nothing", async () => {
+  const { studio, prompts, stream } = await piStudio();
+  try {
+    for (const body of [{ text: "algo" }, { text: "algo", modo: "" }, { text: "algo", modo: "medio" }, { text: "algo", modo: "Universitario" }, { text: "  ", modo: "rapido" }]) {
+      const res = await post(studio, "api/aprender", body);
+      assert.equal(res.status, 400, `${JSON.stringify(body)} → ${res.body}`);
+    }
+    assert.equal(prompts().length, 0, "nothing reached the tutor");
+  } finally { stream.close(); }
+});
+
+test("the studio tells every tutor never to choose the mode by itself", async () => {
+  const agy = await agyStudio();
+  try {
+    assert.equal((await post(agy.studio, "prompt", { text: "Quiero aprender algo" })).status, 200);
+    await until(() => agyTurns(agy.turns).length === 1);
+    const sent = agyTurns(agy.turns)[0].join(" ");
+    assert.ok(sent.includes("no elijas por ella"), `Antigravity reads the rule: ${sent}`);
+    assert.ok(sent.includes("«Aprender algo nuevo»"), "and where to send the learner");
+  } finally {
+    agy.stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+/** What the real engine answers for a topic folder with no run (verified with `go run ./cmd/learning status`). */
+const UNINITIALIZED = {
+  status: "blocked",
+  stage: "preparation",
+  nextStage: "preparation",
+  checks: [{ id: "state-initialized", status: "FAIL", reason: "run not initialized: execute init before validate, advance or status" }],
+};
+
+/** A studio with Pi as the tutor that reports the writes the fake turn makes. */
+async function creatingStudio(writes, options = {}) {
+  const { root, engine, log } = makeRoot({ status: UNINITIALIZED, ...(options.root ?? {}) });
+  const calls = join(root, "engine-args.log");
+  const counting = join(root, "counting-engine.sh");
+  writeFileSync(counting, `#!/bin/sh\necho "$@" >> ${JSON.stringify(calls)}\nexec ${JSON.stringify(engine)} "$@"\n`);
+  chmodSync(counting, 0o755);
+  process.env.FAKE_PI_LOG = log;
+  process.env.FAKE_PI_WRITES = JSON.stringify(writes(root));
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: counting });
+  open.push(studio);
+  const prompts = () => piLog(log).filter((command) => command.type === "prompt");
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  return { studio, root, log, prompts, stream, asked: () => engineArgs(calls) };
+}
+
+test("a Universitario turn binds the topic its own writes create, and the engine gates it", async () => {
+  const created = await creatingStudio((root) => [{ path: join(root, "nuevo", "plan.json") }]);
+  const { studio, root, prompts, stream, asked } = created;
+  try {
+    assert.equal((await post(studio, "api/aprender", { text: "aprendizaje por refuerzo", modo: "universitario" })).status, 200);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    // The turn settles: the studio asks the engine about the folder the tutor just wrote into.
+    await until(() => asked().some((line) => line.startsWith("status ") && line.includes(`--workspace ${join(root, "nuevo")}`)));
+    await until(() => prompts().length === 2);
+    const correction = prompts()[1].message;
+    assert.match(correction, /FAIL state-initialized: run not initialized: execute init before validate, advance or status/, "the correction carries the engine's own words");
+    // The same bounded budget as any other failing stage, then the learner is told.
+    for (const _ of [0, 1, 2]) {
+      const next = await stream.next("dialog").catch(() => null);
+      if (next) await post(studio, "dialog", { id: next.id, value: "Universitario" });
+    }
+    const told = await stream.next("error");
+    assert.match(told.message, /no pudo terminar/);
+    assert.equal(prompts().length, 1 + MAX_CORRECTIONS, "the turn and its corrections, and no more");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
+test("a Universitario turn that creates no topic says so and ends", async () => {
+  const { studio, prompts, stream } = await creatingStudio(() => []);
+  try {
+    assert.equal((await post(studio, "api/aprender", { text: "algo nuevo", modo: "universitario" })).status, 200);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    const notice = await stream.next("notice", (data) => /no creó ningún tema/.test(data.message));
+    assert.equal(notice.message, "El tutor no creó ningún tema todavía.");
+    assert.equal(prompts().length, 1, "nothing to correct: no follow-up turn");
+    await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    assert.equal((await post(studio, "prompt", { text: "hola" })).status, 200, "the turn is released");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
+test("a Rápido turn stays a quick note: no topic, no gate", async () => {
+  const { studio, prompts, stream, asked } = await creatingStudio((folder) => [{ path: join(folder, "rapidos", "refuerzo.md") }]);
+  try {
+    assert.equal((await post(studio, "api/aprender", { text: "aprendizaje por refuerzo", modo: "rapido" })).status, 200);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    assert.equal(asked().filter((line) => line.startsWith("status ")).length, 0, "the engine is never asked about a quick note");
+    assert.equal(prompts().length, 1, "no correction for a quick note");
+    assert.equal(stream.events.some((event) => event.name === "notice" && /no creó ningún tema/.test(event.data.message)), false, "a note was written: nothing is owed");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
+test("choosing the method records it with the engine and starts one deep turn", async () => {
+  const { root, engine, log } = makeRoot({ statuses: [METHOD_RECORDED, { status: "accepted", stage: "planning", nextStage: "planning", checks: [{ id: "plan", status: "PASS", reason: "plan written" }] }] });
+  const calls = join(root, "engine-args.log");
+  const counting = join(root, "counting-engine.sh");
+  writeFileSync(counting, `#!/bin/sh\necho "$@" >> ${JSON.stringify(calls)}\nexec ${JSON.stringify(engine)} "$@"\n`);
+  chmodSync(counting, 0o755);
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: counting });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const prompts = () => piLog(log).filter((command) => command.type === "prompt");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    const chosen = await post(studio, "api/metodo", { tema: "redes", metodo: "pareto" });
+    assert.equal(chosen.status, 200, chosen.body);
+    const method = engineArgs(calls).find((line) => line.startsWith("method "));
+    assert.ok(method, `the engine's own method command was used: ${engineArgs(calls).join(" | ")}`);
+    assert.match(method, /--method pareto/);
+    assert.ok(method.includes(`--workspace ${join(root, "redes")}`), "for the topic the learner is on");
+    await until(() => prompts().length === 1);
+    assert.match(prompts()[0].message, /pareto/, "the tutor is told to plan with the chosen method");
+    assert.equal(prompts().length, 1, "exactly one deep turn");
+  } finally { stream.close(); }
+});
+
+test("the method choice refuses what the engine does not know, and refuses while a turn is held", async () => {
+  const { studio, root, prompts, stream } = await piStudio({ root: { statuses: [METHOD_RECORDED] } });
+  try {
+    for (const body of [{ tema: "redes", metodo: "rapido" }, { tema: "redes" }, { tema: "redes", metodo: "Pareto" }]) {
+      assert.equal((await post(studio, "api/metodo", body)).status, 400, JSON.stringify(body));
+    }
+    assert.equal((await post(studio, "api/metodo", { tema: "no-existe", metodo: "pareto" })).status, 404, "a topic the studio does not have");
+    assert.equal(engineCalls(root), "0", "the engine was not asked for a refused choice");
+    // A held turn refuses the choice like any other turn start.
+    assert.equal((await post(studio, "prompt", { text: "primero", tema: "redes" })).status, 200);
+    await stream.next("dialog");
+    const refused = await post(studio, "api/metodo", { tema: "redes", metodo: "pareto" });
+    assert.equal(refused.status, 409, refused.body);
+    assert.match(JSON.parse(refused.body).error, /El tutor está trabajando/);
+    assert.equal(engineCalls(root), "0", "a refused choice never reaches the engine");
+    assert.equal(prompts().length, 1);
+  } finally { stream.close(); }
+});
+
 test("a submission from the page cannot start a turn while the studio gates the last one", async () => {
   const { studio, root, turns, stream } = await agyStudio({ root: { statuses: [FAILING_STAGE, CLEARED_STAGE], delayMs: 700 } });
   try {

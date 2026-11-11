@@ -336,7 +336,9 @@ test("settle gate is absent without enrollment and no global prompt handlers exi
 
   assert.equal(result, undefined, "no gate without explicit deep enrollment");
   assert.equal(engine.calls.length, 0, "no engine call without enrollment");
-  for (const event of ["before_agent_start", "context", "context_with_system"]) {
+  // `before_agent_start` exists for one studio-only rule (the mode belongs to the page), and it
+  // leaves a terminal session's instructions untouched; nothing else injects prompts.
+  for (const event of ["context", "context_with_system"]) {
     assert.equal(host.handlers.has(event), false, `no ${event} handler: no global prompt injection`);
   }
 });
@@ -832,6 +834,42 @@ test("plan and diagnosis files of an unenrolled topic are refused before they ar
 
 // S2: once the learner chose a method, the tutor plans and writes Part 1 without being asked;
 // each stage has its own bounded number of pushes, so the chain never stops half way.
+// T2: the studio's page asks the method (pareto or preferencias), so inside the studio the adapter never
+// asks it a second time; a standalone session keeps its own push.
+test("inside the studio the method question is the page's, not the adapter's", async () => {
+  const env = tempEnv();
+  const { host } = install(env, async () => ({
+    code: 0,
+    stdout: JSON.stringify({ status: "accepted", stage: "method", checks: [passCheck], nextStage: "method" }),
+    stderr: "",
+  }), { settleGate: "studio" });
+  await enroll(host);
+  assert.equal(await settle(host), undefined, "the page asks for the method: no dialog and no push from here");
+});
+
+// T2: the studio's rule against picking the mode alone must reach Pi's own instructions.
+test("the studio's rule against choosing the mode reaches Pi's system prompt", async () => {
+  const env = tempEnv();
+  const report = async () => ({ code: 0, stdout: reportJson("accepted"), stderr: "" });
+  const studioMode = install(env, report, { settleGate: "studio" });
+  const standalone = install(env, report, { settleGate: "extension" });
+  const rule = async ({ host }) => {
+    const handler = host.handlers.get("before_agent_start")?.[0];
+    assert.ok(handler, "before_agent_start handler registered");
+    const event = { type: "before_agent_start", messageType: "user", prompt: "quiero aprender algo", systemPrompt: "base instructions", systemPromptOptions: {} };
+    const result = await handler(event, host.ctx);
+    return result?.systemPrompt ?? event.systemPrompt;
+  };
+
+  const inside = await rule(studioMode);
+  assert.match(inside, /«Aprender algo nuevo»/, "the studio names its own entry");
+  assert.match(inside, /Never choose the mode yourself/, "and forbids choosing it alone");
+  assert.ok(inside.startsWith("base instructions"), "the rule is added to Pi's own instructions, never replaces them");
+
+  const outside = await rule(standalone);
+  assert.equal(outside, "base instructions", "a terminal session keeps its instructions untouched");
+});
+
 test("settle walks from the chosen method through planning to part 1", async () => {
   const env = { root: REPO_ROOT, topic: join(REPO_ROOT, "internal"), engine: fileURLToPath(import.meta.url) };
   let report = { status: "accepted", stage: "method", checks: [passCheck], nextStage: "method" };
@@ -870,18 +908,17 @@ test("settle makes the tutor write the remedial part a failed part owes", async 
   assert.notEqual((await settle(host))?.continue, true, "bounded");
 });
 
-// S3: inside the studio the adapter surrenders only a failing stage; every stage push stays its own
-// until the page owns them, so a Pi tutor inside the studio still asks the method question.
+// S3: inside the studio the adapter surrenders only a failing stage; the stage pushes the page does
+// not own yet stay its own (T2 moved only the method question to the page).
 test("inside the studio a passing stage is still pushed while a failing one is left to the studio", async () => {
   const env = tempEnv();
-  let report = { status: "accepted", stage: "method", checks: [passCheck], nextStage: "method" };
+  let report = { status: "accepted", stage: "explanation", checks: [passCheck], nextStage: "explanation", part: "p1" };
   const { host, engine } = install(env, async () => ({ code: 0, stdout: JSON.stringify(report), stderr: "" }), { settleGate: "studio" });
   await enroll(host);
 
-  const method = await settle(host);
-  assert.equal(method?.continue, true, "the method question is still the tutor's to ask inside the studio");
-  assert.match(method.entries[0].content, /pareto/i);
-  assert.match(method.entries[0].content, /preferencias/i);
+  const pushed = await settle(host);
+  assert.equal(pushed?.continue, true, "writing the next part is still the tutor's to push inside the studio");
+  assert.match(pushed.entries[0].content, /part p1/i);
   assert.equal(engine.calls.length, 1, "the pushes cost one engine call per settle, and that report is used");
 
   // The stage keeps its own bounded push budget, exactly as a standalone session.

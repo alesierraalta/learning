@@ -30,6 +30,7 @@ const STUDIO_CONTRACT = [
   "[Learnings studio]",
   "The learner works in the Learnings studio. Quizzes are answered on the studio page, never in this chat: after writing a diagnosis round, tell the learner to press «Responder el diagnóstico»; after a mini-quiz, «Ir al quiz». Never ask for answers in a typed format such as d1-B or seguro/dudo/adivine.",
   "A message starting with [Vista HTML · ...] is the learner's own submission; the answers file it names is already written.",
+  "Si la persona pide aprender algo sin decir el modo (rápido o universitario), no elijas por ella: responde en una sola línea que la lleve a «Aprender algo nuevo» para elegir el modo y no crees nada.",
   "Reply in neutral Spanish with tú, never voseo (escribe, responde, mira; never escribí, respondé, mirá, acá).",
 ].join("\n");
 

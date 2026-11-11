@@ -31,6 +31,15 @@ const ENGINE_TIMEOUT_MS = 120_000;
 const CHECK_STATUSES = new Set(["PASS", "FAIL", "SKIP"]);
 /** Topic files only an enrolled run may hold: the plan and the diagnosis. */
 const ENROLLED_FILES = new Set(["plan.json", "quiz.json"]);
+/**
+ * What the studio's page answers for the tutor: the study mode is asked there, before the turn
+ * exists, and it travels in the prompt. Inside the studio this rule rides along with Pi's own
+ * instructions, so the tutor never asks the mode nor picks it alone.
+ */
+const STUDIO_MODE_RULE = [
+  "Learnings studio: the learner chooses the study mode (rápido or universitario) in the page's «Aprender algo nuevo» entry, and the prompt of the turn carries that choice.",
+  "Never choose the mode yourself and never ask for it: when the learner asks to learn something in the plain chat without a mode, answer in one line pointing to «Aprender algo nuevo» and create nothing.",
+].join(" ");
 
 export interface AdapterDeps {
   root: string;
@@ -354,6 +363,13 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     state.corrections = 0;
   });
 
+  // T2: inside the studio the mode belongs to the page, so its rule travels with Pi's instructions.
+  // A terminal session keeps its own instructions untouched.
+  pi.on("before_agent_start", (event) => {
+    if (deps.settleGate !== "studio") return undefined;
+    return { systemPrompt: `${event.systemPrompt}\n\n${STUDIO_MODE_RULE}` };
+  });
+
   // S1: a topic exists for the engine only once it is enrolled. Its plan and diagnosis written
   // around the engine would leave it untracked ("sin seguimiento del motor"), so they are refused.
   pi.on("tool_call", (event, ctx) => {
@@ -412,6 +428,8 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       return true;
     };
     if (passing && outcome.report.nextStage === "method" && outcome.report.status !== "waiting") {
+      // The studio's page asks the method now, for every runtime: the adapter must not ask it twice.
+      if (deps.settleGate === "studio") return undefined;
       if (!push("method")) return undefined;
       return {
         entries: [{
