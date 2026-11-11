@@ -43,6 +43,16 @@ import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
 import { createAgy, parseAgyModels } from "./agy.ts";
 import { checkTutorContext, driftMessage } from "./context.ts";
 import {
+  busyFile,
+  clearBusy,
+  markBusy,
+  readRestartSnapshot,
+  saveSnapshot as saveSnapshotFile,
+  snapshotFile,
+  type ChatMessage,
+  type InterruptedTurn,
+} from "./state.ts";
+import {
   chatById,
   chatForAmbito,
   createChat,
@@ -290,6 +300,30 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     chats = chats.chats.length === 0 ? createChat(chats, { nombre: "Chat general" }).doc : { ...chats, activo: chats.chats[0].id };
     chats = saveChats(chatsFile, chats);
   }
+  // The deploy reads the idle marker without a token; the conversation copy is what a
+  // restart comes back to when the runtime's session is gone. Both live next to `opened.json`.
+  const busyMarker = busyFile(openedFile);
+  const conversationFile = snapshotFile(openedFile);
+  /** The active chat's thread, written as it happens: a restart must not take the turn with it. */
+  let transcript: ChatMessage[] = [];
+  /** The turn a previous process was holding when it went away; shown until the learner resumes. */
+  let interrupted: InterruptedTurn | null = null;
+  {
+    // Only a copy whose writer is gone: a studio that is still running keeps its own.
+    const copied = readRestartSnapshot(conversationFile, chats.activo);
+    if (copied) {
+      transcript = copied.messages;
+      interrupted = copied.interrupted;
+    }
+  }
+  /** The studio's own copy of the conversation, written at every turn boundary. */
+  const saveSnapshot = () =>
+    saveSnapshotFile(conversationFile, { version: 1, chat: chats.activo, pid: process.pid, messages: transcript, interrupted });
+  /** A message the studio keeps for itself; the runtime's own session is not the only copy. */
+  const remember = (message: ChatMessage) => {
+    transcript.push(message);
+    saveSnapshot();
+  };
   /** Adopting the boot session must finish before the first prompt decides where it lands. */
   let ready: Promise<void> = Promise.resolve();
   const offlineCacheDir = options.offlineCacheDir ?? join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "learning-studio", "cdn");
@@ -371,6 +405,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           if (text) {
             emit("user", { text });
             if (agy) agyTurns.push({ role: "user", text });
+            remember({ role: "user", text });
           }
         }
         if (isRecord(message) && message.role === "assistant") assistantId = `a${++assistantSeq}`;
@@ -389,6 +424,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           const text = messageText(message);
           if (text) emit("assistant_end", { id: assistantId, text });
           if (agy && text) agyTurns.push({ role: "assistant", text });
+          if (text) remember({ role: "assistant", text });
         }
         return;
       }
@@ -414,6 +450,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           turn.topic = topic;
           tema = topic;
           gateBlocked = false;
+          // The deploy's message names the topic the turn is really teaching.
+          const startedAt = interrupted?.at ?? Date.now();
+          interrupted = { topic, at: startedAt };
+          markBusy(busyMarker, { pid: process.pid, startedAt, topic });
+          saveSnapshot();
         }
         emit("tool", { phase: "end", chat: chats.activo, id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
@@ -582,12 +623,20 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (stats.file) persist(setPiSession(chats, chat.id, stats.file));
   };
 
+  /** The copy belongs to the chat that is now active; the runtime serves this chat's thread. */
+  const adoptConversation = async () => {
+    transcript = [];
+    interrupted = null;
+    saveSnapshot();
+    return rememberHistory();
+  };
+
   const openConversation = async (id: unknown): Promise<ChatDoc> => {
     const chat = chatById(chats, id);
     if (chat.id === chats.activo) return chats;
     await switchTo(chat);
     const doc = persist(openChat(chats, chat.id));
-    emit("history", await history());
+    emit("history", await adoptConversation());
     emit("chats", doc);
     return doc;
   };
@@ -597,7 +646,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const { doc, chat } = createChat(chats, input);
     persist(doc);
     await switchTo(chat);
-    emit("history", await history());
+    emit("history", await adoptConversation());
     emit("chats", chats);
     return { doc: chats, chat };
   };
@@ -612,16 +661,16 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (!alive) return;
     const current = activeChat();
     if (!current) return;
-    if (!current.piSession && stats.file) {
-      persist(setPiSession(chats, current.id, stats.file));
-      emit("chats", chats);
-      return;
-    }
     // A restart boots the studio's own session; the active chat may be another one.
-    if (current.piSession && stats.file && current.piSession !== stats.file) {
+    const switched = Boolean(current.piSession && stats.file && current.piSession !== stats.file);
+    if (!current.piSession && stats.file) persist(setPiSession(chats, current.id, stats.file));
+    else if (switched) {
       try { await switchTo(current); } catch (error) { emit("error", { message: (error as Error).message }); }
-      emit("history", await history());
     }
+    // The studio's own copy follows what the runtime serves, so a restart comes back to the
+    // whole thread even when the runtime's session is gone.
+    const shown = await rememberHistory();
+    if (switched) emit("history", shown);
     emit("chats", chats);
   };
 
@@ -705,6 +754,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const holdTurn = (started: Turn) => {
     turn = started;
     turnTopic = started.topic;
+    // Written before the runtime is asked to work: a deploy reads it, and a process that
+    // dies leaves the turn marked so the next boot can say it was interrupted.
+    const at = Date.now();
+    interrupted = { topic: started.topic, at };
+    markBusy(busyMarker, { pid: process.pid, startedAt: at, topic: started.topic });
+    saveSnapshot();
     emit("state", state());
   };
 
@@ -721,6 +776,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (!turn) return;
     if (owner !== undefined && turn !== owner) return;
     turn = null;
+    interrupted = null;
+    clearBusy(busyMarker);
+    saveSnapshot();
     emit("state", state());
   };
 
@@ -1344,8 +1402,18 @@ ${scripts}
     sendJson(res, 200, { ok: true });
   };
 
-  const history = async (): Promise<{ messages: Json[]; note: Note | null }> => {
-    if (!alive || agy) return { messages: agy ? [...agyTurns] : [], note: null };
+  /** What the chat shows about a turn a previous process was holding: the topic and its title. */
+  const interruptedView = () => {
+    const turn = interrupted;
+    if (turn === null) return null;
+    const topic = turn.topic;
+    return { topic, title: topic === null ? null : listTopics(root).find((t) => t.id === topic)?.title ?? topic };
+  };
+
+  const history = async (): Promise<{ messages: Json[]; note: Note | null; interrupted: { topic: string | null; title: string | null } | null }> => {
+    const shown = interruptedView();
+    const copy = transcript.map((message) => ({ role: message.role, text: message.text }));
+    if (!alive || agy) return { messages: agy ? [...agyTurns] : copy, note: null, interrupted: shown };
     try {
       const reply = await call({ type: "get_messages" }, 10000);
       const raw = isRecord(reply.data) && Array.isArray(reply.data.messages) ? reply.data.messages : [];
@@ -1354,10 +1422,21 @@ ${scripts}
         .map((m) => ({ role: m.role, text: messageText(m) }))
         // The gate's instruction is the studio's own prompt: the thread keeps the learner's words.
         .filter((m) => m.text && !(m.role === "user" && isStudioPrompt(m.text)));
-      return { messages, note: noteFromMessages(raw, root) };
+      // A runtime that lost the conversation still has the studio's own copy of the turn.
+      return { messages: messages.length ? messages : copy, note: noteFromMessages(raw, root), interrupted: shown };
     } catch {
-      return { messages: [], note: null };
+      return { messages: copy, note: null, interrupted: shown };
     }
+  };
+
+  /** The copy follows what the runtime serves, so a restart falls back to the whole thread. */
+  const rememberHistory = async () => {
+    const shown = await history();
+    if (shown.messages.length) {
+      transcript = shown.messages.map((message) => ({ role: message.role as ChatMessage["role"], text: String(message.text) }));
+      saveSnapshot();
+    }
+    return shown;
   };
 
   const events = async (res: ServerResponse) => {
@@ -1573,6 +1652,10 @@ ${scripts}
     url: `http://127.0.0.1:${port}/${token}/`,
     port,
     close: async () => {
+      // SIGTERM from a deploy lands here: the conversation and the turn it was holding are
+      // written before the process goes, so the next boot can say what was interrupted.
+      saveSnapshot();
+      clearBusy(busyMarker);
       for (const res of clients) res.end();
       clients.clear();
       const proc = child;
