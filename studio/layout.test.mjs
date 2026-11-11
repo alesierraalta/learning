@@ -338,12 +338,91 @@ test("the tutor teaches the topic its page is on, and the home chat stays genera
   await page.getByLabel("Mensaje para el tutor").press("Enter");
   await sentPrompts(log);
   assert.equal(await selected(), null, "a general question never claims a deep topic");
+  // One turn at a time: the tutor's question has to be answered before another message is sent.
+  await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).click();
+  await page.waitForFunction(() => /Listo/.test(document.querySelector(".drawer-head h2")?.textContent ?? ""), null, { timeout: 10000 });
   await topicPage(page, studio, 1280);
   await page.locator(".tutor-pill").click();
   await page.getByLabel("Mensaje para el tutor").fill("Explícame las capas");
   await page.getByLabel("Mensaje para el tutor").press("Enter");
   for (let i = 0; i < 50 && (await selected()) !== "redes"; i++) await page.waitForTimeout(100);
   assert.equal(await selected(), "redes", "the topic page binds the tutor to that topic");
+});
+
+// T2: the mode is the page's question, asked before the turn exists; the tutor never asks it.
+test("«Aprender algo nuevo» asks for the mode before it sends", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  const entry = page.locator(".home-page .new-learning");
+  await entry.waitFor();
+  const field = entry.locator(".ask-big input");
+  const submit = entry.locator('button[type="submit"]');
+  assert.equal(await submit.isDisabled(), true, "no mode, no send");
+  assert.doesNotMatch(await page.locator(".home-page").innerText(), /El tutor te pregunta cuál prefieres/i, "the home no longer claims the tutor asks the mode");
+
+  await field.fill("redes neuronales");
+  await field.press("Enter");
+  await page.waitForTimeout(300);
+  assert.equal(await sentPrompts(log).catch(() => []).then((p) => p.length), 0, "a request without a mode never reaches the tutor");
+  assert.equal(await field.inputValue(), "redes neuronales", "and the learner keeps what they wrote");
+
+  await entry.locator('.mode-pick[data-modo="universitario"]').click();
+  assert.equal(await submit.isDisabled(), false, "the mode the learner picked is the one that is sent");
+  await field.press("Enter");
+  const sent = await sentPrompts(log);
+  assert.ok(sent.some((message) => message.includes("[Modo de estudio: universitario")), `the turn carries the mode: ${sent.join(" | ")}`);
+});
+
+// T2: at the engine's method stage the page asks; the tutor must never ask it twice.
+test("the method question is answered on the page and starts the tutor's next turn", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot({ status: { status: "accepted", stage: "method", nextStage: "method", checks: [] } });
+  // The method is recorded against an enrolled topic: the studio refuses one the engine does not track.
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  const card = page.locator(".method-card");
+  await card.waitFor({ timeout: 5000 });
+  assert.match(await card.innerText(), /Pareto/);
+  assert.match(await card.innerText(), /Preferencias/);
+  await card.getByRole("button", { name: /Pareto/ }).click();
+  const sent = await sentPrompts(log);
+  assert.ok(sent.some((message) => /pareto/i.test(message)), `the tutor is asked to plan with it: ${sent.join(" | ")}`);
+  assert.equal(await page.locator(".thread .msg.user").filter({ hasText: /pareto/i }).count(), 0, "the learner never typed the instruction: the page wrote it");
+});
+
+test("a refused message gives the learner back exactly what they typed", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  const box = page.getByLabel("Mensaje para el tutor");
+  await box.fill("primera pregunta");
+  await box.press("Enter");
+  await sentPrompts(log);
+  // The tutor is still working (its question is unanswered): this one is refused, not queued.
+  const typed = "segunda pregunta: ¿capas y TCP?";
+  await box.fill(typed);
+  await box.press("Enter");
+  const refusal = page.locator(".thread .notice.error").last();
+  await refusal.waitFor({ timeout: 5000 });
+  assert.match(await refusal.innerText(), /El tutor está trabajando/);
+  assert.equal(await box.inputValue(), typed, "the refused message is still the learner's to send");
 });
 
 test("topic learning route follows the editorial layout on desktop and phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
@@ -1210,6 +1289,8 @@ test("the chat offers the first part of a topic the tutor just created", { skip:
   const library = await (await fetch(`${studio.url}api/library`)).json();
   assert.ok(library.topics.some((topic) => topic.id === "nuevo"), "the library lists the new topic once the turn is over");
   const offer = page.locator(".thread .note-cta");
+  // The offer lands after the turn's library reload, not with the idle state: wait for it, then count.
+  await offer.first().waitFor({ timeout: 10000 });
   assert.equal(await offer.count(), 1, "the new topic's part is offered");
   await offer.getByRole("button", { name: "Ir a la nota" }).click();
   await page.waitForFunction(() => location.hash === "#/leer/nuevo/p1", null, { timeout: 5000 });

@@ -10,6 +10,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { entryUrl, noteFromMessages, noteFromPath, startStudio as startStudioChecked, topicFromPath } from "./server.ts";
+import extension from "../integrations/pi/index.ts";
+import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
 import { stored, writeDoc } from "./testdata/stored.mjs";
 
@@ -223,7 +225,7 @@ test("a deep turn is refused for a topic the engine does not track, and reached 
   writeFileSync(join(root, "sin-inscribir", "plan.json"), JSON.stringify({ topic: "Sin inscribir", parts: [] }));
   const refused = await post(studio, "prompt", { text: "Hola", tema: "sin-inscribir" });
   assert.equal(refused.status, 400, refused.body);
-  assert.match(JSON.parse(refused.body).error, /not enrolled/);
+  assert.match(JSON.parse(refused.body).error, /no está inscrito en el motor de aprendizaje/);
   assert.equal(received().length, 0, "a refused deep turn never reaches the tutor");
   writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
   const accepted = await post(studio, "prompt", { text: "Hola", tema: "redes" });
@@ -251,13 +253,17 @@ test("Antigravity's deep turn goes through the engine gate and a failed gate blo
     assert.equal(gate.tema, "redes");
     assert.equal(gate.passing, false);
     assert.deepEqual(gate.fails, ["p1"]);
-    assert.equal(readFileSync(calls, "utf8").trim().split("\n").length, 1, "the engine is asked once, not once per provider");
-    await stream.next("state", data => data.busy === false);
+    // The turn, and the two corrections the studio owes the failing stage: one settle, one ask.
+    const told = await stream.next("error");
+    assert.match(told.message, /no pudo terminar/);
+    assert.equal(readFileSync(calls, "utf8").trim().split("\n").length, 3, "the engine is asked once per settle, not once per provider");
+    await until(() => settleIdle(stream));
     const blocked = await post(studio, "prompt", { text: "Otra vez", tema: "redes" });
     assert.equal(blocked.status, 409, blocked.body);
     // The engine is asked again before the refusal, so a topic that passes is released.
     writeFileSync(engine, `#!/bin/sh\necho '{"status":"waiting","stage":"diagnosis","nextStage":"diagnosis"}'\n`);
-    assert.equal((await post(studio, "prompt", { text: "Sigo", tema: "redes" })).status, 200);
+    const sigo = await post(studio, "prompt", { text: "Sigo", tema: "redes" });
+    assert.equal(sigo.status, 200, sigo.body);
     // Two passing verdicts follow: the re-check before the turn, then its settle gate.
     await stream.next("gate", (data) => data.passing === true);
     await stream.next("gate", (data) => data.passing === true);
@@ -265,6 +271,961 @@ test("Antigravity's deep turn goes through the engine gate and a failed gate blo
     const general = await post(studio, "prompt", { text: "¿Y un hash?" });
     assert.equal(general.status, 200, general.body);
   } finally { stream.close(); }
+});
+
+// ---- the settle gate every runtime passes through (S3) ---------------------
+
+/** The stage the fake engine reports while the tutor still owes the part. */
+const FAILING_STAGE = {
+  status: "blocked",
+  stage: "explanation",
+  nextStage: "explanation",
+  part: "p1",
+  checks: [{ id: "p1-explained", status: "FAIL", reason: "la explicación de la parte p1 no existe todavía" }],
+};
+/** The same stage once the part exists: the engine is the authority that clears the turn. */
+const CLEARED_STAGE = {
+  status: "accepted",
+  stage: "explanation",
+  nextStage: "explanation",
+  part: "p1",
+  checks: [{ id: "p1-explained", status: "PASS", reason: "la explicación de la parte p1 está escrita" }],
+};
+
+/** The commands the fake Pi received, as the studio sent them. */
+const piLog = (log) =>
+  existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
+
+/** The turns the fake Antigravity ran, one argv per turn (FAKE_AGY_TURNS). */
+const agyTurns = (file) =>
+  existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
+
+/** How many times the fake engine has been asked; counted before it answers (makeRoot delayMs). */
+const engineCalls = (root) => (existsSync(join(root, ".engine-calls")) ? readFileSync(join(root, ".engine-calls"), "utf8").trim() : "0");
+
+/** What the page last knew about the tutor: false once the turn really ended. */
+const settleIdle = (stream) => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false;
+
+/**
+ * The Pi adapter's own settle decision, driven the way Pi drives it, for one gate mode:
+ * whether it asks Pi to continue, and how many engine calls it spent to decide.
+ */
+async function piSettle(settleGate) {
+  const base = mkdtempSync(join(tmpdir(), "pi-gate-"));
+  const root = join(base, "Learnings");
+  const topic = join(root, "redes");
+  mkdirSync(topic, { recursive: true });
+  const enginePath = join(base, "engine-stub");
+  writeFileSync(enginePath, "");
+  const engineCalls = [];
+  const handlers = new Map();
+  const api = {
+    on(event, handler) {
+      const list = handlers.get(event) ?? [];
+      list.push(handler);
+      handlers.set(event, list);
+      return () => {};
+    },
+    registerTool() {},
+    registerCommand() {},
+    appendEntry() {},
+  };
+  const ctx = {
+    cwd: topic,
+    ui: { notify() {} },
+    sessionManager: {
+      getBranch: () => [{
+        type: "custom",
+        customType: "gentle-learning/enrollment",
+        data: { version: 1, active: true, root, workspace: topic, enrolledAt: "2026-01-01T00:00:00.000Z" },
+      }],
+    },
+  };
+  extension(api, {
+    root,
+    enginePath,
+    settleGate,
+    execFile: async () => {
+      engineCalls.push(enginePath);
+      return { code: 1, stdout: JSON.stringify(FAILING_STAGE), stderr: "" };
+    },
+  });
+  await handlers.get("session_start")[0]({ type: "session_start" }, ctx);
+  const settle = await handlers.get("agent_before_settle")[0](
+    {
+      type: "agent_before_settle",
+      entries: [],
+      continue: false,
+      outcome: "completed",
+      context: { canContinue: false, entries: [], contextEntries: [], llmMessages: [], pendingMessages: [] },
+    },
+    ctx,
+  );
+  return { continue: settle?.continue === true, engineCalls: engineCalls.length };
+}
+
+// ---- T3: one conformance scenario, run unchanged against each tutor -----------------
+
+/** The hosted view of a topic part: the page's origin and the base its submissions go to. */
+async function bridgeFor(studio, topic = "redes") {
+  const view = JSON.parse((await http(`${studio.url}api/view?topic=${topic}&part=p1`)).body);
+  return { base: view.url.replace(new RegExp(`${topic}/p1$`), ""), origin: new URL(view.url).origin };
+}
+
+/** One tutor, one studio, and the two primitive steps the scenario needs from it. */
+async function conformanceTutor(runtime, engineOptions) {
+  const { root, engine, log } = makeRoot(engineOptions);
+  process.env.FAKE_PI_LOG = log;
+  const turns = join(root, "agy-turns.log");
+  if (runtime === "agy") {
+    process.env.FAKE_AGY_TURNS = turns;
+    // A slow Antigravity turn keeps the window the scenario acts in (the Pi fake waits on its dialog).
+    process.env.FAKE_AGY_DELAY_MS = "300";
+  }
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  if (runtime === "agy") {
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    await stream.next("state");
+  }
+  // How many turns the tutor was asked to run, whatever the runtime.
+  const turnsSoFar = () => (runtime === "agy" ? agyTurns(turns).length : piLog(log).filter((command) => command.type === "prompt").length);
+  // What the tutor read in its last turn.
+  const turnText = () => (runtime === "agy" ? agyTurns(turns).at(-1).join(" ") : piLog(log).filter((command) => command.type === "prompt").at(-1).message);
+  // A Pi turn ends when its dialog is answered; an Antigravity turn ends by itself.
+  const endTurn = async () => {
+    if (runtime !== "pi") return;
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+  };
+  const close = () => {
+    stream.close();
+    if (runtime === "agy") {
+      delete process.env.FAKE_AGY_TURNS;
+      delete process.env.FAKE_AGY_DELAY_MS;
+    }
+  };
+  return { runtime, studio, root, stream, turnsSoFar, turnText, endTurn, close };
+}
+
+for (const runtime of ["pi", "agy"]) {
+  test(`the studio gates the same way whoever tutors: ${runtime}`, async () => {
+    // A stage that fails once and then clears: one correction, then the turn is released.
+    const tutor = await conformanceTutor(runtime, { statuses: [FAILING_STAGE, CLEARED_STAGE] });
+    try {
+      assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+      await tutor.stream.next("state", (data) => data.busy === true);
+      assert.equal(tutor.stream.events.filter((event) => event.name === "state").at(-1)?.data.busy, true, "the turn is held while it runs");
+      // A submission from the page while the turn is held is refused, in Spanish.
+      const bridge = await bridgeFor(tutor.studio);
+      const refused = await http(`${bridge.base}submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: bridge.origin },
+        body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿Qué es una capa?" }),
+      });
+      assert.equal(refused.status, 409, refused.body);
+      assert.match(JSON.parse(refused.body).error, /El tutor está trabajando/);
+      await until(() => tutor.turnsSoFar() === 1);
+      await tutor.endTurn();
+      // Exactly one correction, and it carries the engine's own reason.
+      await until(() => tutor.turnsSoFar() === 2);
+      assert.equal(tutor.turnsSoFar(), 2, "one correction for one failing settle");
+      assert.match(tutor.turnText(), /FAIL p1-explained: la explicación de la parte p1 no existe todavía/);
+      await tutor.endTurn();
+      // The engine clears it: the turn is released and nothing else is asked.
+      assert.equal((await tutor.stream.next("gate", (data) => data.passing === true)).tema, "redes");
+      await until(() => tutor.stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+      assert.equal(tutor.turnsSoFar(), 2, "a cleared stage asks for nothing else");
+      // The correction was never the learner's own message.
+      const again = sse(`${tutor.studio.url}events`);
+      try {
+        const history = await again.next("history");
+        assert.deepEqual(history.messages.filter((message) => message.role === "user" && /^Learning gate:/.test(message.text)), [], "the gate prompt is not served as the learner's");
+      } finally { again.close(); }
+    } finally { tutor.close(); }
+
+    // A stage that never clears: the same budget, and the learner told in Spanish.
+    const stuck = await conformanceTutor(runtime, { status: FAILING_STAGE });
+    try {
+      assert.equal((await post(stuck.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+      for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
+        await until(() => stuck.turnsSoFar() === round + 1);
+        // Every turn ends its own way: the last one is the settle that spends the budget.
+        await stuck.endTurn();
+      }
+      const told = await stuck.stream.next("error");
+      assert.match(told.message, /no pudo terminar/);
+      assert.match(told.message, /p1-explained: la explicación de la parte p1 no existe todavía/);
+      assert.equal(stuck.turnsSoFar(), 1 + MAX_CORRECTIONS, "the turn and its corrections, and no more");
+      await until(() => stuck.stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    } finally { stuck.close(); }
+  });
+}
+
+test("an Antigravity turn is asked again until the engine clears the failing stage", async () => {
+  const { root, engine, log } = makeRoot({ statuses: [FAILING_STAGE, CLEARED_STAGE] });
+  process.env.FAKE_PI_LOG = log;
+  const turns = join(root, "agy-turns.log");
+  process.env.FAKE_AGY_TURNS = turns;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    await until(() => agyTurns(turns).length === 2);
+    const [first, followUp] = agyTurns(turns);
+    assert.doesNotMatch(first.join(" "), /--conversation/, "the first turn opens the conversation");
+    assert.match(followUp.join(" "), /--conversation test-conversation/, "the correction continues the same conversation, not a fresh one");
+    assert.match(followUp.join(" "), /FAIL p1-explained: la explicación de la parte p1 no existe todavía/, "the tutor is told the engine's own reason");
+    const gate = await stream.next("gate", (data) => data.passing === true);
+    assert.equal(gate.tema, "redes");
+    await until(() => settleIdle(stream));
+    assert.equal(agyTurns(turns).length, 2, "a stage the engine cleared asks for nothing else");
+    assert.equal(stream.events.filter((event) => event.name === "error").length, 0, "a cleared turn says nothing about a failure");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+test("a Pi turn is asked again until the engine clears the failing stage", async () => {
+  const { root, engine, log } = makeRoot({ statuses: [FAILING_STAGE, CLEARED_STAGE] });
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const prompts = () => piLog(log).filter((command) => command.type === "prompt");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    // A fake turn ends when its dialog is answered, and the end of the turn is what the gate reads.
+    const first = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: first.id, value: "Universitario" })).status, 200);
+    await until(() => prompts().length === 2);
+    const [learner, followUp] = prompts();
+    assert.equal(learner.message, "Escribe la Parte 1");
+    assert.match(followUp.message, /FAIL p1-explained: la explicación de la parte p1 no existe todavía/, "the tutor is told the engine's own reason");
+    assert.equal(followUp.streamingBehavior, undefined, "the correction is its own turn, not a message queued behind the one that ended");
+    const second = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: second.id, value: "Universitario" })).status, 200);
+    assert.equal((await stream.next("gate", (data) => data.passing === true)).tema, "redes");
+    await until(() => settleIdle(stream));
+    assert.equal(prompts().length, 2, "a stage the engine cleared asks for nothing else");
+  } finally { stream.close(); }
+});
+
+test("a tutor that never satisfies the engine stops after the corrections Pi allows, and the learner is told", async () => {
+  const { root, engine, log } = makeRoot({ status: FAILING_STAGE });
+  process.env.FAKE_PI_LOG = log;
+  const turns = join(root, "agy-turns.log");
+  process.env.FAKE_AGY_TURNS = turns;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    const told = await stream.next("error");
+    assert.match(told.message, /no pudo terminar/, "the learner is told the tutor could not finish");
+    assert.match(told.message, /p1-explained: la explicación de la parte p1 no existe todavía/, "and what the engine still wants");
+    assert.equal(agyTurns(turns).length, 1 + MAX_CORRECTIONS, "one turn plus the corrections Pi allows, and no more");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(agyTurns(turns).length, 3, "a spent budget is not a new turn");
+    await until(() => settleIdle(stream));
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+test("a turn the engine leaves waiting for the learner is not gated", async () => {
+  // The default report waits for the learner's diagnosis: nobody owes the chat a correction.
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const turns = join(root, "agy-turns.log");
+  process.env.FAKE_AGY_TURNS = turns;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Prepara el diagnóstico", tema: "redes" })).status, 200);
+    assert.equal((await stream.next("gate")).passing, true, "waiting on the learner is not a failure");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(agyTurns(turns).length, 1, "the tutor is not asked again while the learner owes the answers");
+    assert.equal(stream.events.filter((event) => event.name === "error").length, 0);
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+test("inside the studio the Pi extension leaves the failing stage to the studio gate", async () => {
+  const { root, engine, log } = makeRoot({ status: FAILING_STAGE });
+  process.env.FAKE_PI_LOG = log;
+  const mode = join(root, "pi-gate.log");
+  process.env.FAKE_PI_GATE = mode;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const prompts = () => piLog(log).filter((command) => command.type === "prompt");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    assert.equal(readFileSync(mode, "utf8").trim(), "studio", "the studio's Pi child is told the studio owns the gate");
+    for (const _ of [0, 1, 2]) {
+      const dialog = await stream.next("dialog");
+      assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    }
+    await stream.next("error");
+    // One correction per settle: the studio's, never one more from the adapter.
+    assert.equal(prompts().length, 1 + MAX_CORRECTIONS, "one follow-up per settle, so the same stage is never asked twice");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_GATE;
+  }
+  // And with that flag the adapter surrenders only a failing stage: the studio owns corrections,
+  // while the stage pushes stay the tutor's until the page owns them.
+  const standalone = await piSettle("extension");
+  assert.equal(standalone.continue, true, "a standalone Pi session still gates its own settle");
+  assert.equal(standalone.engineCalls, 1, "it asks the engine once to decide");
+  const studioDriven = await piSettle("studio");
+  assert.equal(studioDriven.continue, false, "inside the studio the adapter does not re-prompt the failing stage the studio gates");
+  assert.equal(studioDriven.engineCalls, 1, "it still asks once: that report is what drives the stage pushes");
+});
+
+/** A studio with Pi as the tutor and a root whose fake engine answers what the test needs. */
+async function piStudio(options = {}) {
+  const { root, engine, log } = makeRoot(options.root ?? {});
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, ...options.studio });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const prompts = () => piLog(log).filter((command) => command.type === "prompt");
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  return { studio, root, engine, log, prompts, stream };
+}
+
+/** A studio with Antigravity as the tutor; every turn it runs is one line of the turn log. */
+async function agyStudio(options = {}) {
+  const { root, engine, log } = makeRoot(options.root ?? {});
+  process.env.FAKE_PI_LOG = log;
+  const turns = join(root, "agy-turns.log");
+  process.env.FAKE_AGY_TURNS = turns;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+  // The tutor switch emits its own state: a test waiting for the next idle must not read that one.
+  await stream.next("state");
+  return { studio, root, engine, log, turns, stream };
+}
+
+test("a submission from the hosted view is gated like any other deep turn", async () => {
+  const { studio, prompts, stream } = await piStudio({ root: { statuses: [FAILING_STAGE, CLEARED_STAGE] } });
+  try {
+    // The learner answers from the topic page: the bridge delivers the prompt, not the composer.
+    const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
+    const bridgeBase = view.url.replace(/redes\/p1$/, "");
+    const res = await http(`${bridgeBase}submit`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: new URL(view.url).origin },
+      body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿Qué es una capa?" }),
+    });
+    assert.equal(res.status, 200, res.body);
+    await until(() => prompts().length === 1);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => prompts().length === 2);
+    assert.match(prompts()[1].message, /FAIL p1-explained: la explicación de la parte p1 no existe todavía/, "the turn the page started is gated too");
+  } finally { stream.close(); }
+});
+
+test("a regeneration is gated like any other deep turn", async () => {
+  const { studio, prompts, stream } = await piStudio({ root: { statuses: [FAILING_STAGE, CLEARED_STAGE] } });
+  try {
+    const answer = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto, por favor" });
+    assert.equal(answer.status, 200, answer.body);
+    await until(() => prompts().length === 1);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => prompts().length === 2);
+    assert.match(prompts()[1].message, /FAIL p1-explained: la explicación de la parte p1 no existe todavía/, "a failed regeneration is not a silent end");
+  } finally { stream.close(); }
+});
+
+test("a refused prompt does not restore the correction budget", async () => {
+  process.env.FAKE_AGY_DELAY_MS = "400";
+  const { studio, turns, stream } = await agyStudio({ root: { status: FAILING_STAGE } });
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    // The first correction is running: a prompt the runtime refuses must not refill the budget.
+    await until(() => agyTurns(turns).length === 2);
+    const refused = await post(studio, "prompt", { text: "otra cosa" });
+    assert.equal(refused.status, 409, refused.body);
+    const told = await stream.next("error");
+    assert.match(told.message, /no pudo terminar/);
+    assert.equal(agyTurns(turns).length, 1 + MAX_CORRECTIONS, "the budget the engine allows, not one more");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+    delete process.env.FAKE_AGY_DELAY_MS;
+  }
+});
+
+test("a message during a correction is refused and the correction keeps its own gate", async () => {
+  const { studio, prompts, stream } = await piStudio({ root: { status: FAILING_STAGE } });
+  const decided = () => stream.events.filter((event) => event.name === "gate" && event.data.tema === "redes" && event.data.passing === false);
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    const first = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: first.id, value: "Universitario" })).status, 200);
+    await until(() => prompts().length === 2);
+    // The learner changes the subject while the correction runs: refused, never queued behind it.
+    const refused = await post(studio, "prompt", { text: "¿Y un hash?" });
+    assert.equal(refused.status, 409, refused.body);
+    assert.match(JSON.parse(refused.body).error, /El tutor está trabajando/);
+    assert.equal(prompts().length, 2, "the message never became a turn of its own");
+    // The correction's own settle is still decided against the engine.
+    const second = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: second.id, value: "Universitario" })).status, 200);
+    await until(() => decided().length === 2);
+    assert.equal(decided().length, 2, "the correction's own stage is decided, not the message that came after it");
+  } finally { stream.close(); }
+});
+
+test("a chat switch is refused while the turn is active and works once it is released", async () => {
+  const { studio, root, turns, stream } = await agyStudio({ root: { statuses: [FAILING_STAGE, CLEARED_STAGE], delayMs: 400 } });
+  try {
+    const general = JSON.parse((await http(`${studio.url}api/chats`)).body).activo;
+    const created = JSON.parse((await post(studio, "api/chats", { nombre: "otra" })).body).activo;
+    assert.equal((await post(studio, "api/chats/abrir", { id: general })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    // The gate is deciding: the studio is still inside its turn, so the switch is refused.
+    await until(() => engineCalls(root) === "1");
+    const refused = await post(studio, "api/chats/abrir", { id: created });
+    assert.equal(refused.status, 409, refused.body);
+    assert.match(JSON.parse(refused.body).error, /El tutor está trabajando/);
+    await until(() => agyTurns(turns).length === 2);
+    assert.match(agyTurns(turns)[1].join(" "), /--conversation test-conversation/, "the correction stays in the chat that was talking");
+    // The engine cleared it and the turn is released: the switch is accepted now.
+    await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    assert.equal((await post(studio, "api/chats/abrir", { id: created })).status, 200);
+  } finally { stream.close(); }
+});
+
+test("an aborted Antigravity turn is not gated", async () => {
+  process.env.FAKE_AGY_DELAY_MS = "400";
+  const { studio, turns, stream } = await agyStudio({ root: { status: FAILING_STAGE } });
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    await until(() => agyTurns(turns).length === 1);
+    assert.equal((await post(studio, "abort")).status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.equal(agyTurns(turns).length, 1, "an aborted turn is not asked again");
+    assert.equal(stream.events.filter((event) => event.name === "error").length, 0, "and stopping the tutor is not a failure");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+    delete process.env.FAKE_AGY_DELAY_MS;
+  }
+});
+
+test("an aborted Pi turn is not gated", async () => {
+  const { studio, prompts, stream } = await piStudio({ root: { status: FAILING_STAGE } });
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    assert.equal((await post(studio, "abort")).status, 200);
+    await stream.next("state", (data) => data.busy === false);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(prompts().length, 1, "the turn the learner stopped is not asked again");
+  } finally { stream.close(); }
+});
+
+test("the tutor's correction is neither echoed nor served as the learner's own message", async () => {
+  process.env.FAKE_PI_HISTORY = "1";
+  const { studio, prompts, stream } = await piStudio({ root: { statuses: [FAILING_STAGE, CLEARED_STAGE] } });
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => prompts().length === 2);
+    const correction = prompts()[1].message;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(stream.events.some((event) => event.name === "user" && event.data.text === correction), false, "the instruction is not echoed as the learner's words");
+    const again = sse(`${studio.url}events`);
+    try {
+      const history = await again.next("history");
+      assert.deepEqual(history.messages.filter((m) => m.role === "user").map((m) => m.text), ["Escribe la Parte 1"], "nor kept as something the learner typed");
+    } finally { again.close(); }
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_HISTORY;
+  }
+});
+
+test("the correction is not part of the Antigravity transcript", async () => {
+  const { studio, turns, stream } = await agyStudio({ root: { statuses: [FAILING_STAGE, CLEARED_STAGE] } });
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    await until(() => agyTurns(turns).length === 2);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const again = sse(`${studio.url}events`);
+    try {
+      const history = await again.next("history");
+      assert.deepEqual(history.messages.filter((m) => m.role === "user").map((m) => m.text), ["Escribe la Parte 1"], "the transcript holds the learner's words, not the gate's");
+    } finally { again.close(); }
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+test("a correction the runtime refuses is told in Spanish, not in the runtime's words", async () => {
+  process.env.FAKE_PI_REJECT = "Learning gate:";
+  const { studio, stream } = await piStudio({ root: { status: FAILING_STAGE } });
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    const told = await stream.next("error");
+    assert.match(told.message, /no pudo/, "the learner is told what happened");
+    assert.doesNotMatch(told.message, /Red interna|Pi rejected/, "never in the runtime's own words");
+    // A correction the runtime refused ends the turn instead of leaving it held.
+    await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    assert.equal((await post(studio, "prompt", { text: "Otra vez" })).status, 200, "the studio is free again");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_REJECT;
+  }
+});
+
+// ---- T2: the learner's questions are asked by the page, never by the tutor -------
+
+/** The mode line the studio writes into an «Aprender algo nuevo» prompt. */
+const MODE_LINE = {
+  rapido: "[Modo de estudio: rápido — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
+  universitario: "[Modo de estudio: universitario — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
+};
+/** What the engine reports once the learner is owed the method question. */
+const METHOD_STAGE = {
+  status: "accepted",
+  stage: "method",
+  nextStage: "method",
+  checks: [{ id: "method-chosen", status: "SKIP", reason: "the learner has not chosen how to be taught yet" }],
+};
+/** What the engine reports when the method is recorded and planning is next. */
+const METHOD_RECORDED = { status: "accepted", stage: "method", nextStage: "planning", method: "pareto", checks: [{ id: "method-chosen", status: "PASS", reason: "the learner chose pareto" }] };
+
+/** The arguments the engine was called with, one line per call. */
+const engineArgs = (log) => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean) : []);
+
+test("a request from «Aprender algo nuevo» carries the mode to each tutor", async () => {
+  const pi = await piStudio();
+  try {
+    const asked = await post(pi.studio, "api/aprender", { text: "redes neuronales", modo: "universitario" });
+    assert.equal(asked.status, 200, asked.body);
+    await until(() => pi.prompts().length === 1);
+    const message = pi.prompts()[0].message;
+    assert.match(message, /^Quiero aprender redes neuronales\./, "the request is the learner's own words");
+    assert.ok(message.includes(MODE_LINE.universitario), `the mode travels in the prompt: ${message}`);
+  } finally { pi.stream.close(); }
+
+  const agy = await agyStudio();
+  try {
+    const asked = await post(agy.studio, "api/aprender", { text: "qué es un hash", modo: "rapido" });
+    assert.equal(asked.status, 200, asked.body);
+    await until(() => agyTurns(agy.turns).length === 1);
+    const sent = agyTurns(agy.turns)[0].join(" ");
+    assert.ok(sent.includes(MODE_LINE.rapido), `the mode travels in the Antigravity prompt: ${sent}`);
+  } finally {
+    agy.stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+test("«Aprender algo nuevo» refuses a request with no mode and sends nothing", async () => {
+  const { studio, prompts, stream } = await piStudio();
+  try {
+    for (const body of [{ text: "algo" }, { text: "algo", modo: "" }, { text: "algo", modo: "medio" }, { text: "algo", modo: "Universitario" }, { text: "  ", modo: "rapido" }]) {
+      const res = await post(studio, "api/aprender", body);
+      assert.equal(res.status, 400, `${JSON.stringify(body)} → ${res.body}`);
+    }
+    assert.equal(prompts().length, 0, "nothing reached the tutor");
+  } finally { stream.close(); }
+});
+
+test("the studio tells every tutor never to choose the mode by itself", async () => {
+  const agy = await agyStudio();
+  try {
+    assert.equal((await post(agy.studio, "prompt", { text: "Quiero aprender algo" })).status, 200);
+    await until(() => agyTurns(agy.turns).length === 1);
+    const sent = agyTurns(agy.turns)[0].join(" ");
+    assert.ok(sent.includes("no elijas por ella"), `Antigravity reads the rule: ${sent}`);
+    assert.ok(sent.includes("«Aprender algo nuevo»"), "and where to send the learner");
+  } finally {
+    agy.stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+/** What the real engine answers for a topic folder with no run (verified with `go run ./cmd/learning status`). */
+const UNINITIALIZED = {
+  status: "blocked",
+  stage: "preparation",
+  nextStage: "preparation",
+  checks: [{ id: "state-initialized", status: "FAIL", reason: "run not initialized: execute init before validate, advance or status" }],
+};
+
+/** A studio with Pi as the tutor that reports the writes the fake turn makes. */
+async function creatingStudio(writes, options = {}) {
+  const { root, engine, log } = makeRoot({ status: UNINITIALIZED, ...(options.root ?? {}) });
+  const calls = join(root, "engine-args.log");
+  const counting = join(root, "counting-engine.sh");
+  writeFileSync(counting, `#!/bin/sh\necho "$@" >> ${JSON.stringify(calls)}\nexec ${JSON.stringify(engine)} "$@"\n`);
+  chmodSync(counting, 0o755);
+  process.env.FAKE_PI_LOG = log;
+  process.env.FAKE_PI_WRITES = JSON.stringify(writes(root));
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: counting });
+  open.push(studio);
+  const prompts = () => piLog(log).filter((command) => command.type === "prompt");
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  return { studio, root, log, prompts, stream, asked: () => engineArgs(calls) };
+}
+
+test("a Universitario turn binds the topic its own writes create, and the engine gates it", async () => {
+  const created = await creatingStudio((root) => [{ path: join(root, "nuevo", "plan.json") }]);
+  const { studio, root, prompts, stream, asked } = created;
+  try {
+    assert.equal((await post(studio, "api/aprender", { text: "aprendizaje por refuerzo", modo: "universitario" })).status, 200);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    // The turn settles: the studio asks the engine about the folder the tutor just wrote into.
+    await until(() => asked().some((line) => line.startsWith("status ") && line.includes(`--workspace ${join(root, "nuevo")}`)));
+    await until(() => prompts().length === 2);
+    const correction = prompts()[1].message;
+    assert.match(correction, /FAIL state-initialized: run not initialized: execute init before validate, advance or status/, "the correction carries the engine's own words");
+    // The same bounded budget as any other failing stage, then the learner is told.
+    for (const _ of [0, 1, 2]) {
+      const next = await stream.next("dialog").catch(() => null);
+      if (next) await post(studio, "dialog", { id: next.id, value: "Universitario" });
+    }
+    const told = await stream.next("error");
+    assert.match(told.message, /no pudo terminar/);
+    assert.equal(prompts().length, 1 + MAX_CORRECTIONS, "the turn and its corrections, and no more");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
+test("a Universitario turn that creates no topic says so and ends", async () => {
+  const { studio, prompts, stream } = await creatingStudio(() => []);
+  try {
+    assert.equal((await post(studio, "api/aprender", { text: "algo nuevo", modo: "universitario" })).status, 200);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    const notice = await stream.next("notice", (data) => /no creó ningún tema/.test(data.message));
+    assert.equal(notice.message, "El tutor no creó ningún tema todavía.");
+    assert.equal(prompts().length, 1, "nothing to correct: no follow-up turn");
+    await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    assert.equal((await post(studio, "prompt", { text: "hola" })).status, 200, "the turn is released");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
+test("a Rápido turn stays a quick note: no topic, no gate", async () => {
+  const { studio, prompts, stream, asked } = await creatingStudio((folder) => [{ path: join(folder, "rapidos", "refuerzo.md") }]);
+  try {
+    assert.equal((await post(studio, "api/aprender", { text: "aprendizaje por refuerzo", modo: "rapido" })).status, 200);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    assert.equal(asked().filter((line) => line.startsWith("status ")).length, 0, "the engine is never asked about a quick note");
+    assert.equal(prompts().length, 1, "no correction for a quick note");
+    assert.equal(stream.events.some((event) => event.name === "notice" && /no creó ningún tema/.test(event.data.message)), false, "a note was written: nothing is owed");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
+test("choosing the method records it with the engine and starts one deep turn", async () => {
+  const { root, engine, log } = makeRoot({ statuses: [METHOD_RECORDED, { status: "accepted", stage: "planning", nextStage: "planning", checks: [{ id: "plan", status: "PASS", reason: "plan written" }] }] });
+  const calls = join(root, "engine-args.log");
+  const counting = join(root, "counting-engine.sh");
+  writeFileSync(counting, `#!/bin/sh\necho "$@" >> ${JSON.stringify(calls)}\nexec ${JSON.stringify(engine)} "$@"\n`);
+  chmodSync(counting, 0o755);
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: counting });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const prompts = () => piLog(log).filter((command) => command.type === "prompt");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    const chosen = await post(studio, "api/metodo", { tema: "redes", metodo: "pareto" });
+    assert.equal(chosen.status, 200, chosen.body);
+    const method = engineArgs(calls).find((line) => line.startsWith("method "));
+    assert.ok(method, `the engine's own method command was used: ${engineArgs(calls).join(" | ")}`);
+    assert.match(method, /--method pareto/);
+    assert.ok(method.includes(`--workspace ${join(root, "redes")}`), "for the topic the learner is on");
+    await until(() => prompts().length === 1);
+    assert.match(prompts()[0].message, /pareto/, "the tutor is told to plan with the chosen method");
+    assert.equal(prompts().length, 1, "exactly one deep turn");
+  } finally { stream.close(); }
+});
+
+test("the method choice refuses what the engine does not know, and refuses while a turn is held", async () => {
+  const { studio, root, prompts, stream } = await piStudio({ root: { statuses: [METHOD_RECORDED] } });
+  try {
+    for (const body of [{ tema: "redes", metodo: "rapido" }, { tema: "redes" }, { tema: "redes", metodo: "Pareto" }]) {
+      assert.equal((await post(studio, "api/metodo", body)).status, 400, JSON.stringify(body));
+    }
+    assert.equal((await post(studio, "api/metodo", { tema: "no-existe", metodo: "pareto" })).status, 404, "a topic the studio does not have");
+    assert.equal(engineCalls(root), "0", "the engine was not asked for a refused choice");
+    // A held turn refuses the choice like any other turn start.
+    assert.equal((await post(studio, "prompt", { text: "primero", tema: "redes" })).status, 200);
+    await stream.next("dialog");
+    const refused = await post(studio, "api/metodo", { tema: "redes", metodo: "pareto" });
+    assert.equal(refused.status, 409, refused.body);
+    assert.match(JSON.parse(refused.body).error, /El tutor está trabajando/);
+    assert.equal(engineCalls(root), "0", "a refused choice never reaches the engine");
+    assert.equal(prompts().length, 1);
+  } finally { stream.close(); }
+});
+
+test("a submission from the page cannot start a turn while the studio gates the last one", async () => {
+  const { studio, root, turns, stream } = await agyStudio({ root: { statuses: [FAILING_STAGE, CLEARED_STAGE], delayMs: 700 } });
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    // The turn settled and the studio is asking the engine: the turn is still the studio's.
+    await until(() => engineCalls(root) === "1");
+    const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
+    const res = await http(`${view.url.replace(/redes\/p1$/, "")}submit`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: new URL(view.url).origin },
+      body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿Qué es una capa?" }),
+    });
+    assert.equal(res.status, 409, res.body);
+    assert.match(JSON.parse(res.body).error, /El tutor está trabajando/);
+    // The correction still runs, in the same conversation, and the engine clears it.
+    await until(() => agyTurns(turns).length === 2);
+    assert.match(agyTurns(turns)[1].join(" "), /--conversation test-conversation/);
+    assert.equal((await stream.next("gate", (data) => data.passing === true)).tema, "redes");
+    assert.equal(agyTurns(turns).length, 2, "the refused submission never ran a turn");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+test("a regeneration while a turn is active is refused and leaves the part untouched", async () => {
+  const { studio, root, prompts, stream } = await piStudio();
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    const dialog = await stream.next("dialog");
+    const part = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
+    const before = readFileSync(part, "utf8");
+    const refused = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto, por favor" });
+    assert.equal(refused.status, 409, refused.body);
+    assert.match(JSON.parse(refused.body).error, /El tutor está trabajando/);
+    assert.equal(readFileSync(part, "utf8"), before, "the part was not moved: nothing is backed up for a refused turn");
+    assert.equal(existsSync(join(root, "papelera")), false, "and nothing was stored as a regeneration");
+    assert.equal(prompts().length, 1, "no second turn started");
+    // The running turn is untouched: its dialog still answers.
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+  } finally { stream.close(); }
+});
+
+test("an engine that cannot report releases the turn", async () => {
+  const { studio, engine, prompts, stream } = await piStudio();
+  try {
+    writeFileSync(engine, "#!/bin/sh\necho 'esto no es un informe'\n");
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    assert.match((await stream.next("notice", (data) => /El motor no pudo revisar/.test(data.message))).message, /El motor no pudo revisar/);
+    await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    // Nothing stayed latched: the studio accepts the next turn (the broken engine still blocks the
+    // topic it could not read, so the new turn is the general chat).
+    assert.equal((await post(studio, "prompt", { text: "Otra vez" })).status, 200);
+    assert.equal(prompts().length, 2);
+  } finally { stream.close(); }
+});
+
+test("a dead runtime releases the turn", async () => {
+  const { studio, stream } = await piStudio();
+  try {
+    assert.equal((await post(studio, "prompt", { text: "crash", tema: "redes" })).status, 200);
+    await stream.next("state", (data) => data.alive === false);
+    assert.deepEqual(stream.events.filter((event) => event.name === "state").at(-1)?.data, { busy: false, alive: false });
+    // The turn the dead runtime could not finish is gone: these routes need an idle studio.
+    assert.equal((await post(studio, "api/tema", { tema: "redes" })).status, 200);
+    assert.equal((await post(studio, "restart", {})).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "hola", tema: "redes" })).status, 200);
+  } finally { stream.close(); }
+});
+
+/**
+ * A studio whose fake engine sleeps only on its first answer and records every answer as it lands,
+ * so a test can let a stale settle finish while a later turn is the one in flight.
+ */
+async function staleEngineStudio() {
+  const studio = await agyStudio();
+  const calls = join(studio.root, ".engine-calls");
+  const answers = join(studio.root, "engine-answers.log");
+  const script = [
+    "#!/bin/sh",
+    `calls=${JSON.stringify(calls)}`,
+    `answers=${JSON.stringify(answers)}`,
+    'n=$(cat "$calls" 2>/dev/null || echo 0)',
+    "n=$((n+1))",
+    'echo $n > "$calls"',
+    // The first turn's engine answer arrives late; every answer is recorded before it is printed.
+    'if [ "$n" = "1" ]; then sleep 1; fi',
+    'echo $n >> "$answers"',
+    `if [ "$n" = "1" ]; then echo '${JSON.stringify(FAILING_STAGE)}'; else echo '${JSON.stringify(CLEARED_STAGE)}'; fi`,
+  ].join("\n") + "\n";
+  writeFileSync(studio.engine, script);
+  chmodSync(studio.engine, 0o755);
+  const answered = () => (existsSync(answers) ? readFileSync(answers, "utf8").trim().split("\n").filter(Boolean).length : 0);
+  return { ...studio, answered };
+}
+
+/** A second turn is held and answering, while the first turn's engine answer is still on its way. */
+async function expectStaleSettleKeepsTheLiveTurn(open, studio, root, turns, stream, answered) {
+  assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+  await until(() => agyTurns(turns).length === 1);
+  await until(() => engineCalls(root) === "1");
+  assert.equal((await post(studio, open)).status, 200);
+  assert.equal((await post(studio, "prompt", { text: "Otra vez", tema: "redes" })).status, 200);
+  await until(() => agyTurns(turns).length === 2);
+  // The first turn's engine answer lands now: it belongs to a turn that is already gone.
+  await until(() => answered() === 1);
+  assert.equal(stream.events.filter((event) => event.name === "state").at(-1)?.data.busy, true, "the live turn is still held");
+  const third = await post(studio, "prompt", { text: "Tercera", tema: "redes" });
+  assert.equal(third.status, 409, third.body);
+  assert.match(JSON.parse(third.body).error, /El tutor está trabajando/);
+  // The live turn's own settle is the one that releases it.
+  await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+  assert.equal(agyTurns(turns).length, 2);
+}
+
+test("a stale settle cannot release the turn the learner started after an abort", async () => {
+  process.env.FAKE_AGY_DELAY_MS = "1200";
+  const { studio, root, turns, stream, answered } = await staleEngineStudio();
+  try {
+    await expectStaleSettleKeepsTheLiveTurn("abort", studio, root, turns, stream, answered);
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+    delete process.env.FAKE_AGY_DELAY_MS;
+  }
+});
+
+test("a stale settle cannot release the turn the learner started after a restart", async () => {
+  process.env.FAKE_AGY_DELAY_MS = "1200";
+  const { studio, root, turns, stream, answered } = await staleEngineStudio();
+  try {
+    await expectStaleSettleKeepsTheLiveTurn("restart", studio, root, turns, stream, answered);
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+    delete process.env.FAKE_AGY_DELAY_MS;
+  }
+});
+
+test("an abort ends the turn without gating it and works while it is active", async () => {
+  process.env.FAKE_AGY_DELAY_MS = "500";
+  const { studio, turns, stream } = await agyStudio();
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    await until(() => agyTurns(turns).length === 1);
+    assert.equal((await post(studio, "abort")).status, 200);
+    await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    assert.equal(stream.events.filter((event) => event.name === "gate").length, 0, "an aborted turn is not gated");
+    assert.equal(agyTurns(turns).length, 1, "and it is not corrected");
+    // The studio is free: the next turn is accepted.
+    assert.equal((await post(studio, "prompt", { text: "Otra vez", tema: "redes" })).status, 200);
+    await until(() => agyTurns(turns).length === 2);
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+    delete process.env.FAKE_AGY_DELAY_MS;
+  }
+});
+
+// T3: every refusal the learner can actually hit speaks Spanish; the runtime's own words stay in
+// the studio log. A refusal written as an English sentence is a defect, not a nuance.
+test("the refusals the learner can hit are Spanish", async () => {
+  const english = /^(the|a|an|no|not|could|open|pi|engine|unknown|invalid)\b/i;
+  const expectSpanish = (message, expected) => {
+    assert.equal(message, expected);
+    assert.doesNotMatch(message, english, `not an English sentence: ${message}`);
+  };
+
+  // 503: the tutor is switched off for this studio.
+  const off = await setup({ agentDisabled: true });
+  const disabled = await post(off.studio, "prompt", { text: "hola" });
+  assert.equal(disabled.status, 503);
+  expectSpanish(JSON.parse(disabled.body).error, "El tutor está desactivado.");
+
+  // 503: the tutor process died and nobody restarted it.
+  const dead = await piStudio();
+  try {
+    assert.equal((await post(dead.studio, "prompt", { text: "crash" })).status, 200);
+    await dead.stream.next("state", (data) => data.alive === false);
+    const stopped = await post(dead.studio, "prompt", { text: "hola" });
+    assert.equal(stopped.status, 503);
+    expectSpanish(JSON.parse(stopped.body).error, "El tutor no está en marcha.");
+  } finally { dead.stream.close(); }
+
+  // 409: a turn is held, from the composer and from the hosted view.
+  const busy = await piStudio();
+  try {
+    assert.equal((await post(busy.studio, "prompt", { text: "primero", tema: "redes" })).status, 200);
+    await busy.stream.next("dialog");
+    const held = await post(busy.studio, "prompt", { text: "segundo" });
+    assert.equal(held.status, 409);
+    expectSpanish(JSON.parse(held.body).error, "El tutor está trabajando; espera a que termine.");
+    const view = JSON.parse((await http(`${busy.studio.url}api/view?topic=redes&part=p1`)).body);
+    const fromPage = await http(`${view.url.replace(/redes\/p1$/, "")}submit`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: new URL(view.url).origin },
+      body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿Qué es una capa?" }),
+    });
+    assert.equal(fromPage.status, 409, fromPage.body);
+    expectSpanish(JSON.parse(fromPage.body).error, "El tutor está trabajando; espera a que termine.");
+  } finally { busy.stream.close(); }
 });
 
 test("a refused prompt leaves the running turn alone, and restart recovers a busy tutor", async () => {
@@ -447,6 +1408,16 @@ const until = async (pred, timeout = 5000) => {
   throw new Error("condition not met");
 };
 
+/** `until` for a condition that has to be read over HTTP; the waits a fixed sleep cannot bound. */
+const untilAsync = async (pred, timeout = 5000) => {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    if (await pred()) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error("condition not met");
+};
+
 test("the shell page is token-gated, loopback-only and frames only the hosted bridge and its own saved parts", async () => {
   const { studio, received } = await setup();
   const page = await http(studio.url);
@@ -522,10 +1493,13 @@ test("a second public studio origin is authorized while the first stays canonica
   }
   const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
   assert.ok(view.url.startsWith(`${bridgeCanonical}/`), "the first bridge origin stays canonical");
-  for (const origin of [canonical, fallback]) {
-    assert.equal((await post(studio, "prompt", { text: `desde ${origin}` }, { origin })).status, 200, origin);
-  }
-  assert.ok(received().some((c) => c.type === "prompt" && c.message === `desde ${fallback}`));
+  // Both origins are authorized. One turn at a time, so the second is proven by authorization
+  // (a refusal, never a 403) while the first is proven by the turn it really started.
+  assert.equal((await post(studio, "prompt", { text: `desde ${canonical}` }, { origin: canonical })).status, 200);
+  const second = await post(studio, "prompt", { text: `desde ${fallback}` }, { origin: fallback });
+  assert.equal(second.status, 409, second.body);
+  assert.match(JSON.parse(second.body).error, /El tutor está trabajando/);
+  assert.ok(received().some((c) => c.type === "prompt" && c.message === `desde ${canonical}`));
   assert.equal((await post(studio, "prompt", { text: "forbidden" }, { origin: "https://evil.example" })).status, 403);
 });
 
@@ -711,21 +1685,33 @@ test("a prompt streams text, tool activity and a dialog whose answer goes back t
   assert.deepEqual(await stream.next("state", (s) => !s.busy), { busy: false, alive: true });
   await stream.next("library_changed");
 
-  const queued = await post(studio, "prompt", { text: "otra cosa" });
-  assert.equal(queued.status, 200);
+  // The turn is over, so a new one is accepted: nothing stays latched behind a settled turn.
+  const next = await post(studio, "prompt", { text: "otra cosa" });
+  assert.equal(next.status, 200, next.body);
   stream.close();
 });
 
-test("a prompt while Pi works is queued as a follow-up", async () => {
-  const { studio, received } = await setup();
-  const stream = sse(`${studio.url}events`);
-  await stream.next("history");
-  await post(studio, "prompt", { text: "primero" });
-  await stream.next("dialog");
-  await post(studio, "prompt", { text: "después" });
-  const prompts = received().filter((c) => c.type === "prompt");
-  assert.deepEqual(prompts.map((p) => [p.message, p.streamingBehavior]), [["primero", undefined], ["después", "followUp"]]);
-  stream.close();
+// One turn at a time, studio-wide: a second prompt is refused, never queued behind the first, and
+// nothing stays latched once the turn is decided.
+test("a prompt while a turn is active is refused, never queued, and the latch is gone after it", async () => {
+  const { studio, prompts, stream } = await piStudio();
+  try {
+    assert.equal((await post(studio, "prompt", { text: "primero", tema: "redes" })).status, 200);
+    const dialog = await stream.next("dialog");
+    const second = await post(studio, "prompt", { text: "después" });
+    assert.equal(second.status, 409, second.body);
+    assert.match(JSON.parse(second.body).error, /El tutor está trabajando/);
+    assert.equal(prompts().length, 1, "nothing was queued behind the running turn");
+    assert.equal(prompts()[0].streamingBehavior, undefined, "the studio never asks Pi for a follow-up");
+
+    // The turn ends when its dialog is answered; the routes that need an idle studio work again.
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    assert.equal((await post(studio, "api/tema", { tema: "redes" })).status, 200);
+    const created = await post(studio, "api/chats", { nombre: "otra" });
+    assert.equal(created.status, 200, created.body);
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "" })).status, 200);
+  } finally { stream.close(); }
 });
 
 test("POSTs refuse foreign origins, non-JSON, empty or oversize prompts, and reach Pi with nothing", async () => {
@@ -1292,15 +2278,15 @@ test("disabled tutor cannot start or restart, while the reader remains available
   assert.equal(page.status, 200, page.body);
   const prompt = await post(studio, "prompt", { text: "Hello" });
   assert.equal(prompt.status, 503);
-  assert.equal(JSON.parse(prompt.body).error, "the tutor is disabled");
+  assert.equal(JSON.parse(prompt.body).error, "El tutor está desactivado.");
   const restart = await post(studio, "restart", {});
   assert.equal(restart.status, 503);
-  assert.equal(JSON.parse(restart.body).error, "the tutor is disabled");
+  assert.equal(JSON.parse(restart.body).error, "El tutor está desactivado.");
   const part = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
   const before = readFileSync(part, "utf8");
   const regenerate = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "shorter" });
   assert.equal(regenerate.status, 503);
-  assert.equal(JSON.parse(regenerate.body).error, "the tutor is disabled");
+  assert.equal(JSON.parse(regenerate.body).error, "El tutor está desactivado.");
   assert.equal(readFileSync(part, "utf8"), before);
   assert.deepEqual(received(), []);
 });
@@ -1401,7 +2387,7 @@ test("a chat cannot be opened while the tutor is busy", async () => {
 
   const refused = await post(studio, "api/chats/abrir", { ambito: "parte:redes/p2" });
   assert.equal(refused.status, 409);
-  assert.match(JSON.parse(refused.body).error, /busy/);
+  assert.match(JSON.parse(refused.body).error, /El tutor está trabajando/);
   stream.close();
 });
 
@@ -1427,23 +2413,30 @@ test("Antigravity records its conversation on the chat, and a new chat starts wi
     const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
     assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
 
-    await post(studio, "prompt", { text: "hola" });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Each turn is one `-p ...` argv, and the prompt itself spans lines.
+    const turns = () => (existsSync(argv) ? readFileSync(argv, "utf8").split(/\n(?=-p )/).filter((turn) => turn.trim()) : []);
+
+    // Every turn is retried until the studio accepts it: it refuses a prompt while it is deciding
+    // what the last turn owes the engine, which is a window no fixed sleep can bound.
+    await untilAsync(async () => (await post(studio, "prompt", { text: "hola" })).status === 200);
+    await untilAsync(async () => {
+      const chats = JSON.parse((await http(`${studio.url}api/chats`)).body);
+      return chats.chats.find((c) => c.id === chats.activo).agyConversation === "test-conversation";
+    });
     const chats = JSON.parse((await http(`${studio.url}api/chats`)).body);
     assert.equal(chats.chats.find((c) => c.id === chats.activo).agyConversation, "test-conversation");
 
     // The same chat continues its own conversation.
-    await post(studio, "prompt", { text: "sigo" });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    // Each turn is one `-p ...` argv, and the prompt itself spans lines.
-    const turns = () => readFileSync(argv, "utf8").split(/\n(?=-p )/).filter((turn) => turn.trim());
+    await untilAsync(async () => (await post(studio, "prompt", { text: "sigo" })).status === 200);
+    await until(() => turns().length === 2);
     assert.equal(turns().length, 2);
     assert.ok(turns()[1].includes("--conversation test-conversation"), "the next turn continues the chat's conversation");
 
-    // A new chat is a new conversation, not a silent carry-over.
-    await post(studio, "api/chats", { nombre: "otra" });
-    await post(studio, "prompt", { text: "otra vez" });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // A new chat is a new conversation, not a silent carry-over. The studio refuses a switch and a
+    // new turn while the tutor is still working, so both are retried until it accepts them.
+    await untilAsync(async () => (await post(studio, "api/chats", { nombre: "otra" })).status === 200);
+    await untilAsync(async () => (await post(studio, "prompt", { text: "otra vez" })).status === 200);
+    await until(() => turns().length === 3);
     assert.equal(turns().length, 3);
     assert.ok(!turns()[2].includes("--conversation"), "a new chat starts its own conversation");
   } finally {
@@ -1466,7 +2459,7 @@ test("exporting a chat answers with the file, and only for the chat that is open
   await post(studio, "api/chats", { nombre: "otra" });
   const refused = await post(studio, "api/chats/exportar", { id: general.id });
   assert.equal(refused.status, 409);
-  assert.match(JSON.parse(refused.body).error, /open the chat/);
+  assert.match(JSON.parse(refused.body).error, /Abre la conversación/);
 });
 
 test('the studio refuses to start without a data root', async () => {
@@ -1539,6 +2532,9 @@ test("a drifted tutor context refuses the Pi turn and names the path to fix", as
     const aligned = await post(studio, "prompt", { text: "Hola" });
     assert.equal(aligned.status, 200, aligned.body);
     assert.equal(prompts().length, 1, "the aligned turn reached Pi");
+    // One turn at a time: the aligned turn ends before the next one can meet the drift check.
+    assert.equal((await post(studio, "abort", {})).status, 200);
+    await stream.next("state", (s) => s.busy === false);
 
     const link = drift(home, ".claude");
     const refused = await post(studio, "prompt", { text: "Otra" });

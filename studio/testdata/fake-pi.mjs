@@ -21,7 +21,12 @@ if (process.argv.includes("--list-models")) {
 const log = process.env.FAKE_PI_LOG;
 const out = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
 const record = (command) => log && appendFileSync(log, `${JSON.stringify({ ...command, interactiveHost: process.env.GENTLE_SHELL_INTERACTIVE_HOST, cwd: process.cwd() })}\n`);
+// The mode the studio started this child in. It is written apart from the command log because the
+// log is a record of Pi's protocol, not of the environment it inherited.
+if (process.env.FAKE_PI_GATE) writeFileSync(process.env.FAKE_PI_GATE, `${process.env.LEARNING_SETTLE_GATE ?? ""}\n`);
 let pendingDialog = null;
+/** The prompts this session received, in order: what FAKE_PI_HISTORY serves as the thread. */
+const receivedPrompts = [];
 // Pi keeps one file per session: a new session is a new file, and a switch names one.
 // FAKE_PI_SESSION_DIR lets a test own the directory the studio is allowed to delete from.
 const sessionDir = process.env.FAKE_PI_SESSION_DIR ?? "/tmp";
@@ -56,8 +61,7 @@ const notices = () => {
 };
 const spoken = notices();
 
-const run = (message) => {
-  out({ type: "agent_start" });
+const run = (message) => {  out({ type: "agent_start" });
   out({ type: "message_start", message: { role: "user", content: message } });
   out({ type: "message_start", message: { role: "assistant", content: [] } });
   out({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Hola, " } });
@@ -101,14 +105,29 @@ process.stdin.on("data", (chunk) => {
       case "get_messages":
         out({
           id: command.id, type: "response", command: "get_messages", success: true,
-          data: { messages: [{ role: "user", content: "hola" }, { role: "assistant", content: [{ type: "text", text: "¡Hola!" }] }, { role: "toolResult", content: "x" }, { role: "assistant", content: [{ type: "toolCall", id: "t1", name: "write", arguments: { path: "tema/explicaciones/Parte 1 - Algo.md" } }] }] },
+          // FAKE_PI_HISTORY keeps the prompts this session really received, so a test can read the
+          // history the studio serves the way Pi would hold it. Otherwise: one canned thread.
+          data: { messages: process.env.FAKE_PI_HISTORY
+            ? receivedPrompts.flatMap((message) => [
+                { role: "user", content: message },
+                { role: "assistant", content: [{ type: "text", text: `listo: ${message.slice(0, 12)}` }] },
+              ])
+            : [{ role: "user", content: "hola" }, { role: "assistant", content: [{ type: "text", text: "¡Hola!" }] }, { role: "toolResult", content: "x" }, { role: "assistant", content: [{ type: "toolCall", id: "t1", name: "write", arguments: { path: "tema/explicaciones/Parte 1 - Algo.md" } }] }] },
         });
         break;
-      case "prompt":
+      case "prompt": {
+        const message = typeof command.message === "string" ? command.message : "";
+        // A runtime that refuses a prompt answers with a failure instead of starting a turn.
+        if (process.env.FAKE_PI_REJECT && message.startsWith(process.env.FAKE_PI_REJECT)) {
+          out({ id: command.id, type: "response", command: "prompt", success: false, error: "Red interna: el modelo no respondió" });
+          break;
+        }
         out({ id: command.id, type: "response", command: "prompt", success: true, data: { disposition: command.streamingBehavior ? "queued" : "started" } });
-        if (command.message === "crash") process.exit(3);
-        if (!command.streamingBehavior) run(command.message);
+        receivedPrompts.push(message);
+        if (message === "crash") process.exit(3);
+        if (!command.streamingBehavior) run(message);
         break;
+      }
       case "extension_ui_response":
         if (command.id === pendingDialog) {
           pendingDialog = null;
@@ -147,6 +166,9 @@ process.stdin.on("data", (chunk) => {
       }
       case "abort":
         out({ id: command.id, type: "response", command: command.type, success: true, data: {} });
+        // A real Pi ends the turn it was asked to stop, so the studio hears the settle.
+        out({ type: "agent_end" });
+        out({ type: "agent_settled" });
         break;
       case "new_session":
         sessionSeq += 1;

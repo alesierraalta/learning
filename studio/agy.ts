@@ -30,6 +30,7 @@ const STUDIO_CONTRACT = [
   "[Learnings studio]",
   "The learner works in the Learnings studio. Quizzes are answered on the studio page, never in this chat: after writing a diagnosis round, tell the learner to press «Responder el diagnóstico»; after a mini-quiz, «Ir al quiz». Never ask for answers in a typed format such as d1-B or seguro/dudo/adivine.",
   "A message starting with [Vista HTML · ...] is the learner's own submission; the answers file it names is already written.",
+  "Si la persona pide aprender algo sin decir el modo (rápido o universitario), no elijas por ella: responde en una sola línea que la lleve a «Aprender algo nuevo» para elegir el modo y no crees nada.",
   "Reply in neutral Spanish with tú, never voseo (escribe, responde, mira; never escribí, respondé, mirá, acá).",
 ].join("\n");
 
@@ -61,6 +62,8 @@ export function createAgy(options: {
   let proc: ChildProcessWithoutNullStreams | undefined;
   let conversation: string | undefined;
   let stopped = false;
+  /** The learner stopped this turn: it ends silently, because it was not asked to finish. */
+  let aborted = false;
   /** A turn that names a new conversation is reported once, not on every later record. */
   const remember = (id: string) => {
     if (id === conversation) return;
@@ -75,6 +78,7 @@ export function createAgy(options: {
     prompt(text: string) {
       if (stopped) throw new HttpError(503, "the tutor is not running");
       if (proc) throw new HttpError(409, "Antigravity is busy");
+      aborted = false;
       const args = ["-p", `${text}\n\n${STUDIO_CONTRACT}`, "--output-format", "stream-json", "--mode", "accept-edits"];
       if (options.config.modelo) args.push("--model", options.config.modelo);
       const effort = options.config.pensamiento;
@@ -145,7 +149,7 @@ export function createAgy(options: {
         proc = undefined;
         // Node closes a failed spawn with code -2; that is the same failure, already reported.
         // A turn that produced no text is reported too: silence would look like a dead chat.
-        if (!stopped && !spawnFailed && !answer) {
+        if (!stopped && !aborted && !spawnFailed && !answer) {
           options.onError(
             !result && code !== 0
               ? `Antigravity terminó con código ${code}`
@@ -159,7 +163,7 @@ export function createAgy(options: {
         options.onRecord({ type: "agent_settled" });
       });
     },
-    abort() { proc?.kill(); },
+    abort() { aborted = true; proc?.kill(); },
     stop() { stopped = true; proc?.kill(); },
   };
 }

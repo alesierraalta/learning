@@ -1064,6 +1064,11 @@ export interface BridgeOptions {
    * working; the token is a keyed hash, never the secret itself. Random per start when absent.
    */
   tokenSeed?: string;
+  /**
+   * Why a new tutor turn cannot start right now, or null when it can. A submission is a turn, so it
+   * is refused with this message before anything is written for it.
+   */
+  refuseTurn?: () => string | null;
 }
 
 export function validatePublicOrigin(option: string, value: string | undefined): URL | undefined {
@@ -1415,15 +1420,27 @@ ${scripts}
       req.on("error", reject);
     });
 
+  /** The learner reloads to see what was really stored; only said when something was. */
+  const SAVED_HINT = "Recarga la página para ver las respuestas guardadas.";
+
+  /** A submission starts a tutor turn: while one is active it is refused before any write. */
+  const requireTurn = () => {
+    const refused = options.refuseTurn?.();
+    if (refused) throw new HttpError(409, refused);
+  };
+
   const deliver = async (text: string) => {
     try {
       await pi.sendUserMessage(text, { deliverAs: "followUp" });
     } catch (err) {
-      throw new HttpError(502, `could not send to the chat: ${(err as Error).message}`);
+      // The studio's own refusal is the answer: its Spanish message reaches the page as written.
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(502, "No se pudo enviar al tutor; vuelve a intentarlo.");
     }
   };
 
   const codeRequest = async (res: ServerResponse, payload: Record<string, unknown>, submit: boolean) => {
+    if (submit) requireTurn();
     const dir = topicDir(payload.topic);
     const file = exerciseFile(dir, payload.exercise);
     const runners = loadRunners(options.runnersFile);
@@ -1434,6 +1451,9 @@ ${scripts}
     const tests = submit ? ex.tests : payload.input !== undefined ? [{ nombre: "Entrada libre", entrada: payload.input as string }] : ex.tests.filter((t) => !t.oculto);
     const result = await runCode({ runner: runners[ex.lenguaje], code: payload.code, tests, limitSeconds: ex.limite_segundos });
     if (!submit) return sendJson(res, 200, forPage(result));
+    // The run takes seconds: a turn may have started meanwhile. A submission the studio will refuse
+    // leaves no file, so the lock is asked again right before anything is written.
+    requireTurn();
     const savedFile = saveSubmission(dirname(file), { ...result, lenguaje: ex.lenguaje, codigo: payload.code, ...(note ? { nota: note } : {}) });
     const saved = relative(dir, savedFile).split(sep).join("/");
     const score = `${result.aprobados}/${result.total}`;
@@ -1487,6 +1507,8 @@ ${scripts}
     const unknownKey = Object.keys(payload).find((key) => !ALLOWED_KEYS[kind].has(key));
     if (unknownKey) throw new HttpError(400, `unknown field: ${unknownKey}`);
     if (kind === "code") return codeRequest(res, payload, true);
+    // One turn at a time in the studio: refusing here keeps the answers' file untouched.
+    requireTurn();
     const dir = topicDir(payload.topic);
     const topic = payload.topic as string;
     const plan = readPlan(dir);
@@ -1570,7 +1592,8 @@ ${scripts}
       const exercises = optionalText(payload, "exercises");
       const saved = `mini-quiz/${partId}.answers.json`;
       const file = join(dir, saved);
-      if (existsSync(file)) throw new HttpError(409, `${saved} already exists; the quiz is answered`);
+      // The answers are already stored: reloading shows them.
+      if (existsSync(file)) throw new HttpError(409, `Ya respondiste el mini-quiz de esta parte. ${SAVED_HINT}`);
       const ordered = Object.fromEntries(questions.map((q) => [q.id, answers[q.id]]));
       writeAnswers(file, { answers: ordered, razonamientos: Object.fromEntries(questions.map((q) => [q.id, reasoning[q.id]])) });
       const results = questions.map((q) => grade(q, ordered[q.id]));
@@ -1590,7 +1613,7 @@ ${scripts}
     const file = join(dir, saved);
     const recorded = readAnswers(file) ?? { answers: {}, razonamientos: {} };
     const repeated = Object.keys(answers).find((id) => id in recorded.answers);
-    if (repeated) throw new HttpError(409, `${repeated} is already answered`);
+    if (repeated) throw new HttpError(409, `Ya respondiste esa pregunta del diagnóstico. ${SAVED_HINT}`);
     writeAnswers(file, {
       answers: { ...recorded.answers, ...answers },
       razonamientos: { ...recorded.razonamientos, ...reasoning },

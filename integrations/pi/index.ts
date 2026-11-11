@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { registerBridge } from "./bridge.ts";
-import { PASS_STATUSES, failCheckIds } from "./gate-rules.ts";
+import { MAX_CORRECTIONS, PASS_STATUSES, failCheckIds } from "./gate-rules.ts";
 import { resolveContained, safeTopic } from "./paths.ts";
 
 const execFileP = promisify(execFileCb);
@@ -28,15 +28,30 @@ const REPO_ROOT = resolve(HERE, "..", "..");
 const ENTRY_TYPE = "gentle-learning/enrollment";
 const GATE_TYPE = "gentle-learning/settle-gate";
 const ENGINE_TIMEOUT_MS = 120_000;
-const MAX_CORRECTIONS = 2;
 const CHECK_STATUSES = new Set(["PASS", "FAIL", "SKIP"]);
 /** Topic files only an enrolled run may hold: the plan and the diagnosis. */
 const ENROLLED_FILES = new Set(["plan.json", "quiz.json"]);
+/**
+ * What the studio's page answers for the tutor: the study mode is asked there, before the turn
+ * exists, and it travels in the prompt. Inside the studio this rule rides along with Pi's own
+ * instructions, so the tutor never asks the mode nor picks it alone.
+ */
+const STUDIO_MODE_RULE = [
+  "Learnings studio: the learner chooses the study mode (rápido or universitario) in the page's «Aprender algo nuevo» entry, and the prompt of the turn carries that choice.",
+  "Never choose the mode yourself and never ask for it: when the learner asks to learn something in the plain chat without a mode, answer in one line pointing to «Aprender algo nuevo» and create nothing.",
+].join(" ");
 
 export interface AdapterDeps {
   root: string;
   enginePath: string;
   rulesPath: string;
+  /**
+   * Who owns the settle rule. `extension` is a standalone Pi session, where this adapter asks the
+   * engine and asks Pi to continue. `studio` is a Pi session the studio drives, where corrections
+   * belong to the studio: a failing stage is not re-prompted here, while the stage pushes stay the
+   * tutor's, reading the one engine report this mode still asks for.
+   */
+  settleGate: "extension" | "studio";
   execFile: (
     file: string,
     args: string[],
@@ -49,6 +64,8 @@ export function defaultDeps(): Omit<AdapterDeps, "execFile"> {
     root: (process.env.LEARNING_ROOT ?? "").trim(),
     enginePath: join(REPO_ROOT, "bin", "learning"),
     rulesPath: join(REPO_ROOT, "rules", "deep.json"),
+    // The studio starts its Pi child with this flag; a terminal session never sets it.
+    settleGate: process.env.LEARNING_SETTLE_GATE === "studio" ? "studio" : "extension",
   };
 }
 
@@ -346,6 +363,13 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     state.corrections = 0;
   });
 
+  // T2: inside the studio the mode belongs to the page, so its rule travels with Pi's instructions.
+  // A terminal session keeps its own instructions untouched.
+  pi.on("before_agent_start", (event) => {
+    if (deps.settleGate !== "studio") return undefined;
+    return { systemPrompt: `${event.systemPrompt}\n\n${STUDIO_MODE_RULE}` };
+  });
+
   // S1: a topic exists for the engine only once it is enrolled. Its plan and diagnosis written
   // around the engine would leave it untracked ("sin seguimiento del motor"), so they are refused.
   pi.on("tool_call", (event, ctx) => {
@@ -388,6 +412,10 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     }
     const fails = failCheckIds(outcome.report);
     const passing = PASS_STATUSES.has(outcome.report.status) && fails.length === 0;
+    // S3: inside the studio a failing stage belongs to the studio gate, for every runtime, so this
+    // adapter ends the turn instead of correcting it. Only that branch is surrendered: the report
+    // read above is what drives the stage pushes, and they stay the tutor's until the page owns them.
+    if (!passing && deps.settleGate === "studio") return undefined;
     // The strict flow chains method → planning → part 1 without a learner prompt. The push
     // budget belongs to the stage it pushes, so each stage stays bounded and the chain goes on.
     const push = (stage: string) => {
@@ -400,6 +428,8 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       return true;
     };
     if (passing && outcome.report.nextStage === "method" && outcome.report.status !== "waiting") {
+      // The studio's page asks the method now, for every runtime: the adapter must not ask it twice.
+      if (deps.settleGate === "studio") return undefined;
       if (!push("method")) return undefined;
       return {
         entries: [{

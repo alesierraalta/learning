@@ -152,6 +152,32 @@ h3 { font-weight: 700; }
 .mode.quick { border-color: var(--green); background: var(--green-s); }
 .mode.quick b { color: var(--green); }
 
+/* «Aprender algo nuevo»: the mode is the page's question, asked before the turn exists */
+.new-learning { margin-top: 14px; }
+.new-learning .learn-hint { margin: 0 0 8px; font-size: .95rem; color: var(--slate); }
+.mode-picks { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.mode-pick { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left; padding: 10px 14px; border: 2px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--slate); cursor: pointer; font: inherit; font-size: .95rem; }
+.mode-pick b { color: var(--ink); font-size: 1rem; }
+.mode-pick[data-modo="universitario"] { border-color: var(--blue); }
+.mode-pick[data-modo="rapido"] { border-color: var(--green); }
+.mode-pick[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--ink); background: var(--soft2); }
+.mode-pick[aria-pressed="true"] b { color: var(--blue); }
+.mode-pick[data-modo="rapido"][aria-pressed="true"] b { color: var(--green); }
+.panel-learning { margin: 10px 0 0; padding: 0 16px; }
+.panel-learning summary { cursor: pointer; font-weight: 700; color: var(--blue); }
+.panel-learning .new-learning { margin: 8px 0 12px; }
+.panel-learning .ask-big { margin-top: 8px; }
+
+/* the engine's method stage: the page asks, the tutor never does */
+.method-card { border: 3px solid var(--blue); border-radius: 12px; padding: 16px 18px; background: var(--blue-s); margin: 18px 0 6px; }
+.method-card h2 { font-size: 1.45rem; font-weight: 400; margin: 0 0 4px; }
+.method-card .muted { margin: 0 0 12px; }
+.method-card .methods { display: flex; gap: 10px; flex-wrap: wrap; }
+.method-card .method { flex: 1 1 220px; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left; padding: 12px 14px; border: 2px solid var(--ink); border-radius: 8px; background: var(--paper); cursor: pointer; font: inherit; color: var(--slate); }
+.method-card .method b { color: var(--ink); font-size: 1.05rem; }
+.method-card .method:hover:not(:disabled) { border-color: var(--blue); }
+@media (max-width: 720px) { .mode-picks, .method-card .methods { flex-direction: column; } }
+
 /* the "te toca a ti" block is a dashed container, like «tu computadora» */
 .continue { position: relative; padding: 30px 32px 28px; border: 3px dashed var(--slate2); border-radius: 18px; background: var(--soft2); }
 .continue .label { display: inline-block; font-weight: 700; font-size: 1.15rem; color: var(--tone, var(--blue)); }
