@@ -54,6 +54,21 @@ test('mobile reader control does not cover walkthrough content', { skip: !playwr
   assert.equal(await page.evaluate(() => document.body.classList.contains('wide')), true);
 });
 
+test('a scene written in a note reaches the reader drawn', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { root, view } = await setup();
+  mkdirSync(join(root, 'rapidos'), { recursive: true });
+  const spec = JSON.stringify({ viewBox: '0 0 760 230', title: 'Un paso del bucle', caption: 'La acción viaja hacia el entorno.', scene: { boxes: [{ x: 8, y: 64, w: 196, h: 110, label: 'AGENTE', tone: 'blue' }, { x: 556, y: 64, w: 196, h: 110, label: 'ENTORNO', tone: 'green' }], arrows: [{ x1: 208, y1: 100, x2: 552, y2: 100, label: 'acción', tone: 'blue' }] } });
+  writeFileSync(join(root, 'rapidos', 'escena.md'), `# Escena\n\n<lk-scene>\n<script type="application/json">${spec}</script>\n</lk-scene>\n`);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  await page.goto(base(await view({})) + 'rapidos/escena');
+  await page.locator('lk-scene svg').waitFor({ timeout: 5000 });
+  const labels = await page.locator('lk-scene svg text').allTextContents();
+  assert.ok(labels.includes('AGENTE') && labels.includes('ENTORNO'), JSON.stringify(labels));
+  assert.equal(await page.locator('lk-scene figcaption').textContent(), 'La acción viaja hacia el entorno.');
+});
+
 test('compact LSTM walkthrough fits mobile without changing default decks', { skip: !playwright && 'playwright not installed' }, async t => {
   const { root, view } = await setup();
   mkdirSync(join(root, 'rapidos'), { recursive: true });
