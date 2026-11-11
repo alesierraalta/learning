@@ -7,9 +7,10 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { request, createServer } from "node:http";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { entryUrl, noteFromMessages, noteFromPath, startStudio as startStudioChecked, topicFromPath } from "./server.ts";
+import { runPartChecks } from "./checks.ts";
 import extension from "../integrations/pi/index.ts";
 import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
@@ -46,6 +47,21 @@ test('transcriber settings must be paired', async () => {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
+/**
+ * `scene-lint` opens a real browser: the tests that measure a part with the repo's tools need one,
+ * and a machine without Playwright skips them instead of pretending the part was measured.
+ */
+const browser = await (async () => {
+  for (const id of [process.env.PLAYWRIGHT_MODULE, "playwright", "/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs"].filter(Boolean)) {
+    try {
+      await import(id.startsWith("/") ? pathToFileURL(id).href : id);
+      return true;
+    } catch {
+      // Try the next entry point.
+    }
+  }
+  return false;
+})();
 /**
  * Every studio here starts with the tutor context check off: the links a machine
  * happens to have outside the repo must not decide these tests. The drift tests
@@ -466,6 +482,220 @@ for (const runtime of ["pi", "agy"]) {
   });
 }
 
+// ---- #202: the studio measures the part a turn wrote, for both tutors -------------
+
+/** A part whose arrow runs over its own words: `scene-lint` reports `trazo-sobre-texto`. */
+const BROKEN_PART = `# Parte 1 — Capas
+
+## Ruta
+
+1. Qué es una capa.
+2. Cómo se encapsula.
+3. Por qué importa.
+
+## 1. La capa
+
+Una capa hace una cosa y la esconde del resto.
+
+El ejemplo sigue: el robot aspira la sala.
+
+<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 230","title":"La flecha sobre el texto","scene":{"boxes":[
+{"x":8,"y":64,"w":196,"h":110,"label":"A","tone":"blue"},
+{"x":556,"y":64,"w":196,"h":110,"label":"B","tone":"green"}],
+"arrows":[{"x1":208,"y1":119,"x2":552,"y2":119,"tone":"blue","width":3}],
+"labels":[{"x":380,"y":128,"text":"encima","size":26}]}}
+</script>
+</lk-scene>
+
+## Mini-quiz
+
+1. ¿Qué hace una capa?
+`;
+/** The same part with its words beside the arrow: the studio's three tools pass it. */
+const CLEAN_PART = BROKEN_PART.replace(
+  '"arrows":[{"x1":208,"y1":119,"x2":552,"y2":119,"tone":"blue","width":3}],\n"labels":[{"x":380,"y":128,"text":"encima","size":26}]',
+  '"arrows":[{"x1":208,"y1":119,"x2":552,"y2":119,"label":"acción","tone":"blue","width":3,"labelAt":0.5}]',
+);
+
+/**
+ * One tutor whose turns write the parts a test scripts, so the studio's own checks have something
+ * to measure. `parts` is one script per turn: a correction writes what the previous turn was told
+ * to fix. `partChecks` replaces the studio's measurement when a test needs the verdict, not the tools.
+ */
+async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE }, partChecks } = {}) {
+  const { root, engine: enginePath, log } = makeRoot(engine);
+  process.env.FAKE_PI_LOG = log;
+  const turns = join(root, "agy-turns.log");
+  const script = parts.map((files) => files.map(({ name, content }) => ({ path: join(root, "redes", "explicaciones", name), content })));
+  if (runtime === "pi") process.env.FAKE_PI_WRITES = JSON.stringify(script);
+  else {
+    process.env.FAKE_AGY_TURNS = turns;
+    process.env.FAKE_AGY_WRITES = JSON.stringify(script);
+  }
+  const studio = await startStudio({
+    root,
+    piCommand: [process.execPath, FAKE_PI],
+    enginePath,
+    agyCommand: [process.execPath, join(HERE, "testdata", "checking-agy.mjs")],
+    ...(partChecks ? { partChecks } : {}),
+  });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  if (runtime === "agy") {
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    await stream.next("state");
+  }
+  const turnsSoFar = () => (runtime === "agy" ? agyTurns(turns).length : piLog(log).filter((command) => command.type === "prompt").length);
+  const turnText = () => (runtime === "agy" ? agyTurns(turns).at(-1).join(" ") : piLog(log).filter((command) => command.type === "prompt").at(-1).message);
+  const endTurn = async () => {
+    if (runtime !== "pi") return;
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+  };
+  const close = () => {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+    delete process.env.FAKE_AGY_TURNS;
+    delete process.env.FAKE_AGY_WRITES;
+  };
+  return { runtime, studio, root, stream, turnsSoFar, turnText, endTurn, close };
+}
+
+/** The studio's own measurement, with a note of what it was asked to measure. */
+const measuring = (measured) => async (files) => {
+  measured.push(...files);
+  return runPartChecks(files);
+};
+
+for (const runtime of ["pi", "agy"]) {
+  test(`a part with a scene-lint finding asks for exactly one correction: ${runtime}`, { skip: browser ? false : "playwright not installed" }, async () => {
+    // The first turn writes the broken part; the correction writes the fixed one, so the second
+    // settle is clean and the budget is never reached.
+    const measured = [];
+    const tutor = await checkingTutor(runtime, {
+      parts: [[{ name: "Parte 1 - Capas.md", content: BROKEN_PART }], [{ name: "Parte 1 - Capas.md", content: CLEAN_PART }]],
+      partChecks: measuring(measured),
+    });
+    try {
+      assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+      await until(() => tutor.turnsSoFar() === 1);
+      await tutor.endTurn();
+      await until(() => tutor.turnsSoFar() === 2, 30000);
+      // The correction's own settle measures the part again: what matters is which note was measured.
+      assert.deepEqual(
+        [...new Set(measured)],
+        [join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md")],
+        "the studio measured the part the turn wrote",
+      );
+      assert.equal(tutor.turnsSoFar(), 2, "one correction for one measured part");
+      assert.match(tutor.turnText(), /trazo-sobre-texto: encima/, "the tutor reads the finding in the tool's own words");
+      assert.match(tutor.turnText(), /tools\/scene-lint\.mjs/, "and which tool said it");
+      await tutor.endTurn();
+      await until(() => settleIdle(tutor.stream), 30000);
+      assert.equal(tutor.turnsSoFar(), 2, "a part the tools pass asks for nothing else");
+      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "a part that passes says nothing to the learner");
+    } finally { tutor.close(); }
+  });
+
+  test(`a part that passes the checks asks for no correction: ${runtime}`, { skip: browser ? false : "playwright not installed" }, async () => {
+    const measured = [];
+    const tutor = await checkingTutor(runtime, {
+      parts: [[{ name: "Parte 1 - Capas.md", content: CLEAN_PART }]],
+      partChecks: measuring(measured),
+    });
+    try {
+      assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+      await until(() => tutor.turnsSoFar() === 1);
+      await tutor.endTurn();
+      await until(() => settleIdle(tutor.stream), 30000);
+      assert.equal(measured.length, 1, "the part was measured, not skipped");
+      assert.equal(tutor.turnsSoFar(), 1, "nothing to correct");
+      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0);
+    } finally { tutor.close(); }
+  });
+
+  test(`a spent budget tells the learner the part still has visual problems: ${runtime}`, async () => {
+    // The tools keep finding the same thing: the tutor gets the whole budget and then the learner
+    // is told, in Spanish, instead of the part passing silently.
+    const finding = {
+      kind: "findings",
+      tools: [{ file: join("redes", "explicaciones", "Parte 1 - Capas.md"), tool: "scene-lint.mjs", output: "Parte 1 - Capas.md: bloque 1 — La flecha sobre el texto\n  trazo-sobre-texto: encima", findings: ["trazo-sobre-texto: encima"] }],
+      count: 1,
+      first: "trazo-sobre-texto: encima",
+    };
+    const tutor = await checkingTutor(runtime, {
+      parts: [[{ name: "Parte 1 - Capas.md", content: BROKEN_PART }]],
+      partChecks: async () => finding,
+    });
+    try {
+      assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+      for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
+        await until(() => tutor.turnsSoFar() === round + 1);
+        await tutor.endTurn();
+      }
+      const told = await tutor.stream.next("error", () => true, 10000);
+      assert.equal(
+        told.message,
+        "La parte todavía tiene problemas visuales: 1 hallazgo. El primero: trazo-sobre-texto: encima. Se agotaron las 2 correcciones.",
+      );
+      assert.equal(tutor.turnsSoFar(), 1 + MAX_CORRECTIONS, "the turn and its corrections, and no more");
+      await until(() => settleIdle(tutor.stream));
+    } finally { tutor.close(); }
+  });
+
+  test(`a check that cannot run is logged, never sent to the tutor: ${runtime}`, async () => {
+    const tutor = await checkingTutor(runtime, {
+      parts: [[{ name: "Parte 1 - Capas.md", content: BROKEN_PART }]],
+      partChecks: async () => ({ kind: "crashed", failures: ["scene-lint.mjs no pudo medir Parte 1 - Capas.md (salida 2)"] }),
+    });
+    const logged = [];
+    const write = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk, ...rest) => {
+      logged.push(String(chunk));
+      return write(chunk, ...rest);
+    };
+    try {
+      assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+      await until(() => tutor.turnsSoFar() === 1);
+      await tutor.endTurn();
+      await until(() => settleIdle(tutor.stream), 30000);
+      assert.equal(tutor.turnsSoFar(), 1, "a tool that could not measure asks the tutor for nothing");
+      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "and tells the learner nothing");
+      assert.ok(
+        logged.some((line) => line.includes("estudio: comprobación fallida · scene-lint.mjs no pudo medir")),
+        `the studio's log keeps the failure: ${logged.join("")}`,
+      );
+    } finally {
+      process.stderr.write = write;
+      tutor.close();
+    }
+  });
+
+  test(`a turn that wrote no part runs no checks: ${runtime}`, async () => {
+    let calls = 0;
+    const tutor = await checkingTutor(runtime, {
+      parts: [[{ name: "quiz.md", content: "# Diagnóstico\n" }]],
+      partChecks: async () => {
+        calls += 1;
+        return { kind: "clean" };
+      },
+    });
+    try {
+      assert.equal((await post(tutor.studio, "prompt", { text: "Escribe el diagnóstico", tema: "redes" })).status, 200);
+      await until(() => tutor.turnsSoFar() === 1);
+      await tutor.endTurn();
+      await until(() => settleIdle(tutor.stream));
+      assert.equal(calls, 0, "a diagnosis is not a part: nothing to measure");
+      assert.equal(tutor.turnsSoFar(), 1);
+    } finally { tutor.close(); }
+  });
+}
+
 test("an Antigravity turn is asked again until the engine clears the failing stage", async () => {
   const { root, engine, log } = makeRoot({ statuses: [FAILING_STAGE, CLEARED_STAGE] });
   process.env.FAKE_PI_LOG = log;
@@ -877,12 +1107,51 @@ test("the studio tells every tutor never to choose the mode by itself", async ()
     assert.equal((await post(agy.studio, "prompt", { text: "Quiero aprender algo" })).status, 200);
     await until(() => agyTurns(agy.turns).length === 1);
     const sent = agyTurns(agy.turns)[0].join(" ");
-    assert.ok(sent.includes("no elijas por ella"), `Antigravity reads the rule: ${sent}`);
+    assert.ok(sent.includes("No elijas por ella el modo"), `Antigravity reads the rule: ${sent}`);
     assert.ok(sent.includes("«Aprender algo nuevo»"), "and where to send the learner");
   } finally {
     agy.stream.close();
     delete process.env.FAKE_AGY_TURNS;
   }
+});
+
+// #199: a concept question is answered in the chat; only a whole new topic points at the entry.
+test("Antigravity's contract answers a concept question and redirects only a new topic", async () => {
+  const agy = await agyStudio();
+  try {
+    assert.equal((await post(agy.studio, "prompt", { text: "¿qué es la varianza?" })).status, 200);
+    await until(() => agyTurns(agy.turns).length === 1);
+    const sent = agyTurns(agy.turns)[0].join(" ");
+    assert.ok(sent.includes("Una pregunta de concepto en el chat"), `the case is named: ${sent}`);
+    assert.ok(sent.includes("«¿qué es la varianza?»"), "with the learner's own words");
+    assert.ok(sent.includes("una línea de definición"), "the answer is a definition");
+    assert.ok(sent.includes("sin crear archivos y sin correr comandos"), "answering creates nothing");
+    assert.ok(sent.includes("solo cuando la persona pide estudiar un tema nuevo entero"), "the entry has one case");
+    assert.ok(sent.includes("«quiero aprender X»"));
+    // The rule #199 removed: a concept question was answered with a pointer to the entry.
+    assert.ok(!sent.includes("Si la persona pide aprender algo sin decir el modo"), "a concept question is not a new topic");
+  } finally {
+    agy.stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+// #199: the answer uses the part's own example, so a part chat names its part.
+test("a part chat's prompt names its part", async () => {
+  const { studio, received } = await setup();
+  const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
+  const bridgeBase = view.url.replace(/redes\/p1$/, "");
+  const res = await http(`${bridgeBase}submit`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: new URL(view.url).origin },
+    body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿qué es una capa?" }),
+  });
+  assert.equal(res.status, 200, res.body);
+  await until(() => received().some((command) => command.type === "prompt"));
+  const message = received().find((command) => command.type === "prompt").message;
+  assert.match(message, /^\[Vista HTML · redes · p1 · pregunta\]/, "the learner's submission is unchanged at its head");
+  assert.match(message, /\[Parte en curso: Parte 1 «Capas» de Redes\./, `the part is named: ${message}`);
+  assert.match(message, /el ejemplo que esta parte ya viene usando/);
 });
 
 /** What the real engine answers for a topic folder with no run (verified with `go run ./cmd/learning status`). */

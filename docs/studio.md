@@ -126,6 +126,34 @@ A failing verdict also blocks the next deep turn on that topic with `409`, after
 asked once more, so a topic that passes again is released. `POST api/restart` works while a turn
 runs and replaces the tutor: the way out of a turn that never settles.
 
+### The part's own checks, run by the studio
+
+The engine reads a part's structure; it cannot see how its figure is drawn. Once the engine has
+cleared a turn, the studio measures the part notes that turn wrote or edited — the paths come from
+the turn's own `write`/`edit` events, never from the plan — with the three tools the tutor's skill
+already names:
+
+| Tool | What it measures |
+| --- | --- |
+| `tools/scene-lint.mjs` | how the pieces of a scene live together: a stroke over text, an arrow to nowhere, a buried or oversized head, two labels on top of each other |
+| `tools/deck-gate.mjs` | the ink: a word outside its box, a free label crossing a box, a label on an arrow |
+| `tools/explain-check.mjs` | the whole standard, rule by rule (it measures the figure again through `scene-lint`) |
+
+They run with **the studio's own Node** (`process.execPath`), never `node` from `PATH`: one of them
+imports a `.ts` module and the distro's Node 22 cannot load it, which already broke a deploy. A
+note is the `.md` the standard is written in, so a rich `.html` part is measured through the note
+beside it. This applies to every topic, including one whose `.learning/rules.json` is frozen: the
+engine's exemptions are about shape, not about a figure drawn over its own text.
+
+On findings the tutor gets **one correction turn on the same turn**, through the same gate path,
+carrying each tool's exact output and the fix, and spending the same `MAX_CORRECTIONS` budget the
+engine's corrections spend. When the budget is gone the learner reads, in the chat,
+`La parte todavía tiene problemas visuales: <n> hallazgo(s). El primero: <el primero>. Se agotaron
+las 2 correcciones.` — never a silent pass. A tool that cannot run at all (missing, crashed,
+timed out, or failed without naming a finding) is a **check failure for the studio's log**, not a
+finding for the tutor: nobody is asked to fix a part that was never measured. A turn that wrote no
+part runs no checks.
+
 ### The learner's questions are asked by the page
 
 - **The study mode.** `POST api/aprender {text, modo}` — the «Aprender algo nuevo» entry on the
@@ -134,8 +162,17 @@ runs and replaces the tutor: the way out of a turn that never settles.
   (`[Modo de estudio: …]`, built by `modeLine` in `studio/runtime.ts`), and the studio tells each
   tutor, in the instructions it already gives it, never to ask or choose the mode: Antigravity's
   contract says so on every turn, and inside the studio Pi's system prompt carries the same rule
-  (the adapter's `before_agent_start`, studio mode only). A request in the plain chat without a
-  mode is answered with one line pointing at the entry, and nothing is created.
+  (the adapter's `before_agent_start`, studio mode only).
+- **A concept question is answered in the chat.** «¿qué es la varianza?», «¿qué significa varianza
+  finita?»: one line of definition, the topic's running example when the chat is about a part or a
+  topic, and one visual when it helps (a small `lk-scene` or an annotated formula). Nothing is
+  created on disk and no command runs to answer it. `«Aprender algo nuevo»` is offered only when
+  the learner asks to study a whole new topic («quiero aprender X», «enséñame un tema nuevo»): then
+  one line points at the entry and nothing is created. A part chat names its part — the studio adds
+  `[Parte en curso: Parte N «<título>» de <tema>. …]` to the submission the hosted view sends — so
+  the answer can use the example that part already runs. Both contracts are pinned as text by
+  `integrations/pi/index.test.mjs` and by the studio's own suite: the instruction is asserted, a
+  model's compliance is not.
 - **The creation turn.** A `universitario` request teaches a topic that does not exist yet, so the
   turn starts with no topic and binds to the first successful `write`/`edit` whose path resolves to
   a topic folder (`topicFromPath`, the same rule the next-step offer uses). That folder is gated
@@ -190,8 +227,13 @@ pressed while the tutor works, it starts nothing and the chat shows the Spanish
 ### What tests prove, and what they do not
 
 Byte for byte, the tests assert the prompts each tutor receives: the mode line inside the turn, the
-no-mode rule in Antigravity's contract and in Pi's studio system prompt, the correction carrying
-the engine's failing reason, the bound topic of a creation turn, and the Spanish refusals. One
+no-mode rule in Antigravity's contract and in Pi's studio system prompt, the concept-question rule
+and the one case that still points at «Aprender algo nuevo», the part a part chat names, the
+correction carrying the engine's failing reason, the bound topic of a creation turn, and the
+Spanish refusals. The part's own checks are proven with the repo's real tools on real notes: a part
+whose arrow crosses its text asks for exactly one correction carrying `trazo-sobre-texto`, a part
+that passes asks for none, a spent budget shows the Spanish notice, and a turn that wrote no part
+runs no checks — for Pi and Antigravity alike. One
 conformance scenario runs unchanged against both runtimes: the turn is held while it runs, one
 correction per failing settle carrying the engine's reason, the turn released when the engine
 clears, the Spanish stop when it never clears, the hosted view refused with the Spanish `409`

@@ -70,6 +70,7 @@ import {
 } from "./chats.ts";
 import { parsePiModels } from "./pi-models.ts";
 import { enrolled } from "./gate.ts";
+import { runPartChecks, type PartChecks, type PartReport } from "./checks.ts";
 import { PASS_STATUSES, gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
 import { STUDY_MODES, createSettleGate, isStudioPrompt, modeLine } from "./runtime.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
@@ -131,6 +132,11 @@ export interface StudioOptions {
   skipContextCheck?: boolean;
   /** The home whose tutor links the context check reads. Default: the running user's. */
   contextHome?: string;
+  /**
+   * How a part the turn wrote is measured before the turn ends. Default: the repo's own
+   * `scene-lint`, `deck-gate` and `explain-check`, run with the studio's Node.
+   */
+  partChecks?: (files: string[]) => Promise<PartChecks>;
 }
 
 export interface Studio {
@@ -191,6 +197,11 @@ type Turn = {
   correction: boolean;
   /** A Universitario request whose topic does not exist yet: the first topic folder it writes. */
   creation?: boolean;
+  /**
+   * The part notes this turn wrote or edited, in order: what the studio measures itself before the
+   * turn is offered as done. A turn that wrote no part owes no measurement.
+   */
+  parts: string[];
 };
 
 /** The learner reads this when the studio refuses a second turn: one turn at a time, studio-wide. */
@@ -444,6 +455,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         toolArgs.delete(id);
         const note = toolNote(name, args, root);
         const topic = toolTopic(name, args, root);
+        // The part notes the turn wrote are measured at its settle: the studio knows them from the
+        // tool events, so no file is guessed from the plan.
+        if (turn && !record.isError && note !== null && "index" in note && typeof args === "object" && args !== null) {
+          const path = (args as Json).path;
+          if (typeof path === "string") {
+            const file = resolve(root, path);
+            if (!turn.parts.includes(file)) turn.parts.push(file);
+          }
+        }
         // A Universitario request creates the topic its own writes name: the first folder the tutor
         // writes into becomes the held turn's topic, so the gate can ask the engine about it.
         if (turn?.creation && turn.topic === null && !record.isError && topic !== null) {
@@ -823,6 +843,26 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   /**
+   * A part chat names its part. The hosted view's submission arrives as
+   * `[Vista HTML · <topic> · <part> · …]`, which names the part by id only; a concept question
+   * answered in that chat has to use the example the part already runs, so the studio adds the
+   * part's own name and number to the turn the tutor reads.
+   */
+  const namedPart = (text: string): string => {
+    const header = /^\[Vista HTML · ([^·\]\n]+) · ([^·\]\n]+) ·/.exec(text);
+    if (!header) return text;
+    const [, topic, part] = header;
+    const plan = readPlan(join(root, topic));
+    const index = plan?.parts.findIndex((entry) => entry.id === part) ?? -1;
+    if (!plan || index < 0) return text;
+    const nombre = `Parte ${index + 1} «${plan.parts[index].title}»`;
+    return (
+      `${text}\n\n[Parte en curso: ${nombre} de ${plan.topic || topic}. ` +
+      "Si lo que pregunta es un concepto, respóndelo con el ejemplo que esta parte ya viene usando.]"
+    );
+  };
+
+  /**
    * The only way a tutor turn starts, whatever path asks for it: the composer, a submission from the
    * page, a regeneration. Every one names the topic it teaches, or says in code why it teaches none.
    * The turn is held until its settle is decided; only an accepted learner turn restores the budget.
@@ -835,10 +875,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     await ready;
     // `ready` can take a moment, and the studio must not hold two turns because of it.
     requireNoTurn();
-    const started: Turn = { topic: spec.topic, correction: spec.correction === true, creation: spec.creation === true };
+    const started: Turn = { topic: spec.topic, correction: spec.correction === true, creation: spec.creation === true, parts: [] };
     holdTurn(started);
     try {
-      await deliver(text, started);
+      await deliver(namedPart(text), started);
     } catch (error) {
       releaseTurn(started);
       throw error;
@@ -852,10 +892,36 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   /**
-   * What a settled turn still owes the engine, for every runtime. The report decides: a cleared
-   * turn ends, a failing stage comes back as one more prompt of the same turn carrying the engine's
-   * own reasons, and a spent budget tells the learner instead of stopping silently. Every path out
-   * releases the turn; only a correction that was sent keeps it.
+   * The part notes a turn wrote, as the tools measure them: a note is the `.md` the standard is
+   * written in, so a rich `.html` page is measured through the note beside it, and one with no note
+   * is left to the reader's own gate instead of being measured as prose.
+   */
+  const partNotes = (parts: string[]): string[] =>
+    parts
+      .map((part) => (part.endsWith(".md") ? part : part.replace(/\.html$/i, ".md")))
+      .filter((file) => existsSync(file));
+
+  /**
+   * What the tools say about the parts a turn wrote. A tool that could not run is the studio's own
+   * failure and goes to the log: it is never a finding the tutor is asked to fix.
+   */
+  const checkParts = async (settled: Turn): Promise<PartReport | null> => {
+    const files = partNotes(settled.parts);
+    if (!files.length) return null;
+    const checked = await (options.partChecks ?? runPartChecks)(files);
+    if (checked.kind === "crashed") {
+      for (const failure of checked.failures) process.stderr.write(`estudio: comprobación fallida · ${failure}\n`);
+      return null;
+    }
+    return checked.kind === "findings" ? checked : null;
+  };
+
+  /**
+   * What a settled turn still owes, for every runtime. The engine decides first: a cleared turn ends
+   * its part, a failing stage comes back as one more prompt of the same turn carrying the engine's
+   * own reasons, and a spent budget tells the learner instead of stopping silently. A turn the
+   * engine cleared still owes the part's own checks, because the engine cannot see a figure. Every
+   * path out releases the turn; only a correction that was sent keeps it.
    */
   const settleTurn = async (settled: Turn) => {
     const topic = settled.topic;
@@ -876,8 +942,27 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         }
       } else if (decision.action === "stop") {
         emit("error", { message: decision.text });
-      } else if (decision.action === "unreadable") {
-        emit("notice", { level: "warning", message: `El motor no pudo revisar «${topic}»: el turno termina sin comprobarlo.` });
+      } else {
+        if (decision.action === "unreadable") {
+          emit("notice", { level: "warning", message: `El motor no pudo revisar «${topic}»: el turno termina sin comprobarlo.` });
+        }
+        // The engine is done with this turn, so what it cannot measure is measured here: the part
+        // the turn wrote still owes the scene and explanation checks before it reaches the learner.
+        const found = await checkParts(settled);
+        if (turn !== settled) return;
+        if (found) {
+          const verdict = settleGate.decideFindings(found);
+          if (verdict.action === "ask") {
+            try {
+              await deliver(verdict.text, settled);
+              corrected = true;
+            } catch {
+              correctionRefused(topic);
+            }
+          } else if (verdict.action === "stop") {
+            emit("error", { message: verdict.text });
+          }
+        }
       }
     } catch (error) {
       correctionRefused(topic ?? "el tema");

@@ -35,10 +35,15 @@ const ENROLLED_FILES = new Set(["plan.json", "quiz.json"]);
  * What the studio's page answers for the tutor: the study mode is asked there, before the turn
  * exists, and it travels in the prompt. Inside the studio this rule rides along with Pi's own
  * instructions, so the tutor never asks the mode nor picks it alone.
+ *
+ * A concept question is not a request for a new topic: it is answered in the chat, in the same
+ * shape the parts use. Only asking to study a whole new topic points at the page's entry.
  */
 const STUDIO_MODE_RULE = [
   "Learnings studio: the learner chooses the study mode (rápido or universitario) in the page's «Aprender algo nuevo» entry, and the prompt of the turn carries that choice.",
-  "Never choose the mode yourself and never ask for it: when the learner asks to learn something in the plain chat without a mode, answer in one line pointing to «Aprender algo nuevo» and create nothing.",
+  "A concept question in the chat («¿qué es la varianza?», «¿qué significa varianza finita?») is answered right there: one line of definition, the topic's running example when the chat is about a part or a topic, and one visual when it helps (a small lk-scene or an annotated formula). Answer it without creating files and without running commands.",
+  "«Aprender algo nuevo» is offered only when the learner asks to study a whole new topic («quiero aprender X», «enséñame un tema nuevo»): then answer in one line pointing to that entry and create nothing.",
+  "Never choose the mode yourself and never ask for it.",
 ].join(" ");
 
 export interface AdapterDeps {

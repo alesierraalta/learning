@@ -7,6 +7,7 @@
  * comes from gate-rules.ts, so the studio and the adapter can never disagree about that.
  */
 import { MAX_CORRECTIONS, PASS_STATUSES, type GateReport } from "../integrations/pi/gate-rules.ts";
+import type { PartReport } from "./checks.ts";
 
 /** A learner reads this message in the chat; the gate writes it and the chat knows its own words. */
 export const GATE_PREFIX = "Learning gate:";
@@ -101,8 +102,45 @@ export function gateStop(report: SettleReport): string {
 }
 
 /**
+ * The tutor's correction when the part it just wrote does not pass the studio's own checks. The
+ * instruction carries each tool's exact output: the tutor fixes what the tool measured, not what
+ * the studio paraphrased.
+ */
+export function partPrompt(report: PartReport): string {
+  const lines = [
+    `${GATE_PREFIX} la parte no pasa las comprobaciones del estándar.`,
+    `El motor ya la dio por cerrada, pero las herramientas que miden la figura y la nota encuentran ${report.count} hallazgo(s):`,
+  ];
+  for (const found of report.tools) {
+    lines.push(`--- tools/${found.tool} · ${found.file} (salida exacta) ---`);
+    lines.push(found.output);
+  }
+  lines.push(
+    "Corrige la figura y la nota hasta que las tres comprobaciones pasen (scene-lint, deck-gate, explain-check): " +
+      "ninguna palabra fuera de su caja, ninguna flecha sobre el texto, ninguna punta en el aire. " +
+      "No des la parte por entregada antes de que pasen.",
+  );
+  return lines.join("\n");
+}
+
+/**
+ * What the learner reads when the corrections ran out and the part still has visual problems: the
+ * count and the first finding, in the studio's own words. A silent pass is what this forbids.
+ */
+export function partStop(report: PartReport): string {
+  const total = report.count === 1 ? "1 hallazgo" : `${report.count} hallazgos`;
+  return (
+    `La parte todavía tiene problemas visuales: ${total}. El primero: ${report.first}. ` +
+    `Se agotaron las ${MAX_CORRECTIONS} correcciones.`
+  );
+}
+
+/**
  * The rule with its own counters, one per studio. A learner's turn resets them, exactly as the Pi
  * adapter reset its correction count on every input, so each turn gets the whole budget once.
+ *
+ * The engine's corrections and the part's own checks spend the same budget: a turn that needed two
+ * engine corrections has one left for what the tools measured, and the learner hears about it once.
  */
 export function createSettleGate() {
   let corrections = 0;
@@ -113,13 +151,18 @@ export function createSettleGate() {
     },
     decide(report: SettleReport): SettleDecision {
       if (NO_REPORT.has(String(report.status))) return { action: "unreadable" };
-      if (clearsEngine(report)) {
-        corrections = 0;
-        return { action: "end" };
-      }
+      // A cleared stage ends the engine's part of the turn; the budget belongs to the turn, not to
+      // this report, so the checks that come after it spend what is left.
+      if (clearsEngine(report)) return { action: "end" };
       if (corrections >= MAX_CORRECTIONS) return { action: "stop", text: gateStop(report) };
       corrections += 1;
       return { action: "ask", text: gatePrompt(report) };
+    },
+    /** The same budget, spent on what the scene and explanation tools measured. */
+    decideFindings(report: PartReport): SettleDecision {
+      if (corrections >= MAX_CORRECTIONS) return { action: "stop", text: partStop(report) };
+      corrections += 1;
+      return { action: "ask", text: partPrompt(report) };
     },
   };
 }
