@@ -39,6 +39,26 @@ test('acepta una parte que cumple el estándar', () => {
   assert.match(r.stdout, /cumple el estándar/);
 });
 
+// El mini-quiz es el quiz que el mismo estándar pide, no una tercera idea: su
+// heading no gasta una de las dos secciones de contenido. El motor cuenta igual
+// (`contentSections` en `internal/engine/standard.go`), para que el tutor y el
+// motor coincidan.
+test('un heading de mini-quiz no es una sección de contenido', () => {
+  const f = join(dir, 'con-heading-quiz.md');
+  writeFileSync(f, `${CUMPLE}\n## Mini-quiz\n\n1. ¿Qué es el estado?\n`);
+  const r = run(f);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+secciones/);
+});
+
+test('rechaza una tercera sección de contenido', () => {
+  const f = join(dir, 'tres-secciones.md');
+  writeFileSync(f, `${CUMPLE}\n## 3. Otra idea\n\nOtra cosa que pide su propia parte.\n`);
+  const r = run(f);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA secciones/);
+});
+
 test('rechaza una parte sin ruta', () => {
   const f = join(dir, 'sin-ruta.md');
   writeFileSync(f, CUMPLE.replace(/## Ruta[\s\S]*?(?=## 1\.)/, ''));

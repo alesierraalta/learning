@@ -154,6 +154,9 @@ func evalCheck(c *evalCtx, decl rules.CheckDecl) Check {
 	case "explanation_content":
 		return evalExplanationContent(c, decl)
 
+	case "part_standard":
+		return evalPartStandard(c, decl)
+
 	case "changed_after_failed_quiz":
 		return evalChangedAfterFailedQuiz(c, decl)
 
@@ -762,6 +765,26 @@ func hasInlineElement(text string, elements []string) bool {
 // a visual in its own right: the note names meaning, the engine draws it.
 const figureElement = "lk-figure"
 
+// sceneElement is the still scene the reader draws from a note's JSON payload
+// (`kit.js` lk-scene). It is a visual too: the standard budgets one scene per
+// part, and a part built to that budget must not be refused for having no
+// "second" visual.
+const sceneElement = "lk-scene"
+
+// sceneElementDraws reports whether a closed scene element draws something and
+// whether it carries its own reading guide. A figure is its scene; a scene is
+// its payload, and the reader draws its `caption` under the drawing, so a
+// captioned scene guides itself and owes no separate "Cómo leerlo" line.
+func sceneElementDraws(el, block string) (draws, selfGuided bool) {
+	switch el {
+	case sceneElement:
+		return scenePayload(block)
+	case figureElement:
+		return figureDraws(block), false
+	}
+	return false, false
+}
+
 // figureDraws reports whether an <lk-figure> block carries a JSON scene with
 // something to draw. A figure is the scene (S5), so an empty, wrongly typed or
 // unparsable payload is not a visual. The scene keys are lists of what is drawn
@@ -1111,28 +1134,35 @@ func asciiLower(text string) string {
 	return string(b)
 }
 
-// figuresOnLine counts closed <lk-figure> blocks on one line of prose, so a
-// one-line figure is judged by its scene instead of by a child element.
-func figuresOnLine(line string) int {
+// sceneElementsOnLine counts the closed scene elements (<lk-figure>,
+// <lk-scene>) on one line of prose, so a one-line scene is judged by its
+// payload instead of by a child element, and reports how many of them guide
+// themselves.
+func sceneElementsOnLine(line string) (count, selfGuided int) {
 	lower := asciiLower(line)
-	n, from := 0, 0
-	for from < len(lower) {
-		start := strings.Index(lower[from:], "<"+figureElement)
-		if start < 0 {
-			break
+	for _, el := range []string{figureElement, sceneElement} {
+		from := 0
+		for from < len(lower) {
+			start := strings.Index(lower[from:], "<"+el)
+			if start < 0 {
+				break
+			}
+			start += from
+			end := strings.Index(lower[start:], "</"+el+">")
+			if end < 0 {
+				break
+			}
+			end += start
+			if draws, guided := sceneElementDraws(el, line[start:end]); draws {
+				count++
+				if guided {
+					selfGuided++
+				}
+			}
+			from = end + len("</"+el+">")
 		}
-		start += from
-		end := strings.Index(lower[start:], "</"+figureElement+">")
-		if end < 0 {
-			break
-		}
-		end += start
-		if figureDraws(line[start:end]) {
-			n++
-		}
-		from = end + len("</"+figureElement+">")
 	}
-	return n
+	return count, selfGuided
 }
 
 // openingElement names the multiline element that starts on this line, if any.
@@ -1143,14 +1173,17 @@ func openingElement(line string, elements []string) string {
 			return el
 		}
 	}
-	if strings.Contains(lower, "<"+figureElement) && !strings.Contains(lower, "</"+figureElement+">") {
-		return figureElement
+	for _, el := range []string{figureElement, sceneElement} {
+		if strings.Contains(lower, "<"+el) && !strings.Contains(lower, "</"+el+">") {
+			return el
+		}
 	}
 	return ""
 }
 
 // countVisuals returns how many visuals the text contains: embeds, nonempty
-// fenced blocks in a declared visual format and declared inline elements.
+// fenced blocks in a declared visual format, declared inline elements and the
+// scene elements the kit draws (<lk-figure>, <lk-scene>).
 func countVisuals(text string, blocks, elements []string) int {
 	total, _ := countVisualsAndGuides(text, blocks, elements, "")
 	return total
@@ -1162,16 +1195,21 @@ func countVisuals(text string, blocks, elements []string) int {
 // the machine tracks multiline markup and never judges fence bodies.
 //
 // A visual is an embed (![...), a nonempty fenced block whose language is
-// declared in blocks, or a closed declared inline element (for example
-// <svg>) with at least one child element. Markup inside fences is code,
-// never a visual. The reading-guide marker must be the first non-blank line
-// after a visual; when marker is empty the guide pass is skipped entirely.
+// declared in blocks, a closed declared inline element (for example <svg>)
+// with at least one child element, or a scene element that draws something.
+// Markup inside fences is code, never a visual. The reading-guide marker must
+// be the first non-blank line after a visual; when marker is empty the guide
+// pass is skipped entirely. A scene that carries its own caption needs no
+// separate guide line: the reader draws that caption under the drawing.
 func countVisualsAndGuides(text string, blocks, elements []string, marker string) (total, missing int) {
 	inFence, fenceVisual, fenceBody := false, false, 0
 	openEl := ""
 	openBody := strings.Builder{}
-	// A figure is counted by its scene, never as a generic child-bearing element.
-	elements = slices.DeleteFunc(slices.Clone(elements), func(el string) bool { return strings.EqualFold(el, figureElement) })
+	// A scene element is counted by its payload, never as a generic
+	// child-bearing element.
+	elements = slices.DeleteFunc(slices.Clone(elements), func(el string) bool {
+		return strings.EqualFold(el, figureElement) || strings.EqualFold(el, sceneElement)
+	})
 	open := func(el, line string) {
 		openEl = el
 		openBody.WriteString(line)
@@ -1224,18 +1262,28 @@ func countVisualsAndGuides(text string, blocks, elements []string, marker string
 				closed, body := openEl, openBody.String()
 				openEl, openBody = "", strings.Builder{}
 				counted := 1
-				// A declared element counts when it has a child; a figure is its
-				// scene, so an empty or unparsable payload is not a visual.
-				if closed == figureElement && !figureDraws(body) {
-					counted = 0
+				// A declared element counts when it has a child; a scene element
+				// is its payload, so an empty or unparsable scene is not a visual.
+				selfGuided := false
+				if closed == figureElement || closed == sceneElement {
+					draws, guided := sceneElementDraws(closed, body)
+					if !draws {
+						counted = 0
+					}
+					selfGuided = guided
 				}
 				// Another visual can share the closing line: both draw, so both count.
 				rest := trimmed[at+len("</"+closed+">"):]
-				counted += figuresOnLine(rest) + countInlineElements(rest, elements)
+				more, _ := sceneElementsOnLine(rest)
+				counted += more + countInlineElements(rest, elements)
 				if counted > 0 {
 					total += counted
-					pending = true
-					missing += counted - 1
+					// A scene that draws its own caption needs no guide line; any
+					// other visual on the same line still owes one.
+					if counted > 1 || !selfGuided {
+						pending = true
+						missing += counted - 1
+					}
 				}
 				// The rest of the line may open the next multiline element.
 				if opened := openingElement(rest, elements); opened != "" {
@@ -1250,13 +1298,17 @@ func countVisualsAndGuides(text string, blocks, elements []string, marker string
 			missing += n - 1
 			continue
 		}
-		// A compact figure and a declared inline element can share a line: both
+		// A compact scene and a declared inline element can share a line: both
 		// draw, so both count.
-		closed := figuresOnLine(trimmed) + countInlineElements(trimmed, elements)
+		compact, compactGuided := sceneElementsOnLine(trimmed)
+		closed := compact + countInlineElements(trimmed, elements)
 		if closed > 0 {
 			total += closed
-			pending = true
-			missing += closed - 1
+			// A captioned scene guides itself; every other visual owes its line.
+			if closed > compactGuided {
+				pending = true
+				missing += closed - 1
+			}
 		}
 		// A multiline element can start on the same line as a closed visual.
 		if opened := openingElement(trimmed, elements); opened != "" {

@@ -226,7 +226,7 @@ is the source of truth for paths and checks; this table summarizes it.
 | preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned`; in `pareto` scope, a stated `pareto.criterio`, a nonempty `pareto.descartado`, one `pareto` line per part and at most `maxParts` parts. Optional per-part `demosPlanned` declares an interactive-demo promise |
 | diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | adaptive rounds (`thresholds.diagnostic.mode: adaptive`, see "Adaptive diagnosis") or, for runs whose rules snapshot has fixed counts, 6 prerequisite + 6 topic questions (2/2/2 by level); enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
 | planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part; in `pareto` scope the selection is re-checked because planning rewrites `plan.json` |
-| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, or an inline `thresholds.visualElements` element such as `<svg>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step (scene-only markup does not render in the kit); always, whatever the run's frozen rules: at least one progressive walkthrough (see [Progressive walkthroughs](#progressive-walkthroughs)) |
+| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, the measured explanation standard (`explanation-standard`, see [Explanation standard](#explanation-standard): `thresholds.partStandard` prose budget, content sections, route lines, one scene, one walkthrough, no drawn ASCII, formula legend, no closing summary), planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, an inline `thresholds.visualElements` element such as `<svg>`, or a scene element the kit draws — `<lk-figure>` and `<lk-scene>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step (scene-only markup does not render in the kit); always, whatever the run's frozen rules: at least one progressive walkthrough (see [Progressive walkthroughs](#progressive-walkthroughs)) |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
 | quiz | `mini-quiz/{part}.json`, `mini-quiz/{part}.answers.json` | part note has a mini-quiz section, 5 questions with enunciados present in it, complete answers, derived score ≥ 4/5 with no central miss |
 | feedback | `feedback/{part}.json` | matches the part, nonempty notes, `difficultyDetected=false` cannot contradict recorded wrong answers |
@@ -243,8 +243,15 @@ code-block processor. Add or remove a format by editing that list.
 `thresholds.visualElements` lists inline HTML elements Obsidian renders as a
 visual — `svg` today. One counts only outside code blocks, closed
 (`<svg ...>...</svg>`) and with at least one child element; an empty or
-unclosed element, or one inside a fenced block, is not a visual. When the part
-planned a visual, `thresholds.minVisuals` (2 today) sets the minimum count and
+unclosed element, or one inside a fenced block, is not a visual. The two scene
+elements the kit draws are visuals in their own right and are counted by their
+JSON payload, never as child-bearing markup: `<lk-figure>` (the visual engine's
+scene) and `<lk-scene>` (the still scene of `kit.js`). A scene with an empty,
+unparsable or undrawable payload draws nothing and does not count. A scene that
+carries a `caption` guides itself: the reader draws that caption under the
+drawing, so it owes no separate `howToReadLine` line; an uncaptioned scene owes
+one like any other visual. When the part
+planned a visual, `thresholds.minVisuals` (1 today) sets the minimum count and
 `thresholds.howToReadLine` ("Cómo leerlo") the guide marker. A rules snapshot
 that omits either key is not checked for that dimension, which is what keeps a
 frozen `.learning/rules.json` written before these keys existed loadable; a
@@ -253,6 +260,12 @@ half-declared pair (a minimum with no marker) is still rejected. The
 line (M1). The check proves the visuals are
 present and guided, not that they help; that is the `visual-value` rubric's
 judgment.
+
+The minimum is one because the measured standard budgets one scene per part
+(`thresholds.partStandard.maxScenes`): a part built exactly to the standard
+carries one scene and one walkthrough, and the walkthrough is a demo with its
+own rule (`thresholds.minDemos`), not a second visual. Runs whose frozen
+snapshot still says `minVisuals: 2` keep asking for two.
 
 Demo components: `thresholds.demoElements` lists the inline HTML elements that
 count as an interactive mini demo — `lk-widget` (inline parameter playground)
@@ -461,6 +474,69 @@ Whether the steps actually teach is a judgment: runs started with the current
 rules also owe the `walkthrough-progression` review for every part. Layout
 (text inside its box, labels off the arrow, compact width) remains the job of
 `tools/deck-gate.mjs`.
+
+## Explanation standard
+
+A part is one idea, and the standard says how big one idea is. The
+`explanation-standard` check (`kind: part_standard`, in the `explanation`
+stage) refuses the frontier part that misses it, so the settle gate makes the
+tutor correct the part before the learner reads it. The numbers live in
+`thresholds.partStandard`:
+
+```json
+{"maxProseWords": 450, "maxContentSections": 2, "minRutaLines": 3,
+ "maxRutaLines": 4, "maxScenes": 1, "maxWalkthroughs": 1}
+```
+
+The block also turns on the standard's non-numeric rules, and the check is
+rejected unless the block is declared (fail-closed, like the pareto and demo
+checks). What it measures, and how:
+
+- **Prose budget.** `maxProseWords` counts the words a part asks the reader to
+  read, exactly as `tools/part-lint.mjs` counts them: fenced blocks, `<lk-scene>`
+  and `<lk-walkthrough>` blocks, table rows, headings and loose HTML tags are
+  removed first, so a visual never spends the prose budget. The engine and the
+  tool must agree — the tutor runs the tool and must get the same number the
+  engine reports (a test cross-checks both counts).
+- **Content sections.** Level-2 headings except `## Ruta` and the mini-quiz
+  heading: the route is the map and the mini-quiz is the quiz the same standard
+  requires, so neither spends one of the two content sections.
+  `tools/explain-check.mjs` counts them the same way.
+- **Route.** A `## Ruta` section with `minRutaLines`..`maxRutaLines` numbered
+  lines; a missing route and a five-line route both fail.
+- **One scene, one walkthrough.** More than `maxScenes` `<lk-scene>` or more
+  than `maxWalkthroughs` `<lk-walkthrough>` blocks outside fenced code fails:
+  a second change is a step of the same deck or belongs to another part.
+- **No drawn ASCII.** A line that draws with box characters (`┌ ┐ │ ─`,
+  `─►`) fails: geometry is drawn with an `<lk-scene>` or a mermaid block.
+- **Formula legend.** Every symbol a `<lk-math>` formula uses (a LaTeX macro
+  such as `\gamma`, or a single-letter name) must be named in the part, quoted
+  (`` `Q` ``, `«Q»`, `"Q"`) or followed by `=`, `→`, `->`, `:` or `es`.
+- **No closing summary.** A heading `Resumen para guardar`, `Apuntes
+  comprimidos` or `En resumen` fails: the part ends on its last content
+  section.
+
+Every finding names the rule, the measured value, the limit and the fix, and
+the check reports all of them at once, for example:
+
+```text
+part p1 misses the explanation standard in explicaciones/Parte 1 - x.md:
+2734 prose words (limit 450; code, tables, scenes and walkthroughs are not
+counted) — split the part in two, never compress or summarise it to fit;
+12 content sections (limit 2, besides ## Ruta) — split the part in two, one
+idea per part
+```
+
+Geometry (scene overlap, off-canvas text, typography) and the sentence rhythm
+(`frases`, `parrafos`) stay in the node tools (`tools/scene-gate.mjs`,
+`tools/explain-check.mjs`): they need a browser or prose segmentation the
+engine does not run. The mini-quiz question count stays where it already was,
+`thresholds.quiz.questionCount` bound to the note by `quiz-questions`.
+
+New runs carry the standard because `rules/deep.json` declares it. A run
+initialised before this rule keeps its frozen `.learning/rules.json`, which has
+no `partStandard` block and no `part_standard` check: its parts are measured
+exactly as before and a certified part never re-fails.
 
 ## Conditional obligations (S4)
 

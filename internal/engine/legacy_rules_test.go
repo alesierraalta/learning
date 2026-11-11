@@ -10,9 +10,9 @@ import (
 
 // legacyRulesFile writes the given rules file without the thresholds and checks
 // that arrived after the first topics were enrolled: no minVisuals, no
-// howToReadLine, no minDemos/demoElements, no pareto or demo checks and no
-// pareto-value rubric. That is what a frozen snapshot taken before those rules
-// existed looks like.
+// howToReadLine, no minDemos/demoElements, no partStandard, no pareto, demo or
+// standard checks and no pareto-value rubric. That is what a frozen snapshot
+// taken before those rules existed looks like.
 func legacyRulesFile(t *testing.T, src string) string {
 	t.Helper()
 	raw, err := os.ReadFile(src)
@@ -24,11 +24,11 @@ func legacyRulesFile(t *testing.T, src string) string {
 		t.Fatalf("decode %s: %v", src, err)
 	}
 	if th, ok := doc["thresholds"].(map[string]any); ok {
-		for _, k := range []string{"minVisuals", "howToReadLine", "minDemos", "demoElements"} {
+		for _, k := range []string{"minVisuals", "howToReadLine", "minDemos", "demoElements", "partStandard"} {
 			delete(th, k)
 		}
 	}
-	drop := map[string]bool{"pareto_plan": true, "pareto_part": true, "demo_part": true}
+	drop := map[string]bool{"pareto_plan": true, "pareto_part": true, "demo_part": true, "part_standard": true}
 	if checks, ok := doc["checks"].(map[string]any); ok {
 		for stage, value := range checks {
 			list, _ := value.([]any)

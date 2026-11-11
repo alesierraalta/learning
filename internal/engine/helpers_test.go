@@ -588,10 +588,15 @@ const fixtureWalkthrough = "<lk-walkthrough class=\"lk-wt-compact\">\n<script ty
 
 func (f *fixture) writeExplanation(t *testing.T, part string, vis bool, marker string) {
 	t.Helper()
-	body := "---\ntipo: explicacion\nnodo: T." + part + "\nnivel: medio\n---\n# " + part + "\n\nExplicación de la parte con ejemplos concretos. " + marker + "\n\n## Ejemplo\n\nCaso numérico paso a paso.\n\n" + fixtureWalkthrough + "\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
+	// The route opens the part: the explanation standard measures it, and the
+	// production rules (the ones that carry the standard) run this fixture.
+	body := "---\ntipo: explicacion\nnodo: T." + part + "\nnivel: medio\n---\n# " + part + "\n\n" +
+		"## Ruta\n\nVamos a construirlo en este orden:\n\n1. Qué es el estado.\n2. Qué es la acción.\n3. Cómo se combinan.\n\n" +
+		"## Ejemplo\n\nExplicación de la parte con ejemplos concretos. " + marker + " Caso numérico paso a paso.\n\n" +
+		fixtureWalkthrough + "\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
 	if vis {
-		// two visuals: the fixture rules demand a minimum of two, each with
-		// its reading-guide line
+		// two visuals, each with its reading-guide line: the fixture rules ask
+		// for one and a part may carry more
 		body += "\n![diagrama](diagrama-" + part + ".png)\nCómo leerlo: sigue los pasos de izquierda a derecha.\n\n![detalle](detalle-" + part + ".png)\nCómo leerlo: compara las dos barras.\n"
 	}
 	for _, q := range buildQuizQuestions(part) {
