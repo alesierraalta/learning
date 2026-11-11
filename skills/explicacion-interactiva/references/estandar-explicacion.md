@@ -32,7 +32,7 @@ rechaza eso también, con el arreglo escrito en el mensaje.
 |---|---|
 | Escena dibujada | Al menos un `<lk-scene` cuyo payload dibuje algo (cajas, flechas, nodos, barras). El `<lk-walkthrough>` **no** la sustituye |
 | Ritmo de los párrafos | Dos frases por párrafo como máximo; una viñeta es su propia unidad |
-| Fórmula | Se escribe con `<lk-math>` y nombra cada símbolo debajo; el LaTeX plano `$$…$$`/`$…$` se lee igual, pero el arreglo que nombra el motor es el elemento del kit |
+| Fórmula | Se dibuja como **fórmula anotada**: un callout numerado por símbolo, con su flecha y su nombre en la línea de `labels` («① μ: el centro»). `<lk-math>` queda para una cuenta, nunca para explicar una fórmula |
 
 Los mensajes, literales, para reconocerlos y corregir sin adivinar:
 
@@ -43,14 +43,16 @@ not substitute for it, and the scene vocabulary is in
 skills/explicacion-interactiva/references/visuales.md
 6 paragraph(s) with more than 2 sentences — the first opens «…»; split it: one idea per
 sentence and one beat per paragraph
-formula symbol(s) gamma, Q never named — add one legend line per symbol right after the
-formula («`Q` es …»); write the formula with <lk-math> so the kit draws it
+formula symbol(s) sigma, f never named — draw the formula as an annotated formula scene: one
+numbered callout per symbol, each named in its labels line («① sigma: …»)
 ```
 
 Se corrige la parte, no el mensaje: la escena se dibuja con el vocabulario de `visuales.md`
 (nunca se declara una escena vacía para pasar el gate), el párrafo se parte en frases de una
-idea, y la fórmula pasa al elemento del kit con su leyenda debajo. La cuenta de párrafos es la
-misma que la de `node tools/explain-check.mjs` (`parrafos`), y un test cruza las dos.
+idea, y la fórmula se anota símbolo por símbolo con su callout y su nombre (§8 de
+`visuales.md`). La cuenta de párrafos es la misma que la de `node tools/explain-check.mjs`
+(`parrafos`), y un test cruza las dos; la leyenda es la misma en el motor y en la herramienta,
+y otro test cruza las dos.
 
 Se cuenta antes de entregar:
 

@@ -52,6 +52,10 @@ async function render(scene) {
       circles: svg.querySelectorAll('circle').length,
       rects: svg.querySelectorAll('rect').length,
       paths: svg.querySelectorAll('path').length,
+      // El trazo de cada camino, para comprobar que la curva declarada llega al SVG
+      // y no solo los marcadores de `defs`.
+      ds: [...svg.querySelectorAll('path')].map((p) => p.getAttribute('d')).filter(Boolean),
+      markers: [...svg.querySelectorAll('path[marker-end]')].length,
       texts: [...svg.querySelectorAll('text')].map((t) => t.textContent.trim()),
       atoms: [...svg.querySelectorAll('[data-atom]')].map((t) => ({ i: t.dataset.atom, s: t.textContent, size: t.getAttribute('font-size') })),
     };
@@ -95,6 +99,27 @@ test('un subíndice se dibuja más chico que el símbolo', { skip: SKIP }, async
   } });
   const [base, sub] = d.atoms;
   assert.ok(Number(sub.size) < Number(base.size), 'el subíndice no compite con el símbolo');
+});
+
+// Una distribución o una función es su curva, no una caja que la nombra: la escena
+// declara `paths`/`curves` y el trazo tiene que llegar al SVG con su `d`.
+test('una escena dibuja su curva: el trazo declarado llega al SVG', { skip: SKIP }, async () => {
+  const bell = 'M 48 214 C 51.7 213.9 62.7 214.2 70 213.6 C 77.3 213 84.7 213.5 92 210.6';
+  const d = await render({ viewBox: '0 0 760 240', scene: {
+    paths: [{ d: bell, tone: 'blue', width: 4, arrow: false }],
+    curves: [{ x1: 60, y1: 220, x2: 700, y2: 220, tone: 'slate', width: 3, arrow: false, bend: 0.4 }],
+  } });
+  assert.ok(d.ds.includes(bell), 'el `d` declarado en `paths` se dibuja tal cual');
+  assert.ok(d.ds.some((x) => x.startsWith('M 60 220 C')), 'la curva sale de sus dos extremos');
+  assert.equal(d.texts.length, 0, 'una curva no escribe texto: dibuja');
+});
+
+// Una curva sin `arrow: false` lleva punta, como en el video; con `arrow: false` no.
+test('la punta de una curva se declara, no se adivina', { skip: SKIP }, async () => {
+  const withHead = await render({ viewBox: '0 0 760 240', scene: { paths: [{ d: 'M 60 200 L 700 200', tone: 'blue' }] } });
+  const without = await render({ viewBox: '0 0 760 240', scene: { paths: [{ d: 'M 60 200 L 700 200', tone: 'blue', arrow: false }] } });
+  assert.equal(withHead.markers, 1, 'por defecto la curva lleva punta');
+  assert.equal(without.markers, 0, 'con arrow: false no lleva punta');
 });
 
 test('las barras dibujan pista, relleno y el valor que se declara', { skip: SKIP }, async () => {

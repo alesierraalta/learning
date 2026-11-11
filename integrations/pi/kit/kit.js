@@ -503,8 +503,10 @@
     // Un número pegado al dibujo: dice «mira acá» sin repetir el nombre de la pieza.
     for (const c of scene.callouts || []) {
       const t = tone(c.tone || 'blue');
-      if (Array.isArray(c.to)) out += S.line(c.x, c.y, c.to[0], c.to[1], { color: t.stroke, width: 2, arrow: false });
-      out += S.badge(c.x, c.y, c.n);
+      // El número y su guía van marcados: el lint mide si un callout se apoya en el
+      // de al lado, y un círculo sobre la guía ajena deja de saberse de quién es.
+      if (Array.isArray(c.to)) out += `<g data-callout-guide="${c.n}">` + S.line(c.x, c.y, c.to[0], c.to[1], { color: t.stroke, width: 2, arrow: false }) + `</g>`;
+      out += `<g data-callout="${c.n}">` + S.badge(c.x, c.y, c.n) + `</g>`;
     }
     for (const fm of scene.formulas || (scene.formula ? [scene.formula] : [])) {
       out += S.formula(fm.x ?? 380, fm.y ?? 120, fm.atoms || [], {
@@ -519,6 +521,26 @@
     for (const st of scene.stats || []) {
       out += S.stat(st.x, st.y, st.value, st.label || '', { color: tone(st.tone || 'ink').stroke, size: st.size || 54 });
     }
+    // Una curva es una curva: el escenario del video ya la dibuja así
+    // (`tools/video/src/page/stage.js`), y la lectura tiene que poder dibujar la
+    // campana en vez de una caja que la nombra. Va antes de las flechas: una
+    // región rellena (la banda ±σ) no puede tapar la flecha que la señala, y la
+    // punta de la flecha tiene que verse sobre la curva.
+    // La tinta de la figura va marcada: el lint distingue el trazo que dibuja la
+    // cosa (la curva, el eje, la banda) del conector que la señala, y solo al
+    // conector le exige que sus dos extremos lleguen a algo.
+    for (const c of scene.curves || []) {
+      const t = tone(c.tone);
+      out += '<g data-path="1">' + S.curve(c.x1, c.y1, c.x2, c.y2, {
+        color: t.stroke, dashedLine: !!c.dashed, bend: c.bend ?? 0.35, width: c.width ?? 4, arrow: c.arrow !== false, fill: c.fill || 'none',
+      }) + '</g>';
+    }
+    for (const p of scene.paths || []) {
+      const t = tone(p.tone);
+      out += '<g data-path="1">' + S.path(p.d, {
+        color: t.stroke, dashedLine: !!p.dashed, width: p.width ?? 4, arrow: p.arrow !== false, fill: p.fill || 'none',
+      }) + '</g>';
+    }
     // A policy field is one fixed arrow per cell, the drawing a sentence like
     // "la fila de arriba apunta a la derecha" promises. Drawn before the plain
     // arrows so a beat's movement arrow stays the loudest thing on screen.
@@ -531,6 +553,10 @@
       out += S.line(x0, y0, x0 + ux * len, y0 + uy * len, { color: tone(p.tone || 'blue').stroke, width: p.width || 2 });
     }
     for (const a of scene.arrows || []) {
+      // La flecha se marca con los extremos que escribió el autor: una flecha con
+      // etiqueta se dibuja en dos tramos, y el lint tiene que medir la punta que el
+      // autor declaró, no el trozo que quedó después del hueco de las palabras.
+      const drawnFrom = out.length;
       const color = tone(a.tone).stroke;
       const size = a.labelSize || 22;
       // A figure drawn at the width of the reading column is a third of the
@@ -548,7 +574,10 @@
       // and a 4-unit stroke: it extends 10 * 11 / 12 * 4 = 36.67 units backwards.
       const headBack = 10 * 11 / 12 * shaft;
       const words = a.label ? Math.min(stageWidth - 30, a.label.length * size * 0.45 + 12) : 0;
-      const cut = Math.min(len * 0.62, words);
+      // El hueco se mide en la dirección del trazo: en una flecha vertical lo que
+      // ocupa el texto es su alto, no su ancho. Con el ancho, el hueco triplicaba
+      // al texto y la línea quedaba colgando antes de sus palabras.
+      const cut = Math.min(len * 0.62, vertical ? size * 1.6 : words);
       const captionRun = vertical ? size * 1.2 : words;
       // Where along the shaft the words sit. Two arrows running the same way
       // stack their captions in one column and read as dashes; staggering them
@@ -592,6 +621,8 @@
           });
         }
       }
+      out = out.slice(0, drawnFrom)
+        + `<g data-arrow="${a.x1},${a.y1}" data-to="${a.x2},${a.y2}">` + out.slice(drawnFrom) + '</g>';
     }
     for (const b of scene.badges || []) out += S.badge(b.x, b.y, b.n);
     for (const d of scene.dashed || []) out += S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke, d.fill);

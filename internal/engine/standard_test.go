@@ -200,6 +200,91 @@ func TestPartStandardAcceptsAFormulaWithItsLegend(t *testing.T) {
 	}
 }
 
+// annotatedFormulaScene draws the gaussian density symbol by symbol: one
+// numbered callout per symbol, and one labels line per number naming it. The
+// scene is the formula's legend, so the part owes no separate list of symbols.
+const annotatedFormulaScene = `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 380","title":"La densidad gaussiana, símbolo por símbolo","caption":"Cada número señala un símbolo de la fórmula y dice qué es.","scene":{
+  "formulas":[{"x":380,"y":104,"size":28,"atoms":[{"t":"f"},{"t":"("},{"t":"x"},{"t":")"},{"t":" = "},{"t":"1/(σ√(2π))"},{"t":" · "},{"t":"exp(−(x−μ)²/(2σ²))"}]}],
+  "callouts":[{"n":1,"x":96,"y":40,"to":[96,92],"tone":"blue"},{"n":2,"x":150,"y":40,"to":[150,92],"tone":"amber"},{"n":3,"x":420,"y":40,"to":[420,92],"tone":"green"},{"n":4,"x":300,"y":40,"to":[300,92],"tone":"slate"},{"n":5,"x":560,"y":40,"to":[560,92],"tone":"red"},{"n":6,"x":660,"y":40,"to":[660,92],"tone":"blue"}],
+  "labels":[
+    {"x":380,"y":190,"text":"① f: la densidad, la altura de la curva"},
+    {"x":380,"y":222,"text":"② x: el valor que miras, la latencia"},
+    {"x":380,"y":254,"text":"③ μ: el centro, dónde está el pico"},
+    {"x":380,"y":286,"text":"④ σ: el ancho, cuánto se abre la campana"},
+    {"x":380,"y":318,"text":"⑤ 1/(σ√(2π)): el factor que normaliza; π: 3,1416"},
+    {"x":380,"y":350,"text":"⑥ exp(…): el exponente, la distancia al centro"}
+  ]}}
+</script>
+</lk-scene>`
+
+// annotatedFormulaSceneWithoutSigma is the same scene with the σ line removed:
+// the symbol is drawn and never named, so the legend has to refuse it. A scene
+// that draws a formula is a formula the reader has to be able to read.
+var annotatedFormulaSceneWithoutSigma = strings.Replace(annotatedFormulaScene,
+	"    {\"x\":380,\"y\":286,\"text\":\"④ σ: el ancho, cuánto se abre la campana\"},\n", "", 1)
+
+// writeStandardPartWithScene writes the standard part with the given scene in
+// place of the shipped one: a part carries one scene, so the fixture swaps it
+// instead of adding a second.
+func (f *fixture) writeStandardPartWithScene(t *testing.T, body, scene string) {
+	t.Helper()
+	f.writePartNote(t, strings.Replace(standardNote(body), standardScene, scene, 1))
+}
+
+// A formula drawn as an annotated scene names its symbols in its callouts. The
+// scene is the legend, so a symbol no callout names is a formula the reader
+// cannot read — the rule reads the scene's formulas like the <lk-math> blocks.
+func TestPartStandardRefusesAFormulaSceneThatNeverNamesItsSymbols(t *testing.T) {
+	f := standardFrontier(t)
+	f.writeStandardPartWithScene(t, "La densidad se dibuja símbolo por símbolo.\n", annotatedFormulaSceneWithoutSigma)
+	rep, code, c := standardCheck(t, f)
+	assertBlocked(t, rep, code)
+	if c.Status != "FAIL" || !strings.Contains(c.Reason, "never named") {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL on the annotated formula's legend", c.Status, c.Reason)
+	}
+	for _, fragment := range []string{"σ", "annotated formula scene", "one numbered callout per symbol"} {
+		if !strings.Contains(c.Reason, fragment) {
+			t.Fatalf("reason %q misses %q", c.Reason, fragment)
+		}
+	}
+	// The fix is the annotated scene, never the equation element: <lk-math>
+	// draws a clean equation with no arrows, which is what the learner refused.
+	if strings.Contains(c.Reason, "so the kit draws it") {
+		t.Fatalf("reason %q still sends the tutor to <lk-math> as the fix", c.Reason)
+	}
+	t.Logf("annotated formula refusal: %s", c.Reason)
+}
+
+// With one callout per symbol the same scene passes: the rule is the legend,
+// and the scene's callouts are the legend.
+func TestPartStandardAcceptsAFormulaSceneWhoseCalloutsNameEverySymbol(t *testing.T) {
+	f := standardFrontier(t)
+	f.writeStandardPartWithScene(t, "La densidad se dibuja símbolo por símbolo.\n", annotatedFormulaScene)
+	rep, code, c := standardCheck(t, f)
+	if code != 0 || rep.Status != "accepted" {
+		t.Fatalf("advance explanation = %q (exit %d), want accepted: %+v", rep.Status, code, rep.Checks)
+	}
+	if c.Status != "PASS" {
+		t.Fatalf("explanation-standard = %s (%s), want PASS: the callouts name every symbol", c.Status, c.Reason)
+	}
+}
+
+// A Greek letter is a symbol like any other: the legend reads it in a formula
+// and accepts the callout form («① γ: …») that names it.
+func TestPartStandardRefusesAGreekSymbolNeverNamed(t *testing.T) {
+	f := standardFrontier(t)
+	f.writeStandardPart(t, "El valor se escribe así:\n\n<lk-math>Q(s,a) = c/(1-γ)</lk-math>\n\n"+
+		"Donde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n")
+	rep, code, c := standardCheck(t, f)
+	assertBlocked(t, rep, code)
+	if c.Status != "FAIL" || !strings.Contains(c.Reason, "never named") || !strings.Contains(c.Reason, "γ") {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL naming γ", c.Status, c.Reason)
+	}
+	t.Logf("greek symbol refusal: %s", c.Reason)
+}
+
 // The approved example's shape passes whole: two content sections, one scene,
 // one walkthrough, and the scene counts as the visual the part planned. A part
 // built exactly to the standard must never be refused for it.
@@ -506,7 +591,8 @@ func TestPartStandardRefusesAParagraphOfThreeSentences(t *testing.T) {
 }
 
 // Plain `$$…$$` math is read by the legend rule too, and the refusal names the
-// kit's formula element: the fix is the element, not a second rule.
+// fix the standard asks for: the annotated formula scene, one numbered callout
+// per symbol. `<lk-math>` is for a calculation, never for explaining a formula.
 func TestPartStandardRefusesPlainMathWithoutLegend(t *testing.T) {
 	f := standardFrontier(t)
 	f.writeStandardPart(t, "El valor se escribe así:\n\n$$Q(s,a) = c/(1-\\gamma)$$\n")
@@ -516,10 +602,13 @@ func TestPartStandardRefusesPlainMathWithoutLegend(t *testing.T) {
 		t.Fatalf("explanation-standard = %s (%s), want FAIL on the formula legend", c.Status, c.Reason)
 	}
 	t.Logf("plain math refusal: %s", c.Reason)
-	for _, fragment := range []string{"gamma", "<lk-math>", "so the kit draws it"} {
+	for _, fragment := range []string{"gamma", "annotated formula scene", "one numbered callout per symbol", "<lk-math> is for a calculation"} {
 		if !strings.Contains(c.Reason, fragment) {
 			t.Fatalf("reason %q misses %q", c.Reason, fragment)
 		}
+	}
+	if strings.Contains(c.Reason, "so the kit draws it") {
+		t.Fatalf("reason %q still sends the tutor to <lk-math> as the fix", c.Reason)
 	}
 }
 
@@ -592,6 +681,81 @@ func TestPartStandardCountsParagraphsLikeExplainCheck(t *testing.T) {
 	}
 }
 
+// The engine and the tutor's tool read the same annotated formula: the scene's
+// callouts are the legend in both, and both refuse the same symbol. The tutor
+// runs `node tools/explain-check.mjs` and must get the engine's verdict.
+func TestPartStandardReadsFormulaScenesLikeExplainCheck(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: the tool cannot be run here")
+	}
+	tool, err := filepath.Abs("../../tools/explain-check.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tool); err != nil {
+		t.Skipf("explain-check.mjs is not here: %v", err)
+	}
+	leyenda := func(note string) (bool, string) {
+		t.Helper()
+		file := filepath.Join(t.TempDir(), "parte.md")
+		if err := os.WriteFile(file, []byte(note), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, _ := exec.Command(node, tool, file, "--json").CombinedOutput()
+		var parsed struct {
+			Rows []struct {
+				Rule   string `json:"rule"`
+				OK     bool   `json:"ok"`
+				Detail string `json:"detail"`
+			} `json:"rows"`
+		}
+		if err := json.Unmarshal(out, &parsed); err != nil {
+			t.Fatalf("explain-check printed no JSON: %v\n%s", err, out)
+		}
+		for _, row := range parsed.Rows {
+			if row.Rule == "leyenda" {
+				return row.OK, row.Detail
+			}
+		}
+		t.Fatalf("explain-check printed no legend row: %s", out)
+		return false, ""
+	}
+
+	complete := standardNote("La densidad se dibuja símbolo por símbolo.\n\n" + annotatedFormulaScene)
+	if got := unnamedSymbols(complete); len(got) != 0 {
+		t.Fatalf("the engine refuses the annotated formula's legend: %v", got)
+	}
+	if ok, detail := leyenda(complete); !ok {
+		t.Fatalf("the tool refuses the annotated formula the engine accepts: %s", detail)
+	}
+
+	incomplete := strings.Replace(complete, annotatedFormulaScene, annotatedFormulaSceneWithoutSigma, 1)
+	if got := unnamedSymbols(incomplete); strings.Join(got, ",") != "σ" {
+		t.Fatalf("unnamedSymbols = %v, want [σ]", got)
+	}
+	ok, detail := leyenda(incomplete)
+	if ok {
+		t.Fatalf("the tool accepts a formula the engine refuses: %s", detail)
+	}
+	for _, fragment := range []string{"σ", "escena anotada", "un callout numerado por símbolo"} {
+		if !strings.Contains(detail, fragment) {
+			t.Fatalf("the tool's legend detail %q misses %q", detail, fragment)
+		}
+	}
+
+	// The letter is the same one in both: a `q` elsewhere in the part does not
+	// name `Q`, so neither reads it as named.
+	mismatch := standardNote("El valor se escribe así:\n\n<lk-math>Q(s,a) = c/(1-\\gamma)</lk-math>\n\n" +
+		"Donde:\n\n- `q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n")
+	if got := unnamedSymbols(mismatch); strings.Join(got, ",") != "Q" {
+		t.Fatalf("unnamedSymbols = %v, want [Q]", got)
+	}
+	if ok, detail := leyenda(mismatch); ok {
+		t.Fatalf("the tool names Q with a q: %s", detail)
+	}
+}
+
 // The shape rules are additive keys of the same block: a snapshot that declared
 // the standard before they existed keeps accepting the parts it accepted.
 func TestPartStandardSnapshotWithoutTheShapeKeysKeepsAccepting(t *testing.T) {
@@ -623,6 +787,9 @@ func TestPartStandardReadsScenesAndFormulasLikeTheReader(t *testing.T) {
 		{"the kit element is not plain", "<lk-math>Q(s,a)</lk-math>", 0, []string{"Q", "s", "a"}, false},
 		{"a fenced scene is code", "```html\n" + standardScene + "\n```", 0, nil, false},
 		{"a drawn scene", standardScene, 1, nil, false},
+		// Una distribución es su curva: una escena que solo traza la campana dibuja.
+		{"a curve draws", `<lk-scene><script type="application/json">{"scene":{"paths":[{"d":"M 48 214 C 51.7 213.9 62.7 214.2 70 213.6","arrow":false}]}}</script></lk-scene>`, 1, nil, false},
+		{"a bent curve draws", `<lk-scene><script type="application/json">{"scene":{"curves":[{"x1":60,"y1":220,"x2":700,"y2":220}]}}</script></lk-scene>`, 1, nil, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

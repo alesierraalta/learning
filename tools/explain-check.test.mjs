@@ -132,6 +132,17 @@ test('una fórmula con su leyenda de símbolos pasa', () => {
   assert.match(r.stdout, /ok\s+leyenda/);
 });
 
+// Un símbolo se nombra con su misma letra: `Q` y `q` son símbolos distintos, y una
+// `q` suelta en otro JSON de la página no nombra a `Q`.
+test('un símbolo no se nombra con otra caja', () => {
+  const f = join(dir, 'otra-caja.md');
+  writeFileSync(f, CON_FORMULA + '\nDonde:\n\n- `q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
+  const r = run(f);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA leyenda/);
+  assert.match(r.stdout, /Q/);
+});
+
 test('una fórmula con símbolos sin nombrar falla la leyenda', () => {
   const f = join(dir, 'formula-sin-leyenda.md');
   writeFileSync(f, CON_FORMULA);
@@ -152,18 +163,66 @@ test('el rechazo de párrafos cita el primer muro', () => {
   assert.match(r.stdout, /el primero abre «Una\. Dos\. Tres\.»/);
 });
 
-// La fórmula en LaTeX plano se lee igual, y el arreglo es el elemento del kit.
+// La fórmula anotada: la escena dibuja la fórmula símbolo por símbolo y sus
+// callouts son la leyenda. Un símbolo que ningún callout nombra es una fórmula
+// que no se puede leer, y el arreglo es la escena, nunca <lk-math>.
+const FORMULA_ANOTADA = `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 380","caption":"Cada número señala un símbolo de la fórmula y dice qué es.","scene":{
+  "formulas":[{"x":380,"y":104,"size":28,"atoms":[{"t":"f"},{"t":"("},{"t":"x"},{"t":")"},{"t":" = "},{"t":"1/(σ√(2π))"},{"t":" · "},{"t":"exp(−(x−μ)²/(2σ²))"}]}],
+  "callouts":[{"n":1,"x":96,"y":40,"to":[96,92],"tone":"blue"},{"n":2,"x":150,"y":40,"to":[150,92],"tone":"amber"},{"n":3,"x":420,"y":40,"to":[420,92],"tone":"green"},{"n":4,"x":300,"y":40,"to":[300,92],"tone":"slate"},{"n":5,"x":560,"y":40,"to":[560,92],"tone":"red"},{"n":6,"x":660,"y":40,"to":[660,92],"tone":"blue"}],
+  "labels":[
+    {"x":380,"y":190,"text":"① f: la densidad, la altura de la curva"},
+    {"x":380,"y":222,"text":"② x: el valor que miras, la latencia"},
+    {"x":380,"y":254,"text":"③ μ: el centro, dónde está el pico"},
+    {"x":380,"y":286,"text":"④ σ: el ancho, cuánto se abre la campana"},
+    {"x":380,"y":318,"text":"⑤ 1/(σ√(2π)): el factor que normaliza; π: 3,1416"},
+    {"x":380,"y":350,"text":"⑥ exp(…): el exponente, la distancia al centro"}
+  ]}}
+</script>
+</lk-scene>
+`;
+
+const SIN_SIGMA = FORMULA_ANOTADA.replace('    {"x":380,"y":286,"text":"④ σ: el ancho, cuánto se abre la campana"},\n', '');
+
+test('una fórmula anotada con un callout por símbolo pasa la leyenda', () => {
+  const f = join(dir, 'formula-anotada.md');
+  writeFileSync(f, CUMPLE.replace(ESCENA, FORMULA_ANOTADA));
+  const r = run(f);
+  assert.match(r.stdout, /ok\s+leyenda/);
+});
+
+// Un símbolo que la escena dibuja y ningún callout nombra es una fórmula que no
+// se puede leer. El arreglo que se imprime es la escena anotada, no el elemento
+// de la ecuación: <lk-math> dibuja una fórmula limpia y sin flechas, que es lo
+// que el alumno rechazó.
+test('una fórmula anotada con un símbolo sin callout falla la leyenda', () => {
+  const f = join(dir, 'formula-anotada-incompleta.md');
+  writeFileSync(f, CUMPLE.replace(ESCENA, SIN_SIGMA));
+  const r = run(f);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA leyenda/);
+  assert.match(r.stdout, /σ/);
+  assert.match(r.stdout, /escena anotada/);
+  assert.match(r.stdout, /un callout numerado por símbolo/);
+  assert.doesNotMatch(r.stdout, /para que el kit la dibuje/);
+});
+
+// La fórmula en LaTeX plano se lee igual, y el arreglo es la escena anotada;
+// <lk-math> queda para una cuenta.
 const PLANA = CUMPLE.replace('El estado es lo que hace falta saber para decidir.',
   'El valor se escribe así:\n\n$$Q(s,a) = c/(1-\\gamma)$$');
 
-test('una fórmula en LaTeX plano sin leyenda falla y nombra <lk-math>', () => {
+test('una fórmula en LaTeX plano sin leyenda falla y nombra la escena anotada', () => {
   const f = join(dir, 'formula-plana.md');
   writeFileSync(f, PLANA);
   const r = run(f);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALLA leyenda/);
   assert.match(r.stdout, /gamma/);
-  assert.match(r.stdout, /<lk-math>/);
+  assert.match(r.stdout, /escena anotada/);
+  assert.match(r.stdout, /<lk-math> es para una cuenta/);
+  assert.doesNotMatch(r.stdout, /para que el kit la dibuje/);
 });
 
 test('una fórmula plana con su leyenda pasa', () => {
