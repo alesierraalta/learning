@@ -5,15 +5,34 @@
 import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { execSync } from 'node:child_process';
 import { registerBridge } from '../integrations/pi/bridge.ts';
 import { lintMarkdown, countDecks } from './deck-lint.mjs';
 
-let playwright;
-for (const id of [process.env.PLAYWRIGHT_MODULE, 'playwright', '/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs'].filter(Boolean)) {
-  try { playwright = await import(id); break; } catch {}
+// Playwright, resuelto igual que en `scene-lint.mjs`: el módulo que se indique, el
+// del proyecto si está instalado, y el global (`npm root -g`). El estudio corre
+// esta puerta con su propio Node y sin PLAYWRIGHT_MODULE, y en el VPS el navegador
+// está instalado global: una ruta fija de una máquina no existe en otra, y una
+// puerta que no encuentra su navegador no puede medir nada.
+async function loadPlaywright() {
+  const attempts = [];
+  if (process.env.PLAYWRIGHT_MODULE) attempts.push(() => import(process.env.PLAYWRIGHT_MODULE));
+  attempts.push(() => import('playwright'));
+  try {
+    const root = execSync('npm root -g', { encoding: 'utf8' }).trim();
+    attempts.push(async () => createRequire(root + '/')('playwright'));
+  } catch {}
+  for (const attempt of attempts) {
+    try { return await attempt(); } catch {}
+  }
+  return null;
 }
+
+const playwright = await loadPlaywright();
 if (!playwright) {
-  console.log('playwright is not installed: set PLAYWRIGHT_MODULE to its entry point');
+  // Sin navegador no hay medición, así que no hay aprobado: sale distinto de cero.
+  console.log('playwright is not installed: set PLAYWRIGHT_MODULE to its entry point, or install it globally (npm root -g)');
   process.exit(2);
 }
 const { chromium } = playwright;

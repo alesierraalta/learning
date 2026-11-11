@@ -527,11 +527,18 @@ checks). What it measures, and how:
   cross-checks both counts, like the prose budget.
 - **No drawn ASCII.** A line that draws with box characters (`┌ ┐ │ ─`,
   `─►`) fails: geometry is drawn with an `<lk-scene>` or a mermaid block.
-- **Formula legend.** Every symbol a formula uses (a LaTeX macro such as
-  `\gamma`, a single-letter name, or a Greek letter written literally as `σ`)
-  must be named in the part, quoted (`` `Q` ``, `«Q»`, `"Q"`) or followed by
-  `=`, `→`, `->`, `:` or `es` — the boundary is a Unicode one, so the numbered
-  callout form the annotated formula uses («① σ: …») names `σ`. The formulas are
+- **Formula legend.** Every symbol a formula uses must be named in the part,
+  quoted (`` `Q` ``, `«Q»`, `"Q"`) or followed by `=`, `→`, `->`, `:` or `es` —
+  the boundary is a Unicode one, so the numbered callout form the annotated
+  formula uses («① σ: …») names `σ`. A symbol is a single-letter name, a Greek
+  letter written literally (`σ`), or a Greek-letter macro (`\sigma`): those are
+  the variables of the formula. Every other macro is a **command** and never a
+  symbol — it lays the formula out (`\frac`, `\sqrt`, `\left`, `\right`),
+  operates (`\cdot`, `\times`, `\sum`, `\int`, `\cap`) or names a function
+  (`\exp`, `\log`, `\mathrm`, `\text`, `\operatorname`) — and a constant is not
+  a symbol either: `\pi` (and `π`) or `e` as Euler's number in `e^{…}`. So
+  `f(x) = \frac{1}{\sigma\sqrt{2\pi}} e^{-\frac{1}{2}\left(\frac{x-\mu}{\sigma}\right)^2}`
+  asks for `f`, `x`, `\sigma` and `\mu`, and for nothing else. The formulas are
   the `<lk-math>` blocks, the plain LaTeX a part writes instead (`$$…$$` and
   `$…$`, where an inline `$…$` counts as math when it carries a macro or an
   operator, or has no spaces, so a price in prose is not a formula), and the
@@ -570,9 +577,9 @@ vocabulary is in skills/explicacion-interactiva/references/visuales.md;
 6 paragraph(s) with more than 2 sentences — the first opens «Un sistema
 complejo tiene muchas piezas y cada»; split it: one idea per sentence and one
 beat per paragraph;
-formula symbol(s) cap, P, A, B, mid never named — draw the formula as an
+formula symbol(s) P, A, B, mid never named — draw the formula as an
 annotated formula scene: one numbered callout per symbol, each named in its
-labels line («① cap: …»); <lk-math> is for a calculation, never for explaining
+labels line («① P: …»); <lk-math> is for a calculation, never for explaining
 a formula
 ```
 

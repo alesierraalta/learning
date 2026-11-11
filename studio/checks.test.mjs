@@ -111,6 +111,22 @@ test("a tool that fails without naming a finding is a failure, not an empty find
   assert.match(checked.failures[0], /boom/, "the reason is kept for the log");
 });
 
+test("a deck gate without a browser is a check failure, never a clean pass", async () => {
+  // The VPS prints this when Playwright cannot be found. Reading it as "no findings"
+  // would offer a part nobody measured as done; it belongs to the studio's log.
+  const noBrowser = mkdtempSync(join(tmpdir(), "no-browser-tools-"));
+  writeFileSync(join(noBrowser, "scene-lint.mjs"), "process.exit(0);\n");
+  writeFileSync(
+    join(noBrowser, "deck-gate.mjs"),
+    "console.log('playwright is not installed: set PLAYWRIGHT_MODULE to its entry point, or install it globally (npm root -g)');\nprocess.exit(2);\n",
+  );
+  writeFileSync(join(noBrowser, "explain-check.mjs"), "process.exit(0);\n");
+  const checked = await runPartChecks([note("sin-navegador.md", BROKEN)], { toolsDir: noBrowser });
+  assert.equal(checked.kind, "crashed", JSON.stringify(checked));
+  assert.equal(checked.failures.length, 1);
+  assert.match(checked.failures[0], /deck-gate\.mjs no pudo medir sin-navegador\.md \(salida 2\)/);
+});
+
 test("the deck gate's own report is read as findings", () => {
   const output = `${JSON.stringify({ decks: 1, problems: 1, bad: [{ note: "x.md", deck: 1, step: 2, kind: "text-over-arrow", over: 0, text: "encima" }] }, null, 1)}\nGATE FAILED\n`;
   assert.deepEqual(findingsOf("deck-gate.mjs", output), ["text-over-arrow: encima"]);

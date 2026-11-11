@@ -152,6 +152,55 @@ test('una fórmula con símbolos sin nombrar falla la leyenda', () => {
   assert.match(r.stdout, /gamma/);
 });
 
+// La fórmula viva de una parte real: los comandos de LaTeX no son símbolos, \pi y
+// `e` son constantes, y las griegas sí. Antes de esto la leyenda pedía nombrar
+// \frac, \sqrt, \left, \right, \pi y e, y el tutor corregía una fórmula correcta.
+const VIVA = 'f(x) = \\frac{1}{\\sigma\\sqrt{2\\pi}} e^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\sigma}\\right)^2}';
+// Sin escena: el JSON de una escena trae claves como `"x":88`, y la leyenda las lee
+// como si nombraran la `x` de la fórmula. Lo que se mide aquí es la fórmula sola.
+const CON_VIVA = `# Parte 1
+
+## Ruta
+
+1. Qué es la densidad
+2. Qué es la media
+3. Cómo se leen
+
+## 1. La densidad
+
+La densidad se escribe así:
+
+<lk-math>${VIVA}</lk-math>
+
+<lk-quiz>{"id":"q1"}</lk-quiz>
+`;
+
+/** Los símbolos que la leyenda pide nombrar, sin la barra de las macros. */
+const pedidos = (stdout) => {
+  const detalle = /símbolo\(s\) sin nombrar: ([^·]+)/.exec(stdout);
+  assert.ok(detalle, `no legend detail in ${stdout}`);
+  return detalle[1].split(',').map((s) => s.trim().replace(/^\\/, '')).sort();
+};
+
+test('la leyenda de una fórmula real pide sus símbolos, no sus comandos', () => {
+  const f = join(dir, 'formula-viva.md');
+  writeFileSync(f, CON_VIVA);
+  const r = run(f);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA leyenda/);
+  // f y x son símbolos; \sigma y \mu también. \frac, \sqrt, \left, \right, \pi y
+  // e no: dan forma, operan o son constantes.
+  assert.deepEqual(pedidos(r.stdout), ['f', 'mu', 'sigma', 'x']);
+});
+
+test('la misma fórmula pasa cuando su leyenda nombra sus cuatro símbolos', () => {
+  const f = join(dir, 'formula-viva-leyenda.md');
+  writeFileSync(f, CON_VIVA + '\nDonde:\n\n- `f` es la densidad.\n- `x` es el valor que miras.\n- `\\sigma` es el ancho.\n- `\\mu` es el centro.\n');
+  const r = run(f);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+leyenda/);
+});
+
 // El rechazo del ritmo cita el primer muro: sin sus primeras palabras el tutor no
 // sabe cuál de los párrafos partir.
 test('el rechazo de párrafos cita el primer muro', () => {
