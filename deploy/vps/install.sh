@@ -14,13 +14,16 @@ env_file="$HOME/.config/learning-studio.env"
 NPM_PREFIX=${NPM_PREFIX:-$HOME/.npm-global}
 export PATH="$NPM_PREFIX/bin:$PATH"
 LEARNING_ROOT=${LEARNING_ROOT:-$HOME/Learnings}
-# This is an operator-owned, shell-compatible environment file.
+# This is an operator-owned, shell-compatible environment file, and the linker
+# reads it the same way: one parser for both, so quotes and inline comments
+# never reach a path.
 if [[ -f "$env_file" ]]; then
   set -a
   # shellcheck disable=SC1090
   source "$env_file"
   set +a
 fi
+export LEARNING_ROOT
 missing=0
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -74,7 +77,7 @@ fi
 run install -m 644 "$assets/learning-studio.service" "$HOME/.config/systemd/user/learning-studio.service"
 # The tutor's instructions are links to this repository, so a pulled change
 # reaches the live tutor and the studio can prove the links are the repo's own.
-run env LEARNING_ROOT="$LEARNING_ROOT" bash "$assets/link-tutor-context.sh"
+run bash "$assets/link-tutor-context.sh" --env-file "$env_file"
 run sudo loginctl enable-linger "${USER:?USER must name the service owner}"
 run systemctl --user daemon-reload
 run systemctl --user enable --now learning-studio

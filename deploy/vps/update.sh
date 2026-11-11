@@ -46,12 +46,10 @@ command -v go >/dev/null 2>&1 || { echo 'Missing prerequisite: Go; install Go to
 # The tutor reads its skill and the Learnings `AGENTS.md` from links this repo
 # owns: a link left pointing at an older copy would teach with another standard,
 # so the deploy links them and refuses to restart when a link does not resolve.
-# The Learnings root is the studio's own (`learning-studio.env`), not a guess.
-learnings_root="${LEARNING_ROOT:-}"
-if [[ -z "$learnings_root" && -r "$HOME/.config/learning-studio.env" ]]; then
-  learnings_root=$(sed -n 's/^LEARNING_ROOT=//p' "$HOME/.config/learning-studio.env" | tail -n 1)
-fi
-LEARNING_ROOT="${learnings_root:-$HOME/Learnings}" bash "$repo/deploy/vps/link-tutor-context.sh"
+# The Learnings root is the studio's own (`learning-studio.env`), not a guess,
+# and the linker reads that file the way the shell does: one parser for the
+# deploy and the installer, so quotes and inline comments never reach a path.
+bash "$repo/deploy/vps/link-tutor-context.sh" --env-file "$HOME/.config/learning-studio.env"
 
 systemctl --user restart learning-studio
 bash "$repo/deploy/vps/health.sh"

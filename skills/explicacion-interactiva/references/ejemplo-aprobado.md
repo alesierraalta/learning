@@ -5,7 +5,9 @@ ChatGPT, sin retoques. Son el contrato de tono de `SKILL.md` y de
 `references/estandar-explicacion.md`: ante la duda de cómo suena una frase, se mira aquí.
 
 Qué se copia de ellas: la arquitectura, el ritmo, el largo de las frases, la forma de
-entrar en un concepto, la aritmética renglón a renglón y el cierre de cada sección.
+entrar en un concepto y, cuando el cálculo es la idea, la aritmética ejecutada línea por
+línea. El cierre con resumen de cada sección **no** se copia: una parte termina en su
+última sección de contenido (`estandar-explicacion.md` §1).
 
 Qué **no** se copia, porque el usuario lo descartó explícitamente (S2 de
 `odd/tasks/explicacion-visual-v2.md`): el bloque final «Resumen para guardar» /

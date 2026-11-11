@@ -37,6 +37,88 @@ function fixture() {
 
 const run = (env, args = []) => spawnSync("bash", [SCRIPT, ...args], { env: { ...process.env, ...env }, encoding: "utf8" });
 
+/**
+ * The studio's env file is shell-compatible, so the deploy must read it the way
+ * the shell does: `sed` would keep the quotes and the inline comment and link a
+ * directory whose name is literally `"/x"`. These cases drive `--env-file` with
+ * no LEARNING_ROOT in the environment, which is the VPS situation.
+ */
+/**
+ * A fixture with no LEARNING_ROOT in the environment and an env file to read.
+ * An unquoted shell value cannot hold a space, so only the quoted case uses one.
+ */
+function envFileFixture(name = "Learnings") {
+  const f = fixture();
+  const { LEARNING_ROOT: _, ...env } = f.env;
+  const file = join(f.base, "learning-studio.env");
+  const root = join(f.base, name);
+  mkdirSync(root, { recursive: true });
+  return { ...f, env, file, root };
+}
+
+const linkedAgents = (root) => {
+  const agents = join(root, "AGENTS.md");
+  return existsSync(agents) && lstatSync(agents).isSymbolicLink();
+};
+
+// A raw value that `sed` kept verbatim would start with a quote or end with a
+// comment, so the script would `mkdir` a relative path: run it from the fixture
+// root so a wrong path lands there and the assertion can see it.
+const runIn = (f, args) => spawnSync("bash", [SCRIPT, ...args], { cwd: f.base, env: { ...process.env, ...f.env }, encoding: "utf8" });
+
+/** A directory whose name carries the raw value's quote or comment is the bug. */
+const strayDirs = (f) => readdirSync(f.base).filter((name) => name.startsWith('"') || name.includes("#"));
+
+test("--env-file reads a quoted LEARNING_ROOT without the quotes", () => {
+  const f = envFileFixture("Learnings con espacios");
+  writeFileSync(f.file, `LEARNING_ROOT="${f.root}"\nSTUDIO_PORT=4747\n`);
+  const result = runIn(f, ["--env-file", f.file]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(linkedAgents(f.root), `AGENTS.md linked into ${f.root}`);
+  assert.deepEqual(strayDirs(f), [], "no directory named after the raw value");
+});
+
+test("--env-file reads an unquoted LEARNING_ROOT", () => {
+  const f = envFileFixture("Learnings-sin-espacios");
+  writeFileSync(f.file, `LEARNING_ROOT=${f.root}\n`);
+  const result = runIn(f, ["--env-file", f.file]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(linkedAgents(f.root));
+});
+
+test("--env-file drops an inline comment instead of making it part of the path", () => {
+  const f = envFileFixture("Learnings-comentario");
+  writeFileSync(f.file, `LEARNING_ROOT=${f.root}  # raíz de Learnings\n`);
+  const result = runIn(f, ["--env-file", f.file]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(linkedAgents(f.root), `AGENTS.md linked into ${f.root}`);
+  assert.deepEqual(strayDirs(f), [], "the comment is not part of the path");
+});
+
+test("a missing env file falls back to ~/Learnings", () => {
+  const f = envFileFixture();
+  const result = runIn(f, ["--env-file", join(f.base, "no-existe.env")]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(linkedAgents(join(f.home, "Learnings")), "AGENTS.md linked into the default root");
+});
+
+test("a relative LEARNING_ROOT is refused, never linked", () => {
+  const f = envFileFixture();
+  writeFileSync(f.file, "LEARNING_ROOT=Learnings\n");
+  const result = runIn(f, ["--env-file", f.file]);
+  assert.notEqual(result.status, 0, "a relative root must fail the deploy");
+  assert.match(result.stderr, /LEARNING_ROOT must be an absolute path/);
+  assert.match(result.stderr, /Learnings/);
+  assert.equal(existsSync(join(f.base, "Learnings", "AGENTS.md")), false);
+});
+
+test("a relative LEARNING_ROOT in the environment is refused too", () => {
+  const f = fixture();
+  const result = run({ ...f.env, LEARNING_ROOT: "Learnings" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /LEARNING_ROOT must be an absolute path/);
+});
+
 test("the deploy links every skill and the Learnings AGENTS.md into a fresh home", () => {
   const f = fixture();
   const result = run(f.env);
