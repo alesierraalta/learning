@@ -38,9 +38,12 @@ writeFileSync(sessionFile, "");
 // FAKE_PI_WRITES is a JSON list of {path, isError?, content?}: with content the file
 // is really written, as the tutor would, before the tool reports it.
 const scriptedWrites = () => {
-  if (!process.env.FAKE_PI_WRITES) return [{ path: "tema/explicaciones/Parte 1 - Algo.md" }];
+  if (!process.env.FAKE_PI_WRITES) return [[{ path: "tema/explicaciones/Parte 1 - Algo.md" }]];
   try {
-    return JSON.parse(process.env.FAKE_PI_WRITES);
+    const parsed = JSON.parse(process.env.FAKE_PI_WRITES);
+    // A list of lists is one script per turn, so a correction can write the fixed part the
+    // previous turn was told to fix. A flat list is the same script on every turn.
+    return Array.isArray(parsed[0]) ? parsed : [parsed];
   } catch (error) {
     // A malformed script is a broken test: stop loudly instead of scripting nothing.
     process.stderr.write(`FAKE_PI_WRITES is not JSON: ${error.message}\n`);
@@ -48,6 +51,8 @@ const scriptedWrites = () => {
   }
 };
 const writes = scriptedWrites();
+// Which turn this is: the first prompt is turn 0, a gate correction is turn 1, and so on.
+let turn = 0;
 // The notices a turn emits; the harness writes its own warnings through the same
 // channel, and a test needs both in the stream to tell the chat what to keep.
 const notices = () => {
@@ -65,7 +70,9 @@ const run = (message) => {  out({ type: "agent_start" });
   out({ type: "message_start", message: { role: "user", content: message } });
   out({ type: "message_start", message: { role: "assistant", content: [] } });
   out({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Hola, " } });
-  writes.forEach(({ path, isError = false, content }, i) => {
+  const script = writes[Math.min(turn, writes.length - 1)] ?? [];
+  turn += 1;
+  script.forEach(({ path, isError = false, content }, i) => {
     out({ type: "tool_execution_start", toolCallId: `t${i + 1}`, toolName: "write", args: { path } });
     if (content !== undefined && !isError) {
       mkdirSync(dirname(path), { recursive: true });

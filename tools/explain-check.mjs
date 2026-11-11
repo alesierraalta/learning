@@ -148,14 +148,31 @@ const planas = [...src.matchAll(/\$\$([\s\S]+?)\$\$/g)].map((m) => m[1]).concat(
     .map((m) => m[1])
     .filter((t) => /[\\^_=]/.test(t) || !/\s/.test(t)),
 );
+// Una macro griega es un símbolo: son las variables de la fórmula, y se leen igual
+// escritas como macro (`\sigma`) que literales (`σ`). Todo lo demás es un comando:
+// da forma (`\frac`, `\left`, `\right`), opera (`\cdot`, `\sum`, `\int`) o nombra
+// una función (`\exp`, `\log`, `\mathrm`, `\text`), y un comando no se define en la
+// leyenda. `\pi` y `e` son constantes, no símbolos que la parte tenga que nombrar.
+const GRIEGAS = new Set([
+  'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon', 'zeta', 'eta', 'theta', 'vartheta',
+  'iota', 'kappa', 'lambda', 'mu', 'nu', 'xi', 'omicron', 'pi', 'varpi', 'rho', 'varrho', 'sigma',
+  'varsigma', 'tau', 'upsilon', 'phi', 'varphi', 'chi', 'psi', 'omega', 'digamma',
+  'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi', 'Sigma', 'Upsilon', 'Phi', 'Psi', 'Omega',
+]);
+const CONSTANTES = new Set(['pi', 'Pi', 'varpi']);
+const LETRAS_CONSTANTES = new Set(['π', 'Π', 'ϖ']);
 const simbolos = new Set();
 for (const f of formulas.concat(dibujadas).concat(planas)) {
-  // Las macros primero: \\gamma es un símbolo, no una palabra que se descarta.
-  for (const m of f.match(/\\[A-Za-z]+/g) || []) simbolos.add(m);
+  for (const m of f.match(/\\[A-Za-z]+/g) || []) {
+    const nombre = m.slice(1);
+    if (GRIEGAS.has(nombre) && !CONSTANTES.has(nombre)) simbolos.add(m);
+  }
   const limpio = f.replace(/\\[A-Za-z]+/g, ' ').replace(/\{[^}]*\}/g, ' ');
-  for (const w of limpio.match(/[A-Za-z]+/g) || []) if (w.length === 1) simbolos.add(w);
-  // Una griega es un símbolo como cualquier otro, y la escena la escribe literal.
-  for (const g of limpio.match(/\p{Script=Greek}/gu) || []) simbolos.add(g);
+  // `e` como número de Euler (`e^{…}`) es una constante, no un símbolo.
+  const sinEuler = limpio.replace(/(^|[^A-Za-z])e\s*\^/g, ' ');
+  for (const w of sinEuler.match(/[A-Za-z]+/g) || []) if (w.length === 1) simbolos.add(w);
+  // Una griega literal es un símbolo como cualquier otro, salvo las constantes.
+  for (const g of sinEuler.match(/\p{Script=Greek}/gu) || []) if (!LETRAS_CONSTANTES.has(g)) simbolos.add(g);
 }
 const sinNombrar = [...simbolos].filter((s) => {
   // Un símbolo está nombrado si aparece entre comillas o seguido de = → : o "es".

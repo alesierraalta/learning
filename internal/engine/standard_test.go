@@ -783,7 +783,9 @@ func TestPartStandardReadsScenesAndFormulasLikeTheReader(t *testing.T) {
 	}{
 		{"a price is not math", "Cuesta $5 y $6 en la tienda.", 0, nil, false},
 		{"inline math", "Con $x$ y $y$ se decide.", 0, []string{"x", "y"}, true},
-		{"display math", `$$P(A \cap B)$$`, 0, []string{`\cap`, "P", "A", "B"}, true},
+		// `\cap` is an operator, not a symbol: the legend asks for the sets, never for
+		// the command that intersects them.
+		{"display math", `$$P(A \cap B)$$`, 0, []string{"P", "A", "B"}, true},
 		{"the kit element is not plain", "<lk-math>Q(s,a)</lk-math>", 0, []string{"Q", "s", "a"}, false},
 		{"a fenced scene is code", "```html\n" + standardScene + "\n```", 0, nil, false},
 		{"a drawn scene", standardScene, 1, nil, false},
@@ -804,6 +806,28 @@ func TestPartStandardReadsScenesAndFormulasLikeTheReader(t *testing.T) {
 				t.Fatalf("formulaSymbols = %v, want %v", got, tc.symbols)
 			}
 		})
+	}
+}
+
+// La fórmula viva de una parte real, la misma que mide `explain-check.mjs`: los
+// comandos de LaTeX (\frac, \sqrt, \left, \right) no son símbolos, \pi y `e` son
+// constantes, y las griegas que sí lo son se leen en las dos formas. Antes de esto
+// la leyenda pedía nombrar los comandos y el tutor corregía una fórmula correcta.
+func TestFormulaSymbolsReadsTheLiveFormula(t *testing.T) {
+	const live = `f(x) = \frac{1}{\sigma\sqrt{2\pi}} e^{-\frac{1}{2}\left(\frac{x-\mu}{\sigma}\right)^2}`
+	got := formulaSymbols("<lk-math>" + live + "</lk-math>")
+	names := map[string]bool{}
+	for _, symbol := range got {
+		names[strings.TrimPrefix(symbol, `\`)] = true
+	}
+	want := []string{"f", "x", "sigma", "mu"}
+	if len(names) != len(want) {
+		t.Fatalf("formulaSymbols = %v, want %v", got, want)
+	}
+	for _, name := range want {
+		if !names[name] {
+			t.Fatalf("formulaSymbols = %v, want %v", got, want)
+		}
 	}
 }
 

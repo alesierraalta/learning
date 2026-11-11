@@ -102,9 +102,33 @@ var (
 	// mathGreek reads a Greek letter as the symbol it is: a formula drawn with
 	// the scene's atoms writes `σ` and `μ`, never `\sigma` and `\mu`.
 	mathGreek = regexp.MustCompile(`\p{Greek}`)
+	// mathEuler drops Euler's number: `e^{…}` is a constant, not a symbol the part
+	// defines. A bare `e` elsewhere stays a symbol.
+	mathEuler = regexp.MustCompile(`(^|[^A-Za-z])e\s*\^`)
 
 	closingSummary = regexp.MustCompile(`(?im)^#{1,6}\s*(Resumen para guardar|Apuntes comprimidos|En resumen)`)
 )
+
+// mathGreekMacros are the LaTeX macros that name a Greek letter: the variables of
+// a formula, which a part writes either as a macro (`\sigma`) or literally (`σ`).
+// Every other macro is a command, and a command is never a symbol.
+var mathGreekMacros = map[string]bool{
+	"alpha": true, "beta": true, "gamma": true, "delta": true, "epsilon": true,
+	"varepsilon": true, "zeta": true, "eta": true, "theta": true, "vartheta": true,
+	"iota": true, "kappa": true, "lambda": true, "mu": true, "nu": true, "xi": true,
+	"omicron": true, "pi": true, "varpi": true, "rho": true, "varrho": true,
+	"sigma": true, "varsigma": true, "tau": true, "upsilon": true, "phi": true,
+	"varphi": true, "chi": true, "psi": true, "omega": true, "digamma": true,
+	"Gamma": true, "Delta": true, "Theta": true, "Lambda": true, "Xi": true,
+	"Pi": true, "Sigma": true, "Upsilon": true, "Phi": true, "Psi": true, "Omega": true,
+}
+
+// mathConstants are the Greek macros that name a constant instead of a variable:
+// π is the same number in every formula, so the legend never asks who it is.
+var mathConstants = map[string]bool{"pi": true, "Pi": true, "varpi": true}
+
+// mathConstantLetters is the same rule for a formula that writes the letter itself.
+var mathConstantLetters = map[string]bool{"π": true, "Π": true, "ϖ": true}
 
 // asciiBoxChars are the characters a drawn diagram leaves behind: the standard
 // draws with an <lk-scene> or a mermaid block, never with characters.
@@ -269,11 +293,17 @@ func formulaBodies(text string) (bodies []string, plain bool) {
 	return bodies, plain
 }
 
-// formulaSymbols returns the symbols a part's formulas use: every LaTeX macro
-// (`\gamma`), every single-letter name that is not part of a macro or a group,
-// and every Greek letter, whichever way the part writes it. The formulas are the
-// `<lk-math>` blocks, the plain LaTeX a part writes instead, and the formulas a
-// scene draws symbol by symbol. It mirrors `explain-check.mjs` rule 7b.
+// formulaSymbols returns the symbols a part's formulas use: every Greek-letter
+// macro (`\gamma`), every single-letter name that is not part of a macro or a
+// group, and every Greek letter, whichever way the part writes it. The formulas
+// are the `<lk-math>` blocks, the plain LaTeX a part writes instead, and the
+// formulas a scene draws symbol by symbol. It mirrors `explain-check.mjs` rule 7b.
+//
+// A macro that is not a Greek letter is a command: it lays the formula out
+// (`\frac`, `\left`, `\right`), operates (`\cdot`, `\sum`, `\int`) or names a
+// function (`\exp`, `\log`, `\mathrm`, `\text`), and a command is never a symbol
+// the legend defines. `\pi`, `\Pi` and `\varpi` are constants, and so is `e` as
+// Euler's number (`e^{…}`): a constant is not a symbol either.
 func formulaSymbols(text string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -287,17 +317,23 @@ func formulaSymbols(text string) []string {
 	bodies = append(bodies, sceneFormulaBodies(text)...)
 	for _, body := range bodies {
 		for _, macro := range mathMacro.FindAllString(body, -1) {
-			add(macro)
+			name := strings.TrimPrefix(macro, `\`)
+			if mathGreekMacros[name] && !mathConstants[name] {
+				add(macro)
+			}
 		}
 		clean := mathMacro.ReplaceAllString(body, " ")
 		clean = mathGroup.ReplaceAllString(clean, " ")
+		clean = mathEuler.ReplaceAllString(clean, " ")
 		for _, word := range mathWord.FindAllString(clean, -1) {
 			if len(word) == 1 {
 				add(word)
 			}
 		}
 		for _, letter := range mathGreek.FindAllString(clean, -1) {
-			add(letter)
+			if !mathConstantLetters[letter] {
+				add(letter)
+			}
 		}
 	}
 	return out
