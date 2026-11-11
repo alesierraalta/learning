@@ -177,25 +177,29 @@ type Turn = {
 /** The learner reads this when the studio refuses a second turn: one turn at a time, studio-wide. */
 const TURN_ACTIVE = "El tutor está trabajando; espera a que termine.";
 
-/** A note the studio can open: a part of a topic, or a quick note. */
-export type Note = { topic: string; index: number } | { quick: string };
+/** A note the studio can open: a part, diagnosis, or quick note. */
+export type Note = { topic: string; index: number } | { topic: string; diagnosis: true } | { quick: string };
 
 /**
  * `explicaciones/Parte N - <slug>.md` (or its rich `.html` page) inside a topic folder, or
- * `rapidos/<id>.md`: the studio can open that note, so a write that produced it comes back with
- * what the reader routes on. With the Learnings `root`, only the notes the reader serves count:
- * `<root>/rapidos/<id>.md` and `<root>/<topic>/explicaciones/Parte N - <slug>.(md|html)`.
+ * `<topic>/quiz.md`, or `rapidos/<id>.md`: the studio can open that note. With the Learnings
+ * `root`, only paths at the reader's exact depth count: `<root>/<topic>/quiz.md`,
+ * `<root>/rapidos/<id>.md`, and `<root>/<topic>/explicaciones/Parte N - <slug>.(md|html)`.
  */
 export function noteFromPath(path: unknown, root?: string): Note | null {
   if (typeof path !== "string") return null;
   const inRoot = root === undefined ? path : relative(root, resolve(root, path));
   if (root !== undefined && (inRoot.startsWith("..") || isAbsolute(inRoot))) return null;
   const segments = inRoot.split(/[\\/]+/).filter((segment) => segment !== "" && segment !== ".");
-  if (root !== undefined && segments.length !== (segments[0] === "rapidos" ? 2 : 3)) return null;
+  if (root !== undefined && segments.length !== (segments[0] === "rapidos" || segments.at(-1) === "quiz.md" ? 2 : 3)) return null;
   if (segments.at(-2) === "rapidos") {
     const quick = /^([\w-]+)\.md$/.exec(segments.at(-1) ?? "");
     return quick === null ? null : { quick: quick[1] };
   }
+  // `<topic>/quiz.md` is the diagnosis the first deep turn writes. A `quiz.md` nested in a
+  // topic's own folders is not it: the diagnosis sits at the topic's root, beside its plan.
+  const parent = segments.at(-2);
+  if (segments.at(-1) === "quiz.md" && parent !== undefined && parent !== "explicaciones") return { topic: parent, diagnosis: true };
   const folder = segments.lastIndexOf("explicaciones");
   const topic = folder < 1 ? undefined : segments[folder - 1];
   if (topic === undefined) return null;
