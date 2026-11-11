@@ -100,8 +100,10 @@
     return `<path d="M ${x1} ${y1} C ${f(x1 + dx)} ${y1}, ${f(x2 - dx)} ${y2}, ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerIds[color] || "a-slate"})"` : ""}/>`;
   };
 
-  const path = (d, { color = C.slate, dashedLine = false, arrow = true, width = 4 } = {}) =>
-    `<path d="${d}" fill="none" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerIds[color] || "a-slate"})"` : ""}/>`;
+  // Un trazo puede cerrar una región: `fill` pinta el interior (la banda ±σ bajo la
+  // curva) y el contorno sigue siendo el mismo camino. Sin `fill`, no pinta nada.
+  const path = (d, { color = C.slate, dashedLine = false, arrow = true, width = 4, fill = "none" } = {}) =>
+    `<path d="${d}" fill="${fill}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerIds[color] || "a-slate"})"` : ""}/>`;
 
   const line = (x1, y1, x2, y2, { color = C.slate, arrow = true, width = 4, dashedLine = false } = {}) =>
     `<path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerIds[color] || "a-slate"})"` : ""}/>`;

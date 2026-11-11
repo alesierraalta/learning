@@ -58,6 +58,9 @@ var (
 	// sceneBlock is a closed scene: the standard asks whether its payload draws,
 	// so it reads the whole block and not only its opening tag.
 	sceneBlock = regexp.MustCompile(`(?s)<lk-scene[\s>].*?</lk-scene>`)
+	// walkthroughBlock is a closed walkthrough: its steps carry the scenes, and a
+	// scene's formula is a formula the reader has to be able to read.
+	walkthroughBlock = regexp.MustCompile(`(?s)<lk-walkthrough[\s>].*?</lk-walkthrough>`)
 
 	// proseVisualBlocks are the closed visual blocks the rhythm rule removes:
 	// a scene, a walkthrough or a quiz is looked at, not read. The tool names
@@ -96,6 +99,9 @@ var (
 	mathMacro               = regexp.MustCompile(`\\[A-Za-z]+`)
 	mathGroup               = regexp.MustCompile(`\{[^}]*\}`)
 	mathWord                = regexp.MustCompile(`[A-Za-z]+`)
+	// mathGreek reads a Greek letter as the symbol it is: a formula drawn with
+	// the scene's atoms writes `σ` and `μ`, never `\sigma` and `\mu`.
+	mathGreek = regexp.MustCompile(`\p{Greek}`)
 
 	closingSummary = regexp.MustCompile(`(?im)^#{1,6}\s*(Resumen para guardar|Apuntes comprimidos|En resumen)`)
 )
@@ -264,8 +270,10 @@ func formulaBodies(text string) (bodies []string, plain bool) {
 }
 
 // formulaSymbols returns the symbols a part's formulas use: every LaTeX macro
-// (`\gamma`) and every single-letter name that is not part of a macro or a
-// group. It mirrors `explain-check.mjs` rule 7b.
+// (`\gamma`), every single-letter name that is not part of a macro or a group,
+// and every Greek letter, whichever way the part writes it. The formulas are the
+// `<lk-math>` blocks, the plain LaTeX a part writes instead, and the formulas a
+// scene draws symbol by symbol. It mirrors `explain-check.mjs` rule 7b.
 func formulaSymbols(text string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -276,6 +284,7 @@ func formulaSymbols(text string) []string {
 		}
 	}
 	bodies, _ := formulaBodies(text)
+	bodies = append(bodies, sceneFormulaBodies(text)...)
 	for _, body := range bodies {
 		for _, macro := range mathMacro.FindAllString(body, -1) {
 			add(macro)
@@ -287,8 +296,86 @@ func formulaSymbols(text string) []string {
 				add(word)
 			}
 		}
+		for _, letter := range mathGreek.FindAllString(clean, -1) {
+			add(letter)
+		}
 	}
 	return out
+}
+
+// sceneFormulaDoc is the part of a scene payload the legend reads: the formulas
+// a scene draws, one atom per symbol. A walkthrough carries one scene per step,
+// so the steps are read like the scene of a still figure.
+type sceneFormulaDoc struct {
+	Scene *sceneFormulaNode  `json:"scene"`
+	Steps []sceneFormulaStep `json:"steps"`
+}
+
+type sceneFormulaStep struct {
+	Scene *sceneFormulaNode `json:"scene"`
+}
+
+type sceneFormulaNode struct {
+	Formulas []sceneFormulaAtoms `json:"formulas"`
+	Formula  *sceneFormulaAtoms  `json:"formula"`
+}
+
+type sceneFormulaAtoms struct {
+	Atoms []struct {
+		T string `json:"t"`
+	} `json:"atoms"`
+}
+
+// collect appends every formula the node draws, in the order it draws them.
+func (n *sceneFormulaNode) collect(bodies *[]string) {
+	if n == nil {
+		return
+	}
+	for _, f := range append([]sceneFormulaAtoms{}, n.Formulas...) {
+		*bodies = append(*bodies, f.body())
+	}
+	if n.Formula != nil {
+		*bodies = append(*bodies, n.Formula.body())
+	}
+}
+
+// body is the formula as the reader sees it: the atoms, joined.
+func (f sceneFormulaAtoms) body() string {
+	var b strings.Builder
+	for _, atom := range f.Atoms {
+		b.WriteString(atom.T)
+	}
+	return b.String()
+}
+
+// sceneFormulaBodies returns the formulas a part draws inside its scenes. An
+// annotated formula is drawn symbol by symbol, one atom per symbol, so the atoms
+// are the formula and the scene's callouts are its legend. A formula drawn in a
+// scene is a formula the reader has to read, exactly like an `<lk-math>` block.
+func sceneFormulaBodies(text string) []string {
+	var bodies []string
+	for _, block := range sceneFormulaBlocks(text) {
+		payload, ok := jsonPayload(block)
+		if !ok {
+			continue
+		}
+		var doc sceneFormulaDoc
+		if json.Unmarshal([]byte(payload), &doc) != nil {
+			continue
+		}
+		doc.Scene.collect(&bodies)
+		for _, step := range doc.Steps {
+			step.Scene.collect(&bodies)
+		}
+	}
+	return bodies
+}
+
+// sceneFormulaBlocks returns the closed scene and walkthrough blocks outside
+// fenced code: a scene inside a fence is an example of markup, not a drawing.
+func sceneFormulaBlocks(text string) []string {
+	plain := withoutCodeFences(text)
+	return append(sceneBlock.FindAllString(plain, -1), walkthroughBlock.FindAllString(plain, -1)...)
 }
 
 // sceneBlocks returns the closed `<lk-scene>` blocks outside fenced code, in the
@@ -312,12 +399,15 @@ func drawnScenes(text string) int {
 
 // symbolNamed reports whether the text names a formula symbol, either quoted
 // (`x`, «x», "x") or followed by =, →, ->, : or "es". A symbol the part never
-// names is a formula the learner cannot read.
+// names is a formula the learner cannot read. The boundary is a Unicode one: `\b`
+// is ASCII, so `\bγ` never matched and a Greek symbol could not be named in the
+// callout form the annotated formula uses («① γ: …»). The letter is the same one:
+// `Q` and `q` are different symbols, so a `q` elsewhere in the part names nothing.
 func symbolNamed(text, symbol string) bool {
 	name := strings.TrimPrefix(symbol, `\`)
 	quoted := "(`|«|\")\\s*\\\\?" + regexp.QuoteMeta(name) + "\\s*(`|»|\")"
-	defined := `\b` + regexp.QuoteMeta(name) + `\s*(=|→|->|:|es\b)`
-	pattern, err := regexp.Compile("(?i)" + quoted + "|" + defined)
+	defined := `(^|[^\p{L}\p{N}_])` + regexp.QuoteMeta(name) + `\s*(=|→|->|:|es\b)`
+	pattern, err := regexp.Compile(quoted + "|" + defined)
 	if err != nil {
 		return true
 	}
@@ -419,17 +509,18 @@ func sceneFindings(text string, th rules.PartStandardThresholds) []string {
 }
 
 // legendFindings measures the formula legend: every symbol a formula uses has to
-// be named. When the part writes plain LaTeX math, the fix also names the kit's
-// formula element, so the tutor replaces the plain form instead of inventing a
-// second way to draw it.
+// be named, and the fix is the annotated formula scene — the formula drawn symbol
+// by symbol with one numbered callout per symbol, each named in its labels line.
+// `<lk-math>` draws a clean equation with no arrows, so it is the fix for a
+// calculation, never for explaining a formula (#200).
 func legendFindings(text string, th rules.PartStandardThresholds) []string {
 	unnamed := unnamedSymbols(text)
 	if len(unnamed) == 0 {
 		return nil
 	}
-	fix := fmt.Sprintf("add one legend line per symbol right after the formula («`%s` es …»)", unnamed[0])
+	fix := fmt.Sprintf("draw the formula as an annotated formula scene: one numbered callout per symbol, each named in its labels line («① %s: …»)", unnamed[0])
 	if _, plain := formulaBodies(text); plain && th.FormulaElement != "" {
-		fix += fmt.Sprintf("; write the formula with <%s> so the kit draws it", th.FormulaElement)
+		fix += fmt.Sprintf("; <%s> is for a calculation, never for explaining a formula", th.FormulaElement)
 	}
 	return []string{fmt.Sprintf("formula symbol(s) %s never named — %s", strings.Join(unnamed, ", "), fix)}
 }
@@ -475,26 +566,36 @@ func evalPartStandard(c *evalCtx, decl rules.CheckDecl) Check {
 	return passCheck(decl.ID, fmt.Sprintf("%s meets the explanation standard: %s", rel, shape))
 }
 
-// scenePayload parses an <lk-scene> block: it reports whether the payload draws
-// something and whether it carries its own caption. The reader draws the caption
-// under the scene (`kit.js`), so a captioned scene is its own reading guide.
-func scenePayload(block string) (draws, captioned bool) {
+// jsonPayload returns the JSON a kit block carries inside its
+// `<script type="application/json">`, and whether it found one.
+func jsonPayload(block string) (string, bool) {
 	lower := asciiLower(block)
 	start := strings.Index(lower, "<script")
 	if start < 0 {
-		return false, false
+		return "", false
 	}
 	open := strings.IndexByte(lower[start:], '>')
 	if open < 0 || !strings.Contains(lower[start:start+open+1], "application/json") {
-		return false, false
+		return "", false
 	}
 	from := start + open + 1
 	end := strings.Index(lower[from:], "</script")
 	if end < 0 {
+		return "", false
+	}
+	return block[from : from+end], true
+}
+
+// scenePayload parses an <lk-scene> block: it reports whether the payload draws
+// something and whether it carries its own caption. The reader draws the caption
+// under the scene (`kit.js`), so a captioned scene is its own reading guide.
+func scenePayload(block string) (draws, captioned bool) {
+	payload, ok := jsonPayload(block)
+	if !ok {
 		return false, false
 	}
 	var spec map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(block[from:from+end]), &spec); err != nil {
+	if err := json.Unmarshal([]byte(payload), &spec); err != nil {
 		return false, false
 	}
 	var caption string
@@ -522,7 +623,7 @@ func scenePayload(block string) (draws, captioned bool) {
 func walkSceneDraws(scene map[string]json.RawMessage) bool {
 	for _, key := range []string{"sheets", "grids", "gears", "boxes", "nodes", "icons",
 		"callouts", "formulas", "formula", "bars", "stats", "policy", "arrows", "badges",
-		"dashed", "labels"} {
+		"dashed", "curves", "paths", "labels"} {
 		raw, found := scene[key]
 		if !found {
 			continue

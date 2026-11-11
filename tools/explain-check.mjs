@@ -113,8 +113,33 @@ add('tamaño', prosa <= maxWords, `${prosa} palabra(s) de prosa (tope ${maxWords
 
 // 7b. La leyenda: una fórmula que no nombra sus símbolos no se entiende. Cada símbolo
 // que aparece en una fórmula (latino de una letra o griega) se nombra en las líneas
-// siguientes, en la forma `x` es ... o «x → ...».
+// siguientes, en la forma `x` es ... o «x → ...». La fórmula también puede venir
+// dibujada en una escena, símbolo por símbolo: los callouts de la escena son su
+// leyenda, y el arreglo de una fórmula sin leyenda es esa escena, nunca <lk-math>.
 const formulas = [...src.matchAll(/<lk-math[^>]*>([\s\S]*?)<\/lk-math>/g)].map((m) => m[1]);
+// Una fórmula dibujada en una escena: los átomos de `scene.formulas` (y de
+// `scene.formula`), un átomo por símbolo, en una escena quieta o en un paso del
+// recorrido. El motor los lee igual (`sceneFormulaBodies`).
+const dibujadas = [];
+const atomos = (node, out) => {
+  if (!node) return;
+  for (const f of Array.isArray(node) ? node : [node]) {
+    out.push((f?.atoms || []).map((a) => (typeof a === 'string' ? a : a?.t || '')).join(''));
+  }
+};
+for (const block of src.matchAll(/<lk-(scene|walkthrough)[^>]*>([\s\S]*?)<\/lk-\1>/g)) {
+  const payload = block[2].match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+  if (!payload) continue;
+  let spec;
+  try { spec = JSON.parse(payload[1]); } catch { continue; }
+  const walk = (scene) => {
+    if (!scene) return;
+    atomos(scene.formulas, dibujadas);
+    atomos(scene.formula, dibujadas);
+  };
+  walk(spec.scene);
+  for (const step of spec.steps || []) walk(step.scene);
+}
 // La fórmula también puede venir en LaTeX plano, `$$…$$` o `$…$`: se lee igual, y
 // cuando aparece así el arreglo es el elemento del kit, `<lk-math>`. Un `$…$` con
 // espacios y sin operadores es prosa con precios, no una fórmula.
@@ -124,20 +149,28 @@ const planas = [...src.matchAll(/\$\$([\s\S]+?)\$\$/g)].map((m) => m[1]).concat(
     .filter((t) => /[\\^_=]/.test(t) || !/\s/.test(t)),
 );
 const simbolos = new Set();
-for (const f of formulas.concat(planas)) {
+for (const f of formulas.concat(dibujadas).concat(planas)) {
   // Las macros primero: \\gamma es un símbolo, no una palabra que se descarta.
   for (const m of f.match(/\\[A-Za-z]+/g) || []) simbolos.add(m);
   const limpio = f.replace(/\\[A-Za-z]+/g, ' ').replace(/\{[^}]*\}/g, ' ');
   for (const w of limpio.match(/[A-Za-z]+/g) || []) if (w.length === 1) simbolos.add(w);
+  // Una griega es un símbolo como cualquier otro, y la escena la escribe literal.
+  for (const g of limpio.match(/\p{Script=Greek}/gu) || []) simbolos.add(g);
 }
 const sinNombrar = [...simbolos].filter((s) => {
   // Un símbolo está nombrado si aparece entre comillas o seguido de = → : o "es".
-  const nombre = s.replace(/^\\/, '');
-  const patron = new RegExp('(\\x60|«|")\\s*\\\\?' + nombre + '\\s*(\\x60|»|")|\\b' + nombre + '\\s*(=|→|->|:|es\\b)', 'i');
+  // El borde es Unicode: `\\b` es ASCII, así que «① γ: …» no nombraba a γ. Y la
+  // letra es la misma: `Q` y `q` son símbolos distintos.
+  const nombre = s.replace(/^\\/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patron = new RegExp('(\\x60|«|")\\s*\\\\?' + nombre + '\\s*(\\x60|»|")|(^|[^\\p{L}\\p{N}_])' + nombre + '\\s*(=|→|->|:|es\\b)', 'u');
   return !patron.test(src);
 });
-const sinFormula = formulas.length === 0 && planas.length === 0;
-add('leyenda', sinNombrar.length === 0, sinFormula ? 'sin fórmulas' : sinNombrar.length ? `símbolo(s) sin nombrar: ${sinNombrar.join(', ')}${planas.length ? ' · escribe la fórmula con <lk-math> para que el kit la dibuje' : ''}` : '');
+const sinFormula = formulas.length === 0 && dibujadas.length === 0 && planas.length === 0;
+// El arreglo es la escena anotada: un callout por símbolo. <lk-math> dibuja una
+// ecuación limpia y sin flechas, así que queda para una cuenta.
+const arreglo = `dibuja la fórmula como escena anotada: un callout numerado por símbolo, con su nombre en su línea de labels («① ${sinNombrar[0]}: …»)`;
+const cuenta = planas.length ? '; <lk-math> es para una cuenta, nunca para explicar una fórmula' : '';
+add('leyenda', sinNombrar.length === 0, sinFormula ? 'sin fórmulas' : sinNombrar.length ? `símbolo(s) sin nombrar: ${sinNombrar.join(', ')} · ${arreglo}${cuenta}` : '');
 
 // 8. Las figuras conviven: se delega en scene-lint, que abre un navegador.
 let figuras = { ok: true, detail: 'sin figuras' };

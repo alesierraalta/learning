@@ -82,6 +82,10 @@ use light DOM: normal page CSS and accessible native controls still work.
 <lk-ask></lk-ask>
 ```
 
+`lk-math` renders a clean equation and nothing else: it is for a **calculation**. A formula the
+part explains is drawn as an **annotated formula scene**, one callout per symbol — see
+[Annotated formulas](#annotated-formulas) below.
+
 Diagram positions use an 80-pixel grid; boxes are 190 × 70 pixels. Leave at least
 three grid units between centers. `kind` is `box`, `agent`, `env`, `store`, or
 `decision`. Dimensions are SVG viewBox pixels; diagrams scale to the column.
@@ -159,13 +163,25 @@ stays in `tools/visuals/draw.js` so there is only one renderer.
 one**: the figure carries the visual explanation and the prose keeps the detail, so a section
 without a figure is a gap. Each `scene` is the complete state that step shows, drawn with the
 tutorial's primitives (`grids`, `sheets`, `boxes`, `arrows`, `labels`, `badges`, `dashed`,
-`gears`, `nodes`); the component reveals one scene per step, so earlier steps never leak into
-later ones, and «Ver todo» shows the last scene. Reach it with «Siguiente», «Anterior», the dots
+`gears`, `nodes`, `icons`, `formulas`, `callouts`, `bars`, `stats`, `curves`, `paths`); the
+component reveals one scene per step, so earlier steps never leak into later ones, and «Ver
+todo» shows the last scene. Reach it with «Siguiente», «Anterior», the dots
 or the arrow keys, and press «Pantalla completa» when you need the letters big.
 
 Draw the example itself, not a description of it: a robot on a floor is tiles and the robot's
 tile, a network is nodes, and every step points at what changed with a labelled arrow. A table
 whose icons change while captions below tell the story is not a scene, and the engine rejects it.
+A distribution or a function is its curve, with the axis and the marked region; an object that
+acts or changes is an `icons` entry; a box with a word inside is neither. `scene.paths` draws a
+trail from its `d` and `scene.curves` a bent one from its two endpoints, both with the same
+`tone`, `dashed` and `width` as every other piece; `arrow: false` keeps the head off a curve
+that is a curve and not an arrow. A closed `d` plus `fill` paints a region: the ±σ band is the
+curve from μ−σ to μ+σ, closed down to the axis (`L 212 250 L 148 250 Z`), so the shading stands
+on the axis it belongs to instead of floating over the curve. Curves and paths are drawn before
+the arrows, so a filled region never hides the arrow that points at it, and an arrow's tip has
+to land on the piece it names: `scene-lint` measures the tip against the ink of every path and
+reports `flecha-al-aire` when it is more than 12 units away. The worked bell — curve, μ, ±σ band
+and the tails — is `integrations/pi/kit/examples/curva-gaussiana.md`.
 When the data is the example, a `grids` entry paints a real table with its values, so a figure can
 show the row that violates the rule instead of describing it, with an arrow pointing into that row.
 The engine requires at least one such deck of 3 to 6 steps in every part (see
@@ -178,6 +194,28 @@ The engine requires at least one such deck of 3 to 6 steps in every part (see
              "width": 620, "rowH": 52, "rowTone": {"1": "red"}, "cellTone": {"1,2": "red"}}],
   "boxes": [{"x": 740, "y": 300, "w": 420, "h": 62, "label": "dominio de salary", "sub": "NUMBER(7,2) > 0", "tone": "amber"}]}}
 ```
+
+### Annotated formulas
+
+A formula the part explains is drawn symbol by symbol, with one numbered callout per symbol and
+one `labels` line per number saying what it is. `<lk-math>` renders a clean equation with no
+arrows, so it is for a calculation, never for explaining a formula.
+
+```json
+{"viewBox":"0 0 760 410","title":"La densidad gaussiana, símbolo por símbolo",
+ "caption":"Cada número señala un símbolo de la fórmula y dice qué es.","scene":{
+  "formulas":[{"x":380,"y":130,"size":28,"atoms":[{"t":"f"},{"t":"("},{"t":"x"},{"t":")"},{"t":" = "},{"t":"1/(σ√(2π))"},{"t":" · "},{"t":"exp(−(x−μ)²/(2σ²))"}]}],
+  "callouts":[{"n":1,"x":173,"y":30,"to":[173,112],"tone":"blue"},
+              {"n":2,"x":192,"y":76,"to":[192,112],"tone":"amber"}],
+  "labels":[{"x":380,"y":220,"text":"① f: la densidad, la altura de la curva"},
+            {"x":380,"y":252,"text":"② x: el valor que miras, la latencia"}]}}
+```
+
+One atom per symbol (`{"t":"σ"}`, not the whole formula in one atom) is what gives each symbol
+its own position: the callout's `to` is that measured position, and a callout that points at the
+air explains nothing. The engine reads the atoms as the formula and the `labels` lines as the
+legend, so a symbol no line names is refused. Worked example, measured and gated:
+`integrations/pi/kit/examples/formula-anotada.md`.
 
 `rowTone`, `colTone` and `cellTone` take `{índice: tono}` with `blue`, `green`, `amber` or `red`;
 `rowH` and `size` keep long values readable. Keep every step on the same coordinates so the figure

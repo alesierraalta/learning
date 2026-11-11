@@ -14,12 +14,21 @@ dirección, una proporción, una posición, un antes y un después, una cantidad
 
 **Una escena, una idea, seis elementos como máximo.** Si hacen falta diez, son dos escenas.
 
+**La escena dibuja la cosa misma.** Una distribución o una función se dibuja como su curva,
+con sus ejes y la región que importa marcada; un objeto que actúa o cambia se dibuja con
+`scene.icons`. Una caja con una palabra dentro no es ninguna de las dos cosas: dice el nombre
+de lo que debería estar dibujado. «Evolución de la curva gaussiana de latencia» con una caja y
+una flecha por paso no muestra ninguna curva — no hay campana, no hay eje, no hay banda ±σ, y
+quien lee no puede ver lo único que la parte venía a explicar.
+
 ## 2. Qué componente
 
 | Lo que quieres mostrar | Componente |
 |---|---|
 | Una figura que se mira (actores, flujo, contraste, tabla de decisión) | `<lk-scene>` |
 | Lo mismo, pero el lector tiene que recorrerlo paso a paso | `<lk-walkthrough>` |
+| Una fórmula que se explica, símbolo por símbolo | escena de **fórmula anotada** (§8) |
+| Una distribución o una función | su **curva**, con ejes y la región marcada (§9) |
 | Una cuenta | `<lk-math>` (KaTeX), nunca un bloque de código |
 | Datos que se comparan celda a celda | tabla Markdown |
 | Un matiz, una advertencia, un límite | `<lk-callout>` |
@@ -77,7 +86,8 @@ empieza el «se ve mal».
 ```
 
 Piezas disponibles en `scene.boxes`, `scene.arrows`, `scene.labels`, `scene.badges`,
-`scene.dashed`, `scene.grids`, `scene.nodes`, `scene.sheets`, `scene.gears`, `scene.icons`.
+`scene.dashed`, `scene.grids`, `scene.nodes`, `scene.sheets`, `scene.gears`, `scene.icons`,
+`scene.formulas`, `scene.callouts`, `scene.bars`, `scene.stats`.
 
 - `tone`: `ink`, `slate`, `blue`, `green`, `amber`, `red`.
 - `labelAt`: dónde caen las palabras sobre la flecha (0 a 1). Dos flechas paralelas se
@@ -188,3 +198,105 @@ y se rompe en móvil y en el panel lateral. Así se declara de verdad:
 Y los tres pasos del ciclo van en `lk-walkthrough`, un paso por escena, cada uno mostrando el
 estado que ese paso describe. La tabla de transiciones, si el tema la pide, es una tabla
 Markdown de tres columnas: estado actual, evento, estado nuevo.
+
+## 8. Fórmula anotada
+
+**Toda fórmula que la parte explica se dibuja como fórmula anotada**: dentro de `<lk-scene>` o
+de un paso del `lk-walkthrough`, la fórmula se escribe símbolo por símbolo y **cada símbolo
+lleva un callout numerado con su flecha y su nombre corto**. La fórmula se lee en la figura, no
+en un párrafo aparte.
+
+`<lk-math>` es solo para una **cuenta**: cuando la parte opera con la fórmula y el lector tiene
+que seguir los números. Una ecuación limpia sin flechas no explica qué es cada símbolo; es
+exactamente lo que el alumno rechazó.
+
+La forma, pieza por pieza:
+
+| Pieza | Qué lleva |
+|---|---|
+| `scene.formulas` | **un átomo por símbolo** (`{"t":"σ"}`), no la fórmula entera en un átomo: así cada símbolo tiene su posición |
+| `scene.callouts` | un badge numerado por símbolo, con `to` en la posición **medida** del símbolo |
+| `scene.labels` | una línea por número: `① μ: el centro, dónde está el pico` |
+
+Reglas de la escena:
+
+- El `to` de cada callout se mide, no se adivina: se renderiza la escena y se leen las cajas de
+  los átomos (`tspan[data-atom]`). Un callout que apunta al aire no explica nada.
+- **Dos callouts no se tocan**: el círculo de un número (radio 24) no puede cruzar el círculo de
+  otro número ni la guía de otro. Si dos símbolos quedan a menos de 60 unidades, uno va **arriba**
+  y el otro **abajo** de la fórmula (`y` 30 y `y` 170), nunca los dos en la misma fila a 20
+  unidades de distancia. `scene-lint` lo mide y lo llama `callout-encimado`.
+- Los callouts de símbolos van **arriba** de la fórmula, en dos filas (`y` 30 y 76) cuando dos
+  símbolos quedan a menos de 60 unidades; los de los dos factores del producto van **abajo**
+  (`y` 170), para que las flechas de arriba y las de abajo no se crucen.
+- `size` 28–34 para la fórmula en una columna de 760; `labels` a 24 unidades, 32 de separación.
+- Una fórmula con más de seis símbolos no se anota entera: se anotan los que la parte explica y
+  el resto se nombra en la prosa.
+
+La leyenda es lo que el motor mide: los átomos de `scene.formulas` son la fórmula y las líneas
+de `labels` son la leyenda. Un símbolo que ningún callout nombra se rechaza
+(`formula symbol(s) … never named — draw the formula as an annotated formula scene: one
+numbered callout per symbol, each named in its labels line`).
+
+Ejemplo completo y aprobado: `integrations/pi/kit/examples/formula-anotada.md` (pasa
+`scene-gate` y `scene-lint`). La densidad gaussiana, con los cinco símbolos y los dos factores
+del producto anotados:
+
+```html
+<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 410","title":"La densidad gaussiana, símbolo por símbolo","caption":"Cada número señala un símbolo de la fórmula y dice qué es.","scene":{
+  "formulas":[{"x":380,"y":130,"size":28,"atoms":[{"t":"f"},{"t":"("},{"t":"x"},{"t":")"},{"t":" = "},{"t":"1"},{"t":"/"},{"t":"("},{"t":"σ"},{"t":"√"},{"t":"("},{"t":"2"},{"t":"π"},{"t":")"},{"t":")"},{"t":" · "},{"t":"exp"},{"t":"("},{"t":"−"},{"t":"("},{"t":"x"},{"t":"−"},{"t":"μ"},{"t":")"},{"t":"²"},{"t":"/"},{"t":"("},{"t":"2"},{"t":"σ"},{"t":"²"},{"t":")"},{"t":")"}]}],
+  "callouts":[{"n":1,"x":173,"y":30,"to":[173,112],"tone":"blue"},{"n":2,"x":192,"y":170,"to":[192,142],"tone":"amber"},{"n":3,"x":493,"y":30,"to":[493,112],"tone":"green"},{"n":4,"x":278,"y":76,"to":[278,112],"tone":"slate"},{"n":5,"x":299,"y":170,"to":[299,142],"tone":"red"},{"n":6,"x":520,"y":170,"to":[493,142],"tone":"blue"}],
+  "labels":[
+    {"x":380,"y":220,"text":"① f: la densidad, la altura de la curva"},
+    {"x":380,"y":252,"text":"② x: el valor que miras, la latencia"},
+    {"x":380,"y":284,"text":"③ μ: el centro, dónde está el pico"},
+    {"x":380,"y":316,"text":"④ σ: el ancho, cuánto se abre la campana"},
+    {"x":380,"y":348,"text":"⑤ 1/(σ√(2π)): el factor que normaliza; π: 3,1416"},
+    {"x":380,"y":380,"text":"⑥ exp(…): el exponente, la distancia al centro"}
+  ]}}
+</script>
+</lk-scene>
+```
+
+Los números de este ejemplo salen de medir la escena renderizada: `f` cae en 173, `x` en 192,
+`σ` en 278, `μ` en 493. Si cambia el texto de la fórmula, se vuelven a medir; copiar los
+números de otro ejemplo deja los callouts apuntando al aire.
+
+La misma fórmula, cuando la parte la opera, va con `<lk-math>` y su cuenta renglón a renglón. No
+se escribe dos veces la misma fórmula: se anota una vez y, si hay cuenta, se escribe la cuenta.
+
+## 9. La curva, no la caja
+
+Una distribución, una función, una serie temporal o una relación entre dos variables **se
+dibujan como lo que son**: la curva, con su eje, su escala y la región marcada. Una caja que
+dice «curva gaussiana» no es una curva.
+
+| Lo que la parte explica | Cómo se dibuja |
+|---|---|
+| Una distribución (latencia, errores, pesos) | la campana, el eje x, la media marcada, la banda ±σ sombreada y las colas |
+| Una función que crece o decrece | la curva con sus dos ejes y el punto que la parte discute |
+| Un objeto que actúa o cambia de estado | `scene.icons` (robot, casa, documento, persona, moneda, engranaje) |
+| Un valor que se compara con otro | `scene.bars`, con su etiqueta y su cifra |
+| Una cuenta | `<lk-math>`, con sus renglones alineados |
+
+Un recorrido de una distribución enseña **la misma curva cambiando**: primero la campana sola
+con su eje, después la media marcada donde cae el pico, después la banda ±σ sombreada, después
+las colas y lo que queda fuera de dos sigmas. Cada paso mueve una cosa de la curva y una flecha
+con etiqueta dice cuál. Si el paso cambia el texto de una caja en vez de la curva, no es un paso
+de este recorrido.
+
+Dos reglas que la figura tiene que cumplir, y que `scene-lint` mide:
+
+- **La banda se apoya en el eje.** La región ±σ es un `paths` cerrado: sigue la curva de μ−σ a
+  μ+σ y baja por los dos lados hasta el eje (`L μ+σ eje L μ−σ eje Z`), con relleno claro y sin
+  borde punteado. Un rectángulo punteado flotando sobre la curva no es la banda: no dice qué
+  área mide el 68 %. Los dos bordes se marcan en el eje (`μ−σ`, `μ+σ`).
+- **La punta cae sobre la pieza.** Una flecha que dice «aquí» termina sobre el trazo que nombra,
+  no en el aire al lado. `scene-lint` mide la distancia de la punta a la tinta de cada trazo y
+  llama `flecha-al-aire` a más de 12 unidades: una flecha que apunta «a la curva» sin tocarla
+  deja al lector buscando qué señalaba.
+
+Una caja con una palabra dentro nunca sustituye a la curva ni al icono: si lo que cambia es la
+forma de la distribución, lo que cambia en la figura es la forma de la curva.
