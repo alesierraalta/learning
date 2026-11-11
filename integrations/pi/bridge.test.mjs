@@ -1404,8 +1404,9 @@ test("an already answered mini-quiz is refused with 409 and leaves the file and 
 });
 
 // N3: a submission the turn lock refuses must not have run or saved anything.
-test("a code submission refused by the turn lock runs nothing and leaves no file", async () => {
+test("a code submission refused by the turn lock runs nothing and leaves no file", async (t) => {
   // A real judge run, with an image that is on this machine (no digest pin needed for a test).
+  if (spawnSync("docker", ["image", "inspect", "python:3.12-slim"]).status !== 0) return t.skip("python:3.12-slim is not installed");
   const runnersFile = join(mkdtempSync(join(tmpdir(), "runners-")), "runners.json");
   writeFileSync(runnersFile, JSON.stringify({ python: { image: "python:3.12-slim", file: "main.py", run: "python3 main.py" } }));
   let checks = 0;
