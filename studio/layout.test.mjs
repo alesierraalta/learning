@@ -7,11 +7,18 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { startStudio } from "./server.ts";
+import { startStudio as startStudioChecked } from "./server.ts";
 import { defaultGlobalTelemetry, saveGlobalTelemetry } from "../integrations/pi/telemetry.ts";
 import { readPreferences } from "./preferences.ts";
 import { makeRoot } from "./testdata/root.mjs";
 import { stored } from "./testdata/stored.mjs";
+
+/**
+ * These tests read the page, not the tutor's instructions: the context check is
+ * off so the links a machine happens to have cannot decide a layout assertion.
+ * `studio/server.test.mjs` exercises the check itself.
+ */
+const startStudio = (options) => startStudioChecked({ skipContextCheck: true, ...options });
 
 const CANDIDATES = [
   process.env.PLAYWRIGHT_MODULE,

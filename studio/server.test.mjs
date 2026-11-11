@@ -3,13 +3,13 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { request, createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { entryUrl, noteFromMessages, noteFromPath, startStudio, topicFromPath } from "./server.ts";
+import { entryUrl, noteFromMessages, noteFromPath, startStudio as startStudioChecked, topicFromPath } from "./server.ts";
 import { makeRoot } from "./testdata/root.mjs";
 import { stored, writeDoc } from "./testdata/stored.mjs";
 
@@ -44,6 +44,12 @@ test('transcriber settings must be paired', async () => {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
+/**
+ * Every studio here starts with the tutor context check off: the links a machine
+ * happens to have outside the repo must not decide these tests. The drift tests
+ * call `startStudioChecked` with the check on.
+ */
+const startStudio = (options) => startStudioChecked({ skipContextCheck: true, ...options });
 const open = [];
 after(async () => {
   for (const studio of open) await studio.close();
@@ -1498,4 +1504,79 @@ test("the feedback summary groups every suggestion by topic, part and reason", a
   ]);
   assert.deepEqual(p2.entradas.map((e) => e.texto), ["otro ejemplo", "más diagramas"], "newest first");
   assert.deepEqual(Object.keys(p2.entradas[0]).sort(), ["id", "motivos", "origen", "texto", "timestamp"]);
+});
+
+/** A home whose tutor context is the repo's own, as `deploy/vps/link-tutor-context.sh` leaves it. */
+function linkedHome() {
+  const home = mkdtempSync(join(tmpdir(), "home-"));
+  const repo = join(HERE, "..");
+  for (const runtime of [".claude", ".agents"]) {
+    mkdirSync(join(home, runtime, "skills"), { recursive: true });
+    symlinkSync(join(repo, "skills", "explicacion-interactiva"), join(home, runtime, "skills", "explicacion-interactiva"), "dir");
+  }
+  return { home, repo };
+}
+
+/** The drift the live VPS had: the link the deploy owns points at another standard. */
+function drift(home, runtime) {
+  const decoy = join(home, "skills-registry", "explicacion-interactiva");
+  mkdirSync(decoy, { recursive: true });
+  const link = join(home, runtime, "skills", "explicacion-interactiva");
+  rmSync(link);
+  symlinkSync(decoy, link, "dir");
+  return link;
+}
+
+test("a drifted tutor context refuses the Pi turn and names the path to fix", async () => {
+  const { home, repo } = linkedHome();
+  const { studio, root, received } = await setup({ contextHome: home, skipContextCheck: false });
+  symlinkSync(join(repo, "deploy", "vps", "learnings", "AGENTS.md"), join(root, "AGENTS.md"));
+  const prompts = () => received().filter((command) => command.type === "prompt");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    const aligned = await post(studio, "prompt", { text: "Hola" });
+    assert.equal(aligned.status, 200, aligned.body);
+    assert.equal(prompts().length, 1, "the aligned turn reached Pi");
+
+    const link = drift(home, ".claude");
+    const refused = await post(studio, "prompt", { text: "Otra" });
+    assert.equal(refused.status, 409, refused.body);
+    const message = JSON.parse(refused.body).error;
+    assert.match(message, new RegExp(`${link.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    assert.match(message, /deploy\/vps\/update\.sh/);
+    assert.equal((await stream.next("error")).message, message, "the chat says the same thing");
+    assert.equal(prompts().length, 1, "the refused turn never reached Pi");
+  } finally { stream.close(); }
+});
+
+test("a drifted tutor context refuses the Antigravity turn and starts nothing", async () => {
+  const { home, repo } = linkedHome();
+  const { studio, root } = await setup({
+    agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")],
+    contextHome: home,
+    skipContextCheck: false,
+  });
+  symlinkSync(join(repo, "deploy", "vps", "learnings", "AGENTS.md"), join(root, "AGENTS.md"));
+  const argv = join(root, "agy-argv.log");
+  process.env.FAKE_AGY_ARGV = argv;
+  // One `-p` line per turn; the prompt itself carries newlines, so only its first line counts.
+  const turns = () => (existsSync(argv) ? readFileSync(argv, "utf8").split("\n").filter((line) => line.startsWith("-p ")) : []);
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Hola" })).status, 200);
+    await stream.next("assistant_end");
+    assert.equal(turns().length, 1, "the aligned turn reached Antigravity");
+
+    const link = drift(home, ".agents");
+    const refused = await post(studio, "prompt", { text: "Otra" });
+    assert.equal(refused.status, 409, refused.body);
+    assert.match(JSON.parse(refused.body).error, new RegExp(link.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match((await stream.next("error")).message, /deploy\/vps\/update\.sh/);
+    assert.equal(turns().length, 1, "the refused turn never started Antigravity");
+  } finally { stream.close(); }
 });

@@ -271,6 +271,22 @@ The quick-note list is ordered by use: the note edited or opened most recently
 comes first, so the list opens on the thing being written. Ties break by id, which
 keeps the order stable when two notes share a timestamp.
 
+## Tutor instructions
+
+Before a turn starts, the studio checks that the tutor would read this repo's
+instructions: `~/.claude/skills/explicacion-interactiva`,
+`~/.agents/skills/explicacion-interactiva` and `<LEARNING_ROOT>/AGENTS.md` must
+resolve (`realpath`) to `skills/explicacion-interactiva` and
+`deploy/vps/learnings/AGENTS.md` of the repo the studio runs from. When one
+resolves elsewhere the turn does not start: the chat shows an error naming the
+drifted path and the fix (`deploy/vps/update.sh`), and the request is refused with
+`409`. The check is three `realpath` calls, so it runs before every turn of both
+runtimes; only a test that does not exercise it starts the studio with
+`skipContextCheck`.
+
+The links themselves are made by the deploy, never by hand: see
+[deploy-vps](deploy-vps.md#tutor-instructions).
+
 ## Deleting a note
 
 Every note can be deleted from the studio: a quick note or a part from the

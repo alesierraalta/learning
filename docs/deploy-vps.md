@@ -102,9 +102,17 @@ journalctl --user -u learning-studio -f
 bash ~/learning/deploy/vps/health.sh
 ```
 
-Update fast-forwards Git, rebuilds and verifies the engine, restarts the service, and checks health. A failed build stops before restart. Health requires an active service and HTTP 302 at loopback and HTTP 302 at the ZeroTier HTTPS entry verified against the Infra Root CA. It does not verify Pi authentication or vault sync. The same script runs automatically after every merge to `main`; see [Continuous integration and delivery](#continuous-integration-and-delivery).
+Update fast-forwards Git, rebuilds and verifies the engine, links the tutor's instructions and verifies the links, restarts the service, and checks health. A failed build stops before restart. Health requires an active service and HTTP 302 at loopback and HTTP 302 at the ZeroTier HTTPS entry verified against the Infra Root CA. It does not verify Pi authentication or vault sync. The same script runs automatically after every merge to `main`; see [Continuous integration and delivery](#continuous-integration-and-delivery).
 
 `update.sh` refuses to run when `~/learning` is on a branch other than `main` or has uncommitted changes, so a hand edit on the server is never pulled over or discarded.
+
+### Tutor instructions
+
+The tutor reads its instructions from outside this repo: the skill `explicacion-interactiva` from `~/.claude/skills/` and `~/.agents/skills/`, and the Learnings `AGENTS.md` (`<LEARNING_ROOT>/AGENTS.md`) that frames a study session. `deploy/vps/update.sh` — and `install.sh` on a first install — links them with `deploy/vps/link-tutor-context.sh`, after the build and before the restart: every directory under `skills/` that has a `SKILL.md` is linked into both skills directories, and `deploy/vps/learnings/AGENTS.md` becomes the Learnings `AGENTS.md`. The Learnings root is the studio's own `LEARNING_ROOT` (from `~/.config/learning-studio.env`), `~/Learnings` by default. Both the deploy and the installer hand that file to the linker with `--env-file <path>`, which sources it in a subshell: a quoted value and an inline `# comment` behave the way the shell defines them, so `LEARNING_ROOT="/srv/learnings"` links `/srv/learnings` and not a directory whose name carries the quote. A missing file falls back to `~/Learnings`, and a `LEARNING_ROOT` that is not an absolute path fails the deploy with `LEARNING_ROOT must be an absolute path` instead of linking relative to whatever directory it ran from.
+
+A live copy that is not a link is moved to `~/.local/share/learning/backups/<stamp>/<path relative to $HOME>` first, never deleted, so an edit made by hand survives the deploy. The script then verifies that every link resolves to the repo path and fails the deploy with the path to fix when one does not; `bash deploy/vps/link-tutor-context.sh --verify` checks them without changing anything.
+
+The studio refuses a tutor turn while a link points elsewhere: it names the drifted path and the fix instead of teaching with a standard nobody reviewed. See [studio](studio.md#tutor-instructions).
 
 ## Continuous integration and delivery
 

@@ -60,7 +60,8 @@ frase y el mini-quiz.
 ## 2. Cómo se construye un concepto
 
 Estos movimientos aparecen una y otra vez en el ejemplo. No son un formulario: son el orden
-en que un lector entiende.
+en que un lector entiende. En una parte entran tres o cuatro, no los diez: se eligen los que
+sostienen esta idea y el resto espera a otra parte, porque el presupuesto de §0 manda.
 
 1. **Caja negra primero, definición después.** Se dibuja la situación con sus actores y sus
    flechas, y recién entonces se dice qué es cada cosa («Abramos esa caja»). Nunca al revés.
@@ -176,7 +177,7 @@ prosa donde iba una ficha, la corrección se hace aquí, no en la nota.
 
 ## 4. Aritmética
 
-Un cálculo no se enuncia: se ejecuta, renglón a renglón, y cada renglón es una línea propia.
+Un cálculo se muestra solo cuando **el cálculo es la idea**, y siempre dentro del presupuesto de la parte (§0). Cuando se muestra, no se enuncia: se ejecuta línea por línea, y cada línea es una línea propia. Si el cálculo es un detalle al servicio de otra idea, no entra: se enuncia el resultado y se gasta la prosa en lo que la persona tiene que entender.
 
 ```
 G = 1 + 0.9 + 0.9² + 0.9³ + ⋯
@@ -291,8 +292,8 @@ El quiz se responde en la página. Es parte de la explicación, no un examen fin
 
 1. ¿La parte abre con `## Ruta` y termina en contenido, sin resumen ni gancho?
 2. ¿Hay un solo ejemplo conductor, y muta al menos cinco veces?
-3. ¿Cada fórmula llegó después de un caso calculado a mano?
-4. ¿Hay al menos un contraste espacial y un bloque de errores típicos como desigualdad?
+3. ¿Cada fórmula llegó después del caso del ejemplo que la motiva, con sus símbolos nombrados?
+4. ¿La escena y el recorrido muestran el ejemplo mismo, con una flecha que dice dónde mirar?
 5. ¿Alguna idea importante vive solo dentro de un bloque de código o de un `plain text`?
    Si sí, es una escena que falta.
 6. ¿Se lee en voz alta sin trabarse? ¿Alguna frase tiene más de dos comas?
