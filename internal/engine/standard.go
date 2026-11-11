@@ -55,14 +55,47 @@ var (
 
 	sceneOpen       = regexp.MustCompile(`<lk-scene[\s>]`)
 	walkthroughOpen = regexp.MustCompile(`<lk-walkthrough[\s>]`)
+	// sceneBlock is a closed scene: the standard asks whether its payload draws,
+	// so it reads the whole block and not only its opening tag.
+	sceneBlock = regexp.MustCompile(`(?s)<lk-scene[\s>].*?</lk-scene>`)
+
+	// proseVisualBlocks are the closed visual blocks the rhythm rule removes:
+	// a scene, a walkthrough or a quiz is looked at, not read. The tool names
+	// them one by one because a regular expression cannot back-reference the
+	// tag it opened.
+	proseVisualBlocks = []*regexp.Regexp{
+		regexp.MustCompile(`(?s)<lk-scene[\s\S]*?</lk-scene>`),
+		regexp.MustCompile(`(?s)<lk-walkthrough[\s\S]*?</lk-walkthrough>`),
+		regexp.MustCompile(`(?s)<lk-quiz[\s\S]*?</lk-quiz>`),
+		regexp.MustCompile(`(?s)<lk-quick-quiz[\s\S]*?</lk-quick-quiz>`),
+	}
+	// proseNotProse matches a line that is not a paragraph: a heading, a table
+	// row or a tag line.
+	proseNotProse = regexp.MustCompile(`^\s*(#{1,6}\s|\||<)`)
+	// proseBullet matches a list item: each bullet is its own unit, so a list of
+	// short bullets is never a wall of prose.
+	proseBullet = regexp.MustCompile(`^\s*(?:[-*]\s+|\d+[.)]\s+)`)
+	// proseMarker strips the marker a paragraph line opens with.
+	proseMarker = regexp.MustCompile(`^\s*(>\s?|[-*]\s+|\d+[.)]\s+)`)
+	// sentenceEnd counts a sentence: a terminator followed by a space or the end
+	// of the paragraph.
+	sentenceEnd = regexp.MustCompile(`[.!?](\s|$)`)
 
 	// asciiArrow matches a line that draws an arrow with box characters.
 	asciiArrow = regexp.MustCompile(`─+[►▶▸]`)
 
 	mathBlock = regexp.MustCompile(`(?s)<lk-math[^>]*>(.*?)</lk-math>`)
-	mathMacro = regexp.MustCompile(`\\[A-Za-z]+`)
-	mathGroup = regexp.MustCompile(`\{[^}]*\}`)
-	mathWord  = regexp.MustCompile(`[A-Za-z]+`)
+	// mathDisplay and mathInline are the plain LaTeX a part writes when it skips
+	// the kit's formula element: `$$…$$` and `$…$`. The legend reads them too,
+	// because a formula is a formula wherever it is written.
+	mathDisplay = regexp.MustCompile(`(?s)\$\$(.+?)\$\$`)
+	mathInline  = regexp.MustCompile(`\$([^$\n]+?)\$`)
+	// mathInlineLooksLikeMath keeps prose prices out of the legend: an inline
+	// `$…$` counts as math when it carries a macro, an operator or no space.
+	mathInlineLooksLikeMath = regexp.MustCompile(`[\\^_=]`)
+	mathMacro               = regexp.MustCompile(`\\[A-Za-z]+`)
+	mathGroup               = regexp.MustCompile(`\{[^}]*\}`)
+	mathWord                = regexp.MustCompile(`[A-Za-z]+`)
 
 	closingSummary = regexp.MustCompile(`(?im)^#{1,6}\s*(Resumen para guardar|Apuntes comprimidos|En resumen)`)
 )
@@ -84,6 +117,75 @@ func proseWords(text string) int {
 	out = proseHeading.ReplaceAllString(out, " ")
 	out = proseTag.ReplaceAllString(out, " ")
 	return len(strings.Fields(out))
+}
+
+// proseParagraphs returns the paragraphs the rhythm rule reads, exactly as
+// `tools/explain-check.mjs` builds them: fenced code and the closed visual
+// blocks are not prose, a heading, a table row or a tag line is not a
+// paragraph, a bullet is its own unit (a list is one idea per line, never a
+// wall), and the lines of a paragraph are joined with a space.
+func proseParagraphs(text string) []string {
+	out := strings.ReplaceAll(text, "\r\n", "\n")
+	out = proseFence.ReplaceAllString(out, "\n\n")
+	for _, block := range proseVisualBlocks {
+		out = block.ReplaceAllString(out, "\n\n")
+	}
+	var blocks [][]string
+	var current []string
+	for _, line := range strings.Split(out, "\n") {
+		if proseNotProse.MatchString(line) {
+			continue
+		}
+		bullet := proseBullet.MatchString(line)
+		if bullet || strings.TrimSpace(line) == "" {
+			if len(current) > 0 {
+				blocks = append(blocks, current)
+			}
+			current = nil
+			if bullet {
+				current = []string{line}
+			}
+			continue
+		}
+		current = append(current, line)
+	}
+	if len(current) > 0 {
+		blocks = append(blocks, current)
+	}
+	paragraphs := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		lines := make([]string, 0, len(block))
+		for _, line := range block {
+			lines = append(lines, proseMarker.ReplaceAllString(line, ""))
+		}
+		if p := strings.TrimSpace(strings.Join(lines, " ")); p != "" {
+			paragraphs = append(paragraphs, p)
+		}
+	}
+	return paragraphs
+}
+
+// wallParagraphs returns the paragraphs that carry more sentences than the
+// standard allows. The sentence is the tool's: a terminator followed by a
+// space or the end of the paragraph.
+func wallParagraphs(text string, max int) []string {
+	var walls []string
+	for _, p := range proseParagraphs(text) {
+		if len(sentenceEnd.FindAllStringIndex(p, -1)) > max {
+			walls = append(walls, p)
+		}
+	}
+	return walls
+}
+
+// openingWords returns the first n words of a paragraph, so a refusal quotes
+// the wall the tutor has to find and split.
+func openingWords(p string, n int) string {
+	fields := strings.Fields(p)
+	if len(fields) > n {
+		fields = fields[:n]
+	}
+	return strings.Join(fields, " ")
 }
 
 // contentSections lists the part's level-2 headings except the route and the
@@ -136,6 +238,31 @@ func drawnLines(text string) int {
 	return n
 }
 
+// formulaBodies returns the formulas a part writes, in order, and whether any of
+// them is plain LaTeX (`$$…$$` or `$…$`) instead of the kit's `<lk-math>`
+// element. A formula is a formula wherever it is written, so the legend reads
+// both; the plain form is what the refusal tells the tutor to replace.
+func formulaBodies(text string) (bodies []string, plain bool) {
+	for _, block := range mathBlock.FindAllStringSubmatch(text, -1) {
+		bodies = append(bodies, block[1])
+	}
+	for _, block := range mathDisplay.FindAllStringSubmatch(text, -1) {
+		bodies = append(bodies, block[1])
+		plain = true
+	}
+	// The display math is removed first: `$$x$$` also matches the inline form.
+	rest := mathDisplay.ReplaceAllString(text, " ")
+	for _, block := range mathInline.FindAllStringSubmatch(rest, -1) {
+		body := block[1]
+		if !mathInlineLooksLikeMath.MatchString(body) && strings.ContainsAny(body, " \t") {
+			continue
+		}
+		bodies = append(bodies, body)
+		plain = true
+	}
+	return bodies, plain
+}
+
 // formulaSymbols returns the symbols a part's formulas use: every LaTeX macro
 // (`\gamma`) and every single-letter name that is not part of a macro or a
 // group. It mirrors `explain-check.mjs` rule 7b.
@@ -148,8 +275,8 @@ func formulaSymbols(text string) []string {
 			out = append(out, s)
 		}
 	}
-	for _, block := range mathBlock.FindAllStringSubmatch(text, -1) {
-		body := block[1]
+	bodies, _ := formulaBodies(text)
+	for _, body := range bodies {
 		for _, macro := range mathMacro.FindAllString(body, -1) {
 			add(macro)
 		}
@@ -162,6 +289,25 @@ func formulaSymbols(text string) []string {
 		}
 	}
 	return out
+}
+
+// sceneBlocks returns the closed `<lk-scene>` blocks outside fenced code, in the
+// order they appear.
+func sceneBlocks(text string) []string {
+	return sceneBlock.FindAllString(withoutCodeFences(text), -1)
+}
+
+// drawnScenes counts the `<lk-scene>` blocks whose payload draws something. A
+// scene that renders an empty stage is not a drawn example, and a walkthrough
+// is a different element: it does not substitute for the scene.
+func drawnScenes(text string) int {
+	n := 0
+	for _, block := range sceneBlocks(text) {
+		if draws, _ := scenePayload(block); draws {
+			n++
+		}
+	}
+	return n
 }
 
 // symbolNamed reports whether the text names a formula symbol, either quoted
@@ -219,16 +365,20 @@ func standardFindings(text string, th rules.PartStandardThresholds) []string {
 			lines, th.MinRutaLines, th.MaxRutaLines))
 	}
 
-	body := withoutCodeFences(text)
-	if scenes := len(sceneOpen.FindAllStringIndex(body, -1)); scenes > th.MaxScenes {
-		findings = append(findings, fmt.Sprintf(
-			"%d <lk-scene> scenes (limit %d) — keep one scene and move the other to its own part",
-			scenes, th.MaxScenes))
-	}
-	if decks := len(walkthroughOpen.FindAllStringIndex(body, -1)); decks > th.MaxWalkthroughs {
+	findings = append(findings, sceneFindings(text, th)...)
+
+	if decks := len(walkthroughOpen.FindAllStringIndex(withoutCodeFences(text), -1)); decks > th.MaxWalkthroughs {
 		findings = append(findings, fmt.Sprintf(
 			"%d <lk-walkthrough> decks (limit %d) — one walkthrough per part; a second change is a step of the same deck or belongs to another part",
 			decks, th.MaxWalkthroughs))
+	}
+
+	if th.MaxSentencesPerParagraph > 0 {
+		if walls := wallParagraphs(text, th.MaxSentencesPerParagraph); len(walls) > 0 {
+			findings = append(findings, fmt.Sprintf(
+				"%d paragraph(s) with more than %d sentences — the first opens «%s»; split it: one idea per sentence and one beat per paragraph",
+				len(walls), th.MaxSentencesPerParagraph, openingWords(walls[0], 8)))
+		}
 	}
 
 	if drawn := drawnLines(text); drawn > 0 {
@@ -237,11 +387,7 @@ func standardFindings(text string, th rules.PartStandardThresholds) []string {
 			drawn))
 	}
 
-	if unnamed := unnamedSymbols(text); len(unnamed) > 0 {
-		findings = append(findings, fmt.Sprintf(
-			"formula symbol(s) %s never named — add one legend line per symbol right after the formula («`%s` es …»)",
-			strings.Join(unnamed, ", "), unnamed[0]))
-	}
+	findings = append(findings, legendFindings(text, th)...)
 
 	if m := closingSummary.FindStringSubmatch(text); m != nil {
 		findings = append(findings, fmt.Sprintf(
@@ -250,6 +396,42 @@ func standardFindings(text string, th rules.PartStandardThresholds) []string {
 	}
 
 	return findings
+}
+
+// sceneFindings measures the part's scenes: at most `maxScenes`, and, when the
+// standard declares it, at least `minScenes` that actually draw. The walkthrough
+// is a different element and never substitutes for the drawn example.
+func sceneFindings(text string, th rules.PartStandardThresholds) []string {
+	var findings []string
+	if scenes := len(sceneOpen.FindAllStringIndex(withoutCodeFences(text), -1)); scenes > th.MaxScenes {
+		findings = append(findings, fmt.Sprintf(
+			"%d <lk-scene> scenes (limit %d) — keep one scene and move the other to its own part",
+			scenes, th.MaxScenes))
+	}
+	if th.MinScenes > 0 {
+		if drawn := drawnScenes(text); drawn < th.MinScenes {
+			findings = append(findings, fmt.Sprintf(
+				"%d drawn <lk-scene> scene(s) (the part needs %d) — dibuja el ejemplo con <lk-scene>: a JSON payload with boxes, arrows, nodes, bars or formulas the reader draws; a <lk-walkthrough> does not substitute for it, and the scene vocabulary is in skills/explicacion-interactiva/references/visuales.md",
+				drawn, th.MinScenes))
+		}
+	}
+	return findings
+}
+
+// legendFindings measures the formula legend: every symbol a formula uses has to
+// be named. When the part writes plain LaTeX math, the fix also names the kit's
+// formula element, so the tutor replaces the plain form instead of inventing a
+// second way to draw it.
+func legendFindings(text string, th rules.PartStandardThresholds) []string {
+	unnamed := unnamedSymbols(text)
+	if len(unnamed) == 0 {
+		return nil
+	}
+	fix := fmt.Sprintf("add one legend line per symbol right after the formula («`%s` es …»)", unnamed[0])
+	if _, plain := formulaBodies(text); plain && th.FormulaElement != "" {
+		fix += fmt.Sprintf("; write the formula with <%s> so the kit draws it", th.FormulaElement)
+	}
+	return []string{fmt.Sprintf("formula symbol(s) %s never named — %s", strings.Join(unnamed, ", "), fix)}
 }
 
 // evalPartStandard refuses a part that misses the measured explanation standard.
@@ -280,11 +462,17 @@ func evalPartStandard(c *evalCtx, decl rules.CheckDecl) Check {
 	if found {
 		route = itoa(lines) + " route line(s)"
 	}
-	return passCheck(decl.ID, fmt.Sprintf(
-		"%s meets the explanation standard: %d prose words (limit %d), %d content section(s) (limit %d), %s, %d scene(s) (limit %d), %d walkthrough(s) (limit %d)",
-		rel, proseWords(text), th.MaxProseWords, len(contentSections(text)), th.MaxContentSections,
+	shape := fmt.Sprintf("%d prose words (limit %d), %d content section(s) (limit %d), %s, %d scene(s) (limit %d), %d walkthrough(s) (limit %d)",
+		proseWords(text), th.MaxProseWords, len(contentSections(text)), th.MaxContentSections,
 		route, len(sceneOpen.FindAllStringIndex(withoutCodeFences(text), -1)), th.MaxScenes,
-		len(walkthroughOpen.FindAllStringIndex(withoutCodeFences(text), -1)), th.MaxWalkthroughs))
+		len(walkthroughOpen.FindAllStringIndex(withoutCodeFences(text), -1)), th.MaxWalkthroughs)
+	if th.MinScenes > 0 {
+		shape += fmt.Sprintf(", %d drawn scene(s) (at least %d)", drawnScenes(text), th.MinScenes)
+	}
+	if th.MaxSentencesPerParagraph > 0 {
+		shape += fmt.Sprintf(", %d paragraph(s) over %d sentences", len(wallParagraphs(text, th.MaxSentencesPerParagraph)), th.MaxSentencesPerParagraph)
+	}
+	return passCheck(decl.ID, fmt.Sprintf("%s meets the explanation standard: %s", rel, shape))
 }
 
 // scenePayload parses an <lk-scene> block: it reports whether the payload draws

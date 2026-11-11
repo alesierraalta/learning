@@ -12,6 +12,14 @@ const TOOLS = dirname(fileURLToPath(import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'explain-check-'));
 const run = (file) => spawnSync(process.execPath, [join(TOOLS, 'explain-check.mjs'), file], { encoding: 'utf8' });
 
+// La escena se dibuja: el ejemplo se mira, y el recorrido no la sustituye.
+const ESCENA = `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","caption":"El estado entra y la acción sale.","scene":{"boxes":[{"x":88,"y":48,"w":212,"h":100,"label":"el estado","tone":"blue","size":22}]}}
+</script>
+</lk-scene>
+`;
+
 const CUMPLE = `# Parte 1
 
 ## Ruta
@@ -24,6 +32,7 @@ const CUMPLE = `# Parte 1
 
 El estado es lo que hace falta saber para decidir.
 
+${ESCENA}
 ## 2. La acción
 
 La acción es lo que el agente puede hacer.
@@ -130,4 +139,37 @@ test('una fórmula con símbolos sin nombrar falla la leyenda', () => {
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALLA leyenda/);
   assert.match(r.stdout, /gamma/);
+});
+
+// El rechazo del ritmo cita el primer muro: sin sus primeras palabras el tutor no
+// sabe cuál de los párrafos partir.
+test('el rechazo de párrafos cita el primer muro', () => {
+  const f = join(dir, 'muro-citado.md');
+  writeFileSync(f, CUMPLE.replace('El estado es lo que hace falta saber para decidir.', 'Una. Dos. Tres.'));
+  const r = run(f);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA parrafos/);
+  assert.match(r.stdout, /el primero abre «Una\. Dos\. Tres\.»/);
+});
+
+// La fórmula en LaTeX plano se lee igual, y el arreglo es el elemento del kit.
+const PLANA = CUMPLE.replace('El estado es lo que hace falta saber para decidir.',
+  'El valor se escribe así:\n\n$$Q(s,a) = c/(1-\\gamma)$$');
+
+test('una fórmula en LaTeX plano sin leyenda falla y nombra <lk-math>', () => {
+  const f = join(dir, 'formula-plana.md');
+  writeFileSync(f, PLANA);
+  const r = run(f);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA leyenda/);
+  assert.match(r.stdout, /gamma/);
+  assert.match(r.stdout, /<lk-math>/);
+});
+
+test('una fórmula plana con su leyenda pasa', () => {
+  const f = join(dir, 'formula-plana-leyenda.md');
+  writeFileSync(f, PLANA + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
+  const r = run(f);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+leyenda/);
 });

@@ -24,10 +24,39 @@ Presupuesto, medido, no estimado:
 | Recorridos (`lk-walkthrough`) | 1 |
 | Preguntas del mini-quiz | 3 |
 
+La forma también se mide, y caber no es cumplir: una parte de 411 palabras con dos secciones
+puede seguir sin la escena, con muros de prosa y con fórmulas que nadie puede leer. El motor
+rechaza eso también, con el arreglo escrito en el mensaje.
+
+| Qué | Regla |
+|---|---|
+| Escena dibujada | Al menos un `<lk-scene` cuyo payload dibuje algo (cajas, flechas, nodos, barras). El `<lk-walkthrough>` **no** la sustituye |
+| Ritmo de los párrafos | Dos frases por párrafo como máximo; una viñeta es su propia unidad |
+| Fórmula | Se escribe con `<lk-math>` y nombra cada símbolo debajo; el LaTeX plano `$$…$$`/`$…$` se lee igual, pero el arreglo que nombra el motor es el elemento del kit |
+
+Los mensajes, literales, para reconocerlos y corregir sin adivinar:
+
+```text
+0 drawn <lk-scene> scene(s) (the part needs 1) — dibuja el ejemplo con <lk-scene>: a JSON
+payload with boxes, arrows, nodes, bars or formulas the reader draws; a <lk-walkthrough> does
+not substitute for it, and the scene vocabulary is in
+skills/explicacion-interactiva/references/visuales.md
+6 paragraph(s) with more than 2 sentences — the first opens «…»; split it: one idea per
+sentence and one beat per paragraph
+formula symbol(s) gamma, Q never named — add one legend line per symbol right after the
+formula («`Q` es …»); write the formula with <lk-math> so the kit draws it
+```
+
+Se corrige la parte, no el mensaje: la escena se dibuja con el vocabulario de `visuales.md`
+(nunca se declara una escena vacía para pasar el gate), el párrafo se parte en frases de una
+idea, y la fórmula pasa al elemento del kit con su leyenda debajo. La cuenta de párrafos es la
+misma que la de `node tools/explain-check.mjs` (`parrafos`), y un test cruza las dos.
+
 Se cuenta antes de entregar:
 
 ```bash
 sed '/^```/,/^```/d; /<lk-scene>/,/<\/lk-scene>/d; /<lk-walkthrough>/,/<\/lk-walkthrough>/d' "Parte N.md" | wc -w
+node tools/explain-check.mjs "Parte N.md"   # el estándar entero: tamaño, forma, leyenda
 ```
 
 Esa cuenta es la estimación rápida en el baúl. La medida exacta es la del motor

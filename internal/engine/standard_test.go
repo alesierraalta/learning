@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,7 +24,19 @@ import (
 // visual planned so the visual minimum is measured too.
 func standardFrontier(t *testing.T) *fixture {
 	t.Helper()
-	f := conceptFixture(t)
+	return standardFrontierOn(t, productionRulesPath)
+}
+
+// standardFrontierOn is standardFrontier with the run enrolled on the given
+// rules file. The rules snapshot is taken at init, so the path has to be set
+// before the run starts: a snapshot written earlier keeps its own standard.
+func standardFrontierOn(t *testing.T, rulesPath string) *fixture {
+	t.Helper()
+	f := newFixture(t)
+	f.rules = rulesPath
+	f.initOK(t)
+	f.writePlan(t, defaultParts()...)
+	f.advanceOK(t, "preparation")
 	qs := []diagQuestionWire{conceptQ("a1", 1, "T.p1", "B", "T.p1", "P0.1")}
 	r := reasonsFor("a1")
 	f.writeGuided(t, qs, map[string]string{"a1": "E"}, r, true)
@@ -65,10 +78,23 @@ func standardNote(body string) string {
 func (f *fixture) writeStandardPart(t *testing.T, body string) string {
 	t.Helper()
 	note := standardNote(body)
+	f.writePartNote(t, note)
+	return note
+}
+
+// writePartNote writes the given note as the part under test and links it in
+// the index.
+func (f *fixture) writePartNote(t *testing.T, note string) {
+	t.Helper()
 	rel := f.canonicalPartFile(t, "p1")
 	f.write(t, rel, note)
 	f.linkPartInIndex(t, rel)
-	return note
+}
+
+// standardNoteWithoutScene is the standard-shaped part with its scene removed:
+// the walkthrough stays, because a walkthrough is not a drawn example.
+func standardNoteWithoutScene(body string) string {
+	return strings.Replace(standardNote(body), standardScene, "", 1)
 }
 
 // standardCheck runs the explanation stage and returns the standard check.
@@ -327,4 +353,320 @@ func TestVisualCounterCountsScenes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// livePartOne is the shape of the first Part 1 written under the standard
+// (topic `probabilidad-representacion-y-sistemas-complejos`, 2026-11-11): 411
+// prose words, two content sections, a three-line route, one walkthrough, three
+// quiz questions, plain `$$` equations and no drawn scene. It passed the size
+// rules, so the learner got a part with no drawing, walls of prose and formulas
+// they could not read. The size rules must keep passing it; the shape rules
+// must refuse it.
+const livePartOne = `---
+tipo: explicacion
+nodo: T.p1
+nivel: medio
+---
+# Parte 1
+
+## Ruta
+
+Vamos a construirlo en este orden:
+
+1. Qué hace complejo a un sistema.
+2. Cómo se representa con probabilidad.
+3. Por qué la representación decide lo que puedes calcular.
+
+## 1. Muchas piezas que se miran entre sí
+
+Un sistema complejo tiene muchas piezas y cada una depende de las demás, de modo que ninguna se entiende por separado. No puedes estudiar una sola pieza y suponer que el resto del sistema se queda quieto mientras la miras con calma. Lo que importa son las relaciones entre las piezas, no las piezas sueltas ni el catálogo de sus nombres.
+
+Cuando dos variables se mueven juntas, la probabilidad conjunta no es el producto de las marginales. Escribimos la conjunta como $$P(A \cap B)$$ y la condicional como $$P(A \mid B)$$, que se lee como la probabilidad de A dado que ya sabes B. Si las dos variables no son independientes, la condicional no coincide con la marginal y el producto te da un número que no significa nada.
+
+La representación importa porque el número de estados crece muy rápido con cada variable que añades. Con diez variables binarias tienes mil combinaciones posibles, y todavía las puedes enumerar en una hoja. Con veinte tienes un millón, y ninguna tabla cabe en la cabeza ni en la memoria de una máquina.
+
+## 2. La cuenta que se vuelve intratable
+
+Un grafo dirigido acíclico te dice qué depende de qué, flecha por flecha y sin ambigüedad. Cada flecha es una condicional y el grafo entero factoriza la conjunta en factores pequeños. Esa factorización es lo que hace tratable el cálculo, y es la razón de dibujar el grafo antes de contar nada.
+
+Cuando el grafo tiene ciclos, la factorización se rompe y el orden de las flechas deja de ser un orden. La conjunta deja de escribirse como producto de condicionales locales, porque cada variable vuelve a depender de las anteriores. Ahí aparece la aproximación, y con ella el error que nadie mide cuando el resultado parece razonable.
+
+Una tabla de probabilidades conjuntas guarda un número por cada combinación de valores de todas las variables. Si tienes veinte variables binarias, esa tabla tiene un millón de filas y cada fila pide una cuenta. Nadie la escribe a mano, y casi nadie la puede leer sin perderse en la tercera columna.
+
+` + fixtureWalkthrough + `
+
+**Fuente**: Pearl, representación de la independencia condicional.
+
+## Mini-quiz
+
+1. ¿Qué cambia cuando dos variables dejan de ser independientes?
+2. ¿Qué pieza del grafo convierte la conjunta en un producto?
+3. ¿Qué se pierde cuando el grafo tiene ciclos?
+`
+
+// A part without a drawn scene is refused: the learner asked for the example
+// drawn, and a walkthrough is not a substitute for the scene.
+func TestPartStandardRefusesAPartWithoutADrawnScene(t *testing.T) {
+	cases := []struct {
+		name string
+		note string
+	}{
+		{"no scene at all", standardNoteWithoutScene("Hay decisiones donde acertar ahora no sirve.")},
+		{"a scene that draws nothing", strings.Replace(standardNote("Hay decisiones donde acertar ahora no sirve."),
+			standardScene, "<lk-scene>\n<script type=\"application/json\">\n{\"viewBox\":\"0 0 760 200\",\"scene\":{}}\n</script>\n</lk-scene>", 1)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := standardFrontier(t)
+			f.writePartNote(t, tc.note)
+			rep, code, c := standardCheck(t, f)
+			assertBlocked(t, rep, code)
+			if c.Status != "FAIL" {
+				t.Fatalf("explanation-standard = %s (%s), want FAIL", c.Status, c.Reason)
+			}
+			t.Logf("scene refusal: %s", c.Reason)
+			for _, fragment := range []string{
+				"0 drawn <lk-scene> scene(s)",
+				"dibuja el ejemplo con <lk-scene>",
+				"<lk-walkthrough> does not substitute",
+				"references/visuales.md",
+			} {
+				if !strings.Contains(c.Reason, fragment) {
+					t.Fatalf("reason %q misses %q", c.Reason, fragment)
+				}
+			}
+		})
+	}
+}
+
+// The live Part 1 passed every size rule and still skipped the shape the learner
+// asked for. The refusal names the three shape rules and none of the size ones.
+func TestPartStandardRefusesTheLivePartOneShape(t *testing.T) {
+	f := standardFrontier(t)
+	f.writePartNote(t, livePartOne)
+	// The fixture is the live part's size: the size rules must pass it, or the
+	// test would prove the wrong rule.
+	if words := proseWords(livePartOne); words > 450 {
+		t.Fatalf("fixture counts %d prose words, over the 450 budget: it no longer reproduces the live part", words)
+	} else {
+		t.Logf("live Part 1 fixture: %d prose words", words)
+	}
+	if sections := contentSections(livePartOne); len(sections) != 2 {
+		t.Fatalf("fixture has %d content sections (%v), want the live part's 2", len(sections), sections)
+	}
+	if found, lines := routeLines(livePartOne); !found || lines != 3 {
+		t.Fatalf("fixture route = %v/%d lines, want 3", found, lines)
+	}
+	rep, code, c := standardCheck(t, f)
+	assertBlocked(t, rep, code)
+	if c.Status != "FAIL" {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL", c.Status, c.Reason)
+	}
+	t.Logf("live Part 1 refusal: %s", c.Reason)
+	for _, fragment := range []string{
+		"0 drawn <lk-scene> scene(s)",
+		"dibuja el ejemplo con <lk-scene>",
+		"6 paragraph(s) with more than 2 sentences",
+		"the first opens «Un sistema complejo tiene muchas piezas",
+		"formula symbol(s)",
+		"never named",
+		"<lk-math>",
+	} {
+		if !strings.Contains(c.Reason, fragment) {
+			t.Fatalf("reason %q misses %q", c.Reason, fragment)
+		}
+	}
+	for _, fragment := range []string{"prose words (limit", "content sections (limit", "numbered line(s)"} {
+		if strings.Contains(c.Reason, fragment) {
+			t.Fatalf("reason %q fails a size rule the live part passed (%q)", c.Reason, fragment)
+		}
+	}
+}
+
+// A paragraph of three sentences is a wall: the standard asks for short
+// phrases, and the refusal quotes the paragraph so the tutor can find it.
+func TestPartStandardRefusesAParagraphOfThreeSentences(t *testing.T) {
+	f := standardFrontier(t)
+	f.writeStandardPart(t, "Una. Dos. Tres.")
+	rep, code, c := standardCheck(t, f)
+	assertBlocked(t, rep, code)
+	if c.Status != "FAIL" {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL", c.Status, c.Reason)
+	}
+	t.Logf("paragraph refusal: %s", c.Reason)
+	for _, fragment := range []string{
+		"1 paragraph(s) with more than 2 sentences",
+		"«Una. Dos. Tres.»",
+		"one idea per sentence",
+	} {
+		if !strings.Contains(c.Reason, fragment) {
+			t.Fatalf("reason %q misses %q", c.Reason, fragment)
+		}
+	}
+}
+
+// Plain `$$…$$` math is read by the legend rule too, and the refusal names the
+// kit's formula element: the fix is the element, not a second rule.
+func TestPartStandardRefusesPlainMathWithoutLegend(t *testing.T) {
+	f := standardFrontier(t)
+	f.writeStandardPart(t, "El valor se escribe así:\n\n$$Q(s,a) = c/(1-\\gamma)$$\n")
+	rep, code, c := standardCheck(t, f)
+	assertBlocked(t, rep, code)
+	if c.Status != "FAIL" || !strings.Contains(c.Reason, "never named") {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL on the formula legend", c.Status, c.Reason)
+	}
+	t.Logf("plain math refusal: %s", c.Reason)
+	for _, fragment := range []string{"gamma", "<lk-math>", "so the kit draws it"} {
+		if !strings.Contains(c.Reason, fragment) {
+			t.Fatalf("reason %q misses %q", c.Reason, fragment)
+		}
+	}
+}
+
+// The same plain math with its legend passes: the rule is the legend, and the
+// formula element is the fix a refusal names.
+func TestPartStandardAcceptsPlainMathWithItsLegend(t *testing.T) {
+	f := standardFrontier(t)
+	f.writeStandardPart(t, "El valor se escribe así:\n\n$$Q(s,a) = c/(1-\\gamma)$$\n\n"+
+		"Donde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n")
+	rep, code, c := standardCheck(t, f)
+	if code != 0 || rep.Status != "accepted" {
+		t.Fatalf("advance explanation = %q (exit %d), want accepted: %+v", rep.Status, code, rep.Checks)
+	}
+	if c.Status != "PASS" {
+		t.Fatalf("explanation-standard = %s (%s), want PASS", c.Status, c.Reason)
+	}
+}
+
+// The engine's paragraph count is the tool's count: the tutor runs
+// `node tools/explain-check.mjs` and must get the same number of walls.
+func TestPartStandardCountsParagraphsLikeExplainCheck(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: the tool cannot be run here")
+	}
+	tool, err := filepath.Abs("../../tools/explain-check.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tool); err != nil {
+		t.Skipf("explain-check.mjs is not here: %v", err)
+	}
+	note := standardNote("Una. Dos. Tres.\n\nOtra frase corta.\n\n" +
+		"Cuatro frases aquí. Y la segunda. Y la tercera. Y la cuarta.\n\nCorta y clara.")
+	file := filepath.Join(t.TempDir(), "parte.md")
+	if err := os.WriteFile(file, []byte(note), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// explain-check exits 1 when a rule fails; the JSON is what matters here.
+	out, _ := exec.Command(node, tool, file, "--json").CombinedOutput()
+	var parsed struct {
+		Rows []struct {
+			Rule   string `json:"rule"`
+			OK     bool   `json:"ok"`
+			Detail string `json:"detail"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatalf("explain-check printed no JSON: %v\n%s", err, out)
+	}
+	var detail string
+	for _, row := range parsed.Rows {
+		if row.Rule == "parrafos" {
+			detail = row.Detail
+		}
+	}
+	m := regexp.MustCompile(`(\d+) párrafo`).FindStringSubmatch(detail)
+	if m == nil {
+		t.Fatalf("explain-check printed no paragraph count: %q", detail)
+	}
+	toolCount, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(wallParagraphs(note, 2)); got != toolCount {
+		t.Fatalf("wallParagraphs = %d, tools/explain-check.mjs = %d: the engine and the tutor's tool disagree", got, toolCount)
+	}
+	if toolCount != 2 {
+		t.Fatalf("the fixture has 2 walls, the tool counted %d", toolCount)
+	}
+}
+
+// The shape rules are additive keys of the same block: a snapshot that declared
+// the standard before they existed keeps accepting the parts it accepted.
+func TestPartStandardSnapshotWithoutTheShapeKeysKeepsAccepting(t *testing.T) {
+	f := standardFrontierOn(t, snapshotWithoutShapeKeys(t))
+	f.writeStandardPart(t, "Una. Dos. Tres. Cuatro.")
+	rep, code, c := standardCheck(t, f)
+	if code != 0 || rep.Status != "accepted" {
+		t.Fatalf("advance explanation under the earlier snapshot = %q (exit %d), want accepted: %+v", rep.Status, code, rep.Checks)
+	}
+	if c.Status != "PASS" {
+		t.Fatalf("explanation-standard = %s (%s), want PASS: the new keys are additive", c.Status, c.Reason)
+	}
+}
+
+// The shape rules read what the reader sees: a scene inside a code fence is
+// code, a price in prose is not a formula, and the plain LaTeX forms are read
+// like the element.
+func TestPartStandardReadsScenesAndFormulasLikeTheReader(t *testing.T) {
+	cases := []struct {
+		name    string
+		text    string
+		scenes  int
+		symbols []string
+		plain   bool
+	}{
+		{"a price is not math", "Cuesta $5 y $6 en la tienda.", 0, nil, false},
+		{"inline math", "Con $x$ y $y$ se decide.", 0, []string{"x", "y"}, true},
+		{"display math", `$$P(A \cap B)$$`, 0, []string{`\cap`, "P", "A", "B"}, true},
+		{"the kit element is not plain", "<lk-math>Q(s,a)</lk-math>", 0, []string{"Q", "s", "a"}, false},
+		{"a fenced scene is code", "```html\n" + standardScene + "\n```", 0, nil, false},
+		{"a drawn scene", standardScene, 1, nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := drawnScenes(tc.text); got != tc.scenes {
+				t.Fatalf("drawnScenes = %d, want %d", got, tc.scenes)
+			}
+			bodies, plain := formulaBodies(tc.text)
+			if plain != tc.plain {
+				t.Fatalf("plain math = %v, want %v (bodies %v)", plain, tc.plain, bodies)
+			}
+			if got := formulaSymbols(tc.text); strings.Join(got, ",") != strings.Join(tc.symbols, ",") {
+				t.Fatalf("formulaSymbols = %v, want %v", got, tc.symbols)
+			}
+		})
+	}
+}
+
+// snapshotWithoutShapeKeys writes the production rules without the scene,
+// paragraph and formula-element keys: what a run enrolled when the standard
+// arrived (#185) carries in its frozen .learning/rules.json.
+func snapshotWithoutShapeKeys(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(productionRulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	if !ok {
+		t.Fatal("the production rules declare no partStandard block")
+	}
+	for _, key := range []string{"minScenes", "maxSentencesPerParagraph", "formulaElement"} {
+		delete(block, key)
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "standard-without-shape.json")
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

@@ -226,7 +226,7 @@ is the source of truth for paths and checks; this table summarizes it.
 | preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned`; in `pareto` scope, a stated `pareto.criterio`, a nonempty `pareto.descartado`, one `pareto` line per part and at most `maxParts` parts. Optional per-part `demosPlanned` declares an interactive-demo promise |
 | diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | adaptive rounds (`thresholds.diagnostic.mode: adaptive`, see "Adaptive diagnosis") or, for runs whose rules snapshot has fixed counts, 6 prerequisite + 6 topic questions (2/2/2 by level); enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
 | planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part; in `pareto` scope the selection is re-checked because planning rewrites `plan.json` |
-| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, the measured explanation standard (`explanation-standard`, see [Explanation standard](#explanation-standard): `thresholds.partStandard` prose budget, content sections, route lines, one scene, one walkthrough, no drawn ASCII, formula legend, no closing summary), planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, an inline `thresholds.visualElements` element such as `<svg>`, or a scene element the kit draws — `<lk-figure>` and `<lk-scene>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step (scene-only markup does not render in the kit); always, whatever the run's frozen rules: at least one progressive walkthrough (see [Progressive walkthroughs](#progressive-walkthroughs)) |
+| explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, the measured explanation standard (`explanation-standard`, see [Explanation standard](#explanation-standard): `thresholds.partStandard` prose budget, content sections, route lines, one scene that draws, one walkthrough, paragraphs of at most two sentences, no drawn ASCII, formula legend over `<lk-math>` and plain `$$…$$`/`$…$` math with the formula element named in the fix, no closing summary), planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, an inline `thresholds.visualElements` element such as `<svg>`, or a scene element the kit draws — `<lk-figure>` and `<lk-scene>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step (scene-only markup does not render in the kit); always, whatever the run's frozen rules: at least one progressive walkthrough (see [Progressive walkthroughs](#progressive-walkthroughs)) |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
 | quiz | `mini-quiz/{part}.json`, `mini-quiz/{part}.answers.json` | part note has a mini-quiz section, 5 questions with enunciados present in it, complete answers, derived score ≥ 4/5 with no central miss |
 | feedback | `feedback/{part}.json` | matches the part, nonempty notes, `difficultyDetected=false` cannot contradict recorded wrong answers |
@@ -485,7 +485,8 @@ tutor correct the part before the learner reads it. The numbers live in
 
 ```json
 {"maxProseWords": 450, "maxContentSections": 2, "minRutaLines": 3,
- "maxRutaLines": 4, "maxScenes": 1, "maxWalkthroughs": 1}
+ "maxRutaLines": 4, "maxScenes": 1, "maxWalkthroughs": 1,
+ "minScenes": 1, "maxSentencesPerParagraph": 2, "formulaElement": "lk-math"}
 ```
 
 The block also turns on the standard's non-numeric rules, and the check is
@@ -507,11 +508,34 @@ checks). What it measures, and how:
 - **One scene, one walkthrough.** More than `maxScenes` `<lk-scene>` or more
   than `maxWalkthroughs` `<lk-walkthrough>` blocks outside fenced code fails:
   a second change is a step of the same deck or belongs to another part.
+- **A drawn scene.** `minScenes` `<lk-scene>` blocks have to draw: the payload
+  parses, carries a `scene` object and at least one entry the kit renders
+  (`boxes`, `arrows`, `nodes`, `bars`, …), the same presence test the visual
+  counter uses. An empty payload renders an empty stage and does not count, and
+  a `<lk-walkthrough>` is a different element: it never substitutes for the
+  drawn example. The refusal names the fix («dibuja el ejemplo con
+  `<lk-scene>`») and points at the scene vocabulary in
+  `skills/explicacion-interactiva/references/visuales.md`.
+- **Prose rhythm.** `maxSentencesPerParagraph` sentences per paragraph at most.
+  The paragraphs are `tools/explain-check.mjs`'s: fenced code and the closed
+  `<lk-scene>`, `<lk-walkthrough>`, `<lk-quiz>` and `<lk-quick-quiz>` blocks are
+  removed, headings, table rows and tag lines are not paragraphs, each bullet
+  is its own unit (a list of short bullets is never a wall), and a sentence is
+  a `.`, `!` or `?` followed by a space or the end of the paragraph. The
+  refusal reports the count and quotes the first offending paragraph, so the
+  tutor knows which one to split. The engine and the tool must agree — a test
+  cross-checks both counts, like the prose budget.
 - **No drawn ASCII.** A line that draws with box characters (`┌ ┐ │ ─`,
   `─►`) fails: geometry is drawn with an `<lk-scene>` or a mermaid block.
-- **Formula legend.** Every symbol a `<lk-math>` formula uses (a LaTeX macro
-  such as `\gamma`, or a single-letter name) must be named in the part, quoted
-  (`` `Q` ``, `«Q»`, `"Q"`) or followed by `=`, `→`, `->`, `:` or `es`.
+- **Formula legend.** Every symbol a formula uses (a LaTeX macro such as
+  `\gamma`, or a single-letter name) must be named in the part, quoted
+  (`` `Q` ``, `«Q»`, `"Q"`) or followed by `=`, `→`, `->`, `:` or `es`. The
+  formulas are the `<lk-math>` blocks and the plain LaTeX a part writes instead:
+  `$$…$$` and `$…$` (an inline `$…$` counts as math when it carries a macro or
+  an operator, or has no spaces, so a price in prose is not a formula). When the
+  part writes the plain form, the refusal also names `formulaElement`
+  (`<lk-math>`), so the fix is the kit's element and not a second way to draw
+  it. With its legend, plain math passes: the rule is the legend.
 - **No closing summary.** A heading `Resumen para guardar`, `Apuntes
   comprimidos` or `En resumen` fails: the part ends on its last content
   section.
@@ -527,11 +551,36 @@ counted) — split the part in two, never compress or summarise it to fit;
 idea per part
 ```
 
-Geometry (scene overlap, off-canvas text, typography) and the sentence rhythm
-(`frases`, `parrafos`) stay in the node tools (`tools/scene-gate.mjs`,
-`tools/explain-check.mjs`): they need a browser or prose segmentation the
-engine does not run. The mini-quiz question count stays where it already was,
-`thresholds.quiz.questionCount` bound to the note by `quiz-questions`.
+The shape rules read like this on a part that fits the budget and still skips
+what the learner asked for (421 prose words, two sections, a three-line route,
+one walkthrough, plain `$$` math and six walls of prose):
+
+```text
+0 drawn <lk-scene> scene(s) (the part needs 1) — dibuja el ejemplo con
+<lk-scene>: a JSON payload with boxes, arrows, nodes, bars or formulas the
+reader draws; a <lk-walkthrough> does not substitute for it, and the scene
+vocabulary is in skills/explicacion-interactiva/references/visuales.md;
+6 paragraph(s) with more than 2 sentences — the first opens «Un sistema
+complejo tiene muchas piezas y cada»; split it: one idea per sentence and one
+beat per paragraph;
+formula symbol(s) cap, P, A, B, mid never named — add one legend line per
+symbol right after the formula («`cap` es …»); write the formula with
+<lk-math> so the kit draws it
+```
+
+Geometry (scene overlap, off-canvas text, typography) and the long-sentence
+rule (`frases`) stay in the node tools (`tools/scene-gate.mjs`,
+`tools/explain-check.mjs`): they need a browser or a word budget the engine does
+not run. `tools/explain-check.mjs` counts scenes and paragraphs the same way;
+it reports a missing scene as `0 escena(s)` and the engine refuses it, because
+only the engine reads the payload. The mini-quiz question count stays where it
+already was, `thresholds.quiz.questionCount` bound to the note by
+`quiz-questions`.
+
+`minScenes`, `maxSentencesPerParagraph` and `formulaElement` are additive keys
+of the same block: a snapshot that declares the standard without them keeps the
+rules it had, so a run enrolled when the standard arrived (#185) is not measured
+against the shape rules it never declared.
 
 New runs carry the standard because `rules/deep.json` declares it. A run
 initialised before this rule keeps its frozen `.learning/rules.json`, which has

@@ -220,6 +220,19 @@ type PartStandardThresholds struct {
 	MaxRutaLines       int `json:"maxRutaLines"`
 	MaxScenes          int `json:"maxScenes"`
 	MaxWalkthroughs    int `json:"maxWalkthroughs"`
+	// MinScenes is how many `<lk-scene>` blocks must actually draw: the learner
+	// asked for the example drawn, and a walkthrough is not a scene. Zero means
+	// the rule is not declared, so a snapshot written before it keeps accepting
+	// the parts it accepted.
+	MinScenes int `json:"minScenes,omitempty"`
+	// MaxSentencesPerParagraph is the prose rhythm: a paragraph with more
+	// sentences than this is a wall, not an explanation. Zero means the rule is
+	// not declared.
+	MaxSentencesPerParagraph int `json:"maxSentencesPerParagraph,omitempty"`
+	// FormulaElement is the kit element that draws a formula (`lk-math`), named
+	// in the legend refusal when the part writes plain LaTeX math instead. Empty
+	// means the refusal does not name it.
+	FormulaElement string `json:"formulaElement,omitempty"`
 }
 
 // ParetoThresholds bound a pareto-scope run: only the vital slice of each
@@ -636,6 +649,15 @@ func (p PartStandardThresholds) validate() error {
 	}
 	if p.MaxScenes < 1 || p.MaxWalkthroughs < 1 {
 		return fmt.Errorf("partStandard maxScenes and maxWalkthroughs must be positive")
+	}
+	if p.MinScenes < 0 || p.MinScenes > p.MaxScenes {
+		return fmt.Errorf("partStandard minScenes must satisfy 0 <= minScenes <= maxScenes")
+	}
+	if p.MaxSentencesPerParagraph < 0 {
+		return fmt.Errorf("partStandard maxSentencesPerParagraph must not be negative")
+	}
+	if p.FormulaElement != "" && strings.Trim(p.FormulaElement, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" {
+		return fmt.Errorf("partStandard formulaElement must be a lowercase HTML element name, got %q", p.FormulaElement)
 	}
 	return nil
 }
