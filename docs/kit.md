@@ -205,23 +205,36 @@ arrows, so it is for a calculation, never for explaining a formula.
 {"viewBox":"0 0 760 410","title":"La densidad gaussiana, símbolo por símbolo",
  "caption":"Cada número señala un símbolo de la fórmula y dice qué es.","scene":{
   "formulas":[{"x":380,"y":130,"size":28,"atoms":[{"t":"f"},{"t":"("},{"t":"x"},{"t":")"},{"t":" = "},{"t":"1/(σ√(2π))"},{"t":" · "},{"t":"exp(−(x−μ)²/(2σ²))"}]}],
-  "callouts":[{"n":1,"x":173,"y":30,"to":[173,112],"tone":"blue"},
-              {"n":2,"x":192,"y":76,"to":[192,112],"tone":"amber"}],
+  "callouts":[{"n":1,"x":173,"y":30,"symbol":"f","tone":"blue"},
+              {"n":2,"x":192,"y":76,"at":2,"tone":"amber"}],
   "labels":[{"x":380,"y":220,"text":"① f: la densidad, la altura de la curva"},
             {"x":380,"y":252,"text":"② x: el valor que miras, la latencia"}]}}
 ```
 
 One atom per symbol (`{"t":"σ"}`, not the whole formula in one atom) is what gives each symbol
-its own position: the callout's `to` is that measured position, and a callout that points at the
-air explains nothing. The engine reads the atoms as the formula and the `labels` lines as the
-legend, so a symbol no line names is refused. Worked example, measured and gated:
-`integrations/pi/kit/examples/formula-anotada.md`.
+its own position, and **a callout names the symbol it points at, never a coordinate**: `"at": 2`
+indexes the scene's atoms in drawing order, `"symbol": "x"` takes the first atom whose text is
+`x`. The number stays where the author put it (`x`, `y`); the guide is measured at render time
+against the `tspan[data-atom]` the reader actually drew, so it lands on the glyph in any
+font, size, theme and width. It is measured again when the fonts finish loading, when the
+width changes and when the paper changes. An x coordinate measured against one font is what
+put ① on «=» and ⑥ on nothing in the learner's reader; a callout that still carries `to`
+keeps drawing that way for old notes. A callout that names a symbol the formula does not have
+is `callout-desviado` in `scene-lint`, and a guide that crosses a word is `trazo-sobre-texto`.
+The engine reads the atoms as the formula and the `labels` lines as the legend, so a symbol no
+line names is refused. Worked example, gated: `integrations/pi/kit/examples/formula-anotada.md`.
 
 `rowTone`, `colTone` and `cellTone` take `{índice: tono}` with `blue`, `green`, `amber` or `red`;
 `rowH` and `size` keep long values readable. Keep every step on the same coordinates so the figure
 stays put while its state changes, put the one sentence that explains the step in its `text`, and
 keep labels short: below 640 px the stage scrolls sideways with a hint instead of shrinking the
-letters. For diagrams deliberately authored as a narrow vertical layout, opt in with
+letters. In the reader's wide mode a deck crosses both columns (`column-span: all`) and is drawn
+once, in its place: without it the deck is split between the columns and only its title shows.
+A figure never grows past the `viewBox` it declares: `kit.js` stamps the stage with `--lk-vb`
+and `kit.css` caps it there, centred, so 1 unit stays about 1 px in a column that is twice as
+wide. A 360-unit scene rendered across a 1304 px column used to draw its axis labels at three
+times the reading size; the cap is what keeps the type the size the author wrote.
+For diagrams deliberately authored as a narrow vertical layout, opt in with
 `<lk-walkthrough class="lk-wt-compact">`: in full screen the cap is lifted so the figure grows; on mobile the SVG fits the available width and the
 scroll hint is hidden. This does not reflow SVG contents; authors must keep text
 large enough and verify every scene on a phone. Decks without the attribute keep
@@ -234,6 +247,14 @@ the glyph spacing. A character count is not a measurement — an earlier gate pa
 sub-lines spilled over the frame. Labels are not boxes: a free label drawn over a box or another
 word is a collision, not a label, so put the identifying words in the box `label`/`sub` and use
 `labels` for what sits in open space.
+
+An arrow reaches its target from outside the figure: `scene-lint` reports `flecha-cruza-trazo`
+when its shaft comes within a stroke's width of another path's ink more than 12 units from its
+own tip. The «el pico» arrow left the box below the axis and cut the bell's right flank 156
+units from its tip, so the reader saw a line buried in the curve; it now comes from the empty
+upper-right area. A box or a label that no arrow or guide reaches and that sits more than 40
+units from anything drawn is `pieza-suelta` — a word floating beside the figure. Every piece
+connects to what it names, or it is removed.
 
 An arrow's own `label` is drawn beside the arrow, never on it: a caption on the line hides the very
 direction the arrow exists to show. That placement is the component's job, so an author writes
@@ -271,8 +292,11 @@ must not hide what it marks needs `"fill": "none"`.
 The page paper follows the reader's choice. `kit/theme.js` reads `?theme=`, then
 `localStorage`, then the operating system, and sets `data-theme` on `<html>`; the
 bridge and the studio load it before anything else paints. `kit.css` swaps only tokens in
-`:root[data-theme="dark"]`, and a walkthrough or scene keeps a light surface on purpose: a
-diagram's colours are part of what it teaches. An `lk-figure` from the visual engine is
+`:root[data-theme="dark"]` and `:root[data-theme="black"]`, and a walkthrough or scene keeps a
+light surface on purpose: a diagram's colours are part of what it teaches. Both night themes go
+in one `:is()` list — written as a comma-separated pair of selectors, each rule reached only
+half of them and the annotated formula kept its dark ink on the black page. An `lk-figure` from
+the visual engine is
 the exception: it names tones instead of colours, so it follows the paper it lands on. A
 page that hard-codes `#fff` for a surface will not follow the theme; use `var(--paper)`
 and `var(--ink)`.

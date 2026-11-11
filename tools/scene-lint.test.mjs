@@ -35,12 +35,14 @@ const PLAYWRIGHT = await loadPlaywright();
 const SKIP = PLAYWRIGHT ? false : 'playwright no está instalado: no se puede medir la escena';
 
 const lint = (file) => spawnSync(process.execPath, [join(TOOLS, 'scene-lint.mjs'), file], { encoding: 'utf8' });
+// `al-borde` y `lienzo-vacio` son geometría del lienzo y viven en scene-gate.
+const gate = (file) => spawnSync(process.execPath, [join(TOOLS, 'scene-gate.mjs'), file], { encoding: 'utf8' });
 
 // Una escena con la fórmula y los callouts que se le pasen, para medir solo la
 // convivencia de los números.
 const sceneWith = (callouts) => `<lk-scene>
 <script type="application/json">
-{"viewBox":"0 0 760 240","title":"dos callouts","caption":"Cada número señala un símbolo.","scene":{
+{"viewBox":"0 0 760 160","title":"dos callouts","caption":"Cada número señala un símbolo.","scene":{
   "formulas":[{"x":380,"y":120,"size":28,"atoms":[{"t":"f"},{"t":"("},{"t":"x"},{"t":")"}]}],
   "callouts":${JSON.stringify(callouts)}}}
 </script>
@@ -87,10 +89,10 @@ test('el ejemplo de la fórmula anotada pasa el lint', { skip: SKIP }, () => {
 // flecha que termina en el aire al lado de la cola, que es lo que el alumno vio.
 const curveScene = (arrow) => `<lk-scene>
 <script type="application/json">
-{"viewBox":"0 0 760 240","title":"una curva y una flecha","caption":"La punta señala la curva.","scene":{
+{"viewBox":"0 0 760 260","title":"una curva y una flecha","caption":"La punta señala la curva.","scene":{
   "paths":[{"d":"M 60 200 C 200 200 260 40 380 40 C 500 40 560 200 700 200","tone":"blue","width":4,"arrow":false}],
   "arrows":${JSON.stringify([arrow])},
-  "boxes":[{"x":300,"y":150,"w":160,"h":40,"label":"una caja","size":14}]}}
+  "boxes":[{"x":300,"y":190,"w":160,"h":40,"label":"una caja","size":14}]}}
 </script>
 </lk-scene>
 `;
@@ -102,7 +104,7 @@ const curveNote = (name, arrow) => {
 };
 
 test('una flecha que termina en el aire sobre la curva es un hallazgo', { skip: SKIP }, () => {
-  const file = curveNote('punta-aire.md', { x1: 380, y1: 190, x2: 380, y2: 90, label: 'aquí', tone: 'blue', width: 2, labelSize: 15 });
+  const file = curveNote('punta-aire.md', { x1: 380, y1: 190, x2: 380, y2: 90, label: 'aquí', tone: 'blue', width: 2, labelSize: 15, labelBeside: true });
   const r = lint(file);
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /flecha-al-aire/);
@@ -110,8 +112,226 @@ test('una flecha que termina en el aire sobre la curva es un hallazgo', { skip: 
 });
 
 test('una flecha que termina sobre la curva no es un hallazgo', { skip: SKIP }, () => {
-  const file = curveNote('punta-curva.md', { x1: 380, y1: 190, x2: 380, y2: 44, label: 'aquí', tone: 'blue', width: 2, labelSize: 15 });
+  const file = curveNote('punta-curva.md', { x1: 380, y1: 190, x2: 380, y2: 44, label: 'aquí', tone: 'blue', width: 2, labelSize: 15, labelBeside: true });
   const r = lint(file);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /sin problemas de convivencia/);
+});
+
+// La guía de un callout tampoco puede cruzar texto: la flecha que entra en la
+// etiqueta del eje «μ−σ» es el defecto que el alumno vio en el paso 2.
+const labelScene = (callout) => `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 120","title":"una etiqueta y un callout","caption":"La guía no toca las palabras.","scene":{
+  "formulas":[{"x":380,"y":60,"size":28,"atoms":[{"t":"f"},{"t":"("},{"t":"x"},{"t":")"}]}],
+  "labels":[{"x":120,"y":60,"text":"μ−σ","size":24}],
+  "callouts":[${JSON.stringify(callout)}]}}
+</script>
+</lk-scene>
+`;
+
+const labelNote = (name, callout) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La fórmula\n\nSe dibuja símbolo por símbolo.\n\n${labelScene(callout)}\n`);
+  return file;
+};
+
+test('una guía de callout que cruza un texto es un hallazgo', { skip: SKIP }, () => {
+  const file = labelNote('guia-cruzada.md', { n: 1, x: 40, y: 60, to: [200, 60] });
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /trazo-sobre-texto: μ−σ/);
+});
+
+test('una guía de callout que se detiene antes del texto no es un hallazgo', { skip: SKIP }, () => {
+  const file = labelNote('guia-corta.md', { n: 1, x: 40, y: 60, to: [90, 60] });
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// Un callout declara el símbolo que señala. Si la fórmula cambió y el número
+// sigue nombrando el símbolo viejo, la guía no llega a ningún glifo: el número
+// apunta al aire, que es lo que el alumno vio con el ⑥.
+const anchorScene = (callout) => `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 160","title":"un callout desviado","caption":"Cada número señala un símbolo.","scene":{
+  "formulas":[{"x":380,"y":120,"size":28,"atoms":[{"t":"f"},{"t":"("},{"t":"x"},{"t":")"}]}],
+  "callouts":[${JSON.stringify(callout)}]}}
+</script>
+</lk-scene>
+`;
+
+const anchorNote = (name, callout) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La fórmula\n\nSe dibuja símbolo por símbolo.\n\n${anchorScene(callout)}\n`);
+  return file;
+};
+
+test('un callout que nombra un símbolo que la fórmula no tiene es un hallazgo', { skip: SKIP }, () => {
+  const file = anchorNote('desviado.md', { n: 1, x: 300, y: 40, symbol: 'μ' });
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /callout-desviado: 1/);
+  assert.match(r.stdout, /μ/);
+});
+
+test('un callout anclado a un símbolo que la fórmula sí tiene no es un hallazgo', { skip: SKIP }, () => {
+  const file = anchorNote('anclado.md', { n: 1, x: 300, y: 40, symbol: 'x' });
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// Una flecha llega a su destino sin atravesar la tinta de otra pieza. La flecha
+// «el pico» entraba a la campana desde abajo y su trazo cortaba el flanco derecho
+// a 156 unidades de la punta: el lector veía una línea metida dentro de la curva.
+const crossScene = (arrow) => `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 240","title":"una flecha y una línea","caption":"La flecha no atraviesa la línea.","scene":{
+  "paths":[{"d":"M 110 40 L 110 200","tone":"slate","width":2,"arrow":false}],
+  "boxes":[{"x":20,"y":100,"w":40,"h":40,"label":"","size":12}],
+  "arrows":[${JSON.stringify(arrow)}]}}
+</script>
+</lk-scene>
+`;
+
+const crossNote = (name, arrow) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La flecha\n\nSe dibuja la cosa misma.\n\n${crossScene(arrow)}\n`);
+  return file;
+};
+
+test('una flecha que atraviesa el trazo de otra pieza es un hallazgo', { skip: SKIP }, () => {
+  const file = crossNote('cruza.md', { x1: 60, y1: 120, x2: 220, y2: 120, tone: 'blue', width: 2 });
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /flecha-cruza-trazo/);
+});
+
+test('una flecha que llega a la línea sin atravesarla no es un hallazgo', { skip: SKIP }, () => {
+  const file = crossNote('llega.md', { x1: 60, y1: 120, x2: 105, y2: 120, tone: 'blue', width: 2 });
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// Una pieza suelta no explica nada: una caja o una etiqueta que ninguna flecha
+// alcanza y que queda lejos de todo lo dibujado es una palabra flotando. La caja
+// «μ = 120 ms» del resumen estaba a 62 unidades de la etiqueta más cercana.
+const looseScene = (extra) => `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 240","title":"una pieza suelta","caption":"Cada pieza se conecta con lo que nombra.","scene":{
+  "paths":[{"d":"M 100 40 L 100 200","tone":"slate","width":2,"arrow":false}],
+  ${extra}}}
+</script>
+</lk-scene>
+`;
+
+const looseNote = (name, extra) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La pieza\n\nSe dibuja la cosa misma.\n\n${looseScene(extra)}\n`);
+  return file;
+};
+
+test('una caja que ninguna flecha alcanza y que está lejos de todo es un hallazgo', { skip: SKIP }, () => {
+  const file = looseNote('suelta.md', '"boxes":[{"x":270,"y":20,"w":70,"h":40,"label":"suelta","size":12}]');
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /pieza-suelta/);
+});
+
+test('una caja alcanzada por una flecha no es un hallazgo', { skip: SKIP }, () => {
+  const file = looseNote('conectada.md', '"boxes":[{"x":270,"y":20,"w":70,"h":40,"label":"conectada","size":12}],"arrows":[{"x1":268,"y1":40,"x2":104,"y2":40,"tone":"blue","width":2}]');
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// Nada dibujado vive pegado al borde del lienzo: una caja a 0 unidades del tope
+// se corta en cuanto el lector cambia el ancho, y en pantalla completa se veía
+// sin su filete de arriba.
+const edgeScene = (box) => `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 100","title":"una caja al borde","caption":"Todo deja aire en el borde.","scene":{
+  "paths":[{"d":"M 40 60 L 320 60","tone":"slate","width":2,"arrow":false}],
+  "boxes":[${JSON.stringify(box)}]}}
+</script>
+</lk-scene>
+`;
+
+const edgeNote = (name, box) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La caja\n\nSe dibuja la cosa misma.\n\n${edgeScene(box)}\n`);
+  return file;
+};
+
+test('una pieza a menos de 12 unidades del borde del lienzo es un hallazgo', { skip: SKIP }, () => {
+  const file = edgeNote('al-borde.md', { x: 100, y: 0, w: 80, h: 40, label: 'pegada', size: 12 });
+  const r = gate(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /al-borde/);
+});
+
+test('una pieza con aire en el borde no es un hallazgo', { skip: SKIP }, () => {
+  const file = edgeNote('con-aire.md', { x: 100, y: 20, w: 80, h: 40, label: 'con aire', size: 12 });
+  const r = gate(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// Una franja vacía más alta que 60 unidades es lienzo que nadie mira: la escena
+// del resumen dejaba un tercio de su alto en blanco debajo de las etiquetas.
+const bandScene = (viewBox) => `<lk-scene>
+<script type="application/json">
+{"viewBox":"${viewBox}","title":"una franja vacía","caption":"El lienzo mide lo que dibuja.","scene":{
+  "paths":[{"d":"M 40 40 L 320 40","tone":"slate","width":2,"arrow":false}],"labels":[{"x":180,"y":30,"text":"una línea","size":12}]}}
+</script>
+</lk-scene>
+`;
+
+const bandNote = (name, viewBox) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La franja\n\nSe dibuja la cosa misma.\n\n${bandScene(viewBox)}\n`);
+  return file;
+};
+
+test('una franja vacía más alta que 60 unidades es un hallazgo', { skip: SKIP }, () => {
+  const file = bandNote('franja.md', '0 0 360 400');
+  const r = gate(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /lienzo-vacio/);
+});
+
+test('un lienzo del alto de lo que dibuja no es un hallazgo', { skip: SKIP }, () => {
+  const file = bandNote('justo.md', '0 0 360 100');
+  const r = gate(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// Una flecha que se corta en su etiqueta se lee como dos conectores: el tramo que
+// llega al número y otro que sale de él. La flecha va entera, con las palabras al
+// lado.
+const brokenScene = (arrow) => `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 180","title":"una flecha cortada","caption":"La flecha va entera.","scene":{
+  "paths":[{"d":"M 40 120 L 320 120","tone":"slate","width":2,"arrow":false}],
+  "boxes":[{"x":20,"y":0,"w":60,"h":40,"label":"","size":12},{"x":280,"y":0,"w":60,"h":40,"label":"fin","size":12}],
+  "arrows":[${JSON.stringify(arrow)}]}}
+</script>
+</lk-scene>
+`;
+
+const brokenNote = (name, arrow) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La flecha\n\nSe dibuja la cosa misma.\n\n${brokenScene(arrow)}\n`);
+  return file;
+};
+
+test('una flecha cortada por su etiqueta es un hallazgo', { skip: SKIP }, () => {
+  const file = brokenNote('quebrada.md', { x1: 80, y1: 20, x2: 280, y2: 20, label: 'se guarda', tone: 'blue', width: 4, labelSize: 21 });
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /flecha-quebrada/);
+});
+
+test('una flecha entera con la etiqueta al lado no es un hallazgo', { skip: SKIP }, () => {
+  const file = brokenNote('entera.md', { x1: 80, y1: 20, x2: 280, y2: 20, label: 'se guarda', tone: 'blue', width: 4, labelSize: 21, labelBeside: true });
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
 });

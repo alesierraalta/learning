@@ -2242,3 +2242,218 @@ test("a rich page keeps its media controls inside the article and one number per
   assert.ok(phone <= 390, `the phone page overflows horizontally: ${phone}px`);
   await shutdown();
 });
+
+// ── The learner's real conditions (#207) ─────────────────────────────────────
+// Every figure gate ran in a light theme, a narrow column and the headless
+// default font. The learner read the same pages on a black paper, in wide mode,
+// with the reader's own serif, and the callouts pointed at the wrong glyphs.
+// These tests render the part through the real reader — marked, DOMPurify,
+// math.js, app.js, book.js and the kit — because a hand-built page cannot prove
+// what the learner sees: rendering the note by hand turned the inline
+// `<lk-math>` of a paragraph into a real element and swallowed the sentence.
+const KIT_EXAMPLES = join(import.meta.dirname, "kit", "examples");
+const SHOTS = "/tmp/207-shots";
+const example = (name) => readFileSync(join(KIT_EXAMPLES, name), "utf8");
+// The kit blocks of an example, verbatim: a part carries the same figures.
+const kitBlocks = (name) => [...example(name).matchAll(/<lk-(?:scene|walkthrough)[\s\S]*?<\/lk-(?:scene|walkthrough)>/g)].map((m) => m[0]);
+
+// A part as the learner read it: sections of prose with a scene and a deck.
+function partNote() {
+  const prose = (n) => `<section><h2>${n}. Una sección</h2>${"<p>El texto de la sección explica una idea y la deja dicha en una línea.</p>".repeat(12)}</section>`;
+  return ["# Parte 1 — Claves", prose(1), `<section><h2>2. La fórmula</h2>${kitBlocks("formula-anotada.md")[0]}</section>`, prose(3), `<section><h2>4. La curva</h2>${kitBlocks("curva-gaussiana.md")[0]}</section>`, prose(5)].join("\n\n");
+}
+
+async function readerPart(t, markdown, { theme = "light", width = 900, height = 1000, wide = false } = {}) {
+  const { topic, view } = await setup();
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.md"), markdown);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
+  const result = await view({ topic: TOPIC, part: "p1" });
+  await page.goto(`${result.structuredContent.url}?theme=${theme}`);
+  await page.evaluate(() => document.fonts.ready);
+  if (wide) await page.locator(".reading-toggle").click();
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(120);
+  return page;
+}
+
+// What the reader actually gets, measured in the browser: a callout whose guide
+// does not end on its glyph, a stroke over a word, ink that does not contrast
+// with its paper, a stage that drew nothing, a figure scaled above its viewBox.
+const MEASURE = () => {
+  const out = { empty: [], missed: [], overlaps: [], faint: [], scaled: [] };
+  const rgb = (value) => {
+    const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/.exec(value);
+    return m ? { r: +m[1], g: +m[2], b: +m[3], a: m[4] === undefined ? 1 : +m[4] } : null;
+  };
+  const lum = ({ r, g, b }) => {
+    const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const ratio = (a, b) => { const [hi, lo] = lum(a) > lum(b) ? [lum(a), lum(b)] : [lum(b), lum(a)]; return (hi + 0.05) / (lo + 0.05); };
+  const paper = (node) => {
+    for (let el = node; el; el = el.parentElement) {
+      const c = rgb(getComputedStyle(el).backgroundColor);
+      if (c && c.a > 0.9) return c;
+    }
+    return { r: 255, g: 255, b: 255, a: 1 };
+  };
+  const screen = (path, at) => {
+    const m = path.getScreenCTM(), p = path.getPointAtLength(at);
+    return { x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f };
+  };
+  const round = (n) => Math.round(n * 10) / 10;
+  for (const stage of document.querySelectorAll(".lk-wt-stage, .lk-scene-stage, .lk-figure-stage")) {
+    const svg = stage.querySelector("svg");
+    if (!svg) { out.empty.push(`${stage.className}: no svg`); continue; }
+    const box = svg.getBoundingClientRect();
+    if (box.width < 40 || box.height < 40) out.empty.push(`${stage.className}: ${Math.round(box.width)}×${Math.round(box.height)}`);
+    // 1 unidad ≈ 1 píxel: la figura no crece porque la columna sea más ancha.
+    const vb = svg.viewBox?.baseVal?.width || 0;
+    if (vb && box.width / vb > 1.02) out.scaled.push(`${stage.className}: ${Math.round(box.width)}px para un viewBox de ${Math.round(vb)} (${round(box.width / vb)}×)`);
+    // Un recorrido muestra un paso por vez: se mide cada paso, porque el que
+    // nadie mira es donde el callout se desvía sin que se note.
+    const steps = [...svg.querySelectorAll("[data-step]")];
+    const shownNow = steps.map((g) => g.style.display);
+    const passes = steps.length ? steps.map((_, i) => i + 1) : [0];
+    for (const pass of passes) {
+      steps.forEach((g) => { g.style.display = pass && Number(g.dataset.step) === pass ? "" : "none"; });
+      const atoms = [...svg.querySelectorAll("tspan[data-atom]")].map((node) => ({ at: Number(node.dataset.atom), text: node.textContent, box: node.getBoundingClientRect() }));
+      // A callout names its glyph; the guide has to end on that glyph's box.
+      for (const guide of svg.querySelectorAll("[data-callout-guide]")) {
+        const n = guide.dataset.calloutGuide;
+        if (guide.dataset.atom === undefined) { out.missed.push(`la guía ${n} no declara su símbolo`); continue; }
+        const path = guide.querySelector("path");
+        const atom = atoms[Number(guide.dataset.atom)];
+        if (!path || !atom || !atom.box.width) { out.missed.push(`la guía ${n} apunta al átomo ${guide.dataset.atom}, que no existe`); continue; }
+        const tip = screen(path, path.getTotalLength());
+        const b = atom.box;
+        const gap = Math.hypot(Math.max(b.x - tip.x, 0, tip.x - b.right), Math.max(b.y - tip.y, 0, tip.y - b.bottom));
+        if (gap > 3) out.missed.push(`la guía ${n} queda a ${round(gap)} px de «${atom.text}»`);
+      }
+      // The badge numbers are drawn over the guide that starts at their centre.
+      const words = [...svg.querySelectorAll("text")]
+        .filter((node) => !node.closest("[data-callout]"))
+        .map((node) => ({ node, text: node.textContent.trim(), box: node.getBoundingClientRect() }))
+        .filter((w) => w.text && w.box.width > 1);
+      for (const path of svg.querySelectorAll("path[stroke]")) {
+        if (path.closest("marker")) continue;
+        const total = path.getTotalLength?.() ?? 0;
+        if (!total) continue;
+        for (let i = 0; i <= 32; i++) {
+          const p = screen(path, (total * i) / 32);
+          const hit = words.find((w) => p.x > w.box.x + 2 && p.x < w.box.right - 2 && p.y > w.box.y + 2 && p.y < w.box.bottom - 2);
+          if (hit) { out.overlaps.push(`un trazo cruza «${hit.text.slice(0, 24)}»`); break; }
+        }
+      }
+      for (const word of words) {
+        const ink = rgb(getComputedStyle(word.node).fill);
+        if (!ink) continue;
+        const c = ratio(ink, paper(word.node));
+        if (c < 4.5) out.faint.push(`«${word.text.slice(0, 24)}» ${round(c)}:1`);
+      }
+    }
+    steps.forEach((g, i) => { g.style.display = shownNow[i]; });
+  }
+  return out;
+};
+
+const MATRIX = ["light", "dark", "black"].flatMap((theme) => [["narrow", 900, false], ["wide", 1920, true]].map(([size, width, wide]) => ({ theme, size, width, wide })));
+
+// The reader's own prose must survive the reader: an inline `<lk-math>` inside a
+// paragraph is a code span, not an element that swallows the sentence.
+test("the part's prose reaches the reader whole, inline code included", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const page = await readerPart(t, example("formula-anotada.md"));
+  await page.locator("lk-scene svg").waitFor();
+  const prose = await page.locator(".prose p").last().textContent();
+  assert.match(prose, /va con <lk-math> y su cuenta renglón a renglón/);
+  assert.match(prose, /Nunca se escribe dos veces la misma fórmula/);
+  assert.equal(await page.locator(".prose code", { hasText: "<lk-math>" }).count(), 1, "the inline code span is a code span");
+});
+
+test("every figure keeps its callouts on their glyphs, its stage drawn, its type at reading size and its ink readable, in every theme and width", { skip: !playwright && "playwright not installed" }, async (t) => {
+  mkdirSync(SHOTS, { recursive: true });
+  const articles = [
+    ["formula-anotada", example("formula-anotada.md")],
+    ["curva-gaussiana", example("curva-gaussiana.md")],
+    ["parte", partNote()],
+  ];
+  for (const [name, markdown] of articles) {
+    for (const { theme, size, width, wide } of MATRIX) {
+      const page = await readerPart(t, markdown, { theme, width, wide });
+      await page.locator("lk-scene svg, lk-walkthrough svg").first().waitFor();
+      const seen = await page.evaluate(MEASURE);
+      const where = `${name} · ${theme} · ${size}`;
+      assert.deepEqual(seen.empty, [], `${where}: una figura quedó sin dibujar`);
+      assert.deepEqual(seen.missed, [], `${where}: un callout no termina en el símbolo que nombra`);
+      assert.deepEqual(seen.overlaps, [], `${where}: un trazo cruza un texto`);
+      assert.deepEqual(seen.faint, [], `${where}: la tinta de la figura no se lee sobre su papel`);
+      assert.deepEqual(seen.scaled, [], `${where}: la figura se estira por encima de su viewBox`);
+      await page.screenshot({ path: join(SHOTS, `figura-${name}-${theme}-${size}.png`), fullPage: true });
+    }
+  }
+});
+
+// A callout names the symbol it points at. An x coordinate measured against one
+// font is what put ① on «=» and ⑥ on nothing in the learner's reader.
+test("the gated examples anchor every callout to a symbol, never to an x coordinate", () => {
+  const specs = kitBlocks("formula-anotada.md").filter((block) => block.startsWith("<lk-scene")).map((block) => JSON.parse(/<script type="application\/json">([\s\S]*?)<\/script>/.exec(block)[1]));
+  const callouts = specs.flatMap((spec) => spec.scene.callouts ?? []);
+  assert.ok(callouts.length > 0, "formula-anotada.md has no callouts");
+  for (const callout of callouts) {
+    assert.ok(Number.isInteger(callout.at) || typeof callout.symbol === "string", `el callout ${callout.n} no declara su símbolo`);
+    assert.equal(callout.to, undefined, `el callout ${callout.n} todavía apunta a una coordenada`);
+  }
+});
+
+// Wide mode is two columns; a deck that is not told to cross them is split in
+// two, and the learner saw only its title with an empty stage beside it.
+test("a walkthrough in wide mode renders its stage in place, once, with readable buttons", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const page = await readerPart(t, partNote(), { width: 1920, height: 1080, wide: true });
+  const deck = page.locator("lk-walkthrough").first();
+  await deck.locator("svg").waitFor();
+  const seen = await deck.evaluate((node) => {
+    const stage = node.querySelector(".lk-wt-stage");
+    const bar = node.querySelector(".lk-wt-bar");
+    const prev = bar.querySelector("button");
+    const rgb = (value) => { const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/.exec(value); return m ? { r: +m[1], g: +m[2], b: +m[3], a: m[4] === undefined ? 1 : +m[4] } : null; };
+    const lum = ({ r, g, b }) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const paper = (el) => { for (let n = el; n; n = n.parentElement) { const c = rgb(getComputedStyle(n).backgroundColor); if (c && c.a > 0.9) return c; } return { r: 255, g: 255, b: 255, a: 1 }; };
+    const [hi, lo] = [lum(rgb(getComputedStyle(prev).color)), lum(paper(prev))].sort((a, b) => b - a);
+    const box = stage.getBoundingClientRect();
+    return {
+      fragments: node.getClientRects().length,
+      span: getComputedStyle(node).columnSpan,
+      breakInside: getComputedStyle(node).breakInside,
+      stage: [Math.round(box.width), Math.round(box.height)],
+      title: node.querySelector(".lk-title").getBoundingClientRect().y,
+      bar: bar.getBoundingClientRect().y,
+      contrast: Math.round(((hi + 0.05) / (lo + 0.05)) * 10) / 10,
+    };
+  });
+  assert.equal(seen.span, "all", "el deck no cruza las columnas: se parte entre ellas y su título queda en una con el escenario en la otra");
+  assert.equal(seen.breakInside, "avoid", "el deck no está protegido de partirse entre columnas");
+  assert.equal(seen.fragments, 1, "el deck se parte entre las dos columnas");
+  assert.ok(seen.stage[0] > 100 && seen.stage[1] > 100, `el escenario quedó vacío: ${seen.stage}`);
+  assert.ok(seen.title < seen.bar, "el título quedó debajo de sus controles");
+  assert.ok(seen.contrast >= 4.5, `el botón «Anterior» no se lee sobre su papel: ${seen.contrast}:1`);
+  await page.screenshot({ path: join(SHOTS, "wide-deck.png"), fullPage: true });
+});
+
+// Full screen is where the letters are meant to grow. From wide mode the deck
+// kept its 320 px column and the figure stayed a thumbnail on a 1920 px screen.
+test("full screen grows the figure from wide mode", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const page = await readerPart(t, partNote(), { width: 1920, height: 1080, wide: true });
+  const deck = page.locator("lk-walkthrough").first();
+  await deck.locator("svg").waitFor();
+  await deck.getByRole("button", { name: "Pantalla completa" }).click();
+  await page.waitForFunction(() => document.fullscreenElement?.classList.contains("lk-walkthrough"));
+  await page.waitForTimeout(250);
+  const full = await deck.evaluate((node) => {
+    const svg = node.querySelector("svg").getBoundingClientRect();
+    return { w: Math.round(svg.width), h: Math.round(svg.height), screen: [innerWidth, innerHeight] };
+  });
+  assert.ok(full.h >= full.screen[1] * 0.5 || full.w >= full.screen[0] * 0.5, `la figura no creció en pantalla completa: ${full.w}×${full.h} en ${full.screen.join("×")}`);
+  await page.screenshot({ path: join(SHOTS, "wide-deck-fullscreen.png") });
+});

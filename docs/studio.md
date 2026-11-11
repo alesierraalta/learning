@@ -130,17 +130,20 @@ runs and replaces the tutor: the way out of a turn that never settles.
 
 The engine reads a part's structure; it cannot see how its figure is drawn. Once the engine has
 cleared a turn, the studio measures the part notes that turn wrote or edited — the paths come from
-the turn's own `write`/`edit` events, never from the plan — with the three tools the tutor's skill
+the turn's own `write`/`edit` events, never from the plan — with the four tools the tutor's skill
 already names:
 
 | Tool | What it measures |
 | --- | --- |
+| `tools/scene-gate.mjs` | the canvas: type below 11 px, a piece on or past the `viewBox` edge, a blank band taller than 60 units, text outside the canvas |
 | `tools/scene-lint.mjs` | how the pieces of a scene live together: a stroke over text, an arrow to nowhere, a buried or oversized head, two labels on top of each other |
 | `tools/deck-gate.mjs` | the ink: a word outside its box, a free label crossing a box, a label on an arrow |
 | `tools/explain-check.mjs` | the whole standard, rule by rule (it measures the figure again through `scene-lint`) |
 
-They run with **the studio's own Node** (`process.execPath`), never `node` from `PATH`: one of them
-imports a `.ts` module and the distro's Node 22 cannot load it, which already broke a deploy. A
+`scene-gate` runs first: a figure drawn past the edge of its own canvas is clipped in the reader no
+matter how well its pieces live together, so the learner hears about that before the rest. They run
+with **the studio's own Node** (`process.execPath`), never `node` from `PATH`: one of them imports a
+`.ts` module and the distro's Node 22 cannot load it, which already broke a deploy. A
 note is the `.md` the standard is written in, so a rich `.html` part is measured through the note
 beside it. This applies to every topic, including one whose `.learning/rules.json` is frozen: the
 engine's exemptions are about shape, not about a figure drawn over its own text.
