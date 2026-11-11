@@ -2532,6 +2532,9 @@ test("a drifted tutor context refuses the Pi turn and names the path to fix", as
     const aligned = await post(studio, "prompt", { text: "Hola" });
     assert.equal(aligned.status, 200, aligned.body);
     assert.equal(prompts().length, 1, "the aligned turn reached Pi");
+    // One turn at a time: the aligned turn ends before the next one can meet the drift check.
+    assert.equal((await post(studio, "abort", {})).status, 200);
+    await stream.next("state", (s) => s.busy === false);
 
     const link = drift(home, ".claude");
     const refused = await post(studio, "prompt", { text: "Otra" });
