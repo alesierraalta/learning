@@ -60,7 +60,8 @@ frase y el mini-quiz.
 ## 2. Cómo se construye un concepto
 
 Estos movimientos aparecen una y otra vez en el ejemplo. No son un formulario: son el orden
-en que un lector entiende.
+en que un lector entiende. En una parte entran tres o cuatro, no los diez: se eligen los que
+sostienen esta idea y el resto espera a otra parte, porque el presupuesto de §0 manda.
 
 1. **Caja negra primero, definición después.** Se dibuja la situación con sus actores y sus
    flechas, y recién entonces se dice qué es cada cosa («Abramos esa caja»). Nunca al revés.

@@ -7,13 +7,21 @@ no se compara y no viaja.
 
 ## Regla
 
-`skills/<nombre>/` es **la fuente**. La copia en `~/.claude/skills/<nombre>/` es un
-**despliegue**: se reemplaza desde aquí, nunca al revés.
+`skills/<nombre>/` es **la fuente**. Las copias en `~/.claude/skills/<nombre>/` y
+`~/.agents/skills/<nombre>/` son **despliegues**: se reemplazan desde aquí, nunca al revés.
 
 ```sh
-# desplegar una skill al entorno del agente (una vez que el cambio está en main)
-ln -sfn "$PWD/skills/explicacion-interactiva" ~/.claude/skills/explicacion-interactiva
+# enlazar todas las skills y el AGENTS.md de Learnings (update.sh ya lo hace en cada deploy)
+bash deploy/vps/link-tutor-context.sh
+bash deploy/vps/link-tutor-context.sh --verify   # solo comprobar, sin tocar nada
 ```
+
+El script enlaza cada `skills/<nombre>/` con `SKILL.md` en los dos directorios de skills y
+`deploy/vps/learnings/AGENTS.md` con el `AGENTS.md` de la raíz de Learnings. Una copia real
+que encuentra en su lugar la mueve a `~/.local/share/learning/backups/<stamp>/`, nunca la
+borra, y después verifica que cada enlace resuelve al repo. El estudio rechaza el turno del
+tutor cuando un enlace apunta a otra parte, así que una skill editada aquí llega al tutor
+solo por este camino.
 
 ## Qué hay
 

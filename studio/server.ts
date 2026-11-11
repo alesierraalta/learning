@@ -41,6 +41,7 @@ import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
 import { createAgy, parseAgyModels } from "./agy.ts";
+import { checkTutorContext, driftMessage } from "./context.ts";
 import {
   chatById,
   chatForAmbito,
@@ -110,6 +111,14 @@ export interface StudioOptions {
   chatsFile?: string;
   /** Where the CDN libraries of saved parts are kept after the first download. Default: the user's cache directory. */
   offlineCacheDir?: string;
+  /**
+   * Skip the check that the tutor's deployed instructions are this repo's own.
+   * Only for tests that do not exercise it: the check is what keeps a drifted
+   * deploy from teaching with another standard, so it is on by default.
+   */
+  skipContextCheck?: boolean;
+  /** The home whose tutor links the context check reads. Default: the running user's. */
+  contextHome?: string;
 }
 
 export interface Studio {
@@ -615,8 +624,24 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     return verdict;
   };
 
+  /**
+   * The tutor reads its skill and the Learnings `AGENTS.md` from links the deploy
+   * owns. A link that resolves anywhere else means the learner would be taught
+   * with a standard nobody reviewed, so the turn never starts.
+   */
+  const refuseDriftedContext = () => {
+    // A disabled tutor starts no turn at all, so its own refusal is the answer.
+    if (options.skipContextCheck || options.agentDisabled) return;
+    const drift = checkTutorContext({ repo: REPO, root, home: options.contextHome });
+    if (!drift) return;
+    const message = driftMessage(drift);
+    emit("error", { message });
+    throw new HttpError(409, message);
+  };
+
   /** A prompt while Pi works is queued until it finishes. */
   const prompt = async (text: string) => {
+    refuseDriftedContext();
     // Never route a turn before the studio knows which conversation it belongs to.
     await ready;
     if (agy) {

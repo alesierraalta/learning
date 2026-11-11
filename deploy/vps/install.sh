@@ -72,6 +72,9 @@ else
   printf 'Preserving existing %s\n' "$env_file"
 fi
 run install -m 644 "$assets/learning-studio.service" "$HOME/.config/systemd/user/learning-studio.service"
+# The tutor's instructions are links to this repository, so a pulled change
+# reaches the live tutor and the studio can prove the links are the repo's own.
+run env LEARNING_ROOT="$LEARNING_ROOT" bash "$assets/link-tutor-context.sh"
 run sudo loginctl enable-linger "${USER:?USER must name the service owner}"
 run systemctl --user daemon-reload
 run systemctl --user enable --now learning-studio

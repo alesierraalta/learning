@@ -131,6 +131,7 @@ Para entender un término o concepto (del trabajo o de cualquier cosa) sin estud
 
 ## ESTRUCTURA DE LA EXPLICACIÓN
 
+- **En una parte de Learnings la anatomía es la medida**: manda el tope de «Tamaño de parte» de la skill y `estandar-explicacion.md` §0–§1 (450 palabras de prosa, 2 secciones, `## Ruta` de 4 líneas, 1 escena, 1 recorrido). Lo que sigue aquí es el tono y el orden de las ideas dentro de ese tope, no secciones extra: si no cabe, la parte se divide.
 - Cada método/concepto se explica PARTE POR PARTE con subtítulos cortos en negrita.
 - Primero EL PROBLEMA (¿qué necesitamos hacer?), después LA SOLUCIÓN (cómo lo resuelve este código/concepto).
 - Para cada línea o decisión importante: ¿QUÉ hace? + ¿POR QUÉ? + ¿QUÉ PASARÍA SI NO ESTUVIERA?
@@ -178,11 +179,15 @@ Para entender un término o concepto (del trabajo o de cualquier cosa) sin estud
 - Tablitas mostrando la correspondencia entre capas/formatos.
 - Cursores/punteros con ▶ posicionado en cada estado.
 
-## CIERRE (obligatorio, en este orden)
+## CIERRE (modo rápido y chat)
+
+Una nota rápida cierra en este orden:
 
 1. Diagrama de flujo completo ENTRADA → PROCESO → SALIDA.
 2. Tabla resumen de lo NUEVO que apareció (que no estaba en lo anterior).
 3. Resumen comprimido para copiar y pegar como apuntes (bloque de texto plano, denso, autocontenido).
+
+Una parte de Learnings no lleva cierre propio: termina en su última sección de contenido, sin «Resumen para guardar» ni gancho de continuación (ver `estandar-explicacion.md` §1.3).
 
 ## MEJORA CONTINUA (vale en chat y en Obsidian)
 
