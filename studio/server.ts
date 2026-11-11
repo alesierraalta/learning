@@ -75,7 +75,7 @@ import { PASS_STATUSES, gateVerdict, type GateReport } from "../integrations/pi/
 import { STUDY_MODES, createSettleGate, isStudioPrompt, modeLine } from "./runtime.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
-import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, tutorContext, validateSugerencia } from "./sugerencias.ts";
+import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, tutorContext, validateSugerencia, withLecciones } from "./sugerencias.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -410,7 +410,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       case "message_start": {
         const message = record.message;
         if (isRecord(message) && message.role === "user") {
-          const text = messageText(message);
+          // The standing lessons travel inside the turn's prompt; the chat shows what the learner
+          // wrote, so the block is stripped before it is ever served as their message.
+          const text = stripLecciones(messageText(message));
           // The gate's instruction is the studio's prompt, never the learner's own words.
           if (isStudioPrompt(text)) return;
           if (text) {
@@ -878,7 +880,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const started: Turn = { topic: spec.topic, correction: spec.correction === true, creation: spec.creation === true, parts: [] };
     holdTurn(started);
     try {
-      await deliver(namedPart(text), started);
+      // Every turn of every topic carries the learner's standing lessons: the same place for both
+      // runtimes, so neither can start a turn without them. Read per turn, so a lesson just
+      // recorded already applies to the next one.
+      await deliver(withLecciones(namedPart(text), root), started);
     } catch (error) {
       releaseTurn(started);
       throw error;
@@ -1504,7 +1509,9 @@ ${scripts}
       const raw = isRecord(reply.data) && Array.isArray(reply.data.messages) ? reply.data.messages : [];
       const messages = raw
         .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
-        .map((m) => ({ role: m.role, text: messageText(m) }))
+        // The standing lessons travel inside the turn's prompt, so the thread keeps the learner's
+        // words and never the block the studio added after them.
+        .map((m) => ({ role: m.role, text: m.role === "user" ? stripLecciones(messageText(m)) : messageText(m) }))
         // The gate's instruction is the studio's own prompt: the thread keeps the learner's words.
         .filter((m) => m.text && !(m.role === "user" && isStudioPrompt(m.text)));
       // A runtime that lost the conversation still has the studio's own copy of the turn.

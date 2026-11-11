@@ -524,6 +524,53 @@ fail without losing the feedback: if the stored preferences cannot be read, the 
 still stored and the adaptation simply waits, because a file the learner cannot repair
 must not swallow their words.
 
+### A review is of one part, or a lesson for every part
+
+A review says one of two things, and the studio tells them apart when it records it, without a
+model and without reading the learner's prose: a review is about **one passage of one part**
+(«no entendí esta parte», «de dónde sale `c/(1−γ)`») or it is a **lesson about how explanations
+are made anywhere** («faltan visuales», «da pasos intermedios en los ejercicios largos»). The
+chips decide it. `faltan-visuales`, `faltan-ejemplos` and `sin-paso-a-paso` name a way of
+explaining, so the review is `alcance: "general"` and carries a `regla` — one line, in Spanish,
+imperative, at most 140 characters — built from those chips. Anything else (`no-entendi`,
+`matematicas-confusas`, `demasiado-texto`, `muy-abstracto`, `sobran-preguntas`, or words with no
+chip at all) is `alcance: "parte"`. Both fields are stored in the entry and survive every rewrite
+of the store; the page never sends them.
+
+A **general** lesson is read by every turn of every topic, not only by the regenerate of the part
+that taught it. `startTurn` appends the block to the prompt of the turn — the one place both
+runtimes pass through, so neither can start a turn without it — after the learner's words and
+before the runtime's own contract:
+
+```text
+Escribe la Parte 1
+
+[Lecciones del alumno (aplícalas siempre)
+- Dibuja la cosa misma, no una caja con su nombre: la curva, el icono, el estado que cambia
+- Cada idea con forma lleva su figura: si el lector tiene que imaginarla, falta la escena
+…
+]
+```
+
+The block is bounded and deduplicated: at most 10 rules and about 1200 characters, each rule once
+(case and trailing punctuation do not make a second rule), the learner's newest general reviews
+first and the repo's seed after them, so a lesson that just landed is never crowded out. The block
+is the studio's, not the learner's: the chat strips it from the user message before serving it, so
+the thread shows what the learner wrote. A **part-specific** review keeps its old path — the
+regenerate prompt of its topic, through `tutorContext` — and never becomes a standing rule.
+
+The seed is `studio/lecciones-base.json`: the general lessons of the reviews already read (the
+first topic's, 12 of the 14), written down in the repo with the reviews that taught them and what
+enforces them, so they apply from the deploy without editing the live `sugerencias.json`. It is
+merged with the live general reviews at runtime. `odd/reviews/mapa-sugerencias.md` maps every one
+of the 14 to its rule, check or skill section.
+
+A new general lesson enters by itself when the learner picks a general chip: the studio classifies
+it, gives it the chip's rule and the next turn — in any topic — already applies it. A lesson that
+no chip names, and that several reviews repeat, is written by hand into `studio/lecciones-base.json`
+and into the map, with the check or the skill section that enforces it; a rule with nothing that
+measures or explains it is an opinion, and the skill is written first.
+
 The loop leans on what is already stored: before writing, the prompts for a part, the
 plan and the map carry a compact context built from the stored preferences, the weak
 telemetry categories and the last suggestions. The

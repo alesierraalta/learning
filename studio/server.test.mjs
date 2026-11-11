@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { entryUrl, noteFromMessages, noteFromPath, startStudio as startStudioChecked, topicFromPath } from "./server.ts";
 import { runPartChecks } from "./checks.ts";
+import { stripLecciones } from "./sugerencias.ts";
 import extension from "../integrations/pi/index.ts";
 import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
@@ -46,6 +47,8 @@ test('transcriber settings must be paired', async () => {
 });
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** What the learner wrote, out of the prompt the tutor received: the standing lessons are the studio's. */
+const said = (prompt) => stripLecciones(prompt);
 const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
 /**
  * `scene-lint` opens a real browser: the tests that measure a part with the repo's tools need one,
@@ -743,7 +746,7 @@ test("a Pi turn is asked again until the engine clears the failing stage", async
     assert.equal((await post(studio, "dialog", { id: first.id, value: "Universitario" })).status, 200);
     await until(() => prompts().length === 2);
     const [learner, followUp] = prompts();
-    assert.equal(learner.message, "Escribe la Parte 1");
+    assert.equal(said(learner.message), "Escribe la Parte 1");
     assert.match(followUp.message, /FAIL p1-explained: la explicación de la parte p1 no existe todavía/, "the tutor is told the engine's own reason");
     assert.equal(followUp.streamingBehavior, undefined, "the correction is its own turn, not a message queued behind the one that ended");
     const second = await stream.next("dialog");
@@ -1726,7 +1729,7 @@ test("public studio origins route views and authorize only the configured proxy"
   assert.equal((await post(studio, "prompt", { text: "forbidden" }, { origin: "http://evil.example" })).status, 403);
   assert.equal(received().filter((c) => c.type === "prompt").length, before);
   assert.equal((await post(studio, "prompt", { text: "public prompt" }, { origin: publicOrigin })).status, 200);
-  assert.ok(received().some((c) => c.type === "prompt" && c.message === "public prompt"));
+  assert.ok(received().some((c) => c.type === "prompt" && said(c.message) === "public prompt"));
   await assert.rejects(() => startStudio({ root: makeRoot().root, port: studio.port, publicOrigin, bridgePublicOrigin }), /EADDRINUSE/);
 });
 
@@ -1762,7 +1765,7 @@ test("a second public studio origin is authorized while the first stays canonica
   const second = await post(studio, "prompt", { text: `desde ${fallback}` }, { origin: fallback });
   assert.equal(second.status, 409, second.body);
   assert.match(JSON.parse(second.body).error, /El tutor está trabajando/);
-  assert.ok(received().some((c) => c.type === "prompt" && c.message === `desde ${canonical}`));
+  assert.ok(received().some((c) => c.type === "prompt" && said(c.message) === `desde ${canonical}`));
   assert.equal((await post(studio, "prompt", { text: "forbidden" }, { origin: "https://evil.example" })).status, 403);
 });
 
@@ -1914,7 +1917,7 @@ test("a prompt streams text, tool activity and a dialog whose answer goes back t
   await stream.next("history");
   const res = await post(studio, "prompt", { text: "Quiero aprender redes." });
   assert.equal(res.status, 200, res.body);
-  assert.equal(received().find((c) => c.type === "prompt").message, "Quiero aprender redes.");
+  assert.equal(said(received().find((c) => c.type === "prompt").message), "Quiero aprender redes.");
   assert.deepEqual(await stream.next("user"), { text: "Quiero aprender redes." });
   // A turn that teaches no topic says so: the page offers no next step for it.
   assert.deepEqual(await stream.next("state", (s) => s.busy), { busy: true, alive: true, tema: null });
@@ -2429,7 +2432,72 @@ test("regenerating backs the part up, keeps its video and the plan, and asks for
   const manifest = JSON.parse(readFileSync(join(trash, "papelera.json"), "utf8"));
   assert.equal(manifest.kind, "regeneracion");
   assert.equal(manifest.moved.length, 3);
-  assert.equal(received().find((line) => line.type === "prompt").message, result.prompt, "the tutor receives exactly that prompt");
+  const sent = received().find((line) => line.type === "prompt").message;
+  assert.ok(sent.startsWith(result.prompt), "the tutor receives exactly that prompt");
+  assert.match(sent, /Lecciones del alumno \(aplícalas siempre\)/, "and the standing lessons after it");
+});
+
+// ---- the learner's lessons reach every turn of every topic -----------------
+
+/** A second, enrolled topic: a lesson recorded on one topic has to reach a turn on this one. */
+function secondTopic(root) {
+  const topic = join(root, "algebra");
+  mkdirSync(join(topic, ".learning"), { recursive: true });
+  writeFileSync(join(topic, "plan.json"), JSON.stringify({ topic: "Álgebra", parts: [{ id: "p1", title: "Ecuaciones", slug: "Ecuaciones" }] }));
+  writeFileSync(join(topic, ".learning", "state.json"), "{}\n");
+  return topic;
+}
+
+/** The rule a «Faltan visuales» review leaves behind, as the studio's own block writes it. */
+const LECCION_VISUALES = "Dibuja la cosa misma, no una caja con su nombre: la curva, el icono, el estado que cambia";
+
+for (const runtime of ["pi", "agy"]) {
+  test(`a general lesson recorded on one topic reaches a turn on another: ${runtime}`, async () => {
+    const tutor = runtime === "agy" ? await agyStudio({ root: { status: CLEARED_STAGE } }) : await piStudio({ root: { status: CLEARED_STAGE } });
+    const { studio, root, stream } = tutor;
+    try {
+      secondTopic(root);
+      // One lesson about how explanations are made, and one about a single passage of one part.
+      assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["faltan-visuales"] })).status, 200);
+      assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["no-entendi"], texto: "no entendí el ejemplo del charco" })).status, 200);
+
+      assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "algebra" })).status, 200);
+      const turnText = () => (runtime === "agy" ? agyTurns(tutor.turns).at(-1).join(" ") : tutor.prompts().at(-1).message);
+      await until(() => (runtime === "agy" ? agyTurns(tutor.turns).length === 1 : tutor.prompts().length === 1));
+      const sent = turnText();
+      // Antigravity's turn is the whole argv, so only Pi's prompt starts with the learner's words.
+      const start = runtime === "agy" ? "" : "^";
+      assert.match(sent, new RegExp(`${start}Escribe la Parte 1\\n\\n\\[Lecciones del alumno \\(aplícalas siempre\\)\\n- `), "the lessons follow the learner's words");
+      assert.ok(sent.includes(LECCION_VISUALES), "the lesson of another topic reaches this turn");
+      assert.doesNotMatch(sent, /charco/, "a part-specific review stays with its part");
+
+      if (runtime === "pi") {
+        // The block is the studio's: the chat serves the learner's own words, never the rules.
+        const said = await stream.next("user");
+        assert.equal(said.text, "Escribe la Parte 1");
+        const dialog = await stream.next("dialog");
+        assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+      }
+      await until(() => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    } finally {
+      stream.close();
+      if (runtime === "agy") delete process.env.FAKE_AGY_TURNS;
+    }
+  });
+}
+
+test("the regenerate prompt still carries the part-specific reviews of that part", async () => {
+  const { studio, received } = await setup();
+  assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["no-entendi"], texto: "no entendí el ejemplo del charco" })).status, 200);
+  const answer = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" });
+  assert.equal(answer.status, 200, answer.body);
+  const { prompt } = JSON.parse(answer.body);
+  assert.match(prompt, /charco/, "the part's own review reaches its regeneration");
+  // And the turn that regeneration starts carries the standing lessons too.
+  const sent = received().find((line) => line.type === "prompt").message;
+  assert.ok(sent.startsWith(prompt));
+  assert.match(sent, /Lecciones del alumno \(aplícalas siempre\)/);
+  assert.ok(sent.includes(LECCION_VISUALES), "the seed lessons apply with an empty store");
 });
 
 test("the context a writing prompt carries has preferences, weak categories and the learner's words", async () => {
