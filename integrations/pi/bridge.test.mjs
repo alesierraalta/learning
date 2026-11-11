@@ -1403,6 +1403,77 @@ test("an already answered mini-quiz is refused with 409 and leaves the file and 
   await shutdown();
 });
 
+// N3: a submission the turn lock refuses must not have run or saved anything.
+test("a code submission refused by the turn lock runs nothing and leaves no file", async () => {
+  // A real judge run, with an image that is on this machine (no digest pin needed for a test).
+  const runnersFile = join(mkdtempSync(join(tmpdir(), "runners-")), "runners.json");
+  writeFileSync(runnersFile, JSON.stringify({ python: { image: "python:3.12-slim", file: "main.py", run: "python3 main.py" } }));
+  let checks = 0;
+  // The lock is free when the answer arrives and taken by the time the code has run.
+  const { topic, host, view, shutdown } = await setup({ runnersFile, refuseTurn: () => (++checks >= 2 ? "El tutor está trabajando; espera a que termine." : null) });
+  mkdirSync(join(topic, "codigo", "eco"), { recursive: true });
+  writeFileSync(join(topic, "codigo", "eco", "ejercicio.json"), JSON.stringify({
+    titulo: "Eco", enunciado: "Repite la entrada", lenguaje: "python",
+    tests: [{ nombre: "eco", entrada: "hola\n", salida: "hola\n" }],
+  }));
+  const url = base(await view({}));
+  const res = await submit(url, { kind: "code", topic: TOPIC, exercise: "eco", code: "print(input())" });
+  assert.equal(res.status, 409, res.body);
+  assert.match(JSON.parse(res.body).error, /El tutor está trabajando/);
+  assert.equal(existsSync(join(topic, "codigo", "eco", "entregas")), false, "a refused submission leaves no file");
+  assert.equal(host.sent.length, 0, "and the tutor is never asked");
+  await shutdown();
+});
+
+// N4: only the refusals that saved something tell the learner to reload the page.
+test("only the refusals that saved something advise a reload", async () => {
+  let checks = 0;
+  const { topic, view, shutdown } = await setup({ refuseTurn: () => (++checks >= 2 ? "El tutor está trabajando; espera a que termine." : null) });
+  const url = base(await view({}));
+  // The quiz is already answered: something is saved, so the page is worth reloading.
+  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), '{"answers":{"q1":"A","q2":"A"}}');
+  const answered = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" }, reasoning: why("q1", "q2") });
+  assert.equal(answered.status, 409, answered.body);
+  const saved = JSON.parse(answered.body).error;
+  assert.match(saved, /Ya respondiste/, "the refusal says what happened");
+  assert.match(saved, /Recarga la página para ver las respuestas guardadas/);
+  // The turn lock saved nothing: no reload advice.
+  const locked = await submit(url, { kind: "question", topic: TOPIC, part: "p1", text: "¿Y esto?" });
+  assert.equal(locked.status, 409, locked.body);
+  const message = JSON.parse(locked.body).error;
+  assert.match(message, /El tutor está trabajando/);
+  assert.doesNotMatch(message, /Recarga la página/);
+  await shutdown();
+});
+
+// N4: the page shows exactly the bridge's message. Only a submission that stored something
+// advises a reload, and that advice is the bridge's, not the page's.
+test('a refused submission shows the bridge message, with no reload advice', { skip: !playwright && 'playwright not installed' }, async (t) => {
+  const { view } = await setup({ refuseTurn: () => 'El tutor está trabajando; espera a que termine.' });
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  await page.goto(base(result));
+  await page.evaluate((url) => {
+    const frame = document.createElement('iframe');
+    frame.src = url;
+    frame.style.cssText = 'width:1000px;height:2000px';
+    document.body.append(frame);
+  }, result.structuredContent.url);
+  const frame = page.frameLocator('iframe');
+  const fields = frame.locator('fieldset.quiz-question');
+  await fields.first().waitFor();
+  for (const field of await fields.all()) {
+    await field.locator('input[type=radio]').first().check();
+    if (await field.locator('.confidence').isVisible()) await field.locator('.confidence input').first().check();
+  }
+  await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
+  await frame.getByText(/El tutor está trabajando/).waitFor();
+  const shown = await frame.locator('body').innerText();
+  assert.doesNotMatch(shown, /Recarga la página/, 'the turn lock stored nothing: no reload advice');
+});
+
 test("the part page reports recorded answers with their grading once the quiz is answered", async () => {
   const { view, topic, shutdown } = await setup();
   writeFileSync(

@@ -129,7 +129,8 @@
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error((result.error || "No se pudo enviar.") + (response.status === 409 ? " Recarga la página para ver las respuestas guardadas." : ""));
+    // The bridge says what happened, including when reloading is worth it: the page adds nothing.
+    if (!response.ok) throw new Error(result.error || "No se pudo enviar.");
     return result;
   };
   function decorate(root) {

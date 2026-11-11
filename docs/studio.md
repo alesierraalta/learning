@@ -69,23 +69,98 @@ reports one actionable error (`no se encontró el ejecutable "agy"`) instead of 
 bogus exit code. `deploy/vps/learning-studio.service` and its env example put
 `~/.local/bin` on that `PATH`.
 
-Deep tutoring names its topic instead of guessing it. The composer on a topic page
-sends `POST prompt {text, tema}`; the home chat and the quick notes send no `tema`
-and are never checked. The selection also lives in `GET api/tema` / `POST
-api/tema`. A topic the engine does not track — no `.learning/state.json` — is
-refused with 400 before the tutor is reached, so a deep conversation can never
-run without the gate that belongs to it.
+### The topic a turn teaches
 
-Both providers are checked by one rule, `integrations/pi/gate-rules.ts`: the
-report passes when its status is `accepted`, `completed`, `waiting` or `skipped`
-and no check reads `FAIL`. Pi applies it inside its settle gate, where it can also
-push the next stage; Antigravity has no such hook, so the studio applies the same
-rule once after `agent_settled` and streams a `gate` event with the verdict. Pi's
-gate is never run a second time. A failing verdict blocks the next deep turn on
-that topic with 409, but only after the engine is asked once more, so a topic that
-passes again is released; an engine that is missing or prints no report counts as
-failing. `POST api/restart` works while a turn is still running and replaces the
-tutor, which is the way out of a turn that never settles.
+Deep tutoring names its topic instead of guessing it: the composer on a topic page sends
+`POST prompt {text, tema}`, the home chat and the quick notes send no `tema` and are never checked,
+and `GET api/tema` / `POST api/tema` hold the selection. A topic the engine does not track — no
+`.learning/state.json` — is refused with `400` before the tutor is reached.
+
+### One turn at a time
+
+The studio starts tutor turns; a tutor never starts one by itself. **One turn is active at a
+time, studio-wide.** It is held from the moment the studio accepts it until its settle is
+decided, and every turn start while it is held is refused with `409` and the Spanish sentence
+`El tutor está trabajando; espera a que termine.` The routes that start a turn are `POST prompt`
+(the composer), the hosted view's `POST submit` (the bridge asks the same lock before it writes
+anything), `POST api/regenerar`, `POST api/aprender` and `POST api/metodo`. The routes that need
+an idle studio are `POST api/tema`, `POST api/tutor` and the chat switches (`POST api/chats`,
+`POST api/chats/abrir`).
+
+Still available while a turn is held: answering a tutor dialog (`POST dialog`), `POST abort`,
+`POST restart`, and every read — the library, a conversation's history, the views, the panorama.
+`abort` and `restart` release the turn at once, and so does a dead runtime. Every exit releases
+**only its own turn** (`releaseTurn(owner)`), so a settle that returns from a slow engine call can
+never release the turn the learner started after an abort or a restart.
+
+### The engine gate, for both tutors
+
+The studio owns the settle rule for Pi and Antigravity alike; the rule lives in
+`studio/runtime.ts` and the statuses and failed checks in `integrations/pi/gate-rules.ts`. When a
+turn settles the studio runs `learning status` for the topic the turn teaches and streams a `gate`
+event with the verdict. A report clears the turn when its status is `accepted`, `completed`,
+`waiting` or `skipped` and no check reads `FAIL`; a turn that teaches no topic is never gated.
+
+When the report does not clear it, the tutor gets **one follow-up prompt on the same turn**
+carrying the engine's own words (`FAIL <id>: <reason>`), bounded by `MAX_CORRECTIONS` (`2`,
+exported by `integrations/pi/gate-rules.ts`, spent once per learner turn). When the budget is gone
+the learner reads, in the chat, `El tutor no pudo terminar: …` with what the engine still wants.
+The studio's own prompts start with `Learning gate:` or `Learning engine:` and are never shown or
+stored as something the learner typed.
+
+The same rule, per runtime:
+
+- **Antigravity** runs one plain `agy -p` process per turn, so the studio is the only thing that
+  can bind it. Nothing else gates it.
+- **Pi inside the studio** keeps its stage pushes (method, planning, remedial, explanation — they
+  chain the tutor's own work) but leaves a *failing* stage to the studio, so a stage is corrected
+  once, not twice: with `LEARNING_SETTLE_GATE=studio` the adapter ends the turn instead of
+  re-prompting. **A standalone Pi session** (a terminal, no studio) still gates itself: it asks
+  the engine, corrects up to `MAX_CORRECTIONS` and leaves an explicit *blocked* entry when the
+  engine is missing or prints no report.
+- **An engine that is missing or unreadable** therefore differs by where the turn runs: inside the
+  studio it is a `notice` in the chat (`El motor no pudo revisar «…»`) and the turn ends without
+  the engine's verdict; a standalone Pi session fails closed with a blocked entry.
+
+A failing verdict also blocks the next deep turn on that topic with `409`, after the engine is
+asked once more, so a topic that passes again is released. `POST api/restart` works while a turn
+runs and replaces the tutor: the way out of a turn that never settles.
+
+### The learner's questions are asked by the page
+
+- **The study mode.** `POST api/aprender {text, modo}` — the «Aprender algo nuevo» entry on the
+  home and in the tutor panel — takes `rapido` or `universitario`; without one it is `400` and
+  nothing reaches the tutor. The mode travels in the turn's prompt as one explicit line
+  (`[Modo de estudio: …]`, built by `modeLine` in `studio/runtime.ts`), and the studio tells each
+  tutor, in the instructions it already gives it, never to ask or choose the mode: Antigravity's
+  contract says so on every turn, and inside the studio Pi's system prompt carries the same rule
+  (the adapter's `before_agent_start`, studio mode only). A request in the plain chat without a
+  mode is answered with one line pointing at the entry, and nothing is created.
+- **The creation turn.** A `universitario` request teaches a topic that does not exist yet, so the
+  turn starts with no topic and binds to the first successful `write`/`edit` whose path resolves to
+  a topic folder (`topicFromPath`, the same rule the next-step offer uses). That folder is gated
+  like any other topic — the studio asks the engine even before `.learning/state.json` exists, and
+  the engine answers in its own words (`FAIL state-initialized: run not initialized: …`), so a
+  tutor that wrote the plan and stopped is corrected. If it wrote nothing under a topic folder the
+  turn ends with `El tutor no creó ningún tema todavía.` A `rapido` request writes under `rapidos/`,
+  teaches no topic and is never gated.
+- **The method.** At the engine's `method` stage the topic page asks Pareto or Preferencias;
+  `POST api/metodo {tema, metodo}` records the choice with the engine's own command
+  (`learning method --root … --workspace … --rules … --method pareto|preferencias --json`) and
+  starts exactly one deep turn so the tutor plans with it. Inside the studio the Pi adapter no
+  longer pushes the method question; a standalone Pi session still does.
+
+### What tests prove, and what they do not
+
+Byte for byte, the tests assert the prompts each tutor receives: the mode line inside the turn, the
+no-mode rule in Antigravity's contract and in Pi's studio system prompt, the correction carrying
+the engine's failing reason, the bound topic of a creation turn, and the Spanish refusals. One
+conformance scenario runs unchanged against both runtimes: the turn is held while it runs, one
+correction per failing settle carrying the engine's reason, the turn released when the engine
+clears, the Spanish stop when it never clears, the hosted view refused with the Spanish `409`
+while the turn is held, and the gate prompt never served as the learner's message. What no test can
+prove is a model's compliance: the instructions are asserted as text, and only the engine's verdict
+binds the outcome.
 
 ## Conversaciones
 

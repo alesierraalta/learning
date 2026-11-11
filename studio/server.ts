@@ -466,8 +466,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   const write = (command: Json) => {
-    if (options.agentDisabled) throw new HttpError(503, "the tutor is disabled");
-    if (!child || !alive) throw new HttpError(503, "the tutor is not running");
+    // Learner-visible: the page shows these words, so they are the studio's Spanish.
+    if (options.agentDisabled) throw new HttpError(503, "El tutor está desactivado.");
+    if (!child || !alive) throw new HttpError(503, "El tutor no está en marcha.");
     child.stdin.write(`${JSON.stringify(command)}\n`);
   };
 
@@ -553,12 +554,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     }
     if (chat.piSession) {
       const reply = await call({ type: "switch_session", sessionPath: chat.piSession });
-      if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused the switch"));
-      if (isRecord(reply.data) && reply.data.cancelled === true) throw new HttpError(409, "an extension cancelled the session switch");
+      if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi no quiso cambiar de conversación."));
+      if (isRecord(reply.data) && reply.data.cancelled === true) throw new HttpError(409, "una extensión canceló el cambio de conversación.");
       return;
     }
     const reply = await call({ type: "new_session" });
-    if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused a new session"));
+    if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi no quiso abrir una conversación nueva."));
     const stats = await piStats();
     if (stats.file) persist(setPiSession(chats, chat.id, stats.file));
   };
@@ -639,9 +640,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 
   /** A deep topic must be one the engine tracks; anything else would be tutored without a gate. */
   const requireTopic = (value: unknown): string => {
-    if (typeof value !== "string" || !value) throw new HttpError(400, "tema must be a string");
-    if (!listTopics(root).some((t) => t.id === value)) throw new HttpError(404, `unknown topic: ${value}`);
-    if (!enrolled(root, value)) throw new HttpError(400, `topic ${value} is not enrolled in the learning engine`);
+    if (typeof value !== "string" || !value) throw new HttpError(400, "El tema tiene que ser texto.");
+    if (!listTopics(root).some((t) => t.id === value)) throw new HttpError(404, `No encuentro el tema «${value}».`);
+    if (!enrolled(root, value)) throw new HttpError(400, `El tema «${value}» no está inscrito en el motor de aprendizaje.`);
     return value;
   };
 
@@ -1059,19 +1060,19 @@ ${scripts}
       case "api/sugerencias":
         return sendJson(res, 200, recordSugerencia(root, body));
       case "api/regenerar": {
-        if (options.agentDisabled) throw new HttpError(503, "the tutor is disabled");
-        if (!isRecord(body)) throw new HttpError(400, "invalid regeneration");
+        if (options.agentDisabled) throw new HttpError(503, "El tutor está desactivado.");
+        if (!isRecord(body)) throw new HttpError(400, "No pude leer la regeneración.");
         // A regeneration starts a turn: it is refused before anything is written or moved aside.
         requireNoTurn();
         const tema = typeof body.tema === "string" ? body.tema : "";
         const parte = typeof body.parte === "string" ? body.parte : "";
-        if (!/^[\w-]+$/.test(tema) || !/^p\d+$/.test(parte)) throw new HttpError(400, "invalid regeneration target");
+        if (!/^[\w-]+$/.test(tema) || !/^p\d+$/.test(parte)) throw new HttpError(400, "Esa parte no se puede regenerar.");
         // Everything that can refuse this request happens before the first write: a refused
         // regeneration must leave the part in the library, not in the trash.
         const input = validateSugerencia({ tema, parte, motivos: body.motivos, texto: body.texto, origen: "regenerar" });
         const planned = regenerationTrash(root, { topic: tema, part: parte });
         const text = regenerationPrompt(tema, parte, input, planned.trash);
-        if (text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "the regeneration prompt is too long");
+        if (text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "La regeneración pide demasiado texto de una vez.");
         const saved = recordSugerencia(root, { ...input, origen: "regenerar" });
         const backup = backupPartForRegeneration(root, { topic: tema, part: parte }, new Date(), planned.trash || undefined);
         // A part lives in a deep topic: a regeneration the engine does not clear is not an end.
@@ -1132,7 +1133,7 @@ ${scripts}
       case "prompt": {
         const text = body.text;
         if (typeof text !== "string" || !text.trim() || text.length > MAX_PROMPT_CHARS) {
-          throw new HttpError(400, `text must be non-empty, at most ${MAX_PROMPT_CHARS} characters`);
+          throw new HttpError(400, `El mensaje tiene que tener texto, como mucho ${MAX_PROMPT_CHARS} caracteres.`);
         }
         // One turn at a time, studio-wide. This early check only saves the engine call below;
         // `startTurn` refuses the turn itself, so no path can slip in through the gate window.
@@ -1152,7 +1153,7 @@ ${scripts}
       }
       case "dialog": {
         const id = body.id;
-        if (typeof id !== "string" || !dialogs.has(id)) throw new HttpError(404, "no such open dialog");
+        if (typeof id !== "string" || !dialogs.has(id)) throw new HttpError(404, "Ese diálogo ya no está abierto.");
         const response: Json = { type: "extension_ui_response", id };
         if (body.cancelled === true) response.cancelled = true;
         else if (typeof body.confirmed === "boolean") response.confirmed = body.confirmed;
@@ -1275,7 +1276,7 @@ ${scripts}
       case "api/chats/exportar": {
         const id = chatIdOf(body);
         if (agy) throw new HttpError(400, "Antigravity does not export conversations");
-        if (id !== chats.activo) throw new HttpError(409, "open the chat before exporting it");
+        if (id !== chats.activo) throw new HttpError(409, "Abre la conversación antes de exportarla.");
         const chat = chatById(chats, id);
         // Pi writes the export into its working directory, which here is the vault.
         // The file is named outside it instead, next to the conversation index.
@@ -1285,9 +1286,9 @@ ${scripts}
         const outputPath = join(dir, `${slug}-${new Date().toISOString().replace(/[:.]/g, "-")}.html`);
         const reply = await call({ type: "export_html", outputPath }, 30000);
         // Pi's own refusal is the answer: an empty conversation cannot be exported.
-        if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi refused the export"));
+        if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi no quiso exportar la conversación."));
         const path = isRecord(reply.data) && typeof reply.data.path === "string" ? reply.data.path : "";
-        if (!path) throw new HttpError(502, "Pi did not export the conversation");
+        if (!path) throw new HttpError(502, "Pi no exportó la conversación.");
         return sendJson(res, 200, { path });
       }
       case "new-session": {
@@ -1296,7 +1297,7 @@ ${scripts}
         break;
       }
       case "restart":
-        if (options.agentDisabled) throw new HttpError(503, "the tutor is disabled");
+        if (options.agentDisabled) throw new HttpError(503, "El tutor está desactivado.");
         // Restart is the escape hatch for a turn that never settles, so it works while busy.
         if (alive) child?.kill();
         startTutor(tutor);

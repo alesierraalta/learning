@@ -204,7 +204,7 @@ test("a deep turn is refused for a topic the engine does not track, and reached 
   writeFileSync(join(root, "sin-inscribir", "plan.json"), JSON.stringify({ topic: "Sin inscribir", parts: [] }));
   const refused = await post(studio, "prompt", { text: "Hola", tema: "sin-inscribir" });
   assert.equal(refused.status, 400, refused.body);
-  assert.match(JSON.parse(refused.body).error, /not enrolled/);
+  assert.match(JSON.parse(refused.body).error, /no está inscrito en el motor de aprendizaje/);
   assert.equal(received().length, 0, "a refused deep turn never reaches the tutor");
   writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
   const accepted = await post(studio, "prompt", { text: "Hola", tema: "redes" });
@@ -341,6 +341,108 @@ async function piSettle(settleGate) {
     ctx,
   );
   return { continue: settle?.continue === true, engineCalls: engineCalls.length };
+}
+
+// ---- T3: one conformance scenario, run unchanged against each tutor -----------------
+
+/** The hosted view of a topic part: the page's origin and the base its submissions go to. */
+async function bridgeFor(studio, topic = "redes") {
+  const view = JSON.parse((await http(`${studio.url}api/view?topic=${topic}&part=p1`)).body);
+  return { base: view.url.replace(new RegExp(`${topic}/p1$`), ""), origin: new URL(view.url).origin };
+}
+
+/** One tutor, one studio, and the two primitive steps the scenario needs from it. */
+async function conformanceTutor(runtime, engineOptions) {
+  const { root, engine, log } = makeRoot(engineOptions);
+  process.env.FAKE_PI_LOG = log;
+  const turns = join(root, "agy-turns.log");
+  if (runtime === "agy") {
+    process.env.FAKE_AGY_TURNS = turns;
+    // A slow Antigravity turn keeps the window the scenario acts in (the Pi fake waits on its dialog).
+    process.env.FAKE_AGY_DELAY_MS = "300";
+  }
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  if (runtime === "agy") {
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    await stream.next("state");
+  }
+  // How many turns the tutor was asked to run, whatever the runtime.
+  const turnsSoFar = () => (runtime === "agy" ? agyTurns(turns).length : piLog(log).filter((command) => command.type === "prompt").length);
+  // What the tutor read in its last turn.
+  const turnText = () => (runtime === "agy" ? agyTurns(turns).at(-1).join(" ") : piLog(log).filter((command) => command.type === "prompt").at(-1).message);
+  // A Pi turn ends when its dialog is answered; an Antigravity turn ends by itself.
+  const endTurn = async () => {
+    if (runtime !== "pi") return;
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+  };
+  const close = () => {
+    stream.close();
+    if (runtime === "agy") {
+      delete process.env.FAKE_AGY_TURNS;
+      delete process.env.FAKE_AGY_DELAY_MS;
+    }
+  };
+  return { runtime, studio, root, stream, turnsSoFar, turnText, endTurn, close };
+}
+
+for (const runtime of ["pi", "agy"]) {
+  test(`the studio gates the same way whoever tutors: ${runtime}`, async () => {
+    // A stage that fails once and then clears: one correction, then the turn is released.
+    const tutor = await conformanceTutor(runtime, { statuses: [FAILING_STAGE, CLEARED_STAGE] });
+    try {
+      assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+      await tutor.stream.next("state", (data) => data.busy === true);
+      assert.equal(tutor.stream.events.filter((event) => event.name === "state").at(-1)?.data.busy, true, "the turn is held while it runs");
+      // A submission from the page while the turn is held is refused, in Spanish.
+      const bridge = await bridgeFor(tutor.studio);
+      const refused = await http(`${bridge.base}submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: bridge.origin },
+        body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿Qué es una capa?" }),
+      });
+      assert.equal(refused.status, 409, refused.body);
+      assert.match(JSON.parse(refused.body).error, /El tutor está trabajando/);
+      await until(() => tutor.turnsSoFar() === 1);
+      await tutor.endTurn();
+      // Exactly one correction, and it carries the engine's own reason.
+      await until(() => tutor.turnsSoFar() === 2);
+      assert.equal(tutor.turnsSoFar(), 2, "one correction for one failing settle");
+      assert.match(tutor.turnText(), /FAIL p1-explained: la explicación de la parte p1 no existe todavía/);
+      await tutor.endTurn();
+      // The engine clears it: the turn is released and nothing else is asked.
+      assert.equal((await tutor.stream.next("gate", (data) => data.passing === true)).tema, "redes");
+      await until(() => tutor.stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+      assert.equal(tutor.turnsSoFar(), 2, "a cleared stage asks for nothing else");
+      // The correction was never the learner's own message.
+      const again = sse(`${tutor.studio.url}events`);
+      try {
+        const history = await again.next("history");
+        assert.deepEqual(history.messages.filter((message) => message.role === "user" && /^Learning gate:/.test(message.text)), [], "the gate prompt is not served as the learner's");
+      } finally { again.close(); }
+    } finally { tutor.close(); }
+
+    // A stage that never clears: the same budget, and the learner told in Spanish.
+    const stuck = await conformanceTutor(runtime, { status: FAILING_STAGE });
+    try {
+      assert.equal((await post(stuck.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+      for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
+        await until(() => stuck.turnsSoFar() === round + 1);
+        // Every turn ends its own way: the last one is the settle that spends the budget.
+        await stuck.endTurn();
+      }
+      const told = await stuck.stream.next("error");
+      assert.match(told.message, /no pudo terminar/);
+      assert.match(told.message, /p1-explained: la explicación de la parte p1 no existe todavía/);
+      assert.equal(stuck.turnsSoFar(), 1 + MAX_CORRECTIONS, "the turn and its corrections, and no more");
+      await until(() => stuck.stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false);
+    } finally { stuck.close(); }
+  });
 }
 
 test("an Antigravity turn is asked again until the engine clears the failing stage", async () => {
@@ -1059,6 +1161,50 @@ test("an abort ends the turn without gating it and works while it is active", as
     delete process.env.FAKE_AGY_TURNS;
     delete process.env.FAKE_AGY_DELAY_MS;
   }
+});
+
+// T3: every refusal the learner can actually hit speaks Spanish; the runtime's own words stay in
+// the studio log. A refusal written as an English sentence is a defect, not a nuance.
+test("the refusals the learner can hit are Spanish", async () => {
+  const english = /^(the|a|an|no|not|could|open|pi|engine|unknown|invalid)\b/i;
+  const expectSpanish = (message, expected) => {
+    assert.equal(message, expected);
+    assert.doesNotMatch(message, english, `not an English sentence: ${message}`);
+  };
+
+  // 503: the tutor is switched off for this studio.
+  const off = await setup({ agentDisabled: true });
+  const disabled = await post(off.studio, "prompt", { text: "hola" });
+  assert.equal(disabled.status, 503);
+  expectSpanish(JSON.parse(disabled.body).error, "El tutor está desactivado.");
+
+  // 503: the tutor process died and nobody restarted it.
+  const dead = await piStudio();
+  try {
+    assert.equal((await post(dead.studio, "prompt", { text: "crash" })).status, 200);
+    await dead.stream.next("state", (data) => data.alive === false);
+    const stopped = await post(dead.studio, "prompt", { text: "hola" });
+    assert.equal(stopped.status, 503);
+    expectSpanish(JSON.parse(stopped.body).error, "El tutor no está en marcha.");
+  } finally { dead.stream.close(); }
+
+  // 409: a turn is held, from the composer and from the hosted view.
+  const busy = await piStudio();
+  try {
+    assert.equal((await post(busy.studio, "prompt", { text: "primero", tema: "redes" })).status, 200);
+    await busy.stream.next("dialog");
+    const held = await post(busy.studio, "prompt", { text: "segundo" });
+    assert.equal(held.status, 409);
+    expectSpanish(JSON.parse(held.body).error, "El tutor está trabajando; espera a que termine.");
+    const view = JSON.parse((await http(`${busy.studio.url}api/view?topic=redes&part=p1`)).body);
+    const fromPage = await http(`${view.url.replace(/redes\/p1$/, "")}submit`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: new URL(view.url).origin },
+      body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿Qué es una capa?" }),
+    });
+    assert.equal(fromPage.status, 409, fromPage.body);
+    expectSpanish(JSON.parse(fromPage.body).error, "El tutor está trabajando; espera a que termine.");
+  } finally { busy.stream.close(); }
 });
 
 test("a refused prompt leaves the running turn alone, and restart recovers a busy tutor", async () => {
@@ -2104,15 +2250,15 @@ test("disabled tutor cannot start or restart, while the reader remains available
   assert.equal(page.status, 200, page.body);
   const prompt = await post(studio, "prompt", { text: "Hello" });
   assert.equal(prompt.status, 503);
-  assert.equal(JSON.parse(prompt.body).error, "the tutor is disabled");
+  assert.equal(JSON.parse(prompt.body).error, "El tutor está desactivado.");
   const restart = await post(studio, "restart", {});
   assert.equal(restart.status, 503);
-  assert.equal(JSON.parse(restart.body).error, "the tutor is disabled");
+  assert.equal(JSON.parse(restart.body).error, "El tutor está desactivado.");
   const part = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
   const before = readFileSync(part, "utf8");
   const regenerate = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "shorter" });
   assert.equal(regenerate.status, 503);
-  assert.equal(JSON.parse(regenerate.body).error, "the tutor is disabled");
+  assert.equal(JSON.parse(regenerate.body).error, "El tutor está desactivado.");
   assert.equal(readFileSync(part, "utf8"), before);
   assert.deepEqual(received(), []);
 });
@@ -2285,7 +2431,7 @@ test("exporting a chat answers with the file, and only for the chat that is open
   await post(studio, "api/chats", { nombre: "otra" });
   const refused = await post(studio, "api/chats/exportar", { id: general.id });
   assert.equal(refused.status, 409);
-  assert.match(JSON.parse(refused.body).error, /open the chat/);
+  assert.match(JSON.parse(refused.body).error, /Abre la conversación/);
 });
 
 test('the studio refuses to start without a data root', async () => {

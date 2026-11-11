@@ -19,7 +19,9 @@ longer reads or writes the Obsidian vault. See [docs/integration.md](docs/integr
   continue, or the engine output is missing/malformed, an explicit *blocked* entry is left
   instead. Authoritative completion is `learning status` reporting completed, nothing else.
 - Conceptual/short explanations stay lightweight: the adapter registers no gate outside an
-  explicitly enrolled deep session and injects nothing into any global prompt (S11).
+  explicitly enrolled deep session and injects nothing into any global prompt (S11). Inside the
+  studio the settle rule is the studio's for every tutor, and the adapter adds one studio-only
+  rule to Pi's instructions: the study mode is chosen in the page, never by the tutor.
 
 ## Repository layout
 
@@ -27,7 +29,7 @@ longer reads or writes the Obsidian vault. See [docs/integration.md](docs/integr
 |---|---|---|
 | `cmd/`, `internal/`, `rules/` | engine | Deterministic rules, stages, semantic judge (see `docs/protocol.md`, `docs/engine.md`) |
 | `integrations/pi/` | adapter | Local Pi extension: activation, execFile transport, settle gate, HTML study view (`bridge.ts`, `view/`), rich-page kit (`kit/`, `docs/kit.md`) |
-| `studio/` | studio | Local study app with Pi in the background (`docs/studio.md`, launcher `estudio`) |
+| `studio/` | studio | Local study app with a tutor in the background, one turn at a time and the engine gate for both tutors (`docs/studio.md`, launcher `estudio`) |
 | `docs/protocol.md` | shared contract | Engine/adapter boundary this adapter implements |
 | `docs/integration.md` | adapter | Loading, configuration, usage, verification evidence |
 
