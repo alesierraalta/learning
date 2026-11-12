@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { measurePieces, PIECE_TAGS } from '../integrations/pi/kit/piece-gate.mjs';
 
 const KIT = fileURLToPath(new URL('../integrations/pi/kit', import.meta.url));
 // La punta mide 8 × el grosor del trazo y se come el tramo. Un tramo con más de
@@ -50,7 +51,7 @@ if (!note) {
 }
 
 const src = readFileSync(note, 'utf8');
-const blocks = [...src.matchAll(/<lk-(scene|walkthrough|story)[^>]*>[\s\S]*?<\/lk-\1>/g)].map((m) => m[0]);
+const blocks = [...src.matchAll(new RegExp(`<lk-(scene|walkthrough|story|${PIECE_TAGS.join('|')})[^>]*>[\\s\\S]*?<\\/lk-\\1>`, 'g'))].map((m) => m[0]);
 if (!blocks.length) {
   console.log(`${note}: no tiene escenas`);
   process.exit(0);
@@ -62,7 +63,10 @@ cpSync(KIT, join(dir, 'kit'), { recursive: true });
 writeFileSync(join(dir, 'page.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <link rel="stylesheet" href="kit/kit.css">
 <script src="kit/scene.js" defer></script><script src="kit/kit.js" defer></script>
-</head><body><main style="max-width:720px;margin:0 auto">${blocks.join('\n')}</main></body></html>`);
+<style>/* La prosa del lector se justifica (view/app.css) y esa regla llega a lo que la nota
+   escribe dentro de la prosa: el lint mide con ella puesta, como el lector. */
+.prose p { text-align: justify; hyphens: auto; }</style>
+</head><body><main style="max-width:720px;margin:0 auto"><div class="prose">${blocks.map((b, i) => b.replace(/^<lk-([a-z]+)/, `<lk-$1 id="s${i}"`)).join('\n')}</div></main></body></html>`);
 
 const pw = await loadPlaywright();
 const browser = await pw.chromium.launch();
@@ -70,7 +74,7 @@ const findings = [];
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(pathToFileURL(join(dir, 'page.html')).href);
-  await page.waitForSelector('lk-scene svg, lk-walkthrough svg, lk-story svg', { timeout: 15000 });
+  await page.waitForSelector('lk-scene svg, lk-walkthrough svg, lk-story svg, .lk-p', { timeout: 15000 });
   await page.waitForTimeout(400);
   const report = await page.evaluate(({ minShaft, maxRatio, cross, loose }) => {
     const out = [];
@@ -80,7 +84,7 @@ try {
     hiddenSteps.forEach((g) => { g.style.display = ''; });
     document.querySelectorAll('lk-scene, lk-walkthrough, lk-story').forEach((host, i) => {
       const title = host.querySelector('svg')?.getAttribute('aria-label') || '';
-      host.querySelectorAll('svg').forEach((svg) => {
+      [...host.querySelectorAll('svg')].filter((svg) => !svg.closest('.lk-p')).forEach((svg) => {
         const box = svg.viewBox.baseVal;
         const rects = [...svg.querySelectorAll('rect')].map((r) => ({ el: r, b: r.getBBox() }));
         // En un recorrido los pasos conviven en el mismo SVG, ocultos unos y visible
@@ -495,6 +499,11 @@ try {
     return out;
   }, { minShaft: MIN_SHAFT, maxRatio: MAX_HEAD_RATIO, cross: CROSS, loose: LOOSE });
   findings.push(...report);
+  // Las piezas visuales (tarjetas, memoria, tablas, conjuntos): una palabra no se
+  // monta sobre otra y un conector no atraviesa lo que no es suyo.
+  for (const piece of await measurePieces(page, { scope: 'convivencia' })) {
+    for (const p of piece.problems) findings.push({ block: Number(piece.id.slice(1)) + 1, title: piece.title, kind: p.kind, text: p.text, detail: p.detail });
+  }
 } finally {
   await browser.close();
   rmSync(dir, { recursive: true, force: true });

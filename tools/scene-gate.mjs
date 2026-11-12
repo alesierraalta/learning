@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { measurePieces, PIECE_TAGS } from '../integrations/pi/kit/piece-gate.mjs';
 
 const KIT = fileURLToPath(new URL('../integrations/pi/kit', import.meta.url));
 const MIN_PX = 11;
@@ -58,7 +59,7 @@ function notesAt(target) {
 
 // Una escena quieta y un recorrido de fórmula o de ejercicio (`<lk-story>`): los dos se
 // dibujan con el mismo vocabulario y se miden igual; el recorrido, paso a paso.
-const SCENE = /<lk-(scene|story)[^>]*>\s*<script type="application\/json">([\s\S]*?)<\/script>\s*<\/lk-\1>/g;
+const SCENE = new RegExp(`<lk-(scene|story|${PIECE_TAGS.join('|')})[^>]*>\\s*<script type="application\\/json">([\\s\\S]*?)<\\/script>\\s*<\\/lk-\\1>`, 'g');
 
 const playwright = await loadPlaywright();
 if (!playwright) {
@@ -101,11 +102,15 @@ try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     try {
       await page.goto(pathToFileURL(join(dir, 'page.html')).href);
-      await page.waitForSelector('lk-scene svg, lk-story svg', { timeout: 15000 });
+      await page.waitForSelector('lk-scene svg, lk-story svg, .lk-p', { timeout: 15000 });
       await page.waitForTimeout(400);
       const report = await page.evaluate(({ minPx, EDGE, BAND }) => [...document.querySelectorAll('lk-scene, lk-story')].map((host) => {
-        const svg = host.querySelector('svg');
+        // El lienzo de escena de un recorrido es el SVG que cuelga del escenario: las
+        // piezas (tarjetas, memoria, tablas, conjuntos) llevan SVG propios y las mide
+        // `measurePieces`.
+        const svg = host.tagName === 'LK-STORY' ? host.querySelector('.lk-story-stage > svg') : host.querySelector('svg');
         const problems = [];
+        if (!svg) return { title: host.getAttribute('title') || '', problems };
         // Un recorrido se mide un paso por vez: los demás se ocultan, porque un paso
         // oculto mide cero y dos pasos a la vez se pisarían sin que el lector lo vea.
         const steps = [...svg.querySelectorAll('[data-step]')];
@@ -179,6 +184,15 @@ try {
       }), { minPx: MIN_PX, EDGE, BAND });
 
       scenes += report.length;
+      // Las piezas se miden aparte: a dos anchos y paso a paso.
+      const pieces = await measurePieces(page, { scope: 'geometry' });
+      scenes += pieces.filter((p) => p.tag !== 'lk-story').length;
+      for (const piece of pieces) {
+        if (!piece.problems.length) continue;
+        failures += piece.problems.length;
+        console.log(`${note}: pieza ${piece.id}${piece.title ? ` — ${piece.title}` : ''}`);
+        for (const p of piece.problems) console.log(`  ${p.kind}: ${p.text} (${p.detail})`);
+      }
       report.forEach((scene, i) => {
         if (!scene.problems.length) return;
         failures += scene.problems.length;

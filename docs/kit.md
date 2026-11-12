@@ -434,6 +434,35 @@ one is the «🎧 Generar …» request. `lk-ask` sends a question.
 Without bridge config these three show the instruction to open the page in Pi;
 all local demos, diagrams, steps, and mathematics remain usable.
 
+### Visual pieces: verdict cards, memory, joined tables, sets
+
+Four elements draw ideas the scene vocabulary tells badly. Each is declarative JSON in an
+`<script type="application/json">`, anchored by ids: a pointer, a connector or a region names
+what it reaches and the kit traces it from the boxes the browser drew (`placeMemory`,
+`placeTables`), so a note never carries a coordinate. They are HTML, not a canvas: they stack in a
+narrow column, follow the three papers (the `--pt-*` tone tokens lighten on dark and black) and
+grow in full screen. They live alone or as the stage of a `<lk-story>` step
+(`"stage":{"venn":{…}}`); a story-level key (`"venn":{"sets":[…]}`) is inherited by every step, and a
+story may mix scene steps and piece steps (the scene canvas exists only if some step uses it). Each
+accepts a `caption`, drawn under the piece as its own reading guide.
+
+| Element | Draws | Worked example (gated) |
+|---|---|---|
+| `lk-cards` | 2–4 verdict cards side by side (stacked on a narrow column): pill, title, a tiny drawing of the case (`refs` chips with `read`/`write`/`value` icons → `target`), one line of reason; the `verdict: "no"` card is tinted red. For code only (compila / no compila, correcto / error). | `examples/prestamos-rust.md` |
+| `lk-memory` | State in numbered steps: each repeats its code line (badge + code), columns (STACK / HEAP), segmented cells, status pills, a pointer from a cell to its target (`points`), invalid cells dashed and struck with a ✗. | `examples/memoria-string-rust.md` |
+| `lk-tables` | Real tables joined by curved connectors (one colour per match, derived from the data), the `ON` pill and the derived result; `kind: "left"` keeps unmatched rows with `NULL`; `show` reveals tables → links → on → result. Also `group`: rows → groups with value chips and a COUNT badge. | `examples/sql-join-videojuegos.md`, `examples/sql-group-by.md` |
+| `lk-venn` | Two or three labelled sets; `fill` lists the exact regions that answer (`a+b` = in A and B only; `a` = A only), `op` names the operation, `says` explains it. One region per story step. | `examples/sql-venn-joins.md` |
+
+The engine and `explain-check` count a piece as the part's drawn figure (one scene *or* one piece
+per part, `pieceOpenCount` in `internal/engine/pieces.go`); its JSON is not prose; a story step that
+draws a piece satisfies the derivation rule. `scene-gate` and `scene-lint` measure pieces through
+`integrations/pi/kit/piece-gate.mjs` (which runs `piece-measure.mjs` at 1440 and 390 px, one story
+step at a time): off-canvas, words under 13 px, ink under 4.5:1, a white island on a night paper,
+a connector that misses its anchor (`connector-miss`), a word over a word, a connector or a set
+outline over a word. The bridge matrix (`integrations/pi/bridge.test.mjs`, `PIECE_EXAMPLES`)
+renders every example through the real reader in light/dark/black × narrow/wide/phone and in full
+screen, and writes the element screenshots to `/tmp/vp-shots/`.
+
 ## Injected config
 
 The bridge injects this **first in head**; builders must not hardcode tokens:

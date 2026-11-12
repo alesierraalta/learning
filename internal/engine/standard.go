@@ -155,6 +155,7 @@ func proseWords(text string) int {
 	out = proseScene.ReplaceAllString(out, " ")
 	out = proseWalkthrough.ReplaceAllString(out, " ")
 	out = proseStory.ReplaceAllString(out, " ")
+	out = withoutPieces(out, " ")
 	out = proseTableLine.ReplaceAllString(out, " ")
 	out = proseHeading.ReplaceAllString(out, " ")
 	out = proseTag.ReplaceAllString(out, " ")
@@ -172,6 +173,7 @@ func proseParagraphs(text string) []string {
 	for _, block := range proseVisualBlocks {
 		out = block.ReplaceAllString(out, "\n\n")
 	}
+	out = withoutPieces(out, "\n\n")
 	var blocks [][]string
 	var current []string
 	for _, line := range strings.Split(out, "\n") {
@@ -530,11 +532,12 @@ func sceneBlocks(text string) []string {
 	return sceneBlock.FindAllString(withoutCodeFences(text), -1)
 }
 
-// drawnScenes counts the `<lk-scene>` blocks whose payload draws something. A
-// scene that renders an empty stage is not a drawn example, and a walkthrough
-// is a different element: it does not substitute for the scene.
+// drawnScenes counts the `<lk-scene>` blocks and the visual pieces (verdict
+// cards, memory, tables, sets) whose payload draws something. A scene that
+// renders an empty stage is not a drawn example, and a walkthrough is a
+// different element: it does not substitute for the scene.
 func drawnScenes(text string) int {
-	n := 0
+	n := drawnPieces(text)
 	for _, block := range sceneBlocks(text) {
 		if draws, _ := scenePayload(block); draws {
 			n++
@@ -642,7 +645,12 @@ func standardFindings(text string, th rules.PartStandardThresholds) []string {
 // is a different element and never substitutes for the drawn example.
 func sceneFindings(text string, th rules.PartStandardThresholds) []string {
 	var findings []string
-	if scenes := len(sceneOpen.FindAllStringIndex(withoutCodeFences(text), -1)); scenes > th.MaxScenes {
+	scenes := len(sceneOpen.FindAllStringIndex(withoutCodeFences(text), -1))
+	if pieces := pieceOpenCount(text); pieces > 0 && scenes+pieces > th.MaxScenes {
+		findings = append(findings, fmt.Sprintf(
+			"%d drawn figures (<lk-scene> scenes and %s pieces; limit %d) — keep one and move the other to its own part",
+			scenes+pieces, "<"+strings.Join(pieceElements, ">, <")+">", th.MaxScenes))
+	} else if scenes > th.MaxScenes {
 		findings = append(findings, fmt.Sprintf(
 			"%d <lk-scene> scenes (limit %d) — keep one scene and move the other to its own part",
 			scenes, th.MaxScenes))
@@ -704,7 +712,7 @@ func evalPartStandard(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	shape := fmt.Sprintf("%d prose words (limit %d), %d content section(s) (limit %d), %s, %d scene(s) (limit %d), %d walkthrough(s) (limit %d)",
 		proseWords(text), th.MaxProseWords, len(contentSections(text)), th.MaxContentSections,
-		route, len(sceneOpen.FindAllStringIndex(withoutCodeFences(text), -1)), th.MaxScenes,
+		route, len(sceneOpen.FindAllStringIndex(withoutCodeFences(text), -1))+pieceOpenCount(text), th.MaxScenes,
 		len(walkthroughOpen.FindAllStringIndex(withoutCodeFences(text), -1))+len(storyOpen.FindAllStringIndex(withoutCodeFences(text), -1)), th.MaxWalkthroughs)
 	if th.MinScenes > 0 {
 		shape += fmt.Sprintf(", %d drawn scene(s) (at least %d)", drawnScenes(text), th.MinScenes)

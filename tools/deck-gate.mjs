@@ -124,7 +124,9 @@ for (const [index, target] of targets.entries()) {
         await deck.locator('.lk-wt-count').filter({ hasText: `Paso ${s + 1} de` }).waitFor();
       }
       const found = await deck.evaluate(node => {
-        const stage = node.querySelector('.lk-wt-stage');
+        // Solo el lienzo de escena: las piezas de un paso (tarjetas, memoria, tablas,
+        // conjuntos) llevan SVG propios y las miden `scene-gate` y `scene-lint`.
+        const stage = node.querySelector('.lk-wt-stage > svg') || document.createElement('div');
         const shown = el => el.closest('[data-step]')?.style.display !== 'none';
         const rects = [...stage.querySelectorAll('rect')].filter(r => shown(r) && r.getBBox().height >= 18)
           .map(r => ({ ...r.getBBox(), rb: r.getBoundingClientRect() }));

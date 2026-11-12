@@ -3,7 +3,7 @@
 // exactamente el defecto que el alumno vio en la fórmula anotada.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -489,4 +489,47 @@ test('scene-gate mide las piezas nuevas: un cofre que no cabe en el lienzo es un
   const r = gate(file);
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /al-borde/);
+});
+
+// Las piezas visuales (tarjetas, memoria, tablas, conjuntos) también se miden: la
+// gate las abre a dos anchos y paso a paso, y el lint busca palabras pisadas.
+const PIEZA_BUENA = `<lk-cards>
+<script type="application/json">
+{"cards":[{"verdict":"ok","pill":"COMPILA","title":"Muchas","draw":{"refs":[{"text":"&s"},{"text":"&s"}],"target":{"text":"s"}},"reason":"Todos leen."},{"verdict":"no","pill":"NO COMPILA","title":"Mezcla","draw":{"refs":[{"text":"&s"},{"text":"&mut s"}],"target":{"text":"s"}},"reason":"Uno escribe."}]}
+</script>
+</lk-cards>
+`;
+const pieza = (name, block) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. Los casos\n\nCada caso con su veredicto.\n\n${block}\n`);
+  return file;
+};
+
+test('una pieza visual que se dibuja bien pasa la gate y el lint', { skip: SKIP }, () => {
+  const file = pieza('pieza-buena.md', PIEZA_BUENA);
+  const g = gate(file);
+  assert.equal(g.status, 0, g.stdout + g.stderr);
+  assert.match(g.stdout, /ok: 1 escena/);
+  const l = lint(file);
+  assert.equal(l.status, 0, l.stdout + l.stderr);
+});
+
+test('una pieza que el lector no puede dibujar es un hallazgo de la gate', { skip: SKIP }, () => {
+  const file = pieza('pieza-rota.md', PIEZA_BUENA.replace(/,\{"verdict":"no"[\s\S]*?"reason":"Uno escribe\."\}/, ''));
+  const g = gate(file);
+  assert.equal(g.status, 1, g.stdout + g.stderr);
+});
+
+// La prosa del lector se justifica y esa regla llegaba a la razón de una tarjeta
+// («Uno            escribiría / mientras otro lee»). El lint mide con la regla del
+// lector puesta —si no, mediría una página que el aprendiz nunca ve— y una pieza
+// bien alineada no produce el hallazgo. El hallazgo en sí (`texto-justificado`) se
+// prueba en `integrations/pi/kit/test/pieces.test.mjs`, sobre la misma medida.
+test('el lint mide con la regla de prosa del lector y no inventa hallazgos en una pieza bien alineada', { skip: SKIP }, () => {
+  const source = readFileSync(join(TOOLS, 'scene-lint.mjs'), 'utf8');
+  assert.match(source, /\.prose p \{ text-align: justify/, 'el lint ya no mide con la prosa justificada del lector');
+  const file = pieza('pieza-alineada.md', PIEZA_BUENA);
+  const l = lint(file);
+  assert.equal(l.status, 0, l.stdout + l.stderr);
+  assert.doesNotMatch(l.stdout, /texto-justificado/);
 });

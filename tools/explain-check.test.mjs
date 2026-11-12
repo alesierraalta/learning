@@ -327,3 +327,30 @@ test('acepta la fórmula con su recorrido de fórmula', () => {
   assert.match(r.stdout, /ok\s+formula-walkthrough/);
   assert.match(r.stdout, /ok\s+recorrido\s+1 recorrido/);
 });
+
+// Las piezas visuales (tarjetas, memoria, tablas, conjuntos): se miran, no se leen.
+// Su JSON no gasta el tope de prosa ni se cuenta como frases, una pieza ocupa el
+// lugar de la escena (una figura por parte) y se mide con `scene-lint`.
+const TARJETAS = `<lk-cards>
+<script type="application/json">
+{"caption":"Cada caso, con su veredicto.","cards":[{"verdict":"ok","pill":"COMPILA","title":"Muchas «&»","draw":{"refs":[{"text":"&s"},{"text":"&s"}],"target":{"text":"s"}},"reason":"Todos leen a la vez y nadie escribe jamás en el valor compartido durante ese tiempo largo que dura el préstamo completo."},{"verdict":"no","pill":"NO COMPILA","title":"Mezcla","draw":{"refs":[{"text":"&s"},{"text":"&mut s"}],"target":{"text":"s"}},"reason":"Uno escribiría."}]}
+</script>
+</lk-cards>
+`;
+
+test('una pieza es la figura de la parte: su JSON no es prosa', () => {
+  const f = join(dir, 'pieza.md');
+  writeFileSync(f, CUMPLE.replace(ESCENA, TARJETAS));
+  const r = run(f);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+frases\s+0 frase/);
+  assert.match(r.stdout, /ok\s+figuras/);
+});
+
+test('una escena y una pieza son dos figuras y la parte solo admite una', () => {
+  const f = join(dir, 'pieza-y-escena.md');
+  writeFileSync(f, CUMPLE.replace(ESCENA, `${ESCENA}\n${TARJETAS}`));
+  const r = run(f);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA escena\s+2 escena\(s\)/);
+});
