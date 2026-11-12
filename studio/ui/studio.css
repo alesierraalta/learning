@@ -160,6 +160,11 @@ h3 { font-weight: 700; }
 .learning-source-count, .learning-source-error { display: block; }
 .learning-source-error { color: var(--red); font-weight: 600; }
 .mode-picks { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.exam-choice-group { margin-top: 12px; }
+.exam-choice-group[hidden], .exam-practice-other[hidden] { display: none; }
+.exam-choice-question { margin: 0; color: var(--ink); font-weight: 600; }
+.exam-choice-group .mode-picks { margin-top: 8px; }
+.exam-practice-other { box-sizing: border-box; width: min(100%, 32rem); margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink); font: inherit; }
 .mode-pick { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left; padding: 10px 14px; border: 2px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--slate); cursor: pointer; font: inherit; font-size: .95rem; }
 .mode-pick b { color: var(--ink); font-size: 1rem; }
 .mode-pick[data-modo="universitario"] { border-color: var(--blue); }

@@ -72,7 +72,7 @@ import { parsePiModels } from "./pi-models.ts";
 import { enrolled } from "./gate.ts";
 import { runPartChecks, type PartChecks, type PartReport } from "./checks.ts";
 import { PASS_STATUSES, gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
-import { STUDY_MODES, createSettleGate, isStudioPrompt, modeLine } from "./runtime.ts";
+import { STUDY_MODES, createSettleGate, isStudioPrompt, modeLine, type ExamChoice, type ExamFormat } from "./runtime.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, tutorContext, validateSugerencia, withLecciones } from "./sugerencias.ts";
@@ -1296,9 +1296,30 @@ ${scripts}
         requireNoTurn();
         const modo = STUDY_MODES.find((mode) => mode === body.modo);
         if (!modo) throw new HttpError(400, "elige rápido, universitario o examen antes de enviar");
+        let examen: ExamChoice | undefined;
+        if (modo === "examen") {
+          const choice = body.examen;
+          if (!isRecord(choice) || (choice.formato !== "oral" && choice.formato !== "written" && choice.formato !== "practical")) {
+            throw new HttpError(400, "Elige un formato válido para tu examen: oral, escrito o práctico.");
+          }
+          const formato: ExamFormat = choice.formato;
+          if (formato === "practical") {
+            if (typeof choice.practica !== "string" || !choice.practica.trim()) {
+              throw new HttpError(400, "Indica qué tipo de práctica requiere tu examen práctico.");
+            }
+            examen = { formato, practica: choice.practica.trim() };
+          } else {
+            if (Object.hasOwn(choice, "practica")) {
+              throw new HttpError(400, "Solo puedes indicar una práctica para el formato práctico.");
+            }
+            examen = { formato };
+          }
+        } else if (Object.hasOwn(body, "examen")) {
+          throw new HttpError(400, "Los datos del examen solo se aceptan en modo examen.");
+        }
         // A deep-mode request's topic does not exist yet: its first write under a topic folder
         // binds it, and the gate asks the engine about that folder when it settles.
-        await startTurn(`Quiero aprender ${text}.\n\n${modeLine(modo)}`, { topic: null, creation: modo !== "rapido" });
+        await startTurn(`Quiero aprender ${text}.\n\n${modeLine(modo, examen)}`, { topic: null, creation: modo !== "rapido" });
         return sendJson(res, 200, { ok: true, modo });
       }
       case "api/metodo": {

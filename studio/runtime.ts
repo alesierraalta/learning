@@ -22,14 +22,22 @@ export const isStudioPrompt = (text: string): boolean => STUDIO_PREFIXES.some((p
 /** The study modes the page offers; the learner picks one before a new request is sent. */
 export const STUDY_MODES = ["rapido", "universitario", "examen"] as const;
 export type StudyMode = (typeof STUDY_MODES)[number];
+export type ExamFormat = "oral" | "written" | "practical";
+export type ExamChoice = { formato: ExamFormat; practica?: string };
 
 /**
  * The line that carries the learner's mode inside the prompt of the turn, so neither tutor asks it
  * again: the mode is decided in the page, before the turn exists.
  */
-export function modeLine(mode: StudyMode): string {
+export function modeLine(mode: StudyMode, examen?: ExamChoice): string {
   if (mode === "examen") {
-    return "[Modo de estudio: examen — ya decidido en el estudio. No preguntes si prefiere rápido o universitario ni abras un diálogo para elegirlo; pregunta si su examen será oral, escrito o práctico y, si es práctico, qué tipo de práctica tendrá.]";
+    if (!examen) throw new Error("exam mode needs a chosen format");
+    const labels: Record<ExamFormat, string> = { oral: "oral", written: "escrito", practical: "práctico" };
+    const practice = examen.formato === "practical"
+      ? `, con tipo de práctica ${JSON.stringify(examen.practica)} (practice: ${JSON.stringify(examen.practica)})`
+      : "";
+    const initFields = examen.formato === "practical" ? "exam y practice" : "exam";
+    return `[Modo de estudio: examen — ya decidido en el estudio, con formato ${labels[examen.formato]} (exam: ${JSON.stringify(examen.formato)})${practice}. No preguntes el modo ni el formato: pásalos a learning_stage init como ${initFields}.]`;
   }
   const label = mode === "rapido" ? "rápido" : "universitario";
   return `[Modo de estudio: ${label} — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]`;

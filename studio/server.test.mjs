@@ -1062,13 +1062,70 @@ test("a correction the runtime refuses is told in Spanish, not in the runtime's 
 const MODE_LINE = {
   rapido: "[Modo de estudio: rápido — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
   universitario: "[Modo de estudio: universitario — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
-  examen: "[Modo de estudio: examen — ya decidido en el estudio. No preguntes si prefiere rápido o universitario ni abras un diálogo para elegirlo; pregunta si su examen será oral, escrito o práctico y, si es práctico, qué tipo de práctica tendrá.]",
+};
+const EXAM_MODE_LINE = {
+  oral: '[Modo de estudio: examen — ya decidido en el estudio, con formato oral (exam: "oral"). No preguntes el modo ni el formato: pásalos a learning_stage init como exam.]',
+  written: '[Modo de estudio: examen — ya decidido en el estudio, con formato escrito (exam: "written"). No preguntes el modo ni el formato: pásalos a learning_stage init como exam.]',
+  practical: (practice) => `[Modo de estudio: examen — ya decidido en el estudio, con formato práctico (exam: "practical"), con tipo de práctica ${JSON.stringify(practice)} (practice: ${JSON.stringify(practice)}). No preguntes el modo ni el formato: pásalos a learning_stage init como exam y practice.]`,
 };
 /** What the engine reports when the method is recorded and planning is next. */
 const METHOD_RECORDED = { status: "accepted", stage: "method", nextStage: "planning", method: "pareto", checks: [{ id: "method-chosen", status: "PASS", reason: "the learner chose pareto" }] };
 
 /** The arguments the engine was called with, one line per call. */
 const engineArgs = (log) => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean) : []);
+
+for (const { formato, practica, expected } of [
+  { formato: "oral", expected: EXAM_MODE_LINE.oral },
+  { formato: "written", expected: EXAM_MODE_LINE.written },
+  { formato: "practical", practica: "Laboratorios", expected: EXAM_MODE_LINE.practical("Laboratorios") },
+]) {
+  test(`exam mode carries the chosen ${formato} format to the tutor`, async () => {
+    const { studio, prompts, stream } = await piStudio();
+    try {
+      const response = await post(studio, "api/aprender", {
+        text: "redes neuronales",
+        modo: "examen",
+        examen: { formato, ...(practica ? { practica } : {}) },
+      });
+      assert.equal(response.status, 200, response.body);
+      await until(() => prompts().length === 1);
+      const message = prompts()[0].message;
+      assert.ok(message.includes(expected), `the selected format reaches learning_stage init: ${message}`);
+      assert.match(message, /No preguntes el modo ni el formato/);
+    } finally { stream.close(); }
+  });
+}
+
+async function assertExamRefusal(body, expectedMessage) {
+  const { studio, prompts, stream } = await piStudio();
+  try {
+    const response = await post(studio, "api/aprender", body);
+    assert.equal(response.status, 400, response.body);
+    assert.match(JSON.parse(response.body).error, expectedMessage);
+    assert.equal(prompts().length, 0, "a refused request starts no tutor turn");
+    assert.equal(stream.events.some((event) => event.name === "state" && event.data.busy), false, "the refusal never marks a turn busy");
+  } finally { stream.close(); }
+}
+
+test("exam mode refuses a missing format before starting a turn", async () => {
+  await assertExamRefusal({ text: "redes neuronales", modo: "examen" }, /formato.*examen/i);
+});
+
+test("exam mode refuses an invalid format before starting a turn", async () => {
+  await assertExamRefusal({ text: "redes neuronales", modo: "examen", examen: { formato: "screen" } }, /formato.*examen/i);
+});
+
+test("practical exam mode refuses a blank practice kind before starting a turn", async () => {
+  await assertExamRefusal({ text: "redes neuronales", modo: "examen", examen: { formato: "practical", practica: "  " } }, /tipo de práctica/i);
+});
+
+test("oral exam mode refuses a practice kind before starting a turn", async () => {
+  await assertExamRefusal({ text: "redes neuronales", modo: "examen", examen: { formato: "oral", practica: "Laboratorios" } }, /solo.*práctica.*práctico/i);
+});
+
+test("quick mode refuses exam fields before starting a turn", async () => {
+  await assertExamRefusal({ text: "redes neuronales", modo: "rapido", examen: { formato: "written" } }, /solo.*modo examen/i);
+});
 
 test("a request from «Aprender algo nuevo» carries the mode to each tutor", async () => {
   const pi = await piStudio();
@@ -1111,17 +1168,17 @@ test("a 150000-character multi-line learning source reaches Pi intact", async ()
   const source = `${"x".repeat(999)}\n`.repeat(149) + "x".repeat(1000);
   try {
     assert.equal(source.length, 150000);
-    const response = await post(studio, "api/aprender", { text: source, modo: "examen" });
+    const response = await post(studio, "api/aprender", { text: source, modo: "examen", examen: { formato: "written" } });
     assert.equal(response.status, 200, response.body);
     await until(() => prompts().length === 1);
-    assert.ok(prompts()[0].message.startsWith(`Quiero aprender ${source}.\n\n${MODE_LINE.examen}`), "all source characters and line breaks reach the tutor prompt");
+    assert.ok(prompts()[0].message.startsWith(`Quiero aprender ${source}.\n\n${EXAM_MODE_LINE.written}`), "all source characters and line breaks reach the tutor prompt");
   } finally { stream.close(); }
 });
 
 test("an over-limit learning source gets its own refusal before starting a turn", async () => {
   const { studio, prompts, stream } = await piStudio();
   try {
-    const response = await post(studio, "api/aprender", { text: "x".repeat(200001), modo: "examen" });
+    const response = await post(studio, "api/aprender", { text: "x".repeat(200001), modo: "examen", examen: { formato: "written" } });
     assert.equal(response.status, 400, response.body);
     assert.equal(JSON.parse(response.body).error, "El texto es demasiado largo: como mucho 200000 caracteres.");
     assert.equal(prompts().length, 0, "the refusal starts no tutor turn");
@@ -1248,10 +1305,10 @@ test("an Examen turn binds and gates the new topic it creates", async () => {
   const created = await creatingStudio((root) => [{ path: join(root, "nuevo", "plan.json") }]);
   const { studio, root, prompts, stream, asked } = created;
   try {
-    const response = await post(studio, "api/aprender", { text: "aprendizaje por refuerzo", modo: "examen" });
+    const response = await post(studio, "api/aprender", { text: "aprendizaje por refuerzo", modo: "examen", examen: { formato: "written" } });
     assert.equal(response.status, 200, response.body);
     await until(() => prompts().length === 1);
-    assert.ok(prompts()[0].message.includes(MODE_LINE.examen), `the tutor receives exam mode guidance: ${prompts()[0].message}`);
+    assert.ok(prompts()[0].message.includes(EXAM_MODE_LINE.written), `the tutor receives exam mode guidance: ${prompts()[0].message}`);
 
     const dialog = await stream.next("dialog");
     assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);

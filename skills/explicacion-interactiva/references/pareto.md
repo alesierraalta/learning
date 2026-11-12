@@ -4,12 +4,14 @@ La ley de Pareto aplicada a una explicación: el 20% del contenido que rinde el 
 
 ## Cuándo se pregunta
 
-Siempre, en la **misma llamada** de la FASE 0a que el modo, antes de investigar, escribir o crear carpeta. Dos preguntas en una llamada:
+En una sola llamada de la FASE 0a junto con el modo, antes de investigar, escribir o crear carpeta. Para los modos universitario y rápido, se pregunta el modo y Pareto en el mismo lote:
 
-1. **Modo**: universitario / rápido con quiz / rápido desde cero.
+1. **Modo**: universitario / examen / rápido con quiz / rápido desde cero.
 2. **Pareto**: «¿Aprendemos con la ley de Pareto? Te explico solo el 20% del contenido que rinde el 80% del resultado — entender lo máximo con el mínimo esfuerzo.» Opciones: **sí, solo lo vital (Pareto)** · **no, el tema completo**.
 
-Si la persona ya lo pidió por su cuenta («solo lo esencial», «lo mínimo para usarlo», «Pareto»), no se vuelve a preguntar: se registra como sí. Si la respuesta llega ambigua, se asume **completo** y se sigue; nunca se recorta sin permiso.
+**Excepción: modo examen.** Pareto siempre se da por elegido en ese modo; no preguntes el alcance. El formato y el tipo de práctico se recogen en el mismo lote, según `examen.md`.
+
+Si la persona ya lo pidió por su cuenta («solo lo esencial», «lo mínimo para usarlo», «Pareto»), no se vuelve a preguntar: se registra como sí. Si la respuesta llega ambigua en un modo que sí pregunta el alcance, se asume **completo** y se sigue; nunca se recorta sin permiso.
 
 ## Cómo se elige el 20%
 
