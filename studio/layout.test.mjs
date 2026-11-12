@@ -229,6 +229,33 @@ test("exam topics expose their format and use the exam tag in both topic views",
   assert.equal(await topicTag.getAttribute("title"), "Formato de examen: práctico");
 });
 
+test("malformed exam state keeps a topic visible without an exam tag", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+
+  const stateDir = join(root, "redes", ".learning");
+  mkdirSync(stateDir, { recursive: true });
+  const tag = page.locator(".topic-card").filter({ hasText: "Redes" }).locator(".tag");
+  for (const malformed of ["{not JSON", JSON.stringify({ exam: { format: "screen" } })]) {
+    writeFileSync(join(stateDir, "state.json"), malformed);
+    const library = await fetch(`${studio.url}api/library`).then((response) => response.json());
+    const topic = library.topics.find((entry) => entry.id === "redes");
+    assert.ok(topic, `malformed optional exam metadata ${JSON.stringify(malformed)} does not hide the topic`);
+    assert.equal(Object.hasOwn(topic, "exam"), false, "malformed exam metadata is not exposed as an exam");
+
+    await page.reload({ waitUntil: "networkidle" });
+    await tag.waitFor();
+    assert.equal(await tag.textContent(), "Universitario");
+    assert.equal(await tag.getAttribute("aria-label"), null);
+    assert.equal(await tag.getAttribute("title"), null);
+  }
+});
+
 test("the tutorial presents Examen alongside Universitario and Rápido", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine } = makeRoot();
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });

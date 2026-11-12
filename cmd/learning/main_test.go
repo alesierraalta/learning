@@ -350,7 +350,10 @@ func TestCLIExamRejectsInvalidCombinationsWithoutCreatingState(t *testing.T) {
 		want  string
 	}{
 		{"invalid format", []string{"--exam", "screen"}, `invalid exam format "screen": expected oral, written or practical`},
+		{"exam format case and whitespace", []string{"--exam", " ORAL "}, `invalid exam format " ORAL ": expected oral, written or practical`},
+		{"blank Unicode practice", []string{"--exam", "practical", "--practice", "\u2003"}, "--practice requires a non-empty kind"},
 		{"practice without exam", []string{"--practice", "build an app"}, "--practice requires --exam practical"},
+
 		{"practice with oral", []string{"--exam", "oral", "--practice", "build an app"}, "--practice is only valid with --exam practical"},
 		{"exam conflicts with complete scope", []string{"--exam", "written", "--scope", "complete"}, "--exam requires scope pareto; --scope complete is incompatible"},
 		{"exam only on init", []string{"status", "--exam", "oral"}, "--exam is only accepted by the init command"},
@@ -390,4 +393,63 @@ func equalJSONMap(got any, want map[string]any) bool {
 		}
 	}
 	return true
+}
+
+func TestCLIExamPracticeTrimsUnicodeWhitespaceAndPreservesText(t *testing.T) {
+	c := newCLIFixture(t)
+	practice := "\u2003Construir una aplicación con café ☕\u00a0"
+	want := "Construir una aplicación con café ☕"
+	var out bytes.Buffer
+	if code := run(c.args("init", "--exam", "practical", "--practice", practice, "--json"), &out); code != 0 {
+		t.Fatalf("Unicode practical init exit = %d: %s", code, out.String())
+	}
+	report := parseOne(t, &out)
+	evidence, _ := report["evidence"].(map[string]any)
+	if !equalJSONMap(evidence["exam"], map[string]any{"format": "practical", "practice": want}) {
+		t.Fatalf("init evidence.exam = %v, want trimmed Unicode practice", evidence["exam"])
+	}
+	var state map[string]any
+	raw, err := os.ReadFile(filepath.Join(c.ws, ".learning", "state.json"))
+	if err != nil || json.Unmarshal(raw, &state) != nil {
+		t.Fatalf("read exam state: %v", err)
+	}
+	if !equalJSONMap(state["exam"], map[string]any{"format": "practical", "practice": want}) {
+		t.Fatalf("state.exam = %v, want trimmed Unicode practice", state["exam"])
+	}
+}
+
+func TestCLIExamAndPracticeAreInitOnly(t *testing.T) {
+	for _, command := range []string{"validate", "advance", "status"} {
+		t.Run(command, func(t *testing.T) {
+			c := newCLIFixture(t)
+			var out bytes.Buffer
+			if code := run(c.args("init", "--json"), &out); code != 0 {
+				t.Fatalf("init exit = %d: %s", code, out.String())
+			}
+			statePath := filepath.Join(c.ws, ".learning", "state.json")
+			before, err := os.ReadFile(statePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, flag := range [][]string{{"--exam", "oral"}, {"--practice", "build an app"}} {
+				args := c.args(command, flag...)
+				if command == "advance" {
+					args = append(args, "--stage", "preparation")
+				}
+				args = append(args, "--json")
+				out.Reset()
+				if code := run(args, &out); code != 2 {
+					t.Fatalf("%s %s exit = %d, want 2: %s", command, strings.Join(flag, " "), code, out.String())
+				}
+				doc := parseOne(t, &out)
+				if doc["status"] != "error" || !strings.Contains(doc["detail"].(string), "only accepted by the init command") {
+					t.Fatalf("%s %s report = %v, want init-only rejection", command, strings.Join(flag, " "), doc)
+				}
+				after, err := os.ReadFile(statePath)
+				if err != nil || !bytes.Equal(before, after) {
+					t.Fatalf("%s %s changed the stored state: %v", command, strings.Join(flag, " "), err)
+				}
+			}
+		})
+	}
 }

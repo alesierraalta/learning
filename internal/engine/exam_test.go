@@ -185,6 +185,8 @@ func TestExamPlanRejectsMissingMismatchedAndShortDeclarations(t *testing.T) {
 	}{
 		{"missing plan exam", "oral", "", "", "", strings.Repeat("o", 24), strings.Repeat("p", 24), "plan.json needs an examen object for this run"},
 		{"wrong format", "oral", "", "written", "", strings.Repeat("o", 24), strings.Repeat("p", 24), `plan examen formato = "written", want "oral"`},
+		{"format case and whitespace mismatch", "oral", "", " ORAL ", "", strings.Repeat("o", 24), strings.Repeat("p", 24), `plan examen formato = " ORAL ", want "oral"`},
+
 		{"short part purpose", "oral", "", "oral", "", strings.Repeat("o", 23), strings.Repeat("p", 24), "plan part p1 examen needs at least 24 characters (got 23)"},
 		{"missing part purpose", "oral", "", "oral", "", "", strings.Repeat("p", 24), "plan part p1 examen needs at least 24 characters (got 0)"},
 		{"wrong practical kind", "practical", "build an app", "practical", "build a lab", strings.Repeat("o", 24), strings.Repeat("p", 24), `plan examen practica = "build a lab", want "build an app"`},
@@ -207,6 +209,25 @@ func TestExamPlanRejectsMissingMismatchedAndShortDeclarations(t *testing.T) {
 				t.Fatal("rejected exam plan changed state")
 			}
 		})
+	}
+}
+
+func TestExamPlanStillRequiresTheParetoPlan(t *testing.T) {
+	f := newExamFixture(t)
+	setExamState(t, f, "oral", "")
+	f.writePlan(t, defaultParts()...)
+	purpose := strings.Repeat("oral purpose ", 3)
+	patchPlanExam(t, f, "oral", "", map[string]string{"p1": purpose, "p2": purpose})
+	before := f.tryReadState(t)
+
+	rep, code := f.run(t, f.opts("advance", "preparation"))
+	pareto, hasPareto := hasCheck(rep, "pareto-plan")
+	exam, hasExam := hasCheck(rep, "exam-plan")
+	if code != 1 || rep.Status != "blocked" || !hasPareto || pareto.Status != "FAIL" || !hasExam || exam.Status != "PASS" {
+		t.Fatalf("preparation checks = %+v, status %q exit %d; want Pareto FAIL and exam-plan PASS", rep.Checks, rep.Status, code)
+	}
+	if !bytes.Equal(before, f.tryReadState(t)) {
+		t.Fatal("Pareto-rejected exam plan changed state")
 	}
 }
 
@@ -249,6 +270,32 @@ func TestExamPlanMustSurvivePlanningRewrite(t *testing.T) {
 	}
 	if !bytes.Equal(before, f.tryReadState(t)) {
 		t.Fatal("rejected planning rewrite changed state")
+	}
+}
+
+func TestExamPlanDoesNotBypassTheParetoPartGate(t *testing.T) {
+	f := newExamFixture(t)
+	setExamState(t, f, "oral", "")
+	purpose := strings.Repeat("oral purpose ", 3)
+	writeExamPlan(t, f, "oral", "", purpose)
+	f.advanceOK(t, "preparation")
+	f.writeDiagQuestions(t, buildDiagQuestions(6, 6, defaultParts()...))
+	f.writeDiagAnswersFor(t, defaultParts(), 2, 6)
+	f.advanceOK(t, "diagnosis")
+	f.writePlanWith(t, "Dificultades detectadas en consenso y en quórums.", []string{"d3"}, defaultParts()...)
+	f.patchPlanPareto(t, paretoBlock(), "la capacidad que rinde el 80%")
+	patchPlanExam(t, f, "oral", "", map[string]string{"p1": purpose, "p2": purpose})
+	f.advanceOK(t, "planning")
+	f.writeVitalExplanation(t, "p1", false, "Relleno.")
+	before := f.tryReadState(t)
+
+	rep, code := f.run(t, f.opts("advance", "explanation"))
+	check, ok := hasCheck(rep, "pareto-part")
+	if code != 1 || rep.Status != "blocked" || !ok || check.Status != "FAIL" {
+		t.Fatalf("exam explanation pareto-part = %+v, status %q exit %d checks %+v; want blocked/1 with Pareto failure", check, rep.Status, code, rep.Checks)
+	}
+	if !bytes.Equal(before, f.tryReadState(t)) {
+		t.Fatal("Pareto-rejected exam part changed state")
 	}
 }
 
@@ -351,6 +398,21 @@ func TestExamMockEnforcesFormatSpecificQuestionShape(t *testing.T) {
 			want: `cuestionario-final.json formato = "written", want "oral"`,
 		},
 		{
+			name: "questionnaire format is not case or whitespace folded", stateForm: "oral", fileForm: " oral ",
+			questions: []map[string]any{
+				examQuestion("f1", "mcq", "¿Qué opción describe el resultado?", "B", "", ""),
+				examQuestion("f2", "abierta", "Explica por qué funciona.", "", "", ""),
+			}, answers: map[string]string{"f1": "B", "f2": "Respuesta abierta válida."},
+			want: `cuestionario-final.json formato = " oral ", want "oral"`,
+		},
+		{
+			name: "oral accepts equality with case and whitespace around choice format", stateForm: "oral", fileForm: "oral",
+			questions: []map[string]any{
+				examQuestion("f1", " MCQ ", "¿Qué opción describe el resultado?", "B", "", ""),
+				examQuestion("f2", "abierta", "Explica por qué funciona.", "", "", ""),
+			}, answers: map[string]string{"f1": "B", "f2": "Respuesta abierta válida."},
+		},
+		{
 			name: "oral needs enough open questions", stateForm: "oral", fileForm: "oral",
 			questions: []map[string]any{
 				examQuestion("f1", "mcq", "¿Qué opción describe el resultado?", "B", "", ""),
@@ -372,6 +434,14 @@ func TestExamMockEnforcesFormatSpecificQuestionShape(t *testing.T) {
 			questions: []map[string]any{
 				examQuestion("f1", "mcq", "¿Qué opción describe el resultado?", "B", "", ""),
 				examQuestion("f2", "abierta", "Construye una aplicación.", "", "practica", "  "),
+			}, answers: map[string]string{"f1": "B", "f2": "Respuesta aplicada válida."},
+			want: `practical exam needs at least one question with tipo "practica" and a non-empty entregable`,
+		},
+		{
+			name: "practical deliverable rejects Unicode whitespace only", stateForm: "practical", practice: "build an app", fileForm: "practical",
+			questions: []map[string]any{
+				examQuestion("f1", "mcq", "¿Qué opción describe el resultado?", "B", "", ""),
+				examQuestion("f2", "abierta", "Construye una aplicación.", "", "practica", "\u2003"),
 			}, answers: map[string]string{"f1": "B", "f2": "Respuesta aplicada válida."},
 			want: `practical exam needs at least one question with tipo "practica" and a non-empty entregable`,
 		},
@@ -405,8 +475,29 @@ func TestExamMockEnforcesFormatSpecificQuestionShape(t *testing.T) {
 	}
 }
 
+func TestWrittenExamStillRequiresTheExistingMixedQuestionFormat(t *testing.T) {
+	f := examClosingFixture(t, "written", "", "written", []map[string]any{
+		examQuestion("f1", "mcq", "¿Qué opción describe el resultado?", "B", "", ""),
+	}, map[string]string{"f1": "B"})
+	before := f.tryReadState(t)
+
+	rep, code := f.run(t, f.opts("advance", "final_quiz"))
+	mock, hasMock := hasCheck(rep, "exam-mock")
+	finalQuiz, hasFinalQuiz := hasCheck(rep, "final-quiz-note")
+	if code != 1 || rep.Status != "blocked" || !hasMock || mock.Status != "PASS" || !hasFinalQuiz || finalQuiz.Status != "FAIL" || !strings.Contains(finalQuiz.Reason, "both choice and open questions") {
+		t.Fatalf("written final quiz checks = %+v, status %q exit %d; want exam-mock PASS and existing mixed-format failure", rep.Checks, rep.Status, code)
+	}
+	if !bytes.Equal(before, f.tryReadState(t)) {
+		t.Fatal("written exam without the question mix changed state")
+	}
+}
+
 func TestExamPlanSkipsForRunsWithoutExamIncludingLegacyState(t *testing.T) {
 	f := newExamFixture(t)
+	legacy := f.state(t)
+	delete(legacy, "scope")
+	delete(legacy, "exam")
+	f.writeJSON(t, ".learning/state.json", legacy)
 	f.writePlan(t, defaultParts()...)
 	preparation := f.advanceOK(t, "preparation")
 	if check, ok := hasCheck(preparation, "exam-plan"); !ok || check.Status != "SKIP" {
@@ -424,6 +515,9 @@ func TestExamPlanSkipsForRunsWithoutExamIncludingLegacyState(t *testing.T) {
 	if _, ok := state["exam"]; ok {
 		t.Fatalf("legacy-shaped state unexpectedly gained exam: %v", state["exam"])
 	}
+	if _, ok := state["scope"]; ok {
+		t.Fatalf("legacy-shaped state unexpectedly gained scope: %v", state["scope"])
+	}
 	rep := f.statusExpect(t, "accepted")
 	encoded, err := json.Marshal(rep)
 	if err != nil {
@@ -435,6 +529,9 @@ func TestExamPlanSkipsForRunsWithoutExamIncludingLegacyState(t *testing.T) {
 	}
 	if _, ok := report["exam"]; ok {
 		t.Fatalf("status for a legacy state reports an exam: %v", report["exam"])
+	}
+	if report["scope"] != "complete" {
+		t.Fatalf("status for a legacy state reports scope %v, want complete", report["scope"])
 	}
 }
 
