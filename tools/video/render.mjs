@@ -87,14 +87,10 @@ async function main() {
   await mkdir(work, { recursive: true });
   await writeFile(join(work, "plan.json"), JSON.stringify(plan, null, 1));
   const captions = sliceCues(plan.cues, from, to);
-  // The craft gate measures the same plan the frames will follow, so a part
-  // nobody can read never becomes a file.
-  if (args.craft) {
-    const stopCraft = timings.time("legibility");
-    const gate = spawnSync(process.execPath, [join(HERE, "legibility.mjs"), "--plan", join(work, "plan.json")], { stdio: "inherit" });
-    stopCraft();
-    if (gate.status !== 0) throw new Error(`the craft gate refused this part (exit ${gate.status})`);
-  }
+  // The craft gate measures the same plan the frames will follow, so a part nobody
+  // can read never becomes a file. It is started here, at the head of the render,
+  // because it does not have to decide before the frames exist (see startGate).
+  const gate = args.craft ? startGate(work) : null;
   console.log(`${plan.part} · ${plan.beats.length} beats · ${captions.length} cues · ${fmt(plan.total)}`);
 
   const playwright = await loadPlaywright([ROOT]);
@@ -104,17 +100,26 @@ async function main() {
   let summary = null;
   try {
     if (args.stills) {
+      // Stills are a deliverable and there is no long capture to run the gate
+      // beside: the verdict comes first, as it always has.
+      await gate?.check();
       const stopStills = timings.time("stills");
       const written = await stills(stage.page, join(work, "stills"));
       stopStills({ frames: written });
     }
     if (args.video) {
+      // Frames that go straight into the film's own encoder have nothing to hide
+      // the gate behind, so that legacy path waits for it before it starts.
+      if (args["single-pass"]) await gate?.check();
       // Every page takes its frames through its own CDP session: the capture
       // path is set up once, beside the page that owns it, not per frame.
       const workers = await Promise.all(stage.pages.map(async (page) => ({ page, capture: await frameGrabber(page) })));
-      summary = await video(workers, plan, beats, resolve(args.video), work);
+      summary = await video(workers, plan, beats, resolve(args.video), work, gate);
     }
   } finally {
+    // A render that gives up before asking for the verdict must not leave a
+    // Chromium of its own running behind it.
+    gate?.kill();
     await stage.close();
   }
   // The SRT is a deliverable, so it is written only once the work it describes
@@ -159,13 +164,82 @@ async function stills(page, dir) {
   return written;
 }
 
+// The craft gate, as a job rather than a step. It keeps its own process, because
+// that is what makes the verdict the renderer acts on the verdict anyone can get by
+// running `legibility.mjs --plan plan.json` themselves: same script, same argument,
+// same exit code, same counts. What changes is when the render waits for it.
+//
+// The gate draws its own instants — one sample per second for the hole rule, every
+// state a beat paints — and reads the plan, not the frames, so nothing it does
+// depends on the capture having run. Making the capture wait for it is waiting for
+// work that can happen beside it, and on a part of 300 s that wait is measured in
+// minutes: the gate samples one frame per second while the frame loop draws thirty.
+//
+// Its verdict is awaited before anything is published, so the order of the output
+// does not change: a part the gate refuses leaves no film, no captions and no
+// report, whether it refused at the first second or at the last.
+function startGate(work) {
+  const opened = timings.now();
+  const child = spawn(process.execPath, [join(HERE, "legibility.mjs"), "--plan", join(work, "plan.json")], { stdio: "inherit" });
+  const closed = once(child, "close").then(([code, signal]) => ({ code, signal, ms: timings.now() - opened }));
+  // A render can fail before it asks for the verdict; the gate's answer must not
+  // then be a rejected promise nobody handles.
+  closed.catch(() => {});
+  let asked = null;
+  return {
+    // Ask once. A run that draws stills and a film asks twice and gets the first
+    // answer twice, and the report carries one gate, not two.
+    check(context = {}) {
+      asked ??= closed.then((verdict) => {
+        // Where the gate sat against the capture, in the report the render already
+        // writes: "the gate no longer blocks the render" is a measurement here, not
+        // a claim. `overlaps` names the stage it shared its clock with; `waited_ms` is
+        // what the render actually stood still for, and 0 is a gate that was hidden
+        // by work that had to happen anyway.
+        const askedAt = timings.now();
+        const capture = context.capture;
+        const overlap = capture
+          ? Math.round(Math.min(opened + verdict.ms, capture.at + capture.ms) - Math.max(opened, capture.at))
+          : 0;
+        timings.observe("legibility", verdict.ms, {
+          at: opened,
+          exit: verdict.code,
+          overlaps: overlap > 0 ? "capture" : null,
+          overlap_ms: Math.max(0, overlap),
+          waited_ms: Math.max(0, Math.round(opened + verdict.ms - askedAt)),
+        });
+        if (verdict.signal) throw new Error(`the craft gate was killed by ${verdict.signal}, so this part has no verdict`);
+        if (verdict.code !== 0) throw new Error(refused(verdict.code, context));
+        return verdict;
+      });
+      return asked;
+    },
+    // The render gave up before the verdict: nothing will read what the gate says,
+    // and a Chromium of its own outliving the process that started it is a leak.
+    kill() {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    },
+  };
+}
+
+// A refusal that arrives after the capture is honest about what it cost: the frames
+// were drawn, they are in the cache under what draws them, and the film is not
+// written. Saying nothing would make the wasted minute look like a fast render.
+function refused(code, context) {
+  const frames = Number(context.frames) || 0;
+  const spent = frames && context.capture
+    ? `; ${frames} frame(s) had already been captured (${Math.round(context.capture.ms)} ms of capture, left in the segment cache under the key of what draws them)`
+    : "";
+  return `the craft gate refused this part (exit ${code})${spent}`;
+}
+
 // The film is made of segments — one per beat, on frame boundaries — each
 // captured and encoded on its own and joined with `stream copy`. A render after
 // an edit therefore captures and encodes the beats that changed and serves the
 // rest from the cache, which is keyed by what a segment's frames are made of (see
 // lib/segments.mjs). `--single-pass` is the path this replaces, kept because the
 // quality gate has to compare against the film it protects.
-async function video(workers, plan, beats, out, work) {
+async function video(workers, plan, beats, out, work, gate) {
   if (args["single-pass"]) return singlePass(workers, plan, beats, out);
   const fps = plan.fps;
   const from = Number(args.from || 0);
@@ -180,6 +254,9 @@ async function video(workers, plan, beats, out, work) {
   const segments = planSegments(plan, { from, to, fps });
   const keys = segments.map((segment) => segmentIdentity({ plan, segment, beats, drawing, fps, size: VIEWPORT, encoder }).key);
   const stopSegments = timings.time("segments");
+  // Where the capture really begins, for the report: a gate that ran beside it is
+  // placed against this instant, not against the end of the encode tail.
+  const captureOpened = timings.now();
   const done = { captureMs: 0, encodeMs: 0, frames: 0, hits: 0, misses: 0 };
   for (let i = 0; i < segments.length; i++) {
     if (cache.hit(keys[i])) {
@@ -207,11 +284,18 @@ async function video(workers, plan, beats, out, work) {
   stopSegments({ segments: segments.length, hits: done.hits, misses: done.misses, frames });
   const capturedMs = Math.max(done.captureMs, 0.001);
   timings.observe("capture", capturedMs, {
+    at: captureOpened,
     frames: done.frames,
     fps: Math.round((done.frames / (capturedMs / 1000)) * 10) / 10,
     workers: workers.length,
   });
-  timings.observe("encode", done.encodeMs, { segments: done.misses, overlaps: "capture" });
+  timings.observe("encode", done.encodeMs, { at: captureOpened, segments: done.misses, overlaps: "capture" });
+
+  // Nothing is published before the gate has spoken: the verdict is authority, and
+  // it arrives when it arrives. The frames captured while it was deciding are not
+  // lost — they are in the cache, filed under what draws them — but the film they
+  // belong to is not written, and the refusal says how much work it cost.
+  await gate?.check({ capture: { at: captureOpened, ms: capturedMs }, frames: done.frames });
 
   // The audio is encoded once for the whole window and muxed at the end: a
   // per-segment audio encode would re-encode the same samples at every cut and put

@@ -39,9 +39,12 @@ node tools/video/render.mjs \
   --video tools/video/.cache/parte3/final.mp4
 ```
 
-`--craft` runs the craft gate before any frame is captured, so a part that is
-not readable produces no file. `--stills 12.5,90` writes PNG stills instead of a
-video (fast visual checks).`--from 100 --to 120` renders a slice. `--workers N`
+`--craft` runs the craft gate beside the capture and waits for its verdict before
+anything is published, so a part that is not readable still produces no file — it
+just no longer makes the frames wait for the answer. `--stills 12.5,90` writes PNG
+stills instead of a video (fast visual checks); a stills run has no long capture to
+hide the gate behind, so it draws the verdict first.`--from 100 --to 120` renders a
+slice. `--workers N`
 sets how many pages capture at once (default: half the cores, at most 4;
 `--workers 1` is the sequential loop). `--remote synchub:<dir>` fetches missing
 narration; on the VPS the audio cache is already local and no `--remote` is
@@ -420,20 +423,30 @@ and it is reported in the order it ran:
  "cache": { "drawing": "9f2c…", "segments": 22, "hits": 20, "misses": 2, "dir": "tools/video/.cache/render/cache" },
  "total_ms": 1696.43,
  "stages": [
-  { "stage": "promises", "ms": 1.17 },
-  { "stage": "audio", "ms": 198.224 },
-  { "stage": "legibility", "ms": 858.373 },
-  { "stage": "segments", "ms": 609.272, "segments": 22, "hits": 20, "misses": 2, "frames": 7544 },
-  { "stage": "capture", "ms": 609.272, "frames": 686, "fps": 19.7, "workers": 4 },
-  { "stage": "encode", "ms": 1077.219, "segments": 2, "overlaps": "capture" },
-  { "stage": "mux", "ms": 214.55, "segments": 22 }
+  { "stage": "promises", "at": 0.1, "ms": 1.17 },
+  { "stage": "audio", "at": 1.3, "ms": 198.224 },
+  { "stage": "legibility", "at": 199.5, "ms": 858.373, "exit": 0, "overlaps": "capture", "overlap_ms": 609.2, "waited_ms": 0 },
+  { "stage": "segments", "at": 240.4, "ms": 609.272, "segments": 22, "hits": 20, "misses": 2, "frames": 7544 },
+  { "stage": "capture", "at": 240.4, "ms": 609.272, "frames": 686, "fps": 19.7, "workers": 4 },
+  { "stage": "encode", "at": 240.4, "ms": 1077.219, "segments": 2, "overlaps": "capture" },
+  { "stage": "mux", "at": 1290.5, "ms": 214.55, "segments": 22 }
  ]
 }
 ```
 
+Every record carries `at`, the millisecond it began, so two records whose windows
+overlap are two stages that shared the wall clock instead of two that happened one
+after the other. That is what makes `legibility` readable as a gate the render did
+not wait for.
+
 - `promises` — the promise audit over the whole part.
 - `audio` — the narration cache plus one `ffprobe` per beat.
-- `legibility` — only with `--craft`: the gate's own run, before any frame.
+- `legibility` — only with `--craft`: the gate's own run, with `exit` its verdict.
+  It is reported where its verdict was read, so its `at` is the head of the render
+  and not the row above it: `overlaps` names the stage it shared its clock with and
+  `overlap_ms` is that intersection, while `waited_ms` is what the render actually
+  stood still for. `waited_ms: 0` is a gate that was entirely hidden; a stills run
+  shows the gate's whole duration there, because nothing can hide it.
 - `stills` — every `--stills` render, with the frames it wrote.
 - `segments` — the cache: how many segments the window is cut into, how many were
   served from disk, how many had to be captured, and the frames they cover.
@@ -458,9 +471,54 @@ starts at, which is where the cross-fade freeze is anchored — because two repo
 that disagree on it are not the same film and cannot be compared frame by frame.
 
 A run that does not finish writes no report: numbers that describe a render that
-never happened are a claim nobody can check. The report only observes — it wraps
-the pipeline, never reorders it — so the frames, the gate verdicts and the
-encoder flags are the same with it as without it.
+never happened are a claim nobody can check. The report observes the pipeline and
+never reorders it — `at` only says where each stage began — so the frames, the gate
+verdicts and the encoder flags are the same with the report as without it.
+
+## The craft gate does not wait for the frames, and the frames do not wait for it
+
+The gate reads the plan, not the pixels: to decide whether a part is readable it
+seeks the instants a beat settles on and samples one still per second for the hole
+rule. It draws nothing the frame loop can hand it — the loop draws thirty frames per
+second, the gate samples one, and it keeps its clamp on the figure rather than the
+whole frame, so a frame from the loop is not a frame the gate would have taken.
+Waiting for it is waiting for work that can happen beside the capture.
+
+So `--craft` starts the gate as a child process at the head of the render and lets
+the capture run: same script, same `--plan`, same exit code, same counts as running
+`legibility.mjs` by hand. The verdict is awaited before the join, which is before
+any deliverable is written, so the order of the output is untouched — a part the
+gate refuses leaves no film, no `final.srt` and no `timings.json`. What changes is
+the wait: the gate's own duration comes off the critical path whenever it is shorter
+than the capture, which on a cold render of a real part it is. A warm render
+captures nothing, so there the gate *is* the critical path — it was before this
+change too, and that is the price of not caching a verdict.
+
+On the 5 s two-beat fixture, a 4 s window, cold cache, three interleaved pairs from
+`timings.json` plus the gate's own wall clock:
+
+| run | total | gate | hidden by the capture |
+| --- | --- | --- | --- |
+| gate first, then capture (before) | 6 123 / 7 693 / 8 161 ms | 1 142 / 1 291 / 1 326 ms | — |
+| gate beside capture | 5 147 / 7 107 / 6 289 ms | 1 295 / 1 545 / 1 434 ms | 528 / 596 / 567 ms, then `waited_ms: 0` |
+
+The saving is the gate's own run: **~1.1 s of ~7.3 s, 16 % of the wall clock** on
+this window, and it scales with the part rather than with the window — the gate
+samples one frame per second where the loop draws thirty, and on a 300 s part the
+gate measures ~114 s against a capture of minutes. `overlap_ms` counts only the part
+the gate shared with the capture; the rest of it ran beside the browser boot, which
+is why `waited_ms` — the number that matters — is 0 while `overlap_ms` is ~550.
+
+Two costs are declared rather than hidden. A refusal that arrives after the capture
+has already drawn frames throws that work away, and the render says so: `the craft
+gate refused this part (exit 1); 54 frame(s) had already been captured (…ms of
+capture, left in the segment cache under the key of what draws them)`. The frames
+are not deleted — a cache entry is keyed by what draws it, so a fix that changes the
+drawing invalidates the beats it touches and leaves the rest reusable — but the film
+they belong to is not written. And the gate now runs beside a capture that is
+already using several Chromium renderers, so the two contend for the CPU: on a loaded
+machine the capture absorbs part of what the overlap gives back, which is why the
+saving is 16 % and not the gate's full share of the run.
 
 ## Delivery
 

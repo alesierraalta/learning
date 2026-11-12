@@ -19,9 +19,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { copiedEngine } from "./fixtures/engine.mjs";
 
 const REPO = new URL("../../..", import.meta.url).pathname;
 const CLI = join(REPO, "tools/video/render.mjs");
@@ -148,17 +149,9 @@ test("the cut changes neither the frames nor their order", () => {
   assert.deepEqual(joined, frameHashes(join(whole, "out.mp4")), "the concatenated film is not the one-pass film frame by frame: the cut dropped, repeated or reordered a frame");
 });
 
-// A copy of the engine, so the test can change the code that draws without
-// touching the repository it is running in. The paths inside the copy are the
-// real ones: `render.mjs` resolves the repo from its own location, and the stage
-// it serves is the copy's stage.
-function copiedEngine() {
-  const root = mkdtempSync(join(tmpdir(), "video-engine-"));
-  for (const rel of ["tools/video/src", "tools/video/lib", "integrations/pi/kit"]) cpSync(join(REPO, rel), join(root, rel), { recursive: true });
-  for (const rel of ["tools/video/render.mjs", "tools/video/audit.mjs", "tools/video/migrate.mjs"]) cpSync(join(REPO, rel), join(root, rel));
-  return root;
-}
-
+// A change to the code that draws a frame invalidates every cached segment. The
+// engine runs from a copy, so the test can change the drawing without touching the
+// repository it is running in.
 test("a change to the code that draws a frame invalidates every cached segment", () => {
   const root = copiedEngine();
   const f = part();

@@ -14,17 +14,27 @@ export function createTimings() {
   // not the sum of the stages the report happens to name.
   const origin = performance.now();
   const stages = [];
+  const elapsed = () => round(performance.now() - origin);
   return {
+    // Where the run is now, in the report's own units. A stage that runs beside
+    // another one is placed by when it started, not by when it was reported: two
+    // records whose windows overlap are two stages that shared the wall clock.
+    now: elapsed,
     // Opens a stage and returns the function that closes it. Stages are reported
     // in the order they ran, which is the order the pipeline runs them.
     time(name) {
       const opened = performance.now();
-      return (extra = {}) => stages.push({ stage: name, ms: round(performance.now() - opened), ...extra });
+      const at = round(opened - origin);
+      return (extra = {}) => stages.push({ stage: name, at, ms: round(performance.now() - opened), ...extra });
     },
     // A stage that measured itself (a child process, a capture loop whose rate is
-    // part of the number): the duration and the fields come from the caller.
+    // part of the number): the duration and the fields come from the caller. `at`
+    // is where the stage began when the caller knows it and the stage does not end
+    // where it is reported — a gate that runs beside the capture is written down
+    // when its verdict is read, which is not when it started.
     observe(name, ms, extra = {}) {
-      stages.push({ stage: name, ms: round(Math.max(0, ms)), ...extra });
+      const { at = round(performance.now() - origin - ms), ...fields } = extra;
+      stages.push({ stage: name, at: round(Math.max(0, at)), ms: round(Math.max(0, ms)), ...fields });
     },
     // What was rendered, with which numbers, and what each stage cost.
     report(meta) {
