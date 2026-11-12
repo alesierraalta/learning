@@ -185,10 +185,70 @@
     txt(x, y, kind === "no" ? "✗" : "✓", { size, color, bold: true });
 
   // Objetos dibujados: lo que se mueve o cambia es el objeto, no una caja con su nombre.
+  //
+  // Los personajes de una historia (#245) son estos mismos dibujos: un cilindro de
+  // base de datos, una fila de tabla, una sesión, un candado, un usuario, un
+  // servidor, un proceso, un archivo, un paquete de red y el robot. Trazo fino y
+  // dos o tres formas por personaje: se leen a 14 px y no dependen del color.
+  const ALIAS = { user: "person", file: "doc" };
   const icon = (kind, cx, cy, size = 64, { stroke = C.ink, fill = "#ffffff" } = {}) => {
     const s = size;
     const sw = Math.max(2, s * 0.045);
     const st = `fill="none" stroke="${stroke}" stroke-width="${f(sw)}" stroke-linecap="round" stroke-linejoin="round"`;
+    kind = ALIAS[kind] || kind;
+    if (kind === "database") {
+      // Un cilindro: la tapa, el cuerpo y la base. Es el disco y es la base de datos.
+      const rx = s * 0.34, ry = s * 0.12, top = cy - s * 0.3, bottom = cy + s * 0.3;
+      return `<path d="M ${f(cx - rx)} ${f(top)} V ${f(bottom)} A ${f(rx)} ${f(ry)} 0 0 0 ${f(cx + rx)} ${f(bottom)} V ${f(top)} Z" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}" stroke-linejoin="round"/>`
+        + `<ellipse cx="${f(cx)}" cy="${f(top)}" rx="${f(rx)}" ry="${f(ry)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<path d="M ${f(cx - rx)} ${f(cy)} A ${f(rx)} ${f(ry)} 0 0 0 ${f(cx + rx)} ${f(cy)}" ${st}/>`;
+    }
+    if (kind === "row") {
+      // Una fila de tabla: la banda, sus celdas y la celda que importa.
+      const w = s * 0.92, h = s * 0.46, x = cx - w / 2, y = cy - h / 2;
+      return `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" rx="${f(s * 0.06)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<path d="M ${f(x + w * 0.34)} ${f(y)} V ${f(y + h)}" ${st}/>`
+        + `<path d="M ${f(x + w * 0.68)} ${f(y)} V ${f(y + h)}" ${st}/>`
+        + `<rect x="${f(x + w * 0.36)}" y="${f(y + h * 0.28)}" width="${f(w * 0.28)}" height="${f(h * 0.44)}" rx="${f(s * 0.03)}" fill="${stroke}"/>`;
+    }
+    if (kind === "session") {
+      // Una sesión: una ventana con su barra, el indicador y el cursor.
+      const w = s * 0.88, h = s * 0.68, x = cx - w / 2, y = cy - h / 2;
+      return `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" rx="${f(s * 0.08)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<path d="M ${f(x)} ${f(y + h * 0.28)} H ${f(x + w)}" ${st}/>`
+        + `<path d="M ${f(x + w * 0.22)} ${f(y + h * 0.5)} L ${f(x + w * 0.38)} ${f(y + h * 0.64)} L ${f(x + w * 0.22)} ${f(y + h * 0.78)}" ${st}/>`
+        + `<path d="M ${f(x + w * 0.5)} ${f(y + h * 0.78)} H ${f(x + w * 0.76)}" fill="none" stroke="${stroke}" stroke-width="${f(sw * 1.5)}" stroke-linecap="round"/>`;
+    }
+    if (kind === "lock") {
+      // Un candado: el arco, el cuerpo y la cerradura.
+      const w = s * 0.62, h = s * 0.5, x = cx - w / 2, y = cy - s * 0.02;
+      return `<path d="M ${f(cx - w * 0.28)} ${f(y)} V ${f(cy - s * 0.24)} A ${f(w * 0.28)} ${f(s * 0.2)} 0 0 1 ${f(cx + w * 0.28)} ${f(cy - s * 0.24)} V ${f(y)}" ${st}/>`
+        + `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" rx="${f(s * 0.08)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<circle cx="${f(cx)}" cy="${f(y + h * 0.42)}" r="${f(s * 0.06)}" fill="${stroke}"/>`
+        + `<path d="M ${f(cx)} ${f(y + h * 0.52)} V ${f(y + h * 0.76)}" fill="none" stroke="${stroke}" stroke-width="${f(sw * 1.2)}" stroke-linecap="round"/>`;
+    }
+    if (kind === "server") {
+      // Un servidor: el bastidor con sus tres bandejas y su luz.
+      const w = s * 0.7, h = s * 0.26, x = cx - w / 2;
+      return [0, 1, 2].map((i) => {
+        const y = cy - s * 0.36 + i * (h + s * 0.06);
+        return `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" rx="${f(s * 0.04)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+          + `<circle cx="${f(x + w * 0.82)}" cy="${f(y + h / 2)}" r="${f(s * 0.035)}" fill="${stroke}"/>`;
+      }).join("");
+    }
+    if (kind === "process") {
+      // Un proceso: su bloque y el ciclo que lo mueve.
+      const w = s * 0.72, h = s * 0.72, x = cx - w / 2, y = cy - h / 2, r = s * 0.2;
+      return `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" rx="${f(s * 0.1)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<path d="M ${f(cx + r)} ${f(cy)} A ${f(r)} ${f(r)} 0 1 1 ${f(cx)} ${f(cy - r)}" ${st}/>`
+        + `<path d="M ${f(cx + r * 0.62)} ${f(cy - r * 0.78)} L ${f(cx)} ${f(cy - r)} L ${f(cx + r * 0.5)} ${f(cy - r * 1.5)}" ${st}/>`;
+    }
+    if (kind === "packet") {
+      // Un paquete de red: el sobre y su solapa.
+      const w = s * 0.84, h = s * 0.56, x = cx - w / 2, y = cy - h / 2;
+      return `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" rx="${f(s * 0.05)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<path d="M ${f(x)} ${f(y)} L ${f(cx)} ${f(y + h * 0.55)} L ${f(x + w)} ${f(y)}" ${st}/>`;
+    }
     if (kind === "robot") {
       return `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(s * 0.5)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
         + `<circle cx="${f(cx)}" cy="${f(cy - s * 0.08)}" r="${f(s * 0.13)}" fill="${stroke}"/>`

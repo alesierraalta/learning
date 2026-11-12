@@ -539,7 +539,8 @@ tutor correct the part before the learner reads it. The numbers live in
 {"maxProseWords": 450, "maxContentSections": 2, "minRutaLines": 3,
  "maxRutaLines": 4, "maxScenes": 1, "maxWalkthroughs": 1,
  "minScenes": 1, "maxSentencesPerParagraph": 2, "formulaElement": "lk-math",
- "formulaWalkthrough": true, "storyLanguage": true}
+ "formulaWalkthrough": true, "storyLanguage": true, "storyHeader": true,
+ "storyStage": true, "actorCharacter": true, "sceneStage": true}
 ```
 
 The block also turns on the standard's non-numeric rules, and the check is
@@ -633,6 +634,25 @@ checks). What it measures, and how:
   texto — dibuja la acción: actors, props, moves, …, o una pieza: `<lk-cards>`,
   `<lk-memory>`, `<lk-tables>`, `<lk-venn>`». The tutor's tool mirrors the rule
   as `escenario-de-cajas`, and a test cross-checks both verdicts.
+- **Actor character.** `actorCharacter` turns on the actor-character rule
+  (#245): an actor is a character drawn with `kind` — `database`, `row`,
+  `session`, `lock`, `user`, `server`, `process`, `file`, `packet`, `robot` — and
+  a story whose actors are all boxes, when the name of one asks for a character
+  («Cuenta 10» is a row, «Memoria de sesión» is a session), is refused. The
+  refusal names the actor, the character that fits and the ones the kit draws:
+  «los actores de «X» son cajas con su nombre — «Cuenta 10» es un row: dibújalo
+  con `kind` («row») y su nombre en `tag`; los personajes son database, row,
+  session, lock, user, server, process, file, packet, robot». The tutor's tool
+  mirrors the rule as `actor-sin-personaje`, and a test cross-checks both
+  verdicts on the part the learner refused.
+- **Still scene.** `sceneStage` holds a `<lk-scene>` to the same bar as a story
+  stage: a scene that only draws boxes with text and arrows — no actor, prop,
+  icon, node, grid, sheet, bar, formula, curve, path, dashed region, badge,
+  callout, policy or tag — is refused. The refusal names the scene and the fix:
+  «la escena quieta «X» solo dibuja cajas con su texto y flechas — dibuja el
+  personaje (<lk-scene> con `actors` y `kind`) o usa la pieza que le toca:
+  <lk-memory>, <lk-tables>, <lk-venn>, <lk-cards>». The tutor's tool mirrors it
+  as `escenario-de-cajas` (the same row that measures the story stage).
 - **Story language.** `storyLanguage` turns on the story-language rule: a part
   draws its step-by-step visual with `<lk-story>` (the deck of actors with
   state, moves and marks) or with a piece (`<lk-cards>`, `<lk-memory>`,

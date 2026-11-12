@@ -34,24 +34,20 @@ El calificador `%TYPE` vincula el tipo de la variable a una columna de la tabla 
 
 Las sentencias DML modifican datos en el buffer de sesión antes de confirmarse. Cada fila afectada queda protegida por un bloqueo exclusivo de transacción.
 
-<lk-scene>
+<lk-memory>
 <script type="application/json">
-{"viewBox":"0 0 720 300","title":"Arquitectura de memoria en un bloque PL/SQL","caption":"La sesión en memoria ejecuta el bloque procedural y retiene los cambios antes de confirmarlos en disco.","scene":{
-  "boxes":[
-    {"x":40,"y":40,"w":280,"h":180,"label":"Memoria de sesión","sub":"v_saldo: 1000","size":20,"subSize":16,"tone":"blue"},
-    {"x":400,"y":40,"w":280,"h":180,"label":"Base de datos","sub":"cuentas en disco","size":20,"subSize":16,"tone":"green"}
-  ],
-  "arrows":[
-    {"x1":324,"y1":130,"x2":396,"y2":130,"tone":"blue","width":3,"label":"DML","labelSize":16}
-  ],
-  "labels":[
-    {"x":360,"y":270,"text":"Bloqueo exclusivo de fila (TX lock)","anchor":"middle","size":16,"tone":"amber"}
-  ]
-}}
+{"title":"La sesión y el disco","caption":"El bloque escribe en el buffer de la sesión y COMMIT lo graba en disco.","columns":[{"id":"s","label":"SESIÓN"},{"id":"d","label":"DISCO"}],"steps":[
+ {"code":"v_saldo := 1000","rows":[
+  {"s":{"id":"v1","name":"v_saldo","cells":["1000"],"tone":"blue"},"d":{"id":"f1","name":"cuentas","cells":["1000"],"tone":"slate"}}]},
+ {"code":"UPDATE cuentas SET saldo = 800 WHERE id = 10","rows":[
+  {"s":{"id":"b2","name":"buffer","cells":["800"],"tone":"amber"},"d":{"id":"l2","name":"fila 10","pill":{"text":"TX","tone":"red"},"cells":["1000"],"tone":"red"}}]},
+ {"code":"COMMIT","rows":[
+  {"s":{"id":"v3","name":"v_saldo","cells":["1000"],"tone":"blue"},"d":{"id":"f3","name":"cuentas","pill":{"text":"grabado","tone":"green"},"cells":["800"],"tone":"green"}}]}
+]}
 </script>
-</lk-scene>
+</lk-memory>
 
-Cómo leerlo: la caja izquierda es la memoria de sesión con la variable tipada. La caja derecha es el disco, con las filas bloqueadas mientras la transacción sigue abierta.
+Cómo leerlo: la columna izquierda es la sesión con su variable tipada y su buffer. La columna derecha es el disco, y el paso del COMMIT es el único que lo cambia.
 
 ## Control transaccional fino: SAVEPOINT, reversión parcial y confirmación
 
@@ -77,7 +73,7 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
 {
  "kind": "derivation",
  "title": "Ciclo transaccional con SAVEPOINT y ROLLBACK TO",
- "viewBox": "0 0 360 240",
+ "viewBox": "0 0 360 260",
  "steps": [
   {
    "title": "Estado inicial",
@@ -111,25 +107,23 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "actors": [
       {
        "id": "c10",
-       "x": 20,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 90,
+       "y": 120,
        "label": "Cuenta 10",
-       "size": 16,
        "tone": "slate",
-       "tag": "saldo 1000"
+       "tag": "Cuenta 10",
+       "kind": "row",
+       "size": 64
       },
       {
        "id": "c20",
-       "x": 220,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 270,
+       "y": 120,
        "label": "Cuenta 20",
-       "size": 16,
        "tone": "slate",
-       "tag": "saldo 1000"
+       "tag": "Cuenta 20",
+       "kind": "row",
+       "size": 64
       }
      ],
      "props": [
@@ -185,25 +179,24 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "actors": [
       {
        "id": "c10",
-       "x": 20,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 90,
+       "y": 120,
        "label": "Cuenta 10",
-       "size": 16,
        "tone": "blue",
-       "tag": "bloqueo TX"
+       "tag": "Cuenta 10",
+       "kind": "row",
+       "size": 64,
+       "state": "locked"
       },
       {
        "id": "c20",
-       "x": 220,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 270,
+       "y": 120,
        "label": "Cuenta 20",
-       "size": 16,
        "tone": "slate",
-       "tag": "saldo 1000"
+       "tag": "Cuenta 20",
+       "kind": "row",
+       "size": 64
       }
      ],
      "props": [
@@ -227,8 +220,10 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "marks": [
       {
        "kind": "ok",
-       "actor": "saldo10",
-       "label": "debitado"
+       "label": "debitado",
+       "actors": [
+        "saldo10"
+       ]
       }
      ]
     }
@@ -262,25 +257,24 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "actors": [
       {
        "id": "c10",
-       "x": 20,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 90,
+       "y": 120,
        "label": "Cuenta 10",
-       "size": 16,
        "tone": "blue",
-       "tag": "bloqueo TX"
+       "tag": "Cuenta 10",
+       "kind": "row",
+       "size": 64,
+       "state": "locked"
       },
       {
        "id": "c20",
-       "x": 220,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 270,
+       "y": 120,
        "label": "Cuenta 20",
-       "size": 16,
        "tone": "slate",
-       "tag": "saldo 1000"
+       "tag": "Cuenta 20",
+       "kind": "row",
+       "size": 64
       }
      ],
      "props": [
@@ -304,8 +298,10 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "marks": [
       {
        "kind": "ok",
-       "actor": "saldo10",
-       "label": "marcador"
+       "label": "marcador",
+       "actors": [
+        "saldo10"
+       ]
       }
      ]
     }
@@ -343,25 +339,25 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "actors": [
       {
        "id": "c10",
-       "x": 20,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 90,
+       "y": 120,
        "label": "Cuenta 10",
-       "size": 16,
        "tone": "blue",
-       "tag": "bloqueo TX"
+       "tag": "Cuenta 10",
+       "kind": "row",
+       "size": 64,
+       "state": "locked"
       },
       {
        "id": "c20",
-       "x": 220,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 270,
+       "y": 120,
        "label": "Cuenta 20",
-       "size": 16,
        "tone": "amber",
-       "tag": "bloqueo TX"
+       "tag": "Cuenta 20",
+       "kind": "row",
+       "size": 64,
+       "state": "locked"
       }
      ],
      "props": [
@@ -393,8 +389,10 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "marks": [
       {
        "kind": "ok",
-       "actor": "saldo20",
-       "label": "acreditado"
+       "label": "acreditado",
+       "actors": [
+        "saldo20"
+       ]
       }
      ]
     }
@@ -428,25 +426,24 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "actors": [
       {
        "id": "c10",
-       "x": 20,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 90,
+       "y": 120,
        "label": "Cuenta 10",
-       "size": 16,
        "tone": "blue",
-       "tag": "bloqueo TX"
+       "tag": "Cuenta 10",
+       "kind": "row",
+       "size": 64,
+       "state": "locked"
       },
       {
        "id": "c20",
-       "x": 220,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 270,
+       "y": 120,
        "label": "Cuenta 20",
-       "size": 16,
        "tone": "slate",
-       "tag": "saldo 1000"
+       "tag": "Cuenta 20",
+       "kind": "row",
+       "size": 64
       }
      ],
      "props": [
@@ -470,8 +467,10 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "marks": [
       {
        "kind": "no",
-       "actor": "saldo20",
-       "label": "anulado"
+       "label": "anulado",
+       "actors": [
+        "saldo20"
+       ]
       }
      ]
     }
@@ -501,25 +500,23 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "actors": [
       {
        "id": "c10",
-       "x": 20,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 90,
+       "y": 120,
        "label": "Cuenta 10",
-       "size": 16,
        "tone": "green",
-       "tag": "saldo fijo"
+       "tag": "Cuenta 10",
+       "kind": "row",
+       "size": 64
       },
       {
        "id": "c20",
-       "x": 220,
-       "y": 60,
-       "w": 120,
-       "h": 60,
+       "x": 270,
+       "y": 120,
        "label": "Cuenta 20",
-       "size": 16,
        "tone": "green",
-       "tag": "saldo fijo"
+       "tag": "Cuenta 20",
+       "kind": "row",
+       "size": 64
       }
      ],
      "props": [

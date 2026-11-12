@@ -57,7 +57,7 @@ func standardFrontierOn(t *testing.T, rulesPath string) *fixture {
 // "Cómo leerlo" line for it.
 const standardScene = `<lk-scene>
 <script type="application/json">
-{"viewBox":"0 0 760 200","title":"El mismo robot, dos horizontes","caption":"La misma decisión se juzga distinto según dónde pongas el final de la cuenta.","scene":{"boxes":[{"x":88,"y":24,"w":212,"h":100,"label":"aspiro ahora","tone":"amber","size":22}],"arrows":[{"x1":304,"y1":74,"x2":456,"y2":74,"label":"la hora decide","tone":"slate","width":3}]}}
+{"viewBox":"0 0 760 200","title":"El mismo robot, dos horizontes","caption":"La misma decisión se juzga distinto según dónde pongas el final de la cuenta.","scene":{"boxes":[{"x":88,"y":24,"w":212,"h":100,"label":"aspiro ahora","tone":"amber","size":22}],"arrows":[{"x1":304,"y1":74,"x2":456,"y2":74,"label":"la hora decide","tone":"slate","width":3}],"icons":[{"kind":"robot","x":520,"y":74,"size":72,"tone":"blue"}]}}
 </script>
 </lk-scene>`
 
@@ -68,9 +68,9 @@ const standardScene = `<lk-scene>
 const fixtureStory = `<lk-story>
 <script type="application/json">
 {"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
- {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"}]}}},
- {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"},{"id":"u","x":110,"y":80,"w":140,"h":56,"label":"arriba","tone":"blue"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
- {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","x":110,"y":80,"w":140,"h":56,"label":"arriba","tone":"blue"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
+ {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"}]}}},
+ {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
+ {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
 ]}
 </script>
 </lk-story>
@@ -1359,7 +1359,7 @@ func TestStoryStageRefusesAStoryOfBoxesWithText(t *testing.T) {
 		t.Fatalf("the engine refuses a story that draws actors: %v", findings)
 	}
 	// A piece is the action: a step that draws cards is not a row of boxes.
-	withPiece := strings.Replace(fixtureStory, `"stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"}]}}`,
+	withPiece := strings.Replace(fixtureStory, `"stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"}]}}`,
 		`"stage":{"cards":{"cards":[{"verdict":"ok","title":"compila"}]}}`, 1)
 	if findings := storyStageFindings(withPiece, th); len(findings) != 0 {
 		t.Fatalf("the engine refuses a story that draws a piece: %v", findings)
@@ -1369,8 +1369,10 @@ func TestStoryStageRefusesAStoryOfBoxesWithText(t *testing.T) {
 	}
 }
 
-// The two keys are additive: the production rules declare them, and a snapshot
-// with them removed keeps accepting the part they refuse.
+// The story-quality keys are additive: the production rules declare them, and a
+// snapshot with them removed keeps accepting the part they refuse. A story of
+// boxes with text carries no actor, no move and no prop, so it is also quiet: the
+// motion key belongs to the same family and is removed here too (#246).
 func TestPartStandardSnapshotWithoutStoryQualityKeepsAccepting(t *testing.T) {
 	raw, err := os.ReadFile(productionRulesPath)
 	if err != nil {
@@ -1384,7 +1386,7 @@ func TestPartStandardSnapshotWithoutStoryQualityKeepsAccepting(t *testing.T) {
 	if !ok {
 		t.Fatal("the production rules declare no partStandard block")
 	}
-	for _, key := range []string{"storyHeader", "storyStage"} {
+	for _, key := range []string{"storyHeader", "storyStage", "storyMotion", "arrowFlows", "deadKeys"} {
 		if block[key] != true {
 			t.Fatalf("the production rules do not declare %q", key)
 		}
@@ -1488,6 +1490,464 @@ func TestPartStandardReadsTheStoryQualityLikeExplainCheck(t *testing.T) {
 		}
 		if len(findings) == 0 {
 			t.Fatalf("the engine accepts the real part on %s, the tool refuses it: %s", rule, detail)
+		}
+	}
+}
+
+// ── Actor characters and still scenes (#245) ────────────────────────────────
+// La Parte 1 de PL/SQL pasó todas las puertas y el alumno la rechazó igual: sus
+// actores son rectángulos con su nombre («Cuenta 10») cuando la idea tiene
+// personaje, y su escena quieta es dos cajas y una flecha. Las dos reglas se leen
+// del JSON, son estructurales y aditivas, como el lenguaje de historia.
+
+// plsqlActorsPart is the part the learner refused (#245): every gate green, and
+// its actors are boxes with a name tag while a character fits.
+func plsqlActorsPart(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "plsql-parte-1-actores.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// charactersStory draws the same two rows as characters: a table row carries its
+// value and a session runs the block.
+const charactersStory = `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Las dos cuentas","viewBox":"0 0 360 210","steps":[
+ {"title":"Los saldos","equation":{"atoms":[{"t":"SELECT saldo FROM cuentas;","id":"q"}]},"focus":["q"],"narrator":"Las dos cuentas están en reposo.","stage":{"scene":{"actors":[{"id":"c10","kind":"row","x":90,"y":120,"size":64,"tone":"slate","tag":"Cuenta 10"},{"id":"c20","kind":"row","x":270,"y":120,"size":64,"tone":"slate","tag":"Cuenta 20"}],"props":[{"id":"saldo10","kind":"value","on":"c10","side":"below","label":"1000"}]}}}
+]}
+</script>
+</lk-story>`
+
+// namedBoxesStory draws the same two rows as boxes with their name: it draws the
+// action in every step (actors, props, marks), so the story-stage rule is
+// satisfied, and it is refused only by the character rule.
+const namedBoxesStory = `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Las dos cuentas","viewBox":"0 0 360 210","steps":[
+ {"title":"Los saldos","equation":{"atoms":[{"t":"SELECT saldo FROM cuentas;","id":"q"}]},"focus":["q"],"narrator":"Las dos cuentas están en reposo.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"slate"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"slate"}],"props":[{"id":"saldo10","kind":"value","on":"c10","side":"below","label":"1000"}]}}},
+ {"title":"El débito","equation":{"atoms":[{"t":"UPDATE cuentas SET saldo = saldo - 200;","id":"u"}]},"focus":["u"],"narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"blue"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"slate"}],"props":[{"id":"saldo10","kind":"value","on":"c10","side":"below","label":"800"}],"marks":[{"kind":"ok","actors":["c10"]}]}}},
+ {"title":"El commit","equation":{"atoms":[{"t":"COMMIT;","id":"c"}]},"focus":["c"],"narrator":"El commit graba el saldo 800 en disco.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"green"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"green"}],"props":[{"id":"saldo10","kind":"value","on":"c10","side":"below","label":"800"}],"marks":[{"kind":"ok","actors":["c10"]}]}}}
+]}
+</script>
+</lk-story>`
+
+// boxesScene is the still scene the learner refused (#245): two boxes with their
+// text and the arrow between them, and nothing else.
+const boxesScene = `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","title":"Dos cajas","caption":"El estado entra y la acción sale.","scene":{"boxes":[{"x":88,"y":48,"w":212,"h":100,"label":"el estado","tone":"blue","size":22},{"x":420,"y":48,"w":212,"h":100,"label":"la acción","tone":"green","size":22}],"arrows":[{"x1":306,"y1":98,"x2":412,"y2":98,"tone":"slate","width":3,"label":"sale"}]}}
+</script>
+</lk-scene>`
+
+// charactersScene is a still scene that draws a character instead of a second box.
+const charactersScene = `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","title":"La sesión y el disco","caption":"La sesión escribe en el disco.","scene":{"boxes":[{"x":88,"y":48,"w":212,"h":100,"label":"la sesión","tone":"blue","size":22}],"icons":[{"kind":"database","x":352,"y":98,"size":72,"tone":"green"}]}}
+</script>
+</lk-scene>`
+
+// The character rule: a story whose actors are all boxes, when the name of one
+// names a character, is refused, and the refusal names the character that fits
+// and the ones the kit draws.
+func TestActorCharacterRefusesActorsThatAreBoxes(t *testing.T) {
+	th := rules.PartStandardThresholds{ActorCharacter: true}
+	findings := actorCharacterFindings(plsqlActorsPart(t), th)
+	if len(findings) == 0 {
+		t.Fatal("the engine accepts actors that are boxes with a name when a character fits")
+	}
+	for _, fragment := range []string{"Cuenta 10", "row", "database", "session", "lock", "server", "process", "file", "packet", "robot"} {
+		if !strings.Contains(findings[0], fragment) {
+			t.Fatalf("the refusal %q does not name %q", findings[0], fragment)
+		}
+	}
+	if findings := actorCharacterFindings(charactersStory, th); len(findings) != 0 {
+		t.Fatalf("the engine refuses a story that draws its characters: %v", findings)
+	}
+	// A story whose actors name no character has no character to draw.
+	if findings := actorCharacterFindings(fixtureStory, th); len(findings) != 0 {
+		t.Fatalf("the engine asked a story with no character for one: %v", findings)
+	}
+	// A snapshot that does not declare the key keeps accepting the part.
+	if findings := actorCharacterFindings(plsqlActorsPart(t), rules.PartStandardThresholds{}); len(findings) != 0 {
+		t.Fatalf("a snapshot without the key applied the rule: %v", findings)
+	}
+}
+
+// The still-scene rule: a `<lk-scene>` that only draws boxes with text and arrows
+// is refused, with the same bar the story stage is held to.
+func TestSceneStageRefusesASceneOfBoxesAndArrows(t *testing.T) {
+	th := rules.PartStandardThresholds{SceneStage: true}
+	findings := sceneStageFindings(plsqlActorsPart(t), th)
+	if len(findings) == 0 {
+		t.Fatal("the engine accepts a still scene of boxes with text and arrows")
+	}
+	for _, fragment := range []string{"<lk-scene>", "lk-memory", "lk-tables", "kind"} {
+		if !strings.Contains(findings[0], fragment) {
+			t.Fatalf("the refusal %q does not name %q", findings[0], fragment)
+		}
+	}
+	if findings := sceneStageFindings(charactersScene, th); len(findings) != 0 {
+		t.Fatalf("the engine refuses a scene that draws a character: %v", findings)
+	}
+	// A scene that draws a piece is not a scene of boxes either.
+	if findings := sceneStageFindings(fixtureStory, th); len(findings) != 0 {
+		t.Fatalf("the engine refused a part with no still scene: %v", findings)
+	}
+	if findings := sceneStageFindings(plsqlActorsPart(t), rules.PartStandardThresholds{}); len(findings) != 0 {
+		t.Fatalf("a snapshot without the key applied the rule: %v", findings)
+	}
+}
+
+// The two keys are additive: the production rules declare them, and a snapshot
+// with them removed keeps accepting the part they refuse.
+func TestPartStandardSnapshotWithoutCharactersKeepsAccepting(t *testing.T) {
+	raw, err := os.ReadFile(productionRulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	if !ok {
+		t.Fatal("the production rules declare no partStandard block")
+	}
+	for _, key := range []string{"actorCharacter", "sceneStage"} {
+		if block[key] != true {
+			t.Fatalf("the production rules do not declare %q", key)
+		}
+		delete(block, key)
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "standard-without-characters.json")
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The part the rules refuse: a still scene of boxes and arrows, and actors
+	// that are boxes with a name a character fits.
+	note := strings.Replace(standardNote("El débito se escribe así."), standardScene, boxesScene, 1)
+	note = strings.Replace(note, fixtureStory, namedBoxesStory, 1)
+
+	f := standardFrontierOn(t, path)
+	f.writePartNote(t, note)
+	rep, code, c := standardCheck(t, f)
+	if code != 0 || rep.Status != "accepted" {
+		for _, check := range rep.Checks {
+			if check.Status != "PASS" {
+				t.Logf("blocking check %s = %s: %s", check.ID, check.Status, check.Reason)
+			}
+		}
+		t.Fatalf("advance explanation = %q (exit %d), want accepted", rep.Status, code)
+	}
+	if c.Status != "PASS" {
+		t.Fatalf("explanation-standard = %s (%s), want PASS: the keys are additive", c.Status, c.Reason)
+	}
+
+	// The same part on the production rules is refused, and the refusal names
+	// both rules.
+	f2 := standardFrontier(t)
+	f2.writePartNote(t, note)
+	rep2, code2, c2 := standardCheck(t, f2)
+	assertBlocked(t, rep2, code2)
+	if c2.Status != "FAIL" {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL on the characters", c2.Status, c2.Reason)
+	}
+	for _, fragment := range []string{"cajas con su nombre", "solo dibuja cajas"} {
+		if !strings.Contains(c2.Reason, fragment) {
+			t.Fatalf("reason %q misses %q", c2.Reason, fragment)
+		}
+	}
+}
+
+// The engine and the tutor's tool read the characters the same way: both refuse
+// the real part and both name the same fix.
+func TestPartStandardReadsTheCharactersLikeExplainCheck(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: the tool cannot be run here")
+	}
+	tool, err := filepath.Abs("../../tools/explain-check.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tool); err != nil {
+		t.Skipf("explain-check.mjs is not here: %v", err)
+	}
+	rows := func(note string) map[string]string {
+		t.Helper()
+		file := filepath.Join(t.TempDir(), "parte.md")
+		if err := os.WriteFile(file, []byte(note), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, _ := exec.Command(node, tool, file, "--json").CombinedOutput()
+		var parsed struct {
+			Rows []struct {
+				Rule   string `json:"rule"`
+				OK     bool   `json:"ok"`
+				Detail string `json:"detail"`
+			} `json:"rows"`
+		}
+		if err := json.Unmarshal(out, &parsed); err != nil {
+			t.Fatalf("explain-check printed no JSON: %v\n%s", err, out)
+		}
+		seen := map[string]string{}
+		for _, r := range parsed.Rows {
+			seen[r.Rule] = r.Detail
+		}
+		return seen
+	}
+	th := rules.PartStandardThresholds{ActorCharacter: true, SceneStage: true}
+	part := plsqlActorsPart(t)
+	seen := rows(part)
+	for rule, findings := range map[string][]string{
+		"actor-sin-personaje": actorCharacterFindings(part, th),
+		"escenario-de-cajas":  sceneStageFindings(part, th),
+	} {
+		detail, ok := seen[rule]
+		if !ok {
+			t.Fatalf("explain-check printed no %s row", rule)
+		}
+		if detail == "" {
+			t.Fatalf("the tool accepts the real part on %s, the engine refuses it: %v", rule, findings)
+		}
+		if len(findings) == 0 {
+			t.Fatalf("the engine accepts the real part on %s, the tool refuses it: %s", rule, detail)
+		}
+	}
+}
+
+// ── What the bench measured (#246) ──────────────────────────────────────────
+// The five parts of the bench passed every gate and taught nothing: their
+// derivations are two still robots for three steps, their story header is a
+// text-arrow flow («Cliente ---[ SYN ]---> Servidor»), and every step carries a
+// `scene` the schema never reads. The three rules are structural and additive.
+
+func tcpPartOne(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "tcp-parte-1-banco.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// The motion rule: a derivation whose steps move nothing — no `moves`, no actor
+// state change, no prop that changes, no pointer — is the same picture three times.
+func TestStoryMotionRefusesAStoryThatNeverMoves(t *testing.T) {
+	th := rules.PartStandardThresholds{StoryMotion: true}
+	findings := storyMotionFindings(tcpPartOne(t), th)
+	if len(findings) == 0 {
+		t.Fatal("the engine accepts a derivation whose steps move nothing")
+	}
+	for _, fragment := range []string{"moves", "estado", "3 paso"} {
+		if !strings.Contains(findings[0], fragment) {
+			t.Fatalf("the refusal %q does not name %q", findings[0], fragment)
+		}
+	}
+	// The approved fixture changes a state (the robot fades), so it moves.
+	if findings := storyMotionFindings(fixtureStory, th); len(findings) != 0 {
+		t.Fatalf("the engine refuses a story that changes a state: %v", findings)
+	}
+	// A formula story advances by its header token, not by its stage.
+	if findings := storyMotionFindings(formulaStory, th); len(findings) != 0 {
+		t.Fatalf("the engine asked a formula story for stage motion: %v", findings)
+	}
+	if findings := storyMotionFindings(tcpPartOne(t), rules.PartStandardThresholds{}); len(findings) != 0 {
+		t.Fatalf("a snapshot without the key applied the rule: %v", findings)
+	}
+}
+
+// The arrow rule: a story header or a scene label written as a text flow is
+// geometry written, not drawn, and the prose rule covers it too.
+func TestArrowFlowRefusesAHeaderWrittenWithDashes(t *testing.T) {
+	th := rules.PartStandardThresholds{ArrowFlows: true}
+	findings := arrowFlowFindings(tcpPartOne(t), th)
+	if len(findings) == 0 {
+		t.Fatal("the engine accepts a story header written as a text-arrow flow")
+	}
+	for _, fragment := range []string{"cabecera", "--->", "---["} {
+		if !strings.Contains(findings[0], fragment) {
+			t.Fatalf("the refusal %q does not name %q", findings[0], fragment)
+		}
+	}
+	if findings := arrowFlowFindings(storyWithHeader, th); len(findings) != 0 {
+		t.Fatalf("the engine refused a header that carries its code line: %v", findings)
+	}
+	// A label of the scene with a flow is the same defect.
+	labelled := `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","scene":{"labels":[{"x":380,"y":120,"text":"[Inicio] ---> [Perfil]","size":18}],"icons":[{"kind":"gear","x":200,"y":60,"size":48}]}}
+</script>
+</lk-scene>`
+	if findings := arrowFlowFindings(labelled, th); len(findings) == 0 {
+		t.Fatal("the engine accepts a scene label written as a text-arrow flow")
+	}
+	// The prose rule uses the same pattern: the geometry is drawn, not written.
+	if drawn := drawnLines("El flujo es Cliente ---> Servidor y vuelve.", th); drawn != 1 {
+		t.Fatalf("drawnLines counted %d for a prose text arrow, want 1", drawn)
+	}
+	if findings := arrowFlowFindings(tcpPartOne(t), rules.PartStandardThresholds{}); len(findings) != 0 {
+		t.Fatalf("a snapshot without the key applied the rule: %v", findings)
+	}
+}
+
+// The dead-key rule: a step key the schema never reads is a drawing nobody draws,
+// and it teaches the tutor the wrong schema.
+func TestDeadKeysRefusesAStepKeyTheSchemaNeverReads(t *testing.T) {
+	th := rules.PartStandardThresholds{DeadKeys: true}
+	findings := deadKeyFindings(tcpPartOne(t), th)
+	if len(findings) == 0 {
+		t.Fatal("the engine accepts a step key the schema never reads")
+	}
+	for _, fragment := range []string{"`scene`", "stage", "paso 1"} {
+		if !strings.Contains(findings[0], fragment) {
+			t.Fatalf("the refusal %q does not name %q", findings[0], fragment)
+		}
+	}
+	if findings := deadKeyFindings(fixtureStory, th); len(findings) != 0 {
+		t.Fatalf("the engine refused a story with no dead key: %v", findings)
+	}
+	if findings := deadKeyFindings(tcpPartOne(t), rules.PartStandardThresholds{}); len(findings) != 0 {
+		t.Fatalf("a snapshot without the key applied the rule: %v", findings)
+	}
+}
+
+// tcpStory is the bench's story (#246): three steps of two still robots, a header
+// written as a text-arrow flow and a `scene` the schema never reads.
+const tcpStory = `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"El handshake","viewBox":"0 0 360 220","steps":[
+ {"title":"SYN","equation":{"size":18,"atoms":[{"t":"Cliente","id":"c"},{"t":" ---[ SYN, Seq=1000 ]---> ","id":"syn"},{"t":"Servidor","id":"s"}]},"focus":["syn"],"narrator":"El cliente abre la conexión.","scene":{"arrows":[{"x1":70,"y1":140,"x2":270,"y2":140}]},"stage":{"scene":{"actors":[{"id":"cli","icon":"robot","x":70,"y":140,"size":56,"tone":"blue","tag":"Cliente"},{"id":"srv","icon":"robot","x":270,"y":140,"size":56,"tone":"green","tag":"Servidor"}],"props":[{"id":"p1","kind":"value","on":"cli","side":"right","label":"SYN","tone":"blue"}]}}},
+ {"title":"SYN-ACK","equation":{"size":18,"atoms":[{"t":"Servidor","id":"s"},{"t":" <---[ SYN-ACK ]--- ","id":"synack"},{"t":"Cliente","id":"c"}]},"focus":["synack"],"narrator":"El servidor responde con su acuse.","scene":{"arrows":[{"x1":270,"y1":140,"x2":70,"y2":140}]},"stage":{"scene":{"actors":[{"id":"cli","icon":"robot","x":70,"y":140,"size":56,"tone":"blue","tag":"Cliente"},{"id":"srv","icon":"robot","x":270,"y":140,"size":56,"tone":"green","tag":"Servidor"}],"props":[{"id":"p2","kind":"value","on":"srv","side":"left","label":"SYN-ACK","tone":"green"}],"marks":[{"kind":"ok","actors":["srv"]}]}}},
+ {"title":"ACK","equation":{"size":18,"atoms":[{"t":"Cliente","id":"c"},{"t":" ---[ ACK ]---> ","id":"ack"},{"t":"Servidor","id":"s"}]},"focus":["ack"],"narrator":"El cliente confirma y el canal queda abierto.","scene":{"arrows":[{"x1":70,"y1":140,"x2":270,"y2":140}]},"stage":{"scene":{"actors":[{"id":"cli","icon":"robot","x":70,"y":140,"size":56,"tone":"blue","tag":"Cliente"},{"id":"srv","icon":"robot","x":270,"y":140,"size":56,"tone":"green","tag":"Servidor"}],"props":[{"id":"p3","kind":"value","on":"cli","side":"right","label":"ACK","tone":"green"}],"marks":[{"kind":"ok","actors":["cli"]}]}}}
+]}
+</script>
+</lk-story>`
+
+// The three keys are additive: the production rules declare them, and a snapshot// The three keys are additive: the production rules declare them, and a snapshot
+// with them removed keeps accepting the part they refuse.
+func TestPartStandardSnapshotWithoutBenchKeysKeepsAccepting(t *testing.T) {
+	raw, err := os.ReadFile(productionRulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	if !ok {
+		t.Fatal("the production rules declare no partStandard block")
+	}
+	for _, key := range []string{"storyMotion", "arrowFlows", "deadKeys"} {
+		if block[key] != true {
+			t.Fatalf("the production rules do not declare %q", key)
+		}
+		delete(block, key)
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "standard-without-bench-keys.json")
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The part the rules refuse: a still scene, a quiet story of boxes, a header
+	// written with dashes and a step key the schema never reads.
+	note := strings.Replace(standardNote("El débito se escribe así."), standardScene, charactersScene, 1)
+	note = strings.Replace(note, fixtureStory, tcpStory, 1)
+
+	f := standardFrontierOn(t, path)
+	f.writePartNote(t, note)
+	rep, code, c := standardCheck(t, f)
+	if code != 0 || rep.Status != "accepted" {
+		for _, check := range rep.Checks {
+			if check.Status != "PASS" {
+				t.Logf("blocking check %s = %s: %s", check.ID, check.Status, check.Reason)
+			}
+		}
+		t.Fatalf("advance explanation = %q (exit %d), want accepted", rep.Status, code)
+	}
+	if c.Status != "PASS" {
+		t.Fatalf("explanation-standard = %s (%s), want PASS: the keys are additive", c.Status, c.Reason)
+	}
+
+	f2 := standardFrontier(t)
+	f2.writePartNote(t, note)
+	rep2, code2, c2 := standardCheck(t, f2)
+	assertBlocked(t, rep2, code2)
+	if c2.Status != "FAIL" {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL on the bench defects", c2.Status, c2.Reason)
+	}
+	for _, fragment := range []string{"no mueve nada", "esquema en texto", "no lee"} {
+		if !strings.Contains(c2.Reason, fragment) {
+			t.Fatalf("reason %q misses %q", c2.Reason, fragment)
+		}
+	}
+}
+
+// The engine and the tutor's tool read the bench the same way.
+func TestPartStandardReadsTheBenchLikeExplainCheck(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: the tool cannot be run here")
+	}
+	tool, err := filepath.Abs("../../tools/explain-check.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tool); err != nil {
+		t.Skipf("explain-check.mjs is not here: %v", err)
+	}
+	rows := func(note string) map[string]string {
+		t.Helper()
+		file := filepath.Join(t.TempDir(), "parte.md")
+		if err := os.WriteFile(file, []byte(note), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, _ := exec.Command(node, tool, file, "--json").CombinedOutput()
+		var parsed struct {
+			Rows []struct {
+				Rule   string `json:"rule"`
+				OK     bool   `json:"ok"`
+				Detail string `json:"detail"`
+			} `json:"rows"`
+		}
+		if err := json.Unmarshal(out, &parsed); err != nil {
+			t.Fatalf("explain-check printed no JSON: %v\n%s", err, out)
+		}
+		seen := map[string]string{}
+		for _, r := range parsed.Rows {
+			seen[r.Rule] = r.Detail
+		}
+		return seen
+	}
+	th := rules.PartStandardThresholds{StoryMotion: true, ArrowFlows: true, DeadKeys: true}
+	part := tcpPartOne(t)
+	seen := rows(part)
+	for rule, findings := range map[string][]string{
+		"historia-quieta":      storyMotionFindings(part, th),
+		"cabecera-con-flechas": arrowFlowFindings(part, th),
+		"clave-muerta":         deadKeyFindings(part, th),
+	} {
+		detail, ok := seen[rule]
+		if !ok {
+			t.Fatalf("explain-check printed no %s row", rule)
+		}
+		if detail == "" {
+			t.Fatalf("the tool accepts the bench part on %s, the engine refuses it: %v", rule, findings)
+		}
+		if len(findings) == 0 {
+			t.Fatalf("the engine accepts the bench part on %s, the tool refuses it: %s", rule, detail)
 		}
 	}
 }

@@ -540,3 +540,161 @@ test('un valor liberado se dibuja punteado y gris, y su ✓ queda pegado a él',
     await browser.close();
   }
 });
+
+// ── Actor characters (#245) ─────────────────────────────────────────────────
+// Un actor es un personaje con su nombre, no un rectángulo con una etiqueta. Los
+// personajes son dibujos propios del kit —cilindro de base de datos, fila, sesión,
+// candado, usuario, servidor, proceso, archivo, paquete y el robot—, legibles a
+// 14 px y con el mismo trazo fino que el robot.
+const PERSONAJES = ['database', 'row', 'session', 'lock', 'user', 'server', 'process', 'file', 'packet', 'robot'];
+
+test('cada personaje se dibuja con `kind` y lleva su nombre, sin texto dentro', { skip: SKIP }, async () => {
+  for (const kind of PERSONAJES) {
+    const scene = { actors: [{ id: 'p', kind, x: 180, y: 140, size: 64, tone: 'blue', tag: kind }] };
+    const { browser, view, errors } = await open(page(one(scene)));
+    try {
+      assert.deepEqual(errors, [], `${kind}: la escena no dibuja`);
+      const seen = await view.evaluate(() => {
+        const svg = document.querySelector('lk-story svg');
+        const vb = svg.viewBox.baseVal;
+        const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+        const actor = step.querySelector('[data-actor="p"]');
+        const b = actor.getBBox();
+        const tag = step.querySelector('[data-tag-to="p"]');
+        return {
+          ink: actor.querySelectorAll('path, rect, circle, ellipse').length,
+          texts: [...actor.querySelectorAll('text')].map((t) => t.textContent.trim()).filter(Boolean),
+          air: Math.min(b.x - vb.x, b.y - vb.y, vb.x + vb.width - (b.x + b.width), vb.y + vb.height - (b.y + b.height)),
+          tag: tag?.dataset.tagText ?? null,
+        };
+      });
+      assert.ok(seen.ink >= 2, `${kind}: el personaje dibuja al menos dos formas (fueron ${seen.ink})`);
+      assert.deepEqual(seen.texts, [], `${kind}: un personaje no escribe su nombre dentro del dibujo`);
+      assert.ok(seen.air >= 4, `${kind}: el personaje queda a ${seen.air.toFixed(1)}u del borde del lienzo`);
+      assert.equal(seen.tag, kind, `${kind}: el nombre va en su ficha con punta`);
+    } finally {
+      await browser.close();
+    }
+  }
+});
+
+// El estado de un actor se ve: bloqueado lleva marco a trazos y su candado, en
+// espera lleva marco a trazos y se apaga, y ninguno de los dos se tacha.
+test('un actor bloqueado o en espera se distingue del activo y del inválido', { skip: SKIP }, async () => {
+  const scene = {
+    actors: [
+      { id: 'libre', kind: 'row', x: 60, y: 150, size: 56, tone: 'blue', tag: 'libre' },
+      { id: 'bloqueado', kind: 'row', x: 180, y: 150, size: 56, tone: 'blue', state: 'locked', tag: 'bloqueado' },
+      { id: 'espera', kind: 'row', x: 300, y: 150, size: 56, tone: 'amber', state: 'waiting', tag: 'espera' },
+    ],
+  };
+  const { browser, view, errors } = await open(page(one(scene, '0 0 360 250')));
+  try {
+    assert.deepEqual(errors, []);
+    const seen = await view.evaluate(() => {
+      const svg = document.querySelector('lk-story svg');
+      const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+      return ['libre', 'bloqueado', 'espera'].map((id) => {
+        const actor = step.querySelector(`[data-actor="${id}"]`);
+        const body = actor.querySelector('rect');
+        return {
+          id,
+          state: actor.dataset.state,
+          stroke: (body.getAttribute('stroke') || '').toLowerCase(),
+          frame: actor.querySelector('[data-frame]')?.dataset.frame ?? null,
+          lock: Boolean(actor.querySelector('[data-lock]')),
+          strike: Boolean(actor.querySelector('[data-strike]')),
+          tagTone: step.querySelector(`[data-tag-to="${id}"]`)?.dataset.tagTone,
+        };
+      });
+    });
+    const [free, locked, waiting] = seen;
+    assert.equal(free.state, 'active');
+    assert.equal(free.frame, null, 'el actor activo no lleva marco a trazos');
+    assert.equal(free.lock, false);
+    assert.equal(locked.state, 'locked');
+    assert.equal(locked.stroke, '#004276', 'el actor bloqueado conserva el color de su tono');
+    assert.equal(locked.frame, 'locked', 'el actor bloqueado lleva marco a trazos');
+    assert.equal(locked.lock, true, 'el actor bloqueado lleva su candado');
+    assert.equal(locked.strike, false, 'un bloqueo no es un error: no se tacha');
+    assert.equal(locked.tagTone, 'blue', 'el nombre del bloqueado conserva su tono');
+    assert.equal(waiting.state, 'waiting');
+    assert.equal(waiting.stroke, '#5a7481', 'el actor en espera se apaga');
+    assert.equal(waiting.frame, 'waiting', 'el actor en espera lleva marco a trazos');
+    assert.equal(waiting.lock, false);
+    assert.equal(waiting.strike, false, 'esperar no es un error: no se tacha');
+    assert.equal(waiting.tagTone, 'slate', 'el nombre del que espera va en gris');
+  } finally {
+    await browser.close();
+  }
+});
+
+// ── One row, one baseline; one mark, one owner (#245) ───────────────────────
+// Un actor bloqueado dibuja marco a trazos y candado, y esas dos piezas agrandaban
+// su caja medida: su ficha subía ~30 unidades y su cofre bajaba ~22, así que la
+// fila se veía torcida y los nombres quedaban a distinta altura. La fila se tiende
+// desde el marco más grande —el del estado incluido—, no desde cada actor.
+const ROW_SCENE = {
+  actors: [
+    { id: 'c10', kind: 'row', x: 90, y: 120, size: 64, tone: 'blue', state: 'locked', tag: 'Cuenta 10' },
+    { id: 'c20', kind: 'row', x: 270, y: 120, size: 64, tone: 'amber', tag: 'Cuenta 20' },
+  ],
+  props: [
+    { id: 'saldo10', kind: 'value', on: 'c10', side: 'below', label: '800', tone: 'blue' },
+    { id: 'saldo20', kind: 'value', on: 'c20', side: 'below', label: '1500', tone: 'amber' },
+  ],
+};
+
+test('los actores de una fila comparten línea base aunque uno esté bloqueado', { skip: SKIP }, async () => {
+  const { browser, view, errors } = await open(page(one(ROW_SCENE, '0 0 360 260')));
+  try {
+    assert.deepEqual(errors, []);
+    const seen = await view.evaluate(() => {
+      const svg = document.querySelector('lk-story svg');
+      const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+      const centre = (el) => { const b = el.getBBox(); return { x: +(b.x + b.width / 2).toFixed(1), y: +(b.y + b.height / 2).toFixed(1), top: +b.y.toFixed(1) }; };
+      const figures = [...step.querySelectorAll('[data-actor]')].map((a) => ({ id: a.dataset.actor, ...centre(a.querySelector('[data-figure]') || a) }));
+      const tags = [...step.querySelectorAll('[data-tag-to]')].map((t) => ({ id: t.dataset.tagTo, ...centre(t) }));
+      const props = [...step.querySelectorAll('[data-prop-id]')].map((p) => ({ id: p.dataset.propId, top: +p.getBBox().y.toFixed(1) }));
+      return { figures, tags, props };
+    });
+    const spread = (list, key) => Math.max(...list.map((x) => x[key])) - Math.min(...list.map((x) => x[key]));
+    assert.equal(seen.figures.length, 2);
+    assert.ok(spread(seen.figures, 'y') <= 1, `los personajes de la fila no comparten centro: ${JSON.stringify(seen.figures)}`);
+    assert.ok(spread(seen.tags, 'y') <= 1, `las fichas de la fila quedan a distinta altura: ${JSON.stringify(seen.tags)}`);
+    assert.ok(spread(seen.props, 'top') <= 1, `los cofres de la fila quedan a distinta altura: ${JSON.stringify(seen.props)}`);
+  } finally {
+    await browser.close();
+  }
+});
+
+// Una marca con nombre se pega a su dueño: debajo de su columna, o a su lado si
+// abajo no cabe. Centrada en el hueco entre dos actores no aprueba a ninguno.
+test('una marca con nombre se pega a su dueño, no al hueco', { skip: SKIP }, async () => {
+  // Las dos filas bloqueadas: los dos cofres caen a la misma altura y el hueco
+  // entre ellos es el único sitio que le queda a una marca que se centre mal.
+  const scene = {
+    ...ROW_SCENE,
+    actors: ROW_SCENE.actors.map((a) => ({ ...a, state: 'locked' })),
+    marks: [{ kind: 'ok', actor: 'saldo20', label: 'acreditado' }],
+  };
+  const { browser, view, errors } = await open(page(one(scene, '0 0 360 260')));
+  try {
+    assert.deepEqual(errors, []);
+    const seen = await view.evaluate(() => {
+      const svg = document.querySelector('lk-story svg');
+      const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+      const centre = (el) => { const b = el.getBBox(); return +(b.x + b.width / 2).toFixed(1); };
+      const mark = step.querySelector('[data-mark-kind]');
+      return {
+        mark: centre(mark),
+        owner: centre(step.querySelector('[data-prop-id="saldo20"]')),
+        other: centre(step.querySelector('[data-prop-id="saldo10"]')),
+      };
+    });
+    assert.ok(Math.abs(seen.mark - seen.owner) <= 6, `la marca queda a ${Math.abs(seen.mark - seen.owner).toFixed(0)}u de su dueño (${seen.mark} vs ${seen.owner})`);
+    assert.ok(Math.abs(seen.mark - seen.owner) < Math.abs(seen.mark - seen.other), 'la marca está más cerca del actor que no aprueba');
+  } finally {
+    await browser.close();
+  }
+});

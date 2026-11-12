@@ -28,20 +28,24 @@ const run = (file) => spawnSync(process.execPath, [join(TOOLS, 'explain-check.mj
 // `<lk-story>` (actores con estado, movimientos y marcas) o con una pieza. Un
 // `<lk-walkthrough>` clásico ya no cuenta: sus cajas y flechas libres se dibujan
 // mal, y es el camino que tomó el modelo débil.
+// El actor es un personaje con su dibujo (#245): el robot se dibuja con
+// `kind:"robot"`, no como una caja que dice «robot».
 const HISTORIA = `<lk-story>
 <script type="application/json">
 {"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
- {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"}]}}},
- {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"},{"id":"u","x":110,"y":80,"w":140,"h":56,"label":"arriba","tone":"blue"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
- {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","x":110,"y":80,"w":140,"h":56,"label":"arriba","tone":"blue"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
+ {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"}]}}},
+ {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
+ {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
 ]}
 </script>
 </lk-story>`;
 
 // La escena se dibuja: el ejemplo se mira, y el recorrido no la sustituye.
+// Una escena quieta dibuja un personaje, no solo cajas: el engranaje del proceso
+// es lo que la separa de «dos cajas y una flecha» (#245).
 const ESCENA = `<lk-scene>
 <script type="application/json">
-{"viewBox":"0 0 760 200","caption":"El estado entra y la acción sale.","scene":{"boxes":[{"x":88,"y":48,"w":212,"h":100,"label":"el estado","tone":"blue","size":22}]}}
+{"viewBox":"0 0 760 200","caption":"El estado entra y la acción sale.","scene":{"boxes":[{"x":88,"y":48,"w":212,"h":100,"label":"el estado","tone":"blue","size":22}],"icons":[{"kind":"gear","x":352,"y":98,"size":72,"tone":"slate"}]}}
 </script>
 </lk-scene>
 `;
@@ -478,7 +482,7 @@ const HISTORIA_CON_CABECERA = `<lk-story>
 <script type="application/json">
 {"kind":"derivation","title":"El débito","viewBox":"0 0 360 210","steps":[
  {"title":"Débito","equation":{"size":18,"atoms":[{"t":"UPDATE ","id":"u"},{"t":"cuentas","id":"t"},{"t":" SET saldo = saldo - 200","id":"set"}]},"focus":["set"],
-  "narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"blue"}],"marks":[{"kind":"ok","actors":["c10"]}]}}}
+  "narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"actors":[{"id":"c10","kind":"row","x":90,"y":110,"size":64,"tone":"blue","tag":"Cuenta 10"}],"marks":[{"kind":"ok","actors":["c10"]}]}}}
 ]}
 </script>
 </lk-story>`;
@@ -529,4 +533,227 @@ test('una historia que dibuja una pieza en su escenario pasa el escenario', () =
   const r = run(file);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+escenario-de-cajas/);
+});
+
+// ── Personajes, escenas y la pieza que le toca (#245) ────────────────────────
+// La Parte 1 de PL/SQL pasó todas las puertas y el alumno la rechazó igual: sus
+// actores son rectángulos con una etiqueta («Cuenta 10»), su escena quieta es dos
+// cajas y una flecha, y la idea «memoria de sesión contra disco» se dibuja con
+// cajas aunque el kit tiene `lk-memory` para eso. Las tres reglas se leen del
+// JSON, sin navegador, y el motor aplica las dos primeras con claves aditivas.
+const PARTE_ACTORES = join(TOOLS, '..', 'internal', 'engine', 'testdata', 'plsql-parte-1-actores.md');
+
+// Una historia de cajas cuando un personaje encaja: «Cuenta 10» es una fila de la
+// tabla `cuentas`, y una fila se dibuja como fila.
+const HISTORIA_DE_CAJAS = `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Las dos cuentas","viewBox":"0 0 360 210","steps":[
+ {"title":"Los saldos","equation":{"atoms":[{"t":"SELECT saldo FROM cuentas;","id":"q"}]},"focus":["q"],"narrator":"Las dos cuentas están en reposo.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"slate"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"slate"}]}}}
+]}
+</script>
+</lk-story>`;
+
+test('la parte real de PL/SQL dibuja sus actores como cajas con su nombre', () => {
+  const r = run(PARTE_ACTORES);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA actor-sin-personaje/);
+  // El rechazo nombra el personaje que encaja para el actor que lo tiene.
+  assert.match(r.stdout, /Cuenta 10/);
+  assert.match(r.stdout, /row/);
+  // Y nombra los personajes que hay para dibujar.
+  for (const kind of ['database', 'session', 'lock', 'server', 'process', 'file', 'packet', 'robot']) {
+    assert.ok(r.stdout.includes(kind), `el rechazo no nombra ${kind}: ${r.stdout}`);
+  }
+});
+
+test('una historia de cajas cuando un personaje encaja falla el personaje', () => {
+  const file = join(dir, 'historia-de-cajas.md');
+  writeFileSync(file, CUMPLE.replace(HISTORIA, HISTORIA_DE_CAJAS));
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA actor-sin-personaje/);
+});
+
+test('una historia con el personaje dibujado pasa el personaje', () => {
+  const file = join(dir, 'historia-con-personaje.md');
+  writeFileSync(file, CUMPLE);
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+actor-sin-personaje/);
+});
+
+// La escena quieta se mide con el mismo rasero que el escenario de la historia:
+// dos cajas y una flecha no son un dibujo.
+test('la escena quieta de la parte real es dos cajas y una flecha', () => {
+  const r = run(PARTE_ACTORES);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA escenario-de-cajas/);
+  assert.match(r.stdout, /<lk-scene>/);
+});
+
+test('una escena quieta de cajas y flechas falla el escenario', () => {
+  const file = join(dir, 'escena-de-cajas.md');
+  writeFileSync(file, CUMPLE.replace(ESCENA, `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","caption":"El estado entra y la acción sale.","scene":{"boxes":[{"x":88,"y":48,"w":212,"h":100,"label":"el estado","tone":"blue","size":22},{"x":420,"y":48,"w":212,"h":100,"label":"la acción","tone":"green","size":22}],"arrows":[{"x1":306,"y1":98,"x2":412,"y2":98,"tone":"slate","width":3,"label":"sale"}]}}
+</script>
+</lk-scene>`));
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA escenario-de-cajas/);
+});
+
+// La pieza que le toca a la idea: el código que cambia filas guardadas se cuenta
+// con `lk-tables` o `lk-memory`, nunca con una escena de cajas.
+test('la parte real cambia filas y no trae la pieza que lo cuenta', () => {
+  const r = run(PARTE_ACTORES);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA pieza-adecuada/);
+  assert.match(r.stdout, /lk-tables/);
+  assert.match(r.stdout, /lk-memory/);
+});
+
+test('una parte con UPDATE y sin tablas ni memoria falla la pieza', () => {
+  const file = join(dir, 'update-sin-pieza.md');
+  writeFileSync(file, `${CUMPLE}\n\`\`\`sql\nUPDATE cuentas SET saldo = saldo - 200 WHERE id = 10;\n\`\`\`\n`);
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA pieza-adecuada/);
+});
+
+test('una parte con UPDATE y lk-memory pasa la pieza', () => {
+  const file = join(dir, 'update-con-memoria.md');
+  writeFileSync(file, CUMPLE.replace(ESCENA, `<lk-memory>
+<script type="application/json">
+{"title":"La sesión y el disco","columns":[{"id":"s","label":"SESIÓN"},{"id":"d","label":"DISCO"}],"steps":[
+ {"code":"UPDATE cuentas SET saldo = saldo - 200 WHERE id = 10;","rows":[
+  {"s":{"id":"v","name":"v_saldo","cells":["800"],"tone":"blue"},"d":{"id":"h","name":"cuentas","cells":["saldo 1000"],"tone":"slate"}}]}
+]}
+</script>
+</lk-memory>`));
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+pieza-adecuada/);
+});
+
+// Una parte que contrasta el código que compila con el que falla se cuenta con
+// tarjetas de veredicto, no con dos bloques de código seguidos.
+const CONTRASTE = `\`\`\`sql
+SELECT saldo FROM cuentas WHERE id = 10;
+\`\`\`
+
+Así se lee una fila.
+
+\`\`\`sql
+SELECT saldo FROM cuentas WHERE id = 'diez';
+\`\`\`
+
+Así no compila: el id es un número.
+
+`;
+
+test('una parte que contrasta código que compila y que falla sin tarjetas falla la pieza', () => {
+  const file = join(dir, 'contraste-sin-tarjetas.md');
+  writeFileSync(file, `${CUMPLE}\n${CONTRASTE}`);
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA pieza-adecuada/);
+  assert.match(r.stdout, /lk-cards/);
+});
+
+test('una parte que contrasta código y dibuja sus tarjetas pasa la pieza', () => {
+  const file = join(dir, 'contraste-con-tarjetas.md');
+  writeFileSync(file, CUMPLE
+    .replace(ESCENA, `<lk-cards>
+<script type="application/json">
+{"title":"Con id número y con id texto","cards":[
+ {"verdict":"ok","pill":"COMPILA","title":"id = 10","reason":"el id es un número"},
+ {"verdict":"no","pill":"NO COMPILA","title":"id = 'diez'","reason":"el id es texto"}]}
+</script>
+</lk-cards>`)
+    .replace(HISTORIA, HISTORIA_CON_CABECERA)
+    .concat(`\n${CONTRASTE}`));
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+pieza-adecuada/);
+});
+
+// ── Lo que midió el banco (#246) ─────────────────────────────────────────────
+// Las cinco partes del banco pasaron las cuatro puertas y ninguna enseña nada:
+// sus recorridos son dos robots quietos en tres pasos (ni un movimiento, ni un
+// cambio de estado), su «ecuación» de cabecera es un esquema en texto
+// («Cliente ---[ SYN ]---> Servidor») y cada paso lleva un `scene` que el esquema
+// no lee. La parte real del banco es la prueba.
+const PARTE_BANCO = join(TOOLS, '..', 'internal', 'engine', 'testdata', 'tcp-parte-1-banco.md');
+
+test('la parte del banco dibuja un recorrido que no mueve nada', () => {
+  const r = run(PARTE_BANCO);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA historia-quieta/);
+  assert.match(r.stdout, /moves/);
+  assert.match(r.stdout, /estado/);
+});
+
+test('la cabecera del banco es un esquema en texto, no la línea de código', () => {
+  const r = run(PARTE_BANCO);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA cabecera-con-flechas/);
+  assert.match(r.stdout, /--->|---\[/);
+});
+
+test('los pasos del banco llevan una clave que el esquema no lee', () => {
+  const r = run(PARTE_BANCO);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA clave-muerta/);
+  assert.match(r.stdout, /`scene`/);
+  assert.match(r.stdout, /stage/);
+});
+
+// Una historia que cambia algo —un estado, una pieza, un movimiento— no es quieta.
+test('una historia que cambia un estado pasa la quietud', () => {
+  const file = join(dir, 'historia-viva.md');
+  writeFileSync(file, CUMPLE);
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+historia-quieta/);
+});
+
+// Una historia con la línea de código en su cabecera no lleva flechas de texto.
+test('una cabecera con la línea de código pasa', () => {
+  const file = join(dir, 'cabecera-de-codigo.md');
+  writeFileSync(file, CUMPLE.replace(HISTORIA, HISTORIA_CON_CABECERA));
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+cabecera-con-flechas/);
+});
+
+// Una etiqueta de escena con un flujo de texto tampoco se dibuja: se escribe.
+test('una etiqueta de escena con flechas de texto es un hallazgo', () => {
+  const file = join(dir, 'etiqueta-con-flechas.md');
+  writeFileSync(file, CUMPLE.replace(ESCENA, `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","caption":"El flujo.","scene":{"labels":[{"x":380,"y":120,"text":"[Inicio] ---> [Cursos] ---> [Perfil]","size":18}],"icons":[{"kind":"gear","x":200,"y":60,"size":48,"tone":"slate"}]}}
+</script>
+</lk-scene>`));
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA cabecera-con-flechas/);
+});
+
+// La prosa también: la regla de ASCII cubre ahora las flechas de texto.
+test('una flecha de texto en la prosa falla el ascii', () => {
+  const file = join(dir, 'prosa-con-flechas.md');
+  writeFileSync(file, CUMPLE.replace('El estado es lo que hace falta saber para decidir.',
+    'El flujo es Cliente ---> Servidor y vuelve.'));
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA ascii/);
+});
+
+test('una historia sin claves muertas pasa', () => {
+  const file = join(dir, 'sin-claves-muertas.md');
+  writeFileSync(file, CUMPLE);
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+clave-muerta/);
 });
