@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 import { spawn, spawnSync } from "node:child_process";
 import { loadAudio } from "./lib/audio.mjs";
-import { VIEWPORT, loadPlaywright, openStage } from "./lib/browser.mjs";
+import { VIEWPORT, frameGrabber, loadPlaywright, openStage } from "./lib/browser.mjs";
 import { extractDecks } from "./lib/note.mjs";
 import { audit, formatViolation } from "./lib/promises.mjs";
 import { readSpec } from "./lib/spec.mjs";
@@ -90,7 +90,10 @@ async function main() {
       stopStills({ frames: written });
     }
     if (args.video) {
-      await video(stage.pages, plan, beats, resolve(args.video));
+      // Every page takes its frames through its own CDP session: the capture
+      // path is set up once, beside the page that owns it, not per frame.
+      const workers = await Promise.all(stage.pages.map(async (page) => ({ page, capture: await frameGrabber(page) })));
+      await video(workers, plan, beats, resolve(args.video));
     }
   } finally {
     await stage.close();
@@ -112,6 +115,8 @@ async function main() {
   await writeReport(join(work, "timings.json"), timings.report(meta));
 }
 
+// Stills are a deliverable, not a frame in a pipe: they keep the screenshot the
+// renderer has always written, so a still on disk stays the same file it was.
 async function stills(page, dir) {
   await mkdir(dir, { recursive: true });
   let written = 0;
@@ -126,7 +131,7 @@ async function stills(page, dir) {
   return written;
 }
 
-async function video(pages, plan, beats, out) {
+async function video(workers, plan, beats, out) {
   const fps = plan.fps;
   const from = Number(args.from || 0);
   const to = Number(args.to || plan.total);
@@ -159,7 +164,7 @@ async function video(pages, plan, beats, out) {
   const captureOpened = performance.now();
   let failure = null;
   try {
-    await captureFrames(pages, { from, fps, total, ff, pipe, started });
+    await captureFrames(workers, { from, fps, total, ff, pipe, started });
   } catch (cause) {
     // A worker that fails takes the whole render with it: the encoder is fed an
     // order it can no longer complete, so it is stopped instead of left to write
@@ -172,7 +177,7 @@ async function video(pages, plan, beats, out) {
   timings.observe("capture", capturedMs, {
     frames: total,
     fps: Math.round((total / (capturedMs / 1000)) * 10) / 10,
-    workers: pages.length,
+    workers: workers.length,
   });
   if (failure) {
     // A pipe nobody will finish is a child process nothing can close.
@@ -194,8 +199,8 @@ async function video(pages, plan, beats, out) {
 // is what makes the wide render the same video as the sequential one, frame i at
 // instant t_i. `budget` bounds how far the pages may run ahead of that head, so
 // what waits in memory is a handful of PNGs and never the whole part.
-async function captureFrames(pages, { from, fps, total, ff, pipe, started }) {
-  const budget = createBudget(pages.length * 2);
+async function captureFrames(workers, { from, fps, total, ff, pipe, started }) {
+  const budget = createBudget(workers.length * 2);
   const holding = new Map();
   let cursor = 0;
   let next = 0;
@@ -220,7 +225,7 @@ async function captureFrames(pages, { from, fps, total, ff, pipe, started }) {
     return flushing;
   };
 
-  const shoot = async (page) => {
+  const shoot = async ({ page, capture }) => {
     for (;;) {
       if (stopped) return;
       await budget.take();
@@ -234,13 +239,13 @@ async function captureFrames(pages, { from, fps, total, ff, pipe, started }) {
         return;
       }
       await page.evaluate((at) => window.__frame(at), from + index / fps);
-      holding.set(index, await page.screenshot({ type: "png" }));
+      holding.set(index, await capture());
       await flush();
     }
   };
 
   try {
-    await Promise.all(pages.map((page) => shoot(page)));
+    await Promise.all(workers.map((worker) => shoot(worker)));
     await flushing;
   } catch (cause) {
     // The pages are woken first: a worker waiting for its turn must not wait for

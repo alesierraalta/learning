@@ -95,6 +95,45 @@ export async function openStage(playwright, plan, { root, pages = 1 }) {
   }
 }
 
+// One frame leaves the stage as a PNG, and the encoder reads pixels, not the
+// bytes that carry them: the compression level is free to be the fast one.
+// `optimizeForSpeed` trades a bigger PNG for a shorter encode and leaves every
+// pixel alone (the decoded frame is the same frame, compared by hash). It also
+// skips what Playwright wraps around the same CDP call — a font-ready wait and
+// three more round-trips per frame — which at 30 fps is most of the budget.
+// The session belongs to the page, so it is opened once and reused for every
+// frame that page draws.
+export async function frameGrabber(page) {
+  const context = page.context();
+  if (typeof context.newCDPSession !== "function") {
+    throw new Error("this browser has no CDP session, so a frame cannot be captured without the slower screenshot path");
+  }
+  const session = await context.newCDPSession(page);
+  let painted = false;
+  return async function capture() {
+    // The first capture of a page can outrun the paint it asked for: the surface
+    // still holds the frame from before the drawing, so the film opens on a
+    // picture nobody drew (and every frame after it is encoded against that one).
+    // Waiting for one painted frame once per page settles it; after that the
+    // capture follows the drawing, measured across every beat and state cut.
+    if (!painted) {
+      await page.evaluate(() => new Promise((done) => {
+        // Two frames: the first starts the paint the drawing asked for, the second
+        // is proof it was committed. Bounded, because a page nobody is showing may
+        // never paint and a render must not wait for a frame that is not coming.
+        const guard = setTimeout(() => done(false), 100);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          clearTimeout(guard);
+          done(true);
+        }));
+      }));
+      painted = true;
+    }
+    const { data } = await session.send("Page.captureScreenshot", { format: "png", optimizeForSpeed: true });
+    return Buffer.from(data, "base64");
+  };
+}
+
 // One page, booted on the plan. Both the renderer and the craft gate open the
 // stage the same way, so a gate verdict describes the frames a render would
 // actually write.

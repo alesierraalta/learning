@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const REPO = new URL("../../..", import.meta.url).pathname;
 const CLI = join(REPO, "tools/video/render.mjs");
@@ -252,9 +252,11 @@ test("a render writes how long each stage took, beside the video it wrote", () =
   assert.ok(!report.stages.some((s) => s.stage === "legibility"), "no --craft, so no craft gate in the report");
 });
 
-// Capture is the expensive stage, so it is the one that goes wide. Going wide
-// is only worth anything if the film is the same film: the frames are compared
-// by hash, one by one and in order, against the sequential loop.
+// Capture is the expensive stage, so it is the one that goes wide, and each
+// frame is taken by the cheapest path that still yields the same picture. Going
+// wide and going cheap are only worth anything if the film is the same film: the
+// frames are compared by hash, one by one and in order, against the sequential
+// loop, and the capture path is compared against the screenshot it replaces.
 test("parallel capture writes the same frames, in the same order", () => {
   const f = fixture();
   const window = ["--from", "0", "--to", "0.4", "--video"];
@@ -275,6 +277,44 @@ test("parallel capture writes the same frames, in the same order", () => {
   assert.equal(capturedWith(one).workers, 1, "the report names the concurrency the frames were captured with");
   assert.equal(capturedWith(four).workers, 4);
   assert.equal(capturedWith(four).frames, 12, "the same window is still the same number of frames");
+
+  // The stage's own screenshot is the reference the frames are judged against:
+  // a capture path may trade PNG bytes for speed, never a pixel. Compared on the
+  // decoded picture, which is what the encoder reads.
+  const shots = mkdtempSync(join(tmpdir(), "video-capture-"));
+  const moduleUrl = new URL("../lib/browser.mjs", import.meta.url).href;
+  const script = [
+    `const { loadPlaywright, openStage, frameGrabber } = await import(${JSON.stringify(moduleUrl)});`,
+    `const { readFileSync, writeFileSync } = await import("node:fs");`,
+    `const { join } = await import("node:path");`,
+    `const plan = JSON.parse(readFileSync(${JSON.stringify(join(one, "plan.json"))}, "utf8"));`,
+    `const dir = ${JSON.stringify(shots)};`,
+    `const pw = await loadPlaywright([${JSON.stringify(REPO)}]);`,
+    `const stage = await openStage(pw, plan, { root: ${JSON.stringify(resolve(REPO))}, pages: 1 });`,
+    `const capture = await frameGrabber(stage.page);`,
+    `try {`,
+    `  for (const at of [0.2, 3.2]) {`,
+    `    await stage.page.evaluate((t) => window.__frame(t), at);`,
+    `    const fast = await capture();`,
+    `    writeFileSync(join(dir, "fast-" + at + ".png"), fast);`,
+    `    const slow = await stage.page.screenshot({ type: "png" });`,
+    `    writeFileSync(join(dir, "slow-" + at + ".png"), slow);`,
+    `    console.log("sizes:" + at + ":" + fast.length + ":" + slow.length);`,
+    `  }`,
+    `} finally {`,
+    `  await stage.close();`,
+    `}`,
+  ].join("\n");
+  const grabbed = spawnSync("node", ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 120_000 });
+  assert.equal(grabbed.status, 0, `the frame capture could not run:\n${grabbed.stdout}${grabbed.stderr}`);
+  const sizes = [...grabbed.stdout.matchAll(/sizes:([\d.]+):(\d+):(\d+)/g)].map((m) => ({ at: m[1], fast: Number(m[2]), slow: Number(m[3]) }));
+  assert.equal(sizes.length, 2, `two instants were captured, got ${sizes.length} in:\n${grabbed.stdout}`);
+  const drawn = sizes.map(({ at }) => frameHashes(join(shots, `fast-${at}.png`)));
+  const screenshot = sizes.map(({ at }) => frameHashes(join(shots, `slow-${at}.png`)));
+  assert.notDeepEqual(drawn[0], drawn[1], "the two instants are the same picture, so this test could not see a wrong frame");
+  assert.deepEqual(drawn, screenshot, "the frame that goes into the film must be the pixels the stage drew, at every instant");
+  const smaller = sizes.filter(({ fast, slow }) => fast < slow);
+  assert.equal(smaller.length, 0, `the fast path produced smaller PNGs than the screenshot it replaces (${JSON.stringify(smaller)}), so it is no longer trading bytes for speed: the speed claim needs a new measurement`);
 });
 
 test("a worker count that is not a number of pages is refused", () => {

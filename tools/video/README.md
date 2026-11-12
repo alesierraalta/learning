@@ -48,8 +48,9 @@ needed. Requires `ffmpeg`, `ffprobe` and Playwright (local or global; the
 renderer resolves both).
 
 Rendering does not re-synthesise anything: if a beat's `.mp3` exists, only the
-picture changes. A full part is ~20 fps of Chromium work in one page and ~32 fps
-over four, so Part 3 (6:17, 11 300 frames) takes ~10 minutes and ~10 MB.
+picture changes. A full part is ~27 fps of Chromium work in one page and ~47 fps
+over four pages, measured on 240 frames of a six-beat part; Part 3 (6:17,
+11 300 frames) is ~8 minutes in one page and ~5 over four by that arithmetic.
 
 ## Capture
 
@@ -59,6 +60,24 @@ next frame index, and feeds ffmpeg the frames strictly in order. A captured
 frame waits until every frame before it has gone through stdin, so frame `i` is
 still the picture at `t_i` and the film is byte for byte the one `--workers 1`
 writes — that equality is a test, not an intention.
+
+A frame is taken through the page's own CDP session (`Page.captureScreenshot`
+with `optimizeForSpeed`), not through `page.screenshot`. ffmpeg reads pixels, so
+the PNG is compressed for speed instead of size: same picture, a bigger file
+(86 KiB against 55 KiB for a 1080p figure). The pixels are the contract — the
+capture test compares the decoded frame against the screenshot it replaced, at
+two instants, and fails if one of them moves. On 240 frames of a six-beat part
+that is 52.4 → 37.4 ms a frame in one page (19 → 27 fps) and 33.4 → 21.2 ms over
+four pages (30 → 47 fps).
+
+The first capture of a page waits for one painted frame. Without that wait the
+surface can still hold the picture from before the drawing, and the film opens on
+a frame nobody drew — the rest of the film is then encoded against a picture that
+never existed.
+
+Stills keep `page.screenshot`: a still is a deliverable, not a frame in a pipe,
+and a still on disk stays the same file it was. The craft gate measures a clipped
+figure with its own screenshot and never touches the capture path.
 
 The reordering is bounded: a page may only run a couple of frames ahead of the
 head being written, so what waits in memory is a handful of PNGs. The pipe is the
