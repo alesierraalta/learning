@@ -2319,8 +2319,8 @@ const MEASURE = (theme) => {
     // nadie mira es donde el callout se desvía sin que se note.
     // #209: a scene is one surface with the page. In the night papers no white sheet is
     // drawn behind it and no piece of the drawing is filled white: that is the island.
-    if (night && !stage.closest(".lk-walkthrough")) {
-      const host = stage.closest("lk-scene, lk-figure") ?? stage;
+    if (night) {
+      const host = stage.closest("lk-scene, lk-figure, lk-walkthrough") ?? stage;
       const sheet = rgb(getComputedStyle(host).backgroundColor);
       if (sheet && sheet.a > 0.9 && sheet.r > 240 && sheet.g > 240 && sheet.b > 240) out.islands.push(`${stage.className}: la hoja de la escena es blanca sobre el papel ${theme}`);
       const white = [...svg.querySelectorAll("rect, circle, path")].filter((el) => {
@@ -2374,6 +2374,17 @@ const MEASURE = (theme) => {
       }
     }
     steps.forEach((g, i) => { g.style.display = shownNow[i]; });
+  }
+  // #222: the classic deck follows the page paper in the night themes, and its own
+  // words (title, caption, step buttons) read at 4.5:1 on it.
+  for (const deck of document.querySelectorAll("lk-walkthrough")) {
+    for (const node of deck.querySelectorAll(".lk-title, .lk-wt-caption strong, .lk-wt-caption p, .lk-wt-count, .lk-wt-bar button:not(:disabled):not(.lk-wt-dot), .lk-wt-full")) {
+      if (!node.textContent.trim()) continue;
+      const ink = rgb(getComputedStyle(node).color);
+      if (!ink) continue;
+      const c = ratio(ink, paper(node));
+      if (c < 4.5) out.faint.push(`${node.className || node.tagName} del deck ${round(c)}:1`);
+    }
   }
   return out;
 };
@@ -2440,6 +2451,12 @@ test("every figure keeps its callouts on their glyphs, its stage drawn, its type
       assert.deepEqual(seen.scaled, [], `${where}: la figura se estira por encima de su viewBox`);
       assert.deepEqual(seen.islands, [], `${where}: la escena es una isla blanca sobre el papel de noche`);
       await page.screenshot({ path: join(SHOTS, `figura-${name}-${theme}-${size}.png`), fullPage: true });
+      const deck = page.locator("lk-walkthrough").first();
+      if (name === "curva-gaussiana" && await deck.count()) {
+        mkdirSync(STORY_SHOTS, { recursive: true });
+        await deck.scrollIntoViewIfNeeded();
+        await deck.screenshot({ path: join(STORY_SHOTS, `curva-gaussiana-${theme}-${size}-walkthrough.png`) });
+      }
     }
   }
 });
@@ -2517,14 +2534,14 @@ test("full screen grows the figure from wide mode", { skip: !playwright && "play
 // elbow does not land on its piece, a moving-term arrow that does not start and
 // end on the two measured boxes, a label below the reading size, a figure that
 // grew past its cap.
-const STORY_SHOTS = "/tmp/209-shots";
+const STORY_SHOTS = "/tmp/vl-shots";
 const STORY_MATRIX = ["light", "dark", "black"].flatMap((theme) => [
   { theme, size: "narrow", width: 900, wide: false },
   { theme, size: "wide", width: 1920, wide: true },
 ]);
 
 const STORY_MEASURE = (_card, theme) => {
-  const out = { empty: [], missed: [], moves: [], tiny: [], scaled: [], focus: [], faint: [], islands: [], small: [] };
+  const out = { empty: [], missed: [], moves: [], tiny: [], scaled: [], focus: [], faint: [], islands: [], small: [], header: [], pieces: [] };
   const gap = (p, b) => Math.hypot(Math.max(b.x - p.x, 0, p.x - b.right), Math.max(b.y - p.y, 0, p.y - b.bottom));
   const rgb = (value) => {
     const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/.exec(value);
@@ -2576,9 +2593,33 @@ const STORY_MEASURE = (_card, theme) => {
         const gapPx = gap(p, target.getBoundingClientRect());
         if (gapPx > 3) out.missed.push(`el rótulo «${tag.dataset.tagText}» queda a ${Math.round(gapPx)} px de su pieza`);
       }
+      // #217: props, state marks and result marks are anchored and inside the canvas.
+      {
+        const vbox = svg.viewBox.baseVal;
+        const inside = (b) => Math.min(b.x - vbox.x, b.y - vbox.y, vbox.x + vbox.width - (b.x + b.width), vbox.y + vbox.height - (b.y + b.height));
+        const touch = (a, b) => !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
+        const actors = [...step.querySelectorAll("[data-actor]")].map((a) => ({ id: a.dataset.actor, b: a.getBBox() }));
+        const props = [...step.querySelectorAll("[data-prop-id]")].map((p) => ({ id: p.dataset.propId, on: p.dataset.propOn, b: p.getBBox(), missing: p.dataset.propMissing }));
+        for (const p of props) {
+          if (p.missing) { out.pieces.push(`la pieza ${p.id} nombra a ${p.missing}, que no está en el paso`); continue; }
+          if (!p.b.width) { out.pieces.push(`la pieza ${p.id} no dibuja nada`); continue; }
+          if (inside(p.b) < 12) out.pieces.push(`la pieza ${p.id} queda a ${Math.round(inside(p.b))}u del borde del lienzo`);
+          for (const a of actors) if (touch(p.b, a.b)) out.pieces.push(`la pieza ${p.id} se encima sobre ${a.id}`);
+          for (const o of props) if (o.id !== p.id && o.b.width && touch(p.b, o.b)) out.pieces.push(`la pieza ${p.id} se encima sobre ${o.id}`);
+        }
+        for (const glyph of step.querySelectorAll("[data-state-mark] text, [data-mark-kind] text")) {
+          const b = glyph.getBBox();
+          if (inside(b) < 12) out.pieces.push(`la marca ${glyph.textContent} queda a ${Math.round(inside(b))}u del borde del lienzo`);
+          for (const a of actors) if (touch(b, a.b)) out.pieces.push(`la marca ${glyph.textContent} se encima sobre ${a.id}`);
+          for (const p of props) if (p.b.width && touch(b, p.b)) out.pieces.push(`la marca ${glyph.textContent} se encima sobre ${p.id}`);
+        }
+        for (const a of step.querySelectorAll('[data-actor][data-state="invalid"]')) {
+          if (!a.querySelector("[data-strike]")) out.pieces.push(`el actor inválido ${a.dataset.actor} no está tachado`);
+        }
+      }
       for (const move of step.querySelectorAll("[data-move-from]")) {
-        const from = step.querySelector(`[data-actor="${move.dataset.moveFrom}"]`);
-        const to = step.querySelector(`[data-actor="${move.dataset.moveTo}"]`);
+        const from = step.querySelector(`[data-actor="${move.dataset.moveFrom}"], [data-prop-id="${move.dataset.moveFrom}"]`);
+        const to = step.querySelector(`[data-actor="${move.dataset.moveTo}"], [data-prop-id="${move.dataset.moveTo}"]`);
         const path = move.querySelector("[data-move-path]");
         if (!from || !to || !path) { out.moves.push(`el movimiento ${move.dataset.moveFrom}→${move.dataset.moveTo} no tiene sus actores`); continue; }
         const m = path.getScreenCTM();
@@ -2616,6 +2657,30 @@ const STORY_MEASURE = (_card, theme) => {
     const size = (selector) => parseFloat(getComputedStyle(story.querySelector(selector)).fontSize);
     if (size(".lk-story-narrator") < 17) out.small.push(`el narrador mide ${size(".lk-story-narrator")} px (mínimo 17)`);
     if (size(".lk-story-formula") < 22) out.small.push(`la ecuación de la cabecera mide ${size(".lk-story-formula")} px (mínimo 22)`);
+    // #222: the header is one line, always. A highlighted group neither wraps the
+    // equation nor spreads its letters: it keeps the width it has unhighlighted.
+    const formula = story.querySelector(".lk-story-formula");
+    if (formula) {
+      const tokens = [...formula.querySelectorAll(".lk-token")];
+      const tops = tokens.map((t) => Math.round(t.getBoundingClientRect().top));
+      if (Math.max(...tops) - Math.min(...tops) > 4) out.header.push(`la ecuación se parte en ${new Set(tops).size} líneas`);
+      const line = parseFloat(getComputedStyle(formula).lineHeight) || parseFloat(getComputedStyle(formula).fontSize) * 1.5;
+      if (formula.clientHeight > line * 1.4) out.header.push(`la cabecera mide ${formula.clientHeight} px de alto para una línea de ${Math.round(line)} px`);
+      const extent = () => tokens.length ? tokens[tokens.length - 1].getBoundingClientRect().right - tokens[0].getBoundingClientRect().left : 0;
+      const focused = tokens.filter((t) => t.dataset.focus === "1");
+      for (const t of focused) {
+        const spacing = getComputedStyle(t).letterSpacing;
+        if (spacing !== "normal" && parseFloat(spacing) !== 0) out.header.push(`el átomo resaltado «${t.textContent}» separa sus letras (${spacing})`);
+      }
+      if (focused.length) {
+        const lit = extent();
+        const was = focused.map((t) => t.className);
+        focused.forEach((t) => { t.className = "lk-token"; delete t.dataset.focus; });
+        const plain = extent();
+        focused.forEach((t, i) => { t.className = was[i]; t.dataset.focus = "1"; });
+        if (Math.abs(lit - plain) > Math.max(3, plain * 0.01)) out.header.push(`resaltar un grupo cambia el ancho de la ecuación: ${Math.round(plain)} → ${Math.round(lit)} px`);
+      }
+    }
     const chip = story.querySelector(".lk-story-narrator .lk-chip");
     if (chip && parseFloat(getComputedStyle(chip).fontSize) < 15) out.small.push("las fichas del narrador bajan de 15 px");
   }
@@ -2629,7 +2694,9 @@ const storyFocus = (markdown) => {
   return spec.steps.map((step) => step.focus ?? []);
 };
 
-for (const [name, file] of [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"]]) {
+const STORY_EXAMPLES = [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"], ["propiedad-rust", "propiedad-rust.md"]];
+
+for (const [name, file] of STORY_EXAMPLES) {
   test(`the ${name} walkthrough anchors every tag and moving term and keeps its labels at reading size, in every theme and width`, { skip: !playwright && "playwright not installed" }, async (t) => {
     mkdirSync(STORY_SHOTS, { recursive: true });
     const markdown = example(file);
@@ -2653,6 +2720,8 @@ for (const [name, file] of [["formula-gaussiana", "formula-gaussiana.md"], ["der
         assert.deepEqual(seen.islands, [], `${where}: el recorrido no es una sola hoja (isla blanca o escenario que no llena la tarjeta)`);
         assert.deepEqual(seen.faint, [], `${where}: la tinta del escenario no se lee sobre el papel`);
         assert.deepEqual(seen.small, [], `${where}: el narrador o la cabecera bajan del tamaño de lectura`);
+        assert.deepEqual(seen.header, [], `${where}: la cabecera se parte en dos líneas o el resaltado separa sus letras`);
+        assert.deepEqual(seen.pieces, [], `${where}: una pieza, un ✓ o un ✗ queda fuera del lienzo, sin su actor o encima de otra pieza`);
         const focused = seen.focus.find((f) => f.step === s + 1)?.focused ?? [];
         assert.deepEqual(focused, focus[s], `${where}: la cabecera no resalta los átomos del paso`);
         // The story itself, never the full page: a full-page capture drags the fixed
@@ -2668,9 +2737,9 @@ for (const [name, file] of [["formula-gaussiana", "formula-gaussiana.md"], ["der
   });
 }
 
-test("full screen grows both walkthroughs and keeps their labels at reading size", { skip: !playwright && "playwright not installed" }, async (t) => {
+test("full screen grows every walkthrough and keeps their labels at reading size", { skip: !playwright && "playwright not installed" }, async (t) => {
   mkdirSync(STORY_SHOTS, { recursive: true });
-  for (const [name, file] of [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"]]) {
+  for (const [name, file] of STORY_EXAMPLES) {
     const page = await readerPart(t, example(file), { theme: "black", width: 1920, height: 1080, wide: true });
     const story = page.locator("lk-story").first();
     await story.locator("svg").waitFor();

@@ -476,7 +476,25 @@ type storyDeckStep struct {
 }
 
 type storyDeckStage struct {
-	Scene deckScene `json:"scene"`
+	Scene storyScene `json:"scene"`
+}
+
+// storyScene is the stage vocabulary of a story step: the actors with their
+// state, the props they carry, the moves between pieces and the marks that close
+// the step, next to the figures a still scene draws.
+type storyScene struct {
+	deckScene
+	Actors []json.RawMessage `json:"actors"`
+	Props  []json.RawMessage `json:"props"`
+	Icons  []json.RawMessage `json:"icons"`
+	Paths  []json.RawMessage `json:"paths"`
+	Moves  []json.RawMessage `json:"moves"`
+	Marks  []json.RawMessage `json:"marks"`
+}
+
+// draws reports whether the stage puts anything on the canvas.
+func (s storyScene) draws() bool {
+	return s.figures()+len(s.Actors)+len(s.Props)+len(s.Icons)+len(s.Paths)+len(s.Labels) > 0
 }
 
 // storyDeck is the payload of a formula or derivation walkthrough.
@@ -552,15 +570,21 @@ func storyProgressiveProblems(markup string) (int, []string) {
 			if spec.Kind == "formula" && i > 0 && i < len(spec.Steps)-1 && len(step.Focus) == 0 {
 				problems = append(problems, where+" focuses no symbol; each middle step highlights the atom it explains")
 			}
-			if spec.Kind == "derivation" && i > 0 && len(step.Moves) == 0 && len(step.Marks) == 0 {
-				problems = append(problems, where+" draws no move and no mark; a derivation step shows what changes")
-			}
 			if step.Stage == nil {
+				if spec.Kind == "derivation" && i > 0 && len(step.Moves) == 0 && len(step.Marks) == 0 {
+					problems = append(problems, where+" draws no move and no mark; a derivation step shows what changes")
+				}
 				problems = append(problems, where+" has no stage")
 				continue
 			}
-			if p := sceneProblem(step.Stage.Scene); p != "" && spec.Kind == "derivation" && len(step.Moves) == 0 {
-				problems = append(problems, where+" "+p)
+			// The kit draws moves and marks from the stage, so that is where they are
+			// read; a step's own `moves` and `marks` still count.
+			scene := step.Stage.Scene
+			if spec.Kind == "derivation" && i > 0 && len(step.Moves)+len(step.Marks)+len(scene.Moves)+len(scene.Marks) == 0 {
+				problems = append(problems, where+" draws no move and no mark; a derivation step shows what changes")
+			}
+			if spec.Kind == "derivation" && !scene.draws() {
+				problems = append(problems, where+" draws nothing: draw the actors that carry the idea")
 			}
 		}
 	}

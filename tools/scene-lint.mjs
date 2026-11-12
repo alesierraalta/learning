@@ -446,6 +446,35 @@ try {
           add('pieza-invisible', what, outside ? 'queda entera fuera del lienzo y el SVG la recorta' : 'no dibuja tinta');
         }
 
+        // 12. las piezas del escenario de un recorrido (#217): un valor, un ojo o un
+        // lápiz anclados a un actor, una marca entre dos actores, el nombre de un
+        // actor. Se anclan por id, así que la que nombra algo que el paso no tiene no
+        // señala nada; y la tinta de una pieza no cae sobre la palabra de otra.
+        const inCanvas = (b) => b.x + b.width > vb.x && b.x < vb.x + vb.width && b.y + b.height > vb.y && b.y < vb.y + vb.height;
+        for (const g of svg.querySelectorAll('[data-prop-id], [data-mark-kind], [data-tag-to]')) {
+          const step = stepOf(g);
+          const missing = g.dataset.propMissing ?? g.dataset.markMissing;
+          if (missing !== undefined) {
+            add('pieza-sin-destino', g.dataset.propId || g.dataset.markKind, `ancla en «${missing}», que el paso no tiene`);
+            continue;
+          }
+          if (g.dataset.tagTo !== undefined && !g.firstChild) {
+            add('pieza-sin-destino', g.dataset.tagText || g.dataset.tagTo, `el nombre ancla en «${g.dataset.tagTo}», que el paso no tiene`);
+            continue;
+          }
+          if (!g.firstChild) continue;
+          const gb = g.getBBox();
+          if (!inCanvas(gb)) add('pieza-invisible', g.dataset.propId || g.dataset.tagText || g.dataset.markKind, 'queda entera fuera del lienzo y el SVG la recorta');
+          if (g.dataset.propId === undefined) continue;
+          for (const ink of g.querySelectorAll('rect, circle, path')) {
+            const b = ink.getBBox();
+            const hit = texts.find((t) => t.step === step && !g.contains(t.el)
+              && Math.min(b.x + b.width, t.b.x + t.b.width) - Math.max(b.x, t.b.x) > 2
+              && Math.min(b.y + b.height, t.b.y + t.b.height) - Math.max(b.y, t.b.y) > 2);
+            if (hit) { add('pieza-sobre-texto', hit.s.slice(0, 40), `la pieza ${g.dataset.propId} se dibuja encima de esta palabra`); break; }
+          }
+        }
+
         // 9. una flecha cortada por su etiqueta se lee como dos conectores: el tramo
         // que llega al número y otro que sale de él. La flecha va entera, con las
         // palabras al lado (`labelBeside`).

@@ -552,6 +552,7 @@
     const svg = stage.querySelector("svg");
     if (!svg) return;
     const ns = "http://www.w3.org/2000/svg";
+    const S = window.LKScene;
     const make = (tag, attrs = {}, text) => {
       const n = document.createElementNS(ns, tag);
       for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
@@ -568,8 +569,105 @@
     const shown = groups.map((g) => g.style.display);
     groups.forEach((g) => { g.style.display = ""; });
     const sel = (id) => String(id).replace(/[^\w-]/g, "\\$&");
-    const findIn = (step, id) => step.querySelector(`[data-actor="${sel(id)}"], [data-box-id="${sel(id)}"], [data-label-id="${sel(id)}"], [data-icon-id="${sel(id)}"], [data-callout="${sel(id)}"]`);
+    const findIn = (step, id) => step.querySelector(`[data-actor="${sel(id)}"], [data-box-id="${sel(id)}"], [data-label-id="${sel(id)}"], [data-icon-id="${sel(id)}"], [data-prop-id="${sel(id)}"], [data-callout="${sel(id)}"]`);
+    // Un glifo de resultado (✓ / ✗) se coloca donde cabe dentro del lienzo, midiendo
+    // lo que el navegador dibujó: sobre el lado que se prefiere, sin encimarse con
+    // las piezas que se le pasan en `avoid`. Si ningún lado cabe, queda en el primero.
+    const room = svg.viewBox.baseVal;
+    const touches = (a, b) => !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
+    const glyphAt = (holder, kind, union, { corner = false, avoid = [], below: underneath = false } = {}) => {
+      const t = tone(kind === "no" ? "red" : "green");
+      const glyph = make("text", { "font-size": 24, "font-weight": 700, fill: t.color }, kind === "no" ? "✗" : "✓");
+      holder.replaceChildren(glyph);
+      const right = { x: union.x + union.width + 10, y: union.y + union.height / 2 + 8, anchor: "start" };
+      const left = { x: union.x - 10, y: union.y + union.height / 2 + 8, anchor: "end" };
+      const below = { x: union.x + union.width / 2, y: union.y + union.height + 28, anchor: "middle" };
+      const sides = corner
+        ? [{ x: union.x + union.width + 6, y: union.y + 18, anchor: "start" }, right, below, left, { x: union.x - 6, y: union.y + 18, anchor: "end" }]
+        : underneath ? [below, right, left] : [right, below, left];
+      let first = null;
+      for (const side of sides) {
+        glyph.setAttribute("x", side.x.toFixed(1));
+        glyph.setAttribute("y", side.y.toFixed(1));
+        glyph.setAttribute("text-anchor", side.anchor);
+        const g = glyph.getBBox();
+        first = first || side;
+        const air = Math.min(g.x - room.x, g.y - room.y, room.x + room.width - (g.x + g.width), room.y + room.height - (g.y + g.height));
+        if (air >= 12 && !avoid.some((b) => touches(g, b))) return glyph;
+      }
+      glyph.setAttribute("x", first.x.toFixed(1));
+      glyph.setAttribute("y", first.y.toFixed(1));
+      glyph.setAttribute("text-anchor", first.anchor);
+      return glyph;
+    };
+    const boxOf = (el) => { const b = el.getBBox(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
+    // Una pieza dibujada se pone desde su actor, no desde una coordenada: junto al
+    // lado que declara, y si ahí no cabe —borde del lienzo, otro actor, otra pieza o
+    // el nombre que el actor lleva arriba— en el primero que sí.
+    const parse = (markup) => [...new DOMParser().parseFromString(`<svg xmlns="${ns}">${markup}</svg>`, "image/svg+xml").documentElement.childNodes].map((n) => document.importNode(n, true));
+    const placeProps = (step) => {
+      const props = [...step.querySelectorAll("[data-prop-id]")];
+      props.forEach((p) => p.replaceChildren());
+      const reserved = [...step.querySelectorAll("[data-tag-to]")].map((tg) => {
+        const target = findIn(step, tg.dataset.tagTo);
+        if (!target || target.hasAttribute("data-prop-id")) return null;
+        const b = target.getBBox();
+        const w = Math.max(30, String(tg.dataset.tagText || "").length * 13 * 0.56 + 16);
+        return { x: b.x + b.width / 2 - w / 2 - 4, y: b.y - 8 - 25 - 8, width: w + 8, height: 25 + 8 + 8 };
+      }).filter(Boolean);
+      const placed = [];
+      for (const prop of props) {
+        const kind = prop.dataset.propKind || "value";
+        const size = Number(prop.dataset.propSize) || 34;
+        const freed = prop.dataset.propState === "freed";
+        const grey = freed || prop.dataset.propState === "faded";
+        const t = grey ? { stroke: S.C.slate2, fill: "#ffffff", color: S.C.slate2 } : tone(prop.dataset.propTone || "slate");
+        const label = prop.dataset.propLabel || "";
+        const draw = (cx, cy, labelY) => {
+          const markup = S.prop(kind, cx, cy, size, { stroke: t.stroke, fill: t.fill }) || S.icon(kind, cx, cy, size, { stroke: t.stroke, fill: t.fill });
+          prop.replaceChildren(...parse(markup));
+          // Un valor liberado ya no existe: su contorno se deshace en trazos y el
+          // relleno desaparece, pero conserva su palabra («liberado»).
+          if (freed) for (const shape of prop.querySelectorAll("rect, circle, path")) {
+            shape.setAttribute("stroke-dasharray", "5 4");
+            if (shape.getAttribute("fill") !== "none") shape.setAttribute("fill", "none");
+          }
+          if (label) prop.append(make("text", { x: cx.toFixed(1), y: labelY.toFixed(1), "font-size": 14, "font-weight": 700, fill: t.color, "text-anchor": "middle" }, label));
+        };
+        let spots;
+        if (prop.dataset.propOn) {
+          const anchor = findIn(step, prop.dataset.propOn);
+          if (!anchor) { prop.dataset.propMissing = prop.dataset.propOn; continue; }
+          const b = anchor.getBBox();
+          const gap = 10, cxm = b.x + b.width / 2, cym = b.y + b.height / 2;
+          const at = {
+            right: [b.x + b.width + gap + size / 2, cym, "up"],
+            left: [b.x - gap - size / 2, cym, "up"],
+            above: [cxm, b.y - gap - size / 2, "up"],
+            below: [cxm, b.y + b.height + gap + size / 2, "down"],
+          };
+          const order = [...new Set([prop.dataset.propSide, "right", "left", "below", "above"].filter((side) => at[side]))];
+          spots = order.map((side) => at[side]);
+        } else {
+          const [x, y] = String(prop.dataset.propAt || "").split(",").map(Number);
+          spots = [[x, y, "up"]];
+        }
+        const others = [...step.querySelectorAll("[data-actor]")].map(boxOf).concat(reserved, placed);
+        let chosen = null;
+        for (const [cx, cy, where] of spots) {
+          draw(cx, cy, where === "up" ? cy - size / 2 - 6 : cy + size / 2 + 14);
+          const g = prop.getBBox();
+          const air = Math.min(g.x - room.x, g.y - room.y, room.x + room.width - (g.x + g.width), room.y + room.height - (g.y + g.height));
+          chosen = chosen || [cx, cy, where];
+          if (air >= 14 && !others.some((o) => touches(g, o))) { chosen = [cx, cy, where]; break; }
+        }
+        const [cx, cy, where] = chosen;
+        draw(cx, cy, where === "up" ? cy - size / 2 - 6 : cy + size / 2 + 14);
+        placed.push(boxOf(prop));
+      }
+    };
     for (const step of scopes) {
+      placeProps(step);
       for (const tag of step.querySelectorAll("[data-tag-to]")) {
         const target = findIn(step, tag.dataset.tagTo);
         if (!target) continue;
@@ -598,27 +696,63 @@
         if (!from || !to) continue;
         const a = from.getBBox(), b = to.getBBox();
         const t = tone(move.dataset.moveTone);
-        const start = edgeOf(a, b.x + b.width / 2, b.y + b.height / 2);
-        const end = edgeOf(b, a.x + a.width / 2, a.y + a.height / 2);
+        // Dos piezas una al lado de la otra se unen con un trazo que sale y llega en
+        // horizontal, por la franja de altura que comparten; una arriba de la otra,
+        // con el codo vertical de siempre.
+        const sideBySide = Math.abs((a.x + a.width / 2) - (b.x + b.width / 2)) > Math.abs((a.y + a.height / 2) - (b.y + b.height / 2)) * 1.2;
+        const shared = (Math.max(a.y, b.y) + Math.min(a.y + a.height, b.y + b.height)) / 2;
+        const lane = Math.min(a.y + a.height, b.y + b.height) > Math.max(a.y, b.y);
+        const start = sideBySide && lane
+          ? { x: a.x + a.width / 2 < b.x + b.width / 2 ? a.x + a.width : a.x, y: shared }
+          : edgeOf(a, b.x + b.width / 2, b.y + b.height / 2);
+        const end = sideBySide && lane
+          ? { x: a.x + a.width / 2 < b.x + b.width / 2 ? b.x : b.x + b.width, y: shared }
+          : edgeOf(b, a.x + a.width / 2, a.y + a.height / 2);
         const midY = (start.y + end.y) / 2;
         const path = move.querySelector("[data-move-path]");
-        path.setAttribute("d", `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} C ${start.x.toFixed(1)} ${midY.toFixed(1)}, ${end.x.toFixed(1)} ${midY.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`);
+        path.setAttribute("d", sideBySide && lane
+          ? `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} L ${end.x.toFixed(1)} ${end.y.toFixed(1)}`
+          : `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} C ${start.x.toFixed(1)} ${midY.toFixed(1)}, ${end.x.toFixed(1)} ${midY.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`);
         path.setAttribute("stroke", t.stroke);
-        path.setAttribute("stroke-width", "2");
+        // La punta crece con el grosor del trazo (11 × el grosor): con 1,5 mide una
+        // flecha, con 2 mide un triángulo que tapa el actor al que llega.
+        path.setAttribute("stroke-width", "1.5");
         path.setAttribute("stroke-dasharray", "6 5");
         path.setAttribute("marker-end", marker(move.dataset.moveTone));
         const label = move.querySelector("[data-move-label]");
         label.textContent = move.dataset.moveVerb || "";
-        label.setAttribute("x", Math.max((start.x + end.x) / 2, start.x + 66).toFixed(1));
-        label.setAttribute("y", (Math.min(start.y, end.y) - 8).toFixed(1));
+        // En un trazo horizontal el verbo va centrado sobre el trazo, lejos de la punta;
+        // en uno que baja, más a la derecha del arranque, como siempre.
+        label.setAttribute("x", (sideBySide && lane ? (start.x + end.x) / 2 : Math.max((start.x + end.x) / 2, start.x + 66)).toFixed(1));
+        label.setAttribute("y", (Math.min(start.y, end.y) - 16).toFixed(1));
         label.setAttribute("text-anchor", "middle");
         label.setAttribute("font-size", "13");
         label.setAttribute("font-weight", "700");
         label.setAttribute("fill", t.color);
         label.setAttribute("data-fit", String(Math.max(40, Math.abs(end.x - start.x) + 60)));
       }
+      const pieces = () => [...step.querySelectorAll("[data-actor], [data-prop-id]")].map(boxOf);
       for (const mark of step.querySelectorAll("[data-mark-kind]")) {
         const kind = mark.dataset.markKind;
+        // Un resultado entre dos actores cae en el hueco que los separa: el ✓ o el ✗
+        // dice qué pasa de uno a otro, no de quién es.
+        if (mark.dataset.markBetween) {
+          const [a, b] = String(mark.dataset.markBetween).split(",").map((id) => findIn(step, id));
+          if (!a || !b) { mark.dataset.markMissing = mark.dataset.markBetween; continue; }
+          const [near, far] = [boxOf(a), boxOf(b)].sort((p, q) => p.x - q.x);
+          const across = far.x - (near.x + near.width);
+          const stacked = Math.max(near.y, far.y) - Math.min(near.y + near.height, far.y + far.height);
+          const hole = across >= 30
+            ? { x: near.x + near.width, y: Math.min(near.y, far.y), width: across, height: Math.max(near.y + near.height, far.y + far.height) - Math.min(near.y, far.y) }
+            : stacked >= 30
+              ? { x: Math.min(near.x, far.x), y: Math.min(near.y + near.height, far.y + far.height), width: Math.max(near.x + near.width, far.x + far.width) - Math.min(near.x, far.x), height: stacked }
+              : null;
+          const joint = { x: Math.min(near.x, far.x), y: Math.min(near.y, far.y), width: Math.max(near.x + near.width, far.x + far.width) - Math.min(near.x, far.x), height: Math.max(near.y + near.height, far.y + far.height) - Math.min(near.y, far.y) };
+          if (!hole) { glyphAt(mark, kind === "no" ? "no" : "ok", joint, { avoid: pieces() }); continue; }
+          const t = tone(kind === "no" ? "red" : "green");
+          mark.replaceChildren(make("text", { x: (hole.x + hole.width / 2).toFixed(1), y: (hole.y + hole.height / 2 + 8).toFixed(1), "font-size": 24, "font-weight": 700, fill: t.color, "text-anchor": "middle" }, kind === "no" ? "✗" : "✓"));
+          continue;
+        }
         const ids = String(mark.dataset.markActors || "").split(",").filter(Boolean);
         const boxes = ids.map((id) => findIn(step, id)).filter(Boolean).map((el) => el.getBBox());
         if (!boxes.length) continue;
@@ -649,30 +783,30 @@
           // cabe dentro del lienzo —a la derecha, debajo o a la izquierda— midiendo lo
           // que el navegador dibujó, no con una coordenada: a la derecha de un actor
           // que llega a x 346 de 360 quedaba recortado y solo se veía una astilla.
-          for (const id of ids) {
+          // Una pieza (un valor, un ojo) no lleva marco: el ✓ o el ✗ se pega debajo
+          // de ella, para que se lea qué aprueba o rechaza.
+          const onProps = ids.length > 0 && ids.every((id) => findIn(step, id)?.hasAttribute("data-prop-id"));
+          if (!onProps) for (const id of ids) {
             const frame = findIn(step, id)?.querySelector("rect");
             if (!frame) continue;
             frame.setAttribute("stroke", t.stroke);
             frame.setAttribute("stroke-width", "3.5");
           }
-          const glyph = make("text", { "font-size": 24, "font-weight": 700, fill: t.color }, kind === "no" ? "✗" : "✓");
-          mark.replaceChildren(glyph);
-          const room = svg.viewBox.baseVal;
-          const sides = [
-            { x: union.x + union.width + 10, y: union.y + union.height / 2 + 8, anchor: "start" },
-            { x: union.x + union.width / 2, y: union.y + union.height + 28, anchor: "middle" },
-            { x: union.x - 10, y: union.y + union.height / 2 + 8, anchor: "end" },
-          ];
-          for (const side of sides) {
-            glyph.setAttribute("x", side.x.toFixed(1));
-            glyph.setAttribute("y", side.y.toFixed(1));
-            glyph.setAttribute("text-anchor", side.anchor);
-            const g = glyph.getBBox();
-            if (Math.min(g.x - room.x, g.y - room.y, room.x + room.width - (g.x + g.width), room.y + room.height - (g.y + g.height)) >= 12) break;
-          }
+          const strokes = [...step.querySelectorAll("[data-path]")].map(boxOf);
+          glyphAt(mark, kind === "no" ? "no" : "ok", union, { avoid: onProps ? pieces().concat(strokes) : [], below: onProps });
           continue;
         }
         mark.replaceChildren(...parts);
+      }
+      // El ✗ de un actor inválido, junto a su esquina y sin encimarse con nada,
+      // salvo que el autor ya marcó ese actor con su propio ✗.
+      for (const holder of step.querySelectorAll("[data-state-mark]")) {
+        const id = holder.dataset.stateMark;
+        const target = findIn(step, id);
+        if (!target) continue;
+        const owned = [...step.querySelectorAll('[data-mark-kind="no"]')].some((m) => String(m.dataset.markActors || "").split(",").includes(id));
+        if (owned) { holder.replaceChildren(); continue; }
+        glyphAt(holder, "no", boxOf(target), { corner: true, avoid: pieces().filter((b) => !(b.x === target.getBBox().x && b.y === target.getBBox().y)) });
       }
     }
     groups.forEach((g, i) => { g.style.display = shown[i]; });
@@ -867,16 +1001,44 @@
     // Actores, rótulos con punta, movimientos y marcas: la escena de un paso de
     // `lk-story`. Se dibujan como marcadores vacíos y `placeStory` los rellena con
     // las cajas que el navegador midió, nunca con coordenadas escritas a mano.
+    // Un actor tiene estado: activo (su tono), apagado (gris: ya no vale) o inválido
+    // (gris, tachado y con su ✗). El actor es una caja con su etiqueta o, con `icon`,
+    // un dibujo —el robot— centrado en (x, y).
     for (const a of scene.actors || []) {
       const t = tone(a.tone);
-      const faded = a.state === 'faded';
-      out += `<g data-actor="${S.esc(a.id)}"${faded ? ' data-faded="1"' : ''}>` + S.box(a.x, a.y, a.w, a.h, a.label || '', {
-        stroke: faded ? S.C.slate2 : t.stroke, fill: faded ? '#F1F3F4' : t.fill, color: faded ? S.C.slate2 : t.color,
-        size: a.size || 18, rx: a.rx ?? 10,
-      }) + '</g>';
+      const state = a.state === 'invalid' ? 'invalid' : a.state === 'faded' ? 'faded' : 'active';
+      const grey = state !== 'active';
+      const ink = grey ? S.C.slate2 : t.stroke;
+      const sheet = grey ? '#ffffff' : t.fill;
+      let body, frame;
+      if (a.icon) {
+        const size = a.size || 56;
+        const cx = stageWidth ? Math.min(Math.max(a.x, size / 2), stageWidth - size / 2) : a.x;
+        const cy = stageHeight ? Math.min(Math.max(a.y, stageTop + size / 2), stageTop + stageHeight - size / 2) : a.y;
+        body = S.icon(a.icon, cx, cy, size, { stroke: ink, fill: sheet });
+        frame = { x: cx - size / 2, y: cy - size / 2, w: size, h: size };
+      } else {
+        body = S.box(a.x, a.y, a.w, a.h, a.label || '', {
+          stroke: ink, fill: sheet, color: grey ? S.C.slate2 : t.color, size: a.size || 18, rx: a.rx ?? 10,
+        });
+        frame = { x: a.x, y: a.y, w: a.w, h: a.h };
+      }
+      const strike = state === 'invalid'
+        ? `<g data-strike="1">${S.line(frame.x - 6, frame.y + frame.h / 2, frame.x + frame.w + 6, frame.y + frame.h / 2, { color: tone('red').stroke, arrow: false, width: 2.5 })}</g>`
+        : '';
+      out += `<g data-actor="${S.esc(a.id)}" data-state="${state}"${grey ? ' data-faded="1"' : ''}>${body}${strike}</g>`;
+      if (state === 'invalid') out += `<g data-state-mark="${S.esc(a.id)}"></g>`;
       // El nombre del actor va en una ficha con punta, arriba de su caja: el
       // rótulo dice quién es sin escribir una coordenada.
-      if (a.tag) out += `<g data-tag-to="${S.esc(a.id)}" data-tag-text="${S.esc(a.tag)}" data-tag-tone="${S.esc(a.tone || 'slate')}"></g>`;
+      if (a.tag) out += `<g data-tag-to="${S.esc(a.id)}" data-tag-text="${S.esc(a.tag)}" data-tag-tone="${S.esc(grey ? 'slate' : a.tone || 'slate')}"></g>`;
+    }
+    // Una pieza con significado: un valor en su cofre, un ojo que lee, un lápiz que
+    // escribe, o cualquiera de los iconos. Se ancla al actor por su id (`on`) y
+    // `placeStory` la pone al lado que se pide, o donde quepa.
+    for (const p of scene.props || []) {
+      const at = Array.isArray(p.at) ? ` data-prop-at="${S.f(p.at[0])},${S.f(p.at[1])}"` : '';
+      out += `<g data-prop-id="${S.esc(p.id)}" data-prop-kind="${S.esc(p.kind || 'value')}"${p.on ? ` data-prop-on="${S.esc(p.on)}"` : ''}${p.side ? ` data-prop-side="${S.esc(p.side)}"` : ''}`
+        + `${p.label ? ` data-prop-label="${S.esc(p.label)}"` : ''} data-prop-tone="${S.esc(p.tone || 'slate')}"${p.size ? ` data-prop-size="${S.f(p.size)}"` : ''}${p.state === 'faded' || p.state === 'freed' ? ` data-prop-state="${p.state}"` : ''}${at}></g>`;
     }
     for (const tg of scene.tags || []) {
       out += `<g data-tag-to="${S.esc(tg.to)}" data-tag-text="${S.esc(tg.text)}" data-tag-tone="${S.esc(tg.tone || 'slate')}"${Array.isArray(tg.at) ? ` data-tag-at="${S.f(tg.at[0])},${S.f(tg.at[1])}"` : ''}></g>`;
@@ -885,7 +1047,7 @@
       out += `<g data-move-from="${S.esc(mv.from)}" data-move-to="${S.esc(mv.to)}" data-move-verb="${S.esc(mv.verb || '')}" data-move-tone="${S.esc(mv.tone || 'amber')}"><path fill="none" data-move-path="1"/><text data-move-label="1"></text></g>`;
     }
     for (const mk of scene.marks || []) {
-      out += `<g data-mark-kind="${S.esc(mk.kind)}" data-mark-actors="${S.esc((mk.actors || [mk.actor]).filter(Boolean).join(','))}"${mk.to ? ` data-mark-to="${S.esc(mk.to)}"` : ''}${mk.label ? ` data-mark-label="${S.esc(mk.label)}"` : ''}></g>`;
+      out += `<g data-mark-kind="${S.esc(mk.kind)}" data-mark-actors="${S.esc((mk.actors || [mk.actor]).filter(Boolean).join(','))}"${Array.isArray(mk.between) ? ` data-mark-between="${S.esc(mk.between.slice(0, 2).join(','))}"` : ''}${mk.to ? ` data-mark-to="${S.esc(mk.to)}"` : ''}${mk.label ? ` data-mark-label="${S.esc(mk.label)}"` : ''}></g>`;
     }
     return out;
   }
@@ -937,7 +1099,7 @@
     catch (error) { throw new Error(`El recorrido tiene un JSON inválido: ${error.message}`); }
     const steps = spec.steps || [];
     if (!steps.length) throw new Error('El recorrido no tiene pasos');
-    const stage = el('div', undefined, { class: 'lk-wt-stage' });
+    const stage = el('div', undefined, { class: 'lk-wt-stage lk-remap' });
     const stageWidth = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[2]) || 1200;
     // El ancho declarado es el techo de la figura: 1 unidad ≈ 1 píxel. En modo
     // ancho la columna mide el doble y, sin esto, la escena se estiraba a 1,7×.
@@ -1129,7 +1291,13 @@
       const step = steps[index];
       const atoms = kind === 'derivation' ? (step.equation?.atoms || []) : (spec.formula?.atoms || []);
       head.replaceChildren();
-      if (atoms.length) head.append(tokens(atoms, step.focus));
+      if (atoms.length) {
+        const line = tokens(atoms, step.focus);
+        head.append(line);
+        // A line that does not fit scrolls; the highlighted group is brought into view.
+        const lit = line.querySelector('.lk-token-focus');
+        if (lit && line.scrollWidth > line.clientWidth) line.scrollLeft = Math.max(0, lit.offsetLeft - line.clientWidth / 3);
+      }
       narrate(step);
       count.textContent = `${index + 1} / ${steps.length}`;
       segs.forEach((seg, i) => { seg.dataset.filled = String(i <= index); seg.setAttribute('aria-current', String(i === index)); });

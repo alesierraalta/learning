@@ -171,12 +171,17 @@ lk-story:-webkit-full-screen .lk-story-head, lk-story:-webkit-full-screen .lk-st
    clara de una figura, porque sus colores son parte de lo que enseña. */
 lk-story { display:block; max-width:720px; margin:36px auto; padding:0; border:1px solid var(--hair); background:var(--paper); color:var(--ink); }
 lk-story>.lk-title { display:block; padding:14px 18px 0; font-family:var(--sans); font-size:.62rem; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); }
-.lk-story-head { padding:14px 18px; border-bottom:1px solid var(--hair); }
+.lk-story-head { padding:14px 18px; border-bottom:1px solid var(--hair); container-type:inline-size; }
 /* La cabecera y el narrador son lo más legible de la tarjeta: nunca por debajo del
    tamaño del cuerpo (22 px la ecuación, 18 px el narrador en escritorio). */
-.lk-story-formula { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 0; font-family:var(--mono); font-size:clamp(22px, 3vw, 28px); line-height:1.5; }
-.lk-token { display:inline; padding:1px 0; border-radius:3px; }
-.lk-token-focus { padding:1px 5px; margin:0 -1px; background:var(--accent); color:var(--on-ink); font-weight:700; box-shadow:0 0 0 1px var(--accent); }
+/* La ecuación es UNA línea: no se parte ni se reacomoda cuando un grupo se resalta.
+   Si no cabe a su tamaño de lectura, la cabecera se desliza en horizontal. */
+.lk-story-formula { display:block; white-space:nowrap; overflow-x:auto; overflow-y:hidden; font-family:var(--mono); font-size:clamp(22px, 4.2cqw, 28px); line-height:1.5; letter-spacing:normal; scrollbar-width:thin; }
+.lk-token { display:inline; padding:1px 0; border-radius:3px; letter-spacing:normal; }
+/* El resaltado no ocupa lugar en la línea: es solo fondo, sin relleno ni margen
+   horizontal, así los átomos de un grupo quedan pegados en una sola barra y el
+   grupo mide lo mismo resaltado que sin resaltar. */
+.lk-token-focus { border-radius:0; background:var(--accent); color:var(--on-ink); font-weight:700; }
 /* El escenario es la misma hoja que la tarjeta: sin papel propio. El panel ocupa el
    ancho de la tarjeta y el dibujo, centrado, crece hasta 1,6× su `viewBox`. */
 .lk-story-stage.lk-wt-stage { max-width:none; margin-inline:0; background:transparent; color:var(--ink); padding:12px 8px; border-bottom:1px solid var(--hair); }
@@ -364,20 +369,15 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
 :root[data-theme="dark"] a { text-decoration-color: rgba(143, 192, 224, .42); }
 :root[data-theme="black"] select,
 :root[data-theme="dark"] select { background: var(--paper); }
-/* La hoja del deck y su tinta vuelven a ser las del papel claro. */
-:root[data-theme="black"] .lk-walkthrough,
-:root[data-theme="dark"] .lk-walkthrough {
-  background: #fff; color: var(--ink); color-scheme: light;
-  --paper: #ffffff; --ink: #0F2E3D; --muted: rgba(15, 46, 61, .62);
-  --hair: rgba(15, 46, 61, .18); --rule-color: rgba(15, 46, 61, .45);
-  --accent: #004276; --rule: #e2e8f0; --cobalt: #2563eb;
-  --emerald: #059669; --amber: #d97706; --crimson: #dc2626;
-  --on-ink: #ffffff;
-}
-:root[data-theme="black"] .lk-walkthrough:fullscreen,
-:root[data-theme="black"] .lk-walkthrough:-webkit-full-screen,
-:root[data-theme="dark"] .lk-walkthrough:fullscreen,
-:root[data-theme="dark"] .lk-walkthrough:-webkit-full-screen { background: #fff; }
+/* #222: el deck clásico sigue el papel de la página como `lk-story`: sin hoja blanca
+   propia, con la tinta de noche, y los tonos del dibujo se remapean (`.lk-remap`). */
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-walkthrough { background: var(--paper); color: var(--ink); border-color: var(--hair); box-shadow: none; }
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-walkthrough:fullscreen,
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-walkthrough:-webkit-full-screen { background: var(--paper); }
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-wt-dot { background: transparent; border-color: var(--ink) !important; }
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-wt-count { color: var(--muted); }
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-wt-full { background: var(--paper); color: var(--ink); border-color: var(--ink); }
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-wt-full:hover { background: var(--ink); color: var(--on-ink); }
 /* Una escena sigue el papel como el recorrido de una fórmula (#209): su escenario no
    pinta hoja propia y los tonos del dibujo se remapean más abajo (`.lk-remap`) a los
    de noche, en una sola lista para los dos papeles. Antes era una isla blanca entre

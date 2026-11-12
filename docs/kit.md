@@ -273,6 +273,30 @@ browser drew. `scene-gate` measures `<lk-story>` blocks too, one step at a time 
 only `<lk-scene>` and say «sin escenas» in front of a whole story), so a mark, a tag chip or a
 label that crosses the canvas edge is `al-borde`.
 
+**The header is one line.** A formula or equation never wraps and a highlighted group never
+spreads its letters (#222): the highlight is a background bar with no horizontal padding or
+margin, so the group measures what it measures unhighlighted, and the line is a `nowrap` row
+that scales between 22 and 28 px with the card (`cqw`) and scrolls horizontally, with the
+highlighted group brought into view, when it still does not fit. The bridge matrix pins one line
+and an unchanged width in every cell.
+
+**Actors with state and props** (#217). An actor is a concept with a name tag: a box with a
+`label` or, with `"icon":"robot"` (any icon kind), a drawing centred at `x`, `y`. Its `state`
+shows by colour and mark: `active` (default, its tone), `faded` (grey: it no longer holds) and
+`invalid` (grey, struck through, with a ✗ at its corner unless the author marks it with their own ✗).
+`props` carry meaning and are anchored by id: `{"id":"valor","kind":"value","on":"s1","side":"right","label":"\"hola\""}`
+draws a small chest with its value label, `read` an eye, `write` a pencil, and any icon kind
+draws that icon; `state: "faded"` greys a prop. The prop goes to the side asked for and, where
+that side has no room (canvas edge, another actor, another prop, the name tag over its actor), to
+the first one that does; its label is measured in the reader's font. A move can start or end on a
+prop (`{"from":"valor","to":"s2","verb":"se mueve"}`), a tag can name one, and a result mark goes on an actor,
+on several (`"actors":[...]`) or in the gap between two (`{"kind":"ok","between":["s1","s2"]}`).
+A prop or a mark that names an id the step does not have is declared, not drawn in the air:
+`scene-lint` reports it as `pieza-sin-destino`, and a prop drawn over a word as `pieza-sobre-texto`;
+`scene-gate` measures them like every other piece (`al-borde`). Worked example, gated:
+`integrations/pi/kit/examples/propiedad-rust.md` (a value changes owner, the old owner is struck
+through, the value is freed).
+
 **One surface.** The whole card — header, stage, narrator and player — shares the reader's
 paper, and so does every still `lk-scene`: both stages carry the `lk-remap` class that the night
 rules are scoped to. In `dark` and `black` the stage paints with that paper and the night ink instead of a white
@@ -369,8 +393,10 @@ bridge and the studio load it before anything else paints. `kit.css` swaps only 
 `:root[data-theme="dark"]` and `:root[data-theme="black"]`. A scene (`lk-scene`), a story
 (`lk-story`) and an `lk-figure` follow the night paper: their stage paints no sheet of its own and
 the drawing's tones are remapped to night tones (see «One surface» below). A classic
-`lk-walkthrough` deck and a mermaid diagram are the exception: each keeps its own light sheet,
-whole, as a card. Both night themes go
+`lk-walkthrough` deck follows the night paper too (#222): its card takes the page paper and ink,
+its stage carries `lk-remap`, and its title, caption and step buttons read at ≥ 4.5:1 on it (the
+bridge matrix measures it; it was a white card in dark and black). A mermaid diagram is the
+exception: it keeps its own light sheet, whole, as a card. Both night themes go
 in one `:is()` list — written as a comma-separated pair of selectors, each rule reached only
 half of them and the annotated formula kept its dark ink on the black page. An `lk-figure` from
 the visual engine is
