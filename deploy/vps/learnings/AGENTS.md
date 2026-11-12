@@ -27,6 +27,8 @@ Escribir notas, quizzes y archivos JSON de estudio **no es una implementación**
 
 Este archivo no repite el estándar: la anatomía de una parte la fija la skill `explicacion-interactiva`, con su regla medida («Tamaño de parte»: 450 palabras de prosa, 2 secciones de contenido, `## Ruta` de 4 líneas como máximo, 1 escena, 1 recorrido y 3 preguntas de mini-quiz) y `references/estandar-explicacion.md`. Si una nota, una plantilla o una preferencia pide más, manda el tamaño y la parte se divide.
 
+El recorrido de una parte nueva se escribe con el **lenguaje de historia**: `<lk-story>` (actores con estado, movimientos y marcas; `kind: "derivation"` o `kind: "formula"`) o una pieza (`<lk-cards>`, `<lk-memory>`, `<lk-tables>`, `<lk-venn>`). El `<lk-walkthrough>` clásico es **legado**: se queda en las partes ya publicadas y no se usa en material nuevo, porque sus cajas y flechas libres se dibujan mal. Toda parte nueva trae al menos una historia o una pieza; una escena, un SVG o el walkthrough clásico no cuentan, y la parte que solo tiene eso la rechazan el motor (`the part carries no story and no piece`) y `explain-check`. Formatos y ejemplos: `references/visuales.md` §2 y §8.
+
 `preferencias.md` —junto al tema o en esta raíz— guarda las respuestas de la persona (ritmo, ejemplos, profundidad, orden). Se respeta dentro de ese tope y nunca cambia el formato medido de la parte ni los formatos de verificación.
 
 El estándar de video, cuando se pide un video, está en `references/video-distill.md` de la misma skill; este archivo no lo repite.

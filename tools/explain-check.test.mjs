@@ -2,7 +2,7 @@
 // sirve de nada.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,20 @@ const STORY_SIMPLE = `<lk-story>
 </lk-story>`;
 
 const run = (file) => spawnSync(process.execPath, [join(TOOLS, 'explain-check.mjs'), file], { encoding: 'utf8' });
+
+// El lenguaje de historia (#237): el recorrido de la parte se dibuja con
+// `<lk-story>` (actores con estado, movimientos y marcas) o con una pieza. Un
+// `<lk-walkthrough>` clásico ya no cuenta: sus cajas y flechas libres se dibujan
+// mal, y es el camino que tomó el modelo débil.
+const HISTORIA = `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
+ {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"}]}}},
+ {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"},{"id":"u","x":110,"y":80,"w":140,"h":56,"label":"arriba","tone":"blue"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
+ {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","x":110,"y":80,"w":140,"h":56,"label":"arriba","tone":"blue"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
+]}
+</script>
+</lk-story>`;
 
 // La escena se dibuja: el ejemplo se mira, y el recorrido no la sustituye.
 const ESCENA = `<lk-scene>
@@ -49,8 +63,26 @@ ${ESCENA}
 
 La acción es lo que el agente puede hacer.
 
+${HISTORIA}
+
 <lk-quiz>{"id":"q1"}</lk-quiz>
 `;
+
+// La misma parte sin su recorrido: las pruebas que traen su propio recorrido de
+// fórmula lo cambian por este, para no gastar el tope de un recorrido por parte.
+const CUMPLE_SIN_HISTORIA = CUMPLE.replace(HISTORIA, '');
+
+// El recorrido clásico: un `<lk-walkthrough>` de tres pasos que dibuja. Es lo que
+// el estándar ya no acepta como único recorrido de una parte.
+const CLASICO = `<lk-walkthrough class="lk-wt-compact">
+<script type="application/json">
+{"title":"El robot sube","viewBox":"0 0 360 300","steps":[
+ {"title":"La salida","text":"El robot empieza abajo.","scene":{"boxes":[{"x":110,"y":210,"w":140,"h":56,"label":"robot"}]}},
+ {"title":"Sube","text":"Sube una casilla.","scene":{"boxes":[{"x":110,"y":80,"w":140,"h":56,"label":"arriba"}],"arrows":[{"x1":180,"y1":210,"x2":180,"y2":136,"label":"sube","labelBeside":true}]}},
+ {"title":"Paga","text":"Cada paso cuesta menos cero coma cero cuatro.","scene":{"boxes":[{"x":110,"y":80,"w":140,"h":56,"label":"arriba"}]}}
+]}
+</script>
+</lk-walkthrough>`;
 
 test('acepta una parte que cumple el estándar', () => {
   const f = join(dir, 'cumple.md');
@@ -138,7 +170,7 @@ const CON_FORMULA = CUMPLE.replace('El estado es lo que hace falta saber para de
 
 test('una fórmula con su leyenda de símbolos pasa', () => {
   const f = join(dir, 'formula-con-leyenda.md');
-  writeFileSync(f, STORY_SIMPLE + '\n\n' + CON_FORMULA + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
+  writeFileSync(f, STORY_SIMPLE + '\n\n' + CON_FORMULA.replace(HISTORIA, '') + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
   const r = run(f);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+leyenda/);
@@ -207,7 +239,7 @@ test('la leyenda de una fórmula real pide sus símbolos, no sus comandos', () =
 
 test('la misma fórmula pasa cuando su leyenda nombra sus cuatro símbolos', () => {
   const f = join(dir, 'formula-viva-leyenda.md');
-  writeFileSync(f, STORY_SIMPLE + '\n\n' + CON_VIVA + '\nDonde:\n\n- `f` es la densidad.\n- `x` es el valor que miras.\n- `\\sigma` es el ancho.\n- `\\mu` es el centro.\n');
+  writeFileSync(f, STORY_SIMPLE + '\n\n' + CON_VIVA.replace(HISTORIA, '') + '\nDonde:\n\n- `f` es la densidad.\n- `x` es el valor que miras.\n- `\\sigma` es el ancho.\n- `\\mu` es el centro.\n');
   const r = run(f);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+leyenda/);
@@ -288,7 +320,7 @@ test('una fórmula en LaTeX plano sin leyenda falla y nombra la escena anotada',
 
 test('una fórmula plana con su leyenda pasa', () => {
   const f = join(dir, 'formula-plana-leyenda.md');
-  writeFileSync(f, STORY_SIMPLE + '\n\n' + PLANA + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
+  writeFileSync(f, STORY_SIMPLE + '\n\n' + PLANA.replace(HISTORIA, '') + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
   const r = run(f);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+leyenda/);
@@ -321,7 +353,7 @@ test('rechaza una fórmula que no tiene recorrido de fórmula', () => {
 
 test('acepta la fórmula con su recorrido de fórmula', () => {
   const f = join(dir, 'formula-con-recorrido.md');
-  writeFileSync(f, CUMPLE.replace('## 2. La acción', `## 2. La fórmula\n\nLa densidad se explica paso a paso.\n\n${FORMULA_STORY}`));
+  writeFileSync(f, CUMPLE.replace(HISTORIA, '').replace('## 2. La acción', `## 2. La fórmula\n\nLa densidad se explica paso a paso.\n\n${FORMULA_STORY}`));
   const r = run(f);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+formula-walkthrough/);
@@ -353,4 +385,83 @@ test('una escena y una pieza son dos figuras y la parte solo admite una', () => 
   const r = run(f);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALLA escena\s+2 escena\(s\)/);
+});
+
+// El lenguaje de historia (#237): el recorrido de la parte se dibuja con
+// `<lk-story>` o con una pieza. Un `<lk-walkthrough>` clásico solo no cuenta, y el
+// rechazo nombra el elemento que hay que usar. La parte real que el alumno
+// rechazó —Parte 1 de SQL, escrita por el estudio con agy— es la prueba.
+const PARTE_SQL = join(TOOLS, '..', 'internal', 'engine', 'testdata', 'sql-parte-1.md');
+
+test('la parte real con solo un walkthrough clásico falla la historia y nombra el arreglo', () => {
+  const r = run(PARTE_SQL);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA historia/);
+  assert.match(r.stdout, /usa una historia por pasos <lk-story> o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>/);
+  assert.match(r.stdout, /un <lk-walkthrough> clásico no cuenta/);
+});
+
+test('una parte cuyo único recorrido es el walkthrough clásico falla la historia', () => {
+  const file = join(dir, 'walkthrough-clasico.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA.replace('## 2. La acción', `## 2. La acción\n\nLa acción se recorre paso a paso.\n\n${CLASICO}`));
+  const r = run(file);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA historia/);
+});
+
+test('una pieza es el lenguaje de historia: la parte sin recorrido la pasa', () => {
+  const file = join(dir, 'pieza-sin-historia.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA.replace(ESCENA, TARJETAS));
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+historia/);
+  assert.match(r.stdout, /ok\s+recorrido\s+0 recorrido/);
+});
+
+test('una historia por pasos pasa la historia', () => {
+  const file = join(dir, 'historia.md');
+  writeFileSync(file, CUMPLE);
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+historia/);
+  assert.match(r.stdout, /ok\s+recorrido\s+1 recorrido/);
+});
+
+// Las instrucciones que lee el modelo dicen lo mismo que la puerta: una parte
+// nueva usa el lenguaje de historia y el `<lk-walkthrough>` clásico es legado. Si
+// la skill y el AGENTS.md no lo dicen, el modelo sigue tomando el camino viejo.
+test('la skill, los visuales y el AGENTS.md de Learnings dicen que el walkthrough clásico es legado', () => {
+  const repo = join(TOOLS, '..');
+  const skill = readFileSync(join(repo, 'skills', 'explicacion-interactiva', 'SKILL.md'), 'utf8');
+  const visuales = readFileSync(join(repo, 'skills', 'explicacion-interactiva', 'references', 'visuales.md'), 'utf8');
+  const agents = readFileSync(join(repo, 'deploy', 'vps', 'learnings', 'AGENTS.md'), 'utf8');
+  for (const [name, text] of [['SKILL.md', skill], ['visuales.md', visuales], ['AGENTS.md', agents]]) {
+    assert.match(text, /lenguaje de historia/i, `${name} no nombra el lenguaje de historia`);
+    assert.match(text, /<lk-walkthrough>[^.\n]*legado|legado[^.\n]*<lk-walkthrough>|walkthrough clásico es \*\*legado\*\*|clásico es \*\*legado\*\*/i, `${name} no dice que el walkthrough clásico es legado`);
+    assert.match(text, /<lk-story>/, `${name} no nombra <lk-story>`);
+  }
+  // La regla medida vive en la skill, con el mensaje que el motor devuelve.
+  assert.match(skill, /the part carries no story and no piece/);
+  assert.match(skill, /usa una historia por pasos <lk-story> o una pieza/);
+});
+
+// Una parte con solo una escena (o un SVG) no trae historia ni pieza: el lenguaje
+// de historia es obligatorio, no una opción. El rechazo nombra el elemento que hay
+// que usar, y el motor devuelve el mismo veredicto (`storyLanguageFindings`).
+test('una parte con solo una escena falla la historia', () => {
+  const file = join(dir, 'solo-escena.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA);
+  const r = run(file);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA historia/);
+  assert.match(r.stdout, /usa una historia por pasos <lk-story> o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>/);
+});
+
+test('una parte con solo un SVG falla la historia', () => {
+  const file = join(dir, 'solo-svg.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA.replace(ESCENA,
+    '<svg viewBox="0 0 100 50" role="img" aria-label="una figura"><text x="10" y="20">hola</text></svg>'));
+  const r = run(file);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA historia/);
 });

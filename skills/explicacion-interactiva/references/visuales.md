@@ -26,7 +26,8 @@ quien lee no puede ver lo único que la parte venía a explicar.
 | Lo que quieres mostrar | Componente |
 |---|---|
 | Una figura que se mira (actores, flujo, contraste, tabla de decisión) | `<lk-scene>` |
-| Lo mismo, pero el lector tiene que recorrerlo paso a paso | `<lk-walkthrough>` |
+| Lo mismo, pero el lector tiene que recorrerlo paso a paso | `<lk-story>` (§8b y §8c) |
+| Material viejo: un recorrido de cajas y flechas libres | `<lk-walkthrough>` — **legado**, no se usa en material nuevo |
 | Una fórmula que se explica, símbolo por símbolo | escena de **fórmula anotada** (§8) |
 | Una distribución o una función | su **curva**, con ejes y la región marcada (§9) |
 | Una cuenta | `<lk-math>` (KaTeX), nunca un bloque de código |
@@ -41,6 +42,14 @@ quien lee no puede ver lo único que la parte venía a explicar.
 
 `lk-diagram` existe todavía para diagramas de arquitectura viejos. No se usa en material
 nuevo.
+
+**El lenguaje de historia es obligatorio en material nuevo.** Toda parte nueva trae al menos una
+`<lk-story>` —actores con estado, movimientos y marcas, o una fórmula por símbolos— o una pieza
+(`<lk-cards>`, `<lk-memory>`, `<lk-tables>`, `<lk-venn>`). Una escena, un SVG o el
+`<lk-walkthrough>` clásico no cuentan: el walkthrough es **legado** (sus cajas y flechas libres
+se dibujan mal) y la parte que solo tiene eso —o solo una escena— se rechaza (`the part carries no story and no piece`).
+Cuando una etiqueta de una flecha no cabe entre las cajas a un tamaño legible, sube por
+encima de la figura; nunca se comprime con `textLength` ni se aplasta hasta lo ilegible.
 
 ## 3. Geometría
 

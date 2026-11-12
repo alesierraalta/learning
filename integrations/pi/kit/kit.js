@@ -561,7 +561,9 @@
     };
     const tones = WALK_TONES();
     const tone = (name) => tones[name] || tones.slate;
-    const marker = (name) => `url(#a-${["blue", "green", "amber", "red"].includes(name) ? name : "slate"})`;
+    // La punta la declara `scene.js` por color y por grosor: una flecha gruesa
+    // necesita una punta gruesa y una fina, fina (#237).
+    const marker = (name, width = 1.5) => `url(#${S.markerId(tone(name).stroke, width)})`;
     // Una escena quieta no tiene pasos: sus actores, rótulos y marcas viven en el
     // SVG entero, así que se mide el SVG como un solo ámbito.
     const groups = [...svg.querySelectorAll("[data-step]")];
@@ -718,7 +720,7 @@
         // flecha, con 2 mide un triángulo que tapa el actor al que llega.
         path.setAttribute("stroke-width", "1.5");
         path.setAttribute("stroke-dasharray", "6 5");
-        path.setAttribute("marker-end", marker(move.dataset.moveTone));
+        path.setAttribute("marker-end", marker(move.dataset.moveTone, 1.5));
         const label = move.querySelector("[data-move-label]");
         label.textContent = move.dataset.moveVerb || "";
         // En un trazo horizontal el verbo va centrado sobre el trazo, lejos de la punta;
@@ -775,7 +777,7 @@
             // resultado dibuja su marco 8 unidades por fuera y una punta en el
             // borde quedaba enterrada dentro de ese marco.
             const ex = b.x + b.width / 2, ey = b.y - 10, my = (sy + ey) / 2;
-            parts.push(make("path", { d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${sx.toFixed(1)} ${my.toFixed(1)}, ${ex.toFixed(1)} ${my.toFixed(1)}, ${ex.toFixed(1)} ${ey.toFixed(1)}`, fill: "none", stroke: t.stroke, "stroke-width": 2, "stroke-dasharray": "6 5", "marker-end": marker("amber") }));
+            parts.push(make("path", { d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${sx.toFixed(1)} ${my.toFixed(1)}, ${ex.toFixed(1)} ${my.toFixed(1)}, ${ex.toFixed(1)} ${ey.toFixed(1)}`, fill: "none", stroke: t.stroke, "stroke-width": 2, "stroke-dasharray": "6 5", "marker-end": marker("amber", 2) }));
           }
         } else {
           // El marco es el borde del propio actor, engrosado y del color del resultado:
@@ -815,6 +817,16 @@
     const S = window.LKScene;
     const tones = WALK_TONES();
     const tone = (name) => tones[name] || tones.slate;
+    // La letra de una etiqueta de flecha no puede ser más grande que la letra de la
+    // figura: ni más que los rótulos sueltos (la leyenda de la escena) ni más que
+    // las cajas. «ORA-02291» a 22 sobre cajas de 13 se leía como un título y tapaba
+    // la flecha que etiquetaba (#237). Si no cabe a ese tamaño, la etiqueta sube o
+    // la puerta la marca; nunca crece.
+    const figureSizes = [
+      ...(scene.labels || []).map((l) => l.size || 24),
+      ...(scene.boxes || []).map((b) => b.size || 26),
+    ];
+    const labelCap = figureSizes.length ? Math.min(...figureSizes) : 22;
     let out = '';
     // Sheets and boxes first: a highlight drawn before them would disappear
     // under their white fill.
@@ -923,7 +935,7 @@
       // autor declaró, no el trozo que quedó después del hueco de las palabras.
       const drawnFrom = out.length;
       const color = tone(a.tone).stroke;
-      const size = a.labelSize || 22;
+      const size = Math.min(a.labelSize || 22, labelCap);
       // A figure drawn at the width of the reading column is a third of the
       // video's canvas: at the video's 4-unit stroke the shaft and its head
       // swallow a short arrow. The width travels with the arrow so a scene can
@@ -935,9 +947,10 @@
       // A caption drawn on the line hides the direction the arrow exists to show. The arrow
       // is cut where its words sit, the way a labelled arrow is drawn by hand: shaft, words,
       // shaft with the head. A short arrow has no room to cut, so the words move beside it.
-      // The scene marker is 11 units across a 12-unit viewBox, with refX=10
-      // and a 4-unit stroke: it extends 10 * 11 / 12 * 4 = 36.67 units backwards.
-      const headBack = 10 * 11 / 12 * shaft;
+      // La punta la mide `scene.js`: crece con el trazo, tiene tope y su vértice
+      // cae en el extremo del trazo (refX = 12 del viewBox de 12), así que se
+      // come `S.head(shaft)` unidades hacia atrás y no 36,67 con un trazo de 4.
+      const headBack = S.head(shaft);
       const words = a.label ? Math.min(stageWidth - 30, a.label.length * size * 0.45 + 12) : 0;
       // El hueco se mide en la dirección del trazo: en una flecha vertical lo que
       // ocupa el texto es su alto, no su ancho. Con el ancho, el hueco triplicaba
@@ -982,10 +995,27 @@
           const dirX = Math.sign(dx) || 1;
           const freeStart = a.x1 + dirX * 3;
           const freeEnd = a.x2 - dirX * headBack;
-          const freeWidth = Math.max(1, Math.abs(freeEnd - freeStart));
           const x = vertical ? (side > 0 ? right : left) : Math.max(15, Math.min(stageWidth - 15, (freeStart + freeEnd) / 2));
-          const fit = vertical ? Math.max(1, side > 0 ? stageWidth - x - 4 : x - 4) : Math.max(1, Math.min(freeWidth - 4, 2 * Math.min(x - 4, stageWidth - x - 4)));
-          out += S.lbl(x, vertical ? midY + size * 0.36 : Math.min(a.y1, a.y2) - gap - size * 0.3, a.label, {
+          // Las palabras van al lado del trazo, no dentro, así que su ancho no lo
+          // limita el tramo de la flecha: medirlas contra el tramo las comprimía
+          // —«ORA-02291» en 36 unidades— y el alumno las vio como una letra
+          // condensada encima de la flecha (#237). Lo que sí las limita son las
+          // cajas que ocupan su altura: entre ellas el rótulo no las invade, y si
+          // no hay ninguna a su altura, el ancho libre es el del escenario.
+          const besideY = Math.min(a.y1, a.y2) - gap - size * 0.3;
+          const band = (scene.boxes || []).filter((b) => besideY + size * 0.3 > b.y && besideY - size * 0.85 < b.y + b.h);
+          const leftEdge = Math.max(0, ...band.filter((b) => b.x + b.w <= x).map((b) => b.x + b.w));
+          const rightEdge = Math.min(stageWidth, ...band.filter((b) => b.x >= x).map((b) => b.x));
+          const inBand = Math.max(1, 2 * Math.min(x - leftEdge - 4, rightEdge - x - 4));
+          // Si las palabras no caben entre las cajas a un tamaño legible, suben por
+          // encima de ellas en vez de encogerse: una etiqueta condensada no se lee
+          // (#237). Ahí el ancho libre es el del escenario.
+          const lift = !vertical && band.length > 0 && a.label.length * size * 0.45 > inBand;
+          const labelY = lift ? Math.max(size, Math.min(...band.map((b) => b.y)) - size * 0.3 - 6) : besideY;
+          let fit = inBand;
+          if (vertical) fit = Math.max(1, side > 0 ? stageWidth - x - 4 : x - 4);
+          else if (lift) fit = Math.max(1, 2 * Math.min(x - 4, stageWidth - x - 4));
+          out += S.lbl(x, vertical ? midY + size * 0.36 : labelY, a.label, {
             anchor: vertical ? (side > 0 ? 'start' : 'end') : 'middle',
             color: tone(a.labelTone || a.tone).color,
             size, fit,
@@ -1081,10 +1111,11 @@
         text.setAttribute('font-size', S.f(size));
         if (size === floor) break;
       }
-      // Last resort: squeezing the glyphs is still better than spilling the box.
+      // Nunca se comprime el texto: una etiqueta condensada no se lee, y el
+      // alumno la vio como una letra inventada encima de la flecha (#237). Si no
+      // cabe al tamaño mínimo se deja, y la marca `data-overflow` lo dice para que
+      // la puerta lo corrija: la etiqueta se acorta o se mueve al lado del trazo.
       if (text.getComputedTextLength() > max) {
-        text.setAttribute('textLength', String(Math.round(max)));
-        text.setAttribute('lengthAdjust', 'spacingAndGlyphs');
         text.dataset.overflow = '1';
         if (flagOverflow) stage.dataset.overflow = '1';
       }

@@ -512,6 +512,17 @@ El ejemplo sigue: el robot aspira la sala.
 </script>
 </lk-scene>
 
+<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
+ {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"}]}}},
+ {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"},{"id":"u","x":110,"y":80,"w":140,"h":56,"label":"arriba","tone":"blue"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
+ {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","x":110,"y":80,"w":140,"h":56,"label":"arriba","tone":"blue"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
+]}
+</script>
+</lk-story>
+Cómo leerlo: avanza y mira la casilla que cambia.
+
 ## Mini-quiz
 
 1. ¿Qué hace una capa?

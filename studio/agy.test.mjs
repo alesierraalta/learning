@@ -60,3 +60,35 @@ test("a second turn resumes the conversation the first one opened", async () => 
     delete process.env.FAKE_AGY_TURNS;
   }
 });
+
+// El preámbulo del estudio es lo único que Antigravity recibe en cada turno: si el
+// lenguaje de historia no está ahí, el modelo vuelve al `<lk-walkthrough>` clásico
+// y el motor rechaza la parte (#237). La línea apunta a la regla, no la repite.
+test("the studio preamble points at the story language, and names the classic walkthrough as legacy", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agy-preamble-"));
+  const log = join(dir, "turns.log");
+  process.env.FAKE_AGY_TURNS = log;
+  let settled = 0;
+  const agy = createAgy({
+    command: [process.execPath, FAKE_AGY],
+    cwd: dir,
+    config: { version: 1, agente: "agy", modelo: "", pensamiento: "" },
+    onRecord: (record) => {
+      if (record.type === "agent_settled") settled += 1;
+    },
+    onError: (message) => assert.fail(message),
+  });
+  try {
+    agy.prompt("escribe la parte 1");
+    await until(() => settled === 1);
+    const prompt = turns(log)[0].join(" ");
+    assert.match(prompt, /lenguaje de historia/);
+    assert.match(prompt, /<lk-story>/);
+    assert.match(prompt, /<lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>/);
+    assert.match(prompt, /<lk-walkthrough> clásico no cuentan/);
+    assert.match(prompt, /el motor rechaza la parte que no trae historia ni pieza/);
+    assert.match(prompt, /explicacion-interactiva/);
+  } finally {
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});

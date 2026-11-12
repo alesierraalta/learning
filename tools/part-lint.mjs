@@ -24,7 +24,11 @@ const files = statSync(target).isDirectory()
 function prose(file) {
   let out = readFileSync(file, 'utf8');
   out = out.replace(/```[\s\S]*?```/g, ' ');              // código y bloques text
-  out = out.replace(/<lk-(scene|walkthrough)[\s\S]*?<\/lk-\1>/g, ' '); // figuras
+  // Las figuras del kit: la escena, el recorrido clásico, el de fórmula o ejercicio
+  // y las piezas visuales (tarjetas, memoria, tablas, conjuntos, explorador). El
+  // motor las quita igual (`withoutPieces` y `proseStory`), para que su rechazo y
+  // esta medición coincidan.
+  out = out.replace(/<lk-(scene|walkthrough|story|cards|memory|tables|venn|explorer)[\s\S]*?<\/lk-\1>/g, ' '); // figuras
   out = out.replace(/^\|.*\|$/gm, ' ');                    // tablas
   out = out.replace(/^#{1,6}\s.*$/gm, ' ');                // títulos
   out = out.replace(/<[^>]+>/g, ' ');                      // etiquetas sueltas

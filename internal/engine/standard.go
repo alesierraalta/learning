@@ -519,6 +519,26 @@ func formulaWalkthroughFindings(text string, th rules.PartStandardThresholds) []
 	return []string{"the first formula in the part is not taught by a formula walkthrough — draw it as <lk-story kind=\"formula\">: step 1 the whole formula, then one step per symbol with what it is, what it is used for and its value in the example, and the last step with the example's numbers substituted and its result"}
 }
 
+// storyLanguageFindings measures the story-language rule: the part draws its
+// step-by-step visual with the story language (`<lk-story>`, the deck of actors
+// with state, moves and marks) or with a piece (`<lk-cards>`, `<lk-memory>`,
+// `<lk-tables>`, `<lk-venn>`). The classic `<lk-walkthrough>` is legacy and does
+// not count: its free-form boxes and arrows draw badly, and it was the path the
+// weak model took (#237). A part that carries neither is refused with the element
+// to use, so the tutor corrects the part from the message alone; a scene or an
+// inline SVG is not a substitute. A rules snapshot that does not declare
+// `storyLanguage` keeps accepting the parts it accepted.
+func storyLanguageFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.StoryLanguage {
+		return nil
+	}
+	stories := len(storyOpen.FindAllStringIndex(withoutCodeFences(text), -1))
+	if stories+pieceOpenCount(text) > 0 {
+		return nil
+	}
+	return []string{"the part carries no story and no piece — usa una historia por pasos <lk-story> o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>; a classic <lk-walkthrough> alone does not count"}
+}
+
 // sceneFormulaBlocks returns the closed scene and walkthrough blocks outside
 // fenced code: a scene inside a fence is an example of markup, not a drawing.
 func sceneFormulaBlocks(text string) []string {
@@ -614,6 +634,8 @@ func standardFindings(text string, th rules.PartStandardThresholds) []string {
 	}
 
 	findings = append(findings, formulaWalkthroughFindings(text, th)...)
+
+	findings = append(findings, storyLanguageFindings(text, th)...)
 
 	if th.MaxSentencesPerParagraph > 0 {
 		if walls := wallParagraphs(text, th.MaxSentencesPerParagraph); len(walls) > 0 {
@@ -719,6 +741,9 @@ func evalPartStandard(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	if th.MaxSentencesPerParagraph > 0 {
 		shape += fmt.Sprintf(", %d paragraph(s) over %d sentences", len(wallParagraphs(text, th.MaxSentencesPerParagraph)), th.MaxSentencesPerParagraph)
+	}
+	if th.StoryLanguage {
+		shape += fmt.Sprintf(", %d story or piece block(s) (at least 1)", len(storyOpen.FindAllStringIndex(withoutCodeFences(text), -1))+pieceOpenCount(text))
 	}
 	return passCheck(decl.ID, fmt.Sprintf("%s meets the explanation standard: %s", rel, shape))
 }

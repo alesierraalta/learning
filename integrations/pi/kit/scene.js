@@ -93,23 +93,53 @@
     return out;
   };
 
-  const markerIds = { [C.slate]: "a-slate", [C.blue]: "a-blue", [C.green]: "a-green", [C.red]: "a-red", [C.amber]: "a-amber" };
+  // La punta de una flecha crece con el trazo —una flecha gruesa necesita una
+  // punta gruesa— pero tiene tope: 3 × el grosor, entre 6 y 14 unidades. Antes
+  // medía 11 × el grosor (44 unidades con un trazo de 4) y en un tramo de 80 se
+  // leía como un triángulo suelto, que es lo que el alumno vio (#237). El tope se
+  // mide en unidades del lienzo, así que el marcador se declara en
+  // `userSpaceOnUse`: con `strokeWidth` la punta volvía a crecer sin límite.
+  const HEAD = { ratio: 3, min: 6, max: 14 };
+  const head = (width) => Math.min(HEAD.max, Math.max(HEAD.min, HEAD.ratio * (Number(width) || 0)));
+  const markerNames = { [C.slate]: "slate", [C.blue]: "blue", [C.green]: "green", [C.red]: "red", [C.amber]: "amber" };
+  const markerName = (color) => markerNames[color] || "slate";
+  const markerId = (color, width) => `a-${markerName(color)}-${Math.round(head(width))}`;
 
-  const defs = () =>
-    `<defs>${Object.entries(markerIds).map(([color, id]) => `<marker id="${id}" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="11" markerHeight="11" orient="auto-start-reverse"><path d="M 0 0 L 12 6 L 0 12 Z" fill="${color}"/></marker>`).join("")}</defs>`;
+  // Un marcador por color y por grosor: la punta depende del trazo que la lleva.
+  // Los grosores salen del propio dibujo, así que `defs` lee el marcado que va a
+  // envolver; el 4 es el trazo por defecto de `line`, `curve` y `path`.
+  const defs = (markup = "") => {
+    const text = String(markup);
+    const widths = new Set([4]);
+    for (const m of text.matchAll(/stroke-width="([0-9.]+)"/g)) widths.add(Number(m[1]));
+    // Las piezas del escenario (movimientos y marcas) fijan su grosor al medir, no
+    // en el marcado: sus puntas se declaran aquí.
+    if (text.includes("data-move-")) widths.add(1.5);
+    if (text.includes("data-mark-")) widths.add(2);
+    const markers = new Map();
+    for (const color of Object.keys(markerNames)) {
+      for (const width of widths) {
+        const id = markerId(color, width);
+        if (markers.has(id)) continue;
+        const size = head(width);
+        markers.set(id, `<marker id="${id}" viewBox="0 0 12 12" refX="12" refY="6" markerUnits="userSpaceOnUse" markerWidth="${f(size)}" markerHeight="${f(size)}" orient="auto-start-reverse"><path d="M 0 0 L 12 6 L 0 12 Z" fill="${color}"/></marker>`);
+      }
+    }
+    return `<defs>${[...markers.values()].join("")}</defs>`;
+  };
 
   const curve = (x1, y1, x2, y2, { color = C.slate, dashedLine = false, arrow = true, bend = 0.35, width = 4 } = {}) => {
     const dx = (x2 - x1) * bend;
-    return `<path d="M ${x1} ${y1} C ${f(x1 + dx)} ${y1}, ${f(x2 - dx)} ${y2}, ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerIds[color] || "a-slate"})"` : ""}/>`;
+    return `<path d="M ${x1} ${y1} C ${f(x1 + dx)} ${y1}, ${f(x2 - dx)} ${y2}, ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
   };
 
   // Un trazo puede cerrar una región: `fill` pinta el interior (la banda ±σ bajo la
   // curva) y el contorno sigue siendo el mismo camino. Sin `fill`, no pinta nada.
   const path = (d, { color = C.slate, dashedLine = false, arrow = true, width = 4, fill = "none" } = {}) =>
-    `<path d="${d}" fill="${fill}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerIds[color] || "a-slate"})"` : ""}/>`;
+    `<path d="${d}" fill="${fill}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
 
   const line = (x1, y1, x2, y2, { color = C.slate, arrow = true, width = 4, dashedLine = false } = {}) =>
-    `<path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerIds[color] || "a-slate"})"` : ""}/>`;
+    `<path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
 
   // Una fórmula puesta en escena: cada símbolo es un átomo propio, así una llamada
   // puede señalar «esta V» o «esta s» sin adivinar coordenadas de la cadena entera.
@@ -250,10 +280,10 @@
 
   /** A complete SVG document showing markup, sized by its viewBox. */
   const svg = (markup, viewBox = "0 0 1728 740") =>
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${defs()}${markup}</svg>`;
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${defs(markup)}${markup}</svg>`;
 
   window.LKScene = {
     C, esc, f, txt, lbl, step, gear, packet, dashed, sheet, box, node, badge, grid, icon, prop, bars, stat, formula, defs,
-    curve, path, line, svg, tag, elbow, mark,
+    curve, path, line, svg, tag, elbow, mark, head, markerId,
   };
 })();
