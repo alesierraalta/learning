@@ -298,6 +298,46 @@ func TestMCPInitThenStatusReportsEngineState(t *testing.T) {
 	}
 }
 
+func TestMCPInitAcceptsExamAndPractice(t *testing.T) {
+	root, ws := newMCPWorkspace(t)
+	args := map[string]string{
+		"root": root, "workspace": ws, "rules": rulesPath,
+		"exam": "practical", "practice": "build an app",
+	}
+	responses := serveLines(t,
+		callLine(21, "learning_init", args),
+		callLine(22, "learning_status", map[string]string{"root": root, "workspace": ws, "rules": rulesPath}),
+		`{"jsonrpc":"2.0","id":23,"method":"tools/list"}`,
+	)
+	init := structured(t, toolResult(t, responses[0]))
+	evidence, _ := init["evidence"].(map[string]any)
+	exam, _ := evidence["exam"].(map[string]any)
+	if init["status"] != "accepted" || evidence["scope"] != "pareto" || exam["format"] != "practical" || exam["practice"] != "build an app" {
+		t.Fatalf("MCP init report = %v, want Pareto practical exam evidence", init)
+	}
+	status := structured(t, toolResult(t, responses[1]))
+	reportedExam, _ := status["exam"].(map[string]any)
+	if status["scope"] != "pareto" || reportedExam["format"] != "practical" || reportedExam["practice"] != "build an app" {
+		t.Fatalf("MCP status = %v, want the stored practical exam", status)
+	}
+
+	list := toolResult(t, responses[2])["tools"].([]any)
+	for _, raw := range list {
+		tool := raw.(map[string]any)
+		name, _ := tool["name"].(string)
+		properties := tool["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		_, hasExam := properties["exam"]
+		_, hasPractice := properties["practice"]
+		if name == "learning_init" {
+			if !hasExam || !hasPractice {
+				t.Fatalf("learning_init schema lacks exam/practice: %v", properties)
+			}
+		} else if hasExam || hasPractice {
+			t.Fatalf("%s must not expose init-only exam/practice: %v", name, properties)
+		}
+	}
+}
+
 func TestMCPAbsentArgumentsLetTheEngineDecide(t *testing.T) {
 	// The environment stands in for absent paths, so it must be empty here.
 	t.Setenv("LEARNING_ROOT", "")
@@ -352,7 +392,9 @@ func TestMCPEnvironmentStandsInForOmittedPaths(t *testing.T) {
 func TestMCPNeverOffersAFlagTheEngineRejects(t *testing.T) {
 	values := map[string]string{
 		"mode":     "deep",
-		"scope":    "complete",
+		"scope":    "pareto",
+		"exam":     "practical",
+		"practice": "build an app",
 		"stage":    "preparation",
 		"rule":     "own-words",
 		"verdict":  "PASS",

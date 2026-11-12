@@ -274,8 +274,8 @@ var tools = map[string]mcpTool{
 	"learning_init": {
 		name:        "learning_init",
 		command:     "init",
-		flags:       []string{"root", "workspace", "rules", "mode", "scope"},
-		description: "Create engine-owned state (.learning/state.json) for a new deep run; it refuses to overwrite an existing run. " + authority,
+		flags:       []string{"root", "workspace", "rules", "mode", "scope", "exam", "practice"},
+		description: "Create engine-owned state (.learning/state.json) for a new deep run. An exam format implies Pareto scope; practical exams may declare a practice kind. It refuses to overwrite an existing run. " + authority,
 	},
 }
 
@@ -313,6 +313,8 @@ var flagDoc = map[string]string{
 	"rules":     "Structured rules file (repository rules/deep.json).",
 	"mode":      "deep (default) or conceptual.",
 	"scope":     "init only: complete (default) or pareto.",
+	"exam":      "init only: oral, written or practical; implies pareto scope.",
+	"practice":  "init only: optional practice kind, only with exam=practical.",
 	"stage":     "Stage name, as declared in the rules file.",
 	"rule":      "review only: rubric id receiving the verdict.",
 	"verdict":   "review only: PASS or FAIL.",

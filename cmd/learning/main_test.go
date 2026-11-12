@@ -102,6 +102,12 @@ func TestCLIJSONBoundaryOnHappyPath(t *testing.T) {
 	if doc["status"] != "accepted" || doc["nextStage"] != "preparation" {
 		t.Fatalf("status doc = %v, want accepted/next preparation", doc)
 	}
+	if doc["scope"] != "complete" {
+		t.Fatalf("status scope = %v, want complete for an ordinary run", doc["scope"])
+	}
+	if _, ok := doc["exam"]; ok {
+		t.Fatalf("ordinary status unexpectedly reports an exam: %v", doc["exam"])
+	}
 	checks, _ := doc["checks"].([]any)
 	if len(checks) == 0 {
 		t.Fatal("status report must expose checks")
@@ -163,7 +169,7 @@ func TestCLIHelpDocumentsCommandsAndExitsZero(t *testing.T) {
 			t.Fatalf("%s exit = %d", arg, code)
 		}
 		text := out.String()
-		for _, want := range []string{"init", "validate", "advance", "status", "review", "--rules", "plan.json", "--verdict", "pendingReviews"} {
+		for _, want := range []string{"init", "validate", "advance", "status", "review", "--rules", "--exam", "--practice", "plan.json", "--verdict", "pendingReviews"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("help text missing %q:\n%s", want, text)
 			}
@@ -277,4 +283,111 @@ func TestCLIScopeRejectsInvalidAndLateUse(t *testing.T) {
 			t.Fatalf("%s: detail = %q, wants a scope explanation", want, detail)
 		}
 	}
+}
+
+func TestCLIExamInitRecordsParetoAndStatusReportsExam(t *testing.T) {
+	c := newCLIFixture(t)
+	var out bytes.Buffer
+	if code := run(c.args("init", "--exam", "practical", "--practice", "build an app", "--json"), &out); code != 0 {
+		t.Fatalf("exam init exit = %d, want 0: %s", code, out.String())
+	}
+	initReport := parseOne(t, &out)
+	if initReport["scope"] != nil {
+		t.Fatalf("init must report exam scope in evidence, not top-level scope: %v", initReport)
+	}
+	evidence, _ := initReport["evidence"].(map[string]any)
+	if evidence["scope"] != "pareto" {
+		t.Fatalf("init evidence.scope = %v, want pareto", evidence["scope"])
+	}
+	if got := evidence["exam"]; !equalJSONMap(got, map[string]any{"format": "practical", "practice": "build an app"}) {
+		t.Fatalf("init evidence.exam = %v, want practical/build an app", got)
+	}
+
+	var state map[string]any
+	raw, err := os.ReadFile(filepath.Join(c.ws, ".learning", "state.json"))
+	if err != nil || json.Unmarshal(raw, &state) != nil {
+		t.Fatalf("read exam state: %v", err)
+	}
+	if state["scope"] != "pareto" || !equalJSONMap(state["exam"], map[string]any{"format": "practical", "practice": "build an app"}) {
+		t.Fatalf("state = %v, want pareto scope and practical exam", state)
+	}
+
+	out.Reset()
+	if code := run(c.args("status", "--json"), &out); code != 0 {
+		t.Fatalf("exam status exit = %d, want 0: %s", code, out.String())
+	}
+	status := parseOne(t, &out)
+	if status["scope"] != "pareto" || !equalJSONMap(status["exam"], map[string]any{"format": "practical", "practice": "build an app"}) {
+		t.Fatalf("status = %v, want pareto scope and practical exam", status)
+	}
+}
+
+func TestCLIExamPracticeCanBeOmittedForPractical(t *testing.T) {
+	c := newCLIFixture(t)
+	var out bytes.Buffer
+	if code := run(c.args("init", "--exam", "practical", "--json"), &out); code != 0 {
+		t.Fatalf("practical init without a practice kind exit = %d: %s", code, out.String())
+	}
+	report := parseOne(t, &out)
+	evidence, _ := report["evidence"].(map[string]any)
+	if evidence["scope"] != "pareto" || !equalJSONMap(evidence["exam"], map[string]any{"format": "practical"}) {
+		t.Fatalf("init evidence = %v, want optional practical kind omitted", evidence)
+	}
+	var state map[string]any
+	raw, err := os.ReadFile(filepath.Join(c.ws, ".learning", "state.json"))
+	if err != nil || json.Unmarshal(raw, &state) != nil {
+		t.Fatalf("read exam state: %v", err)
+	}
+	if !equalJSONMap(state["exam"], map[string]any{"format": "practical"}) {
+		t.Fatalf("state.exam = %v, want practical format without practice", state["exam"])
+	}
+}
+
+func TestCLIExamRejectsInvalidCombinationsWithoutCreatingState(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{"invalid format", []string{"--exam", "screen"}, `invalid exam format "screen": expected oral, written or practical`},
+		{"practice without exam", []string{"--practice", "build an app"}, "--practice requires --exam practical"},
+		{"practice with oral", []string{"--exam", "oral", "--practice", "build an app"}, "--practice is only valid with --exam practical"},
+		{"exam conflicts with complete scope", []string{"--exam", "written", "--scope", "complete"}, "--exam requires scope pareto; --scope complete is incompatible"},
+		{"exam only on init", []string{"status", "--exam", "oral"}, "--exam is only accepted by the init command"},
+		{"practice only on init", []string{"status", "--practice", "build an app"}, "--practice is only accepted by the init command"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newCLIFixture(t)
+			args := c.args("init", tc.flags...)
+			if tc.flags[0] == "status" {
+				args = c.args("status", tc.flags[1:]...)
+			}
+			args = append(args, "--json")
+			var out bytes.Buffer
+			if code := run(args, &out); code != 2 {
+				t.Fatalf("exit = %d, want 2 (stdout %q)", code, out.String())
+			}
+			doc := parseOne(t, &out)
+			if doc["status"] != "error" || doc["detail"] != tc.want {
+				t.Fatalf("report = %v, want exact error %q", doc, tc.want)
+			}
+			if _, err := os.Stat(filepath.Join(c.ws, ".learning", "state.json")); !os.IsNotExist(err) {
+				t.Fatalf("rejected options created state (stat err %v)", err)
+			}
+		})
+	}
+}
+
+func equalJSONMap(got any, want map[string]any) bool {
+	actual, ok := got.(map[string]any)
+	if !ok || len(actual) != len(want) {
+		return false
+	}
+	for key, value := range want {
+		if actual[key] != value {
+			return false
+		}
+	}
+	return true
 }

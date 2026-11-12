@@ -17,7 +17,7 @@ import (
 const usage = `learning — deep-learning validation engine (structured rules, deterministic checks, recorded reviews)
 
 Usage:
-  learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode MODE] [--scope SCOPE] [--stage STAGE] [--json]
+  learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode MODE] [--scope SCOPE] [--exam oral|written|practical] [--practice KIND] [--stage STAGE] [--json]
   learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
   learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
   learning mcp
@@ -66,6 +66,11 @@ Flags:
   --scope     init only: complete (default) teaches the whole topic; pareto
               teaches only the vital slice and requires the plan to declare
               what it dropped. Later commands read the scope from state.
+  --exam      init only: oral, written or practical; implies pareto scope and
+              shapes plan.json and the final mock exam. Later commands read it
+              from state.
+  --practice  init only: optional practical-exam practice kind; only with
+              --exam practical. Later commands read it from state.
   --method    method only: the learner's explanation method, chosen once
               right after the diagnosis in a strict-flow run: pareto (the
               vital 20%; sets the pareto scope) or preferencias.
@@ -199,7 +204,7 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 		}
 		name := strings.TrimPrefix(tok, "--")
 		switch name {
-		case "root", "workspace", "rules", "mode", "scope", "method", "stage",
+		case "root", "workspace", "rules", "mode", "scope", "exam", "practice", "method", "stage",
 			"rule", "verdict", "reason", "reviewer":
 		default:
 			return engine.Options{}, false, fmt.Errorf("unknown flag --%s", name)
@@ -223,6 +228,10 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 			opts.Mode = args[i]
 		case "scope":
 			opts.Scope = args[i]
+		case "exam":
+			opts.Exam = args[i]
+		case "practice":
+			opts.Practice = args[i]
 		case "method":
 			opts.Method = args[i]
 		case "stage":
@@ -236,6 +245,12 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 		case "reviewer":
 			opts.Reviewer = args[i]
 		}
+	}
+	if seen["exam"] && strings.TrimSpace(opts.Exam) == "" {
+		return engine.Options{}, false, fmt.Errorf("--exam requires oral, written or practical")
+	}
+	if seen["practice"] && strings.TrimSpace(opts.Practice) == "" {
+		return engine.Options{}, false, fmt.Errorf("--practice requires a non-empty kind")
 	}
 	for _, req := range []string{"root", "workspace", "rules"} {
 		if !seen[req] {

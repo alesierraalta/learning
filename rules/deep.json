@@ -138,6 +138,10 @@
       "minCriterioChars": 24,
       "heading": "El 20% que rinde el 80%",
       "maxWords": 1600
+    },
+    "exam": {
+      "formats": ["oral", "written", "practical"],
+      "minPartChars": 24
     }
   },
   "checks": {
@@ -157,6 +161,12 @@
       {
         "id": "pareto-plan",
         "kind": "pareto_plan",
+        "path": "plan.json",
+        "receipt": false
+      },
+      {
+        "id": "exam-plan",
+        "kind": "exam_plan",
         "path": "plan.json",
         "receipt": false
       }
@@ -199,6 +209,11 @@
         "kind": "pareto_plan",
         "path": "plan.json",
         "receipt": false
+      },
+      {
+        "id": "exam-plan",
+        "kind": "exam_plan",
+        "path": "plan.json"
       },
       {
         "id": "planning-link",
@@ -323,6 +338,11 @@
       }
     ],
     "final_quiz": [
+      {
+        "id": "exam-mock",
+        "kind": "exam_mock",
+        "path": "cuestionario-final.json"
+      },
       {
         "id": "final-quiz-note",
         "kind": "final_quiz_note",

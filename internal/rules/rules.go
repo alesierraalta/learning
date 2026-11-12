@@ -44,6 +44,8 @@ var KnownCheckKinds = map[string]bool{
 	"concept_verdicts":          true,
 	"pareto_plan":               true,
 	"pareto_part":               true,
+	"exam_plan":                 true,
+	"exam_mock":                 true,
 	"demo_part":                 true,
 	"part_standard":             true,
 }
@@ -249,6 +251,11 @@ type ParetoThresholds struct {
 	MaxWords       int    `json:"maxWords"`
 }
 
+type ExamThresholds struct {
+	Formats      []string `json:"formats"`
+	MinPartChars int      `json:"minPartChars"`
+}
+
 type OptionThresholds struct {
 	Keys       []string `json:"keys"`
 	NoSayKey   string   `json:"noSayKey"`
@@ -261,6 +268,7 @@ type Thresholds struct {
 	Quiz       QuizThresholds       `json:"quiz"`
 	Concepts   *ConceptThresholds   `json:"concepts,omitempty"`
 	Pareto     *ParetoThresholds    `json:"pareto,omitempty"`
+	Exam       *ExamThresholds      `json:"exam,omitempty"`
 	// PartStandard turns on the measured explanation standard (a part is one
 	// idea: prose budget, two content sections, a short route, one scene, one
 	// walkthrough). Snapshots without it keep the part checks they started
@@ -392,6 +400,9 @@ func (r *Rules) validate() error {
 	if err := r.validatePareto(); err != nil {
 		return err
 	}
+	if err := r.validateExam(); err != nil {
+		return err
+	}
 	if err := r.validateDemo(); err != nil {
 		return err
 	}
@@ -438,6 +449,23 @@ func (r *Rules) validatePareto() error {
 
 // ParetoMode reports whether these rules bound a pareto scope.
 func (t Thresholds) ParetoMode() bool { return t.Pareto != nil }
+
+// validateExam keeps exam checks fail-closed: they cannot be declared without
+// a bounded set of supported formats and a minimum part-purpose length.
+func (r *Rules) validateExam() error {
+	usesExam := r.Thresholds.Exam != nil
+	for stage, decls := range r.Checks {
+		for _, d := range decls {
+			if (d.Kind == "exam_plan" || d.Kind == "exam_mock") && !usesExam {
+				return fmt.Errorf("stage %q check %q needs the exam thresholds", stage, d.ID)
+			}
+		}
+	}
+	return nil
+}
+
+// ExamMode reports whether these rules bound exam-mode checks.
+func (t Thresholds) ExamMode() bool { return t.Exam != nil }
 
 // validateDemo keeps the interactive-demos parameter fail-closed: the check
 // that enforces it is rejected unless the rules also declare its vocabulary.
@@ -559,6 +587,26 @@ func (r *Rules) validateThresholds() error {
 		}
 		if c.Required && d.Mode != "adaptive" {
 			return fmt.Errorf("concept diagnosis needs the round-based (adaptive) diagnostic mode")
+		}
+	}
+	if p := r.Thresholds.Exam; p != nil {
+		if p.MinPartChars < 1 {
+			return fmt.Errorf("exam minPartChars must be positive")
+		}
+		if len(p.Formats) == 0 {
+			return fmt.Errorf("exam formats must not be empty")
+		}
+		seen := map[string]bool{}
+		for _, format := range p.Formats {
+			switch format {
+			case "oral", "written", "practical":
+			default:
+				return fmt.Errorf("exam format %q is unsupported", format)
+			}
+			if seen[format] {
+				return fmt.Errorf("exam formats must be unique (got %q)", format)
+			}
+			seen[format] = true
 		}
 	}
 	if p := r.Thresholds.Pareto; p != nil {
@@ -714,7 +762,7 @@ func validateDecl(d CheckDecl) error {
 		"changed_after_failed_quiz", "quiz_questions", "feedback_valid",
 		"planificador_sections", "index_note", "mis_palabras_structure",
 		"mis_palabras_area", "exercises_note", "mermaid_graph",
-		"pareto_plan", "pareto_part", "demo_part", "part_standard":
+		"pareto_plan", "pareto_part", "exam_plan", "exam_mock", "demo_part", "part_standard":
 		err = need("path")
 	case "diagnostic_questions":
 		err = need("path", "note")

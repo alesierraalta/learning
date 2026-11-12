@@ -48,6 +48,12 @@ type planDoc struct {
 	DiagnosisSummary string         `json:"diagnosisSummary"`
 	FocusAreas       []string       `json:"focusAreas"`
 	Pareto           *planParetoDoc `json:"pareto,omitempty"`
+	Exam             *planExamDoc   `json:"examen,omitempty"`
+}
+
+type planExamDoc struct {
+	Formato  string  `json:"formato"`
+	Practica *string `json:"practica,omitempty"`
 }
 
 // planParetoDoc is the declared trim of a pareto-scope run: the criterion that
@@ -66,6 +72,8 @@ type planPartDoc struct {
 	VisualsPlanned  *bool  `json:"visualsPlanned"`
 	// Pareto is the part's declared contribution to the 80% result.
 	Pareto string `json:"pareto,omitempty"`
+	// Exam is what this part contributes toward the declared exam format.
+	Exam string `json:"examen,omitempty"`
 	// DemosPlanned marks the part as owing a hands-on demo.
 	DemosPlanned *bool `json:"demosPlanned,omitempty"`
 	// Remedia names the part a remedial part remedies (strict flow), and
@@ -191,12 +199,14 @@ type quizQuestion struct {
 }
 
 type finalQuestion struct {
-	ID        string `json:"id"`
-	Subtema   string `json:"subtema"`
-	Nivel     string `json:"nivel"`
-	Formato   string `json:"formato"`
-	Enunciado string `json:"enunciado"`
-	Respuesta string `json:"respuesta"`
+	ID         string `json:"id"`
+	Subtema    string `json:"subtema"`
+	Nivel      string `json:"nivel"`
+	Formato    string `json:"formato"`
+	Enunciado  string `json:"enunciado"`
+	Respuesta  string `json:"respuesta"`
+	Tipo       string `json:"tipo"`
+	Entregable string `json:"entregable"`
 }
 
 func loadDiagQuestions(ws, rel string) ([]diagQuestion, error) {
