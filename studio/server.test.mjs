@@ -1106,6 +1106,39 @@ test("«Aprender algo nuevo» refuses a request with no mode and sends nothing",
   } finally { stream.close(); }
 });
 
+test("a 150000-character multi-line learning source reaches Pi intact", async () => {
+  const { studio, prompts, stream } = await piStudio();
+  const source = `${"x".repeat(999)}\n`.repeat(149) + "x".repeat(1000);
+  try {
+    assert.equal(source.length, 150000);
+    const response = await post(studio, "api/aprender", { text: source, modo: "examen" });
+    assert.equal(response.status, 200, response.body);
+    await until(() => prompts().length === 1);
+    assert.ok(prompts()[0].message.startsWith(`Quiero aprender ${source}.\n\n${MODE_LINE.examen}`), "all source characters and line breaks reach the tutor prompt");
+  } finally { stream.close(); }
+});
+
+test("an over-limit learning source gets its own refusal before starting a turn", async () => {
+  const { studio, prompts, stream } = await piStudio();
+  try {
+    const response = await post(studio, "api/aprender", { text: "x".repeat(200001), modo: "examen" });
+    assert.equal(response.status, 400, response.body);
+    assert.equal(JSON.parse(response.body).error, "El texto es demasiado largo: como mucho 200000 caracteres.");
+    assert.equal(prompts().length, 0, "the refusal starts no tutor turn");
+  } finally { stream.close(); }
+});
+
+test("the learning source body limit does not change the other routes' 64 KiB cap", async () => {
+  const { studio, prompts, stream } = await piStudio();
+  try {
+    const body = JSON.stringify({ version: 1, aspectos: [], padding: "x".repeat(64 * 1024) });
+    assert.ok(Buffer.byteLength(body) > 64 * 1024);
+    const response = await post(studio, "api/preferences", body);
+    assert.equal(response.status, 413, response.body);
+    assert.equal(prompts().length, 0, "the preference request starts no tutor turn");
+  } finally { stream.close(); }
+});
+
 test("the studio tells every tutor never to choose the mode by itself", async () => {
   const agy = await agyStudio();
   try {

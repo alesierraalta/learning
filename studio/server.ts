@@ -81,6 +81,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
 const UI_DIR = join(HERE, "ui");
 const MAX_BODY_BYTES = 64 * 1024;
+/** The learning entry accepts a full syllabus; JSON escaping can use six bytes per source character. */
+const MAX_LEARNING_SOURCE_CHARS = 200_000;
+const MAX_LEARNING_SOURCE_BODY_BYTES = MAX_LEARNING_SOURCE_CHARS * 6 + 1024;
 /** A draft preview is bounded like a saved note; the reader refuses anything longer. */
 const DRAFT_MAX_CHARS = 200_000;
 const MAX_PROMPT_CHARS = 20000;
@@ -1157,16 +1160,16 @@ ${scripts}
       "frame-ancestors 'none'",
     ].join("; ");
 
-  const readBody = (req: IncomingMessage): Promise<Json> =>
+  const readBody = (req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<Json> =>
     new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       let size = 0;
       req.on("data", (chunk: Buffer) => {
         size += chunk.length;
-        if (size <= MAX_BODY_BYTES) chunks.push(chunk);
+        if (size <= maxBytes) chunks.push(chunk);
       });
       req.on("end", () => {
-        if (size > MAX_BODY_BYTES) return reject(new HttpError(413, "body too large"));
+        if (size > maxBytes) return reject(new HttpError(413, "body too large"));
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
           return isRecord(body) ? resolve(body) : reject(new HttpError(400, "body must be a JSON object"));
@@ -1231,7 +1234,8 @@ ${scripts}
     // Audio is not JSON: it is streamed to the transcriber as it arrives.
     if (action === "api/transcribe") return transcribe(req, res);
     if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
-    const body = await readBody(req);
+    const bodyLimit = action === "api/aprender" ? MAX_LEARNING_SOURCE_BODY_BYTES : MAX_BODY_BYTES;
+    const body = await readBody(req, bodyLimit);
     switch (action) {
       case "api/preferences":
         return sendJson(res, 200, savePreferences(root, body));
@@ -1284,9 +1288,12 @@ ${scripts}
       }
       case "api/aprender": {
         // One of the learner's questions, asked by the page: the mode is decided before the turn.
-        requireNoTurn();
         const text = typeof body.text === "string" ? body.text.trim() : "";
-        if (!text || text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "escribe qué quieres aprender");
+        if (!text) throw new HttpError(400, "escribe qué quieres aprender");
+        if (text.length > MAX_LEARNING_SOURCE_CHARS) {
+          throw new HttpError(400, `El texto es demasiado largo: como mucho ${MAX_LEARNING_SOURCE_CHARS} caracteres.`);
+        }
+        requireNoTurn();
         const modo = STUDY_MODES.find((mode) => mode === body.modo);
         if (!modo) throw new HttpError(400, "elige rápido, universitario o examen antes de enviar");
         // A deep-mode request's topic does not exist yet: its first write under a topic folder

@@ -161,12 +161,13 @@ part runs no checks.
 
 - **The study mode.** `POST api/aprender {text, modo}` — the «Aprender algo nuevo» entry on the
   home and in the tutor panel — takes `rapido`, `universitario` or `examen`; without one it is `400`
-  and nothing reaches the tutor. The home entry and tutorial show all three modes. The mode travels
-  in the turn's prompt as one explicit line (`[Modo de estudio: …]`, built by `modeLine` in
-  `studio/runtime.ts`), and the studio tells each tutor never to ask or choose the mode. For
-  `examen`, the tutor then asks whether the exam is oral, written or practical, and, for practical,
-  what kind of practice it requires. Antigravity's contract says not to ask for the mode on every
-  turn; inside the studio Pi's system prompt carries the same rule (the adapter's
+  and nothing reaches the tutor. The source text may be up to 200000 characters; a longer source is
+  refused with `400` and its character limit. The home entry and tutorial show all three modes. The
+  mode travels in the turn's prompt as one explicit line (`[Modo de estudio: …]`, built by
+  `modeLine` in `studio/runtime.ts`), and the studio tells each tutor never to ask or choose the
+  mode. For `examen`, the tutor then asks whether the exam is oral, written or practical, and, for
+  practical, what kind of practice it requires. Antigravity's contract says not to ask for the mode
+  on every turn; inside the studio Pi's system prompt carries the same rule (the adapter's
   `before_agent_start`, studio mode only).
 - **Exam topic tag.** A topic whose engine state contains `exam` shows an `Examen` tag in the
   library; its title and accessible label identify the exam format.
