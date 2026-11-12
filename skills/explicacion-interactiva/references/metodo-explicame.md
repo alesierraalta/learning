@@ -2,17 +2,19 @@
 
 Contrato definido por el usuario. Seguirlo AL PIE DE LA LETRA en toda explicación conversacional.
 
-## FASE 0a — PREGUNTA DE TIPO Y ALCANCE (siempre lo primero)
+## FASE 0a — PREGUNTA DE MODO, ALCANCE Y FORMATO (siempre lo primero)
 
-Una sola llamada, con la herramienta de preguntas del runtime (`ask_user_choice` en Pi, `AskUserQuestion` en Claude Code), con **dos preguntas**, y STOP. Nada más en ese mensaje:
+Una sola llamada a la herramienta de preguntas del runtime (`ask_user_choice` en Pi, `AskUserQuestion` en Claude Code), en un único lote con las preguntas aplicables al modo, y STOP. No hagas una segunda llamada para completar formato o práctica:
 
-1. **Modo** (tres opciones):
+1. **Modo** (cuatro opciones):
    1. **Universitario** — estudiarlo a fondo (Learnings con motor).
-   2. **Rápido con quiz** — 3 preguntas para saltarse lo que ya sabes, y una explicación breve.
-   3. **Rápido desde cero** — sin quiz: explicado como si no tuviera ninguna base.
-2. **Pareto** (dos opciones): «¿Aprendemos con la ley de Pareto? Te explico solo el 20% del contenido que rinde el 80% del resultado — entender lo máximo con el mínimo esfuerzo.» — **sí, solo lo vital** / **no, el tema completo**.
+   2. **Examen** — preparar un examen con el motor profundo y Pareto.
+   3. **Rápido con quiz** — 3 preguntas para saltarse lo que ya sabes, y una explicación breve.
+   4. **Rápido desde cero** — sin quiz: explicado como si no tuviera ninguna base.
+2. **Pareto** (para universitario y rápido): «¿Aprendemos con la ley de Pareto? Te explico solo el 20% del contenido que rinde el 80% del resultado — entender lo máximo con el mínimo esfuerzo.» — **sí, solo lo vital** / **no, el tema completo**. En modo examen Pareto es implícito: no se pregunta.
+3. **Formato de examen** (si eligió examen): **oral / escrito / práctico**. Si eligió práctico, pregunta en el mismo lote el tipo de práctica: **laboratorios / construir una aplicación / ejercicios / otro**.
 
-La respuesta a la pregunta 1 decide el modo; las dos rápidas siguen «Modo rápido» al final de la FASE 0b. La respuesta a la pregunta 2 fija el alcance: con «sí», en Learnings el `init` lleva `scope: "pareto"` y el resto del trabajo sigue `pareto.md`. Si la persona ya pidió lo esencial («solo lo vital», «Pareto», «lo mínimo para usarlo»), no se vuelve a preguntar; si la respuesta llega ambigua, se asume **completo**.
+En modo examen, la fuente puede ser el nombre de un tema o un bloque largo pegado (temario, apuntes o texto de diapositivas); no pidas que lo reduzca a un título. Deriva de ese material el mapa y el plan. La respuesta de modo decide el flujo; las dos rápidas siguen «Modo rápido» al final de la FASE 0b. En los modos universitario y rápido, la respuesta de Pareto fija el alcance: con «sí», en Learnings el `init` lleva `scope: "pareto"` y el resto del trabajo sigue `pareto.md`. Si la persona ya pidió lo esencial («solo lo vital», «Pareto», «lo mínimo para usarlo»), no se vuelve a preguntar; si la respuesta llega ambigua, se asume **completo**. En modo examen no se pregunta Pareto ni se vuelve a pedir el formato o la práctica en una segunda llamada. Si el prompt ya trae el modo y formato decididos por el estudio, sigue `references/examen.md` sin preguntarlos otra vez.
 
 ## FASE 0a2 — INVESTIGACIÓN Y MAPA ANTES DEL QUIZ (obligatorio, siempre)
 
