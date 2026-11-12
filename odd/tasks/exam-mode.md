@@ -23,15 +23,17 @@ S8 — "yo creo que el modo universitario tiene que ser también de las bases, c
 - Studio: exam topics (state with `exam`) show an `Examen` tag; the home page and tutorial show the third mode.
 
 ## Tasks
-T1 — S2,S5,S6,S7,S8 — engine + CLI + rules + tests — #210 — gentle-ai-worker — pending
-T2 — S5,S8 — adapter `learning_stage` — #211 — gentle-ai-worker — pending
-T3 — S1-S6 — skill `explicacion-interactiva` (outside this repo: `~/.claude/skills/explicacion-interactiva`) — #212 — gentle-ai-worker — pending
-T4 — S1 — studio home, tag, tutorial — #213 — gentle-ai-worker — pending
-T5 — S5-S8 — docs + real run on a scratch root — #214 — gentle-ai-worker — pending
-T6 — all — TSP verification, PR, merge to main — parent — pending
+T1 — S2,S5,S6,S7,S8 — engine + CLI + rules + tests — #210 — gentle-ai-worker — done: 1e4edb8
+T2 — S5,S8 — adapter `learning_stage` — #211 — gentle-ai-worker — done: 65dfed0, F1 fix 5f075f2
+T3 — S1-S6 — skill `explicacion-interactiva` (outside this repo: `~/.claude/skills/explicacion-interactiva`) — #212 — gentle-ai-worker — done: SKILL.md Phase 0a/Output Contract/Decision Gates, new references/examen.md, metodo-explicame.md, learning-validation.md, pareto.md (not in this repository)
+T4 — S1 — studio home, tag, tutorial — #213 — gentle-ai-worker — done: 0b43861
+T5 — S5-S8 — docs + real run on a scratch root — #214 — gentle-ai-worker — done: 23de1bc; real run scenarios a-g green
+T6 — all — TSP verification, PR, merge to main — parent — TSP e11747f (plan odd/tests/exam-mode-tsp.md)
 
 ## Log
 L1 — "necesito reunir un poquito lo mejor de ambas. y hacer un modo examen. ¿En qué consiste el modo examen? Va a ver todo lo que le vas a pasar. O sea, va a ver el tema que le vas a pasar. Puede pegar un bloque muy grande de texto. Y va a generar un plan de estudio para buscar aprender el 80% del contenido con el 20% del esfuerzo. Por eso la ley de Pareto. [...] mantener la misma filosofía de explicaciones, eso sí está bien solamente que buscando quitar cosas innecesarias. Por ejemplo, si te busco ingeniería de características, no quiero aprender estadística. Quiero aprender cómo funcionan los modelos, pues igual que me lo explique la forma más sencilla posible, obviamente después hacerme un examen previo para saber cómo estoy. [...] Vamos a preguntar, el examen es oral escrito, práctico. y armar un plan de estudios basado en [...] va a ser oral. Entonces no te voy a preguntar, no te voy a explicar tanto la fórmula, sino el por qué y el cómo funcionan las cosas. Escrito, ah bueno, vas a necesitar saber más esto, esto y esto. Práctico, ah bueno, vamos a practicar. ¿Qué tipo de práctico? Ah, mira, bueno, no vamos a hacer laboratorios y vamos a tener que hacer una aplicación. [...] yo creo que el modo universitario tiene que ser también de las bases, como tal cual como está, entonces no veo viable. hacer un modo de eso."
 L2 — "si, y go con todo, hasta que este listo y mergeado y testeado con tsp a main" — approves the milestone draft (third mode on the deep engine, Pareto forced, format, engine-checked mock exam).
 D1 — Agent decision: the mock exam is the existing final_quiz stage with a format contract, not a new stage, so exam runs keep every university gate and the stage graph does not change.
 D2 — Agent decision: the long pasted text is a skill-side source (the engine never ingests sources today); no engine change for it.
+L3 — TSP: one defect, F1 (adapter accepted a whitespace-only `practice` and created/enrolled the topic before the engine refused it), pinned RED in adapter.test.mjs and fixed in 5f075f2. Real run found a pre-existing receipt-hashing defect (pretty-printed plan.json makes the adaptation receipt stale): out of scope, filed as #225.
+L4 — Final checks: `go test ./...` 416 passed; `go vet ./...` clean; `node --test integrations/pi/*.test.mjs studio/*.test.mjs` 498 pass, 0 fail, 12 skipped; `tsp check --base origin/main` exit 0.
