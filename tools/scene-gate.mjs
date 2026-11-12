@@ -89,12 +89,36 @@ try {
       continue;
     }
     const specs = [...source.matchAll(SCENE)].map((m) => ({ tag: m[1], json: m[2] }));
-    if (!specs.length) continue;
+    // Una figura que no se puede leer es un hallazgo, no un fallo del estudio: la
+    // escena rota tiene que volver al tutor para que la corrija. Se valida antes de
+    // abrir el navegador, porque un JSON roto deja la página en blanco y la puerta
+    // se rendía esperando un SVG que nunca llegaba (#237).
+    const unreadable = [];
+    const readable = specs.filter((spec) => {
+      try {
+        JSON.parse(spec.json);
+        return true;
+      } catch (error) {
+        unreadable.push({ tag: spec.tag, detail: `el payload no es JSON: ${error.message}` });
+        return false;
+      }
+    });
+    // Una apertura sin su `<script>` no entra en `specs`: tampoco se dibuja, y
+    // también es un hallazgo en vez de un «sin escenas» que nadie corrige.
+    const openings = [...source.matchAll(new RegExp(`<lk-(scene|story|${PIECE_TAGS.join('|')})[\\s>]`, 'g'))].length;
+    for (let i = specs.length; i < openings; i++) unreadable.push({ tag: 'scene', detail: 'no tiene payload JSON' });
+    for (const bad of unreadable) {
+      failures += 1;
+      console.log(`${note}: <lk-${bad.tag}> ilegible`);
+      console.log(`  escena-ilegible: <lk-${bad.tag}> (${bad.detail})`);
+    }
+    if (!readable.length) continue;
+    const specsToDraw = readable;
 
     const dir = mkdtempSync(join(tmpdir(), 'scene-gate-'));
     mkdirSync(join(dir, 'kit'), { recursive: true });
     for (const file of ['kit.css', 'kit.js', 'scene.js', 'dictate.js']) cpSync(join(KIT, file), join(dir, 'kit', file));
-    const body = specs.map((s, i) => `<lk-${s.tag} id="s${i}"><script type="application/json">${s.json}</script></lk-${s.tag}>`).join('\n');
+    const body = specsToDraw.map((s, i) => `<lk-${s.tag} id="s${i}"><script type="application/json">${s.json}</script></lk-${s.tag}>`).join('\n');
     writeFileSync(join(dir, 'page.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <link rel="stylesheet" href="./kit/kit.css"><script src="./kit/scene.js" defer></script><script src="./kit/kit.js" defer></script>
 </head><body><main style="max-width:720px;margin:0 auto">${body}</main></body></html>`);
@@ -200,8 +224,11 @@ try {
         for (const p of scene.problems) console.log(`  ${p.kind}: ${p.text} (${p.detail})`);
       });
     } catch (error) {
+      // Un payload que sí es JSON pero que el lector no puede dibujar también es
+      // de la nota: el tutor recibe el hallazgo, no el log del estudio.
       failures += 1;
-      console.log(`${note}: no se pudo dibujar (${String(error.message).split('\n')[0]})`);
+      console.log(`${note}: escena no dibujada`);
+      console.log(`  escena-no-dibuja: ${String(error.message).split('\n')[0]}`);
     } finally {
       await page.close().catch(() => {});
       rmSync(dir, { recursive: true, force: true });

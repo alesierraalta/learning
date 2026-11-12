@@ -240,6 +240,13 @@ type PartStandardThresholds struct {
 	// never by a bare `<lk-math>` or a still scene. False means the rule is not
 	// declared, so a frozen snapshot keeps accepting the parts it accepted.
 	FormulaWalkthrough bool `json:"formulaWalkthrough,omitempty"`
+	// StoryLanguage turns on the story-language rule: the part draws its
+	// step-by-step visual with `<lk-story>` or with a piece (`<lk-cards>`,
+	// `<lk-memory>`, `<lk-tables>`, `<lk-venn>`), never with the classic
+	// `<lk-walkthrough>`, whose free-form boxes and arrows draw badly. False means
+	// the rule is not declared, so a frozen snapshot keeps accepting the parts it
+	// accepted.
+	StoryLanguage bool `json:"storyLanguage,omitempty"`
 }
 
 // ParetoThresholds bound a pareto-scope run: only the vital slice of each

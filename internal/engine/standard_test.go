@@ -61,8 +61,23 @@ const standardScene = `<lk-scene>
 </script>
 </lk-scene>`
 
+// fixtureStory is the story-language deck the standard asks for (#237): three
+// steps of actors with state, a narrator per step and a mark that closes it. It
+// draws no formula, so the formula rule stays out of the way, and it is the deck
+// the classic `<lk-walkthrough>` is legacy for.
+const fixtureStory = `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
+ {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"}]}}},
+ {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"},{"id":"u","x":110,"y":80,"w":140,"h":56,"label":"arriba","tone":"blue"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
+ {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","x":110,"y":80,"w":140,"h":56,"label":"arriba","tone":"blue"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
+]}
+</script>
+</lk-story>
+Cómo leerlo: avanza y mira la casilla que cambia.`
+
 // standardNote is the part shape the approved example uses: a route, two
-// content sections, one scene, one walkthrough and the mini-quiz.
+// content sections, one scene, one story and the mini-quiz.
 func standardNote(body string) string {
 	return "---\ntipo: explicacion\nnodo: T.p1\nnivel: medio\n---\n# Parte 1\n\n" +
 		"## Ruta\n\nVamos a construirlo en este orden:\n\n" +
@@ -71,7 +86,7 @@ func standardNote(body string) string {
 		"3. En qué se diferencia del supervisado.\n\n" +
 		"## 1. Contestar bien y contestar tarde\n\n" + body + "\n\n" + standardScene + "\n\n" +
 		"## 2. Nadie te dice la respuesta\n\nEl ejemplo vuelve con el mismo robot.\n\n" +
-		fixtureWalkthrough + "\n\n" +
+		fixtureStory + "\n\n" +
 		"**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
 }
 
@@ -930,7 +945,7 @@ func TestPartStandardRefusesAFormulaWithoutAFormulaWalkthrough(t *testing.T) {
 // the formula.
 func TestPartStandardAcceptsAFormulaTaughtByAFormulaWalkthrough(t *testing.T) {
 	f := standardFrontier(t)
-	note := strings.Replace(standardNote("La densidad se explica paso a paso.\n"), fixtureWalkthrough, formulaStory, 1)
+	note := strings.Replace(standardNote("La densidad se explica paso a paso.\n"), fixtureStory, formulaStory, 1)
 	f.writePartNote(t, note)
 	rep, code, c := standardCheck(t, f)
 	if code != 0 || rep.Status != "accepted" {
@@ -1011,11 +1026,253 @@ func TestPartStandardReadsTheFormulaWalkthroughLikeExplainCheck(t *testing.T) {
 		t.Fatalf("the engine's refusal %q does not name the fix", findings[0])
 	}
 
-	with := strings.Replace(standardNote("La densidad se explica paso a paso.\n"), fixtureWalkthrough, formulaStory, 1)
+	with := strings.Replace(standardNote("La densidad se explica paso a paso.\n"), fixtureStory, formulaStory, 1)
 	if ok, detail := row(with); !ok {
 		t.Fatalf("the tool refuses the formula walkthrough the engine accepts: %s", detail)
 	}
 	if findings := formulaWalkthroughFindings(with, rules.PartStandardThresholds{FormulaWalkthrough: true}); len(findings) != 0 {
 		t.Fatalf("the engine refuses the formula walkthrough the tool accepts: %v", findings)
+	}
+}
+
+// snapshotWithoutStoryLanguage is the production rules with the additive
+// story-language key removed: a run frozen before the rule keeps accepting the
+// parts it accepted, exactly like the formula-walkthrough key before it.
+func snapshotWithoutStoryLanguage(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(productionRulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	if !ok {
+		t.Fatal("the production rules declare no partStandard block")
+	}
+	delete(block, "storyLanguage")
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "standard-without-story-language.json")
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// sqlPartOne is the part the learner refused (#237): a scene and a classic
+// `<lk-walkthrough>`, the deck whose free-form boxes and arrows draw badly. It
+// was written by the studio with the agy runtime and passed every gate.
+func sqlPartOne(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "sql-parte-1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// The story language is not optional: a part whose step-by-step visual is a
+// classic `<lk-walkthrough>` is refused, and the refusal names the element to
+// use instead of the deck it must drop.
+func TestPartStandardRefusesAPartWithOnlyAClassicWalkthrough(t *testing.T) {
+	f := standardFrontier(t)
+	f.writePartNote(t, sqlPartOne(t))
+	rep, code, c := standardCheck(t, f)
+	assertBlocked(t, rep, code)
+	if c.Status != "FAIL" {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL on the story language", c.Status, c.Reason)
+	}
+	t.Logf("story-language refusal: %s", c.Reason)
+	for _, fragment := range []string{
+		"no story and no piece",
+		"usa una historia por pasos <lk-story>",
+		"<lk-cards>",
+		"<lk-memory>",
+		"<lk-tables>",
+		"<lk-venn>",
+		"a classic <lk-walkthrough> alone does not count",
+	} {
+		if !strings.Contains(c.Reason, fragment) {
+			t.Fatalf("reason %q misses %q", c.Reason, fragment)
+		}
+	}
+}
+
+// A part with only a scene (or only SVG) carries no story and no piece: the story
+// language is required, not offered. The refusal names the element to use.
+func TestPartStandardRefusesAPartWithOnlyAScene(t *testing.T) {
+	f := standardFrontier(t)
+	f.writePartNote(t, strings.Replace(standardNote("Hay decisiones donde acertar ahora no sirve."), fixtureStory, "", 1))
+	rep, code, c := standardCheck(t, f)
+	assertBlocked(t, rep, code)
+	if c.Status != "FAIL" {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL on the story language", c.Status, c.Reason)
+	}
+	t.Logf("scene-only refusal: %s", c.Reason)
+	for _, fragment := range []string{
+		"no story and no piece",
+		"usa una historia por pasos <lk-story>",
+		"<lk-cards>",
+		"a classic <lk-walkthrough> alone does not count",
+	} {
+		if !strings.Contains(c.Reason, fragment) {
+			t.Fatalf("reason %q misses %q", c.Reason, fragment)
+		}
+	}
+}
+
+// The same part with its deck written as a story passes the rule: the standard
+// asks for the story language, not for a particular drawing. The live part also
+// carries walls of prose, so the deck is swapped on the standard-shaped part.
+func TestPartStandardAcceptsAPartWhoseDeckIsAStory(t *testing.T) {
+	f := standardFrontier(t)
+	f.writeStandardPart(t, "Hay decisiones donde acertar ahora no sirve.")
+	rep, code, c := standardCheck(t, f)
+	if code != 0 || rep.Status != "accepted" {
+		t.Fatalf("advance explanation = %q (exit %d), want accepted: %+v", rep.Status, code, rep.Checks)
+	}
+	if c.Status != "PASS" {
+		t.Fatalf("explanation-standard = %s (%s), want PASS: the deck is a story", c.Status, c.Reason)
+	}
+	if !strings.Contains(c.Reason, "story or piece block(s) (at least 1)") {
+		t.Fatalf("pass reason does not report the story count: %s", c.Reason)
+	}
+}
+
+// A frozen snapshot that does not declare the story-language key keeps accepting
+// the parts it accepted: the key is additive.
+func TestPartStandardSnapshotWithoutStoryLanguageKeepsAccepting(t *testing.T) {
+	f := standardFrontierOn(t, snapshotWithoutStoryLanguage(t))
+	// The standard-shaped part with its deck written as the classic walkthrough:
+	// the only rule it misses is the story language, so a frozen snapshot that
+	// does not declare the key keeps accepting it.
+	f.writePartNote(t, strings.Replace(standardNote("Hay decisiones donde acertar ahora no sirve."), fixtureStory, fixtureWalkthrough, 1))
+	rep, code, c := standardCheck(t, f)
+	if code != 0 || rep.Status != "accepted" {
+		t.Fatalf("advance explanation = %q (exit %d), want accepted: %+v", rep.Status, code, rep.Checks)
+	}
+	if c.Status != "PASS" {
+		t.Fatalf("explanation-standard = %s (%s), want PASS: the key is additive", c.Status, c.Reason)
+	}
+}
+
+// The rule is mandatory: a story or a piece is the story language, and a scene,
+// an inline SVG or the classic walkthrough is not. Markup inside a code fence is
+// an example, not a drawing, so it does not count either.
+func TestStoryLanguageCountsAStoryOrAPiece(t *testing.T) {
+	th := rules.PartStandardThresholds{StoryLanguage: true}
+	cards := `<lk-cards>
+<script type="application/json">
+{"cards":[{"verdict":"ok","title":"compila"},{"verdict":"no","title":"no compila"}]}
+</script>
+</lk-cards>`
+	for _, tc := range []struct {
+		name string
+		note string
+		ok   bool
+	}{
+		{"a story", fixtureStory, true},
+		{"verdict cards", cards, true},
+		{"a classic walkthrough", fixtureWalkthrough, false},
+		{"a classic walkthrough and a piece", fixtureWalkthrough + "\n\n" + cards, true},
+		{"a still scene with no deck", standardScene, false},
+		{"an inline SVG", `<svg viewBox="0 0 100 50"><text x="10" y="20">hola</text></svg>`, false},
+		{"a classic walkthrough inside a code fence", "```html\n" + fixtureWalkthrough + "\n```", false},
+		{"a story inside a code fence", "```html\n" + fixtureStory + "\n```", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := storyLanguageFindings(tc.note, th)
+			if tc.ok && len(findings) != 0 {
+				t.Fatalf("refused a part that carries the story language: %v", findings)
+			}
+			if !tc.ok && len(findings) == 0 {
+				t.Fatal("accepted a part that carries no story and no piece")
+			}
+		})
+	}
+	if findings := storyLanguageFindings(fixtureWalkthrough, rules.PartStandardThresholds{}); len(findings) != 0 {
+		t.Fatalf("a snapshot without the key applied the rule: %v", findings)
+	}
+}
+
+// The engine and the tutor's tool read the story language the same way: both
+// refuse the part whose only deck is the classic walkthrough and both name the
+// element to use, and both accept the same part once its deck is a story. The
+// tutor runs `node tools/explain-check.mjs` and must get the engine's verdict.
+func TestPartStandardReadsTheStoryLanguageLikeExplainCheck(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: the tool cannot be run here")
+	}
+	tool, err := filepath.Abs("../../tools/explain-check.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tool); err != nil {
+		t.Skipf("explain-check.mjs is not here: %v", err)
+	}
+	row := func(note string) (bool, string) {
+		t.Helper()
+		file := filepath.Join(t.TempDir(), "parte.md")
+		if err := os.WriteFile(file, []byte(note), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, _ := exec.Command(node, tool, file, "--json").CombinedOutput()
+		var parsed struct {
+			Rows []struct {
+				Rule   string `json:"rule"`
+				OK     bool   `json:"ok"`
+				Detail string `json:"detail"`
+			} `json:"rows"`
+		}
+		if err := json.Unmarshal(out, &parsed); err != nil {
+			t.Fatalf("explain-check printed no JSON: %v\n%s", err, out)
+		}
+		for _, r := range parsed.Rows {
+			if r.Rule == "historia" {
+				return r.OK, r.Detail
+			}
+		}
+		t.Fatalf("explain-check printed no historia row: %s", out)
+		return false, ""
+	}
+
+	without := sqlPartOne(t)
+	if ok, detail := row(without); ok {
+		t.Fatalf("the tool accepts a part the engine refuses: %s", detail)
+	} else if !strings.Contains(detail, "usa una historia por pasos <lk-story>") {
+		t.Fatalf("the tool's refusal %q does not name the fix", detail)
+	}
+	if findings := storyLanguageFindings(without, rules.PartStandardThresholds{StoryLanguage: true}); len(findings) == 0 {
+		t.Fatal("the engine accepts a part without the story language")
+	} else if !strings.Contains(findings[0], "usa una historia por pasos <lk-story>") {
+		t.Fatalf("the engine's refusal %q does not name the fix", findings[0])
+	}
+
+	// A part with only a scene carries no story and no piece: both refuse it, with
+	// the same fix named, so the tutor's own run of the tool matches the engine.
+	sceneOnly := strings.Replace(standardNote("Hay decisiones donde acertar ahora no sirve."), fixtureStory, "", 1)
+	if ok, detail := row(sceneOnly); ok {
+		t.Fatalf("the tool accepts a scene-only part the engine refuses: %s", detail)
+	} else if !strings.Contains(detail, "usa una historia por pasos <lk-story>") {
+		t.Fatalf("the tool's refusal %q does not name the fix", detail)
+	}
+	if findings := storyLanguageFindings(sceneOnly, rules.PartStandardThresholds{StoryLanguage: true}); len(findings) == 0 {
+		t.Fatal("the engine accepts a scene-only part")
+	} else if !strings.Contains(findings[0], "usa una historia por pasos <lk-story>") {
+		t.Fatalf("the engine's refusal %q does not name the fix", findings[0])
+	}
+
+	with := standardNote("Hay decisiones donde acertar ahora no sirve.")
+	if ok, detail := row(with); !ok {
+		t.Fatalf("the tool refuses the story the engine accepts: %s", detail)
+	}
+	if findings := storyLanguageFindings(with, rules.PartStandardThresholds{StoryLanguage: true}); len(findings) != 0 {
+		t.Fatalf("the engine refuses the story the tool accepts: %v", findings)
 	}
 }

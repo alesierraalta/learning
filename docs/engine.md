@@ -539,7 +539,7 @@ tutor correct the part before the learner reads it. The numbers live in
 {"maxProseWords": 450, "maxContentSections": 2, "minRutaLines": 3,
  "maxRutaLines": 4, "maxScenes": 1, "maxWalkthroughs": 1,
  "minScenes": 1, "maxSentencesPerParagraph": 2, "formulaElement": "lk-math",
- "formulaWalkthrough": true}
+ "formulaWalkthrough": true, "storyLanguage": true}
 ```
 
 The block also turns on the standard's non-numeric rules, and the check is
@@ -615,6 +615,20 @@ checks). What it measures, and how:
   with the example's numbers substituted and its result». The tutor's tool
   mirrors the rule as `formula-walkthrough`, and a test cross-checks both
   verdicts.
+- **Story language.** `storyLanguage` turns on the story-language rule: a part
+  draws its step-by-step visual with `<lk-story>` (the deck of actors with
+  state, moves and marks) or with a piece (`<lk-cards>`, `<lk-memory>`,
+  `<lk-tables>`, `<lk-venn>`), and the classic `<lk-walkthrough>` is legacy and
+  does not count — its free-form boxes and arrows draw badly, and it was the
+  path a weaker model took (#237). A part that carries no story and no piece is
+  refused even when every other rule passes; a scene or an inline SVG is not a
+  substitute, and markup inside a fenced block is an example, not a drawing. The
+  refusal names the fix: «the part carries no story and no piece — usa una
+  historia por pasos `<lk-story>` o una pieza: `<lk-cards>`, `<lk-memory>`,
+  `<lk-tables>`, `<lk-venn>`; a classic `<lk-walkthrough>` alone does not
+  count». The tutor's tool mirrors the rule as `historia`, and a test
+  cross-checks both verdicts (the classic deck, a scene-only part, and the same
+  part once its deck is a story).
 - **No closing summary.** A heading `Resumen para guardar`, `Apuntes
   comprimidos` or `En resumen` fails: the part ends on its last content
   section.
@@ -657,8 +671,9 @@ only the engine reads the payload. The mini-quiz question count stays where it
 already was, `thresholds.quiz.questionCount` bound to the note by
 `quiz-questions`.
 
-`minScenes`, `maxSentencesPerParagraph`, `formulaElement` and
-`formulaWalkthrough` are additive keys of the same block: a snapshot that
+`minScenes`, `maxSentencesPerParagraph`, `formulaElement`,
+`formulaWalkthrough` and `storyLanguage` are additive keys of the same block: a
+snapshot that
 declares the standard without them keeps the rules it had, so a run enrolled
 when the standard arrived (#185) is not measured against the shape rules it
 never declared.

@@ -131,7 +131,8 @@
       "minScenes": 1,
       "maxSentencesPerParagraph": 2,
       "formulaElement": "lk-math",
-      "formulaWalkthrough": true
+      "formulaWalkthrough": true,
+      "storyLanguage": true
     },
     "pareto": {
       "maxParts": 4,

@@ -61,6 +61,19 @@ const recorridos = (src.match(/<lk-(?:walkthrough|story)[\s>]/g) || []).length;
 add('escena', escenas <= 1, `${escenas} escena(s)`);
 add('recorrido', recorridos <= 1, `${recorridos} recorrido(s)`);
 
+// 4b. El lenguaje de historia: la parte dibuja su recorrido con `<lk-story>` o con
+// una pieza, nunca solo con el `<lk-walkthrough>` clásico, cuyas cajas y flechas
+// libres se dibujan mal (#237). Una escena o un SVG no lo sustituyen. El motor
+// aplica la misma regla (`storyLanguageFindings` en `internal/engine/standard.go`)
+// y un test cruza los dos veredictos. El código en un bloque cercado es un ejemplo
+// de marcado, no un dibujo: el motor lo ignora y aquí también.
+const sinCodigo = src.replace(/```[\s\S]*?```/g, ' ');
+const historias = (sinCodigo.match(/<lk-story[\s>]/g) || []).length;
+const piezasDibujadas = (sinCodigo.match(new RegExp(`<lk-(?:${PIEZAS})[\\s>]`, 'g')) || []).length;
+const lenguajeDeHistoria = historias + piezasDibujadas > 0;
+add('historia', lenguajeDeHistoria, lenguajeDeHistoria ? '' :
+  'no hay historia ni pieza · usa una historia por pasos <lk-story> o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>; un <lk-walkthrough> clásico no cuenta');
+
 // 5. Mini-quiz: la parte se cierra con preguntas, no con un resumen.
 const quiz = /lk-(quick-)?quiz|mini-quiz|##\s*Mini-quiz/i.test(src);
 add('mini-quiz', quiz, quiz ? '' : 'no hay mini-quiz');

@@ -1255,376 +1255,414 @@ Un episodio es la partida completa, del estado inicial al terminal:
 | 3 | dormitorio limpio | limpió el dormitorio |
 | fin | CASA LIMPIA | estado terminal: el retorno queda completo |
 
-<lk-walkthrough>
-<script type="application/json">
+<lk-story><script type="application/json">
 {
+  "kind": "derivation",
   "title": "Un episodio, habitación por habitación",
   "viewBox": "0 0 760 390",
   "steps": [
     {
       "title": "El estado inicial",
-      "text": "Las tres habitaciones están sucias y el robot espera en la sala. La batería está al 70 %.",
-      "scene": {
-        "icons": [
-          {
-            "kind": "house",
-            "x": 153,
-            "y": 168,
-            "size": 96,
-            "tone": "red"
-          },
-          {
-            "kind": "house",
-            "x": 380,
-            "y": 168,
-            "size": 96,
-            "tone": "red"
-          },
-          {
-            "kind": "house",
-            "x": 607,
-            "y": 168,
-            "size": 96,
-            "tone": "red"
-          },
-          {
-            "kind": "robot",
-            "x": 607,
-            "y": 52,
-            "size": 56,
-            "tone": "blue"
-          }
-        ],
-        "arrows": [
-          {
-            "x1": 607,
-            "y1": 82,
-            "x2": 607,
-            "y2": 116,
-            "tone": "blue",
-            "width": 1.6
-          }
-        ],
-        "labels": [
-          {
-            "x": 153,
-            "y": 238,
-            "text": "sucia"
-          },
-          {
-            "x": 380,
-            "y": 238,
-            "text": "sucia"
-          },
-          {
-            "x": 607,
-            "y": 238,
-            "text": "sucia"
-          }
-        ],
-        "stats": [
-          {
-            "x": 380,
-            "y": 312,
-            "value": "70 %",
-            "label": "batería",
-            "tone": "slate"
-          }
-        ]
+      "narrator": "Las tres habitaciones están sucias y el robot espera en la sala. La batería está al 70 %.",
+      "stage": {
+        "scene": {
+          "icons": [
+            {
+              "kind": "house",
+              "x": 153,
+              "y": 168,
+              "size": 96,
+              "tone": "red"
+            },
+            {
+              "kind": "house",
+              "x": 380,
+              "y": 168,
+              "size": 96,
+              "tone": "red"
+            },
+            {
+              "kind": "house",
+              "x": 607,
+              "y": 168,
+              "size": 96,
+              "tone": "red"
+            },
+            {
+              "kind": "robot",
+              "x": 607,
+              "y": 52,
+              "size": 56,
+              "tone": "blue",
+              "id": "robot"
+            }
+          ],
+          "arrows": [
+            {
+              "x1": 607,
+              "y1": 82,
+              "x2": 607,
+              "y2": 116,
+              "tone": "blue",
+              "width": 1.6
+            }
+          ],
+          "labels": [
+            {
+              "x": 153,
+              "y": 238,
+              "text": "sucia"
+            },
+            {
+              "x": 380,
+              "y": 238,
+              "text": "sucia"
+            },
+            {
+              "x": 607,
+              "y": 238,
+              "text": "sucia"
+            }
+          ],
+          "stats": [
+            {
+              "x": 380,
+              "y": 312,
+              "value": "70 %",
+              "label": "batería",
+              "tone": "slate"
+            }
+          ]
+        }
       }
     },
     {
       "title": "Aspira la sala",
-      "text": "La acción es aspirar: la sala queda limpia. El robot no se movió y la batería baja al 62 %.",
-      "scene": {
-        "icons": [
-          {
-            "kind": "house",
-            "x": 153,
-            "y": 168,
-            "size": 96,
-            "tone": "green"
-          },
-          {
-            "kind": "house",
-            "x": 380,
-            "y": 168,
-            "size": 96,
-            "tone": "red"
-          },
-          {
-            "kind": "house",
-            "x": 607,
-            "y": 168,
-            "size": 96,
-            "tone": "red"
-          },
-          {
-            "kind": "robot",
-            "x": 153,
-            "y": 52,
-            "size": 56,
-            "tone": "green"
-          }
-        ],
-        "arrows": [
-          {
-            "x1": 153,
-            "y1": 82,
-            "x2": 153,
-            "y2": 116,
-            "tone": "green",
-            "width": 1.6
-          }
-        ],
-        "labels": [
-          {
-            "x": 153,
-            "y": 238,
-            "text": "limpia"
-          },
-          {
-            "x": 380,
-            "y": 238,
-            "text": "sucia"
-          },
-          {
-            "x": 607,
-            "y": 238,
-            "text": "sucia"
-          }
-        ],
-        "stats": [
-          {
-            "x": 380,
-            "y": 312,
-            "value": "62 %",
-            "label": "batería",
-            "tone": "slate"
-          }
-        ]
-      }
+      "narrator": "La acción es aspirar: la sala queda limpia. El robot no se movió y la batería baja al 62 %.",
+      "stage": {
+        "scene": {
+          "icons": [
+            {
+              "kind": "house",
+              "x": 153,
+              "y": 168,
+              "size": 96,
+              "tone": "green"
+            },
+            {
+              "kind": "house",
+              "x": 380,
+              "y": 168,
+              "size": 96,
+              "tone": "red"
+            },
+            {
+              "kind": "house",
+              "x": 607,
+              "y": 168,
+              "size": 96,
+              "tone": "red"
+            },
+            {
+              "kind": "robot",
+              "x": 153,
+              "y": 52,
+              "size": 56,
+              "tone": "green",
+              "id": "robot"
+            }
+          ],
+          "arrows": [
+            {
+              "x1": 153,
+              "y1": 82,
+              "x2": 153,
+              "y2": 116,
+              "tone": "green",
+              "width": 1.6
+            }
+          ],
+          "labels": [
+            {
+              "x": 153,
+              "y": 238,
+              "text": "limpia"
+            },
+            {
+              "x": 380,
+              "y": 238,
+              "text": "sucia"
+            },
+            {
+              "x": 607,
+              "y": 238,
+              "text": "sucia"
+            }
+          ],
+          "stats": [
+            {
+              "x": 380,
+              "y": 312,
+              "value": "62 %",
+              "label": "batería",
+              "tone": "slate"
+            }
+          ]
+        }
+      },
+      "marks": [
+        {
+          "kind": "ok",
+          "actor": "robot"
+        }
+      ]
     },
     {
       "title": "Se mueve a la cocina",
-      "text": "Otra acción, otro efecto: el robot cambia de habitación. Moverse no limpia nada por sí solo.",
-      "scene": {
-        "icons": [
-          {
-            "kind": "house",
-            "x": 153,
-            "y": 168,
-            "size": 96,
-            "tone": "green"
-          },
-          {
-            "kind": "house",
-            "x": 380,
-            "y": 168,
-            "size": 96,
-            "tone": "red"
-          },
-          {
-            "kind": "house",
-            "x": 607,
-            "y": 168,
-            "size": 96,
-            "tone": "red"
-          },
-          {
-            "kind": "robot",
-            "x": 153,
-            "y": 52,
-            "size": 56,
-            "tone": "green"
-          }
-        ],
-        "arrows": [
-          {
-            "x1": 153,
-            "y1": 82,
-            "x2": 153,
-            "y2": 116,
-            "tone": "green",
-            "width": 1.6
-          }
-        ],
-        "labels": [
-          {
-            "x": 153,
-            "y": 238,
-            "text": "limpia"
-          },
-          {
-            "x": 380,
-            "y": 238,
-            "text": "sucia"
-          },
-          {
-            "x": 607,
-            "y": 238,
-            "text": "sucia"
-          }
-        ],
-        "stats": [
-          {
-            "x": 380,
-            "y": 312,
-            "value": "58 %",
-            "label": "batería",
-            "tone": "slate"
-          }
-        ]
-      }
+      "narrator": "Otra acción, otro efecto: el robot cambia de habitación. Moverse no limpia nada por sí solo.",
+      "stage": {
+        "scene": {
+          "icons": [
+            {
+              "kind": "house",
+              "x": 153,
+              "y": 168,
+              "size": 96,
+              "tone": "green"
+            },
+            {
+              "kind": "house",
+              "x": 380,
+              "y": 168,
+              "size": 96,
+              "tone": "red"
+            },
+            {
+              "kind": "house",
+              "x": 607,
+              "y": 168,
+              "size": 96,
+              "tone": "red"
+            },
+            {
+              "kind": "robot",
+              "x": 153,
+              "y": 52,
+              "size": 56,
+              "tone": "green",
+              "id": "robot"
+            }
+          ],
+          "arrows": [
+            {
+              "x1": 153,
+              "y1": 82,
+              "x2": 153,
+              "y2": 116,
+              "tone": "green",
+              "width": 1.6
+            }
+          ],
+          "labels": [
+            {
+              "x": 153,
+              "y": 238,
+              "text": "limpia"
+            },
+            {
+              "x": 380,
+              "y": 238,
+              "text": "sucia"
+            },
+            {
+              "x": 607,
+              "y": 238,
+              "text": "sucia"
+            }
+          ],
+          "stats": [
+            {
+              "x": 380,
+              "y": 312,
+              "value": "58 %",
+              "label": "batería",
+              "tone": "slate"
+            }
+          ]
+        }
+      },
+      "marks": [
+        {
+          "kind": "ok",
+          "actor": "robot"
+        }
+      ]
     },
     {
       "title": "Limpia la cocina",
-      "text": "Aspirar otra vez: dos casas limpias, el robot en la segunda y la batería bajando.",
-      "scene": {
-        "icons": [
-          {
-            "kind": "house",
-            "x": 153,
-            "y": 168,
-            "size": 96,
-            "tone": "green"
-          },
-          {
-            "kind": "house",
-            "x": 380,
-            "y": 168,
-            "size": 96,
-            "tone": "green"
-          },
-          {
-            "kind": "house",
-            "x": 607,
-            "y": 168,
-            "size": 96,
-            "tone": "red"
-          },
-          {
-            "kind": "robot",
-            "x": 380,
-            "y": 52,
-            "size": 56,
-            "tone": "green"
-          }
-        ],
-        "arrows": [
-          {
-            "x1": 380,
-            "y1": 82,
-            "x2": 380,
-            "y2": 116,
-            "tone": "green",
-            "width": 1.6
-          }
-        ],
-        "labels": [
-          {
-            "x": 153,
-            "y": 238,
-            "text": "limpia"
-          },
-          {
-            "x": 380,
-            "y": 238,
-            "text": "limpia"
-          },
-          {
-            "x": 607,
-            "y": 238,
-            "text": "sucia"
-          }
-        ],
-        "stats": [
-          {
-            "x": 380,
-            "y": 312,
-            "value": "50 %",
-            "label": "batería",
-            "tone": "slate"
-          }
-        ]
-      }
+      "narrator": "Aspirar otra vez: dos casas limpias, el robot en la segunda y la batería bajando.",
+      "stage": {
+        "scene": {
+          "icons": [
+            {
+              "kind": "house",
+              "x": 153,
+              "y": 168,
+              "size": 96,
+              "tone": "green"
+            },
+            {
+              "kind": "house",
+              "x": 380,
+              "y": 168,
+              "size": 96,
+              "tone": "green"
+            },
+            {
+              "kind": "house",
+              "x": 607,
+              "y": 168,
+              "size": 96,
+              "tone": "red"
+            },
+            {
+              "kind": "robot",
+              "x": 380,
+              "y": 52,
+              "size": 56,
+              "tone": "green",
+              "id": "robot"
+            }
+          ],
+          "arrows": [
+            {
+              "x1": 380,
+              "y1": 82,
+              "x2": 380,
+              "y2": 116,
+              "tone": "green",
+              "width": 1.6
+            }
+          ],
+          "labels": [
+            {
+              "x": 153,
+              "y": 238,
+              "text": "limpia"
+            },
+            {
+              "x": 380,
+              "y": 238,
+              "text": "limpia"
+            },
+            {
+              "x": 607,
+              "y": 238,
+              "text": "sucia"
+            }
+          ],
+          "stats": [
+            {
+              "x": 380,
+              "y": 312,
+              "value": "50 %",
+              "label": "batería",
+              "tone": "slate"
+            }
+          ]
+        }
+      },
+      "marks": [
+        {
+          "kind": "ok",
+          "actor": "robot"
+        }
+      ]
     },
     {
       "title": "El episodio se cierra",
-      "text": "Con las tres limpias no quedan acciones útiles: el episodio termina y se suma la recompensa.",
-      "scene": {
-        "icons": [
-          {
-            "kind": "house",
-            "x": 153,
-            "y": 168,
-            "size": 96,
-            "tone": "green"
-          },
-          {
-            "kind": "house",
-            "x": 380,
-            "y": 168,
-            "size": 96,
-            "tone": "green"
-          },
-          {
-            "kind": "house",
-            "x": 607,
-            "y": 168,
-            "size": 96,
-            "tone": "green"
-          },
-          {
-            "kind": "robot",
-            "x": 607,
-            "y": 52,
-            "size": 56,
-            "tone": "green"
-          }
-        ],
-        "arrows": [
-          {
-            "x1": 607,
-            "y1": 82,
-            "x2": 607,
-            "y2": 116,
-            "tone": "green",
-            "width": 1.6
-          }
-        ],
-        "labels": [
-          {
-            "x": 153,
-            "y": 238,
-            "text": "limpia"
-          },
-          {
-            "x": 380,
-            "y": 238,
-            "text": "limpia"
-          },
-          {
-            "x": 607,
-            "y": 238,
-            "text": "limpia"
-          }
-        ],
-        "stats": [
-          {
-            "x": 380,
-            "y": 312,
-            "value": "+30",
-            "label": "recompensa total",
-            "tone": "green"
-          }
-        ]
-      }
+      "narrator": "Con las tres limpias no quedan acciones útiles: el episodio termina y se suma la recompensa.",
+      "stage": {
+        "scene": {
+          "icons": [
+            {
+              "kind": "house",
+              "x": 153,
+              "y": 168,
+              "size": 96,
+              "tone": "green"
+            },
+            {
+              "kind": "house",
+              "x": 380,
+              "y": 168,
+              "size": 96,
+              "tone": "green"
+            },
+            {
+              "kind": "house",
+              "x": 607,
+              "y": 168,
+              "size": 96,
+              "tone": "green"
+            },
+            {
+              "kind": "robot",
+              "x": 607,
+              "y": 52,
+              "size": 56,
+              "tone": "green",
+              "id": "robot"
+            }
+          ],
+          "arrows": [
+            {
+              "x1": 607,
+              "y1": 82,
+              "x2": 607,
+              "y2": 116,
+              "tone": "green",
+              "width": 1.6
+            }
+          ],
+          "labels": [
+            {
+              "x": 153,
+              "y": 238,
+              "text": "limpia"
+            },
+            {
+              "x": 380,
+              "y": 238,
+              "text": "limpia"
+            },
+            {
+              "x": 607,
+              "y": 238,
+              "text": "limpia"
+            }
+          ],
+          "stats": [
+            {
+              "x": 380,
+              "y": 312,
+              "value": "+30",
+              "label": "recompensa total",
+              "tone": "green"
+            }
+          ]
+        }
+      },
+      "marks": [
+        {
+          "kind": "ok",
+          "actor": "robot"
+        }
+      ]
     }
   ]
 }
-</script>
-</lk-walkthrough>
+</script></lk-story>
 
 Todo esto forma un **episodio**.
 
@@ -5519,309 +5557,421 @@ Resultado:
 
 # 21. ¿Qué significa Bootstrap?
 
-<lk-walkthrough>
-<script type="application/json">
+<lk-story><script type="application/json">
 {
+  "kind": "formula",
   "title": "La actualización, número por número",
   "viewBox": "0 0 760 430",
+  "formula": {
+    "size": 40,
+    "atoms": [
+      {
+        "t": "V",
+        "id": "a0"
+      },
+      {
+        "t": "(s)",
+        "id": "a1"
+      },
+      {
+        "t": " ← ",
+        "id": "a2"
+      },
+      {
+        "t": "V",
+        "id": "a3"
+      },
+      {
+        "t": "(s)",
+        "id": "a4"
+      },
+      {
+        "t": " + ",
+        "id": "a5"
+      },
+      {
+        "t": "α",
+        "id": "a6"
+      },
+      {
+        "t": "[ ",
+        "id": "a7"
+      },
+      {
+        "t": "r",
+        "id": "a8"
+      },
+      {
+        "t": " + ",
+        "id": "a9"
+      },
+      {
+        "t": "γ",
+        "id": "a10"
+      },
+      {
+        "t": "·",
+        "id": "a11"
+      },
+      {
+        "t": "V",
+        "id": "a12"
+      },
+      {
+        "t": "(s′)",
+        "id": "a13"
+      },
+      {
+        "t": " − ",
+        "id": "a14"
+      },
+      {
+        "t": "V",
+        "id": "a15"
+      },
+      {
+        "t": "(s)",
+        "id": "a16"
+      },
+      {
+        "t": " ]",
+        "id": "a17"
+      }
+    ]
+  },
   "steps": [
     {
       "title": "La regla, con sus cuatro piezas",
-      "text": "Cada símbolo tiene su papel: aprender es mover el valor un poco hacia lo que acaba de pasar.",
-      "scene": {
-        "formula": {
-          "x": 380,
-          "y": 120,
-          "size": 40,
-          "atoms": [
+      "narrator": "Cada símbolo tiene su papel: aprender es mover el valor un poco hacia lo que acaba de pasar.",
+      "focus": [],
+      "stage": {
+        "scene": {
+          "formula": {
+            "x": 380,
+            "y": 120,
+            "size": 40,
+            "atoms": [
+              {
+                "t": "V",
+                "id": "a0"
+              },
+              {
+                "t": "(s)",
+                "id": "a1"
+              },
+              {
+                "t": " ← ",
+                "id": "a2"
+              },
+              {
+                "t": "V",
+                "id": "a3"
+              },
+              {
+                "t": "(s)",
+                "id": "a4"
+              },
+              {
+                "t": " + ",
+                "id": "a5"
+              },
+              {
+                "t": "α",
+                "id": "a6"
+              },
+              {
+                "t": "[ ",
+                "id": "a7"
+              },
+              {
+                "t": "r",
+                "id": "a8"
+              },
+              {
+                "t": " + ",
+                "id": "a9"
+              },
+              {
+                "t": "γ",
+                "id": "a10"
+              },
+              {
+                "t": "·",
+                "id": "a11"
+              },
+              {
+                "t": "V",
+                "id": "a12"
+              },
+              {
+                "t": "(s′)",
+                "id": "a13"
+              },
+              {
+                "t": " − ",
+                "id": "a14"
+              },
+              {
+                "t": "V",
+                "id": "a15"
+              },
+              {
+                "t": "(s)",
+                "id": "a16"
+              },
+              {
+                "t": " ]",
+                "id": "a17"
+              }
+            ]
+          },
+          "callouts": [
             {
-              "t": "V"
+              "n": 4,
+              "x": 354,
+              "y": 38,
+              "to": [
+                354,
+                66
+              ],
+              "tone": "slate"
             },
             {
-              "t": "(s)"
+              "n": 2,
+              "x": 383,
+              "y": 38,
+              "to": [
+                383,
+                66
+              ],
+              "tone": "amber"
             },
             {
-              "t": " ← "
+              "n": 3,
+              "x": 424,
+              "y": 38,
+              "to": [
+                424,
+                66
+              ],
+              "tone": "green"
             },
             {
-              "t": "V"
+              "n": 1,
+              "x": 463,
+              "y": 38,
+              "to": [
+                463,
+                66
+              ],
+              "tone": "blue"
+            }
+          ],
+          "labels": [
+            {
+              "x": 380,
+              "y": 268,
+              "text": "① V(s′): lo que promete el siguiente estado"
             },
             {
-              "t": "(s)"
+              "x": 380,
+              "y": 300,
+              "text": "② r: lo que acaba de pasar"
             },
             {
-              "t": " + "
+              "x": 380,
+              "y": 332,
+              "text": "③ γ: cuánto vale el futuro frente al presente"
             },
             {
-              "t": "α"
+              "x": 380,
+              "y": 364,
+              "text": "④ α: cuánto del error se aprende"
+            }
+          ],
+          "formulas": [
+            {
+              "x": 380,
+              "y": 96,
+              "size": 26,
+              "atoms": [
+                {
+                  "t": "V"
+                },
+                {
+                  "t": "(s)  ←  "
+                },
+                {
+                  "t": "V"
+                },
+                {
+                  "t": "(s)  +  "
+                },
+                {
+                  "t": "α"
+                },
+                {
+                  "t": "[  "
+                },
+                {
+                  "t": "r"
+                },
+                {
+                  "t": "  +  "
+                },
+                {
+                  "t": "γ"
+                },
+                {
+                  "t": "·"
+                },
+                {
+                  "t": "V"
+                },
+                {
+                  "t": "(s′)"
+                },
+                {
+                  "t": "  −  "
+                },
+                {
+                  "t": "V"
+                },
+                {
+                  "t": "(s)  ]"
+                }
+              ]
             },
             {
-              "t": "[ "
-            },
-            {
-              "t": "r"
-            },
-            {
-              "t": " + "
-            },
-            {
-              "t": "γ"
-            },
-            {
-              "t": "·"
-            },
-            {
-              "t": "V"
-            },
-            {
-              "t": "(s′)"
-            },
-            {
-              "t": " − "
-            },
-            {
-              "t": "V"
-            },
-            {
-              "t": "(s)"
-            },
-            {
-              "t": " ]"
+              "x": 380,
+              "y": 162,
+              "size": 38,
+              "atoms": [
+                {
+                  "t": "5  +  0,1 · [ 10 + 0,9·8 − 5 ]"
+                }
+              ]
             }
           ]
-        },
-        "callouts": [
-          {
-            "n": 4,
-            "x": 354,
-            "y": 34,
-            "to": [
-              354,
-              66
-            ],
-            "tone": "slate"
-          },
-          {
-            "n": 2,
-            "x": 383,
-            "y": 34,
-            "to": [
-              383,
-              66
-            ],
-            "tone": "amber"
-          },
-          {
-            "n": 3,
-            "x": 424,
-            "y": 34,
-            "to": [
-              424,
-              66
-            ],
-            "tone": "green"
-          },
-          {
-            "n": 1,
-            "x": 463,
-            "y": 34,
-            "to": [
-              463,
-              66
-            ],
-            "tone": "blue"
-          }
-        ],
-        "labels": [
-          {
-            "x": 380,
-            "y": 268,
-            "text": "① V(s′): lo que promete el siguiente estado"
-          },
-          {
-            "x": 380,
-            "y": 300,
-            "text": "② r: lo que acaba de pasar"
-          },
-          {
-            "x": 380,
-            "y": 332,
-            "text": "③ γ: cuánto vale el futuro frente al presente"
-          },
-          {
-            "x": 380,
-            "y": 364,
-            "text": "④ α: cuánto del error se aprende"
-          }
-        ],
-        "formulas": [
-          {
-            "x": 380,
-            "y": 96,
-            "size": 26,
-            "atoms": [
-              {
-                "t": "V"
-              },
-              {
-                "t": "(s)  ←  "
-              },
-              {
-                "t": "V"
-              },
-              {
-                "t": "(s)  +  "
-              },
-              {
-                "t": "α"
-              },
-              {
-                "t": "[  "
-              },
-              {
-                "t": "r"
-              },
-              {
-                "t": "  +  "
-              },
-              {
-                "t": "γ"
-              },
-              {
-                "t": "·"
-              },
-              {
-                "t": "V"
-              },
-              {
-                "t": "(s′)"
-              },
-              {
-                "t": "  −  "
-              },
-              {
-                "t": "V"
-              },
-              {
-                "t": "(s)  ]"
-              }
-            ]
-          },
-          {
-            "x": 380,
-            "y": 162,
-            "size": 38,
-            "atoms": [
-              {
-                "t": "5  +  0,1 · [ 10 + 0,9·8 − 5 ]"
-              }
-            ]
-          }
-        ]
+        }
       }
     },
     {
       "title": "Los números",
-      "text": "El estado vale 5, la recompensa fue 10, el siguiente estado promete 8 y el paso es 0,1.",
-      "scene": {
-        "formula": {
-          "x": 380,
-          "y": 120,
-          "size": 40,
-          "atoms": [
+      "narrator": "El estado vale 5, la recompensa fue 10, el siguiente estado promete 8 y el paso es 0,1.",
+      "focus": [
+        "a6",
+        "a9"
+      ],
+      "stage": {
+        "scene": {
+          "formula": {
+            "x": 380,
+            "y": 120,
+            "size": 40,
+            "atoms": [
+              {
+                "t": "V"
+              },
+              {
+                "t": "(s) ← 5 + 0,1 · [ 10 + 0,9 · 8 − 5 ]"
+              }
+            ]
+          },
+          "labels": [
             {
-              "t": "V"
-            },
+              "x": 380,
+              "y": 200,
+              "text": "V(s) = 5 · r = 10 · V(s′) = 8 · γ = 0,9 · α = 0,1"
+            }
+          ],
+          "stats": [
             {
-              "t": "(s) ← 5 + 0,1 · [ 10 + 0,9 · 8 − 5 ]"
+              "x": 380,
+              "y": 280,
+              "value": "8",
+              "label": "lo que promete el estado siguiente",
+              "tone": "green"
             }
           ]
-        },
-        "labels": [
-          {
-            "x": 380,
-            "y": 200,
-            "text": "V(s) = 5 · r = 10 · V(s′) = 8 · γ = 0,9 · α = 0,1"
-          }
-        ],
-        "stats": [
-          {
-            "x": 380,
-            "y": 280,
-            "value": "8",
-            "label": "lo que promete el estado siguiente",
-            "tone": "green"
-          }
-        ]
+        }
       }
     },
     {
       "title": "La cuenta, por dentro",
-      "text": "Primero lo de dentro del corchete: 10 + 7,2 es 17,2. Después 17,2 − 5 es 12,2. Y 0,1 × 12,2 es 1,22.",
-      "scene": {
-        "formula": {
-          "x": 380,
-          "y": 110,
-          "size": 40,
-          "atoms": [
+      "narrator": "Primero lo de dentro del corchete: 10 + 7,2 es 17,2. Después 17,2 − 5 es 12,2. Y 0,1 × 12,2 es 1,22.",
+      "focus": [
+        "a12",
+        "a15"
+      ],
+      "stage": {
+        "scene": {
+          "formula": {
+            "x": 380,
+            "y": 110,
+            "size": 40,
+            "atoms": [
+              {
+                "t": "10 + 0,9·8 − 5"
+              }
+            ]
+          },
+          "labels": [
             {
-              "t": "10 + 0,9·8 − 5"
+              "x": 380,
+              "y": 170,
+              "text": "0,9 × 8 = 7,2"
+            }
+          ],
+          "stats": [
+            {
+              "x": 380,
+              "y": 250,
+              "value": "1,22",
+              "label": "lo que se mueve el valor",
+              "tone": "amber"
             }
           ]
-        },
-        "labels": [
-          {
-            "x": 380,
-            "y": 170,
-            "text": "0,9 × 8 = 7,2"
-          }
-        ],
-        "stats": [
-          {
-            "x": 380,
-            "y": 250,
-            "value": "1,22",
-            "label": "lo que se mueve el valor",
-            "tone": "amber"
-          }
-        ]
+        }
       }
     },
     {
       "title": "El valor nuevo",
-      "text": "El 5 se mueve 1,22 hacia arriba: el estado ahora vale 6,22, no 5.",
-      "scene": {
-        "formula": {
-          "x": 380,
-          "y": 110,
-          "size": 40,
-          "atoms": [
+      "narrator": "El 5 se mueve 1,22 hacia arriba: el estado ahora vale 6,22, no 5.",
+      "focus": [],
+      "stage": {
+        "scene": {
+          "formula": {
+            "x": 380,
+            "y": 110,
+            "size": 40,
+            "atoms": [
+              {
+                "t": "V"
+              },
+              {
+                "t": "(s) ← 5 + 1,22 = "
+              },
+              {
+                "t": "6,22"
+              }
+            ]
+          },
+          "stats": [
             {
-              "t": "V"
-            },
-            {
-              "t": "(s) ← 5 + 1,22 = "
-            },
-            {
-              "t": "6,22"
+              "x": 380,
+              "y": 250,
+              "value": "6,22",
+              "label": "V(s), después de un paso",
+              "tone": "blue"
             }
           ]
-        },
-        "stats": [
-          {
-            "x": 380,
-            "y": 250,
-            "value": "6,22",
-            "label": "V(s), después de un paso",
-            "tone": "blue"
-          }
-        ]
+        }
       }
     }
   ]
 }
-</script>
-</lk-walkthrough>
+</script></lk-story>
 
 Este concepto es esencial.
 

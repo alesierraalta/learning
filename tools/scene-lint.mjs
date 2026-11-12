@@ -23,6 +23,11 @@ const KIT = fileURLToPath(new URL('../integrations/pi/kit', import.meta.url));
 // lee de ninguna manera.
 const MAX_HEAD_RATIO = 0.45;
 const MIN_SHAFT = 24;
+// La punta crece con el trazo, pero tiene tope: 16 unidades de largo y nunca más
+// de 4 veces el grosor. Una punta de 44 unidades en un trazo de 4 se lee como un
+// triángulo suelto que tapa lo que señala, y es lo que el alumno vio (#237).
+const MAX_HEAD = 16;
+const MAX_HEAD_STROKES = 4;
 // Dos trazos se tocan cuando sus centros están a menos de la mitad de cada
 // grosor: 2 de la flecha + 4 de la curva = 3, más medio punto de redondeo.
 const CROSS = 3.5;
@@ -76,7 +81,7 @@ try {
   await page.goto(pathToFileURL(join(dir, 'page.html')).href);
   await page.waitForSelector('lk-scene svg, lk-walkthrough svg, lk-story svg, .lk-p', { timeout: 15000 });
   await page.waitForTimeout(400);
-  const report = await page.evaluate(({ minShaft, maxRatio, cross, loose }) => {
+  const report = await page.evaluate(({ minShaft, maxRatio, cross, loose, maxHead, maxHeadStrokes }) => {
     const out = [];
     // Un paso oculto mide cero: se mide con todos los pasos puestos.
     const hiddenSteps = [...document.querySelectorAll('[data-step]')];
@@ -116,6 +121,55 @@ try {
           arrows.push({ el, step: stepOf(el), from: el.getPointAtLength(0), to: el.getPointAtLength(len) });
         }
         const add = (kind, text, detail) => out.push({ block: i + 1, title, kind, text, detail });
+
+        // 0. la punta de una flecha: crece con el trazo y tiene tope. El largo se
+        // mide en el marcador que el navegador dibujó —`markerWidth` en unidades
+        // del lienzo o del trazo, según `markerUnits`—, no en lo que el autor
+        // prometió, y se compara con el grosor del trazo que la lleva.
+        const headLength = (el) => {
+          const id = (el.getAttribute('marker-end') || '').match(/#([^)]*)/)?.[1];
+          const marker = id ? svg.querySelector(`marker[id="${id}"]`) : null;
+          if (!marker) return null;
+          const stroke = parseFloat(getComputedStyle(el).strokeWidth) || 1;
+          const units = marker.getAttribute('markerUnits') === 'userSpaceOnUse' ? 1 : stroke;
+          return { len: marker.markerWidth.baseVal.value * units, stroke };
+        };
+        for (const el of svg.querySelectorAll('path[marker-end], line[marker-end]')) {
+          if (el.closest('marker')) continue;
+          const head = headLength(el);
+          if (!head) continue;
+          if (head.len > maxHead) add('punta-grande', '', `la punta mide ${head.len.toFixed(0)}u (tope ${maxHead}u): baja el grosor del trazo o la punta`);
+          else if (head.len > maxHeadStrokes * head.stroke) add('punta-grande', '', `la punta mide ${(head.len / head.stroke).toFixed(1)} × el trazo de ${head.stroke}u (tope ${maxHeadStrokes} ×): engorda el trazo o acorta la punta`);
+        }
+
+        // 0b. una etiqueta comprimida no se lee: el navegador la encogió con
+        // `textLength` (glifos aplastados) o no cabe ni al tamaño mínimo. El alumno
+        // la vio como una letra condensada encima de la flecha (#237).
+        for (const t of svg.querySelectorAll('text')) {
+          const what = t.textContent.trim().slice(0, 40);
+          if (t.hasAttribute('textLength') || t.getAttribute('lengthAdjust')) add('etiqueta-comprimida', what, 'el texto se comprime para caber: acórtalo o muévelo al lado del trazo');
+          else if (t.dataset.overflow) add('etiqueta-comprimida', what, 'el texto no cabe en su hueco ni al tamaño mínimo: acórtalo o muévelo al lado del trazo');
+        }
+
+        // 0c. una etiqueta de flecha no puede ser más grande que la letra de la
+        // figura: se lee como un título y tapa la flecha que etiqueta. La
+        // referencia es la letra más pequeña de la figura (sus cajas y sus rótulos
+        // sueltos), que es el tope que aplica el dibujante; si la etiqueta lo pasa,
+        // se escribió más grande que la figura (#237).
+        const sizeOf = (t) => Number(t.getAttribute('font-size')) || 0;
+        const figureLetter = new Map();
+        for (const t of svg.querySelectorAll('[data-box] text, [data-label] text')) {
+          const size = sizeOf(t);
+          if (!size) continue;
+          const step = stepOf(t);
+          figureLetter.set(step, Math.min(figureLetter.get(step) ?? Infinity, size));
+        }
+        for (const t of svg.querySelectorAll('[data-arrow] text')) {
+          const cap = figureLetter.get(stepOf(t));
+          const size = sizeOf(t);
+          if (cap === undefined || !size || size <= cap) continue;
+          add('etiqueta-desproporcionada', t.textContent.trim().slice(0, 40), `se dibuja a ${size} y la letra de la figura a ${cap}: baja la etiqueta al tamaño de la figura`);
+        }
 
         // 1. cajas fuera del lienzo
         for (const { el, b } of rects) {
@@ -268,7 +322,7 @@ try {
           const len = a.getTotalLength();
           if (!len) continue;
           const width = Number(a.getAttribute('stroke-width')) || 2;
-          const head = 8 * width;
+          const head = headLength(a)?.len ?? 8 * width;
           if (len < minShaft) add('flecha-ilegible', '', `${len.toFixed(0)}u de trazo (mínimo ${minShaft})`);
           else if (head / len > maxRatio) add('flecha-corta', '', `punta ${head.toFixed(0)}u en trazo ${len.toFixed(0)}u (${Math.round((head / len) * 100)} %)`);
           for (const t of texts) {
@@ -497,7 +551,7 @@ try {
     });
     hiddenSteps.forEach((g, i) => { g.style.display = wasShown[i]; });
     return out;
-  }, { minShaft: MIN_SHAFT, maxRatio: MAX_HEAD_RATIO, cross: CROSS, loose: LOOSE });
+  }, { minShaft: MIN_SHAFT, maxRatio: MAX_HEAD_RATIO, cross: CROSS, loose: LOOSE, maxHead: MAX_HEAD, maxHeadStrokes: MAX_HEAD_STROKES });
   findings.push(...report);
   // Las piezas visuales (tarjetas, memoria, tablas, conjuntos): una palabra no se
   // monta sobre otra y un conector no atraviesa lo que no es suyo.

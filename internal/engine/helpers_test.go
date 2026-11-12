@@ -593,7 +593,9 @@ func (f *fixture) writeExplanation(t *testing.T, part string, vis bool, marker s
 	body := "---\ntipo: explicacion\nnodo: T." + part + "\nnivel: medio\n---\n# " + part + "\n\n" +
 		"## Ruta\n\nVamos a construirlo en este orden:\n\n1. Qué es el estado.\n2. Qué es la acción.\n3. Cómo se combinan.\n\n" +
 		"## Ejemplo\n\nExplicación de la parte con ejemplos concretos. " + marker + " Caso numérico paso a paso.\n\n" +
-		fixtureWalkthrough + "\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
+		// El recorrido de la parte es la historia (#237): el `<lk-walkthrough>`
+		// clásico ya no cuenta como recorrido en el estándar de producción.
+		fixtureStory + "\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
 	if vis {
 		// The scene draws the example (the standard asks for a drawn scene, and
 		// the walkthrough is not one), and the two embeds are the extra visuals

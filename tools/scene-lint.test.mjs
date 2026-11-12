@@ -338,7 +338,8 @@ test('una flecha entera con la etiqueta al lado no es un hallazgo', { skip: SKIP
 
 // La punta de una flecha no puede tocar una etiqueta: el paso 2 de la gaussiana
 // dejaba «μ−σ» debajo del triángulo del marcador y el lector leía las dos cosas
-// encimadas.
+// encimadas. La etiqueta se pone donde la punta llega: desde #237 la punta mide
+// 3 × el trazo y su vértice cae en el extremo, no 7 unidades más allá.
 test('una punta de flecha sobre un texto es un hallazgo', { skip: SKIP }, () => {
   const file = join(dir, 'punta.md');
   writeFileSync(file, `# Parte 1\n\n<lk-scene>
@@ -347,7 +348,7 @@ test('una punta de flecha sobre un texto es un hallazgo', { skip: SKIP }, () => 
   "paths":[{"d":"M 16 210 L 344 210","tone":"slate","width":2,"arrow":false}],
   "boxes":[{"x":100,"y":300,"w":96,"h":30,"label":"","tone":"slate","size":12}],
   "arrows":[{"x1":148,"y1":300,"x2":148,"y2":210,"tone":"blue","width":2}],
-  "labels":[{"x":128,"y":232,"text":"μ−σ","size":12}]}}
+  "labels":[{"x":148,"y":206,"text":"μ−σ","size":12}]}}
 </script>
 </lk-scene>
 `);
@@ -532,4 +533,138 @@ test('el lint mide con la regla de prosa del lector y no inventa hallazgos en un
   const l = lint(file);
   assert.equal(l.status, 0, l.stdout + l.stderr);
   assert.doesNotMatch(l.stdout, /texto-justificado/);
+});
+
+// ── Classic walkthrough rendering (#237) ─────────────────────────────────────
+// La punta de la flecha crece con el trazo pero tiene tope, y una etiqueta nunca
+// se comprime para caber: el alumno vio un triángulo de 44 unidades sobre un
+// trazo de 80 y «ORA-02291» aplastada en 36 unidades, como una letra condensada.
+const PARTE_SQL = join(TOOLS, '..', 'internal', 'engine', 'testdata', 'sql-parte-1.md');
+
+const flechaScene = (arrow) => `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","title":"una flecha","caption":"La punta señala la caja.","scene":{
+  "boxes":[{"x":20,"y":70,"w":160,"h":60,"label":"origen","size":18},{"x":560,"y":70,"w":160,"h":60,"label":"destino","size":18}],
+  "arrows":${JSON.stringify([arrow])}}}
+</script>
+</lk-scene>
+`;
+
+const flechaNote = (name, arrow) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La flecha\n\nSe dibuja con su punta.\n\n${flechaScene(arrow)}\n`);
+  return file;
+};
+
+// La parte real que el alumno rechazó ya no trae ninguno de los dos defectos: la
+// punta mide 3 × el trazo (12 unidades con un trazo de 4) y ninguna etiqueta se
+// comprime. Antes del arreglo la misma nota daba punta 44 y `textLength` 36.
+test('la parte real de SQL no tiene puntas desproporcionadas ni etiquetas comprimidas', { skip: SKIP }, () => {
+  const r = lint(PARTE_SQL);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /punta-grande/);
+  assert.doesNotMatch(r.stdout, /etiqueta-comprimida/);
+});
+
+// Una punta que no crece con su trazo: un trazo de 1 unidad con una punta de 6 es
+// un triángulo sobre un hilo. El tope es 4 × el grosor.
+test('una punta que no crece con el trazo es un hallazgo', { skip: SKIP }, () => {
+  const file = flechaNote('punta-desproporcionada.md', { x1: 180, y1: 100, x2: 560, y2: 100, label: 'va', tone: 'blue', width: 1, labelSize: 15, labelBeside: true });
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /punta-grande/);
+  assert.match(r.stdout, /tope 4 ×/);
+});
+
+// Una etiqueta que no cabe ni al tamaño mínimo se marca: el lector la ve
+// aplastada o fuera de su caja, y el arreglo es acortarla, no comprimirla.
+test('una etiqueta que no cabe ni al tamaño mínimo es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'etiqueta-comprimida.md');
+  writeFileSync(file, `# Parte 1\n\n## 1. La caja\n\nLa caja lleva su nombre.\n\n<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","title":"una caja estrecha","caption":"La caja lleva su nombre.","scene":{"boxes":[{"x":20,"y":60,"w":90,"h":60,"label":"una etiqueta larguísima que no cabe","size":22}]}}
+</script>
+</lk-scene>\n`);
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /etiqueta-comprimida/);
+  assert.match(r.stdout, /acórtalo o muévelo al lado del trazo/);
+});
+
+// Una etiqueta de flecha no puede ser más grande que la letra de la figura: se lee
+// como un título y tapa la flecha que etiqueta. La parte real que el alumno
+// rechazó dibujaba «ORA-02291» a 22 sobre cajas de 13 y rótulos de 12.
+test('la parte real de SQL no tiene etiquetas de flecha más grandes que su figura', { skip: SKIP }, () => {
+  const r = lint(PARTE_SQL);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /etiqueta-desproporcionada/);
+});
+
+// Una etiqueta de flecha que se dibuja más grande que la letra de la figura es un
+// hallazgo: aquí la caja encoge su rótulo para caber y la etiqueta de la flecha
+// se queda por encima de él.
+test('una etiqueta de flecha más grande que la letra de la figura es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'etiqueta-desproporcionada.md');
+  writeFileSync(file, `# Parte 1
+
+## 1. La flecha
+
+La flecha lleva su palabra.
+
+<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","title":"una flecha con su palabra","caption":"La palabra va al lado del trazo.","scene":{
+  "boxes":[{"x":20,"y":60,"w":90,"h":60,"label":"una etiqueta larguísima que no cabe","size":22},{"x":560,"y":60,"w":160,"h":60,"label":"destino","size":18}],
+  "arrows":[{"x1":112,"y1":90,"x2":560,"y2":90,"label":"va","labelSize":15,"labelBeside":true}]}}
+</script>
+</lk-scene>
+`);
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /etiqueta-desproporcionada/);
+  assert.match(r.stdout, /la letra de la figura a \d+/);
+});
+
+// ── A broken scene payload is a finding, not a silent skip (#237) ────────────
+// La parte real trae un `<lk-scene>` cuyo JSON está roto (la cadena del `caption`
+// quedó sin cerrar). La puerta se rendía al dibujar y el estudio lo leía como un
+// fallo suyo, no como algo que corregir: la escena rota volvía al tutor como
+// «crashed» o no volvía. Ahora es un hallazgo con su nombre.
+const escenaRota = (name, json) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La escena\n\nSe dibuja.\n\n<lk-scene>\n<script type="application/json">\n${json}\n</script>\n</lk-scene>\n`);
+  return file;
+};
+
+test('una escena con el JSON roto es un hallazgo de la gate', { skip: SKIP }, () => {
+  const file = escenaRota('escena-json-roto.md', '{"viewBox":"0 0 760 200","caption":"una cadena sin cerrar\n  "scene": {"boxes":[{"x":20,"y":20,"w":100,"h":40,"label":"a"}]}}');
+  const g = gate(file);
+  assert.equal(g.status, 1, g.stdout + g.stderr);
+  assert.match(g.stdout, /^ {2}escena-ilegible: /m);
+  assert.match(g.stdout, /no es JSON/);
+});
+
+test('una escena sin payload es un hallazgo de la gate', { skip: SKIP }, () => {
+  const file = join(dir, 'escena-sin-payload.md');
+  writeFileSync(file, `# Parte 1\n\n## 1. La escena\n\nSe dibuja.\n\n<lk-scene title="sin payload"></lk-scene>\n`);
+  const g = gate(file);
+  assert.equal(g.status, 1, g.stdout + g.stderr);
+  assert.match(g.stdout, /^ {2}escena-ilegible: /m);
+});
+
+test('la parte real de SQL dice que su escena no se puede leer', { skip: SKIP }, () => {
+  const g = gate(PARTE_SQL);
+  assert.equal(g.status, 1, g.stdout + g.stderr);
+  assert.match(g.stdout, /^ {2}escena-ilegible: /m);
+});
+
+// El estudio lee los hallazgos de la gate con esta forma (`  <kind>: <texto>`): si
+// la línea no la cumple, la escena rota no vuelve al tutor.
+test('el estudio lee la escena rota como un hallazgo, no como un fallo suyo', { skip: SKIP }, async () => {
+  const { findingsOf } = await import('../studio/checks.ts');
+  const file = escenaRota('escena-para-el-estudio.md', '{"viewBox":"0 0 760 200","caption":"roto');
+  const g = gate(file);
+  assert.equal(g.status, 1, g.stdout + g.stderr);
+  const findings = findingsOf('scene-gate.mjs', g.stdout);
+  assert.ok(findings.some((f) => f.startsWith('escena-ilegible:')), `el estudio no lee el hallazgo: ${JSON.stringify(findings)}`);
 });

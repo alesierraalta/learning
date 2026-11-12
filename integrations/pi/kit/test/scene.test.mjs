@@ -84,31 +84,38 @@ test('un rótulo no se dibuja encima de la caja ni de la punta de su flecha', { 
     viewBox: '0 0 760 200', title: 'prueba',
     scene: {
       boxes: [BOX_A, BOX_B],
-      // Flecha corta con un rótulo largo: el caso que el ajuste por ancho de
-      // escenario daba por bueno y dibujaba sobre la caja y sobre la punta.
+      // Flecha corta con un rótulo largo: no cabe entre las cajas a un tamaño
+      // legible, así que sube por encima de ellas en vez de encogerse (#237).
       arrows: [{ x1: 212, y1: 108, x2: 340, y2: 108, label: 'recompensa +10 y estado nuevo', tone: 'green', labelSize: 15, width: 3 }],
     },
   };
   const [shot] = await measure(page({ s: spec }), ['s']);
   const tip = 340;
-  const headBack = 10 * 11 / 12 * 3;
-  const sourceRight = BOX_A.x + BOX_A.w;
+  // La punta mide 3 × el trazo y su vértice cae en el extremo del trazo.
+  const headBack = 3 * 3;
   const label = shot.texts.find((t) => t.content.startsWith('recompensa'));
   assert.ok(label, 'la escena perdió su rótulo');
-  assert.ok(label.x >= sourceRight + 1, `el rótulo entra en la caja: empieza en ${label.x.toFixed(1)}, la caja acaba en ${sourceRight}`);
-  assert.ok(label.x + label.w <= tip - headBack, `el rótulo tapa la punta de la flecha: acaba en ${(label.x + label.w).toFixed(1)}, la cabeza empieza en ${(tip - headBack).toFixed(1)}`);
+  // Ni dentro de una caja ni sobre la punta: las dos cosas se miden contra el
+  // rectángulo que el lector ve, no contra una coordenada del eje.
+  const box = (b) => ({ x: b.x, y: b.y, w: b.w, h: b.h });
+  const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const area = { x: label.x, y: label.y, w: label.w, h: label.h };
+  for (const b of [BOX_A, BOX_B]) {
+    assert.equal(overlaps(area, box(b)), false, `el rótulo se dibuja encima de la caja ${b.label}: ${JSON.stringify(area)}`);
+  }
+  const head = { x: tip - headBack, y: 108 - headBack / 2, w: headBack, h: headBack };
+  assert.equal(overlaps(area, head), false, `el rótulo tapa la punta de la flecha: ${JSON.stringify(area)}`);
 });
 
 test('ningún texto de una escena se dibuja por debajo de 11 px', { skip: SKIP }, async () => {
   const spec = {
-    viewBox: '0 0 760 200', title: 'prueba',
+    // Un lienzo estrecho con un rótulo que no cabe ni al ancho del escenario: el
+    // ajuste llega al suelo de 11 px, no comprime los glifos y marca la escena
+    // como desbordada para que la puerta lo corrija (#237).
+    viewBox: '0 0 360 200', title: 'prueba',
     scene: {
-      boxes: [{ ...BOX_A, label: 'WWWWWWWW' }, { ...BOX_B, label: 'WWWWWWWW' }],
-      // Glifos anchos: el ajuste de texto llegaba al suelo del 55 % del tamaño
-      // declarado y dejaba la etiqueta a 7 px sin decírselo a nadie. La etiqueta
-      // va al lado del trazo entero, así que tiene que ser larga para no caber ni
-      // en el tramo libre de la flecha.
-      arrows: [{ x1: 208, y1: 108, x2: 552, y2: 108, label: 'WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW', tone: 'ink', labelSize: 15, width: 3 }],
+      boxes: [{ ...BOX_A, x: 8, w: 120, label: 'WWWWWWWW' }, { ...BOX_B, x: 232, w: 120, label: 'WWWWWWWW' }],
+      arrows: [{ x1: 128, y1: 108, x2: 232, y2: 108, label: 'WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW', tone: 'ink', labelSize: 15, width: 3 }],
     },
   };
   const [shot] = await measure(page({ s: spec }), ['s']);
