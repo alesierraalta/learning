@@ -9,6 +9,9 @@
   }
   const base = CONFIG.base;
   const EXAM_FORMAT_LABEL = { oral: "oral", written: "escrito", practical: "práctico" };
+  const MAX_LEARNING_SOURCE_CHARS = 200_000;
+  const LEARNING_SOURCE_COUNT_THRESHOLD = 20_000;
+  const LEARNING_SOURCE_TOO_LONG = "El texto es demasiado largo: como mucho 200000 caracteres.";
 
   // The three ways to read a part. The article layout is the default; the
   // choice is kept on the device, like the document's own wide-reading key.
@@ -741,15 +744,33 @@
    * tutor asks it. The mode travels in the prompt; sending without one is impossible from here.
    */
   function newLearningEntry() {
-    const input = h("input", { type: "text", name: "topic", "aria-label": "¿Qué quieres aprender?", placeholder: "Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…", autocomplete: "off" });
+    const input = h("textarea", { name: "topic", rows: "1", "aria-label": "¿Qué quieres aprender?", placeholder: "Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…", autocomplete: "off" });
+    const sourceCount = h("span", { class: "learning-source-count", hidden: true });
+    const sourceError = h("span", { class: "learning-source-error", hidden: true });
+    const sourceHelp = h("p", { class: "learning-source-help", role: "status", "aria-live": "polite", hidden: true }, sourceCount, sourceError);
     let modo = "";
     const pick = (id) => {
       modo = id;
       for (const b of picks) b.setAttribute("aria-pressed", String(b.dataset.modo === id));
       refresh();
     };
+    const resizeInput = () => {
+      input.style.height = "auto";
+      const height = input.scrollHeight;
+      input.style.height = `${Math.min(height, 240)}px`;
+      input.style.overflowY = height > 240 ? "auto" : "hidden";
+    };
     const refresh = () => {
-      submit.disabled = !modo || !input.value.trim();
+      const text = input.value;
+      const tooLong = text.length > MAX_LEARNING_SOURCE_CHARS;
+      submit.disabled = !modo || !text.trim() || tooLong;
+      sourceCount.hidden = text.length <= LEARNING_SOURCE_COUNT_THRESHOLD;
+      sourceCount.textContent = `${text.length} / ${MAX_LEARNING_SOURCE_CHARS} caracteres`;
+      sourceError.hidden = !tooLong;
+      sourceError.textContent = tooLong ? LEARNING_SOURCE_TOO_LONG : "";
+      sourceHelp.hidden = sourceCount.hidden && sourceError.hidden;
+      submit.title = tooLong ? LEARNING_SOURCE_TOO_LONG : "";
+      resizeInput();
     };
     const picks = [
       ["universitario", "Universitario", "plan, diagnóstico y partes con quiz"],
@@ -761,8 +782,8 @@
     const submit = h("button", { class: "btn primary", type: "submit", disabled: true }, icon("spark"), "Empezar");
     const send = async () => {
       const text = input.value.trim();
-      // No mode, no send: the disabled button is the affordance, this is the rule.
-      if (!text || !modo) return input.focus();
+      // The source bound is checked again here so Enter cannot bypass the disabled button.
+      if (!text || !modo || text.length > MAX_LEARNING_SOURCE_CHARS) return input.focus();
       openDrawer();
       try {
         await post("api/aprender", { text, modo });
@@ -775,12 +796,19 @@
       for (const b of picks) b.setAttribute("aria-pressed", "false");
       refresh();
     };
+    const form = h("form", { class: "ask-big", onsubmit: (event) => { event.preventDefault(); send(); } }, input, submit);
     input.addEventListener("input", refresh);
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      form.requestSubmit();
+    });
     return h(
       "section",
       { class: "new-learning", "aria-label": "Aprender algo nuevo" },
       h("p", { class: "learn-hint" }, "Elige rápido, universitario o examen: el tutor no te lo pregunta."),
-      h("form", { class: "ask-big", onsubmit: (event) => { event.preventDefault(); send(); } }, input, submit),
+      form,
+      sourceHelp,
       h("div", { class: "mode-picks", role: "group", "aria-label": "Modo de estudio" }, picks),
     );
   }
@@ -905,7 +933,7 @@
     window.StudioTutorial?.open({
       onStart: () => {
         go("#/");
-        setTimeout(() => document.querySelector(".ask-big input")?.focus(), 80);
+        setTimeout(() => document.querySelector(".ask-big textarea")?.focus(), 80);
       },
     });
   }

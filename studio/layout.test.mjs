@@ -141,7 +141,7 @@ test("home artboard heading cards form and tutorial stay compact and usable", { 
     const actual = await page.evaluate(() => {
       const get = (s) => document.querySelector(s);
       const rect = (el) => el.getBoundingClientRect();
-      const input = rect(get(".ask-big input")), button = rect(get(".ask-big button"));
+      const input = rect(get(".ask-big textarea")), button = rect(get(".ask-big button"));
       return {
         headingBreak: !!get(".hero h1 br"),
         titleStyles: [getComputedStyle(get(".hero .continue h3")).fontStyle, getComputedStyle(get(".topic-card h3")).fontStyle],
@@ -181,7 +181,7 @@ test("home offers quick, university, and exam modes and sends the selected exam 
     { id: "rapido", title: "Rápido", description: "una nota breve para entenderlo hoy" },
     { id: "examen", title: "Examen", description: "lo vital del temario, el formato de tu examen (oral, escrito o práctico) y un simulacro final" },
   ]);
-  const field = entry.locator(".ask-big input");
+  const field = entry.locator(".ask-big textarea");
   const submit = entry.locator('button[type="submit"]');
   await field.fill("redes neuronales");
   const exam = entry.locator('.mode-pick[data-modo="examen"]');
@@ -194,6 +194,60 @@ test("home offers quick, university, and exam modes and sends the selected exam 
   await page.waitForFunction(() => document.querySelector('.mode-pick[data-modo="examen"]')?.getAttribute("aria-pressed") === "false");
   assert.equal(await field.inputValue(), "", "a sent request clears the text as before");
   assert.equal(await submit.isDisabled(), true, "the next request still needs a mode");
+});
+
+test("the learning entry preserves pasted lines, grows, and sends with Enter", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+
+  const entry = page.locator(".home-page .new-learning");
+  const field = entry.locator(".ask-big textarea");
+  assert.equal(await field.count(), 1, "the learning entry is a multiline textarea");
+  const initialHeight = await field.evaluate((area) => area.getBoundingClientRect().height);
+  await field.fill(Array.from({ length: 35 }, (_, index) => `Unidad ${index + 1}`).join("\n"));
+  const grown = await field.evaluate((area) => ({ height: area.getBoundingClientRect().height, overflowY: getComputedStyle(area).overflowY }));
+  assert.ok(grown.height > initialHeight && grown.height <= 240, `textarea grows to ${grown.height}px, capped at 240px`);
+  assert.equal(grown.overflowY, "auto", "additional pasted lines scroll inside the field");
+
+  await field.fill("Unidad uno");
+  await field.press("Shift+Enter");
+  await field.type("Unidad dos");
+  assert.equal(await field.inputValue(), "Unidad uno\nUnidad dos", "Shift+Enter inserts a line break");
+  await entry.locator('.mode-pick[data-modo="examen"]').click();
+  await field.press("Enter");
+  const prompts = await sentPrompts(log);
+  assert.ok(prompts.some((message) => message.includes("Quiero aprender Unidad uno\nUnidad dos.\n\n[Modo de estudio: examen")), "Enter submits the source with its newline");
+});
+
+test("the learning entry explains and blocks an over-limit source before sending", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+
+  const entry = page.locator(".home-page .new-learning");
+  const field = entry.locator(".ask-big textarea");
+  assert.equal(await field.count(), 1, "the learning entry is a multiline textarea");
+  const requests = [];
+  page.on("request", (request) => { if (request.url().includes("/api/aprender")) requests.push(request.url()); });
+  await field.fill("x".repeat(200001));
+  await entry.locator('.mode-pick[data-modo="examen"]').click();
+  assert.equal(await entry.locator('button[type="submit"]').isDisabled(), true, "Empezar is disabled above the source limit");
+  assert.equal(await entry.locator(".learning-source-count").innerText(), "200001 / 200000 caracteres");
+  assert.equal(await entry.locator(".learning-source-error").innerText(), "El texto es demasiado largo: como mucho 200000 caracteres.");
+  await field.press("Enter");
+  await page.waitForTimeout(100);
+  assert.equal(requests.length, 0, "the page sends no request for an over-limit source");
 });
 
 test("exam topics expose their format and use the exam tag in both topic views", { skip: browser ? false : "playwright not installed" }, async (t) => {
@@ -482,7 +536,7 @@ test("«Aprender algo nuevo» asks for the mode before it sends", { skip: browse
   await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
   const entry = page.locator(".home-page .new-learning");
   await entry.waitFor();
-  const field = entry.locator(".ask-big input");
+  const field = entry.locator(".ask-big textarea");
   const submit = entry.locator('button[type="submit"]');
   assert.equal(await submit.isDisabled(), true, "no mode, no send");
   assert.doesNotMatch(await page.locator(".home-page").innerText(), /El tutor te pregunta cuál prefieres/i, "the home no longer claims the tutor asks the mode");
@@ -1006,10 +1060,10 @@ test("the home ask field and section headings fit a phone", { skip: browser ? fa
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
 
   await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
-  await page.waitForSelector(".ask-big input");
+  await page.waitForSelector(".ask-big textarea");
   const seen = await page.evaluate(() => {
     const form = document.querySelector(".ask-big");
-    const input = form.querySelector("input");
+    const input = form.querySelector("textarea");
     const lines = (node) => { const r = document.createRange(); r.selectNodeContents(node); return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size; };
     return {
       inputShare: input.getBoundingClientRect().width / form.clientWidth,

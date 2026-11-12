@@ -141,9 +141,9 @@ h3 { font-weight: 700; }
 .hero h1 { font-size: clamp(2.8rem, 5vw, 4.2rem); line-height: 1.04; }
 .hero h1 em { font-style: italic; color: var(--blue); }
 .hero .lede { font-size: 1.2rem; color: var(--slate); max-width: 32em; margin: 18px 0 0; }
-.ask-big { margin-top: 30px; display: flex; gap: 10px; padding: 8px; background: var(--paper); border: 2px solid var(--ink); border-radius: 8px; }
+.ask-big { margin-top: 30px; display: flex; align-items: center; gap: 10px; padding: 8px; background: var(--paper); border: 2px solid var(--ink); border-radius: 8px; }
 .ask-big:focus-within { border-color: var(--blue); box-shadow: 0 0 0 4px var(--blue-s); }
-.ask-big input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 10px 12px; font-size: 1.15rem; background: transparent; }
+.ask-big textarea { box-sizing: border-box; flex: 1; min-width: 0; width: 100%; min-height: 44px; max-height: 240px; resize: none; overflow-y: hidden; border: 0; outline: 0; padding: 10px 12px; font-size: 1.15rem; line-height: 1.4; background: transparent; }
 .modes { display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
 .mode { flex: 1 1 220px; font-size: .98rem; color: var(--slate); padding: 10px 14px; border: 2px solid var(--line); border-radius: 6px; }
 .mode b { color: var(--ink); }
@@ -155,6 +155,10 @@ h3 { font-weight: 700; }
 /* «Aprender algo nuevo»: the mode is the page's question, asked before the turn exists */
 .new-learning { margin-top: 14px; }
 .new-learning .learn-hint { margin: 0 0 8px; font-size: .95rem; color: var(--slate); }
+.learning-source-help { margin: 6px 0 0; font: 13px/1.45 var(--sans); color: var(--muted); }
+.learning-source-help[hidden], .learning-source-help [hidden] { display: none; }
+.learning-source-count, .learning-source-error { display: block; }
+.learning-source-error { color: var(--red); font-weight: 600; }
 .mode-picks { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .mode-pick { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left; padding: 10px 14px; border: 2px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--slate); cursor: pointer; font: inherit; font-size: .95rem; }
 .mode-pick b { color: var(--ink); font-size: 1rem; }
@@ -606,7 +610,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   /* The title keeps its line; its note goes under it. */
   .section-title:not(.has-action) { flex-direction: column; align-items: flex-start; gap: 2px; }
   /* The ask field gets the full width; its button goes under it. */
-  .ask-big { flex-direction: column; }
+  .ask-big { flex-direction: column; align-items: stretch; }
   .ask-big .btn { justify-content: center; }
 }
 
@@ -819,7 +823,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .home-page .eyebrow, .home-page .continue .label { font: 11px/1.5 var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
 .home-page .hero .lede { font-size: 20px; line-height: 1.6; color: var(--ink); }
 .home-page .ask-big { border: 1px solid var(--ink); border-radius: 0; padding: 5px; gap: 0; }
-.home-page .ask-big input { font: 14px var(--sans); }
+.home-page .ask-big textarea { font: 14px var(--sans); }
 .home-page .modes { gap: 28px; }
 .home-page .mode { flex: 1 1 200px; padding: 0; border: 0; background: transparent; color: var(--muted); font: 13px/1.5 var(--sans); }
 .home-page .mode b { color: var(--ink); }
