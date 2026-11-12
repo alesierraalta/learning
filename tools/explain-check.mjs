@@ -50,7 +50,9 @@ add('secciones', secciones.length <= 2, `${secciones.length} sección(es) de con
 // necesita leer el JSON, y el rechazo del motor nombra el arreglo («dibuja el
 // ejemplo con <lk-scene>»). Aquí se cuenta la presencia y el tope.
 const escenas = (src.match(/<lk-scene[\s>]/g) || []).length;
-const recorridos = (src.match(/<lk-walkthrough[\s>]/g) || []).length;
+// Un recorrido de fórmula o de ejercicio (`<lk-story>`) es un recorrido más: la
+// parte debe uno, y el motor los cuenta igual (`walkthroughOpen` + `storyOpen`).
+const recorridos = (src.match(/<lk-(?:walkthrough|story)[\s>]/g) || []).length;
 add('escena', escenas <= 1, `${escenas} escena(s)`);
 add('recorrido', recorridos <= 1, `${recorridos} recorrido(s)`);
 
@@ -66,7 +68,7 @@ add('ascii', ascii.length === 0, ascii.length ? `${ascii.length} línea(s) dibuj
 // pide una idea por frase; una frase de 40 palabras no se lee, se atraviesa.
 const lineasProsa = src
   .replace(/```[\s\S]*?```/g, '\n\n')
-  .replace(/<lk-(scene|walkthrough|quiz|quick-quiz)[\s\S]*?<\/lk-\1>/g, '\n\n')
+  .replace(/<lk-(scene|walkthrough|story|quiz|quick-quiz)[\s\S]*?<\/lk-\1>/g, '\n\n')
   .split('\n')
   // Títulos, tablas y etiquetas no son prosa; las citas y las viñetas sí: una ficha
   // con tres frases dentro de `>` es un muro igual que un párrafo suelto.
@@ -104,7 +106,7 @@ add('parrafos', muros.length === 0, `${muros.length} párrafo(s) con más de dos
 // 7. Tamaño: la prosa que se lee, sin código, tablas ni figuras.
 const prosa = src
   .replace(/```[\s\S]*?```/g, ' ')
-  .replace(/<lk-(scene|walkthrough)[\s\S]*?<\/lk-\1>/g, ' ')
+  .replace(/<lk-(scene|walkthrough|story)[\s\S]*?<\/lk-\1>/g, ' ')
   .replace(/^\|.*\|$/gm, ' ')
   .replace(/^#{1,6}\s.*$/gm, ' ')
   .replace(/<[^>]+>/g, ' ')
@@ -188,6 +190,46 @@ const sinFormula = formulas.length === 0 && dibujadas.length === 0 && planas.len
 const arreglo = `dibuja la fórmula como escena anotada: un callout numerado por símbolo, con su nombre en su línea de labels («① ${sinNombrar[0]}: …»)`;
 const cuenta = planas.length ? '; <lk-math> es para una cuenta, nunca para explicar una fórmula' : '';
 add('leyenda', sinNombrar.length === 0, sinFormula ? 'sin fórmulas' : sinNombrar.length ? `símbolo(s) sin nombrar: ${sinNombrar.join(', ')} · ${arreglo}${cuenta}` : '');
+
+// 7c. La primera fórmula de la parte se enseña con un recorrido de fórmula: paso
+// 1 la fórmula entera, un paso por símbolo con qué es, para qué se usa y cuánto
+// vale en el ejemplo, y el último con los números sustituidos y su resultado. Un
+// `<lk-math>` suelto o una escena quieta no sustituyen al recorrido. El motor
+// aplica la misma regla (`formulaWalkthrough` en `internal/engine/standard.go`)
+// y un test cruza los dos veredictos.
+const nodeHasFormula = (node) => Boolean(node) && (
+  (Array.isArray(node.formulas) && node.formulas.some((f) => (f?.atoms || []).length > 0)) ||
+  (node.formula && (node.formula.atoms || []).length > 0));
+const stepHasFormula = (step) => nodeHasFormula(step?.scene) || nodeHasFormula(step?.stage?.scene) ||
+  (step?.equation?.atoms || []).length > 0 || (step?.header?.atoms || []).length > 0;
+const primeraFormula = (() => {
+  const plain = src.replace(/```[\s\S]*?```/g, ' ');
+  const spots = [];
+  for (const m of plain.matchAll(/<lk-math[^>]*>[\s\S]*?<\/lk-math>/g)) spots.push(m.index);
+  for (const m of plain.matchAll(/\$\$[\s\S]+?\$\$/g)) spots.push(m.index);
+  const rest = plain.replace(/\$\$[\s\S]+?\$\$/g, ' ');
+  for (const m of rest.matchAll(/\$([^$\n]+?)\$/g)) {
+    const body = m[1];
+    if (!/[\\^_=]/.test(body) && /\s/.test(body)) continue;
+    spots.push(m.index);
+  }
+  const ranges = [];
+  for (const m of plain.matchAll(/<lk-(scene|walkthrough|story)[^>]*>[\s\S]*?<\/lk-\1>/g)) {
+    const payload = m[0].match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+    if (!payload) continue;
+    let spec;
+    try { spec = JSON.parse(payload[1]); } catch { continue; }
+    const has = nodeHasFormula(spec.scene) || (spec.formula?.atoms || []).length > 0 || (spec.steps || []).some(stepHasFormula);
+    if (!has) continue;
+    spots.push(m.index);
+    if (spec.kind === 'formula' || spec.kind === 'derivation') ranges.push([m.index, m.index + m[0].length]);
+  }
+  if (!spots.length) return null;
+  spots.sort((a, b) => a - b);
+  const first = spots[0];
+  return ranges.some(([a, b]) => first >= a && first < b) ? null : first;
+})();
+add('formula-walkthrough', primeraFormula === null, primeraFormula === null ? '' : 'la primera fórmula no tiene recorrido de fórmula · dibújala con <lk-story kind="formula">: paso 1 la fórmula entera, un paso por símbolo con qué es, para qué se usa y cuánto vale en el ejemplo, y el último con los números sustituidos y su resultado');
 
 // 8. Las figuras conviven: se delega en scene-lint, que abre un navegador.
 let figuras = { ok: true, detail: 'sin figuras' };

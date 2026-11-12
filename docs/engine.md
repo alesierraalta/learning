@@ -486,7 +486,8 @@ tutor correct the part before the learner reads it. The numbers live in
 ```json
 {"maxProseWords": 450, "maxContentSections": 2, "minRutaLines": 3,
  "maxRutaLines": 4, "maxScenes": 1, "maxWalkthroughs": 1,
- "minScenes": 1, "maxSentencesPerParagraph": 2, "formulaElement": "lk-math"}
+ "minScenes": 1, "maxSentencesPerParagraph": 2, "formulaElement": "lk-math",
+ "formulaWalkthrough": true}
 ```
 
 The block also turns on the standard's non-numeric rules, and the check is
@@ -494,9 +495,9 @@ rejected unless the block is declared (fail-closed, like the pareto and demo
 checks). What it measures, and how:
 
 - **Prose budget.** `maxProseWords` counts the words a part asks the reader to
-  read, exactly as `tools/part-lint.mjs` counts them: fenced blocks, `<lk-scene>`
-  and `<lk-walkthrough>` blocks, table rows, headings and loose HTML tags are
-  removed first, so a visual never spends the prose budget. The engine and the
+  read, exactly as `tools/part-lint.mjs` counts them: fenced blocks, `<lk-scene>`,
+  `<lk-walkthrough>` and `<lk-story>` blocks, table rows, headings and loose HTML
+  tags are removed first, so a visual never spends the prose budget. The engine and the
   tool must agree — the tutor runs the tool and must get the same number the
   engine reports (a test cross-checks both counts).
 - **Content sections.** Level-2 headings except `## Ruta` and the mini-quiz
@@ -506,8 +507,9 @@ checks). What it measures, and how:
 - **Route.** A `## Ruta` section with `minRutaLines`..`maxRutaLines` numbered
   lines; a missing route and a five-line route both fail.
 - **One scene, one walkthrough.** More than `maxScenes` `<lk-scene>` or more
-  than `maxWalkthroughs` `<lk-walkthrough>` blocks outside fenced code fails:
-  a second change is a step of the same deck or belongs to another part.
+  than `maxWalkthroughs` walkthrough blocks (`<lk-walkthrough>` and the formula
+  or derivation `<lk-story>`) outside fenced code fails: a second change is a
+  step of the same deck or belongs to another part.
 - **A drawn scene.** `minScenes` `<lk-scene>` blocks have to draw: the payload
   parses, carries a `scene` object and at least one entry the kit renders
   (`boxes`, `arrows`, `nodes`, `bars`, …), the same presence test the visual
@@ -550,6 +552,17 @@ checks). What it measures, and how:
   named in its labels line — and, when the part writes the plain form, that
   `formulaElement` (`<lk-math>`) is for a calculation and never for explaining a
   formula. With its legend, plain math passes: the rule is the legend.
+- **Formula walkthrough.** `formulaWalkthrough` turns on the formula rule: the
+  first formula of the part, in reading order among the `<lk-math>` blocks, the
+  plain LaTeX and the formulas a scene or a deck draws, has to be taught by a
+  formula walkthrough (`<lk-story kind="formula">`), not by a bare equation or
+  a still scene. The refusal names the fix: «the first formula in the part is
+  not taught by a formula walkthrough — draw it as `<lk-story
+  kind="formula">`: step 1 the whole formula, then one step per symbol with what
+  it is, what it is used for and its value in the example, and the last step
+  with the example's numbers substituted and its result». The tutor's tool
+  mirrors the rule as `formula-walkthrough`, and a test cross-checks both
+  verdicts.
 - **No closing summary.** A heading `Resumen para guardar`, `Apuntes
   comprimidos` or `En resumen` fails: the part ends on its last content
   section.
@@ -592,10 +605,11 @@ only the engine reads the payload. The mini-quiz question count stays where it
 already was, `thresholds.quiz.questionCount` bound to the note by
 `quiz-questions`.
 
-`minScenes`, `maxSentencesPerParagraph` and `formulaElement` are additive keys
-of the same block: a snapshot that declares the standard without them keeps the
-rules it had, so a run enrolled when the standard arrived (#185) is not measured
-against the shape rules it never declared.
+`minScenes`, `maxSentencesPerParagraph`, `formulaElement` and
+`formulaWalkthrough` are additive keys of the same block: a snapshot that
+declares the standard without them keeps the rules it had, so a run enrolled
+when the standard arrived (#185) is not measured against the shape rules it
+never declared.
 
 New runs carry the standard because `rules/deep.json` declares it. A run
 initialised before this rule keeps its frozen `.learning/rules.json`, which has

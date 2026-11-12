@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"learning/internal/rules"
@@ -35,6 +36,9 @@ var (
 	// walkthrough are looked at, not read.
 	proseScene       = regexp.MustCompile(`(?s)<lk-scene.*?</lk-scene>`)
 	proseWalkthrough = regexp.MustCompile(`(?s)<lk-walkthrough.*?</lk-walkthrough>`)
+	// proseStory removes the formula and derivation walkthroughs: their JSON is
+	// looked at, not read, exactly like a scene or a scene deck.
+	proseStory = regexp.MustCompile(`(?s)<lk-story.*?</lk-story>`)
 	// proseTableLine removes a markdown table row.
 	proseTableLine = regexp.MustCompile(`(?m)^\|.*\|$`)
 	// proseHeading removes a heading line.
@@ -55,12 +59,18 @@ var (
 
 	sceneOpen       = regexp.MustCompile(`<lk-scene[\s>]`)
 	walkthroughOpen = regexp.MustCompile(`<lk-walkthrough[\s>]`)
+	// storyOpen is the formula/derivation walkthrough: the same step deck with a
+	// header, a stage and a narrator. It counts as a walkthrough for the part's
+	// one-deck rule, and its `kind` decides whether it teaches a formula.
+	storyOpen = regexp.MustCompile(`<lk-story[\s>]`)
 	// sceneBlock is a closed scene: the standard asks whether its payload draws,
 	// so it reads the whole block and not only its opening tag.
 	sceneBlock = regexp.MustCompile(`(?s)<lk-scene[\s>].*?</lk-scene>`)
 	// walkthroughBlock is a closed walkthrough: its steps carry the scenes, and a
 	// scene's formula is a formula the reader has to be able to read.
 	walkthroughBlock = regexp.MustCompile(`(?s)<lk-walkthrough[\s>].*?</lk-walkthrough>`)
+	// storyBlock is a closed formula/derivation walkthrough.
+	storyBlock = regexp.MustCompile(`(?s)<lk-story[\s>].*?</lk-story>`)
 
 	// proseVisualBlocks are the closed visual blocks the rhythm rule removes:
 	// a scene, a walkthrough or a quiz is looked at, not read. The tool names
@@ -69,6 +79,7 @@ var (
 	proseVisualBlocks = []*regexp.Regexp{
 		regexp.MustCompile(`(?s)<lk-scene[\s\S]*?</lk-scene>`),
 		regexp.MustCompile(`(?s)<lk-walkthrough[\s\S]*?</lk-walkthrough>`),
+		regexp.MustCompile(`(?s)<lk-story[\s\S]*?</lk-story>`),
 		regexp.MustCompile(`(?s)<lk-quiz[\s\S]*?</lk-quiz>`),
 		regexp.MustCompile(`(?s)<lk-quick-quiz[\s\S]*?</lk-quick-quiz>`),
 	}
@@ -143,6 +154,7 @@ func proseWords(text string) int {
 	out = proseFence.ReplaceAllString(out, " ")
 	out = proseScene.ReplaceAllString(out, " ")
 	out = proseWalkthrough.ReplaceAllString(out, " ")
+	out = proseStory.ReplaceAllString(out, " ")
 	out = proseTableLine.ReplaceAllString(out, " ")
 	out = proseHeading.ReplaceAllString(out, " ")
 	out = proseTag.ReplaceAllString(out, " ")
@@ -341,14 +353,32 @@ func formulaSymbols(text string) []string {
 
 // sceneFormulaDoc is the part of a scene payload the legend reads: the formulas
 // a scene draws, one atom per symbol. A walkthrough carries one scene per step,
-// so the steps are read like the scene of a still figure.
+// so the steps are read like the scene of a still figure. A formula walkthrough
+// (`<lk-story kind="formula">`) carries the formula in its header and the
+// equation in each step, so those atoms are read too.
 type sceneFormulaDoc struct {
-	Scene *sceneFormulaNode  `json:"scene"`
-	Steps []sceneFormulaStep `json:"steps"`
+	Scene   *sceneFormulaNode  `json:"scene"`
+	Formula *sceneFormulaAtoms `json:"formula"`
+	Steps   []sceneFormulaStep `json:"steps"`
 }
 
 type sceneFormulaStep struct {
+	Scene    *sceneFormulaNode  `json:"scene"`
+	Stage    *storyStage        `json:"stage"`
+	Equation *sceneFormulaAtoms `json:"equation"`
+	Header   *sceneFormulaAtoms `json:"header"`
+}
+
+// storyStage is the stage a story step draws: the scene vocabulary under it.
+type storyStage struct {
 	Scene *sceneFormulaNode `json:"scene"`
+}
+
+// storyDoc is the payload of a formula or derivation walkthrough.
+type storyDoc struct {
+	Kind    string             `json:"kind"`
+	Formula *sceneFormulaAtoms `json:"formula"`
+	Steps   []sceneFormulaStep `json:"steps"`
 }
 
 type sceneFormulaNode struct {
@@ -372,6 +402,21 @@ func (n *sceneFormulaNode) collect(bodies *[]string) {
 	}
 	if n.Formula != nil {
 		*bodies = append(*bodies, n.Formula.body())
+	}
+}
+
+// collectStep appends the formulas a step carries: the scene it draws, its
+// stage, and the equation or header of a formula walkthrough.
+func (s sceneFormulaStep) collectStep(bodies *[]string) {
+	s.Scene.collect(bodies)
+	if s.Stage != nil {
+		s.Stage.Scene.collect(bodies)
+	}
+	if s.Equation != nil {
+		*bodies = append(*bodies, s.Equation.body())
+	}
+	if s.Header != nil {
+		*bodies = append(*bodies, s.Header.body())
 	}
 }
 
@@ -400,11 +445,76 @@ func sceneFormulaBodies(text string) []string {
 			continue
 		}
 		doc.Scene.collect(&bodies)
+		if doc.Formula != nil {
+			bodies = append(bodies, doc.Formula.body())
+		}
 		for _, step := range doc.Steps {
-			step.Scene.collect(&bodies)
+			step.collectStep(&bodies)
 		}
 	}
 	return bodies
+}
+
+// formulaWalkthroughFindings measures the formula rule: the first formula a part
+// explains is taught by a formula walkthrough, not by a bare `<lk-math>` or a
+// still scene. The first formula is the earliest one in reading order among the
+// `<lk-math>` blocks, the plain LaTeX and the formulas a scene or a deck draws;
+// the fix names the deck the tutor has to write. A rules snapshot that does not
+// declare `formulaWalkthrough` keeps accepting the parts it accepted.
+func formulaWalkthroughFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.FormulaWalkthrough {
+		return nil
+	}
+	plain := withoutCodeFences(text)
+	type spot struct{ at int }
+	var spots []spot
+	for _, m := range mathBlock.FindAllStringIndex(plain, -1) {
+		spots = append(spots, spot{m[0]})
+	}
+	for _, m := range mathDisplay.FindAllStringIndex(plain, -1) {
+		spots = append(spots, spot{m[0]})
+	}
+	rest := mathDisplay.ReplaceAllString(plain, " ")
+	for _, m := range mathInline.FindAllStringSubmatchIndex(rest, -1) {
+		body := rest[m[2]:m[3]]
+		if !mathInlineLooksLikeMath.MatchString(body) && strings.ContainsAny(body, " \t") {
+			continue
+		}
+		spots = append(spots, spot{m[0]})
+	}
+	var taught [][2]int
+	for _, re := range []*regexp.Regexp{sceneBlock, walkthroughBlock, storyBlock} {
+		for _, m := range re.FindAllStringIndex(plain, -1) {
+			block := plain[m[0]:m[1]]
+			payload, ok := jsonPayload(block)
+			if !ok {
+				continue
+			}
+			var doc sceneFormulaDoc
+			if json.Unmarshal([]byte(payload), &doc) != nil {
+				continue
+			}
+			if len(sceneFormulaBodies(block)) == 0 {
+				continue
+			}
+			spots = append(spots, spot{m[0]})
+			var story storyDoc
+			if json.Unmarshal([]byte(payload), &story) == nil && (story.Kind == "formula" || story.Kind == "derivation") {
+				taught = append(taught, [2]int{m[0], m[1]})
+			}
+		}
+	}
+	if len(spots) == 0 {
+		return nil
+	}
+	sort.Slice(spots, func(i, j int) bool { return spots[i].at < spots[j].at })
+	first := spots[0].at
+	for _, r := range taught {
+		if first >= r[0] && first < r[1] {
+			return nil
+		}
+	}
+	return []string{"the first formula in the part is not taught by a formula walkthrough — draw it as <lk-story kind=\"formula\">: step 1 the whole formula, then one step per symbol with what it is, what it is used for and its value in the example, and the last step with the example's numbers substituted and its result"}
 }
 
 // sceneFormulaBlocks returns the closed scene and walkthrough blocks outside
@@ -493,11 +603,14 @@ func standardFindings(text string, th rules.PartStandardThresholds) []string {
 
 	findings = append(findings, sceneFindings(text, th)...)
 
-	if decks := len(walkthroughOpen.FindAllStringIndex(withoutCodeFences(text), -1)); decks > th.MaxWalkthroughs {
+	decks := len(walkthroughOpen.FindAllStringIndex(withoutCodeFences(text), -1)) + len(storyOpen.FindAllStringIndex(withoutCodeFences(text), -1))
+	if decks > th.MaxWalkthroughs {
 		findings = append(findings, fmt.Sprintf(
-			"%d <lk-walkthrough> decks (limit %d) — one walkthrough per part; a second change is a step of the same deck or belongs to another part",
+			"%d walkthrough decks (limit %d) — one walkthrough per part; a second change is a step of the same deck or belongs to another part",
 			decks, th.MaxWalkthroughs))
 	}
+
+	findings = append(findings, formulaWalkthroughFindings(text, th)...)
 
 	if th.MaxSentencesPerParagraph > 0 {
 		if walls := wallParagraphs(text, th.MaxSentencesPerParagraph); len(walls) > 0 {
@@ -592,7 +705,7 @@ func evalPartStandard(c *evalCtx, decl rules.CheckDecl) Check {
 	shape := fmt.Sprintf("%d prose words (limit %d), %d content section(s) (limit %d), %s, %d scene(s) (limit %d), %d walkthrough(s) (limit %d)",
 		proseWords(text), th.MaxProseWords, len(contentSections(text)), th.MaxContentSections,
 		route, len(sceneOpen.FindAllStringIndex(withoutCodeFences(text), -1)), th.MaxScenes,
-		len(walkthroughOpen.FindAllStringIndex(withoutCodeFences(text), -1)), th.MaxWalkthroughs)
+		len(walkthroughOpen.FindAllStringIndex(withoutCodeFences(text), -1))+len(storyOpen.FindAllStringIndex(withoutCodeFences(text), -1)), th.MaxWalkthroughs)
 	if th.MinScenes > 0 {
 		shape += fmt.Sprintf(", %d drawn scene(s) (at least %d)", drawnScenes(text), th.MinScenes)
 	}

@@ -274,6 +274,97 @@ se corrige el nombre, no la coordenada.
 La misma fórmula, cuando la parte la opera, va con `<lk-math>` y su cuenta renglón a renglón. No
 se escribe dos veces la misma fórmula: se anota una vez y, si hay cuenta, se escribe la cuenta.
 
+## 8b. Recorrido de fórmula (`<lk-story kind="formula">`)
+
+**La primera vez que la parte explica una fórmula, la enseña con su recorrido de fórmula.** El
+mueble es el mismo para la fórmula y para el ejercicio: una **cabecera** con la fórmula (el token
+del paso, resaltado; el resto normal), un **escenario** donde pasa la acción (la curva, el icono
+del actor, la etiqueta con punta), un **narrador** con frases cortas y fichas en línea, y un
+**reproductor** (anterior / reproducir / siguiente, barra segmentada y contador N/M).
+
+| Pieza | Qué lleva |
+|---|---|
+| `kind` | `"formula"` |
+| `formula` | la fórmula entera, **un átomo por símbolo con `id` estable** (`{"t":"μ","id":"mu"}`) |
+| `steps[].focus` | los ids de los átomos que el paso resalta; el resto queda normal |
+| `steps[].say` | `what` · `use` · `value`: qué es, para qué se usa y cuánto vale en el ejemplo |
+| `steps[].narrator` | una o dos frases cortas; `«…»` se dibuja como ficha y `*…*` como palabra clave |
+| `steps[].stage.scene` | el escenario del paso con el vocabulario de la escena (`paths`, `icons`, `labels`, `actors`, `tags`, `marks`) |
+
+Reglas:
+
+- **Paso 1 la fórmula entera; cada paso siguiente un símbolo o grupo por su `id`; el último, la
+  fórmula con los números del ejemplo sustituidos y su resultado.** Los ids son estables: el
+  mismo `mu` se resalta en su paso sin escribir una coordenada.
+- **El escenario dibuja el significado del símbolo en el ejemplo**, no repite la fórmula: la
+  campana, la línea de μ, la banda ±σ, la petición y el servidor como `icons` con su rótulo.
+- **El narrador dice qué es, para qué se usa y cuánto vale en el ejemplo** (`say`), en frases de
+  una idea. Las fichas `«2»` y las palabras clave `*pasa restando*` son el vocabulario del
+  narrador, no HTML.
+- Un icono se dibuja con el relleno suave de su tono, nunca blanco sobre papel blanco, y su
+  centro se mantiene dentro del lienzo: un icono declarado a 8 unidades con 56 de ancho queda
+  medio fuera del `viewBox` y el SVG lo recorta (`pieza-invisible`).
+
+```html
+<lk-story>
+<script type="application/json">
+{"kind":"formula","title":"La densidad, paso a paso","viewBox":"0 0 360 250",
+ "formula":{"size":18,"atoms":[{"t":"f","id":"f"},{"t":"(","id":"open"},{"t":"x","id":"x"},{"t":")","id":"close"}]},
+ "steps":[
+  {"title":"La fórmula entera","focus":[],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la campana"}]}}},
+  {"title":"f: la densidad","focus":["f"],"say":{"what":"la función de densidad","use":"da la altura de la curva","value":"en el ejemplo, f(184 ms)"},"narrator":"«f» es la densidad.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la altura"}]}}},
+  {"title":"x: el punto","focus":["x"],"say":{"what":"el valor que miras","use":"la latencia de una petición","value":"x = 184 ms"},"narrator":"«x» es el punto.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la latencia"}]}}},
+  {"title":"Con el ejemplo","focus":[],"narrator":"Con «x = 184», «f(184) = 0,000 65».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"el resultado"}]}}}
+ ]}
+</script>
+</lk-story>
+```
+
+Ejemplo aprobado y completo, con la campana, μ, σ y los iconos de petición y servidor:
+`integrations/pi/kit/examples/formula-gaussiana.md`.
+
+## 8c. Recorrido de derivación (`<lk-story kind="derivation">`)
+
+**Todo ejercicio resuelto se enseña con su recorrido de derivación.** Cada paso es una
+**ecuación** en la cabecera; el escenario muestra la acción: los actores (los términos) con su
+rótulo, el término que estaba en un lado en gris y el que queda en color, la **flecha curva
+desde la posición medida del término hasta su posición nueva** con el verbo encima («pasa
+restando»), los términos que se combinan marcados y reemplazados por su resultado, y el último
+paso con la respuesta enmarcada y su ✓.
+
+| Pieza | Qué lleva |
+|---|---|
+| `kind` | `"derivation"` |
+| `steps[].equation` | la ecuación del paso, un átomo por término con `id` estable entre pasos |
+| `steps[].stage.scene.actors` | los términos dibujados: `id`, `x`, `y`, `w`, `h`, `label`, `tone`, `state` (`faded` = ya no vale), `tag` (el rótulo con punta) |
+| `steps[].stage.scene.moves` | `from` / `to` (ids de actor) y `verb`: la flecha se mide entre las dos cajas, nunca entre coordenadas |
+| `steps[].stage.scene.marks` | `combine` (marca los términos y, con `to`, los reemplaza por su resultado) y `ok` / `no` (✓ / ✗ y el marco de la respuesta) |
+
+Reglas:
+
+- **Los ids de los términos son estables entre pasos**: `two` es el mismo 2 antes y después de
+  cruzar; la flecha empieza en la caja medida de `two-old` y termina en la de `two`.
+- **El signo cambia en la ecuación, no en la flecha**: el paso 2 ya escribe `3 − 2`; la flecha
+  dice «pasa restando». Un término que se combina se marca con `combine` y su resultado aparece
+  en el paso siguiente.
+- **El último paso enmarca la respuesta** (`marks: [{"kind":"ok","actor":"one"}]`).
+- El escenario no repite la ecuación: la cabecera la escribe y el escenario muestra el
+  movimiento.
+
+```html
+<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Resolver x + 2 = 3","viewBox":"0 0 360 250","steps":[
+ {"title":"La ecuación","equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" + ","id":"plus"},{"t":"2","id":"two"},{"t":" = ","id":"eq"},{"t":"3","id":"three"}]},"focus":["two"],"narrator":"Tengo «x + 2 = 3». Quiero dejar la «x» sola.","stage":{"scene":{"actors":[{"id":"x","x":20,"y":150,"w":44,"h":40,"label":"x","tone":"blue","tag":"incógnita"},{"id":"two","x":140,"y":150,"w":44,"h":40,"label":"2","tone":"amber","tag":"el 2"}]}}},
+ {"title":"El 2 pasa al otro lado","equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" = ","id":"eq"},{"t":"3","id":"three"},{"t":" − ","id":"minus"},{"t":"2","id":"two"}]},"focus":["minus","two"],"narrator":"El «2» estaba sumando. Al cruzar, *pasa restando*.","stage":{"scene":{"actors":[{"id":"two-old","x":140,"y":40,"w":44,"h":40,"label":"2","tone":"slate","state":"faded","tag":"estaba sumando"},{"id":"x","x":20,"y":160,"w":44,"h":40,"label":"x","tone":"blue"},{"id":"two","x":230,"y":160,"w":44,"h":40,"label":"2","tone":"amber"}],"moves":[{"from":"two-old","to":"two","verb":"pasa restando","tone":"amber"}]}}},
+ {"title":"La cuenta","equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" = ","id":"eq"},{"t":"1","id":"one"}]},"focus":["one"],"narrator":"«3 − 2 = 1». Entonces «x = 1».","stage":{"scene":{"actors":[{"id":"x","x":40,"y":170,"w":44,"h":40,"label":"x","tone":"blue"},{"id":"one","x":160,"y":170,"w":44,"h":40,"label":"1","tone":"green"}],"marks":[{"kind":"ok","actor":"one"}]}}}
+ ]}
+</script>
+</lk-story>
+```
+
+Ejemplo aprobado y completo, con los tres pasos y los textos: `integrations/pi/kit/examples/derivacion-x.md`.
+
 ## 9. La curva, no la caja
 
 Una distribución, una función, una serie temporal o una relación entre dos variables **se

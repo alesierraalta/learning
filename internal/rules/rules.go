@@ -233,6 +233,11 @@ type PartStandardThresholds struct {
 	// in the legend refusal when the part writes plain LaTeX math instead. Empty
 	// means the refusal does not name it.
 	FormulaElement string `json:"formulaElement,omitempty"`
+	// FormulaWalkthrough turns on the formula rule: the first formula a part
+	// explains is taught by a formula walkthrough (`<lk-story kind="formula">`),
+	// never by a bare `<lk-math>` or a still scene. False means the rule is not
+	// declared, so a frozen snapshot keeps accepting the parts it accepted.
+	FormulaWalkthrough bool `json:"formulaWalkthrough,omitempty"`
 }
 
 // ParetoThresholds bound a pareto-scope run: only the vital slice of each

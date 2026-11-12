@@ -480,12 +480,19 @@
   // número caía sobre el símbolo vecino. Las coordenadas de los números viejos se
   // siguen dibujando tal cual.
   const sceneAtoms = (scene) => (scene.formulas || (scene.formula ? [scene.formula] : []))
-    .flatMap((fm) => (fm.atoms || []).map((a) => (typeof a === "string" ? a : a.t)));
+    .flatMap((fm) => (fm.atoms || []).map((a) => (typeof a === "string" ? { t: a } : { t: a.t, id: a.id })));
   // El número del átomo que el callout nombra, o null si la escena no lo tiene.
+  // Un átomo se nombra por su índice (`at`), por su texto (`symbol`) o por su id
+  // estable (`atom`), que es lo que un paso de un recorrido necesita cuando el
+  // mismo símbolo aparece dos veces en la fórmula.
   function calloutAtom(callout, atoms) {
     if (Number.isInteger(callout.at)) return callout.at >= 0 && callout.at < atoms.length ? callout.at : null;
+    if (typeof callout.atom === "string") {
+      const at = atoms.findIndex((a) => String(a.id ?? "") === callout.atom);
+      return at === -1 ? null : at;
+    }
     if (typeof callout.symbol === "string") {
-      const at = atoms.findIndex((t) => String(t).trim() === callout.symbol.trim());
+      const at = atoms.findIndex((a) => String(a.t).trim() === callout.symbol.trim());
       return at === -1 ? null : at;
     }
     return null;
@@ -530,13 +537,147 @@
   function watchCallouts(stage, refit) {
     if (watched.has(stage)) return;
     watched.add(stage);
-    const place = () => { refit?.(); placeCallouts(stage); };
+    const place = () => { refit?.(); placeCallouts(stage); placeStory(stage); };
     document.fonts?.ready.then(place).catch(() => {});
     let frame = 0;
     addEventListener("resize", () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(place); }, { passive: true });
     new MutationObserver(place).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   }
-  function walkScene(scene, stageWidth, stageTop = 0) {
+  // La escena de un paso de `lk-story` no escribe coordenadas de rótulos ni de
+  // flechas: nombra el actor que el rótulo acompaña y el término que se mueve, y
+  // esta pasada mide las cajas que el navegador dibujó. El rótulo con punta se
+  // apoya en el borde de su caja, el codo llega a su blanco y la flecha del
+  // movimiento empieza y termina en las dos cajas medidas del término.
+  function placeStory(stage) {
+    const svg = stage.querySelector("svg");
+    if (!svg) return;
+    const ns = "http://www.w3.org/2000/svg";
+    const make = (tag, attrs = {}, text) => {
+      const n = document.createElementNS(ns, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+      if (text !== undefined) n.textContent = text;
+      return n;
+    };
+    const tones = WALK_TONES();
+    const tone = (name) => tones[name] || tones.slate;
+    const marker = (name) => `url(#a-${["blue", "green", "amber", "red"].includes(name) ? name : "slate"})`;
+    // Una escena quieta no tiene pasos: sus actores, rótulos y marcas viven en el
+    // SVG entero, así que se mide el SVG como un solo ámbito.
+    const groups = [...svg.querySelectorAll("[data-step]")];
+    const scopes = groups.length ? groups : [svg];
+    const shown = groups.map((g) => g.style.display);
+    groups.forEach((g) => { g.style.display = ""; });
+    const sel = (id) => String(id).replace(/[^\w-]/g, "\\$&");
+    const findIn = (step, id) => step.querySelector(`[data-actor="${sel(id)}"], [data-box-id="${sel(id)}"], [data-label-id="${sel(id)}"], [data-icon-id="${sel(id)}"], [data-callout="${sel(id)}"]`);
+    for (const step of scopes) {
+      for (const tag of step.querySelectorAll("[data-tag-to]")) {
+        const target = findIn(step, tag.dataset.tagTo);
+        if (!target) continue;
+        const b = target.getBBox();
+        const t = tone(tag.dataset.tagTone);
+        const text = tag.dataset.tagText || "";
+        const size = 13;
+        const w = Math.max(30, text.length * size * 0.56 + 16), h = size + 12;
+        const at = tag.dataset.tagAt ? tag.dataset.tagAt.split(",").map(Number) : [];
+        const cx = at.length && Number.isFinite(at[0]) ? at[0] : b.x + b.width / 2;
+        const cy = at.length > 1 && Number.isFinite(at[1]) ? at[1] : b.y - 8;
+        // La ficha se escribe en coordenadas absolutas, no con un `transform`:
+        // las puertas miden `getBBox()`, que vive en el espacio local del nodo, y
+        // una ficha transformada se medía en el origen y se veía fuera del lienzo.
+        tag.replaceChildren(
+          make("rect", { x: cx - w / 2, y: cy - h, width: w, height: h, rx: h / 2, fill: "#ffffff", stroke: t.stroke, "stroke-width": 1.5 }),
+          make("text", { x: cx, y: cy - h / 2 + size * 0.36, "font-size": size, fill: t.color, "text-anchor": "middle", "font-weight": 700 }, text),
+          make("path", { d: `M ${cx - 4} ${cy} L ${cx} ${cy + 6} L ${cx + 4} ${cy} Z`, fill: t.stroke }),
+        );
+        const tx = b.x + b.width / 2, ty = b.y, my = (cy + ty) / 2;
+        const d = Math.abs(cx - tx) < 2 ? `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${tx.toFixed(1)} ${ty.toFixed(1)}` : `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${cx.toFixed(1)} ${my.toFixed(1)} L ${tx.toFixed(1)} ${my.toFixed(1)} L ${tx.toFixed(1)} ${ty.toFixed(1)}`;
+        tag.append(make("path", { d, fill: "none", stroke: t.stroke, "stroke-width": 1.5, "data-elbow": "1" }));
+      }
+      for (const move of step.querySelectorAll("[data-move-from]")) {
+        const from = findIn(step, move.dataset.moveFrom), to = findIn(step, move.dataset.moveTo);
+        if (!from || !to) continue;
+        const a = from.getBBox(), b = to.getBBox();
+        const t = tone(move.dataset.moveTone);
+        const start = edgeOf(a, b.x + b.width / 2, b.y + b.height / 2);
+        const end = edgeOf(b, a.x + a.width / 2, a.y + a.height / 2);
+        const midY = (start.y + end.y) / 2;
+        const path = move.querySelector("[data-move-path]");
+        path.setAttribute("d", `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} C ${start.x.toFixed(1)} ${midY.toFixed(1)}, ${end.x.toFixed(1)} ${midY.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`);
+        path.setAttribute("stroke", t.stroke);
+        path.setAttribute("stroke-width", "2");
+        path.setAttribute("stroke-dasharray", "6 5");
+        path.setAttribute("marker-end", marker(move.dataset.moveTone));
+        const label = move.querySelector("[data-move-label]");
+        label.textContent = move.dataset.moveVerb || "";
+        label.setAttribute("x", Math.max((start.x + end.x) / 2, start.x + 66).toFixed(1));
+        label.setAttribute("y", (Math.min(start.y, end.y) - 8).toFixed(1));
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("font-size", "13");
+        label.setAttribute("font-weight", "700");
+        label.setAttribute("fill", t.color);
+        label.setAttribute("data-fit", String(Math.max(40, Math.abs(end.x - start.x) + 60)));
+      }
+      for (const mark of step.querySelectorAll("[data-mark-kind]")) {
+        const kind = mark.dataset.markKind;
+        const ids = String(mark.dataset.markActors || "").split(",").filter(Boolean);
+        const boxes = ids.map((id) => findIn(step, id)).filter(Boolean).map((el) => el.getBBox());
+        if (!boxes.length) continue;
+        const union = boxes.reduce((a, b) => ({
+          x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+          width: Math.max(a.x + a.width, b.x + b.width) - Math.min(a.x, b.x),
+          height: Math.max(a.y + a.height, b.y + b.height) - Math.min(a.y, b.y),
+        }));
+        const t = tone(kind === "ok" ? "green" : kind === "no" ? "red" : "amber");
+        const parts = [];
+        if (kind === "combine") {
+          const pad = 8;
+          parts.push(make("rect", { x: union.x - pad, y: union.y - pad, width: union.width + pad * 2, height: union.height + pad * 2, rx: 14, fill: "none", stroke: t.stroke, "stroke-width": 2, "stroke-dasharray": "6 5" }));
+          if (mark.dataset.markLabel) parts.push(make("text", { x: union.x + union.width / 2, y: union.y - pad - 8, "font-size": 13, "font-weight": 700, fill: t.color, "text-anchor": "middle" }, mark.dataset.markLabel));
+          const to = mark.dataset.markTo ? findIn(step, mark.dataset.markTo) : null;
+          if (to) {
+            const b = to.getBBox();
+            const sx = union.x + union.width / 2, sy = union.y + union.height + pad;
+            // La punta se detiene 10 unidades arriba de la caja: la marca del
+            // resultado dibuja su marco 8 unidades por fuera y una punta en el
+            // borde quedaba enterrada dentro de ese marco.
+            const ex = b.x + b.width / 2, ey = b.y - 10, my = (sy + ey) / 2;
+            parts.push(make("path", { d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${sx.toFixed(1)} ${my.toFixed(1)}, ${ex.toFixed(1)} ${my.toFixed(1)}, ${ex.toFixed(1)} ${ey.toFixed(1)}`, fill: "none", stroke: t.stroke, "stroke-width": 2, "stroke-dasharray": "6 5", "marker-end": marker("amber") }));
+          }
+        } else {
+          // El marco es el borde del propio actor, engrosado y del color del resultado:
+          // un segundo rect por fuera dibujaba un doble borde. El ✓ se coloca donde
+          // cabe dentro del lienzo —a la derecha, debajo o a la izquierda— midiendo lo
+          // que el navegador dibujó, no con una coordenada: a la derecha de un actor
+          // que llega a x 346 de 360 quedaba recortado y solo se veía una astilla.
+          for (const id of ids) {
+            const frame = findIn(step, id)?.querySelector("rect");
+            if (!frame) continue;
+            frame.setAttribute("stroke", t.stroke);
+            frame.setAttribute("stroke-width", "3.5");
+          }
+          const glyph = make("text", { "font-size": 24, "font-weight": 700, fill: t.color }, kind === "no" ? "✗" : "✓");
+          mark.replaceChildren(glyph);
+          const room = svg.viewBox.baseVal;
+          const sides = [
+            { x: union.x + union.width + 10, y: union.y + union.height / 2 + 8, anchor: "start" },
+            { x: union.x + union.width / 2, y: union.y + union.height + 28, anchor: "middle" },
+            { x: union.x - 10, y: union.y + union.height / 2 + 8, anchor: "end" },
+          ];
+          for (const side of sides) {
+            glyph.setAttribute("x", side.x.toFixed(1));
+            glyph.setAttribute("y", side.y.toFixed(1));
+            glyph.setAttribute("text-anchor", side.anchor);
+            const g = glyph.getBBox();
+            if (Math.min(g.x - room.x, g.y - room.y, room.x + room.width - (g.x + g.width), room.y + room.height - (g.y + g.height)) >= 12) break;
+          }
+          continue;
+        }
+        mark.replaceChildren(...parts);
+      }
+    }
+    groups.forEach((g, i) => { g.style.display = shown[i]; });
+  }
+  function walkScene(scene, stageWidth, stageTop = 0, stageHeight = 0) {
     const S = window.LKScene;
     const tones = WALK_TONES();
     const tone = (name) => tones[name] || tones.slate;
@@ -550,7 +691,7 @@
     // o si quedan lejos de todo lo dibujado, que es una palabra flotando.
     for (const b of scene.boxes || []) {
       const t = tone(b.tone);
-      out += '<g data-box="1">' + S.box(b.x, b.y, b.w, b.h, b.label || '', {
+      out += `<g data-box="1"${b.id ? ` data-box-id="${S.esc(b.id)}"` : ''}>` + S.box(b.x, b.y, b.w, b.h, b.label || '', {
         stroke: b.stroke || t.stroke, fill: b.fill || t.fill, color: b.color || t.color,
         size: b.size || 26, sub: b.sub || '', rx: b.rx ?? 10,
         subDy: b.subDy ?? 30, subSize: b.subSize ?? 22,
@@ -560,9 +701,20 @@
       const t = tone(n.tone);
       out += S.node(n.x, n.y, n.label || '', { stroke: t.stroke, fill: t.fill, color: t.color, r: n.r || 30 });
     }
+    // Un icono se dibuja con el relleno suave de su tono, no con blanco: un
+    // relleno blanco sobre el papel blanco dejaba solo un contorno de 2 unidades y
+    // el robot de «El problema que solo existe en el tiempo» se leía como nada.
+    // Su centro se mantiene dentro del lienzo: `x` es el centro, y un icono a 8
+    // unidades con 56 de ancho quedaba medio fuera del `viewBox` y el SVG lo
+    // recortaba. Un icono declarado se ve entero o la puerta lo llama
+    // `pieza-invisible`.
     for (const ic of scene.icons || []) {
       const t = tone(ic.tone);
-      out += S.icon(ic.kind || 'doc', ic.x, ic.y, ic.size || 64, { stroke: t.stroke, fill: ic.fill || '#ffffff' });
+      const size = ic.size || 64;
+      const cx = stageWidth ? Math.min(Math.max(ic.x, size / 2), stageWidth - size / 2) : ic.x;
+      const cy = stageHeight ? Math.min(Math.max(ic.y, stageTop + size / 2), stageTop + stageHeight - size / 2) : ic.y;
+      out += `<g data-icon="${S.esc(ic.kind || 'doc')}"${ic.id ? ` data-icon-id="${S.esc(ic.id)}"` : ''}>`
+        + S.icon(ic.kind || 'doc', cx, cy, size, { stroke: t.stroke, fill: ic.fill || t.fill }) + '</g>';
     }
     // Un número pegado al dibujo: dice «mira acá» sin repetir el nombre de la pieza.
     const atoms = sceneAtoms(scene);
@@ -575,10 +727,10 @@
         // La guía nace sin destino: `placeCallouts` la lleva al glifo que el lector
         // dibujó, después de que el navegador componga la fórmula.
         out += `<g data-callout-guide="${c.n}" data-atom="${at}" data-from="${S.f(c.x)},${S.f(c.y)}">` + S.line(c.x, c.y, c.x, c.y, { color: t.stroke, width: 2, arrow: false }) + `</g>`;
-      } else if (c.at !== undefined || c.symbol !== undefined) {
+      } else if (c.at !== undefined || c.symbol !== undefined || c.atom !== undefined) {
         // El callout nombra un símbolo que la fórmula no tiene: la escena lo dice en
         // vez de dibujar una guía al aire, y el lint lo llama `callout-desviado`.
-        out += `<g data-callout-guide="${c.n}" data-callout-missing="${S.esc(c.symbol ?? c.at)}"></g>`;
+        out += `<g data-callout-guide="${c.n}" data-callout-missing="${S.esc(c.symbol ?? c.atom ?? c.at)}"></g>`;
       } else if (Array.isArray(c.to)) {
         out += `<g data-callout-guide="${c.n}">` + S.line(c.x, c.y, c.to[0], c.to[1], { color: t.stroke, width: 2, arrow: false }) + `</g>`;
       }
@@ -588,6 +740,7 @@
     for (const fm of scene.formulas || (scene.formula ? [scene.formula] : [])) {
       out += S.formula(fm.x ?? 380, fm.y ?? 120, fm.atoms || [], {
         size: fm.size ?? 64, color: tone(fm.tone || 'ink').stroke, offset: atomBase,
+        focus: fm.focus ?? scene.focus ?? null, dim: fm.dim !== false,
       });
       atomBase += (fm.atoms || []).length;
     }
@@ -710,7 +863,30 @@
     }
     for (const b of scene.badges || []) out += S.badge(b.x, b.y, b.n);
     for (const d of scene.dashed || []) out += S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke, d.fill);
-    for (const l of scene.labels || []) out += '<g data-label="1">' + S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 }) + '</g>';
+    for (const l of scene.labels || []) out += `<g data-label="1"${l.id ? ` data-label-id="${S.esc(l.id)}"` : ''}>` + S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 }) + '</g>';
+    // Actores, rótulos con punta, movimientos y marcas: la escena de un paso de
+    // `lk-story`. Se dibujan como marcadores vacíos y `placeStory` los rellena con
+    // las cajas que el navegador midió, nunca con coordenadas escritas a mano.
+    for (const a of scene.actors || []) {
+      const t = tone(a.tone);
+      const faded = a.state === 'faded';
+      out += `<g data-actor="${S.esc(a.id)}"${faded ? ' data-faded="1"' : ''}>` + S.box(a.x, a.y, a.w, a.h, a.label || '', {
+        stroke: faded ? S.C.slate2 : t.stroke, fill: faded ? '#F1F3F4' : t.fill, color: faded ? S.C.slate2 : t.color,
+        size: a.size || 18, rx: a.rx ?? 10,
+      }) + '</g>';
+      // El nombre del actor va en una ficha con punta, arriba de su caja: el
+      // rótulo dice quién es sin escribir una coordenada.
+      if (a.tag) out += `<g data-tag-to="${S.esc(a.id)}" data-tag-text="${S.esc(a.tag)}" data-tag-tone="${S.esc(a.tone || 'slate')}"></g>`;
+    }
+    for (const tg of scene.tags || []) {
+      out += `<g data-tag-to="${S.esc(tg.to)}" data-tag-text="${S.esc(tg.text)}" data-tag-tone="${S.esc(tg.tone || 'slate')}"${Array.isArray(tg.at) ? ` data-tag-at="${S.f(tg.at[0])},${S.f(tg.at[1])}"` : ''}></g>`;
+    }
+    for (const mv of scene.moves || []) {
+      out += `<g data-move-from="${S.esc(mv.from)}" data-move-to="${S.esc(mv.to)}" data-move-verb="${S.esc(mv.verb || '')}" data-move-tone="${S.esc(mv.tone || 'amber')}"><path fill="none" data-move-path="1"/><text data-move-label="1"></text></g>`;
+    }
+    for (const mk of scene.marks || []) {
+      out += `<g data-mark-kind="${S.esc(mk.kind)}" data-mark-actors="${S.esc((mk.actors || [mk.actor]).filter(Boolean).join(','))}"${mk.to ? ` data-mark-to="${S.esc(mk.to)}"` : ''}${mk.label ? ` data-mark-label="${S.esc(mk.label)}"` : ''}></g>`;
+    }
     return out;
   }
   // No word may leave the box that holds it. Measuring the real glyphs is the
@@ -767,7 +943,8 @@
     // ancho la columna mide el doble y, sin esto, la escena se estiraba a 1,7×.
     stage.style.setProperty('--lk-vb', `${stageWidth}px`);
     const stageTop = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[1]) || 0;
-    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth, stageTop))).join(''), spec.viewBox || '0 0 1200 640');
+    const stageHeight = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[3]) || 640;
+    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth, stageTop, stageHeight))).join(''), spec.viewBox || '0 0 1200 640');
     stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
     const captionTitle = el('strong');
     const captionText = el('p');
@@ -814,6 +991,7 @@
     this.append(full, stage, hint, bar, caption);
     fitSceneText(stage);
     placeCallouts(stage);
+    placeStory(stage);
     watchCallouts(stage, () => fitSceneText(stage));
     steps.forEach((_, i) => {
       const dot = button(String(i + 1), () => go(i));
@@ -845,6 +1023,132 @@
     draw();
   });
 
+  // El recorrido de una fórmula y el de un ejercicio comparten el mismo mueble:
+  // una cabecera con la fórmula o la ecuación (el token del paso, resaltado), un
+  // escenario donde pasa la acción (actores con su rótulo, estado por color,
+  // flecha del movimiento con su verbo, marcas de resultado y codos que unen cada
+  // rótulo con su blanco) y un narrador con frases cortas y fichas en línea. El
+  // reproductor es el mismo en los dos: anterior, reproducir, siguiente, una barra
+  // segmentada (un segmento por paso, lleno hasta el actual) y el contador N/M.
+  define('lk-story', function () {
+    const S = window.LKScene;
+    if (!S) throw new Error('Falta scene.js: no se puede dibujar el recorrido');
+    let spec;
+    try { spec = JSON.parse(this.querySelector('script[type="application/json"]').textContent); }
+    catch (error) { throw new Error(`El recorrido tiene un JSON inválido: ${error.message}`); }
+    const steps = spec.steps || [];
+    if (!steps.length) throw new Error('El recorrido no tiene pasos');
+    const kind = spec.kind === 'derivation' ? 'derivation' : 'formula';
+    const viewBox = spec.viewBox || '0 0 360 250';
+    const box = viewBox.trim().split(/[\s,]+/).map(Number);
+    const stageWidth = box[2] || 360, stageTop = box[1] || 0, stageHeight = box[3] || 250;
+    const stage = el('div', undefined, { class: 'lk-story-stage lk-wt-stage lk-remap' });
+    stage.style.setProperty('--lk-vb', `${stageWidth}px`);
+    // La fórmula vive en la cabecera (HTML, con el token del paso resaltado); el
+    // escenario dibuja la acción, no repite la fórmula. Duplicarla en el SVG la
+    // dejaba como una pieza suelta al lado de la etiqueta del paso.
+    const sceneOf = (step) => ({ ...((step.stage && step.stage.scene) || step.stage || {}) });
+    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(sceneOf(s), stageWidth, stageTop, stageHeight))).join(''), viewBox);
+    stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
+    const head = el('div', undefined, { class: 'lk-story-head' });
+    const narrator = el('div', undefined, { class: 'lk-story-narrator' });
+    const count = el('span', undefined, { class: 'lk-story-count' });
+    const progress = el('div', undefined, { class: 'lk-story-progress', role: 'progressbar', 'aria-valuemin': '1', 'aria-valuemax': String(steps.length) });
+    const segs = steps.map(() => { const s = el('span', undefined, { class: 'lk-story-seg' }); progress.append(s); return s; });
+    let index = 0, timer = null;
+    const prev = button('◀', () => go(index - 1));
+    const next = button('▶', () => go(index + 1));
+    const play = button('▶ Reproducir', () => toggle());
+    prev.setAttribute('aria-label', 'Paso anterior');
+    next.setAttribute('aria-label', 'Paso siguiente');
+    play.setAttribute('aria-label', 'Reproducir los pasos');
+    const player = el('div', undefined, { class: 'lk-story-player' });
+    player.append(prev, play, next, progress, count);
+    this.classList.add('lk-story', `lk-story-kind-${kind}`);
+    this.tabIndex = 0;
+    if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
+    this.append(head, stage, narrator, player);
+    // Una ficha en línea: «texto» se dibuja como un chip y *texto* como una
+    // palabra clave con el color del acento. El narrador no escribe HTML.
+    function inline(text) {
+      const frag = document.createDocumentFragment();
+      const source = String(text ?? '');
+      const re = /«([^»]+)»|\*([^*]+)\*/g;
+      let last = 0, m;
+      while ((m = re.exec(source))) {
+        if (m.index > last) frag.append(document.createTextNode(source.slice(last, m.index)));
+        frag.append(m[1] !== undefined ? el('span', m[1], { class: 'lk-chip' }) : el('span', m[2], { class: 'lk-key' }));
+        last = re.lastIndex;
+      }
+      if (last < source.length) frag.append(document.createTextNode(source.slice(last)));
+      return frag;
+    }
+    function tokens(atoms, focus) {
+      const on = new Set((focus || []).map(String));
+      const wrap = el('div', undefined, { class: 'lk-story-formula' });
+      atoms.forEach((a, i) => {
+        const atom = typeof a === 'string' ? { t: a } : a;
+        const id = atom.id ?? String(i);
+        const token = el('span', atom.t, { class: 'lk-token', 'data-atom': id });
+        token.style.whiteSpace = 'pre';
+        if (on.has(id) || on.has(String(i))) { token.classList.add('lk-token-focus'); token.dataset.focus = '1'; }
+        wrap.append(token);
+      });
+      return wrap;
+    }
+    function narrate(step) {
+      narrator.replaceChildren();
+      if (step.say) {
+        const dl = el('dl', undefined, { class: 'lk-story-say' });
+        for (const [label, key] of [['Qué es', 'what'], ['Para qué se usa', 'use'], ['En el ejemplo', 'value']]) {
+          if (!step.say[key]) continue;
+          const dd = el('dd'); dd.append(inline(step.say[key]));
+          dl.append(el('dt', label), dd);
+        }
+        narrator.append(dl);
+      }
+      if (step.narrator) {
+        const p = el('p', undefined, { class: 'lk-story-line' });
+        p.append(inline(step.narrator));
+        narrator.append(p);
+      }
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; } }
+    function toggle() {
+      if (timer) { stop(); draw(); return; }
+      if (index === steps.length - 1) { index = 0; draw(); }
+      timer = setInterval(() => {
+        if (index >= steps.length - 1) { stop(); draw(); return; }
+        index += 1; draw();
+      }, 4200);
+      draw();
+    }
+    function go(to) { index = Math.max(0, Math.min(steps.length - 1, to)); draw(); }
+    function draw() {
+      stage.querySelectorAll('[data-step]').forEach((g) => { g.style.display = Number(g.dataset.step) === index + 1 ? '' : 'none'; });
+      const step = steps[index];
+      const atoms = kind === 'derivation' ? (step.equation?.atoms || []) : (spec.formula?.atoms || []);
+      head.replaceChildren();
+      if (atoms.length) head.append(tokens(atoms, step.focus));
+      narrate(step);
+      count.textContent = `${index + 1} / ${steps.length}`;
+      segs.forEach((seg, i) => { seg.dataset.filled = String(i <= index); seg.setAttribute('aria-current', String(i === index)); });
+      progress.setAttribute('aria-valuenow', String(index + 1));
+      prev.disabled = index === 0;
+      next.disabled = index === steps.length - 1;
+      play.textContent = timer ? '❚❚ Pausa' : index === steps.length - 1 ? '↺ Repetir' : '▶ Reproducir';
+      play.setAttribute('aria-pressed', String(Boolean(timer)));
+    }
+    this.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowRight') { event.preventDefault(); go(index + 1); }
+      else if (event.key === 'ArrowLeft') { event.preventDefault(); go(index - 1); }
+    });
+    fitSceneText(stage, { minPx: 11 });
+    placeStory(stage);
+    watchCallouts(stage, () => fitSceneText(stage, { minPx: 11 }));
+    draw();
+  });
+
   // One figure that only has to be looked at. Same vocabulary, same measuring
   // pass as the walkthrough, without borrowing its step controls: a scene with
   // nothing to step through should not pretend to have steps.
@@ -856,12 +1160,13 @@
     catch (error) { throw new Error(`La escena tiene un JSON inválido: ${error.message}`); }
     const viewBox = spec.viewBox || '0 0 1200 520';
     const stageWidth = Number(viewBox.trim().split(/[\s,]+/)[2]) || 1200;
-    const stage = el('div', undefined, { class: 'lk-scene-stage' });
+    const stage = el('div', undefined, { class: 'lk-scene-stage lk-remap' });
     stage.style.setProperty('--lk-vb', `${stageWidth}px`);
     // Parsed as an SVG document, never assigned as HTML: the markup is ours and
     // already escaped, but a figure has no business executing anything.
     const stageTop = Number(viewBox.trim().split(/[\s,]+/)[1]) || 0;
-    const parsed = new DOMParser().parseFromString(S.svg(walkScene(spec.scene || {}, stageWidth, stageTop), viewBox), 'image/svg+xml');
+    const stageHeight = Number(viewBox.trim().split(/[\s,]+/)[3]) || 520;
+    const parsed = new DOMParser().parseFromString(S.svg(walkScene(spec.scene || {}, stageWidth, stageTop, stageHeight), viewBox), 'image/svg+xml');
     if (parsed.querySelector('parsererror')) throw new Error('La escena no se pudo dibujar: SVG inválido');
     stage.append(document.importNode(parsed.documentElement, true));
     const svg = stage.querySelector('svg');
@@ -877,6 +1182,7 @@
     this.append(figure);
     fitSceneText(stage, { minPx: 11, flagOverflow: true });
     placeCallouts(stage);
+    placeStory(stage);
     watchCallouts(stage, () => fitSceneText(stage, { minPx: 11, flagOverflow: true }));
   });
 

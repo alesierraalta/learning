@@ -115,16 +115,44 @@
   // puede señalar «esta V» o «esta s» sin adivinar coordenadas de la cadena entera.
   // `offset` numera los átomos de una escena con varias fórmulas: un callout nombra
   // el símbolo por su número en la escena, no por su lugar dentro de una fórmula.
-  const formula = (cx, cy, atoms, { size = 64, color = C.ink, anchor: anchorMode = "middle", offset = 0 } = {}) => {
+  // Un átomo puede llevar `id` estable: el paso de un recorrido resalta ese id y
+  // el resto queda atenuado, sin que el autor escriba una coordenada.
+  const formula = (cx, cy, atoms, { size = 64, color = C.ink, anchor: anchorMode = "middle", offset = 0, focus = null, focusColor = C.blue, dim = true } = {}) => {
+    const focused = focus && focus.length ? new Set(focus.map(String)) : null;
     const parts = atoms.map((a, i) => {
       const kind = typeof a === "string" ? { t: a } : a;
+      const id = kind.id ?? String(i);
+      const on = focused ? focused.has(id) || focused.has(String(i)) : false;
       const dy = kind.sub ? "12" : kind.sup ? "-18" : "0";
       const fs = kind.sub || kind.sup ? size * 0.52 : size;
       const style = kind.italic === false ? "" : ' font-style="italic"';
-      return `<tspan data-atom="${offset + i}" font-size="${f(fs)}" dy="${dy}"${style}>${esc(kind.t)}</tspan>`;
+      const mark = focused ? (on ? ` fill="${focusColor}" data-focus="1"` : (dim ? ' fill-opacity="0.28"' : '')) : "";
+      return `<tspan data-atom="${offset + i}" data-atom-id="${esc(id)}" font-size="${f(fs)}" dy="${dy}"${style}${mark}>${esc(kind.t)}</tspan>`;
     }).join("");
     return `<text x="${f(cx)}" y="${f(cy)}" text-anchor="${anchorMode}" font-size="${f(size)}" font-weight="700" fill="${color}">${parts}</text>`;
   };
+
+  // Un rótulo con punta: el nombre del actor va arriba, en una ficha con un
+  // puntero que baja hasta su caja. La posición la mide `placeStory` sobre la
+  // caja dibujada, así el rótulo acierta en cualquier tipografía y ancho.
+  const tag = (text, { color = C.slate, fill = "#ffffff", size = 13 } = {}) => {
+    const w = Math.max(30, String(text).length * size * 0.56 + 16), h = size + 12;
+    return `<g data-tag-chip="1"><rect x="${f(-w / 2)}" y="${f(-h)}" width="${f(w)}" height="${f(h)}" rx="${f(h / 2)}" fill="${fill}" stroke="${color}" stroke-width="1.5"/>`
+      + `<text x="0" y="${f(-h / 2 + size * 0.36)}" font-size="${size}" fill="${color}" text-anchor="middle" font-weight="700">${esc(text)}</text>`
+      + `<path d="M -4 0 L 0 6 L 4 0 Z" fill="${color}"/></g>`;
+  };
+
+  // Un codo ortogonal: el conector que une un rótulo con su blanco sin cruzar
+  // nada. Si los dos puntos comparten columna, es una línea recta.
+  const elbow = (x1, y1, x2, y2, { color = C.slate, width = 1.5, dashedLine = false } = {}) => {
+    const my = f((y1 + y2) / 2);
+    const d = Math.abs(x1 - x2) < 2 ? `M ${f(x1)} ${f(y1)} L ${f(x2)} ${f(y2)}` : `M ${f(x1)} ${f(y1)} L ${f(x1)} ${my} L ${f(x2)} ${my} L ${f(x2)} ${f(y2)}`;
+    return `<path d="${d}" fill="none" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="5 4"' : ""}/>`;
+  };
+
+  // La marca del resultado: ✓ o ✗, del tamaño de la letra que la rodea.
+  const mark = (kind, x, y, { color = C.green, size = 26 } = {}) =>
+    txt(x, y, kind === "no" ? "✗" : "✓", { size, color, bold: true });
 
   // Objetos dibujados: lo que se mueve o cambia es el objeto, no una caja con su nombre.
   const icon = (kind, cx, cy, size = 64, { stroke = C.ink, fill = "#ffffff" } = {}) => {
@@ -196,6 +224,6 @@
 
   window.LKScene = {
     C, esc, f, txt, lbl, step, gear, packet, dashed, sheet, box, node, badge, grid, icon, bars, stat, formula, defs,
-    curve, path, line, svg,
+    curve, path, line, svg, tag, elbow, mark,
   };
 })();

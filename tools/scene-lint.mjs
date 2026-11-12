@@ -50,7 +50,7 @@ if (!note) {
 }
 
 const src = readFileSync(note, 'utf8');
-const blocks = [...src.matchAll(/<lk-(scene|walkthrough)[^>]*>[\s\S]*?<\/lk-\1>/g)].map((m) => m[0]);
+const blocks = [...src.matchAll(/<lk-(scene|walkthrough|story)[^>]*>[\s\S]*?<\/lk-\1>/g)].map((m) => m[0]);
 if (!blocks.length) {
   console.log(`${note}: no tiene escenas`);
   process.exit(0);
@@ -70,7 +70,7 @@ const findings = [];
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(pathToFileURL(join(dir, 'page.html')).href);
-  await page.waitForSelector('lk-scene svg, lk-walkthrough svg', { timeout: 15000 });
+  await page.waitForSelector('lk-scene svg, lk-walkthrough svg, lk-story svg', { timeout: 15000 });
   await page.waitForTimeout(400);
   const report = await page.evaluate(({ minShaft, maxRatio, cross, loose }) => {
     const out = [];
@@ -78,7 +78,7 @@ try {
     const hiddenSteps = [...document.querySelectorAll('[data-step]')];
     const wasShown = hiddenSteps.map((g) => g.style.display);
     hiddenSteps.forEach((g) => { g.style.display = ''; });
-    document.querySelectorAll('lk-scene, lk-walkthrough').forEach((host, i) => {
+    document.querySelectorAll('lk-scene, lk-walkthrough, lk-story').forEach((host, i) => {
       const title = host.querySelector('svg')?.getAttribute('aria-label') || '';
       host.querySelectorAll('svg').forEach((svg) => {
         const box = svg.viewBox.baseVal;
@@ -392,6 +392,58 @@ try {
             for (const p of a.pts) if (b.pts.some((q) => Math.hypot(q.x - p.x, q.y - p.y) <= 6)) run += stride;
             if (run > 40) add('trazos-encimados', '', `dos trazos corren a menos de 6u durante ${Math.round(run)}u`);
           }
+        }
+
+        // 10. una punta sobre un texto: el triángulo del marcador no puede tocar
+        // una palabra. La etiqueta «μ−σ» del paso 2 de la gaussiana quedaba debajo
+        // de la punta de la flecha y el lector leía las dos cosas encimadas.
+        const headTriangle = (el) => {
+          const markerId = (el.getAttribute('marker-end') || '').match(/#([^)]*)/)?.[1];
+          const marker = markerId ? svg.querySelector(`marker[id="${markerId}"]`) : null;
+          if (!marker || !el.getTotalLength) return null;
+          const len = el.getTotalLength();
+          if (!len) return null;
+          const end = el.getPointAtLength(len), prev = el.getPointAtLength(Math.max(0, len - 0.01));
+          const dx = end.x - prev.x, dy = end.y - prev.y, mag = Math.hypot(dx, dy);
+          if (!mag) return null;
+          const ux = dx / mag, uy = dy / mag;
+          const vb = marker.viewBox.baseVal;
+          const units = marker.getAttribute('markerUnits') === 'userSpaceOnUse' ? 1 : (parseFloat(getComputedStyle(el).strokeWidth) || 1);
+          const sx = marker.markerWidth.baseVal.value / vb.width * units;
+          const sy = marker.markerHeight.baseVal.value / vb.height * units;
+          return [[0, 0], [12, 6], [0, 12]].map(([x, y]) => {
+            const a = (x - marker.refX.baseVal.value) * sx, b = (y - marker.refY.baseVal.value) * sy;
+            return { x: end.x + ux * a - uy * b, y: end.y + uy * a + ux * b };
+          });
+        };
+        const gapToText = (p, t) => Math.hypot(
+          Math.max(t.b.x - p.x, 0, p.x - (t.b.x + t.b.width)),
+          Math.max(t.b.y - p.y, 0, p.y - (t.b.y + t.b.height)));
+        for (const el of svg.querySelectorAll('path[marker-end], line[marker-end]')) {
+          if (el.closest('marker')) continue;
+          const tri = headTriangle(el);
+          if (!tri) continue;
+          const pts = [...tri];
+          for (let i = 0; i < 3; i++) {
+            for (let k = 1; k < 4; k++) pts.push({ x: tri[i].x + (tri[(i + 1) % 3].x - tri[i].x) * k / 4, y: tri[i].y + (tri[(i + 1) % 3].y - tri[i].y) * k / 4 });
+          }
+          pts.push({ x: (tri[0].x + tri[1].x + tri[2].x) / 3, y: (tri[0].y + tri[1].y + tri[2].y) / 3 });
+          const hit = texts.find((t) => t.step === stepOf(el) && pts.some((p) => gapToText(p, t) < 4));
+          if (hit) add('punta-sobre-texto', hit.s.slice(0, 40), 'la punta de la flecha toca el texto: mueve la etiqueta o la flecha');
+        }
+
+        // 11. una pieza declarada que no dibuja tinta: un icono o una figura que
+        // queda entera fuera del lienzo (el SVG la recorta) o con caja cero. El
+        // robot de «El problema que solo existe en el tiempo» se declaraba a 8
+        // unidades con 56 de ancho y el `viewBox` lo cortaba por la mitad.
+        const vb = svg.viewBox.baseVal;
+        for (const g of svg.querySelectorAll('[data-icon], [data-box], [data-actor], [data-path]')) {
+          const b = g.getBBox();
+          const outside = b.x + b.width <= vb.x || b.x >= vb.x + vb.width || b.y + b.height <= vb.y || b.y >= vb.y + vb.height;
+          const empty = !b.width && !b.height;
+          if (!outside && !empty) continue;
+          const what = g.dataset.icon || g.dataset.actor || g.textContent.trim().slice(0, 30) || 'una pieza';
+          add('pieza-invisible', what, outside ? 'queda entera fuera del lienzo y el SVG la recorta' : 'no dibuja tinta');
         }
 
         // 9. una flecha cortada por su etiqueta se lee como dos conectores: el tramo

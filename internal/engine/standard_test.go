@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"learning/internal/rules"
 )
 
 // The measured explanation standard: a part is one idea, and the standard says
@@ -188,7 +190,7 @@ func TestPartStandardRefusesAFormulaWithoutLegend(t *testing.T) {
 // With its legend the same formula passes: the rule is the legend, not the
 // formula.
 func TestPartStandardAcceptsAFormulaWithItsLegend(t *testing.T) {
-	f := standardFrontier(t)
+	f := standardFrontierOn(t, snapshotWithoutFormulaWalkthrough(t))
 	f.writeStandardPart(t, "El valor se escribe así:\n\n<lk-math>Q(s,a) = c/(1-\\gamma)</lk-math>\n\n"+
 		"Donde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n")
 	rep, code, c := standardCheck(t, f)
@@ -260,7 +262,7 @@ func TestPartStandardRefusesAFormulaSceneThatNeverNamesItsSymbols(t *testing.T) 
 // With one callout per symbol the same scene passes: the rule is the legend,
 // and the scene's callouts are the legend.
 func TestPartStandardAcceptsAFormulaSceneWhoseCalloutsNameEverySymbol(t *testing.T) {
-	f := standardFrontier(t)
+	f := standardFrontierOn(t, snapshotWithoutFormulaWalkthrough(t))
 	f.writeStandardPartWithScene(t, "La densidad se dibuja símbolo por símbolo.\n", annotatedFormulaScene)
 	rep, code, c := standardCheck(t, f)
 	if code != 0 || rep.Status != "accepted" {
@@ -615,7 +617,7 @@ func TestPartStandardRefusesPlainMathWithoutLegend(t *testing.T) {
 // The same plain math with its legend passes: the rule is the legend, and the
 // formula element is the fix a refusal names.
 func TestPartStandardAcceptsPlainMathWithItsLegend(t *testing.T) {
-	f := standardFrontier(t)
+	f := standardFrontierOn(t, snapshotWithoutFormulaWalkthrough(t))
 	f.writeStandardPart(t, "El valor se escribe así:\n\n$$Q(s,a) = c/(1-\\gamma)$$\n\n"+
 		"Donde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n")
 	rep, code, c := standardCheck(t, f)
@@ -860,4 +862,160 @@ func snapshotWithoutShapeKeys(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// snapshotWithoutFormulaWalkthrough is the production rules with the additive
+// formula-walkthrough key removed: a run frozen before the rule keeps accepting
+// the parts it accepted, exactly like the shape keys before it.
+func snapshotWithoutFormulaWalkthrough(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(productionRulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	if !ok {
+		t.Fatal("the production rules declare no partStandard block")
+	}
+	delete(block, "formulaWalkthrough")
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "standard-without-formula-walkthrough.json")
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// formulaStory is the formula walkthrough the rule asks for: the whole formula
+// first, one symbol per middle step, and the evaluated formula last.
+const formulaStory = `<lk-story>
+<script type="application/json">
+{"kind":"formula","title":"La densidad","viewBox":"0 0 360 250","formula":{"size":18,"atoms":[{"t":"f","id":"f"},{"t":"(","id":"open"},{"t":"x","id":"x"},{"t":")","id":"close"}]},
+ "steps":[
+  {"title":"La fórmula entera","focus":[],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la campana"}]}}},
+  {"title":"f: la densidad","focus":["f"],"narrator":"«f» es la densidad: la altura de la curva.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la altura"}]}}},
+  {"title":"x: el punto","focus":["x"],"narrator":"«x» es el punto que miras.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la latencia"}]}}},
+  {"title":"Con el ejemplo","focus":[],"narrator":"Con «x = 184», «f(184) = 0,000 65».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"el resultado"}]}}}
+ ]}
+</script>
+</lk-story>`
+
+// The first formula of a part is taught by a formula walkthrough: a bare
+// <lk-math> or a still scene is refused, and the refusal names the fix.
+func TestPartStandardRefusesAFormulaWithoutAFormulaWalkthrough(t *testing.T) {
+	f := standardFrontier(t)
+	f.writeStandardPart(t, "La densidad se escribe así:\n\n<lk-math>f(x) = 1/(\\sigma\\sqrt{2\\pi})\\,\\exp(-(x-\\mu)^2/(2\\sigma^2))</lk-math>\n\n"+
+		"Donde:\n\n- `f` es la densidad.\n- `x` es el punto.\n- `\\sigma` es el ancho.\n- `\\mu` es el centro.\n")
+	rep, code, c := standardCheck(t, f)
+	assertBlocked(t, rep, code)
+	if c.Status != "FAIL" || !strings.Contains(c.Reason, "formula walkthrough") {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL on the formula walkthrough", c.Status, c.Reason)
+	}
+	for _, fragment := range []string{"<lk-story kind=\"formula\">", "step 1 the whole formula", "its value in the example"} {
+		if !strings.Contains(c.Reason, fragment) {
+			t.Fatalf("reason %q misses %q", c.Reason, fragment)
+		}
+	}
+	t.Logf("formula walkthrough refusal: %s", c.Reason)
+}
+
+// With the formula walkthrough the same part passes: the rule is the deck, not
+// the formula.
+func TestPartStandardAcceptsAFormulaTaughtByAFormulaWalkthrough(t *testing.T) {
+	f := standardFrontier(t)
+	note := strings.Replace(standardNote("La densidad se explica paso a paso.\n"), fixtureWalkthrough, formulaStory, 1)
+	f.writePartNote(t, note)
+	rep, code, c := standardCheck(t, f)
+	if code != 0 || rep.Status != "accepted" {
+		t.Fatalf("advance explanation = %q (exit %d), want accepted: %+v", rep.Status, code, rep.Checks)
+	}
+	if c.Status != "PASS" {
+		t.Fatalf("explanation-standard = %s (%s), want PASS: the formula has its walkthrough", c.Status, c.Reason)
+	}
+}
+
+// A frozen snapshot that does not declare the formula-walkthrough key keeps
+// accepting the parts it accepted: the key is additive.
+func TestPartStandardSnapshotWithoutFormulaWalkthroughKeepsAccepting(t *testing.T) {
+	f := standardFrontierOn(t, snapshotWithoutFormulaWalkthrough(t))
+	f.writeStandardPart(t, "La densidad se escribe así:\n\n<lk-math>f(x) = 1/(\\sigma\\sqrt{2\\pi})</lk-math>\n\n"+
+		"Donde:\n\n- `f` es la densidad.\n- `x` es el punto.\n- `\\sigma` es el ancho.\n")
+	rep, code, c := standardCheck(t, f)
+	if code != 0 || rep.Status != "accepted" {
+		t.Fatalf("advance explanation = %q (exit %d), want accepted: %+v", rep.Status, code, rep.Checks)
+	}
+	if c.Status != "PASS" {
+		t.Fatalf("explanation-standard = %s (%s), want PASS: the key is additive", c.Status, c.Reason)
+	}
+}
+
+// The engine and the tutor's tool read the formula walkthrough the same way: the
+// first formula of the part without a formula story is refused by both, and both
+// name the fix; with the story, both accept it. The tutor runs
+// `node tools/explain-check.mjs` and must get the engine's verdict.
+func TestPartStandardReadsTheFormulaWalkthroughLikeExplainCheck(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: the tool cannot be run here")
+	}
+	tool, err := filepath.Abs("../../tools/explain-check.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tool); err != nil {
+		t.Skipf("explain-check.mjs is not here: %v", err)
+	}
+	row := func(note string) (bool, string) {
+		t.Helper()
+		file := filepath.Join(t.TempDir(), "parte.md")
+		if err := os.WriteFile(file, []byte(note), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, _ := exec.Command(node, tool, file, "--json").CombinedOutput()
+		var parsed struct {
+			Rows []struct {
+				Rule   string `json:"rule"`
+				OK     bool   `json:"ok"`
+				Detail string `json:"detail"`
+			} `json:"rows"`
+		}
+		if err := json.Unmarshal(out, &parsed); err != nil {
+			t.Fatalf("explain-check printed no JSON: %v\n%s", err, out)
+		}
+		for _, r := range parsed.Rows {
+			if r.Rule == "formula-walkthrough" {
+				return r.OK, r.Detail
+			}
+		}
+		t.Fatalf("explain-check printed no formula-walkthrough row: %s", out)
+		return false, ""
+	}
+
+	without := standardNote("La densidad se escribe así:\n\n<lk-math>f(x) = 1/(\\sigma\\sqrt{2\\pi})</lk-math>\n\n" +
+		"Donde:\n\n- `f` es la densidad.\n- `x` es el punto.\n- `\\sigma` es el ancho.\n")
+	if ok, detail := row(without); ok {
+		t.Fatalf("the tool accepts a formula the engine refuses: %s", detail)
+	} else if !strings.Contains(detail, "<lk-story kind=\"formula\">") {
+		t.Fatalf("the tool's refusal %q does not name the fix", detail)
+	}
+	if findings := formulaWalkthroughFindings(without, rules.PartStandardThresholds{FormulaWalkthrough: true}); len(findings) == 0 {
+		t.Fatal("the engine accepts a formula without its walkthrough")
+	} else if !strings.Contains(findings[0], "<lk-story kind=\"formula\">") {
+		t.Fatalf("the engine's refusal %q does not name the fix", findings[0])
+	}
+
+	with := strings.Replace(standardNote("La densidad se explica paso a paso.\n"), fixtureWalkthrough, formulaStory, 1)
+	if ok, detail := row(with); !ok {
+		t.Fatalf("the tool refuses the formula walkthrough the engine accepts: %s", detail)
+	}
+	if findings := formulaWalkthroughFindings(with, rules.PartStandardThresholds{FormulaWalkthrough: true}); len(findings) != 0 {
+		t.Fatalf("the engine refuses the formula walkthrough the tool accepts: %v", findings)
+	}
 }

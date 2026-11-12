@@ -240,8 +240,8 @@ button.secondary { background: transparent; color: var(--ink); }
   body.wide .prose > section > * { break-inside: avoid; }
   /* Una figura no se lee a medias: cruza las dos columnas y se dibuja una sola vez,
      en su lugar. Un deck es una figura con controles, y se trata igual. */
-  body.wide .prose > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, .mermaid),
-  body.wide .prose > section > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, .mermaid) { column-span: all; }
+  body.wide .prose > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, lk-story, .mermaid),
+  body.wide .prose > section > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, lk-story, .mermaid) { column-span: all; }
   body.wide .prose > h1 { max-width: 30em; }
   body.wide figure:has(svg), body.wide .mermaid { width: 100%; margin-left: 0; transform: none; }
   body.wide .note-pair { display: block; }
@@ -250,6 +250,7 @@ button.secondary { background: transparent; color: var(--ink); }
 /* Inside the note, the kit's interactive figures keep their component; these
    rules only bring their controls into the same paper language. */
 .prose .lk-walkthrough button,
+.prose .lk-story button,
 .prose .lk-wt-bar button {
   padding: 8px 13px;
   border: 1px solid var(--ink);
@@ -263,8 +264,10 @@ button.secondary { background: transparent; color: var(--ink); }
   text-transform: uppercase;
 }
 .prose .lk-walkthrough button:hover,
+.prose .lk-story button:hover,
 .prose .lk-wt-bar button:hover { background: var(--ink); color: #fff; }
 .prose .lk-walkthrough button:disabled,
+.prose .lk-story button:disabled,
 .prose .lk-wt-bar button:disabled { opacity: .32; background: transparent; color: var(--ink); cursor: default; }
 .prose .lk-walkthrough .lk-wt-dot,
 .prose .lk-wt-bar .lk-wt-dot {
@@ -273,6 +276,8 @@ button.secondary { background: transparent; color: var(--ink); }
 }
 .prose .lk-walkthrough .lk-wt-dot[aria-current="true"],
 .prose .lk-wt-bar .lk-wt-dot[aria-current="true"] { background: var(--accent) !important; }
+.prose .lk-story .lk-story-player button { font-size: 12px; letter-spacing: .1em; }
+.prose .lk-story .lk-story-count { font-size: 13px; letter-spacing: .12em; }
 .prose .lk-wt-count { font-family: var(--sans); font-size: 10.5px; letter-spacing: .18em; color: var(--muted); }
 .prose .lk-wt-full { padding: 6px 9px; border-radius: 0; border: 1px solid var(--hair); background: #fff; color: var(--muted); font-family: var(--sans); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; }
 .prose .lk-wt-full:hover { background: var(--ink); color: #fff; }

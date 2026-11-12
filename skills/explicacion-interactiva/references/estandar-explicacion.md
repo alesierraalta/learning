@@ -21,7 +21,7 @@ Presupuesto, medido, no estimado:
 | Secciones de contenido además de `## Ruta` y del heading del mini-quiz | 2 |
 | Líneas de `## Ruta` | 4 |
 | Escenas | 1 |
-| Recorridos (`lk-walkthrough`) | 1 |
+| Recorridos (`lk-walkthrough` o `lk-story`) | 1 |
 | Preguntas del mini-quiz | 3 |
 
 La forma también se mide, y caber no es cumplir: una parte de 411 palabras con dos secciones
@@ -33,6 +33,8 @@ rechaza eso también, con el arreglo escrito en el mensaje.
 | Escena dibujada | Al menos un `<lk-scene` cuyo payload dibuje algo (cajas, flechas, nodos, barras). El `<lk-walkthrough>` **no** la sustituye |
 | Ritmo de los párrafos | Dos frases por párrafo como máximo; una viñeta es su propia unidad |
 | Fórmula | Se dibuja como **fórmula anotada**: un callout numerado por símbolo, con su flecha y su nombre en la línea de `labels` («① μ: el centro»). `<lk-math>` queda para una cuenta, nunca para explicar una fórmula |
+| Recorrido de fórmula | La **primera fórmula** de la parte se enseña con `<lk-story kind="formula">`: paso 1 la fórmula entera, un paso por símbolo con qué es, para qué se usa y cuánto vale en el ejemplo, y el último con los números sustituidos y su resultado. Un `<lk-math>` suelto o una escena quieta no lo sustituyen |
+| Recorrido de derivación | Todo **ejercicio resuelto** se enseña con `<lk-story kind="derivation">`: una ecuación por paso, el término que cambia de lado con su flecha medida y su verbo, los términos que se combinan marcados y reemplazados por su resultado, y la respuesta enmarcada en el último paso |
 
 Los mensajes, literales, para reconocerlos y corregir sin adivinar:
 
@@ -45,26 +47,32 @@ skills/explicacion-interactiva/references/visuales.md
 sentence and one beat per paragraph
 formula symbol(s) sigma, f never named — draw the formula as an annotated formula scene: one
 numbered callout per symbol, each named in its labels line («① sigma: …»)
+the first formula in the part is not taught by a formula walkthrough — draw it as
+<lk-story kind="formula">: step 1 the whole formula, then one step per symbol with what it is,
+what it is used for and its value in the example, and the last step with the example's numbers
+substituted and its result
 ```
 
 Se corrige la parte, no el mensaje: la escena se dibuja con el vocabulario de `visuales.md`
 (nunca se declara una escena vacía para pasar el gate), el párrafo se parte en frases de una
 idea, y la fórmula se anota símbolo por símbolo con su callout y su nombre (§8 de
-`visuales.md`). La cuenta de párrafos es la misma que la de `node tools/explain-check.mjs`
-(`parrafos`), y un test cruza las dos; la leyenda es la misma en el motor y en la herramienta,
-y otro test cruza las dos.
+`visuales.md`), y se recorre con su recorrido de fórmula (§8b) o de derivación (§8c). La cuenta
+de párrafos es la misma que la de `node tools/explain-check.mjs` (`parrafos`), y un test cruza
+las dos; la leyenda es la misma en el motor y en la herramienta, y otro test cruza las dos; el
+recorrido de fórmula es el mismo en el motor (`formulaWalkthrough`) y en la herramienta
+(`formula-walkthrough`), y un tercer test cruza los dos veredictos.
 
 Se cuenta antes de entregar:
 
 ```bash
-sed '/^```/,/^```/d; /<lk-scene>/,/<\/lk-scene>/d; /<lk-walkthrough>/,/<\/lk-walkthrough>/d' "Parte N.md" | wc -w
+sed '/^```/,/^```/d; /<lk-scene>/,/<\/lk-scene>/d; /<lk-walkthrough>/,/<\/lk-walkthrough>/d; /<lk-story>/,/<\/lk-story>/d' "Parte N.md" | wc -w
 node tools/explain-check.mjs "Parte N.md"   # el estándar entero: tamaño, forma, leyenda
 ```
 
 Esa cuenta es la estimación rápida en el baúl. La medida exacta es la del motor
 (`explanation-standard`, `thresholds.partStandard` en `rules/deep.json`): prosa sin bloques de
 código, sin filas de tabla, sin títulos, sin etiquetas HTML sueltas y sin los bloques
-`lk-scene`/`lk-walkthrough`. El motor rechaza la parte con el número medido, el tope y la
+`lk-scene`/`lk-walkthrough`/`lk-story`. El motor rechaza la parte con el número medido, el tope y la
 corrección («split the part in two»), así que no hay que adivinar: se entrega y, si el motor la
 rechaza, se parte. El heading del mini-quiz no cuenta como sección de contenido: es el quiz que
 este mismo estándar pide.

@@ -2281,8 +2281,9 @@ async function readerPart(t, markdown, { theme = "light", width = 900, height = 
 // What the reader actually gets, measured in the browser: a callout whose guide
 // does not end on its glyph, a stroke over a word, ink that does not contrast
 // with its paper, a stage that drew nothing, a figure scaled above its viewBox.
-const MEASURE = () => {
-  const out = { empty: [], missed: [], overlaps: [], faint: [], scaled: [] };
+const MEASURE = (theme) => {
+  const out = { empty: [], missed: [], overlaps: [], faint: [], scaled: [], islands: [] };
+  const night = theme === "dark" || theme === "black";
   const rgb = (value) => {
     const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/.exec(value);
     return m ? { r: +m[1], g: +m[2], b: +m[3], a: m[4] === undefined ? 1 : +m[4] } : null;
@@ -2309,11 +2310,26 @@ const MEASURE = () => {
     if (!svg) { out.empty.push(`${stage.className}: no svg`); continue; }
     const box = svg.getBoundingClientRect();
     if (box.width < 40 || box.height < 40) out.empty.push(`${stage.className}: ${Math.round(box.width)}×${Math.round(box.height)}`);
-    // 1 unidad ≈ 1 píxel: la figura no crece porque la columna sea más ancha.
+    // Una figura crece hasta el ancho de una columna de lectura, con un tope de
+    // 1,6× su viewBox: en modo ancho el deck ya no queda flotando pequeño dentro
+    // del marco, y sus etiquetas nunca bajan del tamaño de lectura.
     const vb = svg.viewBox?.baseVal?.width || 0;
-    if (vb && box.width / vb > 1.02) out.scaled.push(`${stage.className}: ${Math.round(box.width)}px para un viewBox de ${Math.round(vb)} (${round(box.width / vb)}×)`);
+    if (vb && box.width / vb > 1.62) out.scaled.push(`${stage.className}: ${Math.round(box.width)}px para un viewBox de ${Math.round(vb)} (${round(box.width / vb)}×)`);
     // Un recorrido muestra un paso por vez: se mide cada paso, porque el que
     // nadie mira es donde el callout se desvía sin que se note.
+    // #209: a scene is one surface with the page. In the night papers no white sheet is
+    // drawn behind it and no piece of the drawing is filled white: that is the island.
+    if (night && !stage.closest(".lk-walkthrough")) {
+      const host = stage.closest("lk-scene, lk-figure") ?? stage;
+      const sheet = rgb(getComputedStyle(host).backgroundColor);
+      if (sheet && sheet.a > 0.9 && sheet.r > 240 && sheet.g > 240 && sheet.b > 240) out.islands.push(`${stage.className}: la hoja de la escena es blanca sobre el papel ${theme}`);
+      const white = [...svg.querySelectorAll("rect, circle, path")].filter((el) => {
+        if (el.closest("marker")) return false;
+        const fill = rgb(getComputedStyle(el).fill);
+        return fill && fill.a > 0.9 && fill.r > 240 && fill.g > 240 && fill.b > 240;
+      });
+      if (white.length) out.islands.push(`${stage.className}: ${white.length} pieza(s) se pintan de blanco sobre el papel ${theme}`);
+    }
     const steps = [...svg.querySelectorAll("[data-step]")];
     const shownNow = steps.map((g) => g.style.display);
     const passes = steps.length ? steps.map((_, i) => i + 1) : [0];
@@ -2339,6 +2355,9 @@ const MEASURE = () => {
         .filter((w) => w.text && w.box.width > 1);
       for (const path of svg.querySelectorAll("path[stroke]")) {
         if (path.closest("marker")) continue;
+        // A stroke of a step nobody is looking at crosses nothing: its geometry still
+        // answers getScreenCTM, so it has to be skipped by hand.
+        if (path.closest("[data-step]")?.style.display === "none") continue;
         const total = path.getTotalLength?.() ?? 0;
         if (!total) continue;
         for (let i = 0; i <= 32; i++) {
@@ -2361,6 +2380,32 @@ const MEASURE = () => {
 
 const MATRIX = ["light", "dark", "black"].flatMap((theme) => [["narrow", 900, false], ["wide", 1920, true]].map(([size, width, wide]) => ({ theme, size, width, wide })));
 
+// marked eats the backslash of `\;` `\!` `\,` before math.js sees it: the learner read
+// «x+2=3; ⟹; x=3−2» and «, exp!(». The formula goes to KaTeX exactly as written, in
+// the three forms a note uses: display dollars, inline dollars and the kit element.
+test("spacing commands reach KaTeX untouched in $$, $ and <lk-math>", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const note = [
+    "# Espacios", "",
+    "Display: $$x\\;=\\;1$$", "",
+    "Inline: $\\exp\\!(x)$ y fin.", "",
+    "<lk-math display>x + 2 = 3 \\;\\Longrightarrow\\; x = 3 - 2 \\;\\Longrightarrow\\; x = 1</lk-math>", "",
+    "Elemento en línea: <lk-math>\\exp\\!(x)\\,dx</lk-math> fin.", "",
+  ].join("\n");
+  const page = await readerPart(t, note);
+  await page.locator(".katex").first().waitFor({ timeout: 15000 });
+  await page.waitForFunction(() => document.querySelectorAll(".katex").length >= 4, null, { timeout: 15000 });
+  const seen = await page.evaluate(() => [...document.querySelectorAll(".katex")].map((k) => k.querySelector("annotation")?.textContent ?? ""));
+  assert.deepEqual(seen, [
+    "x\\;=\\;1",
+    "\\exp\\!(x)",
+    "x + 2 = 3 \\;\\Longrightarrow\\; x = 3 - 2 \\;\\Longrightarrow\\; x = 1",
+    "\\exp\\!(x)\\,dx",
+  ]);
+  // What the learner sees is the `.katex-html` layer: a stray «;» «!» or «,» there is the bug.
+  const visible = await page.evaluate(() => [...document.querySelectorAll(".katex-html")].map((k) => k.textContent));
+  assert.equal(visible.some((text) => /[;!,]/.test(text.replace(/[\u2061\u2063]/g, ""))), false, `a spacing command leaked into the formula: ${JSON.stringify(visible)}`);
+});
+
 // The reader's own prose must survive the reader: an inline `<lk-math>` inside a
 // paragraph is a code span, not an element that swallows the sentence.
 test("the part's prose reaches the reader whole, inline code included", { skip: !playwright && "playwright not installed" }, async (t) => {
@@ -2377,19 +2422,23 @@ test("every figure keeps its callouts on their glyphs, its stage drawn, its type
   const articles = [
     ["formula-anotada", example("formula-anotada.md")],
     ["curva-gaussiana", example("curva-gaussiana.md")],
+    ["formula-gaussiana", example("formula-gaussiana.md")],
+    // An lk-figure names tones, not colours: it has to follow the night paper too.
+    ["figura", `# Figura\n\n<lk-figure>\n<script type="application/json">\n${JSON.stringify({ title: "El almacén", aria: "Una rejilla con el robot y la salida", viewBox: "0 0 760 290", grids: [{ x: 16, y: 40, cols: 4, rows: 3, w: 82, h: 82, cells: [{ c: 0, r: 0, kind: "robot" }, { c: 3, r: 0, kind: "exit", label: "+1" }] }], arrows: [{ x1: 20, y1: 260, x2: 320, y2: 260, tone: "blue", label: "el robot sigue su política" }] })}\n</script>\n</lk-figure>\n`],
     ["parte", partNote()],
   ];
   for (const [name, markdown] of articles) {
     for (const { theme, size, width, wide } of MATRIX) {
       const page = await readerPart(t, markdown, { theme, width, wide });
-      await page.locator("lk-scene svg, lk-walkthrough svg").first().waitFor();
-      const seen = await page.evaluate(MEASURE);
+      await page.locator("lk-scene svg, lk-walkthrough svg, lk-figure svg").first().waitFor();
+      const seen = await page.evaluate(MEASURE, theme);
       const where = `${name} · ${theme} · ${size}`;
       assert.deepEqual(seen.empty, [], `${where}: una figura quedó sin dibujar`);
       assert.deepEqual(seen.missed, [], `${where}: un callout no termina en el símbolo que nombra`);
       assert.deepEqual(seen.overlaps, [], `${where}: un trazo cruza un texto`);
       assert.deepEqual(seen.faint, [], `${where}: la tinta de la figura no se lee sobre su papel`);
       assert.deepEqual(seen.scaled, [], `${where}: la figura se estira por encima de su viewBox`);
+      assert.deepEqual(seen.islands, [], `${where}: la escena es una isla blanca sobre el papel de noche`);
       await page.screenshot({ path: join(SHOTS, `figura-${name}-${theme}-${size}.png`), fullPage: true });
     }
   }
@@ -2456,4 +2505,239 @@ test("full screen grows the figure from wide mode", { skip: !playwright && "play
   });
   assert.ok(full.h >= full.screen[1] * 0.5 || full.w >= full.screen[0] * 0.5, `la figura no creció en pantalla completa: ${full.w}×${full.h} en ${full.screen.join("×")}`);
   await page.screenshot({ path: join(SHOTS, "wide-deck-fullscreen.png") });
+});
+
+// ── Formulas and exercises, step by step (#209) ─────────────────────────────
+// The learner asked for the formula to be shown whole and then symbol by symbol,
+// and for a worked exercise to show the arrow that moves a term across the
+// equation. Both are the same `<lk-story>` furniture: a header with the formula
+// or equation, a stage with the actors and the movement, a narrator and a player.
+// These tests render both examples through the real reader in every theme and
+// width, step through every step, and measure what the learner sees: a tag whose
+// elbow does not land on its piece, a moving-term arrow that does not start and
+// end on the two measured boxes, a label below the reading size, a figure that
+// grew past its cap.
+const STORY_SHOTS = "/tmp/209-shots";
+const STORY_MATRIX = ["light", "dark", "black"].flatMap((theme) => [
+  { theme, size: "narrow", width: 900, wide: false },
+  { theme, size: "wide", width: 1920, wide: true },
+]);
+
+const STORY_MEASURE = (_card, theme) => {
+  const out = { empty: [], missed: [], moves: [], tiny: [], scaled: [], focus: [], faint: [], islands: [], small: [] };
+  const gap = (p, b) => Math.hypot(Math.max(b.x - p.x, 0, p.x - b.right), Math.max(b.y - p.y, 0, p.y - b.bottom));
+  const rgb = (value) => {
+    const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/.exec(value);
+    return m ? { r: +m[1], g: +m[2], b: +m[3], a: m[4] === undefined ? 1 : +m[4] } : null;
+  };
+  const lum = ({ r, g, b }) => {
+    const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const ratio = (a, b) => { const [hi, lo] = lum(a) > lum(b) ? [lum(a), lum(b)] : [lum(b), lum(a)]; return (hi + 0.05) / (lo + 0.05); };
+  const paper = (node) => {
+    for (let el = node; el; el = el.parentElement) {
+      const c = rgb(getComputedStyle(el).backgroundColor);
+      if (c && c.a > 0.9) return c;
+    }
+    return { r: 255, g: 255, b: 255, a: 1 };
+  };
+  const night = theme === "dark" || theme === "black";
+  for (const story of document.querySelectorAll("lk-story")) {
+    const svg = story.querySelector("svg");
+    if (!svg) { out.empty.push("lk-story: no svg"); continue; }
+    const box = svg.getBoundingClientRect();
+    if (box.width < 40 || box.height < 40) out.empty.push(`lk-story: ${Math.round(box.width)}×${Math.round(box.height)}`);
+    const vb = svg.viewBox?.baseVal?.width || 0;
+    if (vb && box.width / vb > 1.62) out.scaled.push(`lk-story: ${Math.round(box.width)}px para un viewBox de ${Math.round(vb)}`);
+    const scale = vb ? box.width / vb : 1;
+    // One surface: the stage has no paper of its own, and it fills the card it lives in.
+    const card = story.getBoundingClientRect();
+    const stage = story.querySelector(".lk-story-stage");
+    const panel = stage.getBoundingClientRect();
+    const stagePaper = rgb(getComputedStyle(stage).backgroundColor);
+    const cardPaper = paper(story);
+    if (stagePaper && stagePaper.a > 0.05 && ratio(stagePaper, cardPaper) > 1.05) out.islands.push(`el escenario pinta ${getComputedStyle(stage).backgroundColor} sobre una tarjeta ${JSON.stringify(cardPaper)}`);
+    if (panel.width < card.width - 4) out.islands.push(`el escenario mide ${Math.round(panel.width)} px en una tarjeta de ${Math.round(card.width)} px`);
+    // The drawing is centred in its panel, not pushed to a side.
+    if (Math.abs((box.left + box.right) / 2 - (panel.left + panel.right) / 2) > 2) out.islands.push("el dibujo no queda centrado en su escenario");
+    const steps = [...svg.querySelectorAll("[data-step]")];
+    const shownNow = steps.map((g) => g.style.display);
+    for (const pass of steps.map((_, i) => i + 1)) {
+      steps.forEach((g) => { g.style.display = Number(g.dataset.step) === pass ? "" : "none"; });
+      const step = steps.find((g) => Number(g.dataset.step) === pass);
+      for (const tag of step.querySelectorAll("[data-tag-to]")) {
+        const target = step.querySelector(`[data-actor="${tag.dataset.tagTo}"], [data-box-id="${tag.dataset.tagTo}"], [data-label-id="${tag.dataset.tagTo}"], [data-icon-id="${tag.dataset.tagTo}"], [data-callout="${tag.dataset.tagTo}"]`);
+        const elbow = tag.querySelector("[data-elbow]");
+        if (!target || !elbow) { out.missed.push(`el rótulo «${tag.dataset.tagText}» no tiene destino`); continue; }
+        const end = elbow.getPointAtLength(elbow.getTotalLength());
+        const m = elbow.getScreenCTM();
+        const p = { x: m.a * end.x + m.c * end.y + m.e, y: m.b * end.x + m.d * end.y + m.f };
+        const gapPx = gap(p, target.getBoundingClientRect());
+        if (gapPx > 3) out.missed.push(`el rótulo «${tag.dataset.tagText}» queda a ${Math.round(gapPx)} px de su pieza`);
+      }
+      for (const move of step.querySelectorAll("[data-move-from]")) {
+        const from = step.querySelector(`[data-actor="${move.dataset.moveFrom}"]`);
+        const to = step.querySelector(`[data-actor="${move.dataset.moveTo}"]`);
+        const path = move.querySelector("[data-move-path]");
+        if (!from || !to || !path) { out.moves.push(`el movimiento ${move.dataset.moveFrom}→${move.dataset.moveTo} no tiene sus actores`); continue; }
+        const m = path.getScreenCTM();
+        const at = (len) => { const p = path.getPointAtLength(len); return { x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f }; };
+        const start = at(0), end = at(path.getTotalLength());
+        const startGap = gap(start, from.getBoundingClientRect());
+        const endGap = gap(end, to.getBoundingClientRect());
+        if (startGap > 3) out.moves.push(`la flecha de «${move.dataset.moveVerb}» no empieza en ${move.dataset.moveFrom} (${Math.round(startGap)} px)`);
+        if (endGap > 3) out.moves.push(`la flecha de «${move.dataset.moveVerb}» no termina en ${move.dataset.moveTo} (${Math.round(endGap)} px)`);
+      }
+      for (const t of step.querySelectorAll("text")) {
+        const text = t.textContent.trim();
+        const size = Number(t.getAttribute("font-size")) || 0;
+        if (!text || !size) continue;
+        const px = size * scale;
+        if (px < 14) out.tiny.push(`«${text.slice(0, 20)}» a ${px.toFixed(1)} px`);
+        const ink = rgb(getComputedStyle(t).fill);
+        if (ink) {
+          const c = ratio(ink, cardPaper);
+          if (c < 4.5) out.faint.push(`«${text.slice(0, 20)}» ${Math.round(c * 10) / 10}:1`);
+        }
+      }
+      // In the night papers no white surface is drawn: a white fill is the island.
+      if (night) {
+        for (const el of step.querySelectorAll("rect, circle, path")) {
+          if (el.closest("marker")) continue;
+          const fill = rgb(getComputedStyle(el).fill);
+          if (fill && fill.a > 0.9 && fill.r > 240 && fill.g > 240 && fill.b > 240) { out.islands.push("una pieza del escenario se pinta de blanco sobre el papel de noche"); break; }
+        }
+      }
+      out.focus.push({ step: pass, focused: [...story.querySelectorAll(".lk-token[data-focus='1']")].map((t) => t.dataset.atom) });
+    }
+    steps.forEach((g, i) => { g.style.display = shownNow[i]; });
+    // The narrator and the header equation are the most readable things on the card.
+    const size = (selector) => parseFloat(getComputedStyle(story.querySelector(selector)).fontSize);
+    if (size(".lk-story-narrator") < 17) out.small.push(`el narrador mide ${size(".lk-story-narrator")} px (mínimo 17)`);
+    if (size(".lk-story-formula") < 22) out.small.push(`la ecuación de la cabecera mide ${size(".lk-story-formula")} px (mínimo 22)`);
+    const chip = story.querySelector(".lk-story-narrator .lk-chip");
+    if (chip && parseFloat(getComputedStyle(chip).fontSize) < 15) out.small.push("las fichas del narrador bajan de 15 px");
+  }
+  return out;
+};
+
+// The focus ids each step declares, read from the example's JSON, so the header
+// highlight is checked against the step it belongs to.
+const storyFocus = (markdown) => {
+  const spec = JSON.parse(/<lk-story>[\s\S]*?<script type="application\/json">([\s\S]*?)<\/script>/.exec(markdown)[1]);
+  return spec.steps.map((step) => step.focus ?? []);
+};
+
+for (const [name, file] of [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"]]) {
+  test(`the ${name} walkthrough anchors every tag and moving term and keeps its labels at reading size, in every theme and width`, { skip: !playwright && "playwright not installed" }, async (t) => {
+    mkdirSync(STORY_SHOTS, { recursive: true });
+    const markdown = example(file);
+    const focus = storyFocus(markdown);
+    for (const { theme, size, width, wide } of STORY_MATRIX) {
+      const page = await readerPart(t, markdown, { theme, width, wide });
+      const story = page.locator("lk-story").first();
+      await story.locator("svg").waitFor();
+      const steps = await story.locator(".lk-story-seg").count();
+      for (let s = 0; s < steps; s++) {
+        if (s > 0) await story.getByRole("button", { name: "Paso siguiente" }).click();
+        await story.locator(".lk-story-count").filter({ hasText: `${s + 1} / ${steps}` }).waitFor();
+        await page.waitForTimeout(60);
+        const seen = await story.evaluate(STORY_MEASURE, theme);
+        const where = `${name} · ${theme} · ${size} · paso ${s + 1}`;
+        assert.deepEqual(seen.empty, [], `${where}: el recorrido quedó sin dibujar`);
+        assert.deepEqual(seen.missed, [], `${where}: un rótulo no termina en su pieza`);
+        assert.deepEqual(seen.moves, [], `${where}: la flecha del término no empieza y termina en sus dos cajas medidas`);
+        assert.deepEqual(seen.tiny, [], `${where}: una etiqueta se dibuja por debajo del tamaño de lectura`);
+        assert.deepEqual(seen.scaled, [], `${where}: la figura creció por encima de su tope`);
+        assert.deepEqual(seen.islands, [], `${where}: el recorrido no es una sola hoja (isla blanca o escenario que no llena la tarjeta)`);
+        assert.deepEqual(seen.faint, [], `${where}: la tinta del escenario no se lee sobre el papel`);
+        assert.deepEqual(seen.small, [], `${where}: el narrador o la cabecera bajan del tamaño de lectura`);
+        const focused = seen.focus.find((f) => f.step === s + 1)?.focused ?? [];
+        assert.deepEqual(focused, focus[s], `${where}: la cabecera no resalta los átomos del paso`);
+        // The story itself, never the full page: a full-page capture drags the fixed
+        // progress bar and the wide-mode button into the middle of the figure.
+        await story.screenshot({ path: join(STORY_SHOTS, `${name}-${theme}-${size}-paso-${s + 1}.png`) });
+        if ((theme === "black" && wide) || (theme === "light" && !wide)) {
+          await story.scrollIntoViewIfNeeded();
+          await page.screenshot({ path: join(STORY_SHOTS, `${name}-${theme}-${size}-paso-${s + 1}-vista.png`) });
+        }
+      }
+      await page.close();
+    }
+  });
+}
+
+test("full screen grows both walkthroughs and keeps their labels at reading size", { skip: !playwright && "playwright not installed" }, async (t) => {
+  mkdirSync(STORY_SHOTS, { recursive: true });
+  for (const [name, file] of [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"]]) {
+    const page = await readerPart(t, example(file), { theme: "black", width: 1920, height: 1080, wide: true });
+    const story = page.locator("lk-story").first();
+    await story.locator("svg").waitFor();
+    await story.getByRole("button", { name: "Paso siguiente" }).click();
+    await page.waitForTimeout(80);
+    await story.evaluate((node) => node.requestFullscreen?.());
+    await page.waitForFunction(() => document.fullscreenElement?.tagName === "LK-STORY");
+    await page.waitForTimeout(250);
+    const full = await story.evaluate((node) => {
+      const svg = node.querySelector("svg");
+      const box = svg.getBoundingClientRect();
+      const scale = svg.viewBox?.baseVal?.width ? box.width / svg.viewBox.baseVal.width : 1;
+      const labels = [...node.querySelectorAll("svg text")].map((t) => ({
+        text: t.textContent.trim(),
+        px: (Number(t.getAttribute("font-size")) || 0) * scale,
+      })).filter((l) => l.text);
+      const html = [...node.querySelectorAll(".lk-story-formula, .lk-story-narrator, .lk-story-player")].map((el) => ({ text: el.className, px: parseFloat(getComputedStyle(el).fontSize) }));
+      return { w: Math.round(box.width), h: Math.round(box.height), screen: [innerWidth, innerHeight], labels: [...labels, ...html] };
+    });
+    assert.ok(full.h >= full.screen[1] * 0.4 || full.w >= full.screen[0] * 0.4, `la figura no creció en pantalla completa: ${full.w}×${full.h} en ${full.screen.join("×")}`);
+    const tiny = full.labels.filter((l) => l.px && l.px < 14);
+    assert.deepEqual(tiny, [], `${name}: una etiqueta se dibuja por debajo del tamaño de lectura en pantalla completa`);
+    await page.screenshot({ path: join(STORY_SHOTS, `${name}-black-fullscreen.png`) });
+    await page.close();
+  }
+});
+
+// The six icon kinds the kit draws: each one has to put visible ink on the
+// stage in the reader, in every theme and width. The robot of «El problema que
+// solo existe en el tiempo» was declared at x 8 with size 56, so half of it sat
+// outside the viewBox and the SVG clipped it; the icon's default white fill on
+// white paper left only a 2-unit outline. Both are fixed: the tone's soft fill
+// and a centre kept inside the canvas.
+test("all six icon kinds draw visible ink in the reader, in every theme and width", { skip: !playwright && "playwright not installed" }, async (t) => {
+  mkdirSync(STORY_SHOTS, { recursive: true });
+  const kinds = ["robot", "house", "doc", "person", "coin", "gear"];
+  const spec = {
+    viewBox: "0 0 760 200",
+    title: "Los seis iconos",
+    caption: "Cada icono dibuja su objeto con la tinta de su tono.",
+    scene: { icons: kinds.map((kind, i) => ({ kind, id: kind, x: 70 + i * 124, y: 90, size: 56, tone: ["blue", "green", "amber", "red", "blue", "green"][i] })) },
+  };
+  const markdown = `# Los seis iconos\n\nUn icono se dibuja con la tinta de su tono.\n\n<lk-scene>\n<script type="application/json">\n${JSON.stringify(spec)}\n</script>\n</lk-scene>\n`;
+  for (const { theme, size, width, wide } of STORY_MATRIX) {
+    const page = await readerPart(t, markdown, { theme, width, wide });
+    await page.locator("lk-scene svg").waitFor();
+    const seen = await page.evaluate((kinds) => {
+      const svg = document.querySelector("lk-scene svg");
+      const vb = svg.viewBox.baseVal;
+      return kinds.map((kind) => {
+        const g = svg.querySelector(`[data-icon="${kind}"]`);
+        if (!g) return { kind, why: "no se dibujó" };
+        const b = g.getBBox();
+        const inside = b.x >= vb.x - 1 && b.y >= vb.y - 1 && b.x + b.width <= vb.x + vb.width + 1 && b.y + b.height <= vb.y + vb.height + 1;
+        const inked = [...g.querySelectorAll("circle, path, rect")].some((el) => {
+          const fill = el.getAttribute("fill");
+          const stroke = el.getAttribute("stroke");
+          return (fill && fill !== "#ffffff" && fill !== "none") || (stroke && stroke !== "#ffffff" && stroke !== "none");
+        });
+        return { kind, w: b.width, h: b.height, inside, inked };
+      });
+    }, kinds);
+    const where = `${theme} · ${size}`;
+    assert.deepEqual(seen.filter((s) => s.why || s.w < 10 || s.h < 10), [], `${where}: un icono no dibuja tinta`);
+    assert.deepEqual(seen.filter((s) => !s.inside), [], `${where}: un icono queda fuera del lienzo`);
+    assert.deepEqual(seen.filter((s) => !s.inked), [], `${where}: un icono no tiene tinta`);
+    await page.screenshot({ path: join(STORY_SHOTS, `iconos-${theme}-${size}.png`), fullPage: true });
+    await page.close();
+  }
 });

@@ -55,3 +55,26 @@ test("the page global and the module export are the same object", () => {
   assert.equal(globalThis.lkMath, api, "the browser global is what a script tag sees");
   assert.equal(typeof api.render, "function");
 });
+
+// marked eats the backslash of an escaped punctuation mark (`\;` `\!` `\,`), so a
+// formula the kit element carries reached KaTeX as «x+2=3; ⟹; x=3−2». The element
+// is lifted out before marked, like the dollars: its body is a formula, not markdown.
+test("a formula element is lifted out of the markdown before marked sees it", () => {
+  const { text, blocks } = extract("Antes\n\n<lk-math display>x \\;\\Longrightarrow\\; y</lk-math>\n\ndespués");
+  assert.deepEqual(blocks, [{ display: true, tex: "x \\;\\Longrightarrow\\; y" }]);
+  assert.equal(text.includes("lk-math"), false);
+  assert.equal(text.includes("LKMATHD0LKEND"), true);
+});
+
+test("an inline formula element stays inline and keeps its spacing commands", () => {
+  const { text, blocks } = extract("Vale <lk-math>\\exp\\!(x)\\,dx</lk-math> siempre");
+  assert.deepEqual(blocks, [{ display: false, tex: "\\exp\\!(x)\\,dx" }]);
+  assert.equal(text.replace("LKMATHS0LKEND", "?"), "Vale ? siempre");
+});
+
+test("the element named in a code span is prose, not a formula", () => {
+  const note = "Va con `<lk-math>` y su cuenta.\n\n<lk-math>a</lk-math>";
+  const { text, blocks } = extract(note);
+  assert.deepEqual(blocks, [{ display: false, tex: "a" }]);
+  assert.equal(text.startsWith("Va con `<lk-math>` y su cuenta."), true);
+});

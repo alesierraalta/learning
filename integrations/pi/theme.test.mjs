@@ -153,13 +153,23 @@ const ruleBody = (css, head) => {
   return at === -1 ? null : css.slice(at + head.length, css.indexOf("}", at));
 };
 
-test("a figure keeps its light paper on both night themes, not on one of them", () => {
+// #209: the story followed the night paper while a still scene stayed a white island
+// right above it. A scene is one surface with the page: in both night themes its stage
+// paints with the page paper and its tones are remapped for contrast, and the remap is
+// one selector list so neither night theme is left without it. A mermaid diagram keeps
+// its own light sheet.
+test("a scene follows both night papers: remapped tones, no white island", () => {
   const css = readFileSync(join(import.meta.dirname, "kit", "kit.css"), "utf8");
   const night = ':root:is([data-theme="dark"], [data-theme="black"])';
-  for (const [selector, what] of [["lk-scene", "la escena"], ["pre.mermaid", "el diagrama de mermaid"]]) {
-    const body = ruleBody(css, `${night} ${selector} {`);
-    assert.ok(body, `${what} no tiene hoja clara en los dos papeles de noche: en el negro queda con tinta oscura sobre el fondo`);
-    assert.match(body, /background: #fff/, `${what} no conserva su hoja`);
-    assert.match(body, /color: var\(--ink\)/, `${what} hereda la tinta clara del papel de noche`);
+  assert.equal(ruleBody(css, `${night} lk-scene {`), null, "la escena ya no tiene una hoja clara propia en los papeles de noche");
+  assert.doesNotMatch(css, /lk-scene \.lk-scene-caption \{ color: rgba\(15, 46, 61/, "el pie de la escena sigue el papel de noche");
+  const remap = css.match(/:is\(:root\[data-theme="dark"\], :root\[data-theme="black"\]\) \.lk-remap [^{]*\{[^}]*\}/g) ?? [];
+  assert.ok(remap.length >= 14, "los tonos del dibujo se remapean para los dos papeles de noche en una sola lista");
+  assert.ok(remap.some((rule) => /fill="#ffffff"/i.test(rule) && /var\(--paper\)/.test(rule)), "la superficie blanca del dibujo se pinta con el papel");
+  for (const [tone, ink] of [["#004276", "#8FC0E0"], ["#21594F", "#7FCBAE"], ["#8A6B3F", "#E0B583"], ["#CC405C", "#EE93A4"]]) {
+    assert.ok(remap.some((rule) => rule.includes(tone) && /fill:var\(--k-/.test(rule)), `el tono ${tone} se remapea`);
+    assert.match(css, new RegExp(`--k-[a-z]+:${ink}`, "i"), `${ink} es la tinta de noche de ${tone}`);
   }
+  const mermaid = ruleBody(css, `${night} pre.mermaid {`);
+  assert.ok(mermaid && /background: #fff/.test(mermaid) && /color: var\(--ink\)/.test(mermaid), "el diagrama de mermaid conserva su hoja clara");
 });
