@@ -78,8 +78,16 @@ add('historia', lenguajeDeHistoria, lenguajeDeHistoria ? '' :
 const quiz = /lk-(quick-)?quiz|mini-quiz|##\s*Mini-quiz/i.test(src);
 add('mini-quiz', quiz, quiz ? '' : 'no hay mini-quiz');
 
+// Un flujo escrito con guiones es geometría escrita, no dibujada: `--->`, `---[`,
+// `-->`, `==>`, `<--`. La regla de ASCII de la prosa y la de la cabecera usan el
+// mismo patrón (#246).
+const FLECHAS_DE_TEXTO = /-{2,}>|={2,}>|-{2,}\[|<-{2,}|<=+/;
+
 // 6. ASCII dibujado: la geometría se dibuja, no se escribe.
-const ascii = src.split('\n').filter((l) => /[┌┐└┘├┤┬┴┼│╔╗╚╝║█▓▒░]|─+[►▶▸]/.test(l));
+// La geometría se dibuja, no se escribe: las cajas ASCII y las flechas de texto
+// (`--->`, `---[`, `==>`) son la misma falta (#246). El código cercado es un
+// ejemplo, no un dibujo, y no se mide.
+const ascii = sinCodigo.split('\n').filter((l) => /[┌┐└┘├┤┬┴┼│╔╗╚╝║█▓▒░]|─+[►▶▸]/.test(l) || FLECHAS_DE_TEXTO.test(l));
 add('ascii', ascii.length === 0, ascii.length ? `${ascii.length} línea(s) dibujadas con caracteres` : '');
 
 // 6b. El ritmo: frases cortas y un párrafo que no sea un muro. El estándar
@@ -284,8 +292,188 @@ const pasoDibujaAccion = (step) => {
   return VOCABULARIO.some((k) => declara(scene[k]));
 };
 const soloCajas = historiasSpecs.filter((spec) => (spec.steps || []).length > 0 && (spec.steps || []).every((step) => !pasoDibujaAccion(step)));
-add('escenario-de-cajas', soloCajas.length === 0, soloCajas.length
-  ? `todos los pasos de la historia dibujan solo cajas con texto · dibuja la acción: ${VOCABULARIO.filter((k) => k !== 'arrows').join(', ')}; o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>`
+
+// 7e. El personaje (#245): un actor es un personaje con su dibujo, no un
+// rectángulo con su nombre. El kit dibuja diez personajes con `kind` —el cilindro
+// de la base de datos, la fila, la sesión, el candado, el usuario, el servidor, el
+// proceso, el archivo, el paquete y el robot— y una historia cuyos actores son
+// todos cajas, cuando el nombre de alguno nombra un personaje, es un hallazgo. Se
+// lee del JSON, sin navegador, y el motor aplica la misma regla
+// (`actorCharacterFindings` en `internal/engine/standard.go`).
+const PERSONAJES = [
+  ['database', /base de datos|\bbd\b|\bdisco\b|\bbase\b/i],
+  ['row', /\bfila\b|\bregistro\b|\bcuenta\b|\btupla\b/i],
+  ['session', /\bsesi[oó]n\b|\bconexi[oó]n\b/i],
+  ['lock', /\bbloqueo\b|\bcerrojo\b|\btransacci[oó]n\b/i],
+  ['user', /\busuario\b|\bpersona\b|\bcliente\b|\balumno\b/i],
+  ['server', /\bservidor\b|\bhost\b/i],
+  ['process', /\bproceso\b|\bprograma\b|\bbloque\b|\bscript\b/i],
+  ['file', /\barchivo\b|\bdocumento\b|\bficha\b/i],
+  ['packet', /\bpaquete\b|\btrama\b|\bpacket\b|\bpetici[oó]n\b|\bmensaje\b/i],
+  ['robot', /\brobot\b|\bagente\b/i],
+];
+const PERSONAJES_DIBUJABLES = PERSONAJES.map(([kind]) => kind).join(', ');
+const actoresDe = (spec) => (spec.steps || []).flatMap((step) => {
+  const stage = step?.stage || {};
+  const scene = stage.scene || stage;
+  return (scene.actors || []).map((a) => ({ ...a, step: step?.title || '' }));
+});
+const personajeDe = (label) => PERSONAJES.find(([, re]) => re.test(String(label || '')))?.[0];
+const dibujaPersonaje = (a) => Boolean(a.kind || a.icon);
+const sinPersonaje = historiasSpecs
+  .map((spec) => {
+    const actores = actoresDe(spec);
+    if (!actores.length || actores.some(dibujaPersonaje)) return null;
+    const encajan = actores.map((a) => ({ label: a.label, kind: personajeDe(a.label) })).filter((x) => x.kind);
+    return encajan.length ? { spec, encajan } : null;
+  })
+  .filter(Boolean);
+add('actor-sin-personaje', sinPersonaje.length === 0, sinPersonaje.length
+  ? `los actores de «${sinPersonaje[0].spec.title || 'la historia'}» son cajas con su nombre — «${sinPersonaje[0].encajan[0].label}» es un ${sinPersonaje[0].encajan[0].kind}: dibújalo con \`kind\` («${sinPersonaje[0].encajan[0].kind}») y su nombre en \`tag\`; los personajes son ${PERSONAJES_DIBUJABLES}`
+  : '');
+
+// 7f. La escena quieta se mide con el mismo rasero que el escenario del recorrido
+// (#245): una `<lk-scene>` que solo dibuja cajas con su texto y flechas es «dos
+// cajas y una flecha», el defecto que el alumno rechazó. Una pieza, un personaje,
+// un icono, una curva, una fórmula o un callout la salvan; el motor aplica la
+// misma regla (`sceneStageFindings`).
+const DIBUJO_DE_ESCENA = ['actors', 'props', 'icons', 'nodes', 'grids', 'sheets', 'bars', 'stats',
+  'formulas', 'formula', 'curves', 'paths', 'dashed', 'badges', 'callouts', 'policy', 'tags'];
+const escenasSpecs = [];
+for (const m of sinCodigo.matchAll(/<lk-scene[^>]*>[\s\S]*?<\/lk-scene>/g)) {
+  const payload = m[0].match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+  if (!payload) continue;
+  try { escenasSpecs.push(JSON.parse(payload[1])); } catch {}
+}
+const escenasDeCajas = escenasSpecs.filter((spec) => {
+  const scene = spec.scene || {};
+  if (DIBUJO_DE_ESCENA.some((k) => declara(scene[k]))) return false;
+  return declara(scene.boxes) || declara(scene.arrows);
+});
+add('escenario-de-cajas', soloCajas.length === 0 && escenasDeCajas.length === 0,
+  [
+    soloCajas.length
+      ? `todos los pasos de la historia dibujan solo cajas con texto · dibuja la acción: ${VOCABULARIO.filter((k) => k !== 'arrows').join(', ')}; o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>`
+      : '',
+    escenasDeCajas.length
+      ? `la escena quieta «${escenasDeCajas[0].title || 'sin título'}» solo dibuja cajas con su texto y flechas · dibuja el personaje (<lk-scene> con \`actors\` y \`kind\`) o usa la pieza que le toca: <lk-memory>, <lk-tables>, <lk-venn>, <lk-cards>`
+      : '',
+  ].filter(Boolean).join(' · '));
+
+// 7g. La pieza que le toca a la idea (#245). Dos casos medibles: el código que
+// cambia filas guardadas (INSERT/UPDATE/DELETE/JOIN) se cuenta con `lk-tables` o
+// `lk-memory`, y el contraste entre el código que compila y el que falla se cuenta
+// con `lk-cards`. La tabla de decisión vive en la skill; aquí se mide lo que se
+// puede medir sin juicio.
+const bloquesCodigo = [...src.matchAll(/```[a-zA-Z]*\n([\s\S]*?)```/g)].map((m) => m[1]);
+const codigo = bloquesCodigo.join('\n');
+const cambiaFilas = /\b(INSERT|UPDATE|DELETE|JOIN)\b/i.test(codigo);
+const traeTablasOMemoria = /<lk-(tables|memory)[\s>]/.test(sinCodigo);
+const contrastaCodigo = bloquesCodigo.length >= 2 &&
+  /no compila|error de compilaci[oó]n|compile error|does not compile|no compile|falla al compilar|panic:/i.test(src);
+const traeTarjetas = /<lk-cards[\s>]/.test(sinCodigo);
+const piezasQueFaltan = [
+  cambiaFilas && !traeTablasOMemoria
+    ? 'el código cambia filas guardadas (INSERT/UPDATE/DELETE/JOIN) · cuéntalo con <lk-tables> (filas y relaciones) o <lk-memory> (estado en memoria o en disco a lo largo del tiempo)'
+    : '',
+  contrastaCodigo && !traeTarjetas
+    ? 'la parte contrasta el código que compila con el que falla · dibújalo con <lk-cards> (la regla frente a la violación, con su código)'
+    : '',
+].filter(Boolean);
+add('pieza-adecuada', piezasQueFaltan.length === 0, piezasQueFaltan.join(' · '));
+
+// 7h. Lo que midió el banco (#246). Tres defectos que ninguna puerta medía y que
+// las cinco partes del banco repitieron: el recorrido que no mueve nada, la
+// cabecera escrita como esquema de flechas y las claves que el esquema no lee.
+// Las tres se leen del JSON, sin navegador, y el motor las aplica con claves
+// aditivas (`storyMotion`, `arrowFlows`, `deadKeys`).
+
+// (a) El recorrido se mueve: una historia de derivación cuyos pasos no mueven
+// nada —ni un `moves`, ni un cambio de estado, ni una pieza que cambie, ni un
+// puntero— es la misma foto tres veces. Una historia de fórmula no entra: su
+// avance es el token resaltado de la cabecera.
+const escenaDelPaso = (step) => {
+  const stage = step?.stage || {};
+  return stage.scene || stage;
+};
+// La historia se mueve si algo cambia en cualquier paso: un movimiento, un actor
+// que en algún paso está en otro estado, una pieza que en algún paso está en
+// otro estado, o un puntero que cambia. Un actor que aparece o una pieza que se
+// reemplaza no cuentan: eso es la foto, no la acción.
+const senalesDeLaHistoria = (steps) => {
+  const cambios = new Map();
+  const anota = (key, value) => {
+    if (!cambios.has(key)) cambios.set(key, new Set());
+    cambios.get(key).add(value);
+  };
+  const piezas = [], punteros = [];
+  let moves = 0;
+  for (const step of steps) {
+    const stage = step?.stage || {};
+    const scene = stage.scene || stage;
+    moves += (scene.moves || []).length;
+    for (const a of scene.actors || []) anota(`actor:${a.id}`, a.state || 'active');
+    for (const p of scene.props || []) anota(`prop:${p.id}`, `${p.label || ''}|${p.state || ''}|${p.tone || ''}`);
+    const piece = ['cards', 'memory', 'tables', 'venn'].map((k) => stage[k]).find(Boolean);
+    piezas.push(piece ? JSON.stringify(piece) : '');
+    punteros.push([...JSON.stringify(stage).matchAll(/"points"\s*:\s*"([^"]*)"/g)].map((m) => m[1]).join('|'));
+  }
+  const cambiaEstado = [...cambios.values()].some((set) => set.size > 1);
+  const cambiaPieza = piezas.some((p, i) => i > 0 && p !== piezas[i - 1]);
+  const cambiaPuntero = punteros.some((p, i) => i > 0 && p !== punteros[i - 1]);
+  return moves > 0 || cambiaEstado || cambiaPieza || cambiaPuntero;
+};
+const historiasQuietas = historiasSpecs.filter((spec) => {
+  const steps = spec.steps || [];
+  if ((spec.kind || '') !== 'derivation' || steps.length < 2) return false;
+  return !senalesDeLaHistoria(steps);
+});
+add('historia-quieta', historiasQuietas.length === 0, historiasQuietas.length
+  ? `la historia «${historiasQuietas[0].title || 'sin título'}» no mueve nada en ${historiasQuietas[0].steps.length} paso(s): ni un movimiento (\`moves\`), ni un cambio de estado de sus actores, ni una pieza que cambie · dibuja la acción paso a paso, no la misma foto repetida`
+  : '');
+
+// (b) La cabecera es la línea de código o la fórmula, nunca un esquema de flechas.
+const conFlechas = [];
+for (const spec of historiasSpecs) {
+  const atoms = (spec.kind === 'derivation'
+    ? (spec.steps || []).flatMap((step) => step?.equation?.atoms || [])
+    : (spec.formula?.atoms || []));
+  for (const atom of atoms) {
+    const text = typeof atom === 'string' ? atom : atom?.t || '';
+    if (FLECHAS_DE_TEXTO.test(text)) { conFlechas.push({ where: 'la cabecera de la historia', text: text.trim() }); break; }
+  }
+}
+for (const spec of escenasSpecs) {
+  const scene = spec.scene || {};
+  for (const label of [...(scene.labels || []), ...(scene.boxes || [])]) {
+    const text = label?.text || label?.label || '';
+    if (FLECHAS_DE_TEXTO.test(text)) { conFlechas.push({ where: 'una etiqueta de la escena', text: text.trim() }); break; }
+  }
+}
+add('cabecera-con-flechas', conFlechas.length === 0, conFlechas.length
+  ? `${conFlechas[0].where} es un esquema en texto («${conFlechas[0].text}»): la cabecera lleva la línea de código o la fórmula, y el flujo se dibuja con actores y movimientos, nunca con \`--->\` o \`---[\``
+  : '');
+
+// (c) Las claves que el esquema no lee: un paso con `scene` al lado de `stage`
+// declara un dibujo que nadie dibuja. El escenario vive en `stage` y su dibujo en
+// `stage.scene`; lo demás es dato muerto que enseña mal el esquema al tutor.
+const CLAVES_DEL_PASO = new Set(['title', 'narrator', 'equation', 'focus', 'stage', 'say', 'header']);
+const CLAVES_DEL_ESCENARIO = new Set(['scene', 'cards', 'memory', 'tables', 'venn', 'caption']);
+const CLAVES_DE_LA_ESCENA = new Set(['actors', 'props', 'moves', 'tags', 'marks', 'icons', 'callouts',
+  'curves', 'paths', 'formulas', 'formula', 'grids', 'sheets', 'gears', 'boxes', 'arrows', 'nodes',
+  'bars', 'stats', 'policy', 'badges', 'dashed', 'labels', 'title', 'aria', 'caption']);
+const clavesMuertas = [];
+for (const spec of historiasSpecs) {
+  for (const [i, step] of (spec.steps || []).entries()) {
+    for (const key of Object.keys(step || {})) if (!CLAVES_DEL_PASO.has(key)) clavesMuertas.push({ step: i + 1, path: key });
+    const stage = step?.stage || {};
+    for (const key of Object.keys(stage)) if (!CLAVES_DEL_ESCENARIO.has(key)) clavesMuertas.push({ step: i + 1, path: `stage.${key}` });
+    const scene = stage.scene || {};
+    for (const key of Object.keys(scene)) if (!CLAVES_DE_LA_ESCENA.has(key)) clavesMuertas.push({ step: i + 1, path: `stage.scene.${key}` });
+  }
+}
+add('clave-muerta', clavesMuertas.length === 0, clavesMuertas.length
+  ? `el paso ${clavesMuertas[0].step} lleva \`${clavesMuertas[0].path}\`, que el esquema no lee · el escenario vive en \`stage\` y su dibujo en \`stage.scene\`; las claves del paso son ${[...CLAVES_DEL_PASO].join(', ')}`
   : '');
 
 // 8. Las figuras conviven: se delega en scene-lint, que abre un navegador.

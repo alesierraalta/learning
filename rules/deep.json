@@ -135,7 +135,12 @@
       "formulaWalkthrough": true,
       "storyLanguage": true,
       "storyHeader": true,
-      "storyStage": true
+      "storyStage": true,
+      "actorCharacter": true,
+      "sceneStage": true,
+      "storyMotion": true,
+      "arrowFlows": true,
+      "deadKeys": true
     },
     "pareto": {
       "maxParts": 4,

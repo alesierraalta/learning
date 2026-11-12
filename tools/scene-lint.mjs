@@ -420,8 +420,12 @@ try {
         // una flecha con etiqueta tienen que llegar a una pieza o a un texto. Si el
         // texto se encogió dentro de su hueco, el trazo queda colgando antes de sus
         // palabras: la línea que «no llega» es esto.
+        // Un personaje o una pieza es un dibujo, no un conector (#245): los trazos
+        // de un icono —el polígono del engranaje, el cuerpo curvo del cilindro— no
+        // tienen que «llegar» a nada, y medirlos como flechas rechazaba la escena
+        // que el alumno sí lee. Los conectores siguen midiéndose igual.
         const strokes = [...svg.querySelectorAll('path')]
-          .filter((p) => !p.closest('marker'))
+          .filter((p) => !p.closest('marker') && !p.closest('[data-icon], [data-prop-id], [data-actor]'))
           .map((p) => {
             const len = p.getTotalLength ? p.getTotalLength() : 0;
             const pts = [];
@@ -545,21 +549,23 @@ try {
           }
         }
 
-        // 13. una marca suelta (#243): un ✓ o un ✗ aprueba un actor, una pieza o un
-        // resultado con nombre. Entre dos cajas y sin nombre cae en el hueco que las
-        // separa y no se sabe qué aprobó —el alumno lo vio en la Parte 1 de PL/SQL,
+        // 13. una marca suelta (#243, #245): un ✓ o un ✗ aprueba un actor, una pieza
+        // o un resultado con nombre. Entre dos cajas y sin nombre cae en el hueco que
+        // las separa y no se sabe qué aprobó —el alumno lo vio en la Parte 1 de PL/SQL,
         // donde el ✓ de COMMIT flotaba entre las dos cuentas—; lejos de su ancla, no
-        // aprueba nada.
+        // aprueba nada. Y una marca con nombre tampoco se explica sola: el nombre dice
+        // qué aprobó, no a quién, así que su centro tiene que caer sobre su dueño y no
+        // en el hueco entre dos actores (#245).
         for (const g of svg.querySelectorAll('[data-mark-kind]')) {
           const kind = g.dataset.markKind || 'ok';
           const label = g.dataset.markLabel || '';
           const ids = String(g.dataset.markActors || '').split(',').filter(Boolean);
           const between = String(g.dataset.markBetween || '').split(',').filter(Boolean);
           const anchors = ids.length ? ids : between;
-          // Un resultado con nombre se explica solo: el nombre dice qué aprobó.
-          if (label) continue;
           if (anchors.length > 1) {
-            add('marca-suelta', `${kind}: ${anchors.join(', ')}`, `aprueba ${anchors.length} piezas a la vez y no lleva su nombre: ponle su nombre (\`label\`) o marca la pieza que lo aprueba`);
+            // Un resultado entre dos piezas se explica con su nombre: dice qué pasa
+            // de una a otra. Sin nombre, no se sabe qué aprobó.
+            if (!label) add('marca-suelta', `${kind}: ${anchors.join(', ')}`, `aprueba ${anchors.length} piezas a la vez y no lleva su nombre: ponle su nombre (\`label\`) o marca la pieza que lo aprueba`);
             continue;
           }
           if (!anchors.length) {
@@ -575,7 +581,68 @@ try {
           if (!target) continue;
           const a = glyph.getBBox(), b = target.getBBox();
           const gap = Math.hypot(Math.max(b.x - (a.x + a.width), 0, a.x - (b.x + b.width)), Math.max(b.y - (a.y + a.height), 0, a.y - (b.y + b.height)));
-          if (gap > 16) add('marca-suelta', `${kind}: ${anchors[0]}`, `el glifo queda a ${gap.toFixed(0)}u de lo que aprueba: pégalo a su actor o a su pieza`);
+          if (gap > 16) { add('marca-suelta', `${kind}: ${anchors[0]}`, `el glifo queda a ${gap.toFixed(0)}u de lo que aprueba: pégalo a su actor o a su pieza`); continue; }
+          // La marca con dueño se pega a su dueño, nunca al hueco (#245): si su
+          // caja cae entre su dueño y otra pieza —o su centro queda más cerca de
+          // otra—, «✓ acreditado» flota entre los dos cofres y no aprueba a nadie.
+          const tol = 6;
+          const cx = a.x + a.width / 2, owner = b.x + b.width / 2;
+          const others = [...scope.querySelectorAll('[data-actor], [data-prop-id], [data-box-id]')]
+            .filter((el) => el !== target)
+            .map((el) => {
+              const q = el.getBBox();
+              return { id: el.dataset.actor || el.dataset.propId || el.dataset.boxId, box: q, cx: q.x + q.width / 2 };
+            });
+          const inGap = others.filter((o) => {
+            const lo = Math.min(b.x + b.width, o.box.x + o.box.width), hi = Math.max(b.x, o.box.x);
+            return hi - lo > 0 && a.x >= lo - tol && a.x + a.width <= hi + tol;
+          });
+          const nearer = others.filter((o) => Math.abs(o.cx - cx) < Math.abs(owner - cx) - 0.5);
+          if (inGap.length || nearer.length) {
+            const why = inGap.length
+              ? `su caja cae en el hueco entre su dueño y ${inGap[0].id}`
+              : `su centro está más cerca de ${nearer[0].id} que de su dueño`;
+            add('marca-suelta', `${kind}: ${anchors[0]}`, `la marca queda en el hueco: ${why} · pégala a su actor o a su pieza, nunca al hueco entre dos`);
+          }
+        }
+
+        // 14. una fila torcida (#245): dos actores que van uno al lado del otro —sus
+        // figuras se solapan en vertical— comparten línea base. Un estado que dibuja
+        // marco y candado agrandaba la caja medida de un actor, su ficha subía y su
+        // cofre bajaba, y la fila se veía torcida. Se mide la figura (el personaje o
+        // la caja), no el borde decorado, y la ficha de su nombre.
+        {
+          const figureOf = (el) => el.querySelector('[data-figure]') || el;
+          // Una ficha es de su paso: la misma cuenta lleva ficha en todos los pasos y
+          // la última tapaba a las demás si el mapa iba solo por id.
+          const tagOf = new Map([...svg.querySelectorAll('[data-tag-to]')].map((t) => [`${stepOf(t)}|${t.dataset.tagTo}`, t]));
+          const actors = [...svg.querySelectorAll('[data-actor]')].map((el) => {
+            const f = figureOf(el).getBBox();
+            const tag = tagOf.get(`${stepOf(el)}|${el.dataset.actor}`);
+            return { id: el.dataset.actor, step: stepOf(el), figure: f, cy: f.y + f.height / 2, tag: tag ? tag.getBBox() : null };
+          });
+          // Una fila son dos actores uno al lado del otro —sus figuras no se pisan
+          // en horizontal— a menos de una figura de distancia en vertical. Más lejos
+          // ya no es una fila: es otro renglón del dibujo.
+          const sideBySide = (a, b) => {
+            const across = Math.min(a.figure.x + a.figure.width, b.figure.x + b.figure.width) - Math.max(a.figure.x, b.figure.x);
+            return across <= Math.min(a.figure.width, b.figure.width) * 0.2;
+          };
+          for (let i = 0; i < actors.length; i++) {
+            for (let j = i + 1; j < actors.length; j++) {
+              const a = actors[i], b = actors[j];
+              if (a.step !== b.step || !sideBySide(a, b)) continue;
+              const reach = Math.max(a.figure.height, b.figure.height) * 2;
+              if (Math.abs(a.cy - b.cy) > reach) continue;
+              const ids = `${a.id}, ${b.id}`;
+              const figures = Math.abs(a.cy - b.cy);
+              if (figures > 6) add('fila-torcida', ids, `los centros de sus personajes difieren en ${figures.toFixed(0)}u (máximo 6): tiende la fila desde el marco más grande, estado incluido`);
+              if (a.tag && b.tag) {
+                const tags = Math.abs((a.tag.y + a.tag.height / 2) - (b.tag.y + b.tag.height / 2));
+                if (tags > 6) add('fila-torcida', ids, `sus fichas de nombre quedan a ${tags.toFixed(0)}u de altura (máximo 6): la fila se lee torcida`);
+              }
+            }
+          }
         }
 
         // 9. una flecha cortada por su etiqueta se lee como dos conectores: el tramo
