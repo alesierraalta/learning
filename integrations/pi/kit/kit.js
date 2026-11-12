@@ -1185,6 +1185,511 @@
     draw();
   });
 
+  // ===== piezas visuales: tarjetas de veredicto, memoria, tablas unidas, conjuntos =====
+  // Cada pieza es JSON declarativo anclado por ids. Se dibujan en HTML (el lector las
+  // apila o las junta según el ancho que tienen) y lo que se une con un trazo (un
+  // puntero, un conector) se mide sobre lo que el navegador dibujó, nunca con una
+  // coordenada que el autor adivine: el trazo nace y muere en una ancla
+  // (`data-anchor`) y `piece-measure.mjs` comprueba que llega.
+  // Una ficha en línea: «texto» se dibuja como un chip y *texto* como una palabra
+  // clave con el color del acento. El narrador y los títulos no escriben HTML.
+  function inline(text) {
+    const frag = document.createDocumentFragment();
+    const source = String(text ?? '');
+    const re = /«([^»]+)»|\*([^*]+)\*/g;
+    let last = 0, m;
+    while ((m = re.exec(source))) {
+      if (m.index > last) frag.append(document.createTextNode(source.slice(last, m.index)));
+      frag.append(m[1] !== undefined ? el('span', m[1], { class: 'lk-chip' }) : el('span', m[2], { class: 'lk-key' }));
+      last = re.lastIndex;
+    }
+    if (last < source.length) frag.append(document.createTextNode(source.slice(last)));
+    return frag;
+  }
+  const PIECE_TONES = ['green', 'red', 'amber', 'blue', 'slate'];
+  const toneOf = (tone, fallback = 'slate') => (PIECE_TONES.includes(tone) ? tone : fallback);
+  const svgNode = (markup) => document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true);
+  const svgPart = (tag, attrs = {}, text) => {
+    const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  function readSpec(host, what) {
+    try { return JSON.parse(host.querySelector('script[type="application/json"]').textContent); }
+    catch (error) { throw new Error(`${what} tiene un JSON inválido: ${error.message}`); }
+  }
+  // Un objeto del dibujo de una ficha: un verbo (lee, escribe) o un valor, con la
+  // tinta de la propia ficha. Reusa las piezas de la escena; un tipo desconocido
+  // no dibuja nada y la ficha queda con su texto.
+  function chipIcon(kind) {
+    const S = window.LKScene;
+    const markup = S && (S.prop(kind, 11, 11, 18, { stroke: 'currentColor', fill: 'none' }) || S.icon(kind, 11, 11, 18, { stroke: 'currentColor', fill: 'none' }));
+    if (!markup) return null;
+    const icon = svgNode(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" aria-hidden="true">${markup}</svg>`);
+    icon.setAttribute('class', 'lk-pchip-icon');
+    return icon;
+  }
+  function pieceChip(chip, extra = '') {
+    const spec = typeof chip === 'string' ? { text: chip } : chip;
+    const node = el('span', undefined, { class: `lk-pchip${extra}`, 'data-tone': toneOf(spec.tone) });
+    const icon = spec.icon ? chipIcon(spec.icon) : null;
+    if (icon) node.append(icon);
+    node.append(el('span', spec.text ?? ''));
+    return node;
+  }
+  const arrowDown = () => {
+    const svg = svgPart('svg', { viewBox: '0 0 14 26', class: 'lk-parrow', 'aria-hidden': 'true' });
+    svg.append(svgPart('path', { d: 'M 7 1 V 22 M 2 16 L 7 23 L 12 16', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    return svg;
+  };
+
+  // #218: de dos a cuatro casos lado a lado. Cada tarjeta lleva su veredicto en una
+  // píldora, un título, el dibujo mínimo del caso y una línea de razón; la que falla
+  // se tiñe de rojo. Es para código: compila / no compila, correcto / error.
+  function cardsPiece(spec) {
+    const cards = Array.isArray(spec.cards) ? spec.cards : [];
+    if (cards.length < 2 || cards.length > 4) throw new Error('Las tarjetas de veredicto necesitan de 2 a 4 casos');
+    const root = el('div', undefined, { class: 'lk-p lk-cards', role: 'list', 'data-n': String(cards.length) });
+    cards.forEach((c, i) => {
+      const bad = c.verdict === 'no';
+      const card = el('article', undefined, { class: 'lk-card', role: 'listitem', 'data-verdict': bad ? 'no' : 'ok', 'data-anchor': c.id ?? `card-${i + 1}` });
+      card.append(el('span', c.pill || (bad ? 'ERROR' : 'CORRECTO'), { class: 'lk-pill', 'data-tone': bad ? 'red' : 'green' }));
+      const title = el('h4', undefined, { class: 'lk-card-title' });
+      title.append(inline(c.title));
+      card.append(title);
+      const draw = el('div', undefined, { class: 'lk-card-draw' });
+      const refs = (c.draw?.refs || []).map((r) => pieceChip(r));
+      if (refs.length) { const row = el('div', undefined, { class: 'lk-card-refs' }); row.append(...refs); draw.append(row); }
+      if (refs.length && c.draw?.target) { const arrow = el('span', undefined, { class: 'lk-card-arrow', 'data-tone': bad ? 'red' : 'slate' }); arrow.append(arrowDown()); draw.append(arrow); }
+      if (c.draw?.target) draw.append(pieceChip(c.draw.target, ' lk-pchip-target'));
+      card.append(draw, el('p', c.reason || '', { class: 'lk-card-reason' }));
+      root.append(card);
+    });
+    return root;
+  }
+
+  // #219: el estado de la memoria en pasos numerados. Cada paso repite la línea de
+  // código que explica (insignia con su número y la línea), tiene sus columnas
+  // (STACK / HEAP), celdas segmentadas (ptr | len | cap), píldoras de estado (dueña,
+  // movida) y un puntero que sale de una celda y llega a las celdas de su destino.
+  // Una celda inválida se dibuja a trazos y tachada, y su puntero muere en una ✗. El
+  // puntero nombra su destino por id; `placeMemory` lo traza midiendo las cajas que
+  // el navegador dibujó, y lo repite cuando cambian el ancho, la fuente o el tema.
+  let memoryMarkers = 0;
+  function memoryGroup(g) {
+    const invalid = g.state === 'invalid';
+    const group = el('div', undefined, { class: 'lk-mgroup', 'data-state': invalid ? 'invalid' : 'live' });
+    if (g.name || g.pill) {
+      const head = el('div', undefined, { class: 'lk-mhead' });
+      if (g.name) head.append(el('span', g.name, { class: 'lk-mname' }));
+      if (g.pill) head.append(el('span', g.pill.text, { class: 'lk-pill', 'data-tone': toneOf(g.pill.tone) }));
+      group.append(head);
+    }
+    const strip = el('div', undefined, { class: 'lk-mcells', 'data-anchor': g.id, 'data-tone': toneOf(g.tone) });
+    (g.cells || []).forEach((cell, i) => strip.append(el('span', typeof cell === 'string' ? cell : cell.text, { class: 'lk-mcell', 'data-anchor': `${g.id}.${i}` })));
+    group.append(strip);
+    return group;
+  }
+  function memoryBody(step, columns) {
+    const body = el('div', undefined, { class: 'lk-mbody' });
+    body.style.setProperty('--cols', String(columns.length));
+    for (const c of columns) body.append(el('div', c.label, { class: 'lk-mcolhead' }));
+    const rows = step.rows || [], ids = new Set(), pointers = [], dead = [];
+    for (const row of rows) for (const c of columns) {
+      const g = row[c.id];
+      if (!g) { body.append(el('div', undefined, { class: 'lk-mgap' })); continue; }
+      if (!g.id) throw new Error(`Una celda de ${c.label} no tiene id: el puntero la nombra por su id`);
+      ids.add(g.id);
+      body.append(memoryGroup(g));
+      if (g.state === 'invalid') dead.push(g);
+      else if (g.points) pointers.push(g);
+    }
+    for (const g of pointers) {
+      if (!ids.has(g.points)) throw new Error(`El puntero de «${g.id}» apunta a «${g.points}», que el paso no tiene`);
+    }
+    const overlay = svgPart('svg', { class: 'lk-mover', 'aria-hidden': 'true' });
+    const defs = svgPart('defs');
+    const marker = (tone) => {
+      const id = `lk-mh-${++memoryMarkers}`;
+      const m = svgPart('marker', { id, viewBox: '0 0 8 8', refX: 8, refY: 4, markerWidth: 8, markerHeight: 8, orient: 'auto', markerUnits: 'userSpaceOnUse', 'data-tone': tone });
+      m.append(svgPart('path', { d: 'M 0 0 L 8 4 L 0 8 Z' }));
+      defs.append(m);
+      return id;
+    };
+    overlay.append(defs);
+    for (const g of pointers) {
+      const tone = toneOf(g.tone, 'slate');
+      overlay.append(svgPart('path', { class: 'lk-mptr', fill: 'none', 'data-from': g.id, 'data-to': g.points, 'data-tone': tone, 'marker-end': `url(#${marker(tone)})` }));
+    }
+    for (const g of dead) {
+      overlay.append(svgPart('path', { class: 'lk-mptr lk-mdead', fill: 'none', 'data-from': g.id, 'data-tone': 'red' }));
+      overlay.append(svgPart('text', { class: 'lk-mcross', 'data-cross': g.id, 'data-tone': 'red', 'font-size': 18, 'font-weight': 700 }, '✗'));
+    }
+    body.append(overlay);
+    return body;
+  }
+  function memoryPiece(spec) {
+    const columns = Array.isArray(spec.columns) ? spec.columns : [];
+    if (!columns.length) throw new Error('El diagrama de memoria necesita sus columnas (STACK, HEAP…)');
+    const numbered = Array.isArray(spec.steps);
+    const steps = numbered ? spec.steps : Array.isArray(spec.rows) ? [spec] : [];
+    if (!steps.length) throw new Error('El diagrama de memoria necesita pasos');
+    const root = el('div', undefined, { class: 'lk-p lk-memory', 'data-piece': 'memory' });
+    steps.forEach((step, i) => {
+      const card = el('section', undefined, { class: 'lk-mstep' });
+      if (numbered && step.code !== undefined) {
+        const head = el('div', undefined, { class: 'lk-mstephead' });
+        head.append(el('span', String(i + 1), { class: 'lk-mbadge' }), el('code', step.code, { class: 'lk-mcode' }));
+        card.append(head);
+      }
+      card.append(memoryBody(step, columns));
+      root.append(card);
+    });
+    return root;
+  }
+  // Un puntero sale del borde derecho de su celda, a la altura de su centro, y
+  // llega al borde izquierdo de su destino; uno muerto sale igual, corto y a trazos,
+  // y termina en la ✗. Todo en coordenadas del cuerpo del paso, medidas ahora.
+  function placeMemory(body) {
+    const svg = body.querySelector(':scope > .lk-mover');
+    if (!svg) return;
+    const b = body.getBoundingClientRect();
+    if (!b.width) return;
+    svg.setAttribute('width', b.width.toFixed(1));
+    svg.setAttribute('height', b.height.toFixed(1));
+    svg.setAttribute('viewBox', `0 0 ${b.width.toFixed(1)} ${b.height.toFixed(1)}`);
+    const rect = (id) => {
+      const node = body.querySelector(`[data-anchor="${CSS.escape(id)}"]`);
+      if (!node) return null;
+      const r = node.getBoundingClientRect();
+      return { left: r.left - b.left, right: r.right - b.left, cy: (r.top + r.bottom) / 2 - b.top };
+    };
+    const f = (n) => n.toFixed(1);
+    for (const path of svg.querySelectorAll('path[data-from]')) {
+      const from = rect(path.dataset.from);
+      if (!from) continue;
+      if (path.dataset.to) {
+        const to = rect(path.dataset.to);
+        if (!to) continue;
+        const ex = to.left, dx = (ex - from.right) / 2;
+        path.setAttribute('d', Math.abs(to.cy - from.cy) < 3
+          ? `M ${f(from.right)} ${f(from.cy)} L ${f(ex)} ${f(from.cy)}`
+          : `M ${f(from.right)} ${f(from.cy)} C ${f(from.right + dx)} ${f(from.cy)}, ${f(ex - dx)} ${f(to.cy)}, ${f(ex)} ${f(to.cy)}`);
+      } else {
+        // El trazo y su ✗ caben en el hueco que separa a esta celda de la siguiente de
+        // su fila (o del borde del cuerpo): nunca encima de las celdas vecinas.
+        const next = [...body.querySelectorAll('.lk-mcells')].map((c) => c.getBoundingClientRect())
+          .filter((r) => r.left - b.left > from.right + 1 && r.top - b.top < from.cy && r.bottom - b.top > from.cy)
+          .map((r) => r.left - b.left);
+        const room = (next.length ? Math.min(...next) : b.width) - from.right;
+        const end = from.right + Math.min(40, Math.max(10, room - 28));
+        path.setAttribute('d', `M ${f(from.right)} ${f(from.cy)} L ${f(end)} ${f(from.cy)}`);
+        const cross = svg.querySelector(`[data-cross="${CSS.escape(path.dataset.from)}"]`);
+        if (cross) { cross.setAttribute('x', f(end + 6)); cross.setAttribute('y', f(from.cy + 6)); }
+      }
+    }
+  }
+
+  // #220: tablas reales unidas por conectores, y la transformación GROUP BY. Cada
+  // tabla lleva su cabecera y sus filas (monoespaciadas); las filas de un grupo se
+  // tiñen con el color de su coincidencia; un conector curvo sale de la celda clave
+  // de una tabla y llega a la fila que coincide en la otra (un color por
+  // coincidencia), la condición va en una píldora y el resultado debajo. Las
+  // coincidencias y el resultado se derivan de los datos de la nota, así que nunca
+  // se contradicen; los conectores nombran celdas y filas por id y `placeTables` los
+  // traza midiendo lo que el navegador dibujó. `show` descubre las partes de a poco
+  // (tablas, links, on, result; rows, groups) para usarlas como pasos de un
+  // recorrido.
+  const MATCH_TONES = ['blue', 'green', 'amber', 'red', 'slate'];
+  const arrowRight = () => { const a = arrowDown(); a.classList.add('lk-parrow-side'); return a; };
+  function tableRef(tables, ref) {
+    const [id, column] = String(ref || '').split('.');
+    const table = tables.find((t) => t.id === id);
+    const col = table ? (table.columns || []).indexOf(column) : -1;
+    if (!table || col < 0) throw new Error(`El JOIN nombra «${ref}», que las tablas de la nota no tienen`);
+    return { table, col };
+  }
+  function dataTable(id, name, columns, rows, { keyCol = -1, tones = [], anchorKeys = false, anchorRows = false, nulls = [] } = {}) {
+    const wrap = el('div', undefined, { class: 'lk-ttable', 'data-table': id });
+    if (name) wrap.append(el('div', name, { class: 'lk-tname' }));
+    const grid = el('table', undefined, { class: 'lk-tgrid' });
+    const head = el('tr');
+    columns.forEach((c, j) => head.append(el('th', c, j === keyCol ? { 'data-key': '1' } : {})));
+    const thead = el('thead'); thead.append(head);
+    const tbody = el('tbody');
+    rows.forEach((row, i) => {
+      const tr = el('tr');
+      if (anchorRows) tr.setAttribute('data-anchor', `${id}:${i}`);
+      if (tones[i]) tr.setAttribute('data-tone', tones[i]);
+      row.forEach((cell, j) => {
+        const td = el('td', cell);
+        if (anchorKeys && j === keyCol) td.setAttribute('data-anchor', `${id}:${i}.${j}`);
+        if (nulls[i]?.[j]) td.classList.add('lk-tnull');
+        tr.append(td);
+      });
+      tbody.append(tr);
+    });
+    grid.append(thead, tbody);
+    wrap.append(grid);
+    return wrap;
+  }
+  function joinView(spec, show) {
+    const tables = Array.isArray(spec.tables) ? spec.tables : [];
+    if (!tables.length) throw new Error('Las tablas necesitan al menos una tabla con sus filas');
+    const view = el('div', undefined, { class: 'lk-tview' });
+    const join = spec.join;
+    let from, to, matches = [], tonesOf = () => '';
+    if (join) {
+      if (tables.length !== 2) throw new Error('Un JOIN une dos tablas');
+      from = tableRef(tables, join.from);
+      to = tableRef(tables, join.to);
+      for (const row of from.table.rows) matches.push(to.table.rows.findIndex((r) => String(r[to.col]) === String(row[from.col])));
+      const order = [...new Set(matches.filter((k) => k >= 0))];
+      const colorOf = (k) => MATCH_TONES[order.indexOf(k) % MATCH_TONES.length];
+      const lit = join.highlight === 'all' ? null : new Set((join.highlight || []).map(String));
+      const tinted = (key) => join.highlight === 'all' || lit.has(String(key));
+      tonesOf = (k, key) => (k >= 0 && tinted(key) ? colorOf(k) : '');
+      view.colorOf = colorOf;
+    }
+    const wide = el('div', undefined, { class: 'lk-tjoin' });
+    tables.forEach((t, n) => {
+      const isFrom = join && t === from.table, isTo = join && t === to.table;
+      const tones = isFrom ? t.rows.map((r, i) => tonesOf(matches[i], r[from.col]))
+        : isTo ? t.rows.map((r, k) => (matches.includes(k) ? tonesOf(k, r[to.col]) : ''))
+          : [];
+      wide.append(dataTable(t.id, t.name, t.columns || [], t.rows || [], { keyCol: isFrom ? from.col : isTo ? to.col : -1, tones, anchorKeys: Boolean(isFrom), anchorRows: Boolean(isTo) }));
+      if (join && n === 0) wide.append(el('div', undefined, { class: 'lk-tgutter' }));
+    });
+    if (join && show.has('links')) {
+      const overlay = svgPart('svg', { class: 'lk-mover', 'aria-hidden': 'true' });
+      const defs = svgPart('defs');
+      const dots = new Map();
+      const dot = (tone) => {
+        if (!dots.has(tone)) {
+          const id = `lk-td-${++memoryMarkers}`;
+          const m = svgPart('marker', { id, viewBox: '0 0 8 8', refX: 4, refY: 4, markerWidth: 8, markerHeight: 8, markerUnits: 'userSpaceOnUse', 'data-tone': tone });
+          m.append(svgPart('circle', { cx: 4, cy: 4, r: 3 }));
+          defs.append(m);
+          dots.set(tone, id);
+        }
+        return dots.get(tone);
+      };
+      matches.forEach((k, i) => {
+        if (k < 0) return;
+        const tone = view.colorOf(k);
+        overlay.append(svgPart('path', { class: 'lk-tlink', fill: 'none', 'data-from': `${from.table.id}:${i}.${from.col}`, 'data-to': `${to.table.id}:${k}`, 'data-tone': tone, 'marker-end': `url(#${dot(tone)})` }));
+      });
+      overlay.prepend(defs);
+      wide.append(overlay);
+    }
+    view.append(wide);
+    if (join && show.has('on') && join.on) {
+      const on = el('div', undefined, { class: 'lk-ton' });
+      on.append(el('b', 'ON'), document.createTextNode(` ${join.on}`));
+      view.append(on);
+    }
+    if (join && show.has('result') && spec.result) {
+      const picks = (spec.result.select || []).map((ref) => tableRef(tables, ref));
+      if (!picks.length) throw new Error('El resultado necesita `select`: las columnas que se piden');
+      const rows = [], tones = [], nulls = [];
+      from.table.rows.forEach((row, i) => {
+        const k = matches[i];
+        if (k < 0 && join.kind !== 'left') return;
+        const cells = picks.map((p) => (p.table === from.table ? row[p.col] : k >= 0 ? to.table.rows[k][p.col] : 'NULL'));
+        rows.push(cells);
+        nulls.push(picks.map((p) => p.table !== from.table && k < 0));
+        tones.push(tonesOf(k, row[from.col]));
+      });
+      const below = el('div', undefined, { class: 'lk-tbelow' });
+      below.append(arrowDown(), el('div', spec.result.label || 'RESULTADO', { class: 'lk-tlabel' }));
+      below.append(dataTable('result', '', picks.map((p) => p.table.columns[p.col]), rows, { tones, nulls }));
+      view.append(below);
+    }
+    return view;
+  }
+  function groupView(group, show) {
+    const columns = group.columns || [], rows = group.rows || [];
+    const by = columns.indexOf(group.by) >= 0 ? columns.indexOf(group.by) : columns.length - 1;
+    if (!rows.length) throw new Error('El GROUP BY necesita filas');
+    const lit = new Set((group.highlight || []).map(String));
+    const view = el('div', undefined, { class: 'lk-tgroup' });
+    const labels = group.labels || {};
+    const left = el('div', undefined, { class: 'lk-gcol' });
+    left.append(el('div', labels.from || 'FILAS ORIGINALES', { class: 'lk-gtitle' }));
+    for (const row of rows) {
+      const item = el('div', undefined, { class: 'lk-grow' });
+      if (lit.has(String(row[by]))) item.setAttribute('data-tone', 'green');
+      row.forEach((cell, j) => item.append(el('span', cell, j === 0 ? { class: 'lk-gfirst' } : {})));
+      left.append(item);
+    }
+    view.append(left);
+    if (show.has('groups')) {
+      const mid = el('div', undefined, { class: 'lk-gmid' });
+      mid.append(el('b', 'GROUP BY'), el('span', columns[by] ?? ''), arrowRight());
+      const right = el('div', undefined, { class: 'lk-gcol' });
+      right.append(el('div', labels.to || 'GRUPOS + COUNT', { class: 'lk-gtitle' }));
+      const groups = new Map();
+      for (const row of rows) {
+        const key = String(row[by]);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(row.filter((_, j) => j !== by).join(' · '));
+      }
+      for (const [key, values] of groups) {
+        const card = el('div', undefined, { class: 'lk-ggroup' });
+        if (lit.has(key)) card.setAttribute('data-tone', 'green');
+        const chips = el('div', undefined, { class: 'lk-gchips' });
+        chips.append(...values.map((v) => pieceChip(v)));
+        card.append(el('b', key, { class: 'lk-gname' }), chips, el('span', String(values.length), { class: 'lk-gcount' }));
+        right.append(card);
+      }
+      view.append(mid, right);
+    }
+    return view;
+  }
+  function tablesPiece(spec) {
+    const root = el('div', undefined, { class: 'lk-p lk-tables', 'data-piece': 'tables' });
+    root.append(spec.group ? groupView(spec.group, new Set(spec.show || ['rows', 'groups'])) : joinView(spec, new Set(spec.show || ['tables', 'links', 'on', 'result'])));
+    return root;
+  }
+  // El conector sale del borde derecho de la celda clave, a la altura de su centro,
+  // y llega al borde izquierdo de la fila que coincide: una curva horizontal en sus
+  // dos extremos, así los que van a la misma fila se juntan en un punto.
+  function placeTables(join) {
+    const svg = join.querySelector(':scope > .lk-mover');
+    if (!svg) return;
+    const b = join.getBoundingClientRect();
+    if (!b.width) return;
+    svg.setAttribute('width', b.width.toFixed(1));
+    svg.setAttribute('height', b.height.toFixed(1));
+    svg.setAttribute('viewBox', `0 0 ${b.width.toFixed(1)} ${b.height.toFixed(1)}`);
+    const f = (n) => n.toFixed(1);
+    const rect = (id) => {
+      const node = join.querySelector(`[data-anchor="${CSS.escape(id)}"]`);
+      if (!node) return null;
+      const r = node.getBoundingClientRect();
+      return { left: r.left - b.left, right: r.right - b.left, cy: (r.top + r.bottom) / 2 - b.top };
+    };
+    for (const path of svg.querySelectorAll('path[data-from][data-to]')) {
+      const from = rect(path.dataset.from), to = rect(path.dataset.to);
+      if (!from || !to) continue;
+      const dx = (to.left - from.right) / 2;
+      path.setAttribute('d', `M ${f(from.right)} ${f(from.cy)} C ${f(from.right + dx)} ${f(from.cy)}, ${f(to.left - dx)} ${f(to.cy)}, ${f(to.left)} ${f(to.cy)}`);
+    }
+  }
+
+  // #221: dos o tres conjuntos con su etiqueta; la región que responde va rellena y
+  // un pie nombra la operación (INNER JOIN, unión, diferencia). Una región se nombra
+  // por los conjuntos a los que pertenece, exactamente: «a+b» es lo que está en A y
+  // en B y en ningún otro; «a» es lo que solo está en A. Una operación que suma
+  // regiones las lista (LEFT JOIN = «a» y «a+b»). Cada región se rellena recortando
+  // por los círculos que incluye y enmascarando los que excluye, así el relleno es
+  // exacto aunque los círculos se solapen de dos o de tres maneras.
+  let vennCount = 0;
+  const VENN_LAYOUT = {
+    2: { w: 300, h: 190, r: 62, at: [[112, 105], [188, 105]] },
+    3: { w: 300, h: 262, r: 58, at: [[112, 100], [188, 100], [150, 166]] },
+  };
+  function vennPiece(spec) {
+    const sets = Array.isArray(spec.sets) ? spec.sets : [];
+    if (sets.length < 2 || sets.length > 3) throw new Error('Un diagrama de conjuntos necesita 2 o 3 conjuntos');
+    const ids = sets.map((s) => s.id);
+    const fill = (spec.fill || []).map(String);
+    for (const key of fill) {
+      if (key.split('+').some((id) => !ids.includes(id))) throw new Error(`La región «${key}» nombra un conjunto que el diagrama no tiene`);
+    }
+    const { w, h, r, at } = VENN_LAYOUT[sets.length];
+    const n = ++vennCount;
+    const svg = svgPart('svg', { class: 'lk-vsvg', viewBox: `0 0 ${w} ${h}`, role: 'img', 'aria-label': [spec.op, spec.says].filter(Boolean).join(': ') || 'Conjuntos' });
+    const defs = svgPart('defs');
+    sets.forEach((s, i) => {
+      const clip = svgPart('clipPath', { id: `lk-vc-${n}-${s.id}` });
+      clip.append(svgPart('circle', { cx: at[i][0], cy: at[i][1], r }));
+      defs.append(clip);
+    });
+    const fills = svgPart('g', { class: 'lk-vfills' });
+    fill.forEach((key, k) => {
+      const parts = key.split('+');
+      const rect = svgPart('rect', { class: 'lk-vfill', 'data-region': key, x: 0, y: 0, width: w, height: h });
+      const outside = ids.filter((id) => !parts.includes(id));
+      if (outside.length) {
+        const mask = svgPart('mask', { id: `lk-vm-${n}-${k}`, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: w, height: h });
+        mask.append(svgPart('rect', { x: 0, y: 0, width: w, height: h, fill: '#fff' }));
+        for (const id of outside) { const i = ids.indexOf(id); mask.append(svgPart('circle', { cx: at[i][0], cy: at[i][1], r, fill: '#000' })); }
+        defs.append(mask);
+        rect.setAttribute('mask', `url(#lk-vm-${n}-${k})`);
+      }
+      let node = rect;
+      for (const id of parts) { const g = svgPart('g', { 'clip-path': `url(#lk-vc-${n}-${id})` }); g.append(node); node = g; }
+      fills.append(node);
+    });
+    svg.append(defs, fills);
+    const mid = at.reduce((a, p) => [a[0] + p[0] / at.length, a[1] + p[1] / at.length], [0, 0]);
+    sets.forEach((s, i) => {
+      svg.append(svgPart('circle', { class: 'lk-vcircle', 'data-set': s.id, cx: at[i][0], cy: at[i][1], r, fill: 'none' }));
+    });
+    // La letra de cada conjunto va en su parte exclusiva: desde su centro, alejándose
+    // del centro de todos los conjuntos. Su nota (el nombre de la tabla) va fuera del
+    // círculo, arriba de él, porque en la parte exclusiva no cabe y un contorno nunca
+    // pasa por una palabra.
+    const topNote = sets.length === 2 ? (i) => [at[i][0] + (i ? 1 : -1) * r * 0.35, at[i][1] - r - 10, 'middle']
+      : (i) => (i === 2 ? [at[i][0], at[i][1] + r + 22, 'middle'] : [at[i][0] + (i ? 1 : -1) * r * 0.35, at[i][1] - r - 10, 'middle']);
+    sets.forEach((s, i) => {
+      const dx = at[i][0] - mid[0], dy = at[i][1] - mid[1], len = Math.hypot(dx, dy) || 1;
+      const lx = at[i][0] + (dx / len) * r * (sets.length === 2 ? 0.52 : 0.46), ly = at[i][1] + (dy / len) * r * (sets.length === 2 ? 0 : 0.46);
+      svg.append(svgPart('text', { class: 'lk-vlabel', x: lx.toFixed(1), y: (ly + 7).toFixed(1) }, s.label ?? s.id));
+      if (s.note) { const [nx, ny] = topNote(i); svg.append(svgPart('text', { class: 'lk-vnote', x: nx.toFixed(1), y: ny.toFixed(1) }, s.note)); }
+    });
+    const root = el('div', undefined, { class: 'lk-p lk-venn', 'data-piece': 'venn' });
+    const card = el('div', undefined, { class: 'lk-vcard' });
+    card.append(svg);
+    if (spec.op || spec.says) {
+      const caption = el('div', undefined, { class: 'lk-vcaption' });
+      if (spec.op) caption.append(el('b', spec.op, { class: 'lk-vop' }));
+      if (spec.says) caption.append(el('span', spec.says, { class: 'lk-vtext' }));
+      card.append(caption);
+    }
+    root.append(card);
+    return root;
+  }
+
+  const PIECES = { cards: cardsPiece, memory: memoryPiece, tables: tablesPiece, venn: vennPiece };
+  // Un paso de un recorrido dibuja una pieza en vez de una escena: la que su
+  // `stage` nombra. Lo que el recorrido declara a su nivel (`spec.venn`, por
+  // ejemplo, con los conjuntos) se hereda en cada paso, así un paso escribe solo lo
+  // que cambia.
+  function stagePiece(step, story) {
+    const stage = step.stage || {};
+    const kind = Object.keys(PIECES).find((k) => stage[k]);
+    return kind ? { kind, spec: { ...(story[kind] || {}), ...stage[kind] } } : null;
+  }
+  for (const [kind, label] of [['cards', 'Las tarjetas'], ['memory', 'El diagrama de memoria'], ['tables', 'Las tablas'], ['venn', 'El diagrama de conjuntos']]) {
+    define(`lk-${kind}`, function () {
+      const spec = readSpec(this, label);
+      this.classList.add('lk-piece-host');
+      if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
+      this.append(PIECES[kind](spec));
+      if (spec.caption) this.append(el('p', spec.caption, { class: 'lk-piece-caption' }));
+      for (const piece of this.querySelectorAll('.lk-p')) placePiece(piece);
+      watchPiece(this);
+    });
+  }
+  // La medida de los trazos se repite cuando las fuentes terminan de cargar, cuando
+  // cambia el ancho y cuando el lector cambia de tema, como la de las escenas.
+  function placePiece(piece) {
+    if (piece.dataset.piece === 'memory') piece.querySelectorAll('.lk-mbody').forEach(placeMemory);
+    if (piece.dataset.piece === 'tables') piece.querySelectorAll('.lk-tjoin').forEach(placeTables);
+  }
+  const piecesWatched = new WeakSet();
+  function watchPiece(host) {
+    if (piecesWatched.has(host)) return;
+    piecesWatched.add(host);
+    const again = () => host.querySelectorAll('.lk-p').forEach(placePiece);
+    document.fonts?.ready.then(again).catch(() => {});
+    if (window.ResizeObserver) new ResizeObserver(again).observe(host);
+    new MutationObserver(again).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+
   // El recorrido de una fórmula y el de un ejercicio comparten el mismo mueble:
   // una cabecera con la fórmula o la ecuación (el token del paso, resaltado), un
   // escenario donde pasa la acción (actores con su rótulo, estado por color,
@@ -1210,8 +1715,21 @@
     // escenario dibuja la acción, no repite la fórmula. Duplicarla en el SVG la
     // dejaba como una pieza suelta al lado de la etiqueta del paso.
     const sceneOf = (step) => ({ ...((step.stage && step.stage.scene) || step.stage || {}) });
-    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(sceneOf(s), stageWidth, stageTop, stageHeight))).join(''), viewBox);
-    stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
+    // Un paso dibuja una escena (el SVG de siempre) o una pieza (tarjetas, memoria,
+    // tablas, conjuntos). El lienzo de escena solo existe si algún paso lo usa.
+    const pieces = steps.map((s) => stagePiece(s, spec));
+    const hasScene = pieces.some((p) => !p);
+    if (hasScene) {
+      const markup = S.svg(steps.map((s, i) => pieces[i] ? '' : S.step(i + 1, walkScene(sceneOf(s), stageWidth, stageTop, stageHeight))).join(''), viewBox);
+      stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
+    }
+    const panels = pieces.map((p, i) => {
+      if (!p) return null;
+      const panel = el('div', undefined, { class: 'lk-story-piece', 'data-piece-step': String(i + 1) });
+      panel.append(PIECES[p.kind](p.spec));
+      stage.append(panel);
+      return panel;
+    });
     const head = el('div', undefined, { class: 'lk-story-head' });
     const narrator = el('div', undefined, { class: 'lk-story-narrator' });
     const count = el('span', undefined, { class: 'lk-story-count' });
@@ -1230,21 +1748,6 @@
     this.tabIndex = 0;
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
     this.append(head, stage, narrator, player);
-    // Una ficha en línea: «texto» se dibuja como un chip y *texto* como una
-    // palabra clave con el color del acento. El narrador no escribe HTML.
-    function inline(text) {
-      const frag = document.createDocumentFragment();
-      const source = String(text ?? '');
-      const re = /«([^»]+)»|\*([^*]+)\*/g;
-      let last = 0, m;
-      while ((m = re.exec(source))) {
-        if (m.index > last) frag.append(document.createTextNode(source.slice(last, m.index)));
-        frag.append(m[1] !== undefined ? el('span', m[1], { class: 'lk-chip' }) : el('span', m[2], { class: 'lk-key' }));
-        last = re.lastIndex;
-      }
-      if (last < source.length) frag.append(document.createTextNode(source.slice(last)));
-      return frag;
-    }
     function tokens(atoms, focus) {
       const on = new Set((focus || []).map(String));
       const wrap = el('div', undefined, { class: 'lk-story-formula' });
@@ -1287,7 +1790,11 @@
     }
     function go(to) { index = Math.max(0, Math.min(steps.length - 1, to)); draw(); }
     function draw() {
-      stage.querySelectorAll('[data-step]').forEach((g) => { g.style.display = Number(g.dataset.step) === index + 1 ? '' : 'none'; });
+      stage.querySelectorAll('svg [data-step]').forEach((g) => { g.style.display = Number(g.dataset.step) === index + 1 ? '' : 'none'; });
+      const sceneSvg = stage.querySelector(':scope > svg');
+      if (sceneSvg) sceneSvg.style.display = panels[index] ? 'none' : '';
+      panels.forEach((panel, i) => { if (panel) panel.hidden = i !== index; });
+      panels[index]?.querySelectorAll('.lk-p').forEach(placePiece);
       const step = steps[index];
       const atoms = kind === 'derivation' ? (step.equation?.atoms || []) : (spec.formula?.atoms || []);
       head.replaceChildren();
@@ -1311,9 +1818,12 @@
       if (event.key === 'ArrowRight') { event.preventDefault(); go(index + 1); }
       else if (event.key === 'ArrowLeft') { event.preventDefault(); go(index - 1); }
     });
-    fitSceneText(stage, { minPx: 11 });
-    placeStory(stage);
-    watchCallouts(stage, () => fitSceneText(stage, { minPx: 11 }));
+    if (hasScene) {
+      fitSceneText(stage, { minPx: 11 });
+      placeStory(stage);
+      watchCallouts(stage, () => fitSceneText(stage, { minPx: 11 }));
+    }
+    watchPiece(stage);
     draw();
   });
 

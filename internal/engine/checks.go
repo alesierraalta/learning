@@ -788,6 +788,9 @@ func sceneElementDraws(el, block string) (draws, selfGuided bool) {
 	case figureElement:
 		return figureDraws(block), false
 	}
+	if isPieceElement(el) {
+		return pieceDraws(el, block)
+	}
 	return false, false
 }
 
@@ -1146,7 +1149,7 @@ func asciiLower(text string) string {
 // themselves.
 func sceneElementsOnLine(line string) (count, selfGuided int) {
 	lower := asciiLower(line)
-	for _, el := range []string{figureElement, sceneElement} {
+	for _, el := range sceneLikeElements() {
 		from := 0
 		for from < len(lower) {
 			start := strings.Index(lower[from:], "<"+el)
@@ -1179,7 +1182,7 @@ func openingElement(line string, elements []string) string {
 			return el
 		}
 	}
-	for _, el := range []string{figureElement, sceneElement} {
+	for _, el := range sceneLikeElements() {
 		if strings.Contains(lower, "<"+el) && !strings.Contains(lower, "</"+el+">") {
 			return el
 		}
@@ -1214,7 +1217,7 @@ func countVisualsAndGuides(text string, blocks, elements []string, marker string
 	// A scene element is counted by its payload, never as a generic
 	// child-bearing element.
 	elements = slices.DeleteFunc(slices.Clone(elements), func(el string) bool {
-		return strings.EqualFold(el, figureElement) || strings.EqualFold(el, sceneElement)
+		return slices.ContainsFunc(sceneLikeElements(), func(like string) bool { return strings.EqualFold(el, like) })
 	})
 	open := func(el, line string) {
 		openEl = el
@@ -1271,7 +1274,7 @@ func countVisualsAndGuides(text string, blocks, elements []string, marker string
 				// A declared element counts when it has a child; a scene element
 				// is its payload, so an empty or unparsable scene is not a visual.
 				selfGuided := false
-				if closed == figureElement || closed == sceneElement {
+				if slices.Contains(sceneLikeElements(), closed) {
 					draws, guided := sceneElementDraws(closed, body)
 					if !draws {
 						counted = 0

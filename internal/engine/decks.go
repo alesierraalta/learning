@@ -475,8 +475,25 @@ type storyDeckStep struct {
 	Marks    []json.RawMessage `json:"marks"`
 }
 
+// storyDeckStage is what a step puts on the stage: a scene, or a visual piece
+// (verdict cards, memory, tables, sets) named by its own key.
 type storyDeckStage struct {
 	Scene storyScene `json:"scene"`
+	Piece bool       `json:"-"`
+}
+
+func (s *storyDeckStage) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if scene, ok := raw["scene"]; ok {
+		if err := json.Unmarshal(scene, &s.Scene); err != nil {
+			return err
+		}
+	}
+	s.Piece = storyStageDrawsPiece(raw)
+	return nil
 }
 
 // storyScene is the stage vocabulary of a story step: the actors with their
@@ -580,10 +597,10 @@ func storyProgressiveProblems(markup string) (int, []string) {
 			// The kit draws moves and marks from the stage, so that is where they are
 			// read; a step's own `moves` and `marks` still count.
 			scene := step.Stage.Scene
-			if spec.Kind == "derivation" && i > 0 && len(step.Moves)+len(step.Marks)+len(scene.Moves)+len(scene.Marks) == 0 {
+			if spec.Kind == "derivation" && i > 0 && !step.Stage.Piece && len(step.Moves)+len(step.Marks)+len(scene.Moves)+len(scene.Marks) == 0 {
 				problems = append(problems, where+" draws no move and no mark; a derivation step shows what changes")
 			}
-			if spec.Kind == "derivation" && !scene.draws() {
+			if spec.Kind == "derivation" && !step.Stage.Piece && !scene.draws() {
 				problems = append(problems, where+" draws nothing: draw the actors that carry the idea")
 			}
 		}

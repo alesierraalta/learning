@@ -13,6 +13,7 @@ import { backupPartForRegeneration, countVisuals, obsidianToMarkdown, registerBr
 import { stored } from "../../studio/testdata/stored.mjs";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { loadRunners } from "./coderun.ts";
+import { measurePiece } from "./kit/piece-measure.mjs";
 
 const TOPIC = "sql-demo";
 
@@ -2712,7 +2713,7 @@ const storyFocus = (markdown) => {
   return spec.steps.map((step) => step.focus ?? []);
 };
 
-const STORY_EXAMPLES = [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"], ["propiedad-rust", "propiedad-rust.md"]];
+const STORY_EXAMPLES = [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"], ["propiedad-rust", "propiedad-rust.md"], ["prestamos-rust", "prestamos-rust.md"]];
 
 for (const [name, file] of STORY_EXAMPLES) {
   test(`the ${name} walkthrough anchors every tag and moving term and keeps its labels at reading size, in every theme and width`, { skip: !playwright && "playwright not installed" }, async (t) => {
@@ -2754,6 +2755,124 @@ for (const [name, file] of STORY_EXAMPLES) {
     }
   });
 }
+
+// ── Visual pieces: verdict cards, memory, tables, sets (#218–#221) ───────────
+// Each piece is drawn by the real reader in every theme and width, and measured
+// with the same function the gates use (`measurePiece`): nothing off the canvas,
+// no word over another, no connector that misses its cell or crosses a word, ink
+// that reads on its paper, no white island on the night papers. A story that
+// draws a piece is stepped, and every step is measured and photographed.
+const PIECE_SHOTS = "/tmp/vp-shots";
+const PIECE_MATRIX = [
+  ...STORY_MATRIX,
+  { theme: "light", size: "phone", width: 390, wide: false },
+  { theme: "black", size: "phone", width: 390, wide: false },
+];
+const PIECE_HOSTS = "lk-cards, lk-memory, lk-tables, lk-venn";
+// What each kind owes the learner beyond the generic measure.
+const PIECE_ASSERTS = {
+  "lk-memory": async (host, _size, where) => {
+    const seen = await host.evaluate((node) => [...node.querySelectorAll(".lk-mstep")].map((step) => ({
+      badge: step.querySelector(".lk-mbadge")?.textContent,
+      code: Boolean(step.querySelector(".lk-mcode")?.textContent),
+      live: step.querySelectorAll("svg path[data-from][data-to]").length,
+      dead: step.querySelectorAll("svg path[data-from]:not([data-to])").length,
+      crosses: step.querySelectorAll(".lk-mcross").length,
+    })));
+    assert.ok(seen.length >= 2, `${where}: the diagram has no steps`);
+    seen.forEach((step, i) => {
+      assert.equal(step.badge, String(i + 1), `${where}: step ${i + 1} is not numbered`);
+      assert.ok(step.code, `${where}: step ${i + 1} does not repeat its code line`);
+      assert.equal(step.crosses, step.dead, `${where}: step ${i + 1} has a dead pointer without its ✗`);
+    });
+  },
+  "lk-cards": async (host, size, where) => {
+    const seen = await host.evaluate((node) => {
+      const cards = [...node.querySelectorAll(".lk-card")];
+      const tops = cards.map((c) => Math.round(c.getBoundingClientRect().top));
+      const red = (c) => { const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)/.exec(getComputedStyle(c).borderTopColor); return m ? +m[1] > +m[2] + 40 && +m[1] > +m[3] : false; };
+      return { n: cards.length, distinctTops: new Set(tops).size, failing: cards.filter((c) => c.dataset.verdict === "no").map(red), passing: cards.filter((c) => c.dataset.verdict === "ok").map(red) };
+    });
+    assert.ok(seen.failing.every(Boolean) && !seen.passing.some(Boolean), `${where}: the failing card is not the only one tinted red`);
+    if (seen.n >= 2) {
+      if (size === "phone") assert.equal(seen.distinctTops, seen.n, `${where}: the cards do not stack on a phone`);
+      else assert.ok(seen.distinctTops < seen.n, `${where}: the cards do not sit side by side`);
+    }
+  },
+};
+// Pieces the example draws: [selector, owner, how many steps to photograph].
+const PIECE_EXAMPLES = [["prestamos-rust", "prestamos-rust.md"], ["memoria-string-rust", "memoria-string-rust.md"], ["sql-join-videojuegos", "sql-join-videojuegos.md"], ["sql-group-by", "sql-group-by.md"], ["sql-venn-joins", "sql-venn-joins.md"]];
+
+for (const [name, file] of PIECE_EXAMPLES) {
+  test(`the ${name} pieces pass the measure in every theme and width`, { skip: !playwright && "playwright not installed" }, async (t) => {
+    mkdirSync(PIECE_SHOTS, { recursive: true });
+    const markdown = example(file);
+    for (const { theme, size, width, wide } of PIECE_MATRIX) {
+      const page = await readerPart(t, markdown, { theme, width, wide });
+      await page.locator(".lk-p, lk-story svg").first().waitFor();
+      const hosts = page.locator(`${PIECE_HOSTS}, lk-story`);
+      const count = await hosts.count();
+      assert.ok(count > 0, `${name} · ${theme} · ${size}: the reader drew no piece`);
+      for (let h = 0; h < count; h++) {
+        const host = hosts.nth(h);
+        const tag = await host.evaluate((node) => node.tagName.toLowerCase());
+        const where = `${name} · ${theme} · ${size} · ${tag}`;
+        if (tag === "lk-story") {
+          const steps = await host.locator(".lk-story-seg").count();
+          for (let s = 0; s < steps; s++) {
+            if (s > 0) await host.getByRole("button", { name: "Paso siguiente" }).click();
+            await host.locator(".lk-story-count").filter({ hasText: `${s + 1} / ${steps}` }).waitFor();
+            await page.waitForTimeout(60);
+            if (!(await host.locator(".lk-story-piece:visible").count())) continue;
+            const { problems } = await host.evaluate(measurePiece);
+            assert.deepEqual(problems, [], `${where} · paso ${s + 1}`);
+            await host.screenshot({ path: join(PIECE_SHOTS, `${name}-${tag}-${theme}-${size}-paso-${s + 1}.png`) });
+          }
+        } else {
+          await host.locator(".lk-p").first().waitFor();
+          const { problems } = await host.evaluate(measurePiece);
+          assert.deepEqual(problems, [], where);
+          await PIECE_ASSERTS[tag]?.(host, size, where);
+          await host.screenshot({ path: join(PIECE_SHOTS, `${name}-${tag}-${theme}-${size}.png`) });
+        }
+      }
+      await page.close();
+    }
+  });
+}
+
+// A story that draws a piece also owns the whole screen: the piece grows with it and
+// every step stays measured (nothing clipped by the full-screen stage).
+test("full screen keeps every piece step inside the canvas and measured", { skip: !playwright && "playwright not installed" }, async (t) => {
+  mkdirSync(PIECE_SHOTS, { recursive: true });
+  for (const [name, file] of PIECE_EXAMPLES) {
+    const markdown = example(file);
+    const storyJson = /<lk-story>[\s\S]*?<script type="application\/json">([\s\S]*?)<\/script>/.exec(markdown)?.[1];
+    if (!storyJson || !JSON.parse(storyJson).steps.some((step) => ["cards", "memory", "tables", "venn"].some((k) => step.stage?.[k]))) continue;
+    const page = await readerPart(t, markdown, { theme: "black", width: 1920, height: 1080, wide: true });
+    const story = page.locator("lk-story").first();
+    await story.locator(".lk-story-stage .lk-p").first().waitFor();
+    const steps = await story.locator(".lk-story-seg").count();
+    await story.evaluate((node) => node.requestFullscreen?.());
+    await page.waitForFunction(() => document.fullscreenElement?.tagName === "LK-STORY");
+    await page.waitForTimeout(250);
+    for (let s = 0; s < steps; s++) {
+      if (s > 0) await story.getByRole("button", { name: "Paso siguiente" }).click();
+      await story.locator(".lk-story-count").filter({ hasText: `${s + 1} / ${steps}` }).waitFor();
+      await page.waitForTimeout(120);
+      const { problems } = await story.evaluate(measurePiece);
+      assert.deepEqual(problems, [], `${name} · pantalla completa · paso ${s + 1}`);
+      const clipped = await story.evaluate((node) => {
+        const stage = node.querySelector(".lk-story-stage").getBoundingClientRect();
+        const piece = node.querySelector(".lk-story-piece:not([hidden]) .lk-p").getBoundingClientRect();
+        return piece.top < stage.top - 1 || piece.bottom > stage.bottom + 1 ? `la pieza mide ${Math.round(piece.height)} px en un escenario de ${Math.round(stage.height)} px` : "";
+      });
+      assert.equal(clipped, "", `${name} · pantalla completa · paso ${s + 1}`);
+      await page.screenshot({ path: join(PIECE_SHOTS, `${name}-black-fullscreen-paso-${s + 1}.png`) });
+    }
+    await page.close();
+  }
+});
 
 test("full screen grows every walkthrough and keeps their labels at reading size", { skip: !playwright && "playwright not installed" }, async (t) => {
   mkdirSync(STORY_SHOTS, { recursive: true });

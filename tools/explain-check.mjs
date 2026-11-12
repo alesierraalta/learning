@@ -49,7 +49,12 @@ add('secciones', secciones.length <= 2, `${secciones.length} sección(es) de con
 // `minScenes`) exige además que haya una escena y que su payload dibuje: eso
 // necesita leer el JSON, y el rechazo del motor nombra el arreglo («dibuja el
 // ejemplo con <lk-scene>»). Aquí se cuenta la presencia y el tope.
-const escenas = (src.match(/<lk-scene[\s>]/g) || []).length;
+// Las piezas visuales (tarjetas, memoria, tablas, conjuntos) son figuras como la
+// escena: ocupan su lugar en la parte y gastan su tope. El motor cuenta igual
+// (`pieceOpenCount` en `internal/engine/pieces.go`).
+const PIEZAS = 'cards|memory|tables|venn';
+const piezas = (src.match(new RegExp(`<lk-(?:${PIEZAS})[\\s>]`, 'g')) || []).length;
+const escenas = (src.match(/<lk-scene[\s>]/g) || []).length + piezas;
 // Un recorrido de fórmula o de ejercicio (`<lk-story>`) es un recorrido más: la
 // parte debe uno, y el motor los cuenta igual (`walkthroughOpen` + `storyOpen`).
 const recorridos = (src.match(/<lk-(?:walkthrough|story)[\s>]/g) || []).length;
@@ -68,7 +73,7 @@ add('ascii', ascii.length === 0, ascii.length ? `${ascii.length} línea(s) dibuj
 // pide una idea por frase; una frase de 40 palabras no se lee, se atraviesa.
 const lineasProsa = src
   .replace(/```[\s\S]*?```/g, '\n\n')
-  .replace(/<lk-(scene|walkthrough|story|quiz|quick-quiz)[\s\S]*?<\/lk-\1>/g, '\n\n')
+  .replace(new RegExp(`<lk-(scene|walkthrough|story|${PIEZAS}|quiz|quick-quiz)[\\s\\S]*?<\\/lk-\\1>`, 'g'), '\n\n')
   .split('\n')
   // Títulos, tablas y etiquetas no son prosa; las citas y las viñetas sí: una ficha
   // con tres frases dentro de `>` es un muro igual que un párrafo suelto.
@@ -106,7 +111,7 @@ add('parrafos', muros.length === 0, `${muros.length} párrafo(s) con más de dos
 // 7. Tamaño: la prosa que se lee, sin código, tablas ni figuras.
 const prosa = src
   .replace(/```[\s\S]*?```/g, ' ')
-  .replace(/<lk-(scene|walkthrough|story)[\s\S]*?<\/lk-\1>/g, ' ')
+  .replace(new RegExp(`<lk-(scene|walkthrough|story|${PIEZAS})[\\s\\S]*?<\\/lk-\\1>`, 'g'), ' ')
   .replace(/^\|.*\|$/gm, ' ')
   .replace(/^#{1,6}\s.*$/gm, ' ')
   .replace(/<[^>]+>/g, ' ')
@@ -233,7 +238,7 @@ add('formula-walkthrough', primeraFormula === null, primeraFormula === null ? ''
 
 // 8. Las figuras conviven: se delega en scene-lint, que abre un navegador.
 let figuras = { ok: true, detail: 'sin figuras' };
-if (escenas || recorridos) {
+if (escenas || recorridos) {  // `escenas` ya incluye las piezas
   const r = spawnSync(process.execPath, [join(TOOLS, 'scene-lint.mjs'), file], { encoding: 'utf8' });
   if (/playwright no está disponible/.test(r.stderr + r.stdout)) figuras = { ok: true, detail: 'sin navegador: no se pudo medir' };
   else if (r.status === 0) figuras = { ok: true, detail: '' };

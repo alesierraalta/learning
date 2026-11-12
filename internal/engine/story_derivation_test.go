@@ -31,7 +31,7 @@ func TestDerivationStoryCountsTheMovesAndMarksOfItsStage(t *testing.T) {
 // The ownership example the kit ships is a derivation story: the engine must
 // accept it as it is, or the example would teach a shape the engine refuses.
 func TestShippedStoryExamplesPassTheProgressiveRule(t *testing.T) {
-	for _, name := range []string{"propiedad-rust.md", "derivacion-x.md", "formula-gaussiana.md"} {
+	for _, name := range []string{"propiedad-rust.md", "derivacion-x.md", "formula-gaussiana.md", "prestamos-rust.md", "sql-join-videojuegos.md", "sql-venn-joins.md"} {
 		raw, err := os.ReadFile("../../integrations/pi/kit/examples/" + name)
 		if err != nil {
 			t.Fatal(err)

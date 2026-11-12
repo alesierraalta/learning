@@ -33,6 +33,10 @@ quien lee no puede ver lo único que la parte venía a explicar.
 | Datos que se comparan celda a celda | tabla Markdown |
 | Un matiz, una advertencia, un límite | `<lk-callout>` |
 | Un objeto que se mueve o cambia de estado (robot, casa, documento, persona) | `scene.icons` |
+| Código que compila / no compila, correcto / error, en 2 a 4 casos | `<lk-cards>` (§8e) |
+| El estado de la memoria (stack, heap, punteros), paso a paso | `<lk-memory>` (§8e) |
+| Dos tablas unidas por una clave, o filas que se agrupan | `<lk-tables>` (§8e) |
+| Qué región de dos o tres conjuntos responde (INNER / LEFT / FULL JOIN) | `<lk-venn>` (§8e) |
 | Código que el lector podría ejecutar | bloque de código con su lenguaje |
 
 `lk-diagram` existe todavía para diagramas de arquitectura viejos. No se usa en material
@@ -408,6 +412,116 @@ Reglas:
 
 Ejemplo aprobado y completo, en cuatro pasos (dueña, mover, la vieja se tacha, se libera):
 `integrations/pi/kit/examples/propiedad-rust.md`.
+
+## 8e. Piezas visuales: tarjetas, memoria, tablas y conjuntos
+
+Cuatro piezas que el lector dibuja desde JSON declarativo, para lo que una escena de cajas y
+flechas cuenta mal. **Se eligen por lo que la parte enseña**, no por variar: una por parte, y
+ocupa el lugar de la escena (cuenta contra el tope de una figura). Todas se anclan por id: un
+puntero, un conector o una región **nombran** a qué llegan y el lector los traza midiendo lo que
+el navegador dibujó, así que nunca se escribe una coordenada. Se apilan solas en una columna
+estrecha, siguen los tres papeles (claro, oscuro, negro) y viven solas o como paso de un
+`<lk-story>` (el recorrido pone el código en su cabecera; la pieza dibuja el estado).
+
+| Cuándo | Pieza | Ejemplo aprobado |
+|---|---|---|
+| Comparar **código** que compila con el que no, o lo correcto con el error (2 a 4 casos) | `<lk-cards>` | `examples/prestamos-rust.md` |
+| El **estado de la memoria** paso a paso: qué vive en el stack, qué en el heap, quién apunta a qué | `<lk-memory>` | `examples/memoria-string-rust.md` |
+| Dos tablas que se **unen por una clave**, o un GROUP BY (filas → grupos con su COUNT) | `<lk-tables>` | `examples/sql-join-videojuegos.md`, `examples/sql-group-by.md` |
+| Qué **región** de dos o tres conjuntos responde (INNER / LEFT / FULL JOIN, unión, diferencia) | `<lk-venn>` | `examples/sql-venn-joins.md` |
+
+**Las tarjetas de veredicto son para código.** Aparecen solo cuando la parte muestra código
+(compila / no compila, correcto / error); un tema sin código nunca las usa. Si lo que comparas
+no tiene veredicto, es una tabla o una escena.
+
+Cada pieza admite `caption` (el pie que la guía; con él la parte no debe una línea «Cómo
+leerlo»). Dentro de un `<lk-story>` el paso nombra la pieza en su `stage` y hereda lo que el
+recorrido declara a su nivel (`"venn":{"sets":[…]}`, `"tables":{…}`, `"memory":{"columns":[…]}`),
+así un paso escribe solo lo que cambia. Un recorrido puede mezclar pasos de escena y de pieza.
+
+### `<lk-cards>` — veredicto, título, dibujo y razón
+
+```json
+{"title":"Cuántas referencias a la vez","cards":[
+ {"id":"muchas","verdict":"ok","pill":"COMPILA","title":"Muchas «&»",
+  "draw":{"refs":[{"text":"&s","icon":"read","tone":"green"},{"text":"&s","icon":"read","tone":"green"}],"target":{"text":"s"}},
+  "reason":"Todos leen a la vez"},
+ {"id":"mezcla","verdict":"no","pill":"NO COMPILA","title":"«&» y «&mut» a la vez",
+  "draw":{"refs":[{"text":"&s","icon":"read"},{"text":"&mut s","icon":"write","tone":"amber"}],"target":{"text":"s"}},
+  "reason":"Uno escribiría mientras otro lee"}]}
+```
+
+`verdict` es `ok` o `no`: la que falla se tiñe de rojo y su flecha también. `draw.refs` son fichas
+(`text`, `tone`, `icon`: `read`, `write`, `value` o cualquier icono de la escena) que apuntan al
+`target`. El título admite «fichas de código». Una línea de razón, no un párrafo.
+
+### `<lk-memory>` — pasos numerados con su línea de código
+
+```json
+{"columns":[{"id":"stack","label":"STACK"},{"id":"heap","label":"HEAP"}],"steps":[
+ {"code":"let s2 = s1;","rows":[
+  {"stack":{"id":"s1x","name":"s1","pill":{"text":"movida","tone":"red"},"cells":["ptr","len 4","cap 4"],"state":"invalid"}},
+  {"stack":{"id":"s2","name":"s2","pill":{"text":"dueña","tone":"green"},"cells":["ptr","len 4","cap 4"],"tone":"green","points":"h2"},
+   "heap":{"id":"h2","cells":["h","o","l","a"],"tone":"amber"}}]}]}
+```
+
+Cada paso repite la línea que explica (insignia con su número y el código). Una fila pone un grupo
+por columna; `cells` lo segmenta; `pill` es el estado (dueña, movida). **`points` nombra el id del
+destino** y el puntero sale del borde de la celda y llega al borde de las celdas del destino;
+`state: "invalid"` dibuja las celdas a trazos y tachadas y su puntero muere en una ✗. Un `points`
+a un id que el paso no tiene es un error del lector, no una flecha en el aire. En un `<lk-story>`
+el paso lleva `"stage":{"memory":{"rows":[…]}}` y no repite el código: ya está en la cabecera.
+
+### `<lk-tables>` — tablas unidas por conectores, y GROUP BY
+
+```json
+{"tables":[
+  {"id":"games","name":"videogames","columns":["title","developer_id"],"rows":[["Zelda","1"],["GTA V","5"]]},
+  {"id":"devs","name":"developers","columns":["id","name"],"rows":[["1","Nintendo"],["5","Rockstar"]]}],
+ "join":{"from":"games.developer_id","to":"devs.id","on":"developer_id = id","highlight":["5"]},
+ "result":{"label":"RESULTADO","select":["games.title","devs.name"]}}
+```
+
+Las coincidencias y el resultado **se derivan de los datos**: `from` y `to` nombran
+`tabla.columna`, un conector curvo sale de cada celda clave y llega a la fila que coincide (un
+color por coincidencia), `on` va en una píldora y `result.select` pide las columnas del resultado.
+`highlight` tiñe las filas de esos valores en las tres tablas (`"all"` tiñe todas); `kind:"left"`
+conserva las filas sin pareja con `NULL`. **La columna clave va última en la tabla izquierda y
+primera en la derecha**: así el conector no cruza texto, y `scene-lint` lo llama
+`connector-over-text` si no. `show` descubre las partes de a poco —`tables`, `links`, `on`,
+`result`— y es lo que hace de un JOIN un recorrido de tres pasos.
+
+```json
+{"group":{"by":"developer","columns":["title","developer"],"highlight":["Rockstar"],
+ "rows":[["Zelda","Nintendo"],["GTA V","Rockstar"],["RDR 2","Rockstar"]]}}
+```
+
+GROUP BY: las filas originales a la izquierda, a la derecha un grupo por valor de `by` con una ficha
+por fila y su COUNT en una insignia (se calcula, no se escribe). `show:["rows"]` o `["rows","groups"]`.
+
+### `<lk-venn>` — dos o tres conjuntos y la región que responde
+
+```json
+{"sets":[{"id":"a","label":"A","note":"videogames"},{"id":"b","label":"B","note":"developers"}],
+ "fill":["a","a+b"],"op":"LEFT JOIN","says":"Todo A, con B donde haya"}
+```
+
+**Una región se nombra por los conjuntos a los que pertenece, exacto**: `a+b` es lo que está en A y
+en B (la intersección), `a` es lo que solo está en A. Una operación que suma regiones las lista:
+INNER = `["a+b"]`, LEFT = `["a","a+b"]`, FULL = `["a","a+b","b"]`, diferencia A−B = `["a"]`. `op` nombra
+la operación y `says` la dice en una línea. Para tres conjuntos, `"a+b+c"` es el centro. Para «una
+región por paso», el recorrido declara `"venn":{"sets":[…]}` una vez y cada paso solo `fill`, `op` y
+`says`.
+
+### Qué mide el lector (y qué rechaza)
+
+`scene-gate` abre cada pieza a 1440 y a 390 px, paso a paso si es un recorrido, y mide: que no se
+salga de su escenario, ninguna palabra bajo 13 px, tinta con 4,5:1 sobre su papel, ninguna
+superficie blanca sobre el papel de noche, y que cada conector empiece y termine en su ancla
+(`connector-miss`). `scene-lint` mide la convivencia: una palabra sobre otra (`text-over-text`),
+un conector o el borde de un conjunto que atraviesa una palabra (`connector-over-text`,
+`outline-over-text`). El motor y `explain-check` aceptan la pieza como una figura: **una
+pieza o una escena, no las dos** en la misma parte, y su JSON no cuenta como prosa.
 
 ## 9. La curva, no la caja
 
