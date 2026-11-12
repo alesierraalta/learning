@@ -268,12 +268,11 @@ test("a render writes how long each stage took, beside the video it wrote", () =
 //
 // The window is encoded lossless (`--crf 0`) so a frame that disagrees is a frame
 // that was drawn differently, not a frame the encoder reconstructed differently
-// from its neighbour's picture. The opening frame is left out of the per-frame
-// comparison: the first capture of a page is the one that can outrun the paint it
-// asked for (a race in the capture path, reproducible without this change as two
-// `--workers 1` runs that disagree), and every page opens on a different instant
-// anyway. That instant is pinned instead by the test below, which draws the first
-// frame of a page with the paint already committed.
+// from its neighbour's picture. Every frame is compared, the opening one
+// included: the first capture of a page is the one that used to come back as the
+// surface from before the drawing, and a comparison that skipped it would be
+// skipping exactly the frames where that race lives. The capture path settles
+// that opening frame (see `lib/browser.mjs`), so there is nothing left to skip.
 test("parallel capture writes the same frames, in the same order", () => {
   const f = densePart();
   const window = ["--from", "0.7", "--to", "1.6", "--crf", "0", "--video"];
@@ -290,12 +289,7 @@ test("parallel capture writes the same frames, in the same order", () => {
   assert.ok(new Set(alone).size > 1, `every frame in the window is the same picture, so this test could not see a reorder: ${alone[0]}`);
   for (const label of ["two", "four", "four-again"]) {
     const wide = frameHashes(join(work[label], "out.mp4"));
-    // A page opens on the first frame it is handed, and that one capture is the
-    // only one the capture path waits for a paint on (bounded, so it can still
-    // be the surface from before the drawing). Four pages open on four instants,
-    // so the first four frames are the capture path's business and are pinned by
-    // the test below instead; from there the film must be the same film.
-    assert.deepEqual(wide.slice(4), alone.slice(4), `frame i must carry the picture it carried at --workers 1, at the same place in the film; ${label} did not`);
+    assert.deepEqual(wide, alone, `frame i must carry the picture it carried at --workers 1, at the same place in the film; ${label} did not`);
   }
 
   const capturedWith = (dir) => JSON.parse(readFileSync(join(dir, "timings.json"), "utf8")).stages.find((s) => s.stage === "capture");
@@ -341,6 +335,36 @@ test("parallel capture writes the same frames, in the same order", () => {
   assert.deepEqual(drawn, screenshot, "the frame that goes into the film must be the pixels the stage drew, at every instant");
   const smaller = sizes.filter(({ fast, slow }) => fast < slow);
   assert.equal(smaller.length, 0, `the fast path produced smaller PNGs than the screenshot it replaces (${JSON.stringify(smaller)}), so it is no longer trading bytes for speed: the speed claim needs a new measurement`);
+});
+
+// A film is a deliverable, so the same command twice is the same file: five
+// identical runs at one page and five at four pages, every frame compared, nothing
+// excluded. The opening frame of a page is where this used to fail — about once
+// in fifteen pages the first capture came back as the surface from before the
+// drawing — so the window is short and starts on a frame boundary, and the frame
+// that opens each page is part of the comparison.
+test("five runs of the same window are the same film, at one page and at four", () => {
+  const f = densePart();
+  const window = ["--from", "0.7", "--to", "1.2", "--crf", "0", "--video"];
+  for (const workers of ["1", "4"]) {
+    const films = [];
+    for (let i = 0; i < 5; i++) {
+      const dir = join(f.dir, `same-${workers}-${i}`);
+      const run = render(f, { work: dir, args: [...window, join(dir, "out.mp4"), "--workers", workers] });
+      assert.equal(run.code, 0, run.out);
+      films.push(frameHashes(join(dir, "out.mp4")));
+    }
+    assert.equal(films[0].length, 15, `a 0.5 s window at 30 fps is 15 frames, got ${films[0].length}`);
+    assert.ok(new Set(films[0]).size > 1, `every frame of the window is the same picture, so this test could not see a wrong one: ${films[0][0]}`);
+    for (let i = 1; i < films.length; i++) {
+      const differs = films[0].findIndex((hash, k) => hash !== films[i][k]);
+      assert.deepEqual(
+        films[i],
+        films[0],
+        `run ${i + 1} at --workers ${workers} is a different film: frame ${differs} (${(0.7 + differs / 30).toFixed(3)} s) is not the frame run 1 wrote`,
+      );
+    }
+  }
 });
 
 // The same instant has to be the same picture no matter what was drawn before

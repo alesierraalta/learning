@@ -103,35 +103,70 @@ export async function openStage(playwright, plan, { root, pages = 1 }) {
 // three more round-trips per frame — which at 30 fps is most of the budget.
 // The session belongs to the page, so it is opened once and reused for every
 // frame that page draws.
-export async function frameGrabber(page) {
+//
+// The first capture of a page is the one that can come back as the surface from
+// *before* the drawing: the copy request is answered by a frame that was already
+// on its way out, so the film opens on a picture nobody drew and every frame
+// after it is encoded against that picture. Measured on fresh pages, the paint
+// proof had completed in every one of the 60 that were captured and 4 of them
+// still carried the empty stage, so waiting for a paint (longer or otherwise) is
+// not what settles this: taking the capture is what moves the surface on. So the
+// opener is captured until two captures, paced by a painted frame, agree.
+//
+// Both bounds below are ceilings that stop the render, never fallbacks: a page
+// that cannot prove it painted, and a surface that never settles, fail with a
+// message instead of handing the encoder a frame nobody drew. The cost is paid
+// once per page — two or three captures and a painted frame at the opening, then
+// one capture per frame as before.
+const OPEN_MS = 30_000;
+const OPEN_ATTEMPTS = 5;
+
+export async function frameGrabber(page, { openMs = OPEN_MS, attempts = OPEN_ATTEMPTS } = {}) {
   const context = page.context();
   if (typeof context.newCDPSession !== "function") {
     throw new Error("this browser has no CDP session, so a frame cannot be captured without the slower screenshot path");
   }
   const session = await context.newCDPSession(page);
-  let painted = false;
-  return async function capture() {
-    // The first capture of a page can outrun the paint it asked for: the surface
-    // still holds the frame from before the drawing, so the film opens on a
-    // picture nobody drew (and every frame after it is encoded against that one).
-    // Waiting for one painted frame once per page settles it; after that the
-    // capture follows the drawing, measured across every beat and state cut.
-    if (!painted) {
-      await page.evaluate(() => new Promise((done) => {
-        // Two frames: the first starts the paint the drawing asked for, the second
-        // is proof it was committed. Bounded, because a page nobody is showing may
-        // never paint and a render must not wait for a frame that is not coming.
-        const guard = setTimeout(() => done(false), 100);
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          clearTimeout(guard);
-          done(true);
-        }));
-      }));
-      painted = true;
-    }
+  const shoot = async () => {
     const { data } = await session.send("Page.captureScreenshot", { format: "png", optimizeForSpeed: true });
     return Buffer.from(data, "base64");
   };
+  let opened = false;
+  return async function capture() {
+    // After the opener the capture follows the drawing: the surface has carried
+    // a painted frame, and every frame from here is one capture, measured across
+    // every beat and state cut.
+    if (opened) return shoot();
+    opened = true;
+    let image = await shoot();
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      await painted(page, openMs);
+      const next = await shoot();
+      if (next.equals(image)) return next;
+      image = next;
+    }
+    throw new Error(
+      `the first frame of this page never settled: ${attempts} captures, each after a painted frame, still disagreed with the one before, so the surface never carried the drawing`,
+    );
+  };
+}
+
+// Two frames: the first starts the paint the drawing asked for, the second is
+// proof it was committed. A page nobody is showing may never paint, and a render
+// must not wait for a frame that is not coming — but it must not film the frame
+// it has either.
+async function painted(page, openMs) {
+  const proven = await page.evaluate((deadline) => new Promise((done) => {
+    const guard = setTimeout(() => done(false), deadline);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      clearTimeout(guard);
+      done(true);
+    }));
+  }), openMs);
+  if (!proven) {
+    const waited = openMs >= 1000 ? `${Math.round(openMs / 1000)} s` : `${openMs} ms`;
+    throw new Error(`the page did not prove it painted within ${waited}, so the frame it was asked to draw cannot be captured; refusing to encode a frame nobody drew`);
+  }
 }
 
 // One page, booted on the plan. Both the renderer and the craft gate open the

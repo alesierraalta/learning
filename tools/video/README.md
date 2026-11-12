@@ -64,6 +64,44 @@ picture depending on how many pages drew it. The repaint touches attributes on
 the layer that is already built (a few microseconds); rebuilding its SVG would
 cost 2-5 ms a frame and eat the capture it is meant to keep.
 
+That instant belongs to the **window**, not to the part: the frames of a render
+are `--from + k/fps`, so the last frame before a change is the last one *of this
+render*. With `--from 0.71` at 30 fps every frame sits 0.3 of a frame off the
+part's grid, and quantizing to the part's grid froze the cross-fade up to a frame
+earlier than the loop drew it: on a 0.9 s slice starting at 0.71 s the two
+anchors disagree on 13 of 27 frames, the 8 inside the cross-fade by up to 150/255
+per channel. The renderer therefore writes the
+window's start into the plan as `origin`, the stage quantizes to `origin + k/fps`,
+and `window.__frozen()` reports the instant it repainted the leaving state at —
+which is also how the test pins it. A `--from` that is a whole number of frames
+picks the same instants as the part's grid, so nothing moves there: that is the
+"no pixel changed" comparison against the previous renderer, still 27/27 and
+48/48 frames.
+
+What that means for comparing windows: the picture at an instant is a function of
+the instant *and of where the window puts its frames*. Two windows that share
+frames (a `--from` that differs by a whole number of frames) draw a shared instant
+identically, byte for byte. Two windows on different grids cannot share an instant
+at all — `--from 0` draws `{k/30}` and `--from 0.71` draws `{0.71 + k/30}`, and
+0.71 × 30 = 21.3 is not a whole number — so there is no instant whose frames they
+both draw, and asking that they look the same is asking two different instants to
+be one picture. The layer that is leaving is also part of the document while it is
+fully transparent, and Chrome rasterizes the figure around it: moving the
+attributes of a group at opacity 0 moves 6 575 pixels of the visible picture, up
+to 60/255. Pixel identity across windows therefore needs the whole drawing — the
+invisible state included — to be frozen at the same instant, which is exactly
+what sharing a grid means.
+
+Two renders are therefore comparable frame by frame only when they share
+`origin` — or share a grid, which is the same thing when their starts differ by a
+whole number of frames. That is why the timing report carries `origin` beside
+`window`: the cross-fade is frozen at the last frame of *this* render's grid, so
+`--from 0.7` and `--from 0.71` put the same instant in a different picture (up to
+150/255 inside the fade), and a frame-by-frame or stage-by-stage comparison of
+two reports with different origins is a false claim, not a measurement. A
+comparison after a change that does not touch the drawing keeps one origin on
+both sides: `--from 0.7`, not `--from 0.7001`.
+
 Capture uses that: it boots `--workers` pages in **one** browser, hands each page the
 next frame index, and feeds ffmpeg the frames strictly in order. A captured
 frame waits until every frame before it has gone through stdin, so frame `i` is
@@ -81,10 +119,23 @@ two instants, and fails if one of them moves. On 240 frames of a six-beat part
 that is 52.4 → 37.4 ms a frame in one page (19 → 27 fps) and 33.4 → 21.2 ms over
 four pages (30 → 47 fps).
 
-The first capture of a page waits for one painted frame. Without that wait the
-surface can still hold the picture from before the drawing, and the film opens on
-a frame nobody drew — the rest of the film is then encoded against a picture that
-never existed.
+The first capture of a page is taken until the surface settles. A fresh page
+answers that request with the frame that was already on its way out, so the film
+opened on a picture nobody drew and every frame after it was encoded against that
+picture: measured on fresh pages, 4 of 60 first captures carried the empty stage
+(and 1 of 18 renders at `--crf 20`, which is how it was found). Waiting longer is
+not the answer — the paint proof had completed in all 60. The capture itself is
+what moves the surface on, so the opener is captured, paced by a painted frame,
+until two captures agree; from then on one capture per frame follows the
+drawing. The cost is paid once per page and only at the opening: measured on a
+booted page, the opening frame costs 247 ms against 44 ms for a frame in the
+middle of the film (one extra capture plus the paint proofs), so a four-page
+render pays under a second in total.
+
+Neither bound is a silent fallback. A page that cannot prove it painted within
+30 s fails the render, and a surface that has not settled after five captures
+fails it too: a film with a frame nobody drew is worse than no film. A page that
+skips its first painted frame is not a slow render, it is a wrong one.
 
 Stills keep `page.screenshot`: a still is a deliverable, not a frame in a pipe,
 and a still on disk stays the same file it was. The craft gate measures a clipped
@@ -263,6 +314,7 @@ and it is reported in the order it ran:
  "resolution": "1920x1080",
  "encoder": { "codec": "libx264", "preset": "medium", "crf": 20 },
  "window": { "from": 0, "to": 377.2 },
+ "origin": 0,
  "started_at": "2026-11-12T13:50:41.681Z",
  "total_ms": 1696.43,
  "stages": [
@@ -290,7 +342,9 @@ and it is reported in the order it ran:
   file written.
 
 `window` is present only when a video was encoded: a stills run draws instants,
-not a span.
+not a span. `origin` is written with it — the instant the window's frame grid
+starts at, which is where the cross-fade freeze is anchored — because two reports
+that disagree on it are not the same film and cannot be compared frame by frame.
 
 A run that does not finish writes no report: numbers that describe a render that
 never happened are a claim nobody can check. The report only observes — it wraps

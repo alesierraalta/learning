@@ -66,6 +66,10 @@ async function main() {
     throw new Error(`--from ${args.from} is past the end of the part (${fmt(plan.total)}); there is no window to render`);
   }
   const to = Math.min(Number(args.to || plan.total), plan.total);
+  // The stage freezes the state that is leaving on the last frame *this render*
+  // draws, so the grid starts where the window starts. A stills run draws
+  // instants rather than a window and keeps the part's grid.
+  plan.origin = args.video ? from : 0;
   await mkdir(work, { recursive: true });
   await writeFile(join(work, "plan.json"), JSON.stringify(plan, null, 1));
   const captions = sliceCues(plan.cues, from, to);
@@ -111,7 +115,13 @@ async function main() {
     encoder: { codec: "libx264", preset: args.preset || "medium", crf: Number(args.crf || 20) },
   };
   // A window is what a video covers; a stills run draws instants, not a span.
-  if (args.video) meta.window = { from, to };
+  // The origin is where that window's frame grid starts, so it travels with the
+  // window: two reports compared stage by stage, or frame by frame, are only the
+  // same film when they agree on it.
+  if (args.video) {
+    meta.window = { from, to };
+    meta.origin = plan.origin;
+  }
   await writeReport(join(work, "timings.json"), timings.report(meta));
 }
 
