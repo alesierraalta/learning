@@ -38,9 +38,18 @@ function fixture({ narration = WORDS.join(" "), visual } = {}) {
 }
 
 function render(f, extra) {
-  const args = [CLI, "--spec", extra.spec || f.spec, "--note", f.note, "--audio", f.audio, "--work", f.work, ...(extra.args || [])];
+  const args = [CLI, "--spec", extra.spec || f.spec, "--note", f.note, "--audio", f.audio, "--work", extra.work || f.work, ...(extra.args || [])];
   const run = spawnSync("node", args, { encoding: "utf8", timeout: 120_000 });
   return { code: run.status, out: `${run.stdout}${run.stderr}` };
+}
+
+// The pictures a video actually carries, in the order it plays them: the
+// encoder's own view of every frame, not a description of it. The audio is left
+// out; a frame here is one picture.
+function frameHashes(file) {
+  const run = spawnSync("ffmpeg", ["-v", "error", "-i", file, "-map", "0:v:0", "-f", "framemd5", "-"], { encoding: "utf8", timeout: 120_000 });
+  assert.equal(run.status, 0, `framemd5 could not read ${file}:\n${run.stderr}`);
+  return run.stdout.split("\n").filter((line) => line && !line.startsWith("#")).map((line) => line.split(",").pop().trim());
 }
 
 test("a flag nobody implements is rejected instead of silently doing nothing", () => {
@@ -241,6 +250,59 @@ test("a render writes how long each stage took, beside the video it wrote", () =
   assert.ok(capture.fps > 0, `capture reports its effective rate, got ${capture.fps}`);
   assert.ok(report.total_ms >= capture.ms, "the total covers the whole run, not just one stage of it");
   assert.ok(!report.stages.some((s) => s.stage === "legibility"), "no --craft, so no craft gate in the report");
+});
+
+// Capture is the expensive stage, so it is the one that goes wide. Going wide
+// is only worth anything if the film is the same film: the frames are compared
+// by hash, one by one and in order, against the sequential loop.
+test("parallel capture writes the same frames, in the same order", () => {
+  const f = fixture();
+  const window = ["--from", "0", "--to", "0.4", "--video"];
+  const one = join(f.dir, "one");
+  const four = join(f.dir, "four");
+  const sequential = render(f, { work: one, args: [...window, join(one, "out.mp4"), "--workers", "1"] });
+  assert.equal(sequential.code, 0, sequential.out);
+  const parallel = render(f, { work: four, args: [...window, join(four, "out.mp4"), "--workers", "4"] });
+  assert.equal(parallel.code, 0, parallel.out);
+
+  const alone = frameHashes(join(one, "out.mp4"));
+  const wide = frameHashes(join(four, "out.mp4"));
+  assert.equal(wide.length, 12, `a 0.4 s window at 30 fps is 12 frames, got ${wide.length}`);
+  assert.ok(new Set(alone).size > 1, `every frame in the window is the same picture, so this test could not see a reorder: ${alone[0]}`);
+  assert.deepEqual(wide, alone, "frame i must carry the picture it carried at --workers 1, at the same place in the film");
+
+  const capturedWith = (dir) => JSON.parse(readFileSync(join(dir, "timings.json"), "utf8")).stages.find((s) => s.stage === "capture");
+  assert.equal(capturedWith(one).workers, 1, "the report names the concurrency the frames were captured with");
+  assert.equal(capturedWith(four).workers, 4);
+  assert.equal(capturedWith(four).frames, 12, "the same window is still the same number of frames");
+});
+
+test("a worker count that is not a number of pages is refused", () => {
+  const f = fixture();
+  for (const bad of ["0", "1.5", "dos"]) {
+    const run = render(f, { args: ["--from", "0", "--to", "0.4", "--video", join(f.dir, "out.mp4"), "--workers", bad] });
+    assert.notEqual(run.code, 0, `--workers ${bad} was accepted as a concurrency`);
+    assert.match(run.out, /workers/, "the error names the flag it refused");
+  }
+});
+
+test("--workers is refused when the run draws stills, because stills have no loop", () => {
+  const f = fixture();
+  const run = render(f, { args: ["--stills", "0.2", "--workers", "4"] });
+  assert.notEqual(run.code, 0, "a worker count that changes nothing must not pass as if it did");
+  assert.match(run.out, /workers/, "the error names the flag and where it applies");
+});
+
+// An encoder that refuses its flags exits before it reads a frame. The render
+// has to fail then, not wait for a pipe nobody will drain: a hang is the one
+// failure a caller cannot tell from a slow render.
+test("a render fails instead of hanging when the encoder refuses to start", () => {
+  const f = fixture();
+  const out = join(f.dir, "out.mp4");
+  const run = render(f, { args: ["--from", "0", "--to", "0.4", "--workers", "4", "--preset", "nosuchpreset", "--video", out] });
+  assert.notEqual(run.code, 0, `ffmpeg never started, yet the render exited ${run.code}:\n${run.out}`);
+  assert.match(run.out, /ffmpeg/, "the error says who gave up");
+  assert.ok(!existsSync(join(f.work, "final.srt")), "no deliverable outlives a render that failed");
 });
 
 test("the craft gate is timed too, because it is a stage like any other", () => {

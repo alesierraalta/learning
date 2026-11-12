@@ -66,21 +66,23 @@ export async function loadPlaywright(roots = []) {
   throw new Error("playwright is not installed; set PLAYWRIGHT_ROOT");
 }
 
-// Open the stage on a plan and hand back the page. The caller owns close().
-export async function openStage(playwright, plan, { root }) {
+// Open the stage on a plan and hand back its pages. The caller owns close().
+//
+// `pages` boots extra pages in the same browser: capture draws every frame in
+// parallel, one page per worker, and one Chromium is enough for that. A second
+// browser buys no frames, only another process and its memory. Every page is
+// booted on the same plan and the same fonts, so page `k` draws the frame page
+// `0` would have drawn: that is what lets the capture run wide without changing
+// the film.
+export async function openStage(playwright, plan, { root, pages = 1 }) {
   const server = await serve(root);
   const browser = await playwright.chromium.launch({ args: ["--force-color-profile=srgb", "--font-render-hinting=none"] });
   try {
-    const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 1 });
-    page.on("pageerror", (e) => console.error(`stage error: ${e.message}`));
-    const response = await page.goto(`${server.url}${STAGE_PATH}`);
-    if (!response || !response.ok()) throw new Error(`the stage is not at ${STAGE_PATH} under ${root} (HTTP ${response ? response.status() : "no response"})`);
-    const booted = await page.evaluate(() => typeof window.__boot === "function");
-    if (!booted) throw new Error(`${STAGE_PATH} loaded but did not boot the stage under ${root}`);
-    await page.evaluate((p) => window.__boot(p), plan);
-    await page.evaluate(() => document.fonts.ready);
+    const opened = [];
+    for (let i = 0; i < Math.max(1, pages); i++) opened.push(await bootPage(browser, `${server.url}${STAGE_PATH}`, plan, root));
     return {
-      page,
+      page: opened[0],
+      pages: opened,
       async close() {
         await browser.close();
         server.close();
@@ -91,4 +93,19 @@ export async function openStage(playwright, plan, { root }) {
     server.close();
     throw cause;
   }
+}
+
+// One page, booted on the plan. Both the renderer and the craft gate open the
+// stage the same way, so a gate verdict describes the frames a render would
+// actually write.
+async function bootPage(browser, url, plan, root) {
+  const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 1 });
+  page.on("pageerror", (e) => console.error(`stage error: ${e.message}`));
+  const response = await page.goto(url);
+  if (!response || !response.ok()) throw new Error(`the stage is not at ${STAGE_PATH} under ${root} (HTTP ${response ? response.status() : "no response"})`);
+  const booted = await page.evaluate(() => typeof window.__boot === "function");
+  if (!booted) throw new Error(`${STAGE_PATH} loaded but did not boot the stage under ${root}`);
+  await page.evaluate((p) => window.__boot(p), plan);
+  await page.evaluate(() => document.fonts.ready);
+  return page;
 }

@@ -5,6 +5,7 @@
 //   node tools/video/render.mjs --spec parts/parte3.json --note <note.md> \
 //        --audio <dir> --work <dir> [--stills 12.5,90] [--video out.mp4]
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
@@ -20,7 +21,14 @@ import { createTimings, writeReport } from "./lib/timings.mjs";
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(HERE, "../..");
 
-const KNOWN_ARGS = new Set(["spec", "note", "audio", "work", "stills", "video", "from", "to", "fps", "preset", "crf", "remote", "craft"]);
+const KNOWN_ARGS = new Set(["spec", "note", "audio", "work", "stills", "video", "from", "to", "fps", "preset", "crf", "remote", "craft", "workers"]);
+
+// Capture is Chromium drawing and encoding a PNG per frame, so it scales with
+// cores but not with every core: past a few pages they contend for the same CPU
+// and each one costs its own renderer process. Four is the ceiling that came out
+// of measuring a window at 1, 2, 3, 4, 6 and 8 pages; half the cores is the
+// default, and `--workers 1` is the sequential loop that is the base case.
+const MAX_WORKERS = 4;
 
 const args = parseArgs(process.argv.slice(2));
 checkArgs(args);
@@ -72,7 +80,9 @@ async function main() {
   console.log(`${plan.part} · ${plan.beats.length} beats · ${captions.length} cues · ${fmt(plan.total)}`);
 
   const playwright = await loadPlaywright([ROOT]);
-  const stage = await openStage(playwright, plan, { root: ROOT });
+  // Only a video has a frame loop to spread; stills draw instants one at a time.
+  const pages = args.video ? workers() : 1;
+  const stage = await openStage(playwright, plan, { root: ROOT, pages });
   try {
     if (args.stills) {
       const stopStills = timings.time("stills");
@@ -80,7 +90,7 @@ async function main() {
       stopStills({ frames: written });
     }
     if (args.video) {
-      await video(stage.page, plan, beats, resolve(args.video));
+      await video(stage.pages, plan, beats, resolve(args.video));
     }
   } finally {
     await stage.close();
@@ -116,7 +126,7 @@ async function stills(page, dir) {
   return written;
 }
 
-async function video(page, plan, beats, out) {
+async function video(pages, plan, beats, out) {
   const fps = plan.fps;
   const from = Number(args.from || 0);
   const to = Number(args.to || plan.total);
@@ -133,29 +143,163 @@ async function video(page, plan, beats, out) {
     "-movflags", "+faststart", out,
   ], { stdio: ["pipe", "inherit", "inherit"] });
   const done = once(ff, "close");
+  const pipe = watchPipe(ff.stdin);
+  // An encoder that decides to exit while frames are still going in will never
+  // read the rest: the pipe is declared broken here, so the capture stops
+  // waiting for a `drain` that is never coming.
+  let finished = false;
+  ff.once("exit", (code) => {
+    if (!finished) breakPipe(pipe, new Error(code === 0 ? "ffmpeg stopped before the last frame went in" : `ffmpeg exited ${code}`));
+  });
   // ffmpeg encodes while the frames are still being written to its stdin, so
   // this stage covers the capture below as well; the report says so.
   const stopEncode = timings.time("encode");
 
   const started = Date.now();
   const captureOpened = performance.now();
-  for (let i = 0; i < total; i++) {
-    await page.evaluate((at) => window.__frame(at), from + i / fps);
-    const frame = await page.screenshot({ type: "png" });
-    if (!ff.stdin.write(frame)) await once(ff.stdin, "drain");
-    if (i % 300 === 0) {
-      const rate = i / ((Date.now() - started) / 1000);
-      console.log(`frame ${i}/${total} · ${rate.toFixed(1)} fps · eta ${fmt((total - i) / Math.max(rate, 0.1))}`);
-    }
+  let failure = null;
+  try {
+    await captureFrames(pages, { from, fps, total, ff, pipe, started });
+  } catch (cause) {
+    // A worker that fails takes the whole render with it: the encoder is fed an
+    // order it can no longer complete, so it is stopped instead of left to write
+    // a film with a hole in it.
+    failure = cause;
+    ff.kill("SIGKILL");
   }
   // The effective rate is the whole capture, not the console's running estimate.
   const capturedMs = Math.max(performance.now() - captureOpened, 0.001);
-  timings.observe("capture", capturedMs, { frames: total, fps: Math.round((total / (capturedMs / 1000)) * 10) / 10 });
-  ff.stdin.end();
+  timings.observe("capture", capturedMs, {
+    frames: total,
+    fps: Math.round((total / (capturedMs / 1000)) * 10) / 10,
+    workers: pages.length,
+  });
+  if (failure) {
+    // A pipe nobody will finish is a child process nothing can close.
+    ff.stdin.destroy();
+  } else {
+    finished = true;
+    ff.stdin.end();
+  }
   const [code] = await done;
   stopEncode({ overlaps: "capture" });
+  if (failure) throw failure;
   if (code !== 0) throw new Error(`ffmpeg exited ${code}`);
   console.log(`video ${out}`);
+}
+
+// Frames leave the stage from several pages at once, so they come back in
+// whatever order they finish; ffmpeg only takes one order. A captured frame
+// waits in `holding` until every frame before it has gone through stdin, which
+// is what makes the wide render the same video as the sequential one, frame i at
+// instant t_i. `budget` bounds how far the pages may run ahead of that head, so
+// what waits in memory is a handful of PNGs and never the whole part.
+async function captureFrames(pages, { from, fps, total, ff, pipe, started }) {
+  const budget = createBudget(pages.length * 2);
+  const holding = new Map();
+  let cursor = 0;
+  let next = 0;
+  let stopped = null;
+  let flushing = Promise.resolve();
+
+  const flush = () => {
+    flushing = flushing.then(async () => {
+      while (!pipe.cause && holding.has(cursor)) {
+        const image = holding.get(cursor);
+        holding.delete(cursor);
+        cursor++;
+        if (!ff.stdin.write(image)) await drained(ff.stdin, pipe);
+        budget.give();
+        if (cursor % 300 === 0) {
+          const rate = cursor / ((Date.now() - started) / 1000);
+          console.log(`frame ${cursor}/${total} · ${rate.toFixed(1)} fps · eta ${fmt((total - cursor) / Math.max(rate, 0.1))}`);
+        }
+      }
+      if (pipe.cause) throw pipe.cause;
+    });
+    return flushing;
+  };
+
+  const shoot = async (page) => {
+    for (;;) {
+      if (stopped) return;
+      await budget.take();
+      if (stopped) {
+        budget.give();
+        return;
+      }
+      const index = next++;
+      if (index >= total) {
+        budget.give();
+        return;
+      }
+      await page.evaluate((at) => window.__frame(at), from + index / fps);
+      holding.set(index, await page.screenshot({ type: "png" }));
+      await flush();
+    }
+  };
+
+  try {
+    await Promise.all(pages.map((page) => shoot(page)));
+    await flushing;
+  } catch (cause) {
+    // The pages are woken first: a worker waiting for its turn must not wait for
+    // a frame the failed render will never write.
+    stopped = stopped || cause;
+    budget.wake();
+    throw cause;
+  }
+}
+
+// A lease on the pipe: a page may not start a frame it has no room for, so the
+// pages never run further ahead of the encoder than the budget allows.
+function createBudget(limit) {
+  let free = limit;
+  const waiting = [];
+  return {
+    async take() {
+      if (free > 0) {
+        free--;
+        return;
+      }
+      await new Promise((wake) => waiting.push(wake));
+    },
+    give() {
+      const wake = waiting.shift();
+      if (wake) wake();
+      else free++;
+    },
+    // Nobody will hand the lease back on a render that has stopped, so the
+    // waiters are woken to see that for themselves.
+    wake() {
+      for (const wake of waiting.splice(0)) wake();
+    },
+  };
+}
+
+// ffmpeg can die while frames are still being written to it: an encoder flag it
+// refuses, a full disk, a crash. Without this the write would keep waiting for a
+// `drain` a dead pipe never emits, and a failed render would look like a hung one.
+function watchPipe(stdin) {
+  const pipe = { cause: null, waiting: [] };
+  stdin.on("error", (cause) => breakPipe(pipe, cause));
+  return pipe;
+}
+
+function breakPipe(pipe, cause) {
+  pipe.cause ||= cause;
+  for (const wake of pipe.waiting.splice(0)) wake();
+}
+
+async function drained(stdin, pipe) {
+  if (pipe.cause) throw pipe.cause;
+  await new Promise((wake) => {
+    pipe.waiting.push(wake);
+    stdin.once("drain", wake);
+    // The pipe may have died between the write and this listener.
+    if (pipe.cause) wake();
+  });
+  if (pipe.cause) throw pipe.cause;
 }
 
 function audioInputs(plan, beats, from, to) {
@@ -213,12 +357,21 @@ function fmt(s) {
   return `${m}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 }
 
+// How many pages capture when nobody says. Half the cores (the encoder wants the
+// rest), never one — the point of the wide capture is that it is not sequential —
+// and never past the ceiling measurement put on it.
+function workers() {
+  if (args.workers !== undefined) return Number(args.workers);
+  return Math.min(MAX_WORKERS, Math.max(2, Math.floor(availableParallelism() / 2)));
+}
+
 function checkArgs(args) {
   const unknown = Object.keys(args).filter((key) => !KNOWN_ARGS.has(key));
   if (unknown.length) usage(`unknown flag ${unknown.map((key) => `--${key}`).join(", ")}`);
   if (args.video === undefined && args.stills === undefined) {
     usage("nothing to render: pass --video <file> or --stills <instants>");
   }
+  checkWorkers(args);
   if (args.stills !== undefined) {
     const values = String(args.stills).split(",");
     const bad = values.find((value) => !Number.isFinite(Number(value.trim())) || Number(value.trim()) < 0);
@@ -231,6 +384,17 @@ function checkArgs(args) {
   if (args.from !== undefined && args.to !== undefined && Number(args.from) >= Number(args.to)) {
     usage(`--from ${args.from} cannot be at or after --to ${args.to}`);
   }
+}
+
+function checkWorkers(args) {
+  if (args.workers === undefined) return;
+  const value = Number(args.workers);
+  if (args.workers === true || !Number.isInteger(value) || value < 1) {
+    usage(`--workers ${args.workers === true ? "needs a number of pages" : args.workers} is not how many pages can capture`);
+  }
+  // Stills draw instants, not a window: a concurrency that changes nothing is a
+  // flag that lies about what the run did.
+  if (args.video === undefined) usage("--workers only applies to a video: stills are drawn one instant at a time");
 }
 
 function parseArgs(argv) {
@@ -250,6 +414,6 @@ function parseArgs(argv) {
 
 function usage(problem) {
   if (problem) console.error(`render failed: ${problem}`);
-  console.error("usage: render.mjs --spec <part.json> --note <note.md> --audio <dir> [--work <dir>] [--stills 1,2] [--video out.mp4]");
+  console.error("usage: render.mjs --spec <part.json> --note <note.md> --audio <dir> [--work <dir>] [--stills 1,2] [--video out.mp4] [--workers N]");
   process.exit(2);
 }

@@ -40,14 +40,34 @@ node tools/video/render.mjs \
 
 `--craft` runs the craft gate before any frame is captured, so a part that is
 not readable produces no file. `--stills 12.5,90` writes PNG stills instead of a
-video (fast visual checks).`--from 100 --to 120` renders a slice. `--remote synchub:<dir>` fetches missing
+video (fast visual checks).`--from 100 --to 120` renders a slice. `--workers N`
+sets how many pages capture at once (default: half the cores, at most 4;
+`--workers 1` is the sequential loop). `--remote synchub:<dir>` fetches missing
 narration; on the VPS the audio cache is already local and no `--remote` is
 needed. Requires `ffmpeg`, `ffprobe` and Playwright (local or global; the
 renderer resolves both).
 
 Rendering does not re-synthesise anything: if a beat's `.mp3` exists, only the
-picture changes. A full part is ~20 fps of Chromium work, so Part 3 (6:17,
-11 300 frames) takes ~10 minutes and ~10 MB.
+picture changes. A full part is ~20 fps of Chromium work in one page and ~32 fps
+over four, so Part 3 (6:17, 11 300 frames) takes ~10 minutes and ~10 MB.
+
+## Capture
+
+`frame(t)` is pure, so a frame can be drawn on any page at any instant. Capture
+uses that: it boots `--workers` pages in **one** browser, hands each page the
+next frame index, and feeds ffmpeg the frames strictly in order. A captured
+frame waits until every frame before it has gone through stdin, so frame `i` is
+still the picture at `t_i` and the film is byte for byte the one `--workers 1`
+writes — that equality is a test, not an intention.
+
+The reordering is bounded: a page may only run a couple of frames ahead of the
+head being written, so what waits in memory is a handful of PNGs. The pipe is the
+backpressure for everything else — no run ever holds a whole part.
+
+When ffmpeg dies (a flag it refuses, a full disk), the pipe is declared broken
+and the render fails with ffmpeg's own message instead of waiting for a `drain`
+that a dead pipe never emits. A page that fails mid-capture stops the encoder
+too: a film with a hole in it is not a deliverable.
 
 ## The spec
 
@@ -219,7 +239,7 @@ and it is reported in the order it ran:
   { "stage": "promises", "ms": 1.17 },
   { "stage": "audio", "ms": 198.224 },
   { "stage": "legibility", "ms": 858.373 },
-  { "stage": "capture", "ms": 609.272, "frames": 12, "fps": 19.7 },
+  { "stage": "capture", "ms": 609.272, "frames": 12, "fps": 19.7, "workers": 4 },
   { "stage": "encode", "ms": 1077.219, "overlaps": "capture" }
  ]
 }
@@ -229,9 +249,11 @@ and it is reported in the order it ran:
 - `audio` — the narration cache plus one `ffprobe` per beat.
 - `legibility` — only with `--craft`: the gate's own run, before any frame.
 - `stills` — every `--stills` render, with the frames it wrote.
-- `capture` — the frame loop, with the frames it wrote and the effective rate
-  over the whole window. The console's rate is a running estimate; this one is
-  the number the stage actually reached.- `encode` — ffmpeg's own lifetime. It starts at spawn, while frames are still
+- `capture` — the frame loop, with the frames it wrote, the effective rate over
+  the whole window and how many pages captured them. The console's rate is a
+  running estimate; this one is the number the stage actually reached.
+  `workers: 1` is the sequential loop, so two reports that differ only there are
+  a measurement of the capture, not of the film.- `encode` — ffmpeg's own lifetime. It starts at spawn, while frames are still
   being written to its stdin, so it **covers `capture`**: the stages do not add
   up to `total_ms`, and `overlaps` names the stage it swallows.
 - `total_ms` — the whole process, from the renderer being imported to the last
