@@ -36,6 +36,16 @@ node tools/audio/render.mjs --spec tools/audio/specs/rl-p1-debate.json \
 can stay on the machine that owns the voice cache. `--date YYYY-MM-DD` pins the
 metadata date; `--work` keeps the intermediate wavs somewhere explicit.
 
+Turns do not depend on each other and almost all of a turn is waiting for the
+service, so `synth.py` keeps four of them in flight (`--concurrency`, default
+4). The files, their names and the order the log lists them in are the ones the
+sequential run wrote: `--concurrency 1` is that run, kept as the reference the
+parallel path is measured against. Measured with a local double at 0.5 s of
+latency per turn over 65 turns: 32.8 s sequential, 16.7 s at 2, 8.7 s at 4,
+4.6 s at 8, every run byte-identical. The real gain is lower — the service
+answers a socket, not a sleep — so 4 is the setting and 8 the ceiling of what a
+bigger pool can buy.
+
 ## The spec
 
 ```json
@@ -101,9 +111,14 @@ part rather than padding it.
 | `stale recordings` | a take exists under that key but says other words: something wrote the cache by hand, so delete it and synthesise again |
 | `must land between 12 and 28 minutes` | the spec is too short or too long; rebalance chapters, do not stretch sentences |
 | `edge-tts is not installed` | `synth.py` needs the venv that has `edge-tts`; install it there, not here |
+| `rate limited on <key>` | the service answered 429; the turn is retried twice with a growing pause, then the run stops instead of hammering it |
 
-Synthesis stops at the first network error and keeps the cache, so re-running
-resumes where it stopped instead of re-recording the whole part.
+Synthesis stops at the first network error and keeps the cache: the turns
+already in flight finish and are kept, so re-running resumes where it stopped
+instead of re-recording the whole part. A turn that dies mid-stream writes
+nothing — the cache only ever receives a whole file, through a temporary name
+that carries the pid and a rename — so a broken run cannot poison a key, and two
+synthesisers pointed at the same cache cannot corrupt each other's take.
 
 ## Files
 
@@ -111,6 +126,7 @@ resumes where it stopped instead of re-recording the whole part.
 - `lib/timeline.mjs` — pure planning: turn order, silence, chapters, cues,
   duration estimate, SRT.
 - `lib/audio.mjs` — the recorded cache: load, verify the words, measure.
-- `synth.py` — edge-tts, one take per turn, boundaries per take.
+- `synth.py` — edge-tts, one take per turn, boundaries per take, four turns in
+  flight over one content-keyed cache.
 - `render.mjs` — the one command that produces the `.m4a` and the `.srt`.
 - `test/` — the suites; they need `ffmpeg`, never the network or a real voice.
