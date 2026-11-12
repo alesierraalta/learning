@@ -833,6 +833,34 @@ test("stage tool requires practical format when practice is supplied", async () 
   }
 });
 
+test("stage tool rejects blank practical descriptions before any init side effect", async () => {
+  const practice = " \t\u2003";
+  const env = tempEnv();
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+  const entriesBefore = [...host.entries];
+
+  const result = await executeTool(host, { action: "init", topic: "blank-practice", exam: "practical", practice });
+  const statusAfter = await executeTool(host, { action: "status" });
+  const actual = {
+    rejected: result.isError,
+    reason: result.structuredContent.reason,
+    engineCalls: engine.calls.length,
+    topicCreated: existsSync(join(env.root, "blank-practice")),
+    enrollmentEntries: host.entries.length - entriesBefore.length,
+    statusAfterRejection: statusAfter.structuredContent.reason,
+  };
+
+  assert.deepEqual(actual, {
+    rejected: true,
+    reason: "invalid-arguments",
+    engineCalls: 0,
+    topicCreated: false,
+    enrollmentEntries: 0,
+    statusAfterRejection: "inactive",
+  }, `practice ${JSON.stringify(practice)} must be refused without side effects`);
+});
+
 test("stage tool rejects exam combined with complete scope before any init side effect", async () => {
   for (const exam of ["oral", "written", "practical"]) {
     await assertRejectedInitArguments(

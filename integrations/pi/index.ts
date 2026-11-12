@@ -679,6 +679,9 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       if (practice !== undefined && exam !== "practical") {
         return adapterError("invalid-arguments", "practice requires exam=practical");
       }
+      if (practice !== undefined && (typeof practice !== "string" || practice.trim() === "")) {
+        return adapterError("invalid-arguments", "--practice requires a non-empty kind");
+      }
       if (scope !== undefined) {
         if (requested !== "init") {
           return adapterError(
