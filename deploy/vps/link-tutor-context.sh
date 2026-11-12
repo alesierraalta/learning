@@ -79,9 +79,14 @@ backup() {
 link() {
   local target=$1 source=$2
   mkdir -p -- "$(dirname -- "$target")"
-  # A link is replaced in place (-n keeps ln from following it into the target).
   if [[ -e "$target" && ! -L "$target" ]]; then backup "$target"; fi
-  ln -sfn -- "$source" "$target"
+  # The link is built beside the target and renamed over it: `ln -sfn` unlinks and
+  # recreates in two steps, so anything touching the path in between (a sync, a
+  # tutor reading its skill) failed a deploy with "Already exists". A rename is
+  # atomic, and -T keeps mv from moving the new link into a linked directory.
+  local fresh="$target.link.$$"
+  ln -s -- "$source" "$fresh"
+  mv -fT -- "$fresh" "$target"
 }
 
 verify() {
