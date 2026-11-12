@@ -174,10 +174,13 @@ lk-story>.lk-title { display:block; padding:14px 18px 0; font-family:var(--sans)
 .lk-story-head { padding:14px 18px; border-bottom:1px solid var(--hair); container-type:inline-size; }
 /* La cabecera y el narrador son lo más legible de la tarjeta: nunca por debajo del
    tamaño del cuerpo (22 px la ecuación, 18 px el narrador en escritorio). */
-/* La ecuación es UNA línea: no se parte ni se reacomoda cuando un grupo se resalta.
-   Si no cabe a su tamaño de lectura, la cabecera se desliza en horizontal. */
-.lk-story-formula { display:block; white-space:nowrap; overflow-x:auto; overflow-y:hidden; font-family:var(--mono); font-size:clamp(22px, 4.2cqw, 28px); line-height:1.5; letter-spacing:normal; scrollbar-width:thin; }
-.lk-token { display:inline; padding:1px 0; border-radius:3px; letter-spacing:normal; }
+/* La ecuación se lee entera a cualquier ancho (#243): en la columna de escritorio
+   es UNA línea; si no cabe, `kit.js` la escala hasta el suelo de lectura y, por
+   debajo del suelo, la parte por tokens. Nunca se corta ni se desliza fuera de la
+   vista: un token es una pieza entera y el resaltado nunca se parte. */
+.lk-story-formula { display:flex; flex-wrap:nowrap; align-items:baseline; white-space:nowrap; overflow:hidden; font-family:var(--mono); font-size:clamp(22px, 4.2cqw, 28px); line-height:1.5; letter-spacing:normal; }
+.lk-token { display:inline-block; flex:0 0 auto; padding:1px 0; border-radius:3px; letter-spacing:normal; }
+.lk-story-formula[data-wrap] { flex-wrap:wrap; row-gap:2px; }
 /* El resaltado no ocupa lugar en la línea: es solo fondo, sin relleno ni margen
    horizontal, así los átomos de un grupo quedan pegados en una sola barra y el
    grupo mide lo mismo resaltado que sin resaltar. */
@@ -194,7 +197,7 @@ lk-story .lk-story-narrator p, lk-story .lk-story-narrator dd, lk-story .lk-stor
 .lk-story-say { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:0 0 10px; }
 .lk-story-say dt { font-family:var(--sans); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); padding-top:4px; }
 .lk-story-say dd { margin:0; }
-.lk-chip { display:inline-block; padding:0 5px; border:1px solid var(--hair); border-radius:4px; background:var(--mark); font-family:var(--mono); font-size:.86em; font-weight:700; line-height:1.5; }
+.lk-chip { display:inline-block; padding:0 5px; border:1px solid var(--hair); border-radius:4px; background:var(--mark); font-family:var(--mono); font-size:.9em; font-weight:700; line-height:1.5; }
 .lk-key { color:var(--accent); font-weight:700; }
 .lk-story-player { display:flex; align-items:center; flex-wrap:wrap; gap:8px 10px; padding:12px 18px 14px; border-top:1px solid var(--hair); }
 .lk-story-player button { border-radius:0; padding:8px 13px; font-family:var(--sans); font-size:12px; letter-spacing:.1em; text-transform:uppercase; }
@@ -206,6 +209,8 @@ lk-story .lk-story-narrator p, lk-story .lk-story-narrator dd, lk-story .lk-stor
 .lk-story-count { font-family:var(--sans); font-size:13px; letter-spacing:.12em; color:var(--muted); }
 @media(max-width:560px) {
   .lk-story-head, .lk-story-narrator, .lk-story-player { padding-inline:14px; }
+  /* 18 px es el punto de partida del teléfono; `kit.js` lo baja hasta 14 px y,
+     por debajo, parte la línea por tokens. Nunca por debajo de 14 px. */
   .lk-story-formula { font-size:18px; }
   .lk-story-narrator { font-size:17px; }
 }

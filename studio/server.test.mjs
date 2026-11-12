@@ -505,8 +505,8 @@ El ejemplo sigue: el robot aspira la sala.
 <lk-scene>
 <script type="application/json">
 {"viewBox":"0 0 760 210","title":"La flecha sobre el texto","scene":{"boxes":[
-{"x":20,"y":50,"w":196,"h":110,"label":"A","tone":"blue"},
-{"x":556,"y":50,"w":184,"h":110,"label":"B","tone":"green"}],
+{"x":20,"y":20,"w":196,"h":170,"label":"A","tone":"blue"},
+{"x":556,"y":20,"w":184,"h":170,"label":"B","tone":"green"}],
 "arrows":[{"x1":208,"y1":119,"x2":552,"y2":119,"tone":"blue","width":3}],
 "labels":[{"x":380,"y":128,"text":"encima","size":26}]}}
 </script>

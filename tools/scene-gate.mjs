@@ -18,11 +18,19 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { measurePieces, PIECE_TAGS } from '../integrations/pi/kit/piece-gate.mjs';
 
 const KIT = fileURLToPath(new URL('../integrations/pi/kit', import.meta.url));
+// El suelo duro: por debajo de 11 px el glifo no se lee de ninguna manera.
 const MIN_PX = 11;
+// El mínimo del lector: la figura se dibuja a 1 unidad ≈ 1 píxel, así que una
+// etiqueta de 12 unidades se lee a 12 px. El alumno rechazó la Parte 1 de PL/SQL
+// por esto: «DML» a 12 px y el resto del lienzo en blanco (#243).
+const MIN_READ_PX = 14;
 // Aire mínimo en el borde del lienzo, y alto máximo de una franja vacía: una
 // figura no se corta en el borde ni deja un tercio de su lienzo en blanco.
 const EDGE = 12;
 const BAND = 60;
+// La parte del lienzo que el dibujo tiene que usar: un cuarto de papel en blanco
+// ya no es margen, es una figura que no se atrevió a ocupar su canvas (#243).
+const SHARE = 0.75;
 
 async function loadPlaywright() {
   const attempts = [];
@@ -128,7 +136,7 @@ try {
       await page.goto(pathToFileURL(join(dir, 'page.html')).href);
       await page.waitForSelector('lk-scene svg, lk-story svg, .lk-p', { timeout: 15000 });
       await page.waitForTimeout(400);
-      const report = await page.evaluate(({ minPx, EDGE, BAND }) => [...document.querySelectorAll('lk-scene, lk-story')].map((host) => {
+      const report = await page.evaluate(({ minPx, minReadPx, share, EDGE, BAND }) => [...document.querySelectorAll('lk-scene, lk-story')].map((host) => {
         // El lienzo de escena de un recorrido es el SVG que cuelga del escenario: las
         // piezas (tarjetas, memoria, tablas, conjuntos) llevan SVG propios y las mide
         // `measurePieces`.
@@ -151,6 +159,10 @@ try {
         }).filter((t) => t.text);
         if (!texts.length) add({ kind: 'empty-scene', text: host.getAttribute('title') || '', detail: 'la escena no dibujó nada: revisa la forma del JSON' });
         for (const t of texts) if (t.px < minPx) add({ kind: 'text-too-small', text: t.text, detail: `${t.px.toFixed(1)} px` });
+        // La letra por debajo del mínimo de lectura: el glifo se lee, pero el
+        // lector tiene que acercarse. La escena se dibuja a 1 unidad ≈ 1 píxel, así
+        // que el tamaño que escribió el autor es el que ve el lector.
+        for (const t of texts) if (t.px < minReadPx) add({ kind: 'letra-diminuta', text: t.text, detail: `${t.px.toFixed(1)} px, por debajo del mínimo de lectura (${minReadPx} px): dibuja la figura más grande o sube la letra` });
         if (host.querySelector('.lk-scene-stage, .lk-story-stage')?.dataset.overflow) add({ kind: 'scene-overflow', text: host.getAttribute('title') || '', detail: 'el ajuste no pudo encajar el texto sin comprimirlo' });
         for (const t of texts) if (t.x < -1 || t.x + t.w > bounds + 1) add({ kind: 'text-outside-canvas', text: t.text, detail: `x ${t.x.toFixed(0)}–${(t.x + t.w).toFixed(0)} fuera de 0–${bounds}` });
         // Una pieza pegada al borde se corta en cuanto el lector cambia el ancho:
@@ -175,6 +187,23 @@ try {
           if ((!b.width && !b.height) || outside) {
             add({ kind: 'pieza-invisible', text: g.dataset.icon || g.dataset.actor || g.textContent.trim().slice(0, 40) || 'una pieza', detail: outside ? 'queda entera fuera del lienzo y el SVG la recorta' : 'no dibuja tinta' });
           }
+        }
+        // Una figura que no usa su lienzo: el dibujo ocupa menos de tres cuartos
+        // del ancho o del alto del canvas. La escena de PL/SQL metía dos cajas de
+        // 100 unidades en un lienzo de 200 y el lector miraba medio papel en blanco
+        // (#243). Un recorrido no se mide así: su escenario deja el aire por el que
+        // se mueven los actores, y sus pasos se miden uno por uno.
+        if (!steps.length && pieces.length) {
+          const ink = pieces.reduce((a, { b }) => ({
+            x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+            right: Math.max(a.right, b.x + b.width), bottom: Math.max(a.bottom, b.y + b.height),
+          }), { x: Infinity, y: Infinity, right: -Infinity, bottom: -Infinity });
+          // Se mide el alto: el ancho lo limita la columna de lectura, y una fórmula
+          // anotada ocupa el centro del lienzo a propósito. El alto es lo que el autor
+          // eligió, y es el que deja el papel en blanco.
+          const h = (ink.bottom - ink.y) / vb.height;
+          const name = svg.getAttribute('aria-label') || host.getAttribute('title') || '';
+          if (h < share) add({ kind: 'lienzo-vacio', text: name, detail: `la figura ocupa el ${Math.round(h * 100)} % del alto de su lienzo: dibújala más grande o recorta el viewBox` });
         }
         // Una franja vacía más alta que 60 unidades es lienzo que nadie mira: el
         // resumen dejaba un tercio de su alto en blanco debajo de las etiquetas.
@@ -205,7 +234,7 @@ try {
           steps.forEach((g, i) => { g.style.display = shown[i]; });
         } else problems.push(...measure(svg, ''));
         return { title: host.getAttribute('title') || '', problems };
-      }), { minPx: MIN_PX, EDGE, BAND });
+      }), { minPx: MIN_PX, minReadPx: MIN_READ_PX, share: SHARE, EDGE, BAND });
 
       scenes += report.length;
       // Las piezas se miden aparte: a dos anchos y paso a paso.

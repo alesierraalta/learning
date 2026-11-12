@@ -43,8 +43,8 @@ El ejemplo sigue: el robot aspira la sala.
 <lk-scene>
 <script type="application/json">
 {"viewBox":"0 0 760 210","title":"La flecha sobre el texto","scene":{"boxes":[
-{"x":20,"y":50,"w":196,"h":110,"label":"A","tone":"blue"},
-{"x":556,"y":50,"w":184,"h":110,"label":"B","tone":"green"}],
+{"x":20,"y":20,"w":196,"h":170,"label":"A","tone":"blue"},
+{"x":556,"y":20,"w":184,"h":170,"label":"B","tone":"green"}],
 "arrows":[{"x1":208,"y1":119,"x2":552,"y2":119,"tone":"blue","width":3}],
 "labels":[{"x":380,"y":128,"text":"encima","size":26}]}}
 </script>
@@ -74,8 +74,8 @@ const CLEAN = BROKEN.replace(
 
 /** A part whose box sits on the canvas edge: `al-borde`, in scene-gate's words. */
 const AT_THE_EDGE = BROKEN.replace(
-  '"boxes":[\n{"x":20,"y":50,"w":196,"h":110,"label":"A","tone":"blue"},',
-  '"boxes":[\n{"x":0,"y":50,"w":208,"h":110,"label":"A","tone":"blue"},',
+  '"boxes":[\n{"x":20,"y":20,"w":196,"h":170,"label":"A","tone":"blue"},',
+  '"boxes":[\n{"x":0,"y":20,"w":208,"h":170,"label":"A","tone":"blue"},',
 ).replace('"title":"La flecha sobre el texto"', '"title":"La caja en el borde"');
 
 function note(name, body) {

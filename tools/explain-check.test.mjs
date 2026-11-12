@@ -15,9 +15,9 @@ const dir = mkdtempSync(join(tmpdir(), 'explain-check-'));
 const STORY_SIMPLE = `<lk-story>
 <script type="application/json">
 {"kind":"formula","title":"Una cuenta","viewBox":"0 0 360 250","formula":{"size":18,"atoms":[{"t":"1","id":"one"},{"t":" + ","id":"plus"},{"t":"1","id":"one2"},{"t":" = ","id":"eq"},{"t":"2","id":"two"}]},"steps":[
- {"title":"La cuenta","focus":[],"narrator":"Es la cuenta entera.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la cuenta"}]}}},
- {"title":"El resultado","focus":["two"],"narrator":"El resultado es «2».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"el resultado"}]}}},
- {"title":"Otra vez","focus":[],"narrator":"La cuenta se lee igual.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la cuenta"}]}}}
+ {"title":"La cuenta","focus":[],"narrator":"Es la cuenta entera.","stage":{"scene":{"actors":[{"id":"n","x":140,"y":90,"w":80,"h":40,"label":"1 + 1","tone":"blue"}],"labels":[{"x":180,"y":160,"text":"la cuenta"}]}}},
+ {"title":"El resultado","focus":["two"],"narrator":"El resultado es «2».","stage":{"scene":{"actors":[{"id":"n","x":140,"y":90,"w":80,"h":40,"label":"2","tone":"green"}],"labels":[{"x":180,"y":160,"text":"el resultado"}]}}},
+ {"title":"Otra vez","focus":[],"narrator":"La cuenta se lee igual.","stage":{"scene":{"actors":[{"id":"n","x":140,"y":90,"w":80,"h":40,"label":"1 + 1","tone":"blue"}],"labels":[{"x":180,"y":160,"text":"la cuenta"}]}}}
 ]}
 </script>
 </lk-story>`;
@@ -332,10 +332,10 @@ const FORMULA_STORY = `<lk-story>
 <script type="application/json">
 {"kind":"formula","title":"La densidad","viewBox":"0 0 360 250","formula":{"size":18,"atoms":[{"t":"f","id":"f"},{"t":"(","id":"open"},{"t":"x","id":"x"},{"t":")","id":"close"}]},
  "steps":[
-  {"title":"La fórmula entera","focus":[],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la campana"}]}}},
-  {"title":"f: la densidad","focus":["f"],"narrator":"«f» es la densidad: la altura de la curva.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la altura"}]}}},
-  {"title":"x: el punto","focus":["x"],"narrator":"«x» es el punto que miras.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la latencia"}]}}},
-  {"title":"Con el ejemplo","focus":[],"narrator":"Con «x = 184», «f(184) = 0,000 65».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"el resultado"}]}}}
+  {"title":"La fórmula entera","focus":[],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la campana"}]}}},
+  {"title":"f: la densidad","focus":["f"],"narrator":"«f» es la densidad: la altura de la curva.","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la altura"}]}}},
+  {"title":"x: el punto","focus":["x"],"narrator":"«x» es el punto que miras.","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la latencia"}]}}},
+  {"title":"Con el ejemplo","focus":[],"narrator":"Con «x = 184», «f(184) = 0,000 65».","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(184)","tone":"green"}],"labels":[{"x":180,"y":170,"text":"el resultado"}]}}}
  ]}
 </script>
 </lk-story>
@@ -464,4 +464,69 @@ test('una parte con solo un SVG falla la historia', () => {
   const r = run(file);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALLA historia/);
+});
+
+// ── Story quality (#243) ─────────────────────────────────────────────────────
+// La Parte 1 de PL/SQL pasó el estándar y el alumno la rechazó: su historia no
+// lleva la línea de SQL en la cabecera (aunque la parte la enseña) y sus pasos
+// dibujan solo cajas con texto. Las dos son estructurales: se leen del JSON.
+const PARTE_PLSQL = join(TOOLS, '..', 'internal', 'engine', 'testdata', 'plsql-parte-1.md');
+
+// Una historia con la línea de código en su cabecera: un `equation` por paso con
+// el token del paso resaltado.
+const HISTORIA_CON_CABECERA = `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"El débito","viewBox":"0 0 360 210","steps":[
+ {"title":"Débito","equation":{"size":18,"atoms":[{"t":"UPDATE ","id":"u"},{"t":"cuentas","id":"t"},{"t":" SET saldo = saldo - 200","id":"set"}]},"focus":["set"],
+  "narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"blue"}],"marks":[{"kind":"ok","actors":["c10"]}]}}}
+]}
+</script>
+</lk-story>`;
+
+test('la parte real de PL/SQL no lleva la línea de SQL en la cabecera de su historia', () => {
+  const r = run(PARTE_PLSQL);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA historia-cabecera/);
+  assert.match(r.stdout, /equation\.atoms|formula\.atoms/);
+  assert.match(r.stdout, /focus/);
+});
+
+test('una historia con la línea de código en su cabecera pasa', () => {
+  const file = join(dir, 'cabecera-con-linea.md');
+  writeFileSync(file, CUMPLE.replace(HISTORIA, HISTORIA_CON_CABECERA));
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+historia-cabecera/);
+});
+
+test('la parte real de PL/SQL dibuja su historia con cajas y texto', () => {
+  const r = run(PARTE_PLSQL);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA escenario-de-cajas/);
+  // El rechazo nombra el vocabulario que hay que usar.
+  for (const word of ['actors', 'props', 'moves', '<lk-cards>', '<lk-memory>', '<lk-tables>', '<lk-venn>']) {
+    assert.ok(r.stdout.includes(word), `el rechazo no nombra ${word}: ${r.stdout}`);
+  }
+});
+
+test('una historia con actores en su escenario pasa el escenario', () => {
+  const file = join(dir, 'escenario-con-actores.md');
+  writeFileSync(file, CUMPLE);
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+escenario-de-cajas/);
+});
+
+test('una historia que dibuja una pieza en su escenario pasa el escenario', () => {
+  const file = join(dir, 'escenario-con-pieza.md');
+  writeFileSync(file, CUMPLE.replace(HISTORIA, `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
+ {"title":"Las tarjetas","narrator":"Cada paso cuesta menos.","stage":{"cards":{"cards":[{"verdict":"ok","title":"compila"}]}}}
+]}
+</script>
+</lk-story>`));
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+escenario-de-cajas/);
 });

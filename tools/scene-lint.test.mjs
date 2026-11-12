@@ -247,10 +247,12 @@ test('una caja alcanzada por una flecha no es un hallazgo', { skip: SKIP }, () =
 // Nada dibujado vive pegado al borde del lienzo: una caja a 0 unidades del tope
 // se corta en cuanto el lector cambia el ancho, y en pantalla completa se veía
 // sin su filete de arriba.
+// El lienzo mide lo que la caja dibuja: así el único defecto que se mide es el
+// aire en el borde, no el papel que la figura deja sin usar (#243).
 const edgeScene = (box) => `<lk-scene>
 <script type="application/json">
-{"viewBox":"0 0 360 100","title":"una caja al borde","caption":"Todo deja aire en el borde.","scene":{
-  "paths":[{"d":"M 40 60 L 320 60","tone":"slate","width":2,"arrow":false}],
+{"viewBox":"0 0 360 96","title":"una caja al borde","caption":"Todo deja aire en el borde.","scene":{
+  "paths":[{"d":"M 40 48 L 320 48","tone":"slate","width":2,"arrow":false}],
   "boxes":[${JSON.stringify(box)}]}}
 </script>
 </lk-scene>
@@ -270,7 +272,7 @@ test('una pieza a menos de 12 unidades del borde del lienzo es un hallazgo', { s
 });
 
 test('una pieza con aire en el borde no es un hallazgo', { skip: SKIP }, () => {
-  const file = edgeNote('con-aire.md', { x: 100, y: 20, w: 80, h: 40, label: 'con aire', size: 12 });
+  const file = edgeNote('con-aire.md', { x: 100, y: 12, w: 80, h: 72, label: 'con aire', size: 14 });
   const r = gate(file);
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
@@ -280,7 +282,7 @@ test('una pieza con aire en el borde no es un hallazgo', { skip: SKIP }, () => {
 const bandScene = (viewBox) => `<lk-scene>
 <script type="application/json">
 {"viewBox":"${viewBox}","title":"una franja vacía","caption":"El lienzo mide lo que dibuja.","scene":{
-  "paths":[{"d":"M 40 40 L 320 40","tone":"slate","width":2,"arrow":false}],"labels":[{"x":180,"y":30,"text":"una línea","size":12}]}}
+  "paths":[{"d":"M 40 12 L 40 88","tone":"slate","width":2,"arrow":false}],"labels":[{"x":180,"y":30,"text":"una línea","size":14}]}}
 </script>
 </lk-scene>
 `;
@@ -477,7 +479,7 @@ test('una pieza dibujada encima de una palabra es un hallazgo', { skip: SKIP }, 
 
 test('un actor con estado, sus piezas y sus marcas pasan scene-lint y scene-gate', { skip: SKIP }, () => {
   const file = join(dir, 'estado-limpio.md');
-  writeFileSync(file, story(`{"actors":[{"id":"s1","icon":"robot","x":70,"y":150,"size":56,"tone":"blue","state":"invalid","tag":"s1"},{"id":"s2","icon":"robot","x":290,"y":150,"size":56,"tone":"amber","tag":"s2"}],"props":[{"id":"leer","kind":"read","on":"s1","side":"right","tone":"blue"},{"id":"valor","kind":"value","on":"s2","side":"left","label":"hola","tone":"green"}],"marks":[{"kind":"no","actors":["s1","leer"]}]}`));
+  writeFileSync(file, story(`{"actors":[{"id":"s1","icon":"robot","x":70,"y":150,"size":56,"tone":"blue","state":"invalid","tag":"s1"},{"id":"s2","icon":"robot","x":290,"y":150,"size":56,"tone":"amber","tag":"s2"}],"props":[{"id":"leer","kind":"read","on":"s1","side":"right","tone":"blue"},{"id":"valor","kind":"value","on":"s2","side":"left","label":"hola","tone":"green"}],"marks":[{"kind":"no","actors":["s1","leer"],"label":"no compila"}]}`));
   const a = lint(file);
   assert.equal(a.status, 0, a.stdout + a.stderr);
   const b = gate(file);
@@ -667,4 +669,199 @@ test('el estudio lee la escena rota como un hallazgo, no como un fallo suyo', { 
   assert.equal(g.status, 1, g.stdout + g.stderr);
   const findings = findingsOf('scene-gate.mjs', g.stdout);
   assert.ok(findings.some((f) => f.startsWith('escena-ilegible:')), `el estudio no lee el hallazgo: ${JSON.stringify(findings)}`);
+});
+
+// ── Story quality (#243) ─────────────────────────────────────────────────────
+// La Parte 1 de PL/SQL pasó las cuatro puertas y el alumno la rechazó igual: su
+// escena dibuja la letra a 12 px, deja un cuarto de su lienzo en blanco y su
+// recorrido aprueba dos cajas con un ✓ que no dice qué aprueba. Los tres son
+// medibles, y estos casos fijan la medida sobre la parte real.
+const PARTE_PLSQL = join(TOOLS, '..', 'internal', 'engine', 'testdata', 'plsql-parte-1.md');
+
+// Dos cajas que ocupan el lienzo: así el único defecto que se mide es la letra.
+const escenaConLetra = (name, size) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La memoria\n\nSe dibuja.\n\n<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 200","title":"la memoria","caption":"La sesión y el disco.","scene":{
+  "boxes":[{"x":16,"y":20,"w":150,"h":150,"label":"Memoria","sub":"v_saldo: 1000","tone":"blue"},{"x":194,"y":20,"w":150,"h":150,"label":"Disco","sub":"cuentas","tone":"green"}],
+  "labels":[{"x":180,"y":180,"text":"DML","size":${size},"tone":"blue"}]}}
+</script>
+</lk-scene>\n`);
+  return file;
+};
+
+test('una escena con la letra por debajo del mínimo de lectura es un hallazgo', { skip: SKIP }, () => {
+  const g = gate(escenaConLetra('letra-diminuta.md', 12));
+  assert.equal(g.status, 1, g.stdout + g.stderr);
+  assert.match(g.stdout, /^ {2}letra-diminuta: DML/m);
+  assert.match(g.stdout, /12\.0 px.*14 px/);
+});
+
+test('una escena con la letra del tamaño de lectura no es un hallazgo', { skip: SKIP }, () => {
+  const g = gate(escenaConLetra('letra-legible.md', 15));
+  assert.equal(g.status, 0, g.stdout + g.stderr);
+  assert.doesNotMatch(g.stdout, /letra-diminuta/);
+});
+
+// La figura que no usa su lienzo: el dibujo ocupa menos de tres cuartos del
+// canvas y el lector mira un cuarto de papel en blanco.
+const escenaEnLienzo = (name, viewBox) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La memoria\n\nSe dibuja.\n\n<lk-scene>
+<script type="application/json">
+{"viewBox":"${viewBox}","title":"la memoria","caption":"La sesión y el disco.","scene":{
+  "boxes":[{"x":16,"y":20,"w":150,"h":150,"label":"Memoria","sub":"v_saldo: 1000","tone":"blue"},{"x":194,"y":20,"w":150,"h":150,"label":"Disco","sub":"cuentas","tone":"green"}],
+  "labels":[{"x":180,"y":180,"text":"DML","size":15,"tone":"blue"}]}}
+</script>
+</lk-scene>\n`);
+  return file;
+};
+
+test('una figura que deja un cuarto de su lienzo vacío es un hallazgo', { skip: SKIP }, () => {
+  const g = gate(escenaEnLienzo('lienzo-sin-usar.md', '0 0 360 400'));
+  assert.equal(g.status, 1, g.stdout + g.stderr);
+  assert.match(g.stdout, /^ {2}lienzo-vacio: la memoria/m);
+  assert.match(g.stdout, /de su lienzo/);
+});
+
+test('una figura que usa su lienzo no es un hallazgo', { skip: SKIP }, () => {
+  const g = gate(escenaEnLienzo('lienzo-usado.md', '0 0 360 200'));
+  assert.equal(g.status, 0, g.stdout + g.stderr);
+  assert.doesNotMatch(g.stdout, /lienzo-vacio/);
+});
+
+// El ✓ de la parte real: aprueba dos cajas a la vez y no lleva su nombre, así que
+// cae en el hueco entre las dos y no se sabe qué aprobó.
+const historiaConMarca = (name, mark) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La transacción\n\nSe dibuja.\n\n<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"La transacción","viewBox":"0 0 360 210","steps":[
+ {"title":"Dos saldos","narrator":"Las dos cuentas están en reposo.","stage":{"scene":{
+   "actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"slate"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"slate"}],
+   "marks":[${JSON.stringify(mark)}]}}}
+]}
+</script>
+</lk-story>\n`);
+  return file;
+};
+
+test('un ✓ entre dos cajas sin su nombre es un hallazgo', { skip: SKIP }, () => {
+  const r = lint(historiaConMarca('marca-suelta.md', { kind: 'ok', actors: ['c10', 'c20'] }));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^ {2}marca-suelta: ok/m);
+  assert.match(r.stdout, /c10, c20|dos/);
+});
+
+test('un ✓ sobre un actor no es un hallazgo', { skip: SKIP }, () => {
+  const r = lint(historiaConMarca('marca-sobre-actor.md', { kind: 'ok', actors: ['c10'] }));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /marca-suelta/);
+});
+
+test('un ✓ entre dos cajas con su nombre no es un hallazgo', { skip: SKIP }, () => {
+  const r = lint(historiaConMarca('marca-con-nombre.md', { kind: 'ok', actors: ['c10', 'c20'], label: 'confirmado' }));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /marca-suelta/);
+});
+
+// La parte real que el alumno rechazó: su escena dibuja a 12 px y su recorrido
+// aprueba dos cajas con un ✓ sin nombre. Ninguna de las dos puertas lo medía.
+test('la parte real de PL/SQL dibuja su escena por debajo del mínimo de lectura', { skip: SKIP }, () => {
+  const g = gate(PARTE_PLSQL);
+  assert.equal(g.status, 1, g.stdout + g.stderr);
+  assert.match(g.stdout, /^ {2}letra-diminuta: /m);
+});
+
+test('la parte real de PL/SQL deja un cuarto de su escena en blanco', { skip: SKIP }, () => {
+  const g = gate(PARTE_PLSQL);
+  assert.equal(g.status, 1, g.stdout + g.stderr);
+  assert.match(g.stdout, /^ {2}lienzo-vacio: .*de su lienzo/m);
+});
+
+test('la parte real de PL/SQL aprueba dos cajas con un ✓ que no dice qué aprueba', { skip: SKIP }, () => {
+  const r = lint(PARTE_PLSQL);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^ {2}marca-suelta: ok/m);
+});
+
+// ── La marca y la cabecera se leen al tamaño del lector (#243, segunda vuelta) ──
+// El alumno vio el ✓ de la parte corregida más grande que los nombres de las
+// cuentas, y en el teléfono la cabecera cortada por los dos lados: ni el principio
+// ni el final de la sentencia, y el token resaltado partido en el borde.
+const PLSQL_CORREGIDO = join(EXAMPLES, 'plsql-transaccion.md');
+
+// La parte corregida ya no tiene los dos defectos: la marca se dibuja al tamaño de
+// los nombres y la cabecera se escala hasta caber entera.
+test('la parte corregida dibuja su marca y su cabecera al tamaño del lector', { skip: SKIP }, () => {
+  const r = lint(PLSQL_CORREGIDO);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /etiqueta-desproporcionada/);
+  assert.doesNotMatch(r.stdout, /cabecera-cortada/);
+});
+
+// La regla sigue viva: una marca sobre un escenario que no escribe ningún nombre
+// se dibuja a 24 unidades, por encima del mínimo de lectura, y se lee como el
+// título de la escena. El arreglo es nombrar a los actores.
+const historiaSinNombres = (mark) => {
+  const file = join(dir, 'marca-sin-nombres.md');
+  writeFileSync(file, `# Parte 1\n\n## 1. La transacción\n\nSe dibuja.\n\n<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"La transacción","viewBox":"0 0 360 210","steps":[
+ {"title":"Dos saldos","narrator":"Las dos cuentas están en reposo.","equation":{"atoms":[{"t":"SELECT 1;","id":"q"}]},"focus":["q"],"stage":{"scene":{
+   "actors":[{"id":"c10","icon":"robot","x":90,"y":120,"size":56,"tone":"slate"},{"id":"c20","icon":"robot","x":270,"y":120,"size":56,"tone":"slate"}],
+   "marks":[${JSON.stringify(mark)}]}}}
+]}
+</script>
+</lk-story>\n`);
+  return file;
+};
+
+test('una marca más grande que la letra de su escenario es un hallazgo', { skip: SKIP }, () => {
+  const r = lint(historiaSinNombres({ kind: 'ok', actors: ['c10', 'c20'], label: 'confirmado' }));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^ {2}etiqueta-desproporcionada: ✓/m);
+  assert.match(r.stdout, /la letra de la figura a \d+/);
+});
+
+// La cabecera no se corta: un token que no cabe ni partido por tokens es un
+// hallazgo, porque el lector no puede leer ni el principio ni el final.
+test('una cabecera con un token que no cabe es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'cabecera-cortada.md');
+  const largo = 'x'.repeat(140);
+  writeFileSync(file, `# Parte 1\n\n## 1. La transacción\n\nSe dibuja.\n\n<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"La transacción","viewBox":"0 0 360 210","steps":[
+ {"title":"Uno","narrator":"Una línea larguísima.","equation":{"atoms":[{"t":"${largo}","id":"l"}]},"focus":["l"],"stage":{"scene":{
+   "actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","size":16,"tag":"saldo 1000"}]}}}
+]}
+</script>
+</lk-story>\n`);
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^ {2}cabecera-cortada: /m);
+});
+
+// Las dos reglas tienen su lado limpio: una marca al tamaño de los nombres y una
+// cabecera que cabe entera no son un hallazgo.
+const historiaConMarcaAlTamano = (mark) => {
+  const file = join(dir, 'marca-al-tamano.md');
+  writeFileSync(file, `# Parte 1\n\n## 1. La transacción\n\nSe dibuja.\n\n<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"La transacción","viewBox":"0 0 360 210","steps":[
+ {"title":"Dos saldos","narrator":"Las dos cuentas están en reposo.","equation":{"atoms":[{"t":"SELECT 1;","id":"q"}]},"focus":["q"],"stage":{"scene":{
+   "actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","size":16,"tag":"saldo 1000"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","size":16,"tag":"saldo 1000"}],
+   "marks":[${JSON.stringify(mark)}]}}}
+]}
+</script>
+</lk-story>\n`);
+  return file;
+};
+
+test('una marca al tamaño de los nombres no es un hallazgo', { skip: SKIP }, () => {
+  const r = lint(historiaConMarcaAlTamano({ kind: 'ok', actors: ['c10', 'c20'], label: 'confirmado' }));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /etiqueta-desproporcionada/);
+  assert.doesNotMatch(r.stdout, /cabecera-cortada/);
 });

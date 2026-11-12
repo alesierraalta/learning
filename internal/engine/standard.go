@@ -539,6 +539,158 @@ func storyLanguageFindings(text string, th rules.PartStandardThresholds) []strin
 	return []string{"the part carries no story and no piece — usa una historia por pasos <lk-story> o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>; a classic <lk-walkthrough> alone does not count"}
 }
 
+// storyQualityDoc reads the two things the story-quality rules measure (#243):
+// the line the header of every step carries and the vocabulary its stage draws.
+// The stage is read as a map of raw keys so a vocabulary key the engine does not
+// know still counts as something drawn: the rule refuses a row of boxes, and it
+// never refuses a step that draws more than that.
+type storyQualityDoc struct {
+	Kind    string `json:"kind"`
+	Formula *struct {
+		Atoms []json.RawMessage `json:"atoms"`
+	} `json:"formula"`
+	Steps []struct {
+		Equation *struct {
+			Atoms []json.RawMessage `json:"atoms"`
+		} `json:"equation"`
+		Stage map[string]json.RawMessage `json:"stage"`
+	} `json:"steps"`
+}
+
+// storyVocabulary is what a story step draws when it draws an action: the pieces
+// of the scene language and the four visual pieces. A step that draws none of
+// them draws only boxes with text.
+var storyVocabulary = []string{
+	"actors", "props", "moves", "tags", "icons", "callouts", "curves", "paths",
+	"formulas", "formula", "grids", "sheets", "bars", "stats", "nodes", "badges",
+	"dashed", "policy", "arrows",
+}
+
+// storyPieces are the visual pieces a step may draw instead of a scene.
+var storyPieces = []string{"cards", "memory", "tables", "venn"}
+
+// declared reports whether the author wrote something under a key: an absent key,
+// an empty array and an empty object draw nothing.
+func declared(raw json.RawMessage) bool {
+	value := strings.TrimSpace(string(raw))
+	return value != "" && value != "null" && value != "[]" && value != "{}"
+}
+
+// storyStepDrawsAction reports whether a step draws the action: a piece, or a
+// scene with any of the vocabulary that is not a box with text.
+func storyStepDrawsAction(stage map[string]json.RawMessage) bool {
+	for _, key := range storyPieces {
+		if declared(stage[key]) {
+			return true
+		}
+	}
+	scene := stage
+	if raw, ok := stage["scene"]; ok && declared(raw) {
+		var inner map[string]json.RawMessage
+		if json.Unmarshal(raw, &inner) == nil {
+			scene = inner
+		}
+	}
+	for _, key := range storyVocabulary {
+		if declared(scene[key]) {
+			return true
+		}
+	}
+	return false
+}
+
+// storyQualityDocs returns the parsed payload of every story outside fenced
+// code: a story inside a fence is an example of markup, not a drawing.
+func storyQualityDocs(text string) []storyQualityDoc {
+	var docs []storyQualityDoc
+	for _, block := range storyBlock.FindAllString(withoutCodeFences(text), -1) {
+		payload, ok := jsonPayload(block)
+		if !ok {
+			continue
+		}
+		var doc storyQualityDoc
+		if json.Unmarshal([]byte(payload), &doc) != nil {
+			continue
+		}
+		docs = append(docs, doc)
+	}
+	return docs
+}
+
+// showsCode reports whether the part teaches code: a fenced code block. The
+// header rule is about the code line, which only the story can carry. A formula
+// is the other half of the same idea and it is already measured: the formula rule
+// (`formulaWalkthrough`) refuses the part whose first formula is not taught by a
+// `<lk-story>` that carries `formula.atoms`, which is a non-empty header. Asking
+// for it twice would refuse the same part with two names.
+func showsCode(text string) bool {
+	return proseFence.MatchString(text)
+}
+
+// storyHeaderFindings measures the story-header rule (#243): a part that teaches
+// code or a formula carries that line in the header of its story, one highlighted
+// token per step. An empty header is a finding, and the fix names the keys that
+// fill it. A rules snapshot that does not declare `storyHeader` keeps accepting
+// the parts it accepted.
+func storyHeaderFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.StoryHeader || !showsCode(text) {
+		return nil
+	}
+	for _, doc := range storyQualityDocs(text) {
+		if len(doc.Steps) == 0 {
+			continue
+		}
+		empty := 0
+		for _, step := range doc.Steps {
+			var atoms []json.RawMessage
+			if doc.Kind == "derivation" {
+				if step.Equation != nil {
+					atoms = step.Equation.Atoms
+				}
+			} else if doc.Formula != nil {
+				atoms = doc.Formula.Atoms
+			}
+			if len(atoms) == 0 {
+				empty++
+			}
+		}
+		if empty > 0 {
+			return []string{fmt.Sprintf(
+				"the story header is empty in %d of %d step(s) — la historia no lleva en su cabecera la línea de código que la parte enseña: ponla con `equation.atoms` en cada paso (o `formula.atoms` para el recorrido entero) y resalta el token del paso en `focus`",
+				empty, len(doc.Steps))}
+		}
+	}
+	return nil
+}
+
+// storyStageFindings measures the story-stage rule (#243): the steps of a story
+// draw the action — actors with their state, props, moves, pointers, connectors
+// or a piece — never a row of boxes with text. The refusal names the vocabulary
+// to use. A rules snapshot that does not declare `storyStage` keeps accepting
+// the parts it accepted.
+func storyStageFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.StoryStage {
+		return nil
+	}
+	for _, doc := range storyQualityDocs(text) {
+		if len(doc.Steps) == 0 {
+			continue
+		}
+		boxesOnly := true
+		for _, step := range doc.Steps {
+			if storyStepDrawsAction(step.Stage) {
+				boxesOnly = false
+				break
+			}
+		}
+		if boxesOnly {
+			return []string{"todos los pasos de la historia dibujan solo cajas con texto — dibuja la acción: " +
+				strings.Join(storyVocabulary, ", ") + "; o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>"}
+		}
+	}
+	return nil
+}
+
 // sceneFormulaBlocks returns the closed scene and walkthrough blocks outside
 // fenced code: a scene inside a fence is an example of markup, not a drawing.
 func sceneFormulaBlocks(text string) []string {
@@ -636,6 +788,10 @@ func standardFindings(text string, th rules.PartStandardThresholds) []string {
 	findings = append(findings, formulaWalkthroughFindings(text, th)...)
 
 	findings = append(findings, storyLanguageFindings(text, th)...)
+
+	findings = append(findings, storyHeaderFindings(text, th)...)
+
+	findings = append(findings, storyStageFindings(text, th)...)
 
 	if th.MaxSentencesPerParagraph > 0 {
 		if walls := wallParagraphs(text, th.MaxSentencesPerParagraph); len(walls) > 0 {

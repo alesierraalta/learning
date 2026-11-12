@@ -577,9 +577,25 @@
     // las piezas que se le pasan en `avoid`. Si ningún lado cabe, queda en el primero.
     const room = svg.viewBox.baseVal;
     const touches = (a, b) => !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
-    const glyphAt = (holder, kind, union, { corner = false, avoid = [], below: underneath = false } = {}) => {
+    // El nombre del resultado viaja con el glifo: un ✓ entre dos piezas que no
+    // lleva su palabra no dice qué aprobó, y el alumno lo leyó como un ✓ suelto
+    // en el hueco (#243). Con nombre, la marca se explica sola.
+    // La letra de la figura en un paso: el nombre de un actor, la ficha de su
+    // nombre, su caja o el rótulo suelto. Una marca nunca se dibuja más grande que
+    // ellos: el ✓ de la parte corregida salía a 24 sobre nombres de 16 y se leía
+    // como el título de la escena (#243).
+    const letterOf = (step) => {
+      const sizes = [];
+      for (const t of step.querySelectorAll("[data-actor] text, [data-box] text, [data-label] text, [data-tag-to] text")) {
+        const size = Number(t.getAttribute("font-size")) || 0;
+        if (size) sizes.push(size);
+      }
+      return sizes.length ? Math.min(...sizes) : 24;
+    };
+    const glyphAt = (holder, kind, union, { corner = false, avoid = [], below: underneath = false, label = "", size = 24 } = {}) => {
       const t = tone(kind === "no" ? "red" : "green");
-      const glyph = make("text", { "font-size": 24, "font-weight": 700, fill: t.color }, kind === "no" ? "✗" : "✓");
+      const words = `${kind === "no" ? "✗" : "✓"}${label ? ` ${label}` : ""}`;
+      const glyph = make("text", { "font-size": size, "font-weight": 700, fill: t.color }, words);
       holder.replaceChildren(glyph);
       const right = { x: union.x + union.width + 10, y: union.y + union.height / 2 + 8, anchor: "start" };
       const left = { x: union.x - 10, y: union.y + union.height / 2 + 8, anchor: "end" };
@@ -614,8 +630,11 @@
         const target = findIn(step, tg.dataset.tagTo);
         if (!target || target.hasAttribute("data-prop-id")) return null;
         const b = target.getBBox();
-        const w = Math.max(30, String(tg.dataset.tagText || "").length * 13 * 0.56 + 16);
-        return { x: b.x + b.width / 2 - w / 2 - 4, y: b.y - 8 - 25 - 8, width: w + 8, height: 25 + 8 + 8 };
+        // La ficha mide lo que mide su texto al tamaño de lectura (16 unidades): la
+        // reserva con 13 dejaba la pieza encima de la ficha, y con la ficha al lado
+        // del actor la pieza caía sobre el vecino (#243).
+        const w = Math.max(30, String(tg.dataset.tagText || "").length * 16 * 0.56 + 16);
+        return { x: b.x + b.width / 2 - w / 2 - 4, y: b.y - 8 - 28 - 8, width: w + 8, height: 28 + 8 + 8 };
       }).filter(Boolean);
       const placed = [];
       for (const prop of props) {
@@ -634,7 +653,7 @@
             shape.setAttribute("stroke-dasharray", "5 4");
             if (shape.getAttribute("fill") !== "none") shape.setAttribute("fill", "none");
           }
-          if (label) prop.append(make("text", { x: cx.toFixed(1), y: labelY.toFixed(1), "font-size": 14, "font-weight": 700, fill: t.color, "text-anchor": "middle" }, label));
+          if (label) prop.append(make("text", { x: cx.toFixed(1), y: labelY.toFixed(1), "font-size": 16, "font-weight": 700, fill: t.color, "text-anchor": "middle" }, label));
         };
         let spots;
         if (prop.dataset.propOn) {
@@ -642,9 +661,13 @@
           if (!anchor) { prop.dataset.propMissing = prop.dataset.propOn; continue; }
           const b = anchor.getBBox();
           const gap = 10, cxm = b.x + b.width / 2, cym = b.y + b.height / 2;
+          // La pieza ocupa lo que ocupa su nombre, no solo su icono: «liberado» a 16
+          // unidades es más ancho que el cofre y, midiendo con el icono, la pieza
+          // entraba dos unidades en el actor de al lado (#243).
+          const half = Math.max(size / 2, label ? (label.length * 16 * 0.56 + 4) / 2 : 0);
           const at = {
-            right: [b.x + b.width + gap + size / 2, cym, "up"],
-            left: [b.x - gap - size / 2, cym, "up"],
+            right: [b.x + b.width + gap + half, cym, "up"],
+            left: [b.x - gap - half, cym, "up"],
             above: [cxm, b.y - gap - size / 2, "up"],
             below: [cxm, b.y + b.height + gap + size / 2, "down"],
           };
@@ -676,10 +699,17 @@
         const b = target.getBBox();
         const t = tone(tag.dataset.tagTone);
         const text = tag.dataset.tagText || "";
-        const size = 13;
+        // La ficha del nombre se dibuja al tamaño de lectura de la figura: a 13
+        // unidades una escena quieta (1 unidad ≈ 1 píxel) la dejaba por debajo del
+        // mínimo del lector, que es lo que el alumno vio en la Parte 1 de PL/SQL (#243).
+        const size = 16;
         const w = Math.max(30, text.length * size * 0.56 + 16), h = size + 12;
         const at = tag.dataset.tagAt ? tag.dataset.tagAt.split(",").map(Number) : [];
-        const cx = at.length && Number.isFinite(at[0]) ? at[0] : b.x + b.width / 2;
+        // La ficha nunca se sale del lienzo: a 16 unidades la de «el resultado» medía
+        // 150 y su borde derecho quedaba a 5 del tope, donde el lector la recorta
+        // (#243). Se centra en su actor y se mete dentro del canvas.
+        const wanted = at.length && Number.isFinite(at[0]) ? at[0] : b.x + b.width / 2;
+        const cx = Math.min(Math.max(wanted, room.x + w / 2 + 12), room.x + room.width - w / 2 - 12);
         const cy = at.length > 1 && Number.isFinite(at[1]) ? at[1] : b.y - 8;
         // La ficha se escribe en coordenadas absolutas, no con un `transform`:
         // las puertas miden `getBBox()`, que vive en el espacio local del nodo, y
@@ -728,7 +758,7 @@
         label.setAttribute("x", (sideBySide && lane ? (start.x + end.x) / 2 : Math.max((start.x + end.x) / 2, start.x + 66)).toFixed(1));
         label.setAttribute("y", (Math.min(start.y, end.y) - 16).toFixed(1));
         label.setAttribute("text-anchor", "middle");
-        label.setAttribute("font-size", "13");
+        label.setAttribute("font-size", "16");
         label.setAttribute("font-weight", "700");
         label.setAttribute("fill", t.color);
         label.setAttribute("data-fit", String(Math.max(40, Math.abs(end.x - start.x) + 60)));
@@ -750,9 +780,11 @@
               ? { x: Math.min(near.x, far.x), y: Math.min(near.y + near.height, far.y + far.height), width: Math.max(near.x + near.width, far.x + far.width) - Math.min(near.x, far.x), height: stacked }
               : null;
           const joint = { x: Math.min(near.x, far.x), y: Math.min(near.y, far.y), width: Math.max(near.x + near.width, far.x + far.width) - Math.min(near.x, far.x), height: Math.max(near.y + near.height, far.y + far.height) - Math.min(near.y, far.y) };
-          if (!hole) { glyphAt(mark, kind === "no" ? "no" : "ok", joint, { avoid: pieces() }); continue; }
+          if (!hole) { glyphAt(mark, kind === "no" ? "no" : "ok", joint, { avoid: pieces(), size: Math.min(24, letterOf(step)) }); continue; }
           const t = tone(kind === "no" ? "red" : "green");
-          mark.replaceChildren(make("text", { x: (hole.x + hole.width / 2).toFixed(1), y: (hole.y + hole.height / 2 + 8).toFixed(1), "font-size": 24, "font-weight": 700, fill: t.color, "text-anchor": "middle" }, kind === "no" ? "✗" : "✓"));
+          const words = `${kind === "no" ? "✗" : "✓"}${mark.dataset.markLabel ? ` ${mark.dataset.markLabel}` : ""}`;
+          const size = Math.min(24, letterOf(step));
+          mark.replaceChildren(make("text", { x: (hole.x + hole.width / 2).toFixed(1), y: (hole.y + hole.height / 2 + size * 0.34).toFixed(1), "font-size": size, "font-weight": 700, fill: t.color, "text-anchor": "middle" }, words));
           continue;
         }
         const ids = String(mark.dataset.markActors || "").split(",").filter(Boolean);
@@ -768,7 +800,10 @@
         if (kind === "combine") {
           const pad = 8;
           parts.push(make("rect", { x: union.x - pad, y: union.y - pad, width: union.width + pad * 2, height: union.height + pad * 2, rx: 14, fill: "none", stroke: t.stroke, "stroke-width": 2, "stroke-dasharray": "6 5" }));
-          if (mark.dataset.markLabel) parts.push(make("text", { x: union.x + union.width / 2, y: union.y - pad - 8, "font-size": 13, "font-weight": 700, fill: t.color, "text-anchor": "middle" }, mark.dataset.markLabel));
+          // La etiqueta del resultado se apoya sobre el marco, no fuera del lienzo:
+          // a 16 unidades y con el marco a 8, la línea base subía hasta dejar la
+          // palabra a 10 unidades del borde (#243).
+          if (mark.dataset.markLabel) parts.push(make("text", { x: union.x + union.width / 2, y: Math.max(18, union.y - pad - 4), "font-size": 16, "font-weight": 700, fill: t.color, "text-anchor": "middle" }, mark.dataset.markLabel));
           const to = mark.dataset.markTo ? findIn(step, mark.dataset.markTo) : null;
           if (to) {
             const b = to.getBBox();
@@ -794,8 +829,11 @@
             frame.setAttribute("stroke", t.stroke);
             frame.setAttribute("stroke-width", "3.5");
           }
-          const strokes = [...step.querySelectorAll("[data-path]")].map(boxOf);
-          glyphAt(mark, kind === "no" ? "no" : "ok", union, { avoid: onProps ? pieces().concat(strokes) : [], below: onProps });
+          // Una marca con nombre es más ancha que el glifo suelto: junto a su ancla
+          // se salía del lienzo, así que va debajo, centrada, y nunca encima de un
+          // actor ni de una pieza (#243).
+          const wide = Boolean(mark.dataset.markLabel) || ids.length > 1;
+          glyphAt(mark, kind === "no" ? "no" : "ok", union, { avoid: pieces(), below: onProps || wide, label: mark.dataset.markLabel || "", size: Math.min(24, letterOf(step)) });
           continue;
         }
         mark.replaceChildren(...parts);
@@ -808,7 +846,7 @@
         if (!target) continue;
         const owned = [...step.querySelectorAll('[data-mark-kind="no"]')].some((m) => String(m.dataset.markActors || "").split(",").includes(id));
         if (owned) { holder.replaceChildren(); continue; }
-        glyphAt(holder, "no", boxOf(target), { corner: true, avoid: pieces().filter((b) => !(b.x === target.getBBox().x && b.y === target.getBBox().y)) });
+        glyphAt(holder, "no", boxOf(target), { corner: true, avoid: pieces().filter((b) => !(b.x === target.getBBox().x && b.y === target.getBBox().y)), size: Math.min(24, letterOf(step)) });
       }
     }
     groups.forEach((g, i) => { g.style.display = shown[i]; });
@@ -1792,6 +1830,28 @@
       });
       return wrap;
     }
+    // La cabecera se lee entera a cualquier ancho (#243): se escala hasta el suelo
+    // de lectura y, si aun así no cabe, se parte por tokens —cada token es una
+    // pieza entera—. Nunca se corta ni se desliza fuera de la vista: en el teléfono
+    // el alumno veía «ntas SET saldo = saldo + 5…», sin principio ni final.
+    const HEADER_FLOOR = 14;
+    function fitHeader(line) {
+      if (!line) return;
+      line.removeAttribute('data-wrap');
+      line.style.removeProperty('font-size');
+      let size = parseFloat(getComputedStyle(line).fontSize) || 22;
+      for (let i = 0; i < 8; i++) {
+        if (line.scrollWidth <= line.clientWidth + 1) break;
+        const next = Math.max(HEADER_FLOOR, size * (line.clientWidth / Math.max(1, line.scrollWidth)) * 0.98);
+        if (next >= size - 0.5) { size = HEADER_FLOOR; line.style.fontSize = `${HEADER_FLOOR}px`; break; }
+        size = next;
+        line.style.fontSize = `${size.toFixed(2)}px`;
+      }
+      // Por debajo del suelo de lectura la línea se parte por tokens: el resaltado
+      // queda entero y visible, y la cabecera crece en alto en vez de recortarse.
+      if (line.scrollWidth > line.clientWidth + 1) line.dataset.wrap = '1';
+      line.scrollLeft = 0;
+    }
     function narrate(step) {
       narrator.replaceChildren();
       if (step.say) {
@@ -1832,9 +1892,7 @@
       if (atoms.length) {
         const line = tokens(atoms, step.focus);
         head.append(line);
-        // A line that does not fit scrolls; the highlighted group is brought into view.
-        const lit = line.querySelector('.lk-token-focus');
-        if (lit && line.scrollWidth > line.clientWidth) line.scrollLeft = Math.max(0, lit.offsetLeft - line.clientWidth / 3);
+        fitHeader(line);
       }
       narrate(step);
       count.textContent = `${index + 1} / ${steps.length}`;
@@ -1856,6 +1914,20 @@
     }
     watchPiece(stage);
     draw();
+    // La cabecera se vuelve a medir cuando cambia el ancho o terminan de cargar las
+    // fuentes: el ajuste depende de las métricas reales del lector, no de una
+    // estimación por número de caracteres (#243).
+    const refitHeader = () => fitHeader(head.querySelector('.lk-story-formula'));
+    document.fonts?.ready.then(refitHeader).catch(() => {});
+    if (window.ResizeObserver) {
+      let lastWidth = 0;
+      new ResizeObserver(() => {
+        const line = head.querySelector('.lk-story-formula');
+        if (!line || line.clientWidth === lastWidth) return;
+        lastWidth = line.clientWidth;
+        fitHeader(line);
+      }).observe(this);
+    }
   });
 
   // One figure that only has to be looked at. Same vocabulary, same measuring

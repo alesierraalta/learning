@@ -2557,9 +2557,13 @@ const STORY_SHOTS = "/tmp/vl-shots";
 const STORY_MATRIX = ["light", "dark", "black"].flatMap((theme) => [
   { theme, size: "narrow", width: 900, wide: false },
   { theme, size: "wide", width: 1920, wide: true },
+  // El teléfono es el ancho que el alumno usa de verdad: la cabecera se mide ahí
+  // entera, no solo en la columna de escritorio (#243).
+  { theme, size: "phone", width: 390, wide: false },
 ]);
 
-const STORY_MEASURE = (_card, theme) => {
+const STORY_MEASURE = (_card, { theme, size: phoneSize }) => {
+  const phone = phoneSize === "phone";
   const out = { empty: [], missed: [], moves: [], tiny: [], scaled: [], focus: [], faint: [], islands: [], small: [], header: [], pieces: [] };
   const gap = (p, b) => Math.hypot(Math.max(b.x - p.x, 0, p.x - b.right), Math.max(b.y - p.y, 0, p.y - b.bottom));
   const rgb = (value) => {
@@ -2675,16 +2679,37 @@ const STORY_MEASURE = (_card, theme) => {
     // The narrator and the header equation are the most readable things on the card.
     const size = (selector) => parseFloat(getComputedStyle(story.querySelector(selector)).fontSize);
     if (size(".lk-story-narrator") < 17) out.small.push(`el narrador mide ${size(".lk-story-narrator")} px (mínimo 17)`);
-    if (size(".lk-story-formula") < 22) out.small.push(`la ecuación de la cabecera mide ${size(".lk-story-formula")} px (mínimo 22)`);
-    // #222: the header is one line, always. A highlighted group neither wraps the
-    // equation nor spreads its letters: it keeps the width it has unhighlighted.
+    // La ecuación nunca baja del suelo de lectura (14 px): primero se escala para
+    // caber entera y, por debajo del suelo, se parte por tokens (#243). El mínimo de
+    // 22 px de #222 cede ante la línea entera: una cabecera de 21 px que se lee
+    // completa es mejor que una de 28 px cortada por los dos lados.
+    if (size(".lk-story-formula") < 14) out.small.push(`la ecuación de la cabecera mide ${size(".lk-story-formula")} px (mínimo 14)`);
+    // #222: en la columna de escritorio la cabecera es UNA línea. Un grupo resaltado
+    // no la parte ni separa sus letras: conserva el ancho que tiene sin resaltar.
+    // En el teléfono la línea se escala y, por debajo del suelo, se parte por tokens:
+    // lo que se mide ahí es que nada quede cortado.
     const formula = story.querySelector(".lk-story-formula");
     if (formula) {
       const tokens = [...formula.querySelectorAll(".lk-token")];
+      const headBox = story.querySelector(".lk-story-head")?.getBoundingClientRect();
+      if (headBox) {
+        const inside = (r) => r.left >= headBox.left - 0.5 && r.right <= headBox.right + 0.5 && r.top >= headBox.top - 0.5 && r.bottom <= headBox.bottom + 0.5;
+        for (const t of tokens) {
+          const r = t.getBoundingClientRect();
+          if (!r.width && !r.height) continue;
+          if (!inside(r)) out.header.push(`«${t.textContent.trim().slice(0, 24)}» se sale de la cabecera (${Math.round(r.left - headBox.left)} … ${Math.round(r.right - headBox.right)})`);
+        }
+        const lit = formula.querySelector(".lk-token-focus");
+        if (lit) {
+          const r = lit.getBoundingClientRect();
+          if (r.left < headBox.left - 0.5 || r.right > headBox.right + 0.5) out.header.push(`el token resaltado «${lit.textContent.trim().slice(0, 24)}» no se ve entero`);
+        }
+        if (formula.scrollWidth > formula.clientWidth + 1) out.header.push(`la cabecera se desliza (${formula.scrollWidth} > ${formula.clientWidth}): escálala o pártela por tokens`);
+      }
       const tops = tokens.map((t) => Math.round(t.getBoundingClientRect().top));
-      if (Math.max(...tops) - Math.min(...tops) > 4) out.header.push(`la ecuación se parte en ${new Set(tops).size} líneas`);
+      if (!phone && Math.max(...tops) - Math.min(...tops) > 4) out.header.push(`la ecuación se parte en ${new Set(tops).size} líneas`);
       const line = parseFloat(getComputedStyle(formula).lineHeight) || parseFloat(getComputedStyle(formula).fontSize) * 1.5;
-      if (formula.clientHeight > line * 1.4) out.header.push(`la cabecera mide ${formula.clientHeight} px de alto para una línea de ${Math.round(line)} px`);
+      if (!phone && formula.clientHeight > line * 1.4) out.header.push(`la cabecera mide ${formula.clientHeight} px de alto para una línea de ${Math.round(line)} px`);
       const extent = () => tokens.length ? tokens[tokens.length - 1].getBoundingClientRect().right - tokens[0].getBoundingClientRect().left : 0;
       const focused = tokens.filter((t) => t.dataset.focus === "1");
       for (const t of focused) {
@@ -2713,7 +2738,7 @@ const storyFocus = (markdown) => {
   return spec.steps.map((step) => step.focus ?? []);
 };
 
-const STORY_EXAMPLES = [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"], ["propiedad-rust", "propiedad-rust.md"], ["prestamos-rust", "prestamos-rust.md"]];
+const STORY_EXAMPLES = [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"], ["propiedad-rust", "propiedad-rust.md"], ["prestamos-rust", "prestamos-rust.md"], ["plsql-transaccion", "plsql-transaccion.md"]];
 
 for (const [name, file] of STORY_EXAMPLES) {
   test(`the ${name} walkthrough anchors every tag and moving term and keeps its labels at reading size, in every theme and width`, { skip: !playwright && "playwright not installed" }, async (t) => {
@@ -2729,7 +2754,7 @@ for (const [name, file] of STORY_EXAMPLES) {
         if (s > 0) await story.getByRole("button", { name: "Paso siguiente" }).click();
         await story.locator(".lk-story-count").filter({ hasText: `${s + 1} / ${steps}` }).waitFor();
         await page.waitForTimeout(60);
-        const seen = await story.evaluate(STORY_MEASURE, theme);
+        const seen = await story.evaluate(STORY_MEASURE, { theme, size, width });
         const where = `${name} · ${theme} · ${size} · paso ${s + 1}`;
         assert.deepEqual(seen.empty, [], `${where}: el recorrido quedó sin dibujar`);
         assert.deepEqual(seen.missed, [], `${where}: un rótulo no termina en su pieza`);

@@ -249,6 +249,45 @@ const primeraFormula = (() => {
 })();
 add('formula-walkthrough', primeraFormula === null, primeraFormula === null ? '' : 'la primera fórmula no tiene recorrido de fórmula · dibújala con <lk-story kind="formula">: paso 1 la fórmula entera, un paso por símbolo con qué es, para qué se usa y cuánto vale en el ejemplo, y el último con los números sustituidos y su resultado');
 
+// 7d. La historia se lee, no solo existe (#243): la parte que enseña código o una
+// fórmula pone esa línea en la cabecera del recorrido, y sus pasos dibujan la
+// acción. Las dos se leen del JSON, sin navegador, y el motor aplica las mismas
+// reglas (`storyHeaderFindings` y `storyStageFindings` en
+// `internal/engine/standard.go`); un test cruza los dos veredictos.
+const historiasSpecs = [];
+for (const m of sinCodigo.matchAll(/<lk-story[^>]*>[\s\S]*?<\/lk-story>/g)) {
+  const payload = m[0].match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+  if (!payload) continue;
+  try { historiasSpecs.push(JSON.parse(payload[1])); } catch {}
+}
+// La parte muestra código o una fórmula: un bloque cercado, una fórmula dibujada,
+// `<lk-math>` o LaTeX plano. Es lo que la cabecera del recorrido tiene que llevar.
+const muestraCodigoOFormula = /```[\s\S]*?```/.test(src) || formulas.length + dibujadas.length + planas.length > 0;
+// La línea de la cabecera: el `equation` del paso en un recorrido de derivación, la
+// `formula` del recorrido entero en uno de fórmula. Es lo que `kit.js` dibuja.
+const cabeceraDe = (spec, step) => ((spec.kind === 'derivation' ? step?.equation?.atoms : spec?.formula?.atoms) || []);
+const sinCabecera = muestraCodigoOFormula
+  ? historiasSpecs.filter((spec) => (spec.steps || []).some((step) => cabeceraDe(spec, step).length === 0))
+  : [];
+add('historia-cabecera', sinCabecera.length === 0, sinCabecera.length
+  ? 'la historia no lleva en su cabecera la línea de código o la fórmula que la parte enseña · ponla con `equation.atoms` en cada paso (o `formula.atoms` para el recorrido entero) y resalta el token del paso en `focus`'
+  : '');
+// El vocabulario que dibuja una acción: lo que el paso tiene que traer. Una caja
+// con su texto no es una acción, y un recorrido de cajas no enseña nada.
+const VOCABULARIO = ['actors', 'props', 'moves', 'tags', 'icons', 'callouts', 'curves', 'paths', 'formulas', 'formula', 'grids', 'sheets', 'bars', 'stats', 'nodes', 'badges', 'dashed', 'policy', 'arrows'];
+const PIEZAS_DIBUJADAS = ['cards', 'memory', 'tables', 'venn'];
+const declara = (value) => Array.isArray(value) ? value.length > 0 : Boolean(value);
+const pasoDibujaAccion = (step) => {
+  const stage = step?.stage || {};
+  if (PIEZAS_DIBUJADAS.some((k) => declara(stage[k]))) return true;
+  const scene = stage.scene || stage;
+  return VOCABULARIO.some((k) => declara(scene[k]));
+};
+const soloCajas = historiasSpecs.filter((spec) => (spec.steps || []).length > 0 && (spec.steps || []).every((step) => !pasoDibujaAccion(step)));
+add('escenario-de-cajas', soloCajas.length === 0, soloCajas.length
+  ? `todos los pasos de la historia dibujan solo cajas con texto · dibuja la acción: ${VOCABULARIO.filter((k) => k !== 'arrows').join(', ')}; o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>`
+  : '');
+
 // 8. Las figuras conviven: se delega en scene-lint, que abre un navegador.
 let figuras = { ok: true, detail: 'sin figuras' };
 if (escenas || recorridos) {  // `escenas` ya incluye las piezas

@@ -17,7 +17,7 @@ Una referencia presta el valor sin darlo. El borrow checker cuenta quién lee y 
    "paths":[{"d":"M 30 204 L 330 204","tone":"slate","width":2,"arrow":false}],
    "actors":[{"id":"s","icon":"robot","x":60,"y":150,"size":56,"tone":"blue","tag":"s"},{"id":"r1","icon":"robot","x":170,"y":150,"size":56,"tone":"green","tag":"r1: &s"},{"id":"r2","icon":"robot","x":280,"y":150,"size":56,"tone":"green","tag":"r2: &s"}],
    "props":[{"id":"ojo1","kind":"read","on":"r1","side":"left","tone":"green"},{"id":"ojo2","kind":"read","on":"r2","side":"left","tone":"green"}],
-   "marks":[{"kind":"ok","actors":["r1","r2"]}]}}},
+   "marks":[{"kind":"ok","actors":["r1","r2"],"label":"compila"}]}}},
  {"title":"Una escritura","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"r","id":"r"},{"t":" = &mut s;","id":"a"}]},"focus":["r"],
   "narrator":"Una referencia «&mut» puede *escribir*, pero solo puede haber una.",
   "stage":{"scene":{
