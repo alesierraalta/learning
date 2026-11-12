@@ -22,7 +22,7 @@ El último paso enmarca la respuesta.
     {"id":"plus","x":114,"y":150,"w":30,"h":40,"label":"+","tone":"slate"},
     {"id":"two","x":164,"y":150,"w":44,"h":40,"label":"2","tone":"amber","tag":"el 2"},
     {"id":"eq","x":234,"y":150,"w":30,"h":40,"label":"=","tone":"slate"},
-    {"id":"three","x":284,"y":150,"w":44,"h":40,"label":"3","tone":"green","tag":"resultado"}]}}},
+    {"id":"three","x":270,"y":150,"w":44,"h":40,"label":"3","tone":"green","tag":"resultado"}]}}},
  {"title":"El 2 pasa al otro lado","equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" = ","id":"eq"},{"t":"3","id":"three"},{"t":" − ","id":"minus"},{"t":"2","id":"two"}]},"focus":["minus","two"],
   "narrator":"El «2» estaba sumando. Al cruzar, *pasa restando*: ahora es «3 − 2».",
   "stage":{"scene":{"actors":[

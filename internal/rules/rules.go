@@ -247,6 +247,16 @@ type PartStandardThresholds struct {
 	// the rule is not declared, so a frozen snapshot keeps accepting the parts it
 	// accepted.
 	StoryLanguage bool `json:"storyLanguage,omitempty"`
+	// StoryHeader turns on the story-header rule: a part that teaches code or a
+	// formula carries that line in the header of its story, one highlighted token
+	// per step, instead of an empty header. False means the rule is not declared,
+	// so a frozen snapshot keeps accepting the parts it accepted.
+	StoryHeader bool `json:"storyHeader,omitempty"`
+	// StoryStage turns on the story-stage rule: the steps of a story draw the
+	// action — actors with their state, props, moves, pointers, connectors or a
+	// piece — never a row of boxes with text. False means the rule is not
+	// declared, so a frozen snapshot keeps accepting the parts it accepted.
+	StoryStage bool `json:"storyStage,omitempty"`
 }
 
 // ParetoThresholds bound a pareto-scope run: only the vital slice of each

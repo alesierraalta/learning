@@ -157,8 +157,10 @@ try {
         // sueltos), que es el tope que aplica el dibujante; si la etiqueta lo pasa,
         // se escribió más grande que la figura (#237).
         const sizeOf = (t) => Number(t.getAttribute('font-size')) || 0;
+        // La letra de la figura incluye el nombre de un actor y la ficha de su
+        // nombre: en un recorrido son los nombres con los que el lector compara.
         const figureLetter = new Map();
-        for (const t of svg.querySelectorAll('[data-box] text, [data-label] text')) {
+        for (const t of svg.querySelectorAll('[data-box] text, [data-label] text, [data-actor] text, [data-tag-to] text')) {
           const size = sizeOf(t);
           if (!size) continue;
           const step = stepOf(t);
@@ -169,6 +171,16 @@ try {
           const size = sizeOf(t);
           if (cap === undefined || !size || size <= cap) continue;
           add('etiqueta-desproporcionada', t.textContent.trim().slice(0, 40), `se dibuja a ${size} y la letra de la figura a ${cap}: baja la etiqueta al tamaño de la figura`);
+        }
+        // 0d. una marca tampoco: el ✓ o el ✗ y su nombre no se dibujan más grandes
+        // que los nombres de su escenario (#243). Sin ninguna letra en el paso, el
+        // tope es el mínimo de lectura: una marca suelta sobre dos iconos sin
+        // nombre se lee como el título de la escena.
+        for (const t of svg.querySelectorAll('[data-mark-kind] text')) {
+          const cap = figureLetter.get(stepOf(t)) ?? 14;
+          const size = sizeOf(t);
+          if (!size || size <= cap) continue;
+          add('etiqueta-desproporcionada', t.textContent.trim().slice(0, 40), `la marca se dibuja a ${size} y la letra de la figura a ${cap}: baja la marca al tamaño de los nombres`);
         }
 
         // 1. cajas fuera del lienzo
@@ -533,6 +545,39 @@ try {
           }
         }
 
+        // 13. una marca suelta (#243): un ✓ o un ✗ aprueba un actor, una pieza o un
+        // resultado con nombre. Entre dos cajas y sin nombre cae en el hueco que las
+        // separa y no se sabe qué aprobó —el alumno lo vio en la Parte 1 de PL/SQL,
+        // donde el ✓ de COMMIT flotaba entre las dos cuentas—; lejos de su ancla, no
+        // aprueba nada.
+        for (const g of svg.querySelectorAll('[data-mark-kind]')) {
+          const kind = g.dataset.markKind || 'ok';
+          const label = g.dataset.markLabel || '';
+          const ids = String(g.dataset.markActors || '').split(',').filter(Boolean);
+          const between = String(g.dataset.markBetween || '').split(',').filter(Boolean);
+          const anchors = ids.length ? ids : between;
+          // Un resultado con nombre se explica solo: el nombre dice qué aprobó.
+          if (label) continue;
+          if (anchors.length > 1) {
+            add('marca-suelta', `${kind}: ${anchors.join(', ')}`, `aprueba ${anchors.length} piezas a la vez y no lleva su nombre: ponle su nombre (\`label\`) o marca la pieza que lo aprueba`);
+            continue;
+          }
+          if (!anchors.length) {
+            add('marca-suelta', kind, 'no nombra a quién aprueba: ancla la marca en un actor, una pieza o un resultado con nombre');
+            continue;
+          }
+          // El glifo que dibujó el navegador: si no hay ninguno, la marca no se dibujó
+          // (su ancla no existe) y ya lo dice `pieza-sin-destino`.
+          const glyph = g.querySelector('text');
+          if (!glyph) continue;
+          const scope = g.closest('[data-step]') || svg;
+          const target = scope.querySelector(`[data-actor="${anchors[0]}"], [data-prop-id="${anchors[0]}"], [data-box-id="${anchors[0]}"]`);
+          if (!target) continue;
+          const a = glyph.getBBox(), b = target.getBBox();
+          const gap = Math.hypot(Math.max(b.x - (a.x + a.width), 0, a.x - (b.x + b.width)), Math.max(b.y - (a.y + a.height), 0, a.y - (b.y + b.height)));
+          if (gap > 16) add('marca-suelta', `${kind}: ${anchors[0]}`, `el glifo queda a ${gap.toFixed(0)}u de lo que aprueba: pégalo a su actor o a su pieza`);
+        }
+
         // 9. una flecha cortada por su etiqueta se lee como dos conectores: el tramo
         // que llega al número y otro que sale de él. La flecha va entera, con las
         // palabras al lado (`labelBeside`).
@@ -548,6 +593,26 @@ try {
           }
         }
       });
+      // 14. la cabecera de una historia se lee entera a cualquier ancho (#243): en
+      // el teléfono el alumno veía «ntas SET saldo = saldo + 5…», sin principio ni
+      // final, y el token resaltado partido en el borde. La cabecera se escala hasta
+      // el suelo de lectura y, por debajo, se parte por tokens; lo que se mide aquí
+      // es que nada quede cortado ni se deslice fuera de la vista.
+      if (host.tagName === 'LK-STORY') {
+        const head = host.querySelector('.lk-story-head');
+        const line = host.querySelector('.lk-story-formula');
+        if (head && line) {
+          const hb = head.getBoundingClientRect();
+          const addHead = (text, detail) => out.push({ block: i + 1, title, kind: 'cabecera-cortada', text, detail });
+          const inside = (r) => r.left >= hb.left - 0.5 && r.right <= hb.right + 0.5 && r.top >= hb.top - 0.5 && r.bottom <= hb.bottom + 0.5;
+          for (const t of line.querySelectorAll('.lk-token')) {
+            const r = t.getBoundingClientRect();
+            if (!r.width && !r.height) continue;
+            if (!inside(r)) { addHead(t.textContent.trim().slice(0, 30) || 'un token', `el token queda fuera de la cabecera (${Math.round(r.left - hb.left)} … ${Math.round(r.right - hb.right)} px)`); break; }
+          }
+          if (line.scrollWidth > line.clientWidth + 1) addHead('la línea', `la cabecera se desliza (${line.scrollWidth} > ${line.clientWidth} px): escálala o pártela por tokens`);
+        }
+      }
     });
     hiddenSteps.forEach((g, i) => { g.style.display = wasShown[i]; });
     return out;

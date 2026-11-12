@@ -615,6 +615,24 @@ checks). What it measures, and how:
   with the example's numbers substituted and its result». The tutor's tool
   mirrors the rule as `formula-walkthrough`, and a test cross-checks both
   verdicts.
+- **Story header.** `storyHeader` turns on the story-header rule: a part that
+  teaches code or a formula carries that line in the header of its story, one
+  highlighted token per step, instead of an empty header. The line is
+  `equation.atoms` in every step of a derivation and `formula.atoms` for a
+  formula story, and `focus` names the token the step highlights. The refusal
+  names the fix: «the story header is empty in N of M step(s) — la historia no
+  lleva en su cabecera la línea de código o la fórmula que la parte enseña: ponla
+  con `equation.atoms` en cada paso (o `formula.atoms` para el recorrido entero)
+  y resalta el token del paso en `focus`». The tutor's tool mirrors the rule as
+  `historia-cabecera`, and a test cross-checks both verdicts on the part the
+  learner refused (#243).
+- **Story stage.** `storyStage` turns on the story-stage rule: the steps of a
+  story draw the action — actors with their state, props, moves, pointers,
+  connectors or a piece — never a row of boxes with text. The refusal names the
+  vocabulary to use: «todos los pasos de la historia dibujan solo cajas con
+  texto — dibuja la acción: actors, props, moves, …, o una pieza: `<lk-cards>`,
+  `<lk-memory>`, `<lk-tables>`, `<lk-venn>`». The tutor's tool mirrors the rule
+  as `escenario-de-cajas`, and a test cross-checks both verdicts.
 - **Story language.** `storyLanguage` turns on the story-language rule: a part
   draws its step-by-step visual with `<lk-story>` (the deck of actors with
   state, moves and marks) or with a piece (`<lk-cards>`, `<lk-memory>`,
@@ -672,7 +690,8 @@ already was, `thresholds.quiz.questionCount` bound to the note by
 `quiz-questions`.
 
 `minScenes`, `maxSentencesPerParagraph`, `formulaElement`,
-`formulaWalkthrough` and `storyLanguage` are additive keys of the same block: a
+`formulaWalkthrough`, `storyLanguage`, `storyHeader` and `storyStage` are
+additive keys of the same block: a
 snapshot that
 declares the standard without them keeps the rules it had, so a run enrolled
 when the standard arrived (#185) is not measured against the shape rules it

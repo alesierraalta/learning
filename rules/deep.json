@@ -132,7 +132,9 @@
       "maxSentencesPerParagraph": 2,
       "formulaElement": "lk-math",
       "formulaWalkthrough": true,
-      "storyLanguage": true
+      "storyLanguage": true,
+      "storyHeader": true,
+      "storyStage": true
     },
     "pareto": {
       "maxParts": 4,

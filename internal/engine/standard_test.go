@@ -914,10 +914,10 @@ const formulaStory = `<lk-story>
 <script type="application/json">
 {"kind":"formula","title":"La densidad","viewBox":"0 0 360 250","formula":{"size":18,"atoms":[{"t":"f","id":"f"},{"t":"(","id":"open"},{"t":"x","id":"x"},{"t":")","id":"close"}]},
  "steps":[
-  {"title":"La fórmula entera","focus":[],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la campana"}]}}},
-  {"title":"f: la densidad","focus":["f"],"narrator":"«f» es la densidad: la altura de la curva.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la altura"}]}}},
-  {"title":"x: el punto","focus":["x"],"narrator":"«x» es el punto que miras.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la latencia"}]}}},
-  {"title":"Con el ejemplo","focus":[],"narrator":"Con «x = 184», «f(184) = 0,000 65».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"el resultado"}]}}}
+  {"title":"La fórmula entera","focus":[],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la campana"}]}}},
+  {"title":"f: la densidad","focus":["f"],"narrator":"«f» es la densidad: la altura de la curva.","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la altura"}]}}},
+  {"title":"x: el punto","focus":["x"],"narrator":"«x» es el punto que miras.","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la latencia"}]}}},
+  {"title":"Con el ejemplo","focus":[],"narrator":"Con «x = 184», «f(184) = 0,000 65».","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(184)","tone":"green"}],"labels":[{"x":180,"y":170,"text":"el resultado"}]}}}
  ]}
 </script>
 </lk-story>`
@@ -1274,5 +1274,220 @@ func TestPartStandardReadsTheStoryLanguageLikeExplainCheck(t *testing.T) {
 	}
 	if findings := storyLanguageFindings(with, rules.PartStandardThresholds{StoryLanguage: true}); len(findings) != 0 {
 		t.Fatalf("the engine refuses the story the tool accepts: %v", findings)
+	}
+}
+
+// ── Story quality (#243) ─────────────────────────────────────────────────────
+// La Parte 1 de PL/SQL pasó el estándar y el alumno la rechazó: su historia no
+// lleva la línea de SQL en la cabecera y sus pasos dibujan solo cajas con texto.
+// Las dos reglas son estructurales y aditivas, como el lenguaje de historia.
+
+// plsqlPartOne is the part the learner refused (#243): one scene and one story,
+// every gate green, and the story is a row of boxes with an empty header.
+func plsqlPartOne(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "plsql-parte-1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// boxesOnlyStory is a story whose every step draws two boxes with their text: no
+// actor, no prop, no move, no pointer, no connector and no piece.
+const boxesOnlyStory = `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Las dos cuentas","viewBox":"0 0 360 210","steps":[
+ {"title":"Los saldos","narrator":"Las dos cuentas están en reposo.","stage":{"scene":{"boxes":[{"x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","sub":"saldo: 1000","tone":"slate"},{"x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","sub":"saldo: 1000","tone":"slate"}]}}},
+ {"title":"El débito","narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"boxes":[{"x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","sub":"saldo: 800","tone":"blue"},{"x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","sub":"saldo: 1000","tone":"slate"}],"marks":[{"kind":"ok","actors":["c10"]}]}}},
+ {"title":"El commit","narrator":"El commit graba el saldo 800 en disco.","stage":{"scene":{"boxes":[{"x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","sub":"saldo: 800","tone":"green"},{"x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","sub":"saldo: 1000","tone":"green"}],"marks":[{"kind":"ok","actors":["c10"]}]}}}
+]}
+</script>
+</lk-story>`
+
+// A story that draws the action: actors with their state and a mark that closes
+// it. Its header carries the line of the part, one token highlighted per step.
+const storyWithHeader = `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"El débito","viewBox":"0 0 360 210","steps":[
+ {"title":"Débito","equation":{"size":18,"atoms":[{"t":"UPDATE ","id":"u"},{"t":"cuentas","id":"t"},{"t":" SET saldo = saldo - 200","id":"set"}]},"focus":["set"],
+  "narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"blue"}],"marks":[{"kind":"ok","actors":["c10"]}]}}}
+]}
+</script>
+</lk-story>`
+
+// The header rule: a part that teaches code carries that line in the story
+// header. The real part is the proof, and the fix names the keys that fill it.
+func TestStoryHeaderRefusesAStoryWithAnEmptyHeader(t *testing.T) {
+	th := rules.PartStandardThresholds{StoryHeader: true}
+	findings := storyHeaderFindings(plsqlPartOne(t), th)
+	if len(findings) == 0 {
+		t.Fatal("the engine accepts a story with an empty header on a part that teaches SQL")
+	}
+	for _, fragment := range []string{"equation.atoms", "formula.atoms", "focus"} {
+		if !strings.Contains(findings[0], fragment) {
+			t.Fatalf("the refusal %q does not name %q", findings[0], fragment)
+		}
+	}
+	if findings := storyHeaderFindings(storyWithHeader, th); len(findings) != 0 {
+		t.Fatalf("the engine refuses a story that carries its line: %v", findings)
+	}
+	// A part that teaches no code and no formula has no line to carry.
+	if findings := storyHeaderFindings(fixtureStory, th); len(findings) != 0 {
+		t.Fatalf("the engine asked a part with no code for a header line: %v", findings)
+	}
+	// A snapshot that does not declare the key keeps accepting the part.
+	if findings := storyHeaderFindings(plsqlPartOne(t), rules.PartStandardThresholds{}); len(findings) != 0 {
+		t.Fatalf("a snapshot without the key applied the rule: %v", findings)
+	}
+}
+
+// The stage rule: a story whose every step draws only boxes with text is
+// refused, and the refusal names the vocabulary to use.
+func TestStoryStageRefusesAStoryOfBoxesWithText(t *testing.T) {
+	th := rules.PartStandardThresholds{StoryStage: true}
+	findings := storyStageFindings(plsqlPartOne(t), th)
+	if len(findings) == 0 {
+		t.Fatal("the engine accepts a story whose every step draws only boxes with text")
+	}
+	for _, fragment := range []string{"actors", "props", "moves", "<lk-cards>", "<lk-memory>", "<lk-tables>", "<lk-venn>"} {
+		if !strings.Contains(findings[0], fragment) {
+			t.Fatalf("the refusal %q does not name %q", findings[0], fragment)
+		}
+	}
+	if findings := storyStageFindings(storyWithHeader, th); len(findings) != 0 {
+		t.Fatalf("the engine refuses a story that draws actors: %v", findings)
+	}
+	// A piece is the action: a step that draws cards is not a row of boxes.
+	withPiece := strings.Replace(fixtureStory, `"stage":{"scene":{"actors":[{"id":"r","x":110,"y":210,"w":140,"h":56,"label":"robot","tone":"slate"}]}}`,
+		`"stage":{"cards":{"cards":[{"verdict":"ok","title":"compila"}]}}`, 1)
+	if findings := storyStageFindings(withPiece, th); len(findings) != 0 {
+		t.Fatalf("the engine refuses a story that draws a piece: %v", findings)
+	}
+	if findings := storyStageFindings(plsqlPartOne(t), rules.PartStandardThresholds{}); len(findings) != 0 {
+		t.Fatalf("a snapshot without the key applied the rule: %v", findings)
+	}
+}
+
+// The two keys are additive: the production rules declare them, and a snapshot
+// with them removed keeps accepting the part they refuse.
+func TestPartStandardSnapshotWithoutStoryQualityKeepsAccepting(t *testing.T) {
+	raw, err := os.ReadFile(productionRulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	if !ok {
+		t.Fatal("the production rules declare no partStandard block")
+	}
+	for _, key := range []string{"storyHeader", "storyStage"} {
+		if block[key] != true {
+			t.Fatalf("the production rules do not declare %q", key)
+		}
+		delete(block, key)
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "standard-without-story-quality.json")
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The part the rules refuse: a fenced line of code and a story of boxes.
+	body := "El débito se escribe así:\n\n```sql\nUPDATE cuentas SET saldo = saldo - 200;\n```\n"
+	note := strings.Replace(standardNote(body), fixtureStory, boxesOnlyStory, 1)
+
+	f := standardFrontierOn(t, path)
+	f.writePartNote(t, note)
+	rep, code, c := standardCheck(t, f)
+	if code != 0 || rep.Status != "accepted" {
+		for _, check := range rep.Checks {
+			if check.Status != "PASS" {
+				t.Logf("blocking check %s = %s: %s", check.ID, check.Status, check.Reason)
+			}
+		}
+		t.Fatalf("advance explanation = %q (exit %d), want accepted", rep.Status, code)
+	}
+	if c.Status != "PASS" {
+		t.Fatalf("explanation-standard = %s (%s), want PASS: the keys are additive", c.Status, c.Reason)
+	}
+
+	// The same part on the production rules is refused, and the refusal names
+	// both rules.
+	f2 := standardFrontier(t)
+	f2.writePartNote(t, note)
+	rep2, code2, c2 := standardCheck(t, f2)
+	assertBlocked(t, rep2, code2)
+	if c2.Status != "FAIL" {
+		t.Fatalf("explanation-standard = %s (%s), want FAIL on the story quality", c2.Status, c2.Reason)
+	}
+	for _, fragment := range []string{"story header is empty", "solo cajas con texto"} {
+		if !strings.Contains(c2.Reason, fragment) {
+			t.Fatalf("reason %q misses %q", c2.Reason, fragment)
+		}
+	}
+}
+
+// The engine and the tutor's tool read the story quality the same way: both
+// refuse the real part and both name the same fix, so the tutor's own run of
+// `node tools/explain-check.mjs` matches the refusal it gets here.
+func TestPartStandardReadsTheStoryQualityLikeExplainCheck(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: the tool cannot be run here")
+	}
+	tool, err := filepath.Abs("../../tools/explain-check.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tool); err != nil {
+		t.Skipf("explain-check.mjs is not here: %v", err)
+	}
+	rows := func(note string) map[string]string {
+		t.Helper()
+		file := filepath.Join(t.TempDir(), "parte.md")
+		if err := os.WriteFile(file, []byte(note), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, _ := exec.Command(node, tool, file, "--json").CombinedOutput()
+		var parsed struct {
+			Rows []struct {
+				Rule   string `json:"rule"`
+				OK     bool   `json:"ok"`
+				Detail string `json:"detail"`
+			} `json:"rows"`
+		}
+		if err := json.Unmarshal(out, &parsed); err != nil {
+			t.Fatalf("explain-check printed no JSON: %v\n%s", err, out)
+		}
+		seen := map[string]string{}
+		for _, r := range parsed.Rows {
+			seen[r.Rule] = r.Detail
+		}
+		return seen
+	}
+	th := rules.PartStandardThresholds{StoryHeader: true, StoryStage: true}
+	part := plsqlPartOne(t)
+	seen := rows(part)
+	for rule, findings := range map[string][]string{
+		"historia-cabecera":  storyHeaderFindings(part, th),
+		"escenario-de-cajas": storyStageFindings(part, th),
+	} {
+		detail, ok := seen[rule]
+		if !ok {
+			t.Fatalf("explain-check printed no %s row", rule)
+		}
+		if detail == "" {
+			t.Fatalf("the tool accepts the real part on %s, the engine refuses it: %v", rule, findings)
+		}
+		if len(findings) == 0 {
+			t.Fatalf("the engine accepts the real part on %s, the tool refuses it: %s", rule, detail)
+		}
 	}
 }

@@ -36,7 +36,7 @@ El valor viaja en un cofre. El robot que ya no vale se apaga, y el que usa algo 
    "labels":[{"x":26,"y":176,"text":"{","size":34},{"x":334,"y":176,"text":"}","size":34},{"x":180,"y":232,"text":"no compila","size":16,"tone":"red"}],
    "actors":[{"id":"s1","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","state":"invalid","tag":"s1"},{"id":"s2","icon":"robot","x":280,"y":150,"size":56,"tone":"amber","tag":"s2"}],
    "props":[{"id":"leer","kind":"read","on":"s1","side":"right","tone":"blue"},{"id":"valor","kind":"value","on":"s2","side":"left","label":"\"hola\"","tone":"green"}],
-   "marks":[{"kind":"no","actors":["s1","leer"]}]}}},
+   "marks":[{"kind":"no","actors":["s1","leer"],"label":"no compila"}]}}},
  {"title":"Se libera","equation":{"size":22,"atoms":[{"t":"}","id":"brace"},{"t":" // fin del ámbito","id":"scope"}]},"focus":["brace"],
   "narrator":"Cuando la dueña sale de su ámbito, Rust *libera* el valor una sola vez.",
   "stage":{"scene":{
