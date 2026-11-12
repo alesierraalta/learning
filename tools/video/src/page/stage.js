@@ -329,6 +329,36 @@
     return slot.layers;
   }
 
+  // The states on screen at t: the one the drawing reached, and the one that is
+  // leaving it. Both are painted at t, so the picture depends on t alone.
+  function showState(layers, k, st, t) {
+    paint(layers[k], t, k > 0 ? layers[k - 1].sigs : new Set());
+    // The layer being drawn is fully opaque: it was dimmed when it was the one
+    // leaving some earlier state.
+    layers[k].g.setAttribute("opacity", "1");
+    if (k === 0) return;
+    // A layer that only ever had its group faded kept whatever its last paint
+    // left, so the same instant drew different pixels on a page that skipped
+    // frames in between. It is painted here instead, at the last frame instant
+    // before the change: the one the sequential loop had already drawn it at, so
+    // the cross-fade is the picture it always was.
+    paint(layers[k - 1], frozenAt(st), k > 1 ? layers[k - 2].sigs : new Set());
+    const gone = clamp((t - st.t) / OUT);
+    layers[k - 1].g.setAttribute("opacity", String(1 - gone));
+  }
+
+  // The last frame the loop draws a state at, before the next one starts. Not
+  // `st.t - 1/fps`: a state changes on an instant that is not a frame instant,
+  // so the sequential render drew it up to a frame later than that, and painting
+  // the older instant moved the cross-fade by the difference. A render that does
+  // not start on a whole frame (`--from 0.71` at 30 fps) puts its own frames off
+  // this grid, and its cross-fade lands up to one frame away from what the
+  // sequential loop used to draw; the origin would have to travel in the plan.
+  function frozenAt(st) {
+    const fps = plan.fps || 30;
+    return Math.floor(st.t * fps - 1e-6) / fps;
+  }
+
   function frame(t) {
     const beat = pick(plan.beats, t);
     const index = plan.beats.indexOf(beat);
@@ -354,12 +384,7 @@
       el.counter.textContent = "";
     } else {
       const st = beat.states[k];
-      const prevSigs = k > 0 ? layers[k - 1].sigs : new Set();
-      paint(layers[k], t, prevSigs);
-      if (k > 0) {
-        const gone = clamp((t - st.t) / OUT);
-        layers[k - 1].g.setAttribute("opacity", String(1 - gone));
-      }
+      showState(layers, k, st, t);
       el.counter.textContent = `${k + 1} / ${beat.states.length}`;
       el.stateTitle.textContent = st.title || "";
       el.stateText.textContent = st.text || "";

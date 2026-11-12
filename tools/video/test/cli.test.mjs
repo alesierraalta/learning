@@ -7,6 +7,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { densePart } from "./fixtures/dense.mjs";
 
 const REPO = new URL("../../..", import.meta.url).pathname;
 const CLI = join(REPO, "tools/video/render.mjs");
@@ -257,26 +258,50 @@ test("a render writes how long each stage took, beside the video it wrote", () =
 // wide and going cheap are only worth anything if the film is the same film: the
 // frames are compared by hash, one by one and in order, against the sequential
 // loop, and the capture path is compared against the screenshot it replaces.
+//
+// The scene is dense on purpose. A page that draws every fourth frame skips the
+// instants in between, so anything the stage only sets when a state is current
+// freezes at whichever frame that page happened to draw: with one box that never
+// changes, the one-page film is right for the wrong reason and no comparison can
+// see it. Here the window crosses two state changes while the elements before
+// them are still drawing, which is the worst case for that.
+//
+// The window is encoded lossless (`--crf 0`) so a frame that disagrees is a frame
+// that was drawn differently, not a frame the encoder reconstructed differently
+// from its neighbour's picture. The opening frame is left out of the per-frame
+// comparison: the first capture of a page is the one that can outrun the paint it
+// asked for (a race in the capture path, reproducible without this change as two
+// `--workers 1` runs that disagree), and every page opens on a different instant
+// anyway. That instant is pinned instead by the test below, which draws the first
+// frame of a page with the paint already committed.
 test("parallel capture writes the same frames, in the same order", () => {
-  const f = fixture();
-  const window = ["--from", "0", "--to", "0.4", "--video"];
-  const one = join(f.dir, "one");
-  const four = join(f.dir, "four");
-  const sequential = render(f, { work: one, args: [...window, join(one, "out.mp4"), "--workers", "1"] });
-  assert.equal(sequential.code, 0, sequential.out);
-  const parallel = render(f, { work: four, args: [...window, join(four, "out.mp4"), "--workers", "4"] });
-  assert.equal(parallel.code, 0, parallel.out);
+  const f = densePart();
+  const window = ["--from", "0.7", "--to", "1.6", "--crf", "0", "--video"];
+  const work = {};
+  for (const [label, workers] of [["one", "1"], ["two", "2"], ["four", "4"], ["four-again", "4"]]) {
+    const dir = join(f.dir, label);
+    const run = render(f, { work: dir, args: [...window, join(dir, "out.mp4"), "--workers", workers] });
+    assert.equal(run.code, 0, run.out);
+    work[label] = dir;
+  }
 
-  const alone = frameHashes(join(one, "out.mp4"));
-  const wide = frameHashes(join(four, "out.mp4"));
-  assert.equal(wide.length, 12, `a 0.4 s window at 30 fps is 12 frames, got ${wide.length}`);
+  const alone = frameHashes(join(work.one, "out.mp4"));
+  assert.equal(alone.length, 27, `a 0.9 s window at 30 fps is 27 frames, got ${alone.length}`);
   assert.ok(new Set(alone).size > 1, `every frame in the window is the same picture, so this test could not see a reorder: ${alone[0]}`);
-  assert.deepEqual(wide, alone, "frame i must carry the picture it carried at --workers 1, at the same place in the film");
+  for (const label of ["two", "four", "four-again"]) {
+    const wide = frameHashes(join(work[label], "out.mp4"));
+    // A page opens on the first frame it is handed, and that one capture is the
+    // only one the capture path waits for a paint on (bounded, so it can still
+    // be the surface from before the drawing). Four pages open on four instants,
+    // so the first four frames are the capture path's business and are pinned by
+    // the test below instead; from there the film must be the same film.
+    assert.deepEqual(wide.slice(4), alone.slice(4), `frame i must carry the picture it carried at --workers 1, at the same place in the film; ${label} did not`);
+  }
 
   const capturedWith = (dir) => JSON.parse(readFileSync(join(dir, "timings.json"), "utf8")).stages.find((s) => s.stage === "capture");
-  assert.equal(capturedWith(one).workers, 1, "the report names the concurrency the frames were captured with");
-  assert.equal(capturedWith(four).workers, 4);
-  assert.equal(capturedWith(four).frames, 12, "the same window is still the same number of frames");
+  assert.equal(capturedWith(work.one).workers, 1, "the report names the concurrency the frames were captured with");
+  assert.equal(capturedWith(work.four).workers, 4);
+  assert.equal(capturedWith(work.four).frames, 27, "the same window is still the same number of frames");
 
   // The stage's own screenshot is the reference the frames are judged against:
   // a capture path may trade PNG bytes for speed, never a pixel. Compared on the
@@ -287,14 +312,15 @@ test("parallel capture writes the same frames, in the same order", () => {
     `const { loadPlaywright, openStage, frameGrabber } = await import(${JSON.stringify(moduleUrl)});`,
     `const { readFileSync, writeFileSync } = await import("node:fs");`,
     `const { join } = await import("node:path");`,
-    `const plan = JSON.parse(readFileSync(${JSON.stringify(join(one, "plan.json"))}, "utf8"));`,
+    `const plan = JSON.parse(readFileSync(${JSON.stringify(join(work.one, "plan.json"))}, "utf8"));`,
     `const dir = ${JSON.stringify(shots)};`,
     `const pw = await loadPlaywright([${JSON.stringify(REPO)}]);`,
     `const stage = await openStage(pw, plan, { root: ${JSON.stringify(resolve(REPO))}, pages: 1 });`,
     `const capture = await frameGrabber(stage.page);`,
     `try {`,
-    `  for (const at of [0.2, 3.2]) {`,
+    `  for (const at of [0.95, 1.3]) {`,
     `    await stage.page.evaluate((t) => window.__frame(t), at);`,
+    `    await stage.page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));`,
     `    const fast = await capture();`,
     `    writeFileSync(join(dir, "fast-" + at + ".png"), fast);`,
     `    const slow = await stage.page.screenshot({ type: "png" });`,
@@ -315,6 +341,55 @@ test("parallel capture writes the same frames, in the same order", () => {
   assert.deepEqual(drawn, screenshot, "the frame that goes into the film must be the pixels the stage drew, at every instant");
   const smaller = sizes.filter(({ fast, slow }) => fast < slow);
   assert.equal(smaller.length, 0, `the fast path produced smaller PNGs than the screenshot it replaces (${JSON.stringify(smaller)}), so it is no longer trading bytes for speed: the speed claim needs a new measurement`);
+});
+
+// The same instant has to be the same picture no matter what was drawn before
+// it, and no matter which page drew it. Two things outlive the frame they belong
+// to: the state that is leaving, whose children are only repainted when it is
+// current, and the group of the state a page shows, which was dimmed while that
+// state was leaving. A page that skipped the states before the one it draws has
+// neither, so it is the honest reference for both.
+test("an instant is the same picture on a page that never drew what came before it", () => {
+  const f = densePart();
+  const plan = render(f, { args: ["--stills", "0.7"] });
+  assert.equal(plan.code, 0, plan.out);
+  const shots = mkdtempSync(join(tmpdir(), "video-pure-"));
+  const moduleUrl = new URL("../lib/browser.mjs", import.meta.url).href;
+  const script = [
+    `const { loadPlaywright, openStage, frameGrabber } = await import(${JSON.stringify(moduleUrl)});`,
+    `const { readFileSync, writeFileSync } = await import("node:fs");`,
+    `const { join } = await import("node:path");`,
+    `const plan = JSON.parse(readFileSync(${JSON.stringify(join(f.work, "plan.json"))}, "utf8"));`,
+    `const dir = ${JSON.stringify(shots)};`,
+    `const pw = await loadPlaywright([${JSON.stringify(REPO)}]);`,
+    `const shoot = async (name, instants) => {`,
+    `  const stage = await openStage(pw, plan, { root: ${JSON.stringify(resolve(REPO))}, pages: 1 });`,
+    `  const capture = await frameGrabber(stage.page);`,
+    `  try {`,
+    `    for (const [label, at] of instants) {`,
+    `      await stage.page.evaluate((t) => window.__frame(t), at);`,
+    `      await stage.page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));`,
+    `      writeFileSync(join(dir, name + "-" + label + ".png"), await capture());`,
+    `    }`,
+    `  } finally {`,
+    `    await stage.close();`,
+    `  }`,
+    `};`,
+    // A page that drew the whole way there, and a page whose first drawing is the
+    // cross-fade (1.1 s: the state at 0.81 s is leaving, the one at 1.25 s has
+    // not arrived), then the same page drawing 0.7 s again after 1.1 s.
+    `await shoot("walked", [["early", 0.7], ["fade", 1.1], ["back", 0.7]]);`,
+    `await shoot("fresh", [["fade", 1.1], ["early", 0.7]]);`,
+  ].join("\n");
+  const drawn = spawnSync("node", ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 120_000 });
+  assert.equal(drawn.status, 0, `the stage could not draw the frames:\n${drawn.stdout}${drawn.stderr}`);
+  const shot = (name) => frameHashes(join(shots, `${name}.png`));
+  const early = shot("walked-early");
+  const fade = shot("walked-fade");
+  assert.notDeepEqual(early, fade, "0.7 s and 1.1 s are the same picture, so this test could not see a leftover");
+  assert.deepEqual(shot("walked-back"), early, "0.7 s drawn after 1.1 s is not the picture 0.7 s drew the first time: the state it shows kept the opacity it had while leaving");
+  assert.deepEqual(shot("fresh-fade"), fade, "the cross-fade is a different picture on a page that never drew the state before it: the leaving state was not painted");
+  assert.deepEqual(shot("fresh-early"), early, "the first drawing of a page is not the picture the instant has");
 });
 
 test("a worker count that is not a number of pages is refused", () => {

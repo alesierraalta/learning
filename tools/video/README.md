@@ -54,12 +54,23 @@ over four pages, measured on 240 frames of a six-beat part; Part 3 (6:17,
 
 ## Capture
 
-`frame(t)` is pure, so a frame can be drawn on any page at any instant. Capture
-uses that: it boots `--workers` pages in **one** browser, hands each page the
+`frame(t)` is pure, so a frame can be drawn on any page at any instant. Purity
+is painted, not assumed: during a cross-fade the state that is leaving is
+repainted at the last frame instant before the change — the instant the
+sequential loop had already drawn it at — instead of keeping whatever its last
+paint left. A page that skips frames would otherwise freeze that layer at
+whichever frame it happened to draw, and the same instant would be a different
+picture depending on how many pages drew it. The repaint touches attributes on
+the layer that is already built (a few microseconds); rebuilding its SVG would
+cost 2-5 ms a frame and eat the capture it is meant to keep.
+
+Capture uses that: it boots `--workers` pages in **one** browser, hands each page the
 next frame index, and feeds ffmpeg the frames strictly in order. A captured
 frame waits until every frame before it has gone through stdin, so frame `i` is
 still the picture at `t_i` and the film is byte for byte the one `--workers 1`
-writes — that equality is a test, not an intention.
+writes — that equality is a test, not an intention. The test's scene is dense on
+purpose and changes states twice inside the window, because a single box that
+never changes cannot show a state outliving its frame.
 
 A frame is taken through the page's own CDP session (`Page.captureScreenshot`
 with `optimizeForSpeed`), not through `page.screenshot`. ffmpeg reads pixels, so
