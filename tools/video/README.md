@@ -45,8 +45,8 @@ just no longer makes the frames wait for the answer. `--stills 12.5,90` writes P
 stills instead of a video (fast visual checks); a stills run has no long capture to
 hide the gate behind, so it draws the verdict first.`--from 100 --to 120` renders a
 slice. `--workers N`
-sets how many pages capture at once (default: half the cores, at most 4;
-`--workers 1` is the sequential loop). `--remote synchub:<dir>` fetches missing
+sets how many pages capture at once (default: half the cores, at least 2 and at most
+4; `--workers 1` is the sequential loop). `--remote synchub:<dir>` fetches missing
 narration; on the VPS the audio cache is already local and no `--remote` is
 needed. `--single-pass` renders the film in one ffmpeg instead of in segments and
 skips the cache: it is the path the cache replaces, kept because the quality gate
@@ -307,12 +307,13 @@ moves every frame would hide a still figure), and findings about the same
 
 ## The segment cache
 
-The film is cut where the drawing changes: **one segment per beat, on frame
-boundaries**. Each segment is captured and encoded on its own — same encoder, same
-parameters — and the pieces are joined with `stream copy`; the window's audio is
-encoded once and muxed at the end, so no sample is re-encoded at a cut and there
-is no audio seam at a beat. Entries live in `<work>/cache/<sha256>.mp4`
-(`tools/video/.cache/render/cache/` by default, gitignored).
+The film is cut where the beat changes: **one segment per beat, on frame
+boundaries** — a beat that draws three states is still one segment. Each segment
+is captured and encoded on its own — same encoder, same parameters — and the pieces
+are joined with `stream copy`; the window's audio is encoded once and muxed at the
+end, so no sample is re-encoded at a cut and there is no audio seam at a beat.
+Entries live in `<work>/cache/<sha256>.mp4` (`tools/video/.cache/render/cache/` by
+default, gitignored).
 
 What makes reuse safe is the key, and the key is the picture, not the position in
 the film. In: the slice of the spec the segment covers, the narration words that
@@ -320,23 +321,47 @@ fall inside it, the bytes of the audio under it, fps, resolution, encoder
 parameters, the **hash of the code that draws a frame** (`src/page/stage.js`,
 `src/page/stage.css`, `src/page/index.html`, `integrations/pi/kit/scene.js`), the
 beat's own clock measured from where the segment starts and from the window's
-frame grid, and the part's progress bar. The window's `--from` enters as its
-**frame phase**: an origin that differs by a whole number of frames draws the same
-pixels (that is what the window tests pin), so it is the phase that belongs in the
-key and not the number. Out: the beat's tag, its index, its place in the spec, the
-rest of the part.
+frame grid, the part's name and title — the brand line in every frame is
+`plan.part · plan.title` — and the part's progress bar. The window's `--from`
+enters as its **frame phase**: an origin that differs by a whole number of frames
+draws the same pixels (that is what the window tests pin), so it is the phase that
+belongs in the key and not the number. Out: the beat's tag, its index, its place in
+the spec, the rest of the part.
+
+Position enters in exactly two places, and both because the picture really does
+depend on it: the progress bar below, and the absolute instants a segment that
+opens inside the entrance ramp was painted at — a frame inside the ramp is not
+fully drawn, so it is not the beat's content alone. Past the ramp every primitive
+is saturated and that entry disappears from the key.
 
 The drawing hash is the part that keeps the cache from serving the past: change
 one byte of `stage.js` and every entry is invalid, whether or not the change moves
 a pixel. A cache that guessed otherwise would serve frames from the code before
 the change, and the film would look fine.
 
-The progress bar is the one thing in a frame that is not the beat's own content —
-`frame(t)` draws `covered / plan.total` — so a beat that moves to another instant
-of the part does **not** share its entry: it draws a bar of another width, and a
-wrong picture is worse than a missed cache entry. Reordering a part keeps every
-beat whose instants did not move; editing a scene, a drawing, a state or the
-narration of one beat invalidates that beat and nothing else.
+The progress bar is the one thing in a frame that is the whole part's, not the
+beat's — `frame(t)` draws `covered / plan.total`, and `plan.total` is the length of
+the entire film — so the bar of **every** frame is a function of every beat's
+duration. A beat that moves to another instant of the part does not share its
+entry: it draws a bar of another width, and a wrong picture is worse than a missed
+cache entry. The same quantity decides how far an edit reaches, and the rule is the
+part's total length, not the kind of edit:
+
+- A drawing, a state, a colour or the layout of one beat: the total does not move,
+  so the edit is local. That beat's segment misses and the others are served from
+  the cache — `test/segments.test.mjs` changes one label and re-encodes one
+  segment.
+- New narration, a longer take, a beat added or removed: the total moves, so
+  `plan.total` moves, so the bar of every frame moves, every key changes and the
+  film is captured and encoded whole. On the fixture below that is the cold row
+  (5 354 ms), not the edit row.
+
+That second case is a decision, not a defect waiting for a workaround: the bar is
+how the viewer knows how much of the part is left, and it is worth more than a
+cache hit on a narration edit, so it stays. One consequence is worth spelling out:
+a beat keeps its entry only when **both** its instant and the part's total length
+are unchanged, which is why reordering beats of different lengths rebuilds the
+whole cache.
 
 On the fixture used by the tests (5 s at 30 fps, two beats, 150 frames, four
 pages), from `timings.json`:
@@ -351,9 +376,10 @@ pages), from `timings.json`:
 A cold render is **slower** than one pass, and that is the trade: the encoder's
 tail no longer overlaps the next segment's capture, which costs about half a
 second per cut (measured: a 2.4 s window that is one segment costs the same as
-one pass, +14 ms; a 5 s window cut in two costs +1.1 s). The win starts at the
-second render — editing one scene of a two-beat part is 1.3× faster than a redo,
-and re-rendering an unchanged part is 5× faster, because it captures nothing.
+one pass, +14 ms; a 5 s window cut in two costs +1.1 s) — 5 354 ms against
+4 219 ms on the fixture above, ~27 % slower. The win starts at the second render —
+editing one scene of a two-beat part is 1.3× faster than a redo, and re-rendering an
+unchanged part is 5× faster, because it captures nothing.
 
 `timings.json` carries the counts, so the claim is checkable:
 `stages` has a `segments` entry with `segments`, `hits`, `misses` and `frames`,
@@ -400,8 +426,11 @@ instead of hiding it. Nothing in the encoder was adjusted to make a number fit.
 
 Disk: an entry is the encoded segment, so the cache holds roughly the video track
 of one render per distinct version of a part — 3.4-4.7 MiB per minute of film at
-these settings. Each further edit adds the segments it changed, not a new copy of
-the part.
+these settings — and nothing ever removes one: there is no eviction, no size limit
+and no prune step, so the directory only grows and cleaning it is `rm` on a
+gitignored folder. An edit that leaves the durations alone adds the segments it
+changed, not a new copy of the part; an edit that moves the total adds a second full
+copy, for the reason above.
 
 ## The timing report
 
@@ -513,12 +542,13 @@ Two costs are declared rather than hidden. A refusal that arrives after the capt
 has already drawn frames throws that work away, and the render says so: `the craft
 gate refused this part (exit 1); 54 frame(s) had already been captured (…ms of
 capture, left in the segment cache under the key of what draws them)`. The frames
-are not deleted — a cache entry is keyed by what draws it, so a fix that changes the
-drawing invalidates the beats it touches and leaves the rest reusable — but the film
-they belong to is not written. And the gate now runs beside a capture that is
-already using several Chromium renderers, so the two contend for the CPU: on a loaded
-machine the capture absorbs part of what the overlap gives back, which is why the
-saving is 16 % and not the gate's full share of the run.
+are not deleted — a cache entry is keyed by what draws it, so a fix that edits one
+beat's drawing and leaves the durations alone invalidates that beat and leaves the
+rest reusable, while a fix that touches `stage.js` invalidates every entry, by
+design — but the film they belong to is not written. And the gate now runs beside a
+capture that is already using several Chromium renderers, so the two contend for the
+CPU: on a loaded machine the capture absorbs part of what the overlap gives back,
+which is why the saving is 16 % and not the gate's full share of the run.
 
 ## Delivery
 
