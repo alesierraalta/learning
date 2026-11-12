@@ -200,6 +200,13 @@ Every `status` report carries `method` once chosen. Rules snapshots without
 `strictFlow` (topics enrolled before it) go from the diagnosis straight to
 planning, and `method` refuses to run for them (exit 2).
 
+The method is the learner's choice on the topic page, never the tutor's. The
+engine cannot tell who ran the command — the page and the tutor invoke the same
+CLI — so the boundary is enforced around it: the studio records the page's own
+choices and refuses a turn whose engine report carries a method the page never
+recorded (`El tutor eligió el método por ti…`), and the runtime contract forbids
+the tutor to record it or to continue to a part in the same turn (#248).
+
 ### Part loop (strict flow)
 
 Strict-flow rules take each part as explanation → `quiz` → `own_words` →
@@ -422,6 +429,24 @@ The producer writes these next to the notes; `thresholds` in `rules/deep.json`
 fix every count and vocabulary, and a violation names itself in the failing
 check's reason. Option keys are `A`–`D` plus `E` = `No sé`; answer keys
 (`answer`) are `A`–`D`; learner answers may be `A`–`E`.
+
+### Answer keys must vary
+
+The engine validates the option text, not where the correct option sits, so a
+producer that always answers `A` passes every check while a learner who always
+marks `A` passes every quiz (#248). `thresholds.options.varyAnswerKeys` turns on
+the distribution rule, measured per round:
+
+- a round of three or more questions may not put every answer key in the same
+  letter;
+- a round of four or more may not put more than half of its keys in one letter.
+
+A diagnosis is measured round by round (a fixed-format diagnosis, which carries
+no round, as one set); a mini-quiz is one round. The refusal names the letter and
+the count and asks the tutor to *vary the position of the correct option*, so it
+arrives at turn end as the failing `quiz-structure` / `mini-quiz-questions`
+reason. The key is additive: a run whose rules snapshot does not declare it
+keeps accepting the keys it accepted.
 
 `plan.json` (preparation; `diagnosisSummary` and `focusAreas` are added at
 planning, focus areas naming the diagnosis' wrong answers):

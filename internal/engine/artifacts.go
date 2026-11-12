@@ -282,6 +282,69 @@ func validateAnswerKey(answer string, th rules.OptionThresholds) error {
 	return fmt.Errorf("answer key %q is not among %v", answer, th.AnswerKeys)
 }
 
+// The shortest round the answer-key distribution rule measures, and the shortest
+// round where a majority of one letter is refused. Below them a round is too
+// small to tell a fixed key from a coincidence.
+const (
+	varyKeysMinRound    = 3
+	varyKeysMajorityMin = 4
+)
+
+// varyAnswerKeys refuses a round whose correct option always sits in the same
+// place: a learner who always marks A would pass it without reading. The rule
+// is declared by the rules file (options.varyAnswerKeys); a snapshot without it
+// keeps accepting the keys it accepted. The refusal names the letter, the count
+// and what to do, because the tutor reads it as a finding at the end of a turn.
+func varyAnswerKeys(keys []string, th rules.Thresholds) error {
+	if !th.Options.VaryAnswerKeys || len(keys) < varyKeysMinRound {
+		return nil
+	}
+	counts := map[string]int{}
+	letter, top := "", 0
+	for _, key := range keys {
+		counts[key]++
+		if counts[key] > top {
+			letter, top = key, counts[key]
+		}
+	}
+	share := fmt.Sprintf("%d of %d questions put the correct option in %s", top, len(keys), letter)
+	vary := "vary the position of the correct option (A, B, C, D): a learner who always marks the same letter must not pass without reading"
+	switch {
+	case top == len(keys):
+		return fmt.Errorf("answer keys do not vary: all %d questions put the correct option in %s; %s", len(keys), letter, vary)
+	case len(keys) >= varyKeysMajorityMin && top*2 > len(keys):
+		return fmt.Errorf("answer keys do not vary: %s, more than half; %s", share, vary)
+	}
+	return nil
+}
+
+// varyDiagnosticKeys applies the answer-key distribution rule round by round: a
+// diagnosis asks in rounds, and one round with a fixed key is what a learner
+// learns to game. A fixed-format diagnosis carries no round, so its whole set is
+// measured as one.
+func varyDiagnosticKeys(qs []diagQuestion, th rules.Thresholds) error {
+	if !th.Options.VaryAnswerKeys {
+		return nil
+	}
+	var order []int
+	rounds := map[int][]string{}
+	for _, q := range qs {
+		if _, ok := rounds[q.Round]; !ok {
+			order = append(order, q.Round)
+		}
+		rounds[q.Round] = append(rounds[q.Round], q.Answer)
+	}
+	for _, round := range order {
+		if err := varyAnswerKeys(rounds[round], th); err != nil {
+			if round == 0 {
+				return err
+			}
+			return fmt.Errorf("round %d: %w", round, err)
+		}
+	}
+	return nil
+}
+
 func validateNivel(nivel string, th rules.Thresholds) error {
 	for _, n := range th.Niveles {
 		if nivel == n {
@@ -309,9 +372,13 @@ func diagSkipped(ws, rel string, qs []diagQuestion, th rules.Thresholds) bool {
 func validateDiagnostic(qs []diagQuestion, plan *planDoc, th rules.Thresholds) error {
 	if th.Diagnostic.Adaptive() {
 		if th.ConceptMode() {
-			return validateGuidedDiagnostic(qs, plan, th)
+			if err := validateGuidedDiagnostic(qs, plan, th); err != nil {
+				return err
+			}
+		} else if err := validateAdaptiveDiagnostic(qs, plan, th); err != nil {
+			return err
 		}
-		return validateAdaptiveDiagnostic(qs, plan, th)
+		return varyDiagnosticKeys(qs, th)
 	}
 	var prereq, topic int
 	levels := map[int]int{}
@@ -406,7 +473,7 @@ func validateDiagnostic(qs []diagQuestion, plan *planDoc, th rules.Thresholds) e
 			return fmt.Errorf("topic block interleaves levels: %v", topicLevels)
 		}
 	}
-	return nil
+	return varyDiagnosticKeys(qs, th)
 }
 
 func nivelesNonDecreasing(niveles []string, th rules.Thresholds, msg string) error {
@@ -461,7 +528,11 @@ func validateQuizQuestions(qs []quizQuestion, partSubtema string, planSubs map[s
 			}
 		}
 	}
-	return nil
+	keys := make([]string, 0, len(qs))
+	for _, q := range qs {
+		keys = append(keys, q.Answer)
+	}
+	return varyAnswerKeys(keys, th)
 }
 
 // checkCoverage verifies answers cover exactly the question set.
