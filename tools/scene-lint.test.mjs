@@ -441,3 +441,52 @@ test('un recorrido con sus marcas dentro del lienzo pasa scene-gate', { skip: SK
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok: 1 escena/);
 });
+
+// ── Actors with state and props (#217) ──────────────────────────────────────
+// Las piezas nuevas del escenario —el valor en su cofre, el ojo, el lápiz, la marca
+// entre dos actores, el ✗ de un actor inválido— se miden con lo que el navegador
+// dibujó: una que nombra un actor que no existe, o que se dibuja encima de una
+// palabra, es un hallazgo; una que cabe y convive pasa las dos puertas.
+const robots = '{"id":"s1","icon":"robot","x":180,"y":150,"size":56,"tone":"blue","tag":"s1"}';
+
+test('una pieza anclada a un actor que no existe es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'pieza-sin-actor.md');
+  writeFileSync(file, story(`{"actors":[${robots}],"props":[{"id":"valor","kind":"value","on":"nadie","label":"hola"}]}`));
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /pieza-sin-destino/);
+  assert.match(r.stdout, /valor/);
+});
+
+test('una marca entre dos actores que no están es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'marca-sin-actores.md');
+  writeFileSync(file, story(`{"actors":[${robots}],"marks":[{"kind":"ok","between":["s1","nadie"]}]}`));
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /pieza-sin-destino/);
+});
+
+test('una pieza dibujada encima de una palabra es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'ojo-sobre-palabra.md');
+  writeFileSync(file, story(`{"actors":[${robots}],"props":[{"id":"leer","kind":"read","on":"s1","side":"right"}],"labels":[{"x":253,"y":156,"text":"palabra","size":14}]}`));
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /pieza-sobre-texto/);
+});
+
+test('un actor con estado, sus piezas y sus marcas pasan scene-lint y scene-gate', { skip: SKIP }, () => {
+  const file = join(dir, 'estado-limpio.md');
+  writeFileSync(file, story(`{"actors":[{"id":"s1","icon":"robot","x":70,"y":150,"size":56,"tone":"blue","state":"invalid","tag":"s1"},{"id":"s2","icon":"robot","x":290,"y":150,"size":56,"tone":"amber","tag":"s2"}],"props":[{"id":"leer","kind":"read","on":"s1","side":"right","tone":"blue"},{"id":"valor","kind":"value","on":"s2","side":"left","label":"hola","tone":"green"}],"marks":[{"kind":"no","actors":["s1","leer"]}]}`));
+  const a = lint(file);
+  assert.equal(a.status, 0, a.stdout + a.stderr);
+  const b = gate(file);
+  assert.equal(b.status, 0, b.stdout + b.stderr);
+});
+
+test('scene-gate mide las piezas nuevas: un cofre que no cabe en el lienzo es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'pieza-enorme.md');
+  writeFileSync(file, story(`{"actors":[${robots}],"props":[{"id":"valor","kind":"value","on":"s1","side":"right","size":230}]}`));
+  const r = gate(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /al-borde/);
+});

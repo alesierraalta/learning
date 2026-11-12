@@ -265,22 +265,22 @@ button.secondary { background: transparent; color: var(--ink); }
 }
 .prose .lk-walkthrough button:hover,
 .prose .lk-story button:hover,
-.prose .lk-wt-bar button:hover { background: var(--ink); color: #fff; }
+.prose .lk-wt-bar button:hover { background: var(--ink); color: var(--on-ink, #fff); }
 .prose .lk-walkthrough button:disabled,
 .prose .lk-story button:disabled,
 .prose .lk-wt-bar button:disabled { opacity: .32; background: transparent; color: var(--ink); cursor: default; }
 .prose .lk-walkthrough .lk-wt-dot,
 .prose .lk-wt-bar .lk-wt-dot {
   width: 16px; height: 2px; padding: 0;
-  border: 0 !important; border-radius: 0; background: rgba(15, 46, 61, .22) !important; font-size: 0;
+  border: 0 !important; border-radius: 0; background: var(--hair) !important; font-size: 0;
 }
 .prose .lk-walkthrough .lk-wt-dot[aria-current="true"],
 .prose .lk-wt-bar .lk-wt-dot[aria-current="true"] { background: var(--accent) !important; }
 .prose .lk-story .lk-story-player button { font-size: 12px; letter-spacing: .1em; }
 .prose .lk-story .lk-story-count { font-size: 13px; letter-spacing: .12em; }
 .prose .lk-wt-count { font-family: var(--sans); font-size: 10.5px; letter-spacing: .18em; color: var(--muted); }
-.prose .lk-wt-full { padding: 6px 9px; border-radius: 0; border: 1px solid var(--hair); background: #fff; color: var(--muted); font-family: var(--sans); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; }
-.prose .lk-wt-full:hover { background: var(--ink); color: #fff; }
+.prose .lk-wt-full { padding: 6px 9px; border-radius: 0; border: 1px solid var(--hair); background: var(--paper); color: var(--muted); font-family: var(--sans); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; }
+.prose .lk-wt-full:hover { background: var(--ink); color: var(--on-ink, #fff); }
 .prose .lk-wt-caption { font-family: var(--sans); font-size: 13px; color: var(--muted); }
 .prose .lk-wt-caption strong { font-family: var(--serif); font-size: 18px; color: var(--ink); }
 

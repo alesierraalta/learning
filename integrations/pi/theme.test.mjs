@@ -95,10 +95,14 @@ test("a frame follows the studio by message, and the storage key follows another
   assert.equal(root.dataset.theme, "light", "with nothing stored, the system decides again");
 });
 
-test("the dark paper keeps its figures legible: an island resets the ink, not only the tokens", () => {  const css = readFileSync(join(import.meta.dirname, "kit", "kit.css"), "utf8");
-  const island = css.match(/:root\[data-theme="dark"\] \.lk-walkthrough \{[^}]*\}/);
-  assert.ok(island, "the walkthrough keeps a light paper inside the dark page");
-  assert.match(island[0], /color: var\(--ink\)/, "text inherited from the page turns dark again inside the island");
+test("the dark paper keeps its figures legible: the deck follows the page, only mermaid keeps its own sheet", () => {
+  const css = readFileSync(join(import.meta.dirname, "kit", "kit.css"), "utf8");
+  // #222: the classic deck is no longer a white island in the night themes.
+  assert.equal(/:root\[data-theme="(?:dark|black)"\] \.lk-walkthrough \{[^}]*background: #fff/.test(css), false, "the deck keeps no white island in the dark page");
+  const night = css.match(/:root:is\(\[data-theme="dark"\], \[data-theme="black"\]\) \.lk-walkthrough \{[^}]*\}/);
+  assert.ok(night, "the deck has a night rule for both night themes");
+  assert.match(night[0], /background: var\(--paper\)/, "the deck paints the page paper");
+  assert.match(night[0], /color: var\(--ink\)/, "the deck takes the night ink");
   const mermaid = css.match(/:root:is\(\[data-theme="dark"\], \[data-theme="black"\]\) pre\.mermaid \{[^}]*\}/);
   assert.ok(mermaid && /color: var\(--ink\)/.test(mermaid[0]), "a mermaid diagram is drawn on its own light paper");
 });

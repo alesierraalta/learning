@@ -336,7 +336,7 @@ paso con la respuesta enmarcada y su ✓.
 |---|---|
 | `kind` | `"derivation"` |
 | `steps[].equation` | la ecuación del paso, un átomo por término con `id` estable entre pasos |
-| `steps[].stage.scene.actors` | los términos dibujados: `id`, `x`, `y`, `w`, `h`, `label`, `tone`, `state` (`faded` = ya no vale), `tag` (el rótulo con punta) |
+| `steps[].stage.scene.actors` | los términos dibujados: `id`, `x`, `y`, `w`, `h`, `label`, `tone`, `state` (`faded` = ya no vale; `invalid` = tachado con ✗), `tag` (el rótulo con punta). Con `icon` es un dibujo (el robot) en vez de una caja: ver 8d |
 | `steps[].stage.scene.moves` | `from` / `to` (ids de actor) y `verb`: la flecha se mide entre las dos cajas, nunca entre coordenadas |
 | `steps[].stage.scene.marks` | `combine` (marca los términos y, con `to`, los reemplaza por su resultado) y `ok` / `no` (✓ / ✗ y el marco de la respuesta) |
 
@@ -364,6 +364,50 @@ Reglas:
 ```
 
 Ejemplo aprobado y completo, con los tres pasos y los textos: `integrations/pi/kit/examples/derivacion-x.md`.
+
+## 8d. Actores con estado y piezas (`actors` + `props`)
+
+**Una idea con estado se cuenta con actores, no con una tabla.** Cada concepto es un actor con su
+nombre (`tag`); su **estado se ve** por color y marca; las **piezas** que lleva —un valor, una
+lectura, una escritura— van pegadas a él; una **marca de resultado** (✓ / ✗) cierra el paso. Úsalo
+cuando lo que enseñas es quién tiene qué y cuándo deja de valer (propiedad y movimiento de un
+valor, quién lee y quién escribe, qué pasa al salir de un ámbito). Si solo se compara o se lista,
+es una escena o una tabla.
+
+| Pieza | Qué lleva |
+|---|---|
+| `actors[].icon` | `"robot"` (u otro icono): el actor es un dibujo centrado en `x`, `y` (`size`); sin `icon`, una caja con `w`, `h`, `label` |
+| `actors[].state` | `active` (por defecto, su tono) · `faded` (gris: ya no vale) · `invalid` (gris, tachado y con ✗) |
+| `props[]` | `id`, `kind`, `on` (el id del actor), `side` (`right`, `left`, `above`, `below`), `label`, `tone`, `state: "faded"` |
+| `props[].kind` | `value` (un cofre que carga un valor: su `label`) · `read` (un ojo) · `write` (un lápiz) · o cualquier icono |
+| `moves[]` | `from` / `to` pueden ser un actor **o una pieza**: la flecha sale del cofre, no del actor |
+| `marks[]` | `ok` / `no` sobre un actor (`actor`), sobre varios (`actors`) o en el hueco entre dos (`between`) |
+
+Reglas:
+
+- **Pocas palabras y una idea por paso**: el cofre dice el valor; el robot, su nombre; el
+  narrador, qué pasó. Cuatro pasos como máximo para una idea.
+- **El actor que ya no vale se apaga (`faded`); el que se usa sin valer se tacha (`invalid`)**.
+  No se inventa otro color para «viejo».
+- **Las piezas se anclan por id** (`"on":"s1"`) y se colocan solas: junto al lado que pides y, si
+  ahí no cabe, donde sí. No se escriben coordenadas de piezas.
+- **Un `on`, un `between` o un `from` que nombra un id que el paso no tiene** se declara y
+  `scene-lint` lo llama `pieza-sin-destino`; una pieza encima de una palabra, `pieza-sobre-texto`.
+- Los robots y los cofres son de la casa; no se copia el pixel art ni la mascota de otro sitio.
+
+```json
+{"kind":"derivation","title":"Mover un valor","viewBox":"0 60 360 180","steps":[
+ {"title":"Una dueña","equation":{"atoms":[{"t":"let ","id":"let"},{"t":"s1","id":"s1"},{"t":" = String::from(\"hola\");","id":"end"}]},"focus":["s1"],"narrator":"«s1» es la *dueña* del texto.",
+  "stage":{"scene":{"actors":[{"id":"s1","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","tag":"s1"}],"props":[{"id":"valor","kind":"value","on":"s1","side":"right","label":"\"hola\"","tone":"green"}]}}},
+ {"title":"Mover","equation":{"atoms":[{"t":"let s2 = ","id":"let"},{"t":"s1","id":"s1"},{"t":";","id":"end"}]},"focus":["s1"],"narrator":"El valor *se mueve* a «s2».",
+  "stage":{"scene":{"actors":[{"id":"s1","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","tag":"s1"},{"id":"s2","icon":"robot","x":280,"y":150,"size":56,"tone":"amber","tag":"s2"}],"props":[{"id":"valor","kind":"value","on":"s1","side":"right","label":"\"hola\"","tone":"green"}],"moves":[{"from":"valor","to":"s2","verb":"se mueve","tone":"amber"}]}}},
+ {"title":"La vieja deja de valer","equation":{"atoms":[{"t":"println!(\"{s1}\");","id":"use"}]},"focus":["use"],"narrator":"«s1» ya no vale: leerla no compila.",
+  "stage":{"scene":{"actors":[{"id":"s1","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","state":"invalid","tag":"s1"},{"id":"s2","icon":"robot","x":280,"y":150,"size":56,"tone":"amber","tag":"s2"}],"props":[{"id":"leer","kind":"read","on":"s1","side":"right","tone":"blue"},{"id":"valor","kind":"value","on":"s2","side":"left","label":"\"hola\"","tone":"green"}],"marks":[{"kind":"no","actors":["s1","leer"]}]}}}
+]}
+```
+
+Ejemplo aprobado y completo, en cuatro pasos (dueña, mover, la vieja se tacha, se libera):
+`integrations/pi/kit/examples/propiedad-rust.md`.
 
 ## 9. La curva, no la caja
 

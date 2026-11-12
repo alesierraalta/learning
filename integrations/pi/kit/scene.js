@@ -197,6 +197,36 @@
     return "";
   };
 
+
+  // Una pieza que carga significado, no una caja con su nombre: un valor en un
+  // cofre, un ojo que lee, un lápiz que escribe. Se dibuja centrada en (cx, cy) y
+  // sin texto: la etiqueta la pone quien la coloca, midiendo lo que el navegador
+  // dibujó. Un tipo que no conoce devuelve "" y quien llama prueba con un icono.
+  const prop = (kind, cx, cy, size = 34, { stroke = C.ink, fill = "#ffffff" } = {}) => {
+    const s = size;
+    const sw = Math.max(2, s * 0.06);
+    const line = (extra = "") => `fill="none" stroke="${stroke}" stroke-width="${f(sw)}" stroke-linecap="round" stroke-linejoin="round"${extra}`;
+    if (kind === "value") {
+      const top = cy - s * 0.36, h = s * 0.72;
+      return `<rect x="${f(cx - s / 2)}" y="${f(top)}" width="${f(s)}" height="${f(h)}" rx="${f(s * 0.1)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<path d="M ${f(cx - s / 2)} ${f(top + h * 0.38)} H ${f(cx + s / 2)}" ${line()}/>`
+        + `<rect x="${f(cx - s * 0.08)}" y="${f(top + h * 0.38 - s * 0.07)}" width="${f(s * 0.16)}" height="${f(s * 0.2)}" rx="${f(s * 0.03)}" fill="${stroke}"/>`;
+    }
+    if (kind === "read") {
+      return `<path d="M ${f(cx - s / 2)} ${f(cy)} Q ${f(cx)} ${f(cy - s * 0.62)} ${f(cx + s / 2)} ${f(cy)} Q ${f(cx)} ${f(cy + s * 0.62)} ${f(cx - s / 2)} ${f(cy)} Z" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}" stroke-linejoin="round"/>`
+        + `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(s * 0.19)}" fill="${stroke}"/>`;
+    }
+    if (kind === "write") {
+      const u = { x: 0.7071, y: -0.7071 }, n = { x: 0.7071, y: 0.7071 };
+      const at = (t, w) => `${f(cx + u.x * s * t + n.x * s * w)} ${f(cy + u.y * s * t + n.y * s * w)}`;
+      const h = 0.11;
+      return `<path d="M ${at(-0.5, 0)} L ${at(-0.26, h)} L ${at(0.5, h)} L ${at(0.5, -h)} L ${at(-0.26, -h)} Z" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}" stroke-linejoin="round"/>`
+        + `<path d="M ${at(0.3, h)} L ${at(0.3, -h)}" ${line()}/>`
+        + `<path d="M ${at(-0.5, 0)} L ${at(-0.36, 0)}" fill="none" stroke="${stroke}" stroke-width="${f(sw * 1.8)}" stroke-linecap="round"/>`;
+    }
+    return "";
+  };
+
   // Una proporción se ve, no se lee: barra, etiqueta y valor al final.
   const bars = (x, y, rows, { width = 560, rowH = 56, labelW = 175, valueW = 95 } = {}) => {
     const barW = width - labelW - valueW;
@@ -223,7 +253,7 @@
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${defs()}${markup}</svg>`;
 
   window.LKScene = {
-    C, esc, f, txt, lbl, step, gear, packet, dashed, sheet, box, node, badge, grid, icon, bars, stat, formula, defs,
+    C, esc, f, txt, lbl, step, gear, packet, dashed, sheet, box, node, badge, grid, icon, prop, bars, stat, formula, defs,
     curve, path, line, svg, tag, elbow, mark,
   };
 })();

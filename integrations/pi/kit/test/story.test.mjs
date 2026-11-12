@@ -259,3 +259,284 @@ test('el resultado lleva un solo marco y su ✓ queda dentro del lienzo', { skip
     await browser.close();
   }
 });
+
+// ── Actors with state and props (#217) ──────────────────────────────────────
+// A concept is an actor with a name tag. Its state shows by colour and mark —
+// active (coloured), faded (no longer valid, grey), invalid (struck through, ✗) —
+// and props carry meaning: a value in a small chest, an eye that reads, a pencil
+// that writes. Every piece is anchored by id and placed from the boxes the browser
+// drew, never from a coordinate the tutor guessed.
+const one = (scene, viewBox = '0 0 360 250') => ({
+  kind: 'formula', title: 'Actores', viewBox,
+  formula: { size: 18, atoms: [{ t: 'a', id: 'a' }] },
+  steps: [{ title: 'Uno', focus: [], narrator: 'Uno.', stage: { scene } }],
+});
+
+const ROBOTS = [
+  { id: 's1', icon: 'robot', x: 70, y: 150, size: 56, tone: 'blue', tag: 's1' },
+  { id: 's2', icon: 'robot', x: 180, y: 150, size: 56, tone: 'green', state: 'faded', tag: 's2' },
+  { id: 's3', icon: 'robot', x: 290, y: 150, size: 56, tone: 'amber', state: 'invalid', tag: 's3' },
+];
+
+test('un actor es activo, apagado o inválido: el estado se ve por color y marca', { skip: SKIP }, async () => {
+  const { browser, view, errors } = await open(page(one({ actors: ROBOTS })));
+  try {
+    assert.deepEqual(errors, []);
+    const seen = await view.evaluate(() => {
+      const svg = document.querySelector('lk-story svg');
+      const vb = svg.viewBox.baseVal;
+      const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+      return ['s1', 's2', 's3'].map((id) => {
+        const actor = step.querySelector(`[data-actor="${id}"]`);
+        const body = actor.querySelector('circle');
+        const strike = actor.querySelector('[data-strike]');
+        const mark = step.querySelector(`[data-state-mark="${id}"]`);
+        const a = actor.getBBox();
+        const m = mark?.getBBox();
+        return {
+          id, state: actor.dataset.state, stroke: (body.getAttribute('stroke') || '').toLowerCase(),
+          strike: strike ? strike.getBBox().width : 0,
+          mark: mark?.textContent.trim() ?? null,
+          markAir: m ? Math.min(m.x - vb.x, m.y - vb.y, vb.x + vb.width - (m.x + m.width), vb.y + vb.height - (m.y + m.height)) : null,
+          markOnActor: m ? !(m.x + m.width <= a.x || m.x >= a.x + a.width || m.y + m.height <= a.y || m.y >= a.y + a.height) : null,
+          tagTone: step.querySelector(`[data-tag-to="${id}"]`)?.dataset.tagTone,
+        };
+      });
+    });
+    const [active, faded, invalid] = seen;
+    assert.equal(active.state, 'active');
+    assert.equal(faded.state, 'faded');
+    assert.equal(invalid.state, 'invalid');
+    assert.equal(active.stroke, '#004276', 'el actor activo lleva el color de su tono');
+    assert.equal(faded.stroke, '#5a7481', 'el actor apagado se dibuja en gris');
+    assert.equal(invalid.stroke, '#5a7481', 'el actor inválido también va en gris');
+    assert.equal(active.strike, 0, 'el actor activo no se tacha');
+    assert.equal(faded.strike, 0, 'el actor apagado no se tacha: ya no vale, no es un error');
+    assert.ok(invalid.strike >= 56, `el actor inválido se tacha de lado a lado: ${invalid.strike}`);
+    assert.equal(active.mark, null);
+    assert.equal(faded.mark, null);
+    assert.equal(invalid.mark, '✗', 'el actor inválido lleva su ✗');
+    assert.ok(invalid.markAir >= 12, `el ✗ queda a ${invalid.markAir}u del borde del lienzo`);
+    assert.equal(invalid.markOnActor, false, 'el ✗ no se encima sobre el actor');
+    assert.equal(active.tagTone, 'blue');
+    assert.equal(faded.tagTone, 'slate', 'el nombre de un actor apagado también va en gris');
+    assert.equal(invalid.tagTone, 'slate');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('un valor, una lectura y una escritura se anclan a su actor y caben en el lienzo', { skip: SKIP }, async () => {
+  const scene = {
+    actors: [{ id: 's1', icon: 'robot', x: 180, y: 140, size: 56, tone: 'blue', tag: 's1' }],
+    props: [
+      { id: 'valor', kind: 'value', on: 's1', side: 'right', label: '"hola"', tone: 'green' },
+      { id: 'leer', kind: 'read', on: 's1', side: 'left', tone: 'blue' },
+      { id: 'escribir', kind: 'write', on: 's1', side: 'below', label: 'mut', tone: 'amber' },
+    ],
+  };
+  const { browser, view, errors } = await open(page(one(scene)));
+  try {
+    assert.deepEqual(errors, []);
+    const seen = await view.evaluate(() => {
+      const svg = document.querySelector('lk-story svg');
+      const vb = svg.viewBox.baseVal;
+      const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+      const box = (el) => { const b = el.getBBox(); return { x: b.x, y: b.y, w: b.width, h: b.height }; };
+      const air = (b) => Math.min(b.x - vb.x, b.y - vb.y, vb.x + vb.width - (b.x + b.w), vb.y + vb.height - (b.y + b.h));
+      const touch = (a, b) => !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
+      const gap = (a, b) => Math.hypot(Math.max(b.x - (a.x + a.w), 0, a.x - (b.x + b.w)), Math.max(b.y - (a.y + a.h), 0, a.y - (b.y + b.h)));
+      const actor = box(step.querySelector('[data-actor="s1"]'));
+      const tag = step.querySelector('[data-tag-to="s1"]');
+      const props = [...step.querySelectorAll('[data-prop-id]')].map((g) => ({
+        id: g.dataset.propId, kind: g.dataset.propKind, b: box(g),
+        ink: g.querySelectorAll('path, rect, circle').length,
+        label: g.querySelector('text')?.textContent ?? null,
+        anchored: gap(box(g), actor),
+        onActor: touch(box(g), actor),
+        onTag: touch(box(g), box(tag)),
+      }));
+      return {
+        actor, props: props.map((p) => ({ ...p, air: air(p.b), clash: props.filter((o) => o.id !== p.id && touch(o.b, p.b)).map((o) => o.id) })),
+      };
+    });
+    assert.deepEqual(seen.props.map((p) => p.id), ['valor', 'leer', 'escribir']);
+    assert.deepEqual(seen.props.map((p) => p.kind), ['value', 'read', 'write']);
+    for (const p of seen.props) {
+      assert.ok(p.ink >= 2, `la pieza ${p.id} no dibuja tinta`);
+      assert.ok(p.air >= 12, `la pieza ${p.id} queda a ${p.air.toFixed(1)}u del borde del lienzo (mínimo 12)`);
+      assert.ok(p.anchored <= 40, `la pieza ${p.id} queda a ${p.anchored.toFixed(0)}u de su actor`);
+      assert.equal(p.onActor, false, `la pieza ${p.id} se encima sobre su actor`);
+      assert.equal(p.onTag, false, `la pieza ${p.id} se encima sobre el nombre del actor`);
+      assert.deepEqual(p.clash, [], `la pieza ${p.id} se encima sobre ${p.clash}`);
+    }
+    assert.equal(seen.props[0].label, '"hola"', 'el valor muestra su etiqueta');
+    assert.ok(seen.props[0].b.x > seen.actor.x + seen.actor.w, 'el valor va a la derecha del actor, como se declaró');
+    assert.ok(seen.props[1].b.x + seen.props[1].b.w < seen.actor.x, 'la lectura va a la izquierda');
+    assert.ok(seen.props[2].b.y > seen.actor.y + seen.actor.h, 'la escritura va debajo');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('una pieza sin lugar en su lado se pone en otro, nunca fuera del lienzo ni sobre otra', { skip: SKIP }, async () => {
+  const scene = {
+    actors: [{ id: 's1', icon: 'robot', x: 44, y: 130, size: 56, tone: 'blue', tag: 's1' }],
+    props: [{ id: 'valor', kind: 'value', on: 's1', side: 'left', label: '"hola"', tone: 'green' }],
+  };
+  const { browser, view, errors } = await open(page(one(scene)));
+  try {
+    assert.deepEqual(errors, []);
+    const seen = await view.evaluate(() => {
+      const svg = document.querySelector('lk-story svg');
+      const vb = svg.viewBox.baseVal;
+      const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+      const b = step.querySelector('[data-prop-id="valor"]').getBBox();
+      const a = step.querySelector('[data-actor="s1"]').getBBox();
+      return {
+        air: Math.min(b.x - vb.x, b.y - vb.y, vb.x + vb.width - (b.x + b.width), vb.y + vb.height - (b.y + b.height)),
+        onActor: !(b.x + b.width <= a.x || a.x + a.width <= b.x || b.y + b.height <= a.y || a.y + a.height <= b.y),
+      };
+    });
+    assert.ok(seen.air >= 12, `la pieza quedó a ${seen.air.toFixed(1)}u del borde: se dibujó donde no cabe`);
+    assert.equal(seen.onActor, false, 'la pieza que no cabe a la izquierda cayó sobre su actor');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('un ✓ o un ✗ entre dos actores cae en el hueco que los separa', { skip: SKIP }, async () => {
+  const scene = {
+    actors: [
+      { id: 'a', icon: 'robot', x: 60, y: 150, size: 56, tone: 'blue', tag: 'a' },
+      { id: 'b', icon: 'robot', x: 300, y: 150, size: 56, tone: 'green', tag: 'b' },
+    ],
+    marks: [{ kind: 'no', between: ['a', 'b'] }],
+  };
+  const { browser, view, errors } = await open(page(one(scene)));
+  try {
+    assert.deepEqual(errors, []);
+    const seen = await view.evaluate(() => {
+      const svg = document.querySelector('lk-story svg');
+      const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+      const a = step.querySelector('[data-actor="a"]').getBBox();
+      const b = step.querySelector('[data-actor="b"]').getBBox();
+      const glyph = step.querySelector('[data-mark-kind="no"] text');
+      const g = glyph.getBBox();
+      return { a: a.x + a.width, b: b.x, gx: g.x, gr: g.x + g.width, text: glyph.textContent, fill: glyph.getAttribute('fill') };
+    });
+    assert.equal(seen.text, '✗');
+    assert.ok(seen.gx >= seen.a && seen.gr <= seen.b, `el ✗ no cae entre los dos actores: ${seen.a}–${seen.b} y el ✗ en ${seen.gx.toFixed(0)}–${seen.gr.toFixed(0)}`);
+    assert.equal(seen.fill.toLowerCase(), '#cc405c', 'el ✗ es del color del error');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('la flecha de un movimiento puede salir de una pieza, no solo de un actor', { skip: SKIP }, async () => {
+  const scene = {
+    actors: [
+      { id: 's1', icon: 'robot', x: 60, y: 150, size: 56, tone: 'blue', tag: 's1' },
+      { id: 's2', icon: 'robot', x: 300, y: 150, size: 56, tone: 'green', tag: 's2' },
+    ],
+    props: [{ id: 'valor', kind: 'value', on: 's1', side: 'right', label: '"hola"', tone: 'green' }],
+    moves: [{ from: 'valor', to: 's2', verb: 'se mueve', tone: 'amber' }],
+  };
+  const { browser, view, errors } = await open(page(one(scene)));
+  try {
+    assert.deepEqual(errors, []);
+    const seen = await view.evaluate(() => {
+      const step = [...document.querySelectorAll('lk-story [data-step]')].find((g) => g.style.display !== 'none');
+      const path = step.querySelector('[data-move-path]');
+      const start = path.getPointAtLength(0);
+      const b = step.querySelector('[data-prop-id="valor"]').getBBox();
+      const end = path.getPointAtLength(path.getTotalLength());
+      const near = path.getPointAtLength(path.getTotalLength() - 6);
+      return { d: path.getAttribute('d'), rise: Math.abs(end.y - near.y), run: Math.abs(end.x - near.x), gap: Math.hypot(Math.max(b.x - start.x, 0, start.x - (b.x + b.width)), Math.max(b.y - start.y, 0, start.y - (b.y + b.height))) };
+    });
+    assert.ok(seen.d && seen.d.startsWith('M'), 'la flecha no se dibujó: no encontró la pieza de la que sale');
+    assert.ok(seen.gap <= 3, `la flecha empieza a ${seen.gap.toFixed(1)}u de la pieza`);
+    // Dos piezas una al lado de la otra se unen en horizontal: la punta entra de lado,
+    // no cae ni sube sobre el actor.
+    assert.ok(seen.rise < seen.run * 0.2, `la punta de una flecha lateral entra torcida: sube ${seen.rise.toFixed(1)} por ${seen.run.toFixed(1)}`);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('una pieza que nombra un actor que no existe se declara, no se dibuja al aire', { skip: SKIP }, async () => {
+  const scene = {
+    actors: [{ id: 's1', icon: 'robot', x: 180, y: 140, size: 56, tone: 'blue' }],
+    props: [{ id: 'valor', kind: 'value', on: 'nadie', label: '"hola"' }],
+  };
+  const { browser, view, errors } = await open(page(one(scene)));
+  try {
+    assert.deepEqual(errors, []);
+    const seen = await view.evaluate(() => {
+      const step = [...document.querySelectorAll('lk-story [data-step]')].find((g) => g.style.display !== 'none');
+      const prop = step.querySelector('[data-prop-id="valor"]');
+      return { missing: prop.dataset.propMissing, ink: prop.querySelectorAll('path, rect, circle, text').length };
+    });
+    assert.equal(seen.missing, 'nadie', 'la pieza declara el actor que no encontró');
+    assert.equal(seen.ink, 0, 'la pieza sin actor no dibuja nada');
+  } finally {
+    await browser.close();
+  }
+});
+
+// A value that is freed is not a chest that went grey: it is drawn dashed and keeps
+// its word («liberado»), and the ✓ that approves it sits on that value, never in the
+// air between two actors (the reviewer could not tell what the ✓ approved).
+test('un valor liberado se dibuja punteado y gris, y su ✓ queda pegado a él', { skip: SKIP }, async () => {
+  const scene = {
+    paths: [{ d: 'M 44 204 L 316 204', tone: 'slate', width: 2, arrow: false }],
+    actors: [
+      { id: 's1', icon: 'robot', x: 80, y: 150, size: 56, tone: 'blue', state: 'invalid', tag: 's1' },
+      { id: 's2', icon: 'robot', x: 280, y: 150, size: 56, tone: 'amber', state: 'faded', tag: 's2' },
+    ],
+    props: [{ id: 'valor', kind: 'value', on: 's2', side: 'left', label: 'liberado', tone: 'green', state: 'freed' }],
+    marks: [{ kind: 'ok', actor: 'valor' }],
+  };
+  const { browser, view, errors } = await open(page(one(scene, '0 60 360 190')));
+  try {
+    assert.deepEqual(errors, []);
+    const seen = await view.evaluate(() => {
+      const svg = document.querySelector('lk-story svg');
+      const vb = svg.viewBox.baseVal;
+      const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+      const prop = step.querySelector('[data-prop-id="valor"]');
+      const chest = prop.querySelector('rect');
+      const chestBox = chest.getBBox();
+      const b = prop.getBBox();
+      const glyph = step.querySelector('[data-mark-kind="ok"] text');
+      const g = glyph.getBBox();
+      const touch = (a, c) => !(a.x + a.width <= c.x || c.x + c.width <= a.x || a.y + a.height <= c.y || c.y + c.height <= a.y);
+      const gap = Math.hypot(Math.max(b.x - (g.x + g.width), 0, g.x - (b.x + b.width)), Math.max(b.y - (g.y + g.height), 0, g.y - (b.y + b.height)));
+      return {
+        under: g.y >= chestBox.y + chestBox.height - 1 && Math.abs((g.x + g.width / 2) - (chestBox.x + chestBox.width / 2)) <= 6,
+        onStroke: [...step.querySelectorAll('[data-path]')].some((n) => touch(g, n.getBBox())),
+        state: prop.dataset.propState,
+        dash: chest.getAttribute('stroke-dasharray'),
+        stroke: (chest.getAttribute('stroke') || '').toLowerCase(),
+        weight: Number(chest.getAttribute('stroke-width')),
+        label: prop.querySelector('text')?.textContent,
+        gap, onPiece: [...step.querySelectorAll('[data-actor], [data-prop-id]')].some((n) => touch(g, n.getBBox())),
+        air: Math.min(g.x - vb.x, g.y - vb.y, vb.x + vb.width - (g.x + g.width), vb.y + vb.height - (g.y + g.height)),
+        corner: step.querySelectorAll('[data-state-mark] text').length,
+      };
+    });
+    assert.equal(seen.state, 'freed');
+    assert.ok(seen.dash, 'el valor liberado se dibuja punteado');
+    assert.equal(seen.stroke, '#5a7481', 'el valor liberado va en gris');
+    assert.ok(seen.weight < 3, `el ✓ no engrosa el marco del valor: ${seen.weight}`);
+    assert.equal(seen.label, 'liberado', 'el valor liberado conserva su palabra');
+    assert.ok(seen.gap <= 16, `el ✓ queda a ${seen.gap.toFixed(0)}u del valor que aprueba`);
+    assert.equal(seen.onPiece, false, 'el ✓ no se encima sobre una pieza');
+    assert.ok(seen.under, 'el ✓ queda justo debajo del cofre, centrado en él');
+    assert.equal(seen.onStroke, false, 'el ✓ no se dibuja encima de un trazo de la escena');
+    assert.ok(seen.air >= 12, `el ✓ queda a ${seen.air.toFixed(0)}u del borde`);
+    assert.equal(seen.corner, 1, 'el actor inválido conserva su ✗; el ✓ no es otra marca de esquina');
+  } finally {
+    await browser.close();
+  }
+});
