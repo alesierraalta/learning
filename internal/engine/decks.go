@@ -395,10 +395,18 @@ func withoutCodeFences(text string) string {
 	return out.String()
 }
 
-// progressiveProblems checks every walkthrough of a part note. It returns how
-// many walkthroughs the note declares and what keeps them from teaching the
-// example step by step.
+// progressiveProblems checks every walkthrough of a part note, including the
+// formula and derivation walkthroughs (`<lk-story>`). It returns how many
+// walkthroughs the note declares and what keeps them from teaching the example
+// step by step.
 func progressiveProblems(markup string) (int, []string) {
+	count, problems := walkthroughProgressiveProblems(markup)
+	stories, storyProblems := storyProgressiveProblems(markup)
+	return count + stories, append(problems, storyProblems...)
+}
+
+// walkthroughProgressiveProblems checks the scene decks (`<lk-walkthrough>`).
+func walkthroughProgressiveProblems(markup string) (int, []string) {
 	const open = `<script type="application/json">`
 	const close = `</script>`
 	var problems []string
@@ -449,6 +457,109 @@ func progressiveProblems(markup string) (int, []string) {
 				if title := strings.TrimSpace(step.Title); title != "" {
 					where += " (" + title + ")"
 				}
+				problems = append(problems, where+" "+p)
+			}
+		}
+	}
+}
+
+// storyDeckStep is the part of a formula/derivation step the progressive rule
+// reads: the narrator's sentence, the token the step focuses, the stage it draws
+// and the moves and marks that show what happens.
+type storyDeckStep struct {
+	Title    string            `json:"title"`
+	Narrator string            `json:"narrator"`
+	Focus    []string          `json:"focus"`
+	Stage    *storyDeckStage   `json:"stage"`
+	Moves    []json.RawMessage `json:"moves"`
+	Marks    []json.RawMessage `json:"marks"`
+}
+
+type storyDeckStage struct {
+	Scene deckScene `json:"scene"`
+}
+
+// storyDeck is the payload of a formula or derivation walkthrough.
+type storyDeck struct {
+	Kind    string           `json:"kind"`
+	Title   string           `json:"title"`
+	Formula *json.RawMessage `json:"formula"`
+	Steps   []storyDeckStep  `json:"steps"`
+}
+
+// storyProgressiveProblems checks the formula and derivation walkthroughs: a
+// story has a kind, three to eight steps, a narrator in each step, and the
+// action the step is about (a focused token in a formula story, a move or a mark
+// in a derivation). A story that draws nothing is not the demo the part promised.
+func storyProgressiveProblems(markup string) (int, []string) {
+	const open = `<script type="application/json">`
+	const close = `</script>`
+	var problems []string
+	count := 0
+	rest := markup
+	for {
+		at := strings.Index(rest, "<lk-story")
+		if at < 0 {
+			return count, problems
+		}
+		count++
+		name := "story " + itoa(count)
+		rest = rest[at:]
+		end := strings.Index(rest, "</lk-story>")
+		if next := strings.Index(rest[1:], "<lk-story"); next >= 0 && (end < 0 || next+1 < end) {
+			problems = append(problems, name+" is not closed")
+			rest = rest[next+1:]
+			continue
+		}
+		if end < 0 {
+			return count, append(problems, name+" is not closed")
+		}
+		block := rest[:end]
+		rest = rest[end+len("</lk-story>"):]
+		payload := strings.Index(block, open)
+		if payload < 0 {
+			problems = append(problems, name+" has no JSON payload")
+			continue
+		}
+		body := block[payload+len(open):]
+		if cut := strings.Index(body, close); cut >= 0 {
+			body = body[:cut]
+		}
+		var spec storyDeck
+		if err := json.Unmarshal([]byte(body), &spec); err != nil {
+			problems = append(problems, name+" has a payload that is not valid JSON")
+			continue
+		}
+		if spec.Kind != "formula" && spec.Kind != "derivation" {
+			problems = append(problems, name+" declares no kind; a story is \"formula\" or \"derivation\"")
+			continue
+		}
+		if n := len(spec.Steps); n < progressiveMinSteps || n > 8 {
+			problems = append(problems, fmt.Sprintf("%s has %d steps; build the story in %d to 8 steps", name, n, progressiveMinSteps))
+			continue
+		}
+		if spec.Kind == "formula" && (spec.Formula == nil || len(*spec.Formula) <= 2) {
+			problems = append(problems, name+" is a formula story without a formula: declare `formula` with one atom per symbol")
+		}
+		for i, step := range spec.Steps {
+			where := name + " step " + itoa(i+1)
+			if title := strings.TrimSpace(step.Title); title != "" {
+				where += " (" + title + ")"
+			}
+			if strings.TrimSpace(step.Narrator) == "" {
+				problems = append(problems, where+" has no narrator sentence")
+			}
+			if spec.Kind == "formula" && i > 0 && i < len(spec.Steps)-1 && len(step.Focus) == 0 {
+				problems = append(problems, where+" focuses no symbol; each middle step highlights the atom it explains")
+			}
+			if spec.Kind == "derivation" && i > 0 && len(step.Moves) == 0 && len(step.Marks) == 0 {
+				problems = append(problems, where+" draws no move and no mark; a derivation step shows what changes")
+			}
+			if step.Stage == nil {
+				problems = append(problems, where+" has no stage")
+				continue
+			}
+			if p := sceneProblem(step.Stage.Scene); p != "" && spec.Kind == "derivation" && len(step.Moves) == 0 {
 				problems = append(problems, where+" "+p)
 			}
 		}

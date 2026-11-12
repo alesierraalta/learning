@@ -56,7 +56,9 @@ function notesAt(target) {
   return [path];
 }
 
-const SCENE = /<lk-scene[^>]*>\s*<script type="application\/json">([\s\S]*?)<\/script>\s*<\/lk-scene>/g;
+// Una escena quieta y un recorrido de fórmula o de ejercicio (`<lk-story>`): los dos se
+// dibujan con el mismo vocabulario y se miden igual; el recorrido, paso a paso.
+const SCENE = /<lk-(scene|story)[^>]*>\s*<script type="application\/json">([\s\S]*?)<\/script>\s*<\/lk-\1>/g;
 
 const playwright = await loadPlaywright();
 if (!playwright) {
@@ -85,13 +87,13 @@ try {
       unreadable = true;
       continue;
     }
-    const specs = [...source.matchAll(SCENE)].map((m) => m[1]);
+    const specs = [...source.matchAll(SCENE)].map((m) => ({ tag: m[1], json: m[2] }));
     if (!specs.length) continue;
 
     const dir = mkdtempSync(join(tmpdir(), 'scene-gate-'));
     mkdirSync(join(dir, 'kit'), { recursive: true });
     for (const file of ['kit.css', 'kit.js', 'scene.js', 'dictate.js']) cpSync(join(KIT, file), join(dir, 'kit', file));
-    const body = specs.map((s, i) => `<lk-scene id="s${i}"><script type="application/json">${s}</script></lk-scene>`).join('\n');
+    const body = specs.map((s, i) => `<lk-${s.tag} id="s${i}"><script type="application/json">${s.json}</script></lk-${s.tag}>`).join('\n');
     writeFileSync(join(dir, 'page.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <link rel="stylesheet" href="./kit/kit.css"><script src="./kit/scene.js" defer></script><script src="./kit/kit.js" defer></script>
 </head><body><main style="max-width:720px;margin:0 auto">${body}</main></body></html>`);
@@ -99,43 +101,61 @@ try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     try {
       await page.goto(pathToFileURL(join(dir, 'page.html')).href);
-      await page.waitForSelector('lk-scene svg', { timeout: 15000 });
+      await page.waitForSelector('lk-scene svg, lk-story svg', { timeout: 15000 });
       await page.waitForTimeout(400);
-      const report = await page.evaluate(({ minPx, EDGE, BAND }) => [...document.querySelectorAll('lk-scene')].map((host) => {
+      const report = await page.evaluate(({ minPx, EDGE, BAND }) => [...document.querySelectorAll('lk-scene, lk-story')].map((host) => {
         const svg = host.querySelector('svg');
+        const problems = [];
+        // Un recorrido se mide un paso por vez: los demás se ocultan, porque un paso
+        // oculto mide cero y dos pasos a la vez se pisarían sin que el lector lo vea.
+        const steps = [...svg.querySelectorAll('[data-step]')];
+        const shown = steps.map((g) => g.style.display);
+        const measure = (scope, label) => {
+          const found = [];
+          const add = (p) => found.push(label ? { ...p, text: `${p.text} (${label})` } : p);
         const width = svg.getBoundingClientRect().width;
         const bounds = svg.viewBox.baseVal.width;
         const scale = width / bounds;
-        const texts = [...svg.querySelectorAll('text')].map((t) => {
+        const texts = [...scope.querySelectorAll('text')].map((t) => {
           const b = t.getBBox();
           return { text: t.textContent.trim(), x: b.x, y: b.y, w: b.width, h: b.height, px: (Number(t.getAttribute('font-size')) || 0) * scale };
         }).filter((t) => t.text);
-        const problems = [];
-        if (!texts.length) problems.push({ kind: 'empty-scene', text: host.getAttribute('title') || '', detail: 'la escena no dibujó nada: revisa la forma del JSON' });
-        for (const t of texts) if (t.px < minPx) problems.push({ kind: 'text-too-small', text: t.text, detail: `${t.px.toFixed(1)} px` });
-        if (host.querySelector('.lk-scene-stage')?.dataset.overflow) problems.push({ kind: 'scene-overflow', text: host.getAttribute('title') || '', detail: 'el ajuste no pudo encajar el texto sin comprimirlo' });
-        for (const t of texts) if (t.x < -1 || t.x + t.w > bounds + 1) problems.push({ kind: 'text-outside-canvas', text: t.text, detail: `x ${t.x.toFixed(0)}–${(t.x + t.w).toFixed(0)} fuera de 0–${bounds}` });
+        if (!texts.length) add({ kind: 'empty-scene', text: host.getAttribute('title') || '', detail: 'la escena no dibujó nada: revisa la forma del JSON' });
+        for (const t of texts) if (t.px < minPx) add({ kind: 'text-too-small', text: t.text, detail: `${t.px.toFixed(1)} px` });
+        if (host.querySelector('.lk-scene-stage, .lk-story-stage')?.dataset.overflow) add({ kind: 'scene-overflow', text: host.getAttribute('title') || '', detail: 'el ajuste no pudo encajar el texto sin comprimirlo' });
+        for (const t of texts) if (t.x < -1 || t.x + t.w > bounds + 1) add({ kind: 'text-outside-canvas', text: t.text, detail: `x ${t.x.toFixed(0)}–${(t.x + t.w).toFixed(0)} fuera de 0–${bounds}` });
         // Una pieza pegada al borde se corta en cuanto el lector cambia el ancho:
         // la caja «μ = 120 ms» vivía a 0 unidades del tope y en pantalla completa
         // se veía sin su filete de arriba.
         const vb = svg.viewBox.baseVal;
         const pieces = [
-          ...[...svg.querySelectorAll('rect, circle, text')].map((el) => ({ el, b: el.getBBox() })),
-          ...[...svg.querySelectorAll('path')].filter((p) => !p.closest('marker')).map((el) => ({ el, b: el.getBBox() })),
+          ...[...scope.querySelectorAll('rect, circle, text')].map((el) => ({ el, b: el.getBBox() })),
+          ...[...scope.querySelectorAll('path')].filter((p) => !p.closest('marker')).map((el) => ({ el, b: el.getBBox() })),
         ].filter(({ b }) => b.width > 1 || b.height > 1);
         for (const { el, b } of pieces) {
           const air = Math.min(b.x - vb.x, b.y - vb.y, vb.x + vb.width - (b.x + b.width), vb.y + vb.height - (b.y + b.height));
-          if (air < EDGE) problems.push({ kind: 'al-borde', text: (el.textContent || '').trim().slice(0, 40) || el.tagName.toLowerCase(), detail: `a ${air.toFixed(0)}u del borde (mínimo ${EDGE}u)` });
+          if (air < EDGE) add({ kind: 'al-borde', text: (el.textContent || '').trim().slice(0, 40) || el.tagName.toLowerCase(), detail: `a ${air.toFixed(0)}u del borde (mínimo ${EDGE}u)` });
+        }
+        // Una pieza declarada que no dibuja tinta: un icono o una figura que queda
+        // entera fuera del lienzo (el SVG la recorta) o con caja cero. El robot de
+        // «El problema que solo existe en el tiempo» se declaraba a 8 unidades con
+        // 56 de ancho y el `viewBox` lo cortaba por la mitad.
+        for (const g of scope.querySelectorAll('[data-icon], [data-box], [data-actor]')) {
+          const b = g.getBBox();
+          const outside = b.x + b.width <= vb.x || b.x >= vb.x + vb.width || b.y + b.height <= vb.y || b.y >= vb.y + vb.height;
+          if ((!b.width && !b.height) || outside) {
+            add({ kind: 'pieza-invisible', text: g.dataset.icon || g.dataset.actor || g.textContent.trim().slice(0, 40) || 'una pieza', detail: outside ? 'queda entera fuera del lienzo y el SVG la recorta' : 'no dibuja tinta' });
+          }
         }
         // Una franja vacía más alta que 60 unidades es lienzo que nadie mira: el
         // resumen dejaba un tercio de su alto en blanco debajo de las etiquetas.
-        const spans = pieces.map(({ b }) => [b.y, b.y + b.height]).sort((a, b) => a[0] - b[0]);
+        const spans = host.tagName === 'LK-STORY' ? [] : pieces.map(({ b }) => [b.y, b.y + b.height]).sort((a, b) => a[0] - b[0]);
         let cursor = vb.y;
         for (const [start, end] of spans) {
-          if (start - cursor > BAND) problems.push({ kind: 'lienzo-vacio', text: host.getAttribute('title') || '', detail: `franja vacía de ${(start - cursor).toFixed(0)}u entre y ${cursor.toFixed(0)} y y ${start.toFixed(0)}` });
+          if (start - cursor > BAND) add({ kind: 'lienzo-vacio', text: host.getAttribute('title') || '', detail: `franja vacía de ${(start - cursor).toFixed(0)}u entre y ${cursor.toFixed(0)} y y ${start.toFixed(0)}` });
           cursor = Math.max(cursor, end);
         }
-        if (vb.y + vb.height - cursor > BAND) problems.push({ kind: 'lienzo-vacio', text: host.getAttribute('title') || '', detail: `franja vacía de ${(vb.y + vb.height - cursor).toFixed(0)}u al pie del lienzo` });
+        if (host.tagName !== 'LK-STORY' && vb.y + vb.height - cursor > BAND) add({ kind: 'lienzo-vacio', text: host.getAttribute('title') || '', detail: `franja vacía de ${(vb.y + vb.height - cursor).toFixed(0)}u al pie del lienzo` });
         for (let i = 0; i < texts.length; i++) {
           for (let j = i + 1; j < texts.length; j++) {
             const a = texts[i], b = texts[j];
@@ -143,9 +163,18 @@ try {
             const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
             if (ox <= 0 || oy <= 0) continue;
             const overlap = ox * oy;
-            if (overlap > 0.15 * Math.min(a.w * a.h, b.w * b.h)) problems.push({ kind: 'text-over-text', text: `${a.text} / ${b.text}`, detail: `${Math.round(overlap)} u² encima` });
+            if (overlap > 0.15 * Math.min(a.w * a.h, b.w * b.h)) add({ kind: 'text-over-text', text: `${a.text} / ${b.text}`, detail: `${Math.round(overlap)} u² encima` });
           }
         }
+          return found;
+        };
+        if (steps.length) {
+          steps.forEach((g, i) => {
+            steps.forEach((o) => { o.style.display = o === g ? '' : 'none'; });
+            problems.push(...measure(g, `paso ${i + 1}`));
+          });
+          steps.forEach((g, i) => { g.style.display = shown[i]; });
+        } else problems.push(...measure(svg, ''));
         return { title: host.getAttribute('title') || '', problems };
       }), { minPx: MIN_PX, EDGE, BAND });
 

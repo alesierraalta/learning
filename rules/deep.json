@@ -130,7 +130,8 @@
       "maxWalkthroughs": 1,
       "minScenes": 1,
       "maxSentencesPerParagraph": 2,
-      "formulaElement": "lk-math"
+      "formulaElement": "lk-math",
+      "formulaWalkthrough": true
     },
     "pareto": {
       "maxParts": 4,

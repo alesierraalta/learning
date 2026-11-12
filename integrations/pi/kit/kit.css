@@ -119,8 +119,13 @@ legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; ma
 autor escribió (`--lk-vb`, que pone `kit.js`). En modo ancho la columna mide el
 doble y, sin este tope, la escena se estiraba a 1,7× y sus etiquetas crecían por
 encima del tamaño de lectura. Centrada, con el resto de la columna en blanco. */
-.lk-wt-stage { max-width: min(100%, var(--lk-vb, 100%)); margin-inline: auto; }
-lk-walkthrough.lk-wt-compact .lk-wt-stage { max-width:320px; margin-inline:auto; }
+/* Una figura se dibuja a 1 unidad ≈ 1 píxel, pero en modo ancho la columna mide
+   el doble y el deck se quedaba flotando pequeño dentro del marco. El escenario
+   crece hasta el ancho de una columna de lectura, con un tope de 1,6× su
+   `viewBox`: las letras crecen con la figura y nunca se dibujan por debajo del
+   tamaño de lectura. */
+.lk-wt-stage { max-width: min(100%, calc(var(--lk-vb, 100%) * 1.6)); margin-inline: auto; }
+lk-walkthrough.lk-wt-compact .lk-wt-stage { max-width: min(100%, calc(var(--lk-vb, 320px) * 1.6)); margin-inline:auto; }
 .lk-wt-hint { display:none; margin:6px 0 0; font-size:.72rem; letter-spacing:.02em; color:#64748b; }
 @media(max-width:640px) {
   .lk-wt-stage { overflow-x:auto; overflow-y:hidden; padding-bottom:4px; }
@@ -129,6 +134,11 @@ lk-walkthrough.lk-wt-compact .lk-wt-stage { max-width:320px; margin-inline:auto;
   lk-walkthrough.lk-wt-compact .lk-wt-stage { overflow:visible; }
   lk-walkthrough.lk-wt-compact .lk-wt-stage svg { width:100%; min-width:0; }
   lk-walkthrough.lk-wt-compact .lk-wt-hint:not(.lk-wt-hint-error) { display:none; }
+  /* El recorrido de una fórmula o de un ejercicio no hace scroll en un teléfono:
+     su escenario se dibuja al ancho de la columna y sus letras ya se autoriaron
+     para el tamaño de lectura. */
+  lk-story .lk-wt-stage { overflow:visible; }
+  lk-story .lk-wt-stage svg { width:100%; min-width:0; }
 }
 /* Full screen: the figure takes the whole screen, letters included */
 .lk-walkthrough:fullscreen, .lk-walkthrough:-webkit-full-screen { display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; width:100%; height:100%; margin:0; border:0; border-radius:0; box-shadow:none; padding:22px 34px; background:#fff; }
@@ -139,6 +149,13 @@ lk-walkthrough.lk-wt-compact .lk-wt-stage { max-width:320px; margin-inline:auto;
 .lk-walkthrough:fullscreen .lk-wt-stage svg, .lk-walkthrough:-webkit-full-screen .lk-wt-stage svg { width:100%; height:auto; max-height:74vh; }
 /* A compact deck keeps its narrow column on the page only: full screen lifts the cap so the letters grow. */
 .lk-walkthrough.lk-wt-compact:fullscreen .lk-wt-stage, .lk-walkthrough.lk-wt-compact:-webkit-full-screen .lk-wt-stage { max-width:none; }
+/* El recorrido de una fórmula o de un ejercicio también ocupa la pantalla: el
+   escenario crece y sus letras con él. */
+lk-story:fullscreen, lk-story:-webkit-full-screen { display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; width:100%; max-width:none; height:100%; margin:0; border:0; padding:22px 34px; background:var(--paper); }
+lk-story:fullscreen .lk-story-stage, lk-story:-webkit-full-screen .lk-story-stage { flex:0 1 auto; width:100%; max-width:none; margin-inline:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+lk-story:fullscreen .lk-story-stage svg, lk-story:-webkit-full-screen .lk-story-stage svg { width:100%; max-width:none; height:auto; max-height:70vh; }
+lk-story:fullscreen .lk-story-head, lk-story:fullscreen .lk-story-narrator, lk-story:fullscreen .lk-story-player,
+lk-story:-webkit-full-screen .lk-story-head, lk-story:-webkit-full-screen .lk-story-narrator, lk-story:-webkit-full-screen .lk-story-player { width:100%; max-width:70ch; margin-inline:auto; }
 .lk-walkthrough:fullscreen .lk-wt-caption strong, .lk-walkthrough:-webkit-full-screen .lk-wt-caption strong { font-size:1.5rem; }
 .lk-walkthrough:fullscreen .lk-wt-caption p, .lk-walkthrough:-webkit-full-screen .lk-wt-caption p { font-size:1.15rem; max-width:70ch; }
 .lk-walkthrough:fullscreen .lk-wt-hint, .lk-walkthrough:-webkit-full-screen .lk-wt-hint { display:none; }
@@ -146,6 +163,75 @@ lk-walkthrough.lk-wt-compact .lk-wt-stage { max-width:320px; margin-inline:auto;
 .lk-walkthrough:fullscreen .lk-wt-bar button, .lk-walkthrough:-webkit-full-screen .lk-wt-bar button { font-size:.95rem; padding:9px 18px; }
 .lk-walkthrough:fullscreen .lk-wt-full, .lk-walkthrough:-webkit-full-screen .lk-wt-full { background:var(--ink); color:#fff; }
 .lk-wt-hint-error { display:block !important; color:var(--warn, #b00020); font-weight:600; }
+
+/* ===== recorrido de una fórmula o de un ejercicio =====
+   El mismo mueble para los dos: cabecera con la fórmula/ecuación, escenario donde
+   pasa la acción, narrador con frases cortas y reproductor. La cabecera y el
+   narrador son texto del lector (siguen su papel); el escenario conserva la hoja
+   clara de una figura, porque sus colores son parte de lo que enseña. */
+lk-story { display:block; max-width:720px; margin:36px auto; padding:0; border:1px solid var(--hair); background:var(--paper); color:var(--ink); }
+lk-story>.lk-title { display:block; padding:14px 18px 0; font-family:var(--sans); font-size:.62rem; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); }
+.lk-story-head { padding:14px 18px; border-bottom:1px solid var(--hair); }
+/* La cabecera y el narrador son lo más legible de la tarjeta: nunca por debajo del
+   tamaño del cuerpo (22 px la ecuación, 18 px el narrador en escritorio). */
+.lk-story-formula { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 0; font-family:var(--mono); font-size:clamp(22px, 3vw, 28px); line-height:1.5; }
+.lk-token { display:inline; padding:1px 0; border-radius:3px; }
+.lk-token-focus { padding:1px 5px; margin:0 -1px; background:var(--accent); color:var(--on-ink); font-weight:700; box-shadow:0 0 0 1px var(--accent); }
+/* El escenario es la misma hoja que la tarjeta: sin papel propio. El panel ocupa el
+   ancho de la tarjeta y el dibujo, centrado, crece hasta 1,6× su `viewBox`. */
+.lk-story-stage.lk-wt-stage { max-width:none; margin-inline:0; background:transparent; color:var(--ink); padding:12px 8px; border-bottom:1px solid var(--hair); }
+.lk-story-stage svg { display:block; width:100%; max-width:calc(var(--lk-vb, 360px) * 1.6); height:auto; margin-inline:auto; }
+.lk-story-narrator { padding:16px 18px; font-family:var(--serif); font-size:18px; line-height:1.6; }
+.lk-story-line { margin:0; text-align:left; }
+.lk-story-say { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:0 0 10px; }
+.lk-story-say dt { font-family:var(--sans); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); padding-top:4px; }
+.lk-story-say dd { margin:0; }
+.lk-chip { display:inline-block; padding:0 5px; border:1px solid var(--hair); border-radius:4px; background:var(--mark); font-family:var(--mono); font-size:.86em; font-weight:700; line-height:1.5; }
+.lk-key { color:var(--accent); font-weight:700; }
+.lk-story-player { display:flex; align-items:center; flex-wrap:wrap; gap:8px 10px; padding:12px 18px 14px; border-top:1px solid var(--hair); }
+.lk-story-player button { border-radius:0; padding:8px 13px; font-family:var(--sans); font-size:12px; letter-spacing:.1em; text-transform:uppercase; }
+.lk-story-player button:disabled { opacity:.35; cursor:default; }
+.lk-story-progress { display:flex; flex:1 1 140px; gap:4px; min-width:120px; }
+.lk-story-seg { flex:1 1 0; height:5px; background:var(--hair); }
+.lk-story-seg[data-filled="true"] { background:var(--accent); }
+.lk-story-seg[aria-current="true"] { outline:1px solid var(--accent); outline-offset:2px; }
+.lk-story-count { font-family:var(--sans); font-size:13px; letter-spacing:.12em; color:var(--muted); }
+@media(max-width:560px) {
+  .lk-story-head, .lk-story-narrator, .lk-story-player { padding-inline:14px; }
+  .lk-story-formula { font-size:18px; }
+  .lk-story-narrator { font-size:17px; }
+}
+/* En los papeles de noche el recorrido es UNA sola hoja: el escenario pinta con el papel
+   de la página y la tinta de noche, no con un rectángulo blanco flotando entre dos
+   bandas negras. Los tonos del dibujo se remapean a los de noche (≥ 4,5:1 sobre
+   él); como CSS gana a un atributo de presentación, el dibujo sigue siendo el mismo
+   SVG y el estilo calculado dice el color que el lector ve. */
+:root:is([data-theme="dark"], [data-theme="black"]) lk-story .lk-token-focus { color:var(--on-ink); }
+:root:is([data-theme="dark"], [data-theme="black"]) .lk-remap {
+  --k-ink:#E3EBEF; --k-slate:#AFC2CB; --k-slate2:#9BB0BA; --k-blue:#8FC0E0; --k-green:#7FCBAE; --k-amber:#E0B583; --k-red:#EE93A4;
+}
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap :is([fill="#ffffff" i], [fill="#F1F3F4" i], [fill="#F6F7F7" i], [fill="#FAFBFB" i]) { fill:var(--paper); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill="#0F2E3D" i] { fill:var(--k-ink); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill="#3F5B69" i] { fill:var(--k-slate); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill="#5A7481" i] { fill:var(--k-slate2); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill="#004276" i] { fill:var(--k-blue); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill="#21594F" i] { fill:var(--k-green); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill="#8A6B3F" i] { fill:var(--k-amber); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill="#CC405C" i] { fill:var(--k-red); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [stroke="#0F2E3D" i] { stroke:var(--k-ink); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [stroke="#3F5B69" i] { stroke:var(--k-slate); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [stroke="#5A7481" i] { stroke:var(--k-slate2); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [stroke="#004276" i] { stroke:var(--k-blue); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [stroke="#21594F" i] { stroke:var(--k-green); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [stroke="#8A6B3F" i] { stroke:var(--k-amber); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [stroke="#CC405C" i] { stroke:var(--k-red); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) lk-story .lk-story-stage :is([stroke="#ffffff" i]) { stroke:var(--paper); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill^="rgba(0,66,118"] { fill:rgba(143,192,224,.16); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill^="rgba(15,46,61"] { fill:rgba(227,235,239,.08); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill^="rgba(166,127,89"] { fill:rgba(224,181,131,.14); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill^="rgba(221,74,104"], :is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [fill^="rgba(204,64,92"] { fill:rgba(238,147,164,.14); }
+:is(:root[data-theme="dark"], :root[data-theme="black"]) .lk-remap [stroke^="rgba(15,46,61"] { stroke:rgba(227,235,239,.30); }
+:root:is([data-theme="dark"], [data-theme="black"]) lk-story .lk-chip { color:var(--ink); }
 
 /* ===== piel papel × Distill =====
    La misma página de tesis que el lector: serif sobre una columna estrecha,
@@ -292,17 +378,10 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
 :root[data-theme="black"] .lk-walkthrough:-webkit-full-screen,
 :root[data-theme="dark"] .lk-walkthrough:fullscreen,
 :root[data-theme="dark"] .lk-walkthrough:-webkit-full-screen { background: #fff; }
-/* Una escena conserva el papel claro, como la hoja del deck: la geometría y la tinta
-   las eligió quien la dibujó y no cambian con el tema del lector. Sin tarjeta. Los
-   dos papeles de noche van en la misma lista: separarlos en dos selectores dejó la
-   escena sin hoja en el papel negro, con su tinta oscura sobre el fondo negro. */
-:root:is([data-theme="dark"], [data-theme="black"]) lk-scene {
-  background: #fff; color: var(--ink); color-scheme: light; padding: 4px 0;
-  --paper: #ffffff; --ink: #0F2E3D; --muted: rgba(15, 46, 61, .62);
-  --rule: #e2e8f0; --cobalt: #2563eb; --emerald: #059669; --amber: #d97706; --crimson: #dc2626;
-  --on-ink: #ffffff;
-}
-:root:is([data-theme="dark"], [data-theme="black"]) lk-scene .lk-scene-caption { color: rgba(15, 46, 61, .62); }
+/* Una escena sigue el papel como el recorrido de una fórmula (#209): su escenario no
+   pinta hoja propia y los tonos del dibujo se remapean más abajo (`.lk-remap`) a los
+   de noche, en una sola lista para los dos papeles. Antes era una isla blanca entre
+   dos bandas negras. */
 
 /* Un diagrama de mermaid se dibuja con su propio tema claro: se le deja el papel. */
 :root:is([data-theme="dark"], [data-theme="black"]) pre.mermaid { --ink: #0F2E3D; background: #fff; color: var(--ink); padding: 14px; color-scheme: light; }

@@ -32,6 +32,12 @@
     return -1;
   };
 
+  // The kit's formula element carries LaTeX too. Its body is a formula, not markdown:
+  // marked drops the backslash of an escaped punctuation mark, so `\;` `\!` `\,` reached
+  // KaTeX as `;` `!` `,`. It is lifted like the dollars. An element named inside a code
+  // span (`<lk-math>`) is prose and has no closing tag to pair with.
+  const ELEMENT = /<lk-math\b([^>]*)>((?:(?!<lk-math\b)[\s\S])*?)<\/lk-math>/y;
+
   /** The note's text with every formula replaced by a token marked can survive. */
   const extract = (text) => {
     const blocks = [];
@@ -43,6 +49,17 @@
         out += text.slice(i, i + 2);
         i += 2;
         continue;
+      }
+      if (char === "<" && text[i - 1] !== "`") {
+        ELEMENT.lastIndex = i;
+        const element = ELEMENT.exec(text);
+        if (element && element[2].trim()) {
+          const display = /\bdisplay\b/.test(element[1]);
+          out += token(display, blocks.length);
+          blocks.push({ display, tex: element[2].trim() });
+          i += element[0].length;
+          continue;
+        }
       }
       if (char === "$") {
         if (text.startsWith("$$", i)) {

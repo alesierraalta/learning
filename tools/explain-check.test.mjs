@@ -10,6 +10,18 @@ import { spawnSync } from 'node:child_process';
 
 const TOOLS = dirname(fileURLToPath(import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'explain-check-'));
+// Un recorrido de fórmula mínimo, sin símbolos: el primer sitio donde aparece
+// una fórmula es el recorrido, así la regla nueva no se mezcla con la leyenda.
+const STORY_SIMPLE = `<lk-story>
+<script type="application/json">
+{"kind":"formula","title":"Una cuenta","viewBox":"0 0 360 250","formula":{"size":18,"atoms":[{"t":"1","id":"one"},{"t":" + ","id":"plus"},{"t":"1","id":"one2"},{"t":" = ","id":"eq"},{"t":"2","id":"two"}]},"steps":[
+ {"title":"La cuenta","focus":[],"narrator":"Es la cuenta entera.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la cuenta"}]}}},
+ {"title":"El resultado","focus":["two"],"narrator":"El resultado es «2».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"el resultado"}]}}},
+ {"title":"Otra vez","focus":[],"narrator":"La cuenta se lee igual.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la cuenta"}]}}}
+]}
+</script>
+</lk-story>`;
+
 const run = (file) => spawnSync(process.execPath, [join(TOOLS, 'explain-check.mjs'), file], { encoding: 'utf8' });
 
 // La escena se dibuja: el ejemplo se mira, y el recorrido no la sustituye.
@@ -126,7 +138,7 @@ const CON_FORMULA = CUMPLE.replace('El estado es lo que hace falta saber para de
 
 test('una fórmula con su leyenda de símbolos pasa', () => {
   const f = join(dir, 'formula-con-leyenda.md');
-  writeFileSync(f, CON_FORMULA + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
+  writeFileSync(f, STORY_SIMPLE + '\n\n' + CON_FORMULA + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
   const r = run(f);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+leyenda/);
@@ -195,7 +207,7 @@ test('la leyenda de una fórmula real pide sus símbolos, no sus comandos', () =
 
 test('la misma fórmula pasa cuando su leyenda nombra sus cuatro símbolos', () => {
   const f = join(dir, 'formula-viva-leyenda.md');
-  writeFileSync(f, CON_VIVA + '\nDonde:\n\n- `f` es la densidad.\n- `x` es el valor que miras.\n- `\\sigma` es el ancho.\n- `\\mu` es el centro.\n');
+  writeFileSync(f, STORY_SIMPLE + '\n\n' + CON_VIVA + '\nDonde:\n\n- `f` es la densidad.\n- `x` es el valor que miras.\n- `\\sigma` es el ancho.\n- `\\mu` es el centro.\n');
   const r = run(f);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+leyenda/);
@@ -276,8 +288,42 @@ test('una fórmula en LaTeX plano sin leyenda falla y nombra la escena anotada',
 
 test('una fórmula plana con su leyenda pasa', () => {
   const f = join(dir, 'formula-plana-leyenda.md');
-  writeFileSync(f, PLANA + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
+  writeFileSync(f, STORY_SIMPLE + '\n\n' + PLANA + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
   const r = run(f);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+leyenda/);
+});
+
+// La primera fórmula de la parte se enseña con un recorrido de fórmula: un
+// <lk-math> suelto no sustituye al recorrido, y el arreglo lo nombra.
+const FORMULA_STORY = `<lk-story>
+<script type="application/json">
+{"kind":"formula","title":"La densidad","viewBox":"0 0 360 250","formula":{"size":18,"atoms":[{"t":"f","id":"f"},{"t":"(","id":"open"},{"t":"x","id":"x"},{"t":")","id":"close"}]},
+ "steps":[
+  {"title":"La fórmula entera","focus":[],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la campana"}]}}},
+  {"title":"f: la densidad","focus":["f"],"narrator":"«f» es la densidad: la altura de la curva.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la altura"}]}}},
+  {"title":"x: el punto","focus":["x"],"narrator":"«x» es el punto que miras.","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"la latencia"}]}}},
+  {"title":"Con el ejemplo","focus":[],"narrator":"Con «x = 184», «f(184) = 0,000 65».","stage":{"scene":{"labels":[{"x":180,"y":120,"text":"el resultado"}]}}}
+ ]}
+</script>
+</lk-story>
+`;
+
+test('rechaza una fórmula que no tiene recorrido de fórmula', () => {
+  const f = join(dir, 'formula-sin-recorrido.md');
+  writeFileSync(f, CUMPLE.replace('## 2. La acción', '## 2. La fórmula\n\nLa densidad se escribe así:\n\n<lk-math>f(x) = 1/(\\sigma\\sqrt{2\\pi})</lk-math>\n\nDonde `f` es la densidad, `x` el punto y `\\sigma` el ancho.'));
+  const r = run(f);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA formula-walkthrough/);
+  assert.match(r.stdout, /<lk-story kind="formula">/);
+  assert.match(r.stdout, /paso 1 la fórmula entera/);
+});
+
+test('acepta la fórmula con su recorrido de fórmula', () => {
+  const f = join(dir, 'formula-con-recorrido.md');
+  writeFileSync(f, CUMPLE.replace('## 2. La acción', `## 2. La fórmula\n\nLa densidad se explica paso a paso.\n\n${FORMULA_STORY}`));
+  const r = run(f);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+formula-walkthrough/);
+  assert.match(r.stdout, /ok\s+recorrido\s+1 recorrido/);
 });

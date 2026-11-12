@@ -335,3 +335,109 @@ test('una flecha entera con la etiqueta al lado no es un hallazgo', { skip: SKIP
   const r = lint(file);
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
+
+// La punta de una flecha no puede tocar una etiqueta: el paso 2 de la gaussiana
+// dejaba «μ−σ» debajo del triángulo del marcador y el lector leía las dos cosas
+// encimadas.
+test('una punta de flecha sobre un texto es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'punta.md');
+  writeFileSync(file, `# Parte 1\n\n<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 340","scene":{
+  "paths":[{"d":"M 16 210 L 344 210","tone":"slate","width":2,"arrow":false}],
+  "boxes":[{"x":100,"y":300,"w":96,"h":30,"label":"","tone":"slate","size":12}],
+  "arrows":[{"x1":148,"y1":300,"x2":148,"y2":210,"tone":"blue","width":2}],
+  "labels":[{"x":128,"y":232,"text":"μ−σ","size":12}]}}
+</script>
+</lk-scene>
+`);
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /punta-sobre-texto/);
+  assert.match(r.stdout, /μ−σ/);
+});
+
+test('una punta con aire sobre su etiqueta no es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'punta-aire.md');
+  writeFileSync(file, `# Parte 1\n\n<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 340","scene":{
+  "paths":[{"d":"M 16 210 L 344 210","tone":"slate","width":2,"arrow":false}],
+  "boxes":[{"x":100,"y":300,"w":96,"h":30,"label":"","tone":"slate","size":12}],
+  "arrows":[{"x1":148,"y1":300,"x2":148,"y2":210,"tone":"blue","width":2}],
+  "labels":[{"x":110,"y":232,"text":"μ−σ","size":12}]}}
+</script>
+</lk-scene>
+`);
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// Una pieza declarada que no dibuja tinta: un icono entero fuera del lienzo lo
+// recorta el SVG y el lector no ve nada.
+test('un icono declarado fuera del lienzo es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'icono-fuera.md');
+  writeFileSync(file, `# Parte 1\n\n<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 200","scene":{
+  "icons":[{"kind":"nope","x":80,"y":80,"size":56,"tone":"blue"}],
+  "labels":[{"x":180,"y":180,"text":"un robot","size":14}]}}
+</script>
+</lk-scene>
+`);
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /pieza-invisible/);
+});
+
+test('un icono dentro del lienzo no es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'icono-dentro.md');
+  writeFileSync(file, `# Parte 1\n\n<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 200","scene":{
+  "icons":[{"kind":"robot","x":80,"y":80,"size":56,"tone":"blue"}]}}
+</script>
+</lk-scene>
+`);
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// scene-gate mide también los recorridos de fórmula y de ejercicio (`<lk-story>`), paso a
+// paso, y lo que miden son las marcas: una etiqueta de «combina» o un ✓ fuera del lienzo
+// lo recorta el SVG y el lector ve una astilla. Antes la puerta solo abría `<lk-scene>` y
+// decía «sin escenas» ante un recorrido entero.
+const story = (stage) => `# Parte 1\n\n<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Una cuenta","viewBox":"0 0 360 250","steps":[
+ {"title":"Uno","equation":{"atoms":[{"t":"a","id":"a"}]},"narrator":"Uno.","stage":{"scene":{"actors":[{"id":"a","x":150,"y":120,"w":44,"h":40,"label":"a","tone":"blue"}]}}},
+ {"title":"Dos","equation":{"atoms":[{"t":"b","id":"b"}]},"narrator":"Dos.","stage":{"scene":{"actors":[{"id":"a","x":150,"y":120,"w":44,"h":40,"label":"a","tone":"blue"}]}}},
+ {"title":"Tres","equation":{"atoms":[{"t":"c","id":"c"}]},"narrator":"Tres.","stage":{"scene":${stage}}}
+]}
+</script>
+</lk-story>
+`;
+
+test('scene-gate mide las marcas de un recorrido: una etiqueta fuera del lienzo es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'recorrido-marca-fuera.md');
+  writeFileSync(file, story('{"actors":[{"id":"p","x":60,"y":14,"w":44,"h":40,"label":"p","tone":"amber"},{"id":"q","x":120,"y":14,"w":44,"h":40,"label":"q","tone":"amber"}],"marks":[{"kind":"combine","actors":["p","q"],"label":"p + q"}]}'));
+  const r = gate(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /al-borde/);
+  assert.match(r.stdout, /p \+ q/);
+});
+
+test('scene-gate mide un ✓ pegado al borde derecho de un recorrido', { skip: SKIP }, () => {
+  const file = join(dir, 'recorrido-check-al-borde.md');
+  writeFileSync(file, story('{"actors":[{"id":"v","x":296,"y":120,"w":44,"h":40,"label":"v","tone":"green"}],"marks":[{"kind":"ok","actor":"v"}]}'));
+  const r = gate(file);
+  assert.equal(r.status, 0, 'un ✓ colocado dentro del lienzo no es un hallazgo: ' + r.stdout + r.stderr);
+});
+
+test('un recorrido con sus marcas dentro del lienzo pasa scene-gate', { skip: SKIP }, () => {
+  const file = join(dir, 'recorrido-limpio.md');
+  writeFileSync(file, story('{"actors":[{"id":"p","x":100,"y":120,"w":44,"h":40,"label":"p","tone":"amber"},{"id":"q","x":170,"y":120,"w":44,"h":40,"label":"q","tone":"amber"}],"marks":[{"kind":"combine","actors":["p","q"],"label":"p + q"}]}'));
+  const r = gate(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok: 1 escena/);
+});

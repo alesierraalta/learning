@@ -57,13 +57,37 @@ for (const arg of args) {
 
 // The structural rules come first: they are the same ones the studio enforces on save.
 const structural = [];
+// The formula and derivation walkthroughs (`<lk-story>`) are decks too: the same
+// browser measurement applies, and a small structural check keeps them honest
+// (deck-lint only knows `<lk-walkthrough>`).
+const storyStructure = (text) => {
+  const problems = [];
+  for (const [index, m] of [...text.matchAll(/<lk-story[^>]*>([\s\S]*?)<\/lk-story>/g)].entries()) {
+    const deck = index + 1;
+    const payload = m[1].match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+    if (!payload) { problems.push({ deck, step: 0, kind: 'payload', text: 'missing application/json payload' }); continue; }
+    let spec;
+    try { spec = JSON.parse(payload[1]); } catch (error) { problems.push({ deck, step: 0, kind: 'payload', text: `invalid JSON: ${error.message}` }); continue; }
+    if (spec.kind !== 'formula' && spec.kind !== 'derivation') problems.push({ deck, step: 0, kind: 'kind', text: 'kind must be "formula" or "derivation"' });
+    const steps = spec.steps ?? [];
+    if (steps.length < 3 || steps.length > 8) problems.push({ deck, step: 0, kind: 'steps', text: `${steps.length} steps; keep it between 3 and 8` });
+    steps.forEach((step, i) => {
+      if (!step.title) problems.push({ deck, step: i + 1, kind: 'step', text: 'missing title' });
+      if (!step.narrator && !step.say) problems.push({ deck, step: i + 1, kind: 'step', text: 'missing narrator sentence' });
+    });
+  }
+  return problems;
+};
+const countStories = (text) => [...text.matchAll(/<lk-story[\s>]/g)].length;
+
 const targets = [];
 for (const note of notes) {
   const text = readFileSync(note, 'utf8');
-  if (!text.includes('<lk-walkthrough')) continue;
-  const problems = lintMarkdown(text);
+  const stories = countStories(text);
+  if (!text.includes('<lk-walkthrough') && !stories) continue;
+  const problems = [...lintMarkdown(text), ...storyStructure(text)];
   if (problems.length) structural.push({ note, problems });
-  targets.push({ note, decks: countDecks(text) });
+  targets.push({ note, decks: countDecks(text) + stories });
 }
 if (!targets.length) { console.log(`no note with a guided deck in ${args.join(', ')}`); process.exit(0); }
 
@@ -83,16 +107,22 @@ for (const [index, target] of targets.entries()) {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   page.on('pageerror', e => errors.push(`${target.note}: ${e.message}`));
   await page.goto(`${base}rapidos/${id}`);
-  const decks = page.locator('lk-walkthrough');
+  const decks = page.locator('lk-walkthrough, lk-story');
   await decks.first().waitFor();
   const count = await decks.count();
   total += count;
   for (let d = 0; d < count; d++) {
     const deck = decks.nth(d);
-    const steps = await deck.locator('.lk-wt-dot').count();
+    const story = await deck.evaluate(node => node.tagName.toLowerCase() === 'lk-story');
+    const steps = story ? await deck.locator('.lk-story-seg').count() : await deck.locator('.lk-wt-dot').count();
     for (let s = 0; s < steps; s++) {
-      await deck.locator('.lk-wt-dot').nth(s).click();
-      await deck.locator('.lk-wt-count').filter({ hasText: `Paso ${s + 1} de` }).waitFor();
+      if (story) {
+        if (s > 0) await deck.getByRole('button', { name: 'Paso siguiente' }).click();
+        await deck.locator('.lk-story-count').filter({ hasText: `${s + 1} / ${steps}` }).waitFor();
+      } else {
+        await deck.locator('.lk-wt-dot').nth(s).click();
+        await deck.locator('.lk-wt-count').filter({ hasText: `Paso ${s + 1} de` }).waitFor();
+      }
       const found = await deck.evaluate(node => {
         const stage = node.querySelector('.lk-wt-stage');
         const shown = el => el.closest('[data-step]')?.style.display !== 'none';

@@ -224,16 +224,87 @@ is `callout-desviado` in `scene-lint`, and a guide that crosses a word is `trazo
 The engine reads the atoms as the formula and the `labels` lines as the legend, so a symbol no
 line names is refused. Worked example, gated: `integrations/pi/kit/examples/formula-anotada.md`.
 
+### Formula and derivation walkthroughs
+
+`lk-story` is the step deck for a formula and for a worked exercise. Both kinds share one
+furniture: a **header** with the formula or equation (the step's token highlighted, the rest
+normal), a **stage** where the action happens (actors with a name tag, props, state by colour, a
+dashed movement arrow with its verb, a ✓/✗ result mark, orthogonal elbows from a tag to its
+target), a **narrator** with short sentences and inline chips (`«2»` is a chip, `*pasa
+restando*` a coloured keyword), and a **player** (previous / play / next, a segmented progress
+bar, an N/M counter).
+
+`kind: "formula"` teaches a formula: step 1 is the whole formula; each middle step highlights
+one symbol or group by its stable atom `id` and says what it is, what it is used for and its
+value in the running example (`say: {what, use, value}`); the last step shows the formula with
+the example's numbers substituted and its result. The formula lives in the header, drawn as
+HTML tokens from the same atom objects, so it wraps in a narrow column and stays at reading
+size. `kind: "derivation"` teaches an exercise: each step is an equation built from term atoms
+with stable ids; a term that crosses to the other side is drawn as a faded actor where it was
+and a coloured actor where it lands, with a dashed arrow measured between the two boxes and
+its verb above; `marks` of kind `combine` mark the terms that combine and replace them with
+their result; the last step boxes the answer with a ✓.
+
+```json
+{"kind":"derivation","title":"Resolver x + 2 = 3","viewBox":"0 0 360 250","steps":[
+ {"title":"La ecuación","equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" + ","id":"plus"},{"t":"2","id":"two"},{"t":" = ","id":"eq"},{"t":"3","id":"three"}]},"focus":["two"],
+  "narrator":"Tengo «x + 2 = 3». Quiero dejar la «x» sola.",
+  "stage":{"scene":{"actors":[{"id":"x","x":20,"y":150,"w":44,"h":40,"label":"x","tone":"blue","tag":"incógnita"},{"id":"two","x":140,"y":150,"w":44,"h":40,"label":"2","tone":"amber","tag":"el 2"}]}}},
+ {"title":"El 2 pasa al otro lado","equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" = ","id":"eq"},{"t":"3","id":"three"},{"t":" − ","id":"minus"},{"t":"2","id":"two"}]},"focus":["minus","two"],
+  "narrator":"El «2» estaba sumando. Al cruzar, *pasa restando*.",
+  "stage":{"scene":{"actors":[{"id":"two-old","x":140,"y":40,"w":44,"h":40,"label":"2","tone":"slate","state":"faded","tag":"estaba sumando"},{"id":"x","x":20,"y":160,"w":44,"h":40,"label":"x","tone":"blue"},{"id":"two","x":230,"y":160,"w":44,"h":40,"label":"2","tone":"amber"}],"moves":[{"from":"two-old","to":"two","verb":"pasa restando","tone":"amber"}]}}},
+ {"title":"La cuenta","equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" = ","id":"eq"},{"t":"1","id":"one"}]},"focus":["one"],
+  "narrator":"«3 − 2 = 1». Entonces «x = 1».",
+  "stage":{"scene":{"actors":[{"id":"x","x":40,"y":170,"w":44,"h":40,"label":"x","tone":"blue"},{"id":"one","x":160,"y":170,"w":44,"h":40,"label":"1","tone":"green"}],"marks":[{"kind":"ok","actor":"one"}]}}}
+]}
+```
+
+A stage can also use the scene vocabulary (`paths`, `curves`, `icons`, `labels`, `callouts`), so
+the formula story shows the symbol's meaning in the example: the bell, the μ line, the ±σ band,
+and the request and the server as `icons` with a name tag. An icon is drawn with its tone's soft
+fill (never white on white paper) and its centre is kept inside the `viewBox`, because a
+declared icon half outside the canvas is clipped by the SVG and reads as nothing; `scene-lint`
+and `scene-gate` report `pieza-invisible` when a declared icon or figure draws no ink.
+
+The result mark frames the answer **once**: the actor's own border is thickened and drawn in the
+result's colour (no second rectangle around it), and the ✓/✗ is placed on the right, below or on
+the left of the actor, whichever fits inside the canvas with 12 units of air, measured on what the
+browser drew. `scene-gate` measures `<lk-story>` blocks too, one step at a time (it used to open
+only `<lk-scene>` and say «sin escenas» in front of a whole story), so a mark, a tag chip or a
+label that crosses the canvas edge is `al-borde`.
+
+**One surface.** The whole card — header, stage, narrator and player — shares the reader's
+paper, and so does every still `lk-scene`: both stages carry the `lk-remap` class that the night
+rules are scoped to. In `dark` and `black` the stage paints with that paper and the night ink instead of a white
+rectangle floating between two dark bands: `kit.css` remaps the drawing's tones (`#004276` →
+`#8FC0E0`, `#21594F` → `#7FCBAE`, white surfaces → the paper, …) with attribute selectors scoped
+to `lk-story .lk-story-stage`, so the SVG is the same and the computed colours are what the
+learner sees (every label reads at ≥ 4.5:1 on its paper; the bridge matrix measures it). The
+card is at most 720 px wide; its stage panel fills the card and the drawing is centred and
+capped at 1.6× its `viewBox`. The narrator is 18 px and the header equation 22–28 px on desktop
+(17 and 18 px below 560 px): the two are the most readable things on the card.
+
+Worked examples, gated: `integrations/pi/kit/examples/formula-gaussiana.md` and
+`integrations/pi/kit/examples/derivacion-x.md`.
+
+A `<lk-math>` written in a note reaches KaTeX exactly as written. The reader lifts the element
+out of the markdown before `marked` runs, like `$…$` and `$$…$$`: `marked` drops the backslash of
+an escaped punctuation mark, so `\;` `\!` `\,` used to render as a stray `;` `!` `,`
+(`integrations/pi/view/math.js`). An element named inside a code span is prose and is left alone.
+
 `rowTone`, `colTone` and `cellTone` take `{índice: tono}` with `blue`, `green`, `amber` or `red`;
 `rowH` and `size` keep long values readable. Keep every step on the same coordinates so the figure
 stays put while its state changes, put the one sentence that explains the step in its `text`, and
 keep labels short: below 640 px the stage scrolls sideways with a hint instead of shrinking the
 letters. In the reader's wide mode a deck crosses both columns (`column-span: all`) and is drawn
 once, in its place: without it the deck is split between the columns and only its title shows.
-A figure never grows past the `viewBox` it declares: `kit.js` stamps the stage with `--lk-vb`
-and `kit.css` caps it there, centred, so 1 unit stays about 1 px in a column that is twice as
-wide. A 360-unit scene rendered across a 1304 px column used to draw its axis labels at three
-times the reading size; the cap is what keeps the type the size the author wrote.
+A figure grows to one reading column and no further: `kit.js` stamps the stage with `--lk-vb`
+and `kit.css` caps it at `min(100%, 1.6 × viewBox)`, centred. In the reader's wide mode the
+column is twice as wide, so a small deck used to float as a thumbnail inside the frame; the
+1.6× cap lets it fill the column while its labels stay at or above the reading size (a 14-unit
+label renders at 22 px at the cap). A 360-unit scene rendered across a 1304 px column used to
+draw its axis labels at three times the reading size; the cap is what keeps the type the size
+the author wrote.
 For diagrams deliberately authored as a narrow vertical layout, opt in with
 `<lk-walkthrough class="lk-wt-compact">`: in full screen the cap is lifted so the figure grows; on mobile the SVG fits the available width and the
 scroll hint is hidden. This does not reflow SVG contents; authors must keep text
@@ -254,7 +325,10 @@ own tip. The «el pico» arrow left the box below the axis and cut the bell's ri
 units from its tip, so the reader saw a line buried in the curve; it now comes from the empty
 upper-right area. A box or a label that no arrow or guide reaches and that sits more than 40
 units from anything drawn is `pieza-suelta` — a word floating beside the figure. Every piece
-connects to what it names, or it is removed.
+connects to what it names, or it is removed. An arrowhead that comes within 4 units of any text
+is `punta-sobre-texto`: the «μ−σ» label of the gaussian's step 2 sat under the marker triangle,
+so the label moved and the arrow stayed. A declared icon or figure that draws no ink (zero box,
+or entirely outside the canvas) is `pieza-invisible`.
 
 An arrow's own `label` is drawn beside the arrow, never on it: a caption on the line hides the very
 direction the arrow exists to show. That placement is the component's job, so an author writes
@@ -292,8 +366,11 @@ must not hide what it marks needs `"fill": "none"`.
 The page paper follows the reader's choice. `kit/theme.js` reads `?theme=`, then
 `localStorage`, then the operating system, and sets `data-theme` on `<html>`; the
 bridge and the studio load it before anything else paints. `kit.css` swaps only tokens in
-`:root[data-theme="dark"]` and `:root[data-theme="black"]`, and a walkthrough or scene keeps a
-light surface on purpose: a diagram's colours are part of what it teaches. Both night themes go
+`:root[data-theme="dark"]` and `:root[data-theme="black"]`. A scene (`lk-scene`), a story
+(`lk-story`) and an `lk-figure` follow the night paper: their stage paints no sheet of its own and
+the drawing's tones are remapped to night tones (see «One surface» below). A classic
+`lk-walkthrough` deck and a mermaid diagram are the exception: each keeps its own light sheet,
+whole, as a card. Both night themes go
 in one `:is()` list — written as a comma-separated pair of selectors, each rule reached only
 half of them and the annotated formula kept its dark ink on the black page. An `lk-figure` from
 the visual engine is
