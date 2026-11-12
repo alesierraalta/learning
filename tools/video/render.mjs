@@ -5,16 +5,17 @@
 //   node tools/video/render.mjs --spec parts/parte3.json --note <note.md> \
 //        --audio <dir> --work <dir> [--stills 12.5,90] [--video out.mp4]
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 import { spawn, spawnSync } from "node:child_process";
 import { loadAudio } from "./lib/audio.mjs";
-import { loadPlaywright, openStage } from "./lib/browser.mjs";
+import { VIEWPORT, loadPlaywright, openStage } from "./lib/browser.mjs";
 import { extractDecks } from "./lib/note.mjs";
 import { audit, formatViolation } from "./lib/promises.mjs";
 import { readSpec } from "./lib/spec.mjs";
 import { buildTimeline } from "./lib/timeline.mjs";
+import { createTimings, writeReport } from "./lib/timings.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(HERE, "../..");
@@ -24,6 +25,8 @@ const KNOWN_ARGS = new Set(["spec", "note", "audio", "work", "stills", "video", 
 const args = parseArgs(process.argv.slice(2));
 checkArgs(args);
 if (!args.spec || !args.note || !args.audio) usage();
+// The clock opens with the process, so the report's total is the run itself.
+const timings = createTimings();
 
 main().catch((cause) => {
   console.error(`render failed: ${cause.message}`);
@@ -35,9 +38,13 @@ async function main() {
   const decks = extractDecks(await readFile(resolve(args.note), "utf8"));
   // Every flag, every slice: a part that says what it does not draw never
   // becomes a frame, let alone a file.
+  const stopAudit = timings.time("promises");
   const violations = audit(spec, decks);
+  stopAudit();
   if (violations.length) throw new Error(violations.map(formatViolation).join("\n"));
+  const stopAudio = timings.time("audio");
   const beats = loadAudio(spec, { dir: resolve(args.audio), remote: args.remote });
+  stopAudio();
   const plan = buildTimeline(spec, beats, decks);
   plan.title = spec.title;
   plan.part = spec.part;
@@ -57,7 +64,9 @@ async function main() {
   // The craft gate measures the same plan the frames will follow, so a part
   // nobody can read never becomes a file.
   if (args.craft) {
+    const stopCraft = timings.time("legibility");
     const gate = spawnSync(process.execPath, [join(HERE, "legibility.mjs"), "--plan", join(work, "plan.json")], { stdio: "inherit" });
+    stopCraft();
     if (gate.status !== 0) throw new Error(`the craft gate refused this part (exit ${gate.status})`);
   }
   console.log(`${plan.part} · ${plan.beats.length} beats · ${captions.length} cues · ${fmt(plan.total)}`);
@@ -66,7 +75,9 @@ async function main() {
   const stage = await openStage(playwright, plan, { root: ROOT });
   try {
     if (args.stills) {
-      await stills(stage.page, join(work, "stills"));
+      const stopStills = timings.time("stills");
+      const written = await stills(stage.page, join(work, "stills"));
+      stopStills({ frames: written });
     }
     if (args.video) {
       await video(stage.page, plan, beats, resolve(args.video));
@@ -77,17 +88,32 @@ async function main() {
   // The SRT is a deliverable, so it is written only once the work it describes
   // succeeded: a failed render must not leave captions that look finished.
   await writeFile(join(work, "final.srt"), srt(captions));
+  // The numbers travel with the output they describe. A report of a run that
+  // never finished would be a claim nobody can check, so it lands here, last.
+  const meta = {
+    part: plan.part,
+    spec: specPath(args.spec),
+    fps: plan.fps,
+    resolution: `${VIEWPORT.width}x${VIEWPORT.height}`,
+    encoder: { codec: "libx264", preset: args.preset || "medium", crf: Number(args.crf || 20) },
+  };
+  // A window is what a video covers; a stills run draws instants, not a span.
+  if (args.video) meta.window = { from, to };
+  await writeReport(join(work, "timings.json"), timings.report(meta));
 }
 
 async function stills(page, dir) {
   await mkdir(dir, { recursive: true });
+  let written = 0;
   for (const value of args.stills.split(",")) {
     const t = Number(value.trim());
     await page.evaluate((at) => window.__frame(at), t);
     const file = join(dir, `t${t.toFixed(2).padStart(7, "0")}.png`);
     await page.screenshot({ path: file });
     console.log(`still ${file}`);
+    written++;
   }
+  return written;
 }
 
 async function video(page, plan, beats, out) {
@@ -99,7 +125,7 @@ async function video(page, plan, beats, out) {
     "-y", "-loglevel", "error",
     "-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-",
     ...audioInputs(plan, beats, from, to),
-    "-filter_complex", audioFilter(plan, beats, from, to, fps),
+    "-filter_complex", audioFilter(plan, from, to),
     "-map", "0:v", "-map", "[a]",
     "-c:v", "libx264", "-preset", args.preset || "medium", "-crf", String(args.crf || 20),
     "-pix_fmt", "yuv420p", "-r", String(fps), "-fps_mode", "cfr",
@@ -107,8 +133,12 @@ async function video(page, plan, beats, out) {
     "-movflags", "+faststart", out,
   ], { stdio: ["pipe", "inherit", "inherit"] });
   const done = once(ff, "close");
+  // ffmpeg encodes while the frames are still being written to its stdin, so
+  // this stage covers the capture below as well; the report says so.
+  const stopEncode = timings.time("encode");
 
   const started = Date.now();
+  const captureOpened = performance.now();
   for (let i = 0; i < total; i++) {
     await page.evaluate((at) => window.__frame(at), from + i / fps);
     const frame = await page.screenshot({ type: "png" });
@@ -118,8 +148,12 @@ async function video(page, plan, beats, out) {
       console.log(`frame ${i}/${total} · ${rate.toFixed(1)} fps · eta ${fmt((total - i) / Math.max(rate, 0.1))}`);
     }
   }
+  // The effective rate is the whole capture, not the console's running estimate.
+  const capturedMs = Math.max(performance.now() - captureOpened, 0.001);
+  timings.observe("capture", capturedMs, { frames: total, fps: Math.round((total / (capturedMs / 1000)) * 10) / 10 });
   ff.stdin.end();
   const [code] = await done;
+  stopEncode({ overlaps: "capture" });
   if (code !== 0) throw new Error(`ffmpeg exited ${code}`);
   console.log(`video ${out}`);
 }
@@ -136,7 +170,7 @@ function audioInputs(plan, beats, from, to) {
 // Each beat is delayed to its absolute offset and mixed; the plan owns the
 // timing, so silence around the speech comes from the same numbers as the
 // drawing.
-function audioFilter(plan, beats, from, to, fps) {
+function audioFilter(plan, from, to) {
   const used = plan.beats.filter((b) => !(b.end < from || b.start > to));
   const labels = [];
   const parts = used.map((beat, i) => {
@@ -163,6 +197,15 @@ function srt(cues) {
     return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`;
   };
   return cues.map(([start, end, text], i) => `${i + 1}\n${clock(start)} --> ${clock(end)}\n${text}\n`).join("\n");
+}
+
+// The spec travels with the report so a later render of the same part can be
+// compared with this one: named from the repo when it lives there, absolute
+// otherwise, so two reports from two checkouts still read the same line.
+function specPath(file) {
+  const absolute = resolve(file);
+  const inRepo = relative(ROOT, absolute);
+  return inRepo.startsWith("..") ? absolute : inRepo;
 }
 
 function fmt(s) {

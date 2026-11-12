@@ -19,6 +19,7 @@ animate, because it wrote one PNG per reveal step with PIL.
 | Promise gate | `lib/promises.mjs`, `audit.mjs` | Refuses a beat whose words promise a drawing its frames do not have. |
 | Stage | `src/page/stage.js` | Draws frame `t`: a pure function of time, so a render is reproducible. |
 | Renderer | `render.mjs` | Headless Chromium → PNG frames → ffmpeg, plus the SRT. |
+| Timing report | `lib/timings.mjs`, `timings.json` | Wall clock per stage, written beside the output so two renders are compared, not remembered. |
 | Migration | `migrate.mjs` | Turns a `render_part.py` spec into a first engine draft: narrations kept word for word, bullets drawn. |
 
 `frame(t)` is pure: no CSS transitions, no `requestAnimationFrame`, no clock.
@@ -196,6 +197,53 @@ A part sets `"hold": true` on a beat whose picture is meant to sit still. The
 poster is measured on the first sample, the progress bar is excluded (chrome that
 moves every frame would hide a still figure), and findings about the same
 `where` × `text` are counted once instead of once per sample.
+
+## The timing report
+
+Every render that finishes writes `timings.json` beside the artifacts it wrote
+(`plan.json`, `final.srt`, the video). "Faster now" is then a diff of two files
+instead of a memory of one run. Each stage is timed while the pipeline runs it,
+and it is reported in the order it ran:
+
+```json
+{
+ "part": "Parte 3",
+ "spec": "tools/video/parts/parte3.json",
+ "fps": 20,
+ "resolution": "1920x1080",
+ "encoder": { "codec": "libx264", "preset": "medium", "crf": 20 },
+ "window": { "from": 0, "to": 377.2 },
+ "started_at": "2026-11-12T13:50:41.681Z",
+ "total_ms": 1696.43,
+ "stages": [
+  { "stage": "promises", "ms": 1.17 },
+  { "stage": "audio", "ms": 198.224 },
+  { "stage": "legibility", "ms": 858.373 },
+  { "stage": "capture", "ms": 609.272, "frames": 12, "fps": 19.7 },
+  { "stage": "encode", "ms": 1077.219, "overlaps": "capture" }
+ ]
+}
+```
+
+- `promises` — the promise audit over the whole part.
+- `audio` — the narration cache plus one `ffprobe` per beat.
+- `legibility` — only with `--craft`: the gate's own run, before any frame.
+- `stills` — every `--stills` render, with the frames it wrote.
+- `capture` — the frame loop, with the frames it wrote and the effective rate
+  over the whole window. The console's rate is a running estimate; this one is
+  the number the stage actually reached.- `encode` — ffmpeg's own lifetime. It starts at spawn, while frames are still
+  being written to its stdin, so it **covers `capture`**: the stages do not add
+  up to `total_ms`, and `overlaps` names the stage it swallows.
+- `total_ms` — the whole process, from the renderer being imported to the last
+  file written.
+
+`window` is present only when a video was encoded: a stills run draws instants,
+not a span.
+
+A run that does not finish writes no report: numbers that describe a render that
+never happened are a claim nobody can check. The report only observes — it wraps
+the pipeline, never reorders it — so the frames, the gate verdicts and the
+encoder flags are the same with it as without it.
 
 ## Delivery
 

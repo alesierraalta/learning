@@ -212,3 +212,53 @@ test("the poster rule fires when the first frame draws nothing", () => {
   const run = spawnSync("node", [LEGIBILITY, "--plan", path, "--json"], { encoding: "utf8", timeout: 120_000 });
   assert.match(`${run.stdout}${run.stderr}`, /first_frame_empty/, "an empty poster is reported, not passed as clean");
 });
+
+// A render that is claimed to be faster has to show where the time went. The
+// numbers are persisted next to the video, so the next change is compared
+// against them instead of remembered.
+test("a render writes how long each stage took, beside the video it wrote", () => {
+  const f = fixture();
+  const out = join(f.work, "out.mp4");
+  const run = render(f, { args: ["--from", "0", "--to", "0.4", "--video", out] });
+  assert.equal(run.code, 0, run.out);
+  assert.ok(existsSync(out), "the video is still the render's output");
+  const report = JSON.parse(readFileSync(join(f.work, "timings.json"), "utf8"));
+  assert.equal(report.part, "Parte T");
+  assert.equal(report.fps, 30, "the report names the rate the frames were written at");
+  assert.equal(report.resolution, "1920x1080", "the report names the size the frames were written at");
+  assert.deepEqual(report.window, { from: 0, to: 0.4 }, "the report names the window this render covered");
+  assert.ok(!Number.isNaN(Date.parse(report.started_at)), `started_at is a date, got ${report.started_at}`);
+  const stage = (name) => {
+    const found = report.stages.find((s) => s.stage === name);
+    assert.ok(found, `no ${name} stage, only ${JSON.stringify(report.stages.map((s) => s.stage))}`);
+    return found;
+  };
+  for (const name of ["audio", "promises", "capture", "encode"]) {
+    assert.ok(stage(name).ms > 0, `${name} claims ${stage(name).ms} ms, which is not a measurement`);
+  }
+  const capture = stage("capture");
+  assert.equal(capture.frames, 12, "capture counts the frames it wrote");
+  assert.ok(capture.fps > 0, `capture reports its effective rate, got ${capture.fps}`);
+  assert.ok(report.total_ms >= capture.ms, "the total covers the whole run, not just one stage of it");
+  assert.ok(!report.stages.some((s) => s.stage === "legibility"), "no --craft, so no craft gate in the report");
+});
+
+test("the craft gate is timed too, because it is a stage like any other", () => {
+  const f = fixture();
+  const run = render(f, { args: ["--stills", "0.2", "--craft"] });
+  assert.equal(run.code, 0, run.out);
+  const report = JSON.parse(readFileSync(join(f.work, "timings.json"), "utf8"));
+  const names = report.stages.map((s) => s.stage);
+  assert.ok(names.includes("legibility"), `the gate the run paid for is missing from ${names}`);
+  assert.ok(names.includes("stills"), `the frames the run wrote are missing from ${names}`);
+  assert.ok(names.indexOf("legibility") < names.indexOf("stills"), `the gate runs before the frames, so the report says so: ${names}`);
+  assert.equal(report.stages.find((s) => s.stage === "stills").frames, 1, "the stills stage counts the frames it wrote");
+  assert.ok(!("window" in report), "a stills run draws instants, so it has no window to compare");
+});
+
+test("a render the craft gate refuses leaves no timing report to compare against", () => {
+  const f = fixture({ visual: { scenes: [{ text: "uno", scene: { labels: [{ x: 180, y: 145, text: "apenas visible", color: "#efefef", size: 13 }] } }] } });
+  const run = render(f, { args: ["--stills", "0.2", "--craft"] });
+  assert.notEqual(run.code, 0);
+  assert.ok(!existsSync(join(f.work, "timings.json")), "a report of a render that never finished is a claim nobody can check");
+});
