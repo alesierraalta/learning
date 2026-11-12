@@ -599,10 +599,21 @@
       holder.replaceChildren(glyph);
       const right = { x: union.x + union.width + 10, y: union.y + union.height / 2 + 8, anchor: "start" };
       const left = { x: union.x - 10, y: union.y + union.height / 2 + 8, anchor: "end" };
-      const below = { x: union.x + union.width / 2, y: union.y + union.height + 28, anchor: "middle" };
+      // Debajo, a 18 unidades: la marca se apoya en su pieza y no en el borde del
+      // lienzo. Con 28 no cabía en un lienzo de 260 y caía al hueco de al lado
+      // (#245); con 18 cabe y sigue fuera de la pieza.
+      const below = { x: union.x + union.width / 2, y: union.y + union.height + 18, anchor: "middle" };
+      const lower = { x: union.x + union.width / 2, y: union.y + union.height + 26, anchor: "middle" };
+      // Una marca con un solo dueño se aparta del vecino, no se mete entre los dos
+      // (#245): el lado de fuera es el que tiene menos piezas, y ahí va el ✓ o el ✗
+      // cuando no cabe debajo. Centrada en el hueco no aprueba a nadie.
+      const lefts = avoid.filter((b) => b.x + b.width <= union.x + 1).length;
+      const rights = avoid.filter((b) => b.x >= union.x + union.width - 1).length;
+      const outer = lefts <= rights ? left : right;
+      const inner = outer === left ? right : left;
       const sides = corner
         ? [{ x: union.x + union.width + 6, y: union.y + 18, anchor: "start" }, right, below, left, { x: union.x - 6, y: union.y + 18, anchor: "end" }]
-        : underneath ? [below, right, left] : [right, below, left];
+        : underneath ? [below, lower, outer, inner] : [below, lower, outer, inner];
       let first = null;
       for (const side of sides) {
         glyph.setAttribute("x", side.x.toFixed(1));
@@ -619,11 +630,38 @@
       return glyph;
     };
     const boxOf = (el) => { const b = el.getBBox(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
+    // La figura de un actor es su personaje (o su caja), no el borde decorado.
+    const figureOf = (el) => el.querySelector("[data-figure]") || el;
+    // Una fila se tiende desde el marco más grande (#245): el marco a trazos y el
+    // candado de un actor bloqueado agrandan su caja medida, y sin esto su ficha
+    // subía y su cofre bajaba mientras el vecino se quedaba quieto, así que la fila
+    // se veía torcida. La fila son los actores uno al lado del otro a menos de dos
+    // figuras de distancia en vertical; su tope y su base son los del más alto.
+    const rowFrames = (step) => {
+      const frames = [...step.querySelectorAll("[data-actor]")].map((el) => ({ el, b: el.getBBox() }));
+      const rows = [];
+      for (const f of frames) {
+        const row = rows.find((r) => r.some((o) => {
+          const across = Math.min(o.b.x + o.b.width, f.b.x + f.b.width) - Math.max(o.b.x, f.b.x);
+          const reach = Math.max(o.b.height, f.b.height) * 2;
+          return across <= Math.min(o.b.width, f.b.width) * 0.2 && Math.abs((o.b.y + o.b.height / 2) - (f.b.y + f.b.height / 2)) <= reach;
+        }));
+        if (row) row.push(f); else rows.push([f]);
+      }
+      const byId = new Map();
+      for (const row of rows) {
+        if (row.length < 2) continue;
+        const top = Math.min(...row.map((o) => o.b.y));
+        const bottom = Math.max(...row.map((o) => o.b.y + o.b.height));
+        for (const o of row) byId.set(o.el.dataset.actor, { top, bottom });
+      }
+      return byId;
+    };
     // Una pieza dibujada se pone desde su actor, no desde una coordenada: junto al
     // lado que declara, y si ahí no cabe —borde del lienzo, otro actor, otra pieza o
     // el nombre que el actor lleva arriba— en el primero que sí.
     const parse = (markup) => [...new DOMParser().parseFromString(`<svg xmlns="${ns}">${markup}</svg>`, "image/svg+xml").documentElement.childNodes].map((n) => document.importNode(n, true));
-    const placeProps = (step) => {
+    const placeProps = (step, rows) => {
       const props = [...step.querySelectorAll("[data-prop-id]")];
       props.forEach((p) => p.replaceChildren());
       const reserved = [...step.querySelectorAll("[data-tag-to]")].map((tg) => {
@@ -660,7 +698,12 @@
           const anchor = findIn(step, prop.dataset.propOn);
           if (!anchor) { prop.dataset.propMissing = prop.dataset.propOn; continue; }
           const b = anchor.getBBox();
-          const gap = 10, cxm = b.x + b.width / 2, cym = b.y + b.height / 2;
+          // La columna de una pieza es la de su figura, no la de su borde decorado:
+          // el candado del bloqueo corría el cofre cuatro unidades a la derecha.
+          const fig = figureOf(anchor).getBBox();
+          const row = anchor.hasAttribute("data-actor") ? rows.get(anchor.dataset.actor) : null;
+          const top = row ? row.top : b.y, bottom = row ? row.bottom : b.y + b.height;
+          const gap = 10, cxm = fig.x + fig.width / 2, cym = b.y + b.height / 2;
           // La pieza ocupa lo que ocupa su nombre, no solo su icono: «liberado» a 16
           // unidades es más ancho que el cofre y, midiendo con el icono, la pieza
           // entraba dos unidades en el actor de al lado (#243).
@@ -668,8 +711,8 @@
           const at = {
             right: [b.x + b.width + gap + half, cym, "up"],
             left: [b.x - gap - half, cym, "up"],
-            above: [cxm, b.y - gap - size / 2, "up"],
-            below: [cxm, b.y + b.height + gap + size / 2, "down"],
+            above: [cxm, top - gap - size / 2, "up"],
+            below: [cxm, bottom + gap + size / 2, "down"],
           };
           const order = [...new Set([prop.dataset.propSide, "right", "left", "below", "above"].filter((side) => at[side]))];
           spots = order.map((side) => at[side]);
@@ -692,11 +735,14 @@
       }
     };
     for (const step of scopes) {
-      placeProps(step);
+      const rows = rowFrames(step);
+      placeProps(step, rows);
       for (const tag of step.querySelectorAll("[data-tag-to]")) {
         const target = findIn(step, tag.dataset.tagTo);
         if (!target) continue;
         const b = target.getBBox();
+        const fig = figureOf(target).getBBox();
+        const row = target.hasAttribute("data-actor") ? rows.get(target.dataset.actor) : null;
         const t = tone(tag.dataset.tagTone);
         const text = tag.dataset.tagText || "";
         // La ficha del nombre se dibuja al tamaño de lectura de la figura: a 13
@@ -708,9 +754,9 @@
         // La ficha nunca se sale del lienzo: a 16 unidades la de «el resultado» medía
         // 150 y su borde derecho quedaba a 5 del tope, donde el lector la recorta
         // (#243). Se centra en su actor y se mete dentro del canvas.
-        const wanted = at.length && Number.isFinite(at[0]) ? at[0] : b.x + b.width / 2;
+        const wanted = at.length && Number.isFinite(at[0]) ? at[0] : fig.x + fig.width / 2;
         const cx = Math.min(Math.max(wanted, room.x + w / 2 + 12), room.x + room.width - w / 2 - 12);
-        const cy = at.length > 1 && Number.isFinite(at[1]) ? at[1] : b.y - 8;
+        const cy = at.length > 1 && Number.isFinite(at[1]) ? at[1] : (row ? row.top : b.y) - 8;
         // La ficha se escribe en coordenadas absolutas, no con un `transform`:
         // las puertas miden `getBBox()`, que vive en el espacio local del nodo, y
         // una ficha transformada se medía en el origen y se veía fuera del lienzo.
@@ -719,7 +765,7 @@
           make("text", { x: cx, y: cy - h / 2 + size * 0.36, "font-size": size, fill: t.color, "text-anchor": "middle", "font-weight": 700 }, text),
           make("path", { d: `M ${cx - 4} ${cy} L ${cx} ${cy + 6} L ${cx + 4} ${cy} Z`, fill: t.stroke }),
         );
-        const tx = b.x + b.width / 2, ty = b.y, my = (cy + ty) / 2;
+        const tx = fig.x + fig.width / 2, ty = fig.y, my = (cy + ty) / 2;
         const d = Math.abs(cx - tx) < 2 ? `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${tx.toFixed(1)} ${ty.toFixed(1)}` : `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${cx.toFixed(1)} ${my.toFixed(1)} L ${tx.toFixed(1)} ${my.toFixed(1)} L ${tx.toFixed(1)} ${ty.toFixed(1)}`;
         tag.append(make("path", { d, fill: "none", stroke: t.stroke, "stroke-width": 1.5, "data-elbow": "1" }));
       }
@@ -1069,21 +1115,29 @@
     // Actores, rótulos con punta, movimientos y marcas: la escena de un paso de
     // `lk-story`. Se dibujan como marcadores vacíos y `placeStory` los rellena con
     // las cajas que el navegador midió, nunca con coordenadas escritas a mano.
-    // Un actor tiene estado: activo (su tono), apagado (gris: ya no vale) o inválido
-    // (gris, tachado y con su ✗). El actor es una caja con su etiqueta o, con `icon`,
-    // un dibujo —el robot— centrado en (x, y).
+    // Un actor tiene estado: activo (su tono), apagado (gris: ya no vale), inválido
+    // (gris, tachado y con su ✗), bloqueado (su tono, marco a trazos y su candado) o
+    // en espera (gris, marco a trazos: todavía no le toca). El actor es una caja con
+    // su etiqueta o, con `kind` (o su alias `icon`), un personaje dibujado —el
+    // cilindro de la base de datos, la fila, la sesión, el candado, el usuario, el
+    // servidor, el proceso, el archivo, el paquete, el robot— centrado en (x, y).
+    // Un actor de cajas cuando la idea tiene personaje es lo que el alumno rechazó
+    // (#245): el personaje se dibuja, no se nombra dentro de un rectángulo.
+    const STATES = ['invalid', 'faded', 'locked', 'waiting'];
     for (const a of scene.actors || []) {
       const t = tone(a.tone);
-      const state = a.state === 'invalid' ? 'invalid' : a.state === 'faded' ? 'faded' : 'active';
-      const grey = state !== 'active';
+      const state = STATES.includes(a.state) ? a.state : 'active';
+      const grey = state === 'invalid' || state === 'faded' || state === 'waiting';
+      const framed = state === 'locked' || state === 'waiting';
       const ink = grey ? S.C.slate2 : t.stroke;
       const sheet = grey ? '#ffffff' : t.fill;
       let body, frame;
-      if (a.icon) {
+      const kind = a.kind || a.icon;
+      if (kind) {
         const size = a.size || 56;
         const cx = stageWidth ? Math.min(Math.max(a.x, size / 2), stageWidth - size / 2) : a.x;
         const cy = stageHeight ? Math.min(Math.max(a.y, stageTop + size / 2), stageTop + stageHeight - size / 2) : a.y;
-        body = S.icon(a.icon, cx, cy, size, { stroke: ink, fill: sheet });
+        body = S.icon(kind, cx, cy, size, { stroke: ink, fill: sheet });
         frame = { x: cx - size / 2, y: cy - size / 2, w: size, h: size };
       } else {
         body = S.box(a.x, a.y, a.w, a.h, a.label || '', {
@@ -1091,10 +1145,20 @@
         });
         frame = { x: a.x, y: a.y, w: a.w, h: a.h };
       }
+      // El marco a trazos dice «no está libre»: bloqueado o esperando. Se dibuja
+      // sobre el borde que el navegador midió, no en una coordenada aparte.
+      const dashed = framed
+        ? `<g data-frame="${state}">${`<rect x="${S.f(frame.x - 5)}" y="${S.f(frame.y - 5)}" width="${S.f(frame.w + 10)}" height="${S.f(frame.h + 10)}" rx="6" fill="none" stroke="${ink}" stroke-width="2" stroke-dasharray="6 5"/>`}</g>`
+        : '';
       const strike = state === 'invalid'
         ? `<g data-strike="1">${S.line(frame.x - 6, frame.y + frame.h / 2, frame.x + frame.w + 6, frame.y + frame.h / 2, { color: tone('red').stroke, arrow: false, width: 2.5 })}</g>`
         : '';
-      out += `<g data-actor="${S.esc(a.id)}" data-state="${state}"${grey ? ' data-faded="1"' : ''}>${body}${strike}</g>`;
+      // El candado del actor bloqueado se dibuja en su esquina, con el papel de la
+      // escena detrás: el candado es un personaje más, no un adorno de color.
+      const lock = state === 'locked'
+        ? `<g data-lock="1"><circle cx="${S.f(frame.x + frame.w)}" cy="${S.f(frame.y)}" r="${S.f(Math.max(9, frame.w * 0.2))}" fill="#ffffff" stroke="${ink}" stroke-width="1.5"/>${S.icon('lock', frame.x + frame.w, frame.y, Math.max(14, frame.w * 0.3), { stroke: ink, fill: '#ffffff' })}</g>`
+        : '';
+      out += `<g data-actor="${S.esc(a.id)}" data-state="${state}"${grey ? ' data-faded="1"' : ''}><g data-figure="1">${body}</g>${dashed}${strike}${lock}</g>`;
       if (state === 'invalid') out += `<g data-state-mark="${S.esc(a.id)}"></g>`;
       // El nombre del actor va en una ficha con punta, arriba de su caja: el
       // rótulo dice quién es sin escribir una coordenada.

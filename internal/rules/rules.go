@@ -257,6 +257,34 @@ type PartStandardThresholds struct {
 	// piece — never a row of boxes with text. False means the rule is not
 	// declared, so a frozen snapshot keeps accepting the parts it accepted.
 	StoryStage bool `json:"storyStage,omitempty"`
+	// ActorCharacter turns on the actor-character rule: an actor is a character
+	// drawn with `kind` — database, row, session, lock, user, server, process,
+	// file, packet or robot — and a story whose actors are all boxes with a name
+	// that names a character is refused. False means the rule is not declared,
+	// so a frozen snapshot keeps accepting the parts it accepted.
+	ActorCharacter bool `json:"actorCharacter,omitempty"`
+	// SceneStage turns on the still-scene rule: a `<lk-scene>` held to the same
+	// bar as a story stage, so a scene that only draws boxes with text and
+	// arrows is refused. False means the rule is not declared, so a frozen
+	// snapshot keeps accepting the parts it accepted.
+	SceneStage bool `json:"sceneStage,omitempty"`
+	// StoryMotion turns on the story-motion rule (#246): a derivation whose
+	// steps move nothing — no `moves`, no actor state change, no prop that
+	// changes, no pointer — is the same picture repeated. False means the rule
+	// is not declared, so a frozen snapshot keeps accepting the parts it
+	// accepted.
+	StoryMotion bool `json:"storyMotion,omitempty"`
+	// ArrowFlows turns on the text-arrow rule (#246): a story header or a scene
+	// label written as a flow of dashes (`--->`, `---[`, `==>`) is geometry
+	// written, not drawn. The prose rule uses the same pattern. False means the
+	// rule is not declared, so a frozen snapshot keeps accepting the parts it
+	// accepted.
+	ArrowFlows bool `json:"arrowFlows,omitempty"`
+	// DeadKeys turns on the dead-key rule (#246): a story step that carries a
+	// key the schema never reads (a `scene` beside `stage`) is a drawing nobody
+	// draws, and it teaches the tutor the wrong schema. False means the rule is
+	// not declared, so a frozen snapshot keeps accepting the parts it accepted.
+	DeadKeys bool `json:"deadKeys,omitempty"`
 }
 
 // ParetoThresholds bound a pareto-scope run: only the vital slice of each

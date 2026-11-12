@@ -865,3 +865,85 @@ test('una marca al tamaño de los nombres no es un hallazgo', { skip: SKIP }, ()
   assert.doesNotMatch(r.stdout, /etiqueta-desproporcionada/);
   assert.doesNotMatch(r.stdout, /cabecera-cortada/);
 });
+
+// Un personaje (#245) es un dibujo, no un conector: sus trazos no tienen que
+// «llegar» a nada. El engranaje del proceso se dibuja con un polígono cerrado y
+// el cilindro de la base de datos con un cuerpo curvo; medidos como flechas, sus
+// extremos quedan en el aire y la puerta rechazaba la escena que el alumno sí lee.
+const personajeEscena = (kind) => `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 220","title":"el personaje","caption":"El proceso y su dato.","scene":{
+  "boxes":[{"x":88,"y":70,"w":212,"h":80,"label":"el dato","tone":"blue","size":22}],
+  "icons":[{"kind":"${kind}","x":350,"y":110,"size":80,"tone":"slate"}]}}
+</script>
+</lk-scene>
+`;
+
+const personajeNote = (name, kind) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. El personaje\n\nSe dibuja el personaje.\n\n${personajeEscena(kind)}\n`);
+  return file;
+};
+
+for (const kind of ['gear', 'database', 'row', 'session', 'lock', 'server', 'process', 'file', 'packet']) {
+  test(`un personaje dibujado no es un trazo al aire: ${kind}`, { skip: SKIP }, () => {
+    const r = lint(personajeNote(`personaje-${kind}.md`, kind));
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout, /trazo-al-aire/);
+  });
+}
+
+// ── Una fila torcida y una marca en el hueco (#245) ─────────────────────────
+// El alumno vio la fila de cuentas torcida: «Cuenta 20» caía ~55 px por debajo de
+// «Cuenta 10» porque el marco a trazos y el candado del bloqueo agrandaban la caja
+// medida, y su ficha subía mientras su cofre bajaba. Y vio el «✓ acreditado»
+// flotando en el hueco entre los dos cofres, más cerca de ninguno: aprobaba a
+// Cuenta 20 y no estaba sobre ella.
+const rowStory = (actors, marks = [], viewBox = '0 0 360 260') => `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"La fila de cuentas","viewBox":"${viewBox}","steps":[
+ {"title":"La fila","narrator":"Dos cuentas en una fila.","equation":{"atoms":[{"t":"SELECT 1;","id":"q"}]},"focus":["q"],"stage":{"scene":{
+  "actors":${JSON.stringify(actors)},
+  "props":[{"id":"saldo10","kind":"value","on":"c10","side":"below","label":"800","tone":"blue"},{"id":"saldo20","kind":"value","on":"c20","side":"below","label":"1500","tone":"amber"}],
+  "marks":${JSON.stringify(marks)}}}}
+]}
+</script>
+</lk-story>`;
+
+const rowNote = (name, actors, marks, viewBox) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. La fila\n\nSe dibuja la fila.\n\n${rowStory(actors, marks, viewBox)}\n`);
+  return file;
+};
+
+const ROW_ACTORS = [
+  { id: 'c10', kind: 'row', x: 90, y: 120, size: 64, tone: 'blue', tag: 'Cuenta 10' },
+  { id: 'c20', kind: 'row', x: 270, y: 120, size: 64, tone: 'amber', tag: 'Cuenta 20' },
+];
+
+test('una fila de actores a distinta altura es un hallazgo', { skip: SKIP }, () => {
+  const crooked = [{ ...ROW_ACTORS[0] }, { ...ROW_ACTORS[1], y: 152 }];
+  const r = lint(rowNote('fila-torcida.md', crooked, []));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /fila-torcida/);
+});
+
+test('una fila de actores que comparten línea base no es un hallazgo', { skip: SKIP }, () => {
+  const r = lint(rowNote('fila-derecha.md', ROW_ACTORS, []));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /fila-torcida/);
+});
+
+test('una marca sin sitio en su columna cae al hueco y es un hallazgo', { skip: SKIP }, () => {
+  // El actor pegado al borde: debajo está su cofre y a su izquierda no cabe el ✓,
+  // así que la única salida es el hueco entre las dos cuentas — y ahí no aprueba a
+  // nadie. Es el ✓ suelto que el alumno vio flotando entre los dos saldos (#243).
+  const tight = [
+    { id: 'c10', kind: 'row', x: 60, y: 120, size: 64, tone: 'blue', tag: 'Cuenta 10' },
+    { id: 'c20', kind: 'row', x: 300, y: 120, size: 64, tone: 'amber', tag: 'Cuenta 20' },
+  ];
+  const r = lint(rowNote('marca-en-el-hueco.md', tight, [{ kind: 'ok', actor: 'c10' }]));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /marca-suelta/);
+  assert.match(r.stdout, /hueco|dueño/);
+});

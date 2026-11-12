@@ -96,7 +96,8 @@ var (
 	sentenceEnd = regexp.MustCompile(`[.!?](\s|$)`)
 
 	// asciiArrow matches a line that draws an arrow with box characters.
-	asciiArrow = regexp.MustCompile(`─+[►▶▸]`)
+	// Un flujo escrito con guiones es geometría escrita, no dibujada (#246).
+	asciiArrow = regexp.MustCompile(`─+[►▶▸]|-{2,}>|={2,}>|-{2,}\[`)
 
 	mathBlock = regexp.MustCompile(`(?s)<lk-math[^>]*>(.*?)</lk-math>`)
 	// mathDisplay and mathInline are the plain LaTeX a part writes when it skips
@@ -272,10 +273,14 @@ func routeLines(text string) (bool, int) {
 
 // drawnLines counts the lines that draw with box characters. Fenced blocks are
 // code, not a drawing, so they are not judged.
-func drawnLines(text string) int {
+func drawnLines(text string, th rules.PartStandardThresholds) int {
 	n := 0
+	// Las flechas de texto (`--->`, `---[`, `==>`) son la misma falta que las cajas
+	// ASCII (#246), y la regla es aditiva: un snapshot que no declara `arrowFlows`
+	// sigue aceptando la prosa que las lleva.
+	arrows := th.ArrowFlows
 	for _, line := range strings.Split(withoutCodeFences(text), "\n") {
-		if strings.ContainsAny(line, asciiBoxChars) || asciiArrow.MatchString(line) {
+		if strings.ContainsAny(line, asciiBoxChars) || (arrows && textArrow.MatchString(line)) {
 			n++
 		}
 	}
@@ -546,10 +551,12 @@ func storyLanguageFindings(text string, th rules.PartStandardThresholds) []strin
 // never refuses a step that draws more than that.
 type storyQualityDoc struct {
 	Kind    string `json:"kind"`
+	Title   string `json:"title"`
 	Formula *struct {
 		Atoms []json.RawMessage `json:"atoms"`
 	} `json:"formula"`
 	Steps []struct {
+		Title    string `json:"title"`
 		Equation *struct {
 			Atoms []json.RawMessage `json:"atoms"`
 		} `json:"equation"`
@@ -597,6 +604,84 @@ func storyStepDrawsAction(stage map[string]json.RawMessage) bool {
 		}
 	}
 	return false
+}
+
+// storyActor is the part of an actor the character rule reads (#245): its name
+// and the character it draws. `kind` is the name the kit documents; `icon` is its
+// older alias, and both draw the same character.
+type storyActor struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Kind  string `json:"kind"`
+	Icon  string `json:"icon"`
+	State string `json:"state"`
+}
+
+// character returns the character the actor draws, or "" when it is a box.
+func (a storyActor) character() string {
+	if a.Kind != "" {
+		return a.Kind
+	}
+	return a.Icon
+}
+
+// storyStepActors returns the actors a step draws, whether the step declares its
+// stage as the scene itself or under `scene`.
+func storyStepActors(stage map[string]json.RawMessage) []storyActor {
+	scene := stage
+	if raw, ok := stage["scene"]; ok && declared(raw) {
+		var inner map[string]json.RawMessage
+		if json.Unmarshal(raw, &inner) == nil {
+			scene = inner
+		}
+	}
+	raw, ok := scene["actors"]
+	if !ok {
+		return nil
+	}
+	var actors []storyActor
+	if json.Unmarshal(raw, &actors) != nil {
+		return nil
+	}
+	return actors
+}
+
+// storyCharacters are the characters the kit draws with `kind` (#245), each with
+// the words in an actor's name that ask for it. The list is the tool's list: the
+// tutor and the engine refuse the same part with the same names.
+var storyCharacters = []struct {
+	Kind  string
+	Words *regexp.Regexp
+}{
+	{"database", regexp.MustCompile(`(?i)base de datos|\bbd\b|\bdisco\b|\bbase\b`)},
+	{"row", regexp.MustCompile(`(?i)\bfila\b|\bregistro\b|\bcuenta\b|\btupla\b`)},
+	{"session", regexp.MustCompile(`(?i)\bsesi[oó]n\b|\bconexi[oó]n\b`)},
+	{"lock", regexp.MustCompile(`(?i)\bbloqueo\b|\bcerrojo\b|\btransacci[oó]n\b`)},
+	{"user", regexp.MustCompile(`(?i)\busuario\b|\bpersona\b|\bcliente\b|\balumno\b`)},
+	{"server", regexp.MustCompile(`(?i)\bservidor\b|\bhost\b`)},
+	{"process", regexp.MustCompile(`(?i)\bproceso\b|\bprograma\b|\bbloque\b|\bscript\b`)},
+	{"file", regexp.MustCompile(`(?i)\barchivo\b|\bdocumento\b|\bficha\b`)},
+	{"packet", regexp.MustCompile(`(?i)\bpaquete\b|\btrama\b|\bpacket\b|\bpetici[oó]n\b|\bmensaje\b`)},
+	{"robot", regexp.MustCompile(`(?i)\brobot\b|\bagente\b`)},
+}
+
+// characterFor returns the character an actor's name asks for, or "".
+func characterFor(label string) string {
+	for _, c := range storyCharacters {
+		if c.Words.MatchString(label) {
+			return c.Kind
+		}
+	}
+	return ""
+}
+
+// storyCharacterNames lists the characters the kit draws, for the refusal.
+func storyCharacterNames() string {
+	names := make([]string, 0, len(storyCharacters))
+	for _, c := range storyCharacters {
+		names = append(names, c.Kind)
+	}
+	return strings.Join(names, ", ")
 }
 
 // storyQualityDocs returns the parsed payload of every story outside fenced
@@ -691,7 +776,402 @@ func storyStageFindings(text string, th rules.PartStandardThresholds) []string {
 	return nil
 }
 
-// sceneFormulaBlocks returns the closed scene and walkthrough blocks outside
+// actorCharacterFindings measures the actor-character rule (#245): an actor is a
+// character drawn with `kind`, and a story whose actors are all boxes with a name
+// that names a character is refused. The refusal names the actor, the character
+// that fits and the ones the kit draws. A rules snapshot that does not declare
+// `actorCharacter` keeps accepting the parts it accepted.
+func actorCharacterFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.ActorCharacter {
+		return nil
+	}
+	for _, doc := range storyQualityDocs(text) {
+		var actors []storyActor
+		for _, step := range doc.Steps {
+			actors = append(actors, storyStepActors(step.Stage)...)
+		}
+		if len(actors) == 0 {
+			continue
+		}
+		drawn := false
+		for _, a := range actors {
+			if a.character() != "" {
+				drawn = true
+				break
+			}
+		}
+		if drawn {
+			continue
+		}
+		for _, a := range actors {
+			kind := characterFor(a.Label)
+			if kind == "" {
+				continue
+			}
+			title := doc.Title
+			if title == "" {
+				title = "la historia"
+			}
+			return []string{fmt.Sprintf(
+				"los actores de «%s» son cajas con su nombre — «%s» es un %s: dibújalo con `kind` («%s») y su nombre en `tag`; los personajes son %s",
+				title, a.Label, kind, kind, storyCharacterNames())}
+		}
+	}
+	return nil
+}
+
+// sceneDrawingKeys are the scene entries that make a still scene a drawing (#245):
+// a character, a prop, a piece, a curve, a formula or a callout. A scene that
+// draws none of them draws only boxes with text and arrows.
+var sceneDrawingKeys = []string{"actors", "props", "icons", "nodes", "grids", "sheets",
+	"bars", "stats", "formulas", "formula", "curves", "paths", "dashed", "badges",
+	"callouts", "policy", "tags"}
+
+// sceneStageFindings measures the still-scene rule (#245): a `<lk-scene>` is held
+// to the same bar as a story stage, so a scene that only draws boxes with text
+// and arrows is refused. A rules snapshot that does not declare `sceneStage`
+// keeps accepting the parts it accepted.
+func sceneStageFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.SceneStage {
+		return nil
+	}
+	for _, block := range sceneBlocks(text) {
+		payload, ok := jsonPayload(block)
+		if !ok {
+			continue
+		}
+		var spec struct {
+			Title string                     `json:"title"`
+			Scene map[string]json.RawMessage `json:"scene"`
+		}
+		if json.Unmarshal([]byte(payload), &spec) != nil {
+			continue
+		}
+		draws := false
+		for _, key := range sceneDrawingKeys {
+			if declared(spec.Scene[key]) {
+				draws = true
+				break
+			}
+		}
+		if draws {
+			continue
+		}
+		if !declared(spec.Scene["boxes"]) && !declared(spec.Scene["arrows"]) {
+			continue
+		}
+		title := spec.Title
+		if title == "" {
+			title = "sin título"
+		}
+		return []string{fmt.Sprintf(
+			"la escena quieta «%s» solo dibuja cajas con su texto y flechas — dibuja el personaje (<lk-scene> con `actors` y `kind`) o usa la pieza que le toca: <lk-memory>, <lk-tables>, <lk-venn>, <lk-cards>",
+			title)}
+	}
+	return nil
+}
+
+// ── What the bench measured (#246) ──────────────────────────────────────────
+// The five parts of the bench passed every gate and taught nothing: a derivation
+// that never moves, a story header written as a text-arrow flow, and a step key
+// the schema never reads. The three rules read the payload, never the drawing.
+
+// storyRawDoc is a story payload as written: the steps keep every key so the
+// dead-key rule can name the ones the schema never reads.
+type storyRawDoc struct {
+	Kind    string                       `json:"kind"`
+	Title   string                       `json:"title"`
+	Formula map[string]json.RawMessage   `json:"formula"`
+	Steps   []map[string]json.RawMessage `json:"steps"`
+}
+
+// storyRawDocs returns the parsed payload of every story outside fenced code.
+func storyRawDocs(text string) []storyRawDoc {
+	var docs []storyRawDoc
+	for _, block := range storyBlock.FindAllString(withoutCodeFences(text), -1) {
+		payload, ok := jsonPayload(block)
+		if !ok {
+			continue
+		}
+		var doc storyRawDoc
+		if json.Unmarshal([]byte(payload), &doc) != nil {
+			continue
+		}
+		docs = append(docs, doc)
+	}
+	return docs
+}
+
+// storyStageOf returns the stage of a step, the scene it draws, and whether the
+// step declares `stage.scene` (a step may draw its scene directly under `stage`).
+func storyStageOf(step map[string]json.RawMessage) (stage, scene map[string]json.RawMessage, nested bool) {
+	stage = map[string]json.RawMessage{}
+	if raw, ok := step["stage"]; ok {
+		_ = json.Unmarshal(raw, &stage)
+	}
+	scene = stage
+	if raw, ok := stage["scene"]; ok && declared(raw) {
+		var inner map[string]json.RawMessage
+		if json.Unmarshal(raw, &inner) == nil {
+			return stage, inner, true
+		}
+	}
+	return stage, scene, false
+}
+
+// pointsValue reads the pointer targets a step declares, wherever it declares
+// them (a memory piece names its target by id).
+var pointsValue = regexp.MustCompile(`"points"\s*:\s*"([^"]*)"`)
+
+// storyMotion reports whether a story moves: a move anywhere, an actor that is
+// in another state in some step, a prop that changes in some step, a piece that
+// changes between steps, or a pointer that changes. An actor that appears or a
+// prop that is replaced is the picture, not the action (#246).
+func storyMotion(steps []map[string]json.RawMessage) bool {
+	states := map[string]map[string]bool{}
+	note := func(key, value string) {
+		if states[key] == nil {
+			states[key] = map[string]bool{}
+		}
+		states[key][value] = true
+	}
+	var pieces, pointers []string
+	for _, step := range steps {
+		stage, scene, _ := storyStageOf(step)
+		var moves []json.RawMessage
+		if raw, ok := scene["moves"]; ok {
+			_ = json.Unmarshal(raw, &moves)
+		}
+		if len(moves) > 0 {
+			return true
+		}
+		var actors []storyActor
+		if raw, ok := scene["actors"]; ok {
+			_ = json.Unmarshal(raw, &actors)
+		}
+		for _, a := range actors {
+			state := a.State
+			if state == "" {
+				state = "active"
+			}
+			note("actor:"+a.ID, state)
+		}
+		var props []struct {
+			ID    string `json:"id"`
+			Label string `json:"label"`
+			State string `json:"state"`
+			Tone  string `json:"tone"`
+		}
+		if raw, ok := scene["props"]; ok {
+			_ = json.Unmarshal(raw, &props)
+		}
+		for _, p := range props {
+			note("prop:"+p.ID, p.Label+"|"+p.State+"|"+p.Tone)
+		}
+		// Una pieza cuenta como paso cuando cambia: la región de un conjunto, la
+		// fila que se revela, la celda que se mueve.
+		var piece json.RawMessage
+		for _, key := range storyPieces {
+			if raw, ok := stage[key]; ok && declared(raw) {
+				piece = raw
+				break
+			}
+		}
+		pieces = append(pieces, string(piece))
+		if raw, err := json.Marshal(stage); err == nil {
+			var found []string
+			for _, m := range pointsValue.FindAllStringSubmatch(string(raw), -1) {
+				found = append(found, m[1])
+			}
+			pointers = append(pointers, strings.Join(found, "|"))
+		}
+	}
+	for _, values := range states {
+		if len(values) > 1 {
+			return true
+		}
+	}
+	for i := 1; i < len(pieces); i++ {
+		if pieces[i] != pieces[i-1] {
+			return true
+		}
+	}
+	for i := 1; i < len(pointers); i++ {
+		if pointers[i] != pointers[i-1] {
+			return true
+		}
+	}
+	return false
+}
+
+// storyMotionFindings measures the story-motion rule (#246): a derivation whose
+// steps move nothing is the same picture repeated. A formula story is exempt —
+// its progression is the token the header highlights. A rules snapshot that does
+// not declare `storyMotion` keeps accepting the parts it accepted.
+func storyMotionFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.StoryMotion {
+		return nil
+	}
+	for _, doc := range storyRawDocs(text) {
+		if doc.Kind != "derivation" || len(doc.Steps) < 2 {
+			continue
+		}
+		if storyMotion(doc.Steps) {
+			continue
+		}
+		title := doc.Title
+		if title == "" {
+			title = "sin título"
+		}
+		return []string{fmt.Sprintf(
+			"la historia «%s» no mueve nada en %d paso(s): ni un movimiento (`moves`), ni un cambio de estado de sus actores, ni una pieza que cambie — dibuja la acción paso a paso, no la misma foto repetida",
+			title, len(doc.Steps))}
+	}
+	return nil
+}
+
+// textArrow is a flow written with dashes: `--->`, `---[`, `==>`. The prose rule
+// (`drawnLines`) uses the same pattern.
+var textArrow = regexp.MustCompile(`-{2,}>|={2,}>|-{2,}\[`)
+
+// arrowFlowFindings measures the text-arrow rule (#246): a story header or a
+// scene label written as a flow of dashes is geometry written, not drawn. A rules
+// snapshot that does not declare `arrowFlows` keeps accepting the parts it
+// accepted.
+func arrowFlowFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.ArrowFlows {
+		return nil
+	}
+	atomTexts := func(raw json.RawMessage) []string {
+		var atoms []struct {
+			T string `json:"t"`
+		}
+		if json.Unmarshal(raw, &atoms) != nil {
+			return nil
+		}
+		out := make([]string, 0, len(atoms))
+		for _, a := range atoms {
+			out = append(out, a.T)
+		}
+		return out
+	}
+	for _, doc := range storyRawDocs(text) {
+		var atoms []string
+		if doc.Kind == "derivation" {
+			// `equation` is an object with its atoms inside: {size, atoms:[…]}.
+			for _, step := range doc.Steps {
+				var eq struct {
+					Atoms json.RawMessage `json:"atoms"`
+				}
+				if raw, ok := step["equation"]; ok && json.Unmarshal(raw, &eq) == nil {
+					atoms = append(atoms, atomTexts(eq.Atoms)...)
+				}
+			}
+		} else if raw, ok := doc.Formula["atoms"]; ok {
+			atoms = append(atoms, atomTexts(raw)...)
+		}
+		for _, atom := range atoms {
+			if textArrow.MatchString(atom) {
+				return []string{fmt.Sprintf(
+					"la cabecera de la historia es un esquema en texto («%s»): la cabecera lleva la línea de código o la fórmula, y el flujo se dibuja con actores y movimientos, nunca con `--->` o `---[`",
+					strings.TrimSpace(atom))}
+			}
+		}
+	}
+	for _, block := range sceneBlocks(text) {
+		payload, ok := jsonPayload(block)
+		if !ok {
+			continue
+		}
+		var spec struct {
+			Scene map[string]json.RawMessage `json:"scene"`
+		}
+		if json.Unmarshal([]byte(payload), &spec) != nil {
+			continue
+		}
+		for _, key := range []string{"labels", "boxes"} {
+			var list []struct {
+				Text  string `json:"text"`
+				Label string `json:"label"`
+			}
+			if raw, ok := spec.Scene[key]; ok && json.Unmarshal(raw, &list) == nil {
+				for _, l := range list {
+					text := l.Text
+					if text == "" {
+						text = l.Label
+					}
+					if textArrow.MatchString(text) {
+						return []string{fmt.Sprintf(
+							"una etiqueta de la escena es un esquema en texto («%s»): la etiqueta nombra una pieza y el flujo se dibuja con actores y movimientos, nunca con `--->` o `---[`",
+							strings.TrimSpace(text))}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// The keys the story schema reads, at each level. A key outside them is a
+// drawing nobody draws (#246).
+var (
+	storyStepKeys  = map[string]bool{"title": true, "narrator": true, "equation": true, "focus": true, "stage": true, "say": true, "header": true}
+	storyStageKeys = map[string]bool{"scene": true, "cards": true, "memory": true, "tables": true, "venn": true, "caption": true}
+	storySceneKeys = map[string]bool{
+		"actors": true, "props": true, "moves": true, "tags": true, "marks": true, "icons": true,
+		"callouts": true, "curves": true, "paths": true, "formulas": true, "formula": true, "grids": true,
+		"sheets": true, "gears": true, "boxes": true, "arrows": true, "nodes": true, "bars": true,
+		"stats": true, "policy": true, "badges": true, "dashed": true, "labels": true, "title": true,
+		"aria": true, "caption": true,
+	}
+)
+
+// deadKeyFindings measures the dead-key rule (#246): a story step that carries a
+// key the schema never reads is refused, and the refusal names the key and the
+// schema. A rules snapshot that does not declare `deadKeys` keeps accepting the
+// parts it accepted.
+func deadKeyFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.DeadKeys {
+		return nil
+	}
+	dead := func(keys map[string]json.RawMessage, known map[string]bool) string {
+		var out []string
+		for key := range keys {
+			if !known[key] {
+				out = append(out, key)
+			}
+		}
+		sort.Strings(out)
+		if len(out) == 0 {
+			return ""
+		}
+		return out[0]
+	}
+	for _, doc := range storyRawDocs(text) {
+		for i, step := range doc.Steps {
+			stage, scene, nested := storyStageOf(step)
+			path := ""
+			if key := dead(step, storyStepKeys); key != "" {
+				path = key
+			} else if key := dead(stage, storyStageKeys); key != "" {
+				path = "stage." + key
+			} else if nested {
+				if key := dead(scene, storySceneKeys); key != "" {
+					path = "stage.scene." + key
+				}
+			}
+			if path == "" {
+				continue
+			}
+			return []string{fmt.Sprintf(
+				"el paso %d lleva `%s`, que el esquema no lee — el escenario vive en `stage` y su dibujo en `stage.scene`; las claves del paso son title, narrator, equation, focus, stage, say, header",
+				i+1, path)}
+		}
+	}
+	return nil
+}
+
+// sceneFormulaBlocks returns the closed scene and walkthrough blocks outside// sceneFormulaBlocks returns the closed scene and walkthrough blocks outside
 // fenced code: a scene inside a fence is an example of markup, not a drawing.
 func sceneFormulaBlocks(text string) []string {
 	plain := withoutCodeFences(text)
@@ -792,6 +1272,11 @@ func standardFindings(text string, th rules.PartStandardThresholds) []string {
 	findings = append(findings, storyHeaderFindings(text, th)...)
 
 	findings = append(findings, storyStageFindings(text, th)...)
+	findings = append(findings, actorCharacterFindings(text, th)...)
+	findings = append(findings, sceneStageFindings(text, th)...)
+	findings = append(findings, storyMotionFindings(text, th)...)
+	findings = append(findings, arrowFlowFindings(text, th)...)
+	findings = append(findings, deadKeyFindings(text, th)...)
 
 	if th.MaxSentencesPerParagraph > 0 {
 		if walls := wallParagraphs(text, th.MaxSentencesPerParagraph); len(walls) > 0 {
@@ -801,7 +1286,7 @@ func standardFindings(text string, th rules.PartStandardThresholds) []string {
 		}
 	}
 
-	if drawn := drawnLines(text); drawn > 0 {
+	if drawn := drawnLines(text, th); drawn > 0 {
 		findings = append(findings, fmt.Sprintf(
 			"%d line(s) drawn with ASCII box characters — draw it as an <lk-scene> or a mermaid block, never with characters",
 			drawn))

@@ -281,9 +281,24 @@ highlighted group brought into view, when it still does not fit. The bridge matr
 and an unchanged width in every cell.
 
 **Actors with state and props** (#217). An actor is a concept with a name tag: a box with a
-`label` or, with `"icon":"robot"` (any icon kind), a drawing centred at `x`, `y`. Its `state`
-shows by colour and mark: `active` (default, its tone), `faded` (grey: it no longer holds) and
-`invalid` (grey, struck through, with a ✗ at its corner unless the author marks it with their own ✗).
+`label` or, with `"kind":"robot"` (its older alias `icon` still works), a character drawn centred
+at `x`, `y`. Its `state` shows by colour and mark: `active` (default, its tone), `faded` (grey: it
+no longer holds), `invalid` (grey, struck through, with a ✗ at its corner unless the author marks
+it with their own ✗), `locked` (its tone, a dashed frame and a small lock at its corner: the row is
+held by a transaction) and `waiting` (grey, a dashed frame: it is not its turn yet).
+
+**Actor characters** (#245). An actor whose idea is a character is drawn as one, never as a
+rectangle with its name inside: `kind` is one of `database` (the cylinder), `row` (a table row with
+its cells), `session` (a terminal with its prompt), `lock`, `user`, `server` (the rack), `process`
+(a block with its cycle), `file` (the folded sheet), `packet` (the envelope) and `robot`. They are
+line drawings in the kit's own stroke — two or three shapes each, no text inside, legible from
+14 px up, and they follow the three papers because they are drawn with the tone's ink and sheet.
+The same kinds work as `scene.icons` and as a `prop`'s `kind`. A story whose actors are all boxes,
+when a name asks for a character («Cuenta 10» is a row, «Memoria de sesión» is a session), is
+refused by `explain-check` as `actor-sin-personaje` and by the engine as `actorCharacter`; a
+`<lk-scene>` that only draws boxes with text and arrows is refused as `escenario-de-cajas` /
+`sceneStage`. Worked example, gated: `examples/plsql-transaccion.md` (two rows with their saldos,
+the locked row with its lock, and `lk-memory` for session versus disk).
 `props` carry meaning and are anchored by id: `{"id":"valor","kind":"value","on":"s1","side":"right","label":"\"hola\""}`
 draws a small chest with its value label, `read` an eye, `write` a pencil, and any icon kind
 draws that icon; `state: "faded"` greys a prop. The prop goes to the side asked for and, where
@@ -296,6 +311,21 @@ A prop or a mark that names an id the step does not have is declared, not drawn 
 `scene-gate` measures them like every other piece (`al-borde`). Worked example, gated:
 `integrations/pi/kit/examples/propiedad-rust.md` (a value changes owner, the old owner is struck
 through, the value is freed).
+
+**One row, one baseline** (#245). Actors that stand side by side are laid out from the
+largest frame in the row, the state frame included: a `locked` actor draws a dashed frame and a
+lock at its corner, and those pieces grow its measured box, so a row laid out from each actor's
+own box put its name tag ~30 units higher and its value chest ~22 units lower than its neighbour's
+and the row read crooked. Tags share the row's top, props share the row's bottom, and both are
+centred on the actor's figure (the character or the box), never on the decorated edge. `scene-lint`
+reports a row whose figure centres or name tags differ by more than 6 units as `fila-torcida`.
+
+**A mark sits on its owner** (#245). A ✓ or ✗ that names one actor or prop is placed under its
+owner's column, or above it when there is no room below, and it moves to the outer side of the
+row — away from the neighbour — before it ever goes into the gap. A mark that names several
+pieces is placed in the gap between them and must carry its `label`. `scene-lint` reports
+`marca-suelta` when a mark's box falls in the horizontal gap between its owner and another piece,
+or when its centre is nearer another piece than its owner.
 
 **One surface.** The whole card — header, stage, narrator and player — shares the reader's
 paper, and so does every still `lk-scene`: both stages carry the `lk-remap` class that the night
@@ -449,7 +479,7 @@ accepts a `caption`, drawn under the piece as its own reading guide.
 | Element | Draws | Worked example (gated) |
 |---|---|---|
 | `lk-cards` | 2–4 verdict cards side by side (stacked on a narrow column): pill, title, a tiny drawing of the case (`refs` chips with `read`/`write`/`value` icons → `target`), one line of reason; the `verdict: "no"` card is tinted red. For code only (compila / no compila, correcto / error). | `examples/prestamos-rust.md` |
-| `lk-memory` | State in numbered steps: each repeats its code line (badge + code), columns (STACK / HEAP), segmented cells, status pills, a pointer from a cell to its target (`points`), invalid cells dashed and struck with a ✗. | `examples/memoria-string-rust.md` |
+| `lk-memory` | State in numbered steps: each repeats its code line (badge + code), columns (STACK / HEAP, or SESIÓN / DISCO), segmented cells, status pills, a pointer from a cell to its target (`points`), invalid cells dashed and struck with a ✗. | `examples/memoria-string-rust.md`, `examples/plsql-transaccion.md` |
 | `lk-tables` | Real tables joined by curved connectors (one colour per match, derived from the data), the `ON` pill and the derived result; `kind: "left"` keeps unmatched rows with `NULL`; `show` reveals tables → links → on → result. Also `group`: rows → groups with value chips and a COUNT badge. | `examples/sql-join-videojuegos.md`, `examples/sql-group-by.md` |
 | `lk-venn` | Two or three labelled sets; `fill` lists the exact regions that answer (`a+b` = in A and B only; `a` = A only), `op` names the operation, `says` explains it. One region per story step. | `examples/sql-venn-joins.md` |
 
