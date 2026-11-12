@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "runId": "exam-fixture",
+  "mode": "deep",
+  "scope": "pareto",
+  "workspace": "fixture",
+  "createdAt": "2026-03-01T00:00:00Z",
+  "rulesHash": "fixture",
+  "counters": {},
+  "global": {},
+  "partOrder": [],
+  "parts": {},
+  "semantic": [],
+  "exam": {
+    "format": "practical",
+    "practice": "build an app"
+  }
+}

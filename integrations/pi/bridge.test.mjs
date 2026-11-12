@@ -678,6 +678,24 @@ test("code vault lists malformed exercises and exclusively appends submission hi
   assert.throws(() => exerciseFile(topic, "../eco"));
 });
 
+test("listTopics exposes exam metadata from engine state and leaves legacy topics unchanged", () => {
+  const { root, topic } = makeRoot();
+  const [legacy] = listTopics(root);
+  assert.equal(legacy.exam, undefined);
+
+  const state = readFileSync(new URL("../../studio/testdata/exam-state.json", import.meta.url), "utf8");
+  const stateDir = join(topic, ".learning");
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(join(stateDir, "state.json"), state);
+
+  const [summary] = listTopics(root);
+  assert.deepEqual(summary.exam, { format: "practical", practice: "build an app" });
+  assert.deepEqual(summary.parts.map(({ id, title }) => ({ id, title })), [
+    { id: "p1", title: "Claves" },
+    { id: "p2", title: "Joins" },
+  ]);
+});
+
 function codeFixture(topic) {
   const dir = join(topic, "codigo", "eco");
   mkdirSync(dir, { recursive: true });

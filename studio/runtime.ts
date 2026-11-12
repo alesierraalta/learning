@@ -19,8 +19,8 @@ const STUDIO_PREFIXES = [GATE_PREFIX, "Learning engine:"];
 /** The studio's own instruction, told apart from the learner's words in the events and the thread. */
 export const isStudioPrompt = (text: string): boolean => STUDIO_PREFIXES.some((prefix) => text.startsWith(prefix));
 
-/** The two study modes the page offers; the learner picks one before a new request is sent. */
-export const STUDY_MODES = ["rapido", "universitario"] as const;
+/** The study modes the page offers; the learner picks one before a new request is sent. */
+export const STUDY_MODES = ["rapido", "universitario", "examen"] as const;
 export type StudyMode = (typeof STUDY_MODES)[number];
 
 /**
@@ -28,6 +28,9 @@ export type StudyMode = (typeof STUDY_MODES)[number];
  * again: the mode is decided in the page, before the turn exists.
  */
 export function modeLine(mode: StudyMode): string {
+  if (mode === "examen") {
+    return "[Modo de estudio: examen — ya decidido en el estudio. No preguntes si prefiere rápido o universitario ni abras un diálogo para elegirlo; pregunta si su examen será oral, escrito o práctico y, si es práctico, qué tipo de práctica tendrá.]";
+  }
   const label = mode === "rapido" ? "rápido" : "universitario";
   return `[Modo de estudio: ${label} — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]`;
 }

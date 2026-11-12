@@ -765,6 +765,7 @@ export interface TopicSummary {
   parts: PartSummary[];
   exercises: { id: string; titulo: string; lenguaje: string; mejor: string | null }[];
   gaps: TopicGaps;
+  exam?: { format: "oral" | "written" | "practical"; practice?: string };
 }
 
 export interface QuickNote {
@@ -1000,6 +1001,22 @@ export function countVisuals(markdown: string): number {
 
 const EMPTY_GAPS: TopicGaps = { missing: [], noVisuals: [], noQuiz: [] };
 
+/** Optional mode metadata must never make an older or damaged state hide an otherwise readable topic. */
+function readTopicExam(topicDir: string): TopicSummary["exam"] {
+  try {
+    const state = readRecord(join(topicDir, ".learning", "state.json"));
+    if (!state || !isRecord(state.exam)) return undefined;
+    const format = state.exam.format;
+    if (format !== "oral" && format !== "written" && format !== "practical") return undefined;
+    return {
+      format,
+      ...(typeof state.exam.practice === "string" ? { practice: state.exam.practice } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 /** Every topic folder with a plan.json under the Learnings root, with its parts as the vault holds them. */
 export function listTopics(rootReal: string, runners = loadRunners()): TopicSummary[] {
   return readdirSync(rootReal, { withFileTypes: true })
@@ -1038,7 +1055,8 @@ export function listTopics(rootReal: string, runners = loadRunners()): TopicSumm
             .map((s) => s.id),
           noQuiz: parts.filter((p) => p.written && !p.hasQuiz).map((p) => p.id),
         };
-        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts, exercises, gaps }];
+        const exam = readTopicExam(dir);
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts, exercises, gaps, ...(exam ? { exam } : {}) }];
       } catch {
         return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: false, parts: [], exercises: [], gaps: EMPTY_GAPS }];
       }

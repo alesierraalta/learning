@@ -160,6 +160,99 @@ test("home artboard heading cards form and tutorial stay compact and usable", { 
   }
 });
 
+test("home offers quick, university, and exam modes and sends the selected exam mode", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+
+  const entry = page.locator(".home-page .new-learning");
+  const modes = await entry.locator(".mode-pick").evaluateAll((buttons) => buttons.map((button) => ({
+    id: button.dataset.modo,
+    title: button.querySelector("b").textContent,
+    description: button.querySelector("span").textContent,
+  })));
+  assert.deepEqual(modes, [
+    { id: "universitario", title: "Universitario", description: "plan, diagnóstico y partes con quiz" },
+    { id: "rapido", title: "Rápido", description: "una nota breve para entenderlo hoy" },
+    { id: "examen", title: "Examen", description: "lo vital del temario, el formato de tu examen (oral, escrito o práctico) y un simulacro final" },
+  ]);
+  const field = entry.locator(".ask-big input");
+  const submit = entry.locator('button[type="submit"]');
+  await field.fill("redes neuronales");
+  const exam = entry.locator('.mode-pick[data-modo="examen"]');
+  await exam.click();
+  assert.equal(await exam.getAttribute("aria-pressed"), "true");
+  assert.equal(await submit.isDisabled(), false);
+  await submit.click();
+  const prompts = await sentPrompts(log);
+  assert.ok(prompts.some((message) => message.includes("[Modo de estudio: examen")), `the exam mode travels in the prompt: ${prompts.join(" | ")}`);
+  await page.waitForFunction(() => document.querySelector('.mode-pick[data-modo="examen"]')?.getAttribute("aria-pressed") === "false");
+  assert.equal(await field.inputValue(), "", "a sent request clears the text as before");
+  assert.equal(await submit.isDisabled(), true, "the next request still needs a mode");
+});
+
+test("exam topics expose their format and use the exam tag in both topic views", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+
+  const card = page.locator(".topic-card").filter({ hasText: "Redes" });
+  const tag = card.locator(".tag");
+  await tag.waitFor();
+  assert.equal(await tag.textContent(), "Universitario", "a topic without exam state keeps its old tag");
+  const stateDir = join(root, "redes", ".learning");
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(join(stateDir, "state.json"), readFileSync(join(import.meta.dirname, "testdata", "exam-state.json"), "utf8"));
+
+  const library = await fetch(`${studio.url}api/library`).then((response) => response.json());
+  assert.deepEqual(library.topics.find((topic) => topic.id === "redes").exam, { format: "practical", practice: "build an app" });
+  await page.reload({ waitUntil: "networkidle" });
+  await tag.waitFor();
+  assert.equal(await tag.textContent(), "Examen");
+  assert.equal(await tag.getAttribute("aria-label"), "Examen práctico");
+  assert.equal(await tag.getAttribute("title"), "Formato de examen: práctico");
+
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  const topicTag = page.locator(".topic-head .tag");
+  await topicTag.waitFor();
+  assert.equal(await topicTag.textContent(), "Examen");
+  assert.equal(await topicTag.getAttribute("aria-label"), "Examen práctico");
+  assert.equal(await topicTag.getAttribute("title"), "Formato de examen: práctico");
+});
+
+test("the tutorial presents Examen alongside Universitario and Rápido", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Ver el tutorial" }).click();
+  const deck = page.locator(".deck");
+  await deck.getByRole("button", { name: "Diapositiva 2" }).click();
+  await deck.getByRole("button", { name: "Siguiente ▶" }).click();
+  await deck.getByRole("button", { name: "Siguiente ▶" }).click();
+  for (const label of ["Universitario", "Rápido", "Examen"]) {
+    const mode = deck.locator(".deck-slide svg text").filter({ hasText: label }).first();
+    assert.equal(await mode.isVisible(), true, `${label} is visible in the tutorial mode choices`);
+  }
+  await deck.getByRole("button", { name: "Diapositiva 5" }).click();
+  for (const label of ["Universitario", "Rápido", "Examen"]) {
+    const mode = deck.locator(".deck-slide svg text").filter({ hasText: label }).first();
+    assert.equal(await mode.isVisible(), true, `${label} is visible in the tutorial overview`);
+  }
+});
+
 async function topicPage(page, studio, width, height = 800) {
   await page.setViewportSize({ width, height });
   await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });

@@ -195,7 +195,7 @@ function toolLabel(name: string, args: unknown): string {
 type Turn = {
   topic: string | null;
   correction: boolean;
-  /** A Universitario request whose topic does not exist yet: the first topic folder it writes. */
+  /** A new deep-mode request whose topic does not exist yet: the first topic folder it writes. */
   creation?: boolean;
   /**
    * The part notes this turn wrote or edited, in order: what the studio measures itself before the
@@ -1288,10 +1288,10 @@ ${scripts}
         const text = typeof body.text === "string" ? body.text.trim() : "";
         if (!text || text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "escribe qué quieres aprender");
         const modo = STUDY_MODES.find((mode) => mode === body.modo);
-        if (!modo) throw new HttpError(400, "elige rápido o universitario antes de enviar");
-        // The topic a university request teaches does not exist yet: its own first write under a
-        // topic folder binds it, and the gate asks the engine about that folder when it settles.
-        await startTurn(`Quiero aprender ${text}.\n\n${modeLine(modo)}`, { topic: null, creation: modo === "universitario" });
+        if (!modo) throw new HttpError(400, "elige rápido, universitario o examen antes de enviar");
+        // A deep-mode request's topic does not exist yet: its first write under a topic folder
+        // binds it, and the gate asks the engine about that folder when it settles.
+        await startTurn(`Quiero aprender ${text}.\n\n${modeLine(modo)}`, { topic: null, creation: modo !== "rapido" });
         return sendJson(res, 200, { ok: true, modo });
       }
       case "api/metodo": {
