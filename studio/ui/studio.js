@@ -8,6 +8,7 @@
     return;
   }
   const base = CONFIG.base;
+  const EXAM_FORMAT_LABEL = { oral: "oral", written: "escrito", practical: "práctico" };
 
   // The three ways to read a part. The article layout is the default; the
   // choice is kept on the device, like the document's own wide-reading key.
@@ -693,6 +694,21 @@
   }
 
   // ---------- home ----------
+  function topicTag(topic, tone, reveal = false) {
+    const format = topic.exam?.format;
+    const formatLabel = EXAM_FORMAT_LABEL[format] || format;
+    return h(
+      "span",
+      {
+        class: `tag${reveal ? " reveal" : ""}${tone === "test" ? " test" : ""}`,
+        style: reveal ? "--i:0" : undefined,
+        title: format ? `Formato de examen: ${formatLabel}` : undefined,
+        "aria-label": format ? `Examen ${formatLabel}` : undefined,
+      },
+      topic.exam ? "Examen" : tone === "test" ? "Prueba" : "Universitario",
+    );
+  }
+
   function continueCard(topic, step, compact = false, showProgress = false) {
     return h(
       "article",
@@ -738,6 +754,7 @@
     const picks = [
       ["universitario", "Universitario", "plan, diagnóstico y partes con quiz"],
       ["rapido", "Rápido", "una nota breve para entenderlo hoy"],
+      ["examen", "Examen", "lo vital del temario, el formato de tu examen (oral, escrito o práctico) y un simulacro final"],
     ].map(([id, title, hint]) =>
       h("button", { type: "button", class: "mode-pick", "data-modo": id, "aria-pressed": "false", onclick: () => pick(id) }, h("b", {}, title), h("span", {}, hint)),
     );
@@ -762,7 +779,7 @@
     return h(
       "section",
       { class: "new-learning", "aria-label": "Aprender algo nuevo" },
-      h("p", { class: "learn-hint" }, "Elige rápido o universitario: el tutor no te lo pregunta."),
+      h("p", { class: "learn-hint" }, "Elige rápido, universitario o examen: el tutor no te lo pregunta."),
       h("form", { class: "ask-big", onsubmit: (event) => { event.preventDefault(); send(); } }, input, submit),
       h("div", { class: "mode-picks", role: "group", "aria-label": "Modo de estudio" }, picks),
     );
@@ -831,7 +848,7 @@
                 h(
                   "button",
                   { class: "card reveal", type: "button", style: `--i:${i + 2};--tone:${TONE[s.tone]}`, onclick: () => go(`#/tema/${t.id}`) },
-                  h("span", { class: `tag${s.tone === "test" ? " test" : ""}` }, s.tone === "test" ? "Prueba" : "Universitario"),
+                  topicTag(t, s.tone),
                   h("h3", {}, t.title),
                   h("span", { class: "status" }, s.label),
                   h("div", { class: "foot" }, progress(t)),
@@ -973,7 +990,7 @@
             "div",
             {},
             h("a", { class: "topic-back", href: "#/" }, "← Volver a tus temas"),
-            h("span", { class: `tag reveal${step.tone === "test" ? " test" : ""}`, style: "--i:0" }, step.tone === "test" ? "Prueba" : "Universitario"),
+            topicTag(topic, step.tone, true),
             h("h1", { class: "reveal", style: "--i:0" }, topic.title),
             h("div", { class: "reveal", style: "--i:1;max-width:520px" }, progress(topic)),
             // The plan and the map are one picture of the whole topic, not two

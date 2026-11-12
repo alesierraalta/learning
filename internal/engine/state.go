@@ -66,6 +66,12 @@ type Counters struct {
 	SuccessfulAdvances int `json:"successfulAdvances"`
 }
 
+// Exam is the declared format and optional practice kind fixed when a run starts.
+type Exam struct {
+	Format   string `json:"format"`
+	Practice string `json:"practice,omitempty"`
+}
+
 // State is the engine-owned .learning/state.json document.
 type State struct {
 	Version int    `json:"version"`
@@ -75,6 +81,9 @@ type State struct {
 	// or pareto (only the vital slice). Runs created before scope existed
 	// carry no value and are resolved as complete.
 	Scope string `json:"scope,omitempty"`
+	// Exam is absent for runs created without an exam format. Older states omit
+	// this field and continue to behave as ordinary complete-scope runs.
+	Exam *Exam `json:"exam,omitempty"`
 	// Method is the learner's explanation method, chosen after the diagnosis
 	// in a strict-flow run: pareto or preferencias.
 	Method    string                 `json:"method,omitempty"`
@@ -117,12 +126,13 @@ func lockPath(ws string) string  { return filepath.Join(stateDir(ws), "lock") }
 // rulesSnapshotPath holds the rules a run started with (written by init).
 func rulesSnapshotPath(ws string) string { return filepath.Join(stateDir(ws), "rules.json") }
 
-func newState(workspace, rulesHash, scope string) *State {
+func newState(workspace, rulesHash, scope string, exam *Exam) *State {
 	return &State{
 		Version:   stateVersion,
 		RunID:     newRunID(),
 		Mode:      "deep",
 		Scope:     scope,
+		Exam:      exam,
 		Workspace: workspace,
 		CreatedAt: time.Now().UTC(),
 		RulesHash: rulesHash,

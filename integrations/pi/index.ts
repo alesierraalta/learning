@@ -160,6 +160,8 @@ export async function callEngine(
     root: string;
     workspace: string;
     scope?: string;
+    exam?: string;
+    practice?: string;
     method?: string;
     stage?: string;
     rule?: string;
@@ -190,6 +192,12 @@ export async function callEngine(
   ];
   if (target.scope) {
     argv.push("--scope", target.scope);
+  }
+  if (target.exam !== undefined) {
+    argv.push("--exam", target.exam);
+  }
+  if (target.practice !== undefined) {
+    argv.push("--practice", target.practice);
   }
   if (target.stage) {
     argv.push("--stage", target.stage);
@@ -583,12 +591,12 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     label: "Learning engine stage",
     description:
       "Transport one stage operation (init, start, validate, advance, status, review, method) to the Go learning engine via its CLI and return the single-JSON report. " +
-      "init enrolls a new topic (creates its folder under the Learnings root and records a new run); start resumes an existing topic; both take topic = the folder name and activate the deep session, so the learner never types a command. init also records the teaching scope: complete (the whole topic) or pareto (only the vital slice that yields most of the results). The other actions require an active deep session; they read the scope from state and reject a scope argument. validate lists pendingReviews (rules whose recorded review is missing or stale); the chat (possibly via subagents) evaluates the rubric on the artifact and context, then records the verdict with action review (stage, rule, verdict, reason, optional reviewer). advance needs an explicit stage and blocks while any required review is missing, stale or a gate verdict is FAIL. " +
+      "init enrolls a new topic (creates its folder under the Learnings root and records a new run); start resumes an existing topic; both take topic = the folder name and activate the deep session, so the learner never types a command. init also records the teaching scope: complete (the whole topic) or pareto (only the vital slice that yields most of the results). For exam runs, init accepts exam format oral, written or practical (exam=oral|written|practical), implies Pareto scope, and accepts practice only with practical; exam and practice are init-only, and exam cannot be combined with scope=complete. The other actions require an active deep session; they read the scope from state and reject a scope argument. validate lists pendingReviews (rules whose recorded review is missing or stale); the chat (possibly via subagents) evaluates the rubric on the artifact and context, then records the verdict with action review (stage, rule, verdict, reason, optional reviewer). advance needs an explicit stage and blocks while any required review is missing, stale or a gate verdict is FAIL. " +
       "The engine report is the authority on completion; a FAIL check means the work is not finished.",
     promptSnippet: "Run a learning-engine stage operation and read its JSON verdict",
     promptGuidelines: [
-      "Once the learner chooses the deep (university) mode, enroll the topic yourself: init for a new topic, start to resume one; never ask the learner to type a command.",
-      "If the learner chose to learn with the Pareto rule, pass scope=pareto on init; otherwise omit it (complete). Never change the scope of a running topic.",
+      "Once the learner chooses the deep (university) or exam mode, enroll the topic yourself: init for a new topic, start to resume one; never ask the learner to type a command.",
+      "If the learner chose to learn with the Pareto rule, pass scope=pareto on init; otherwise omit it (complete). For exam mode, ask whether the format is oral, written or practical and pass it as exam on init; for practical, ask the kind of practice and pass it as practice. Exam implies Pareto: never combine exam with scope=complete. Never change the scope of a running topic.",
       "After diagnosis, ask whether the learner wants pareto or preferencias and record their answer with action method before planning.",
       "Stage actions are only meaningful inside an active deep learning session; inactive sessions return an error.",
       "Never claim a stage or the topic is complete while the engine report shows FAIL, blocked or error.",
@@ -627,6 +635,17 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
           description:
             "init only: complete teaches the whole topic; pareto teaches only the vital slice that yields most of the results and requires the plan to declare what it drops. Omit for complete; later actions read it from state.",
         },
+        exam: {
+          type: "string",
+          enum: ["oral", "written", "practical"],
+          description:
+            "init only: exam format; implies Pareto scope and cannot be combined with scope=complete.",
+        },
+        practice: {
+          type: "string",
+          description:
+            "init only: kind of practical exam; accepted only with exam=practical.",
+        },
       },
       required: ["action"],
       additionalProperties: false,
@@ -634,17 +653,34 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     // SAFETY: open JSON Schema object, read by the host as a TypeBox-compatible schema.
     outputSchema: { type: "object", additionalProperties: true } as unknown as TSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const { action: requested, topic, scope, method } = params as {
+      const { action: requested, topic, scope, method, exam, practice } = params as {
         action?: string;
         topic?: unknown;
         scope?: unknown;
         method?: unknown;
+        exam?: unknown;
+        practice?: unknown;
       };
       if (requested === "method" && method !== "pareto" && method !== "preferencias") {
         return adapterError("invalid-arguments", "method must be pareto or preferencias");
       }
       if (requested !== "method" && method !== undefined) {
         return adapterError("invalid-arguments", "method is only accepted by the method action");
+      }
+      if (requested !== "init" && (exam !== undefined || practice !== undefined)) {
+        return adapterError("invalid-arguments", "exam and practice are only accepted by init");
+      }
+      if (requested === "init" && exam !== undefined && exam !== "oral" && exam !== "written" && exam !== "practical") {
+        return adapterError(
+          "invalid-arguments",
+          `exam must be oral, written, or practical, got ${JSON.stringify(exam)}`,
+        );
+      }
+      if (practice !== undefined && exam !== "practical") {
+        return adapterError("invalid-arguments", "practice requires exam=practical");
+      }
+      if (practice !== undefined && (typeof practice !== "string" || practice.trim() === "")) {
+        return adapterError("invalid-arguments", "--practice requires a non-empty kind");
       }
       if (scope !== undefined) {
         if (requested !== "init") {
@@ -659,6 +695,9 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
             `scope must be complete or pareto, got ${JSON.stringify(scope)}`,
           );
         }
+      }
+      if (requested === "init" && exam !== undefined && scope === "complete") {
+        return adapterError("invalid-arguments", "exam cannot be combined with scope=complete");
       }
       if (requested === "init" || requested === "start") {
         if (!safeTopic(topic)) {
@@ -685,6 +724,8 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
         const enrollOutcome = await callEngine(deps, requested === "init" ? "init" : "status", {
           ...engineTarget(),
           ...(requested === "init" && scope !== undefined ? { scope: scope as string } : {}),
+          ...(requested === "init" && exam !== undefined ? { exam: exam as string } : {}),
+          ...(requested === "init" && practice !== undefined ? { practice: practice as string } : {}),
         });
         if (!enrollOutcome.ok) {
           return adapterError(enrollOutcome.reason, enrollOutcome.detail);

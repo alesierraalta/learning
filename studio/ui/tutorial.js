@@ -65,8 +65,9 @@
         step(3, `<rect x="1080" y="10" width="620" height="270" rx="10" fill="${C.amberS}" stroke="${C.amber}" stroke-width="3"/>` +
           txt(1110, 58, "el tutor te pregunta", { anchor: "start", color: C.amber, size: 26 }) +
           txt(1110, 104, "¿Cómo quieres aprender?", { anchor: "start", bold: false, size: 34 }) +
-          box(1110, 136, 270, 110, "Universitario", { stroke: C.blue, fill: C.blueS, color: C.blue, size: 30 }) +
-          box(1404, 136, 270, 110, "Rápido", { stroke: C.green, fill: C.greenS, color: C.green, size: 30 })) +
+          box(1110, 136, 180, 110, "Universitario", { stroke: C.blue, fill: C.blueS, color: C.blue, size: 22 }) +
+          box(1300, 136, 180, 110, "Rápido", { stroke: C.green, fill: C.greenS, color: C.green, size: 22 }) +
+          box(1490, 136, 180, 110, "Examen", { stroke: C.amber, fill: C.amberS, color: C.amber, size: 22 })) +
         step(4, curve(1245, 250, 760, 520, { color: C.blue, bend: 0.2 }) +
           line(130, 560, 690, 560, { color: C.line, arrow: false, dashedLine: true, width: 4 }) +
           ["plan", "diag.", "P1", "P2", "P3"].map((t, i) => node(130 + i * 140, 560, t, { r: 40, stroke: i < 2 ? C.green : C.blue, fill: i < 2 ? C.greenS : C.blueS, color: i < 2 ? C.green : C.blue })).join("") +
@@ -147,9 +148,11 @@
             txt(wx + 890, wy + 128, "Tutor", { anchor: "start", bold: false, size: 26 }) +
             `<rect x="${wx + 890}" y="${wy + 150}" width="200" height="40" rx="20" fill="${C.blueS}"/>` +
             `<rect x="${wx + 980}" y="${wy + 204}" width="180" height="40" rx="20" fill="${C.greenS}"/>` +
-            `<rect x="${wx + 890}" y="${wy + 270}" width="270" height="210" rx="8" fill="${C.amberS}" stroke="${C.amber}" stroke-width="3"/>` +
+            `<rect x="${wx + 890}" y="${wy + 270}" width="270" height="260" rx="8" fill="${C.amberS}" stroke="${C.amber}" stroke-width="3"/>` +
             txt(wx + 906, wy + 304, "el tutor te pregunta", { anchor: "start", color: C.amber, size: 18 }) +
-            box(wx + 906, wy + 330, 238, 52, "Universitario", { size: 20 }) + box(wx + 906, wy + 396, 238, 52, "Rápido", { size: 20 })) +
+            box(wx + 906, wy + 330, 238, 52, "Universitario", { size: 20 }) +
+            box(wx + 906, wy + 396, 238, 52, "Rápido", { size: 20 }) +
+            box(wx + 906, wy + 462, 238, 52, "Examen", { stroke: C.amber, fill: C.amberS, color: C.amber, size: 20 })) +
           [
             [wx + 40, wy + 200, "Pide un tema nuevo aquí"],
             [wx + 540, wy + 120, "Lo que te toca ahora, con su botón"],

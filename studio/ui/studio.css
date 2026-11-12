@@ -160,9 +160,11 @@ h3 { font-weight: 700; }
 .mode-pick b { color: var(--ink); font-size: 1rem; }
 .mode-pick[data-modo="universitario"] { border-color: var(--blue); }
 .mode-pick[data-modo="rapido"] { border-color: var(--green); }
+.mode-pick[data-modo="examen"] { border-color: var(--amber); }
 .mode-pick[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--ink); background: var(--soft2); }
 .mode-pick[aria-pressed="true"] b { color: var(--blue); }
 .mode-pick[data-modo="rapido"][aria-pressed="true"] b { color: var(--green); }
+.mode-pick[data-modo="examen"][aria-pressed="true"] b { color: var(--amber); }
 .panel-learning { margin: 10px 0 0; padding: 0 16px; }
 .panel-learning summary { cursor: pointer; font-weight: 700; color: var(--blue); }
 .panel-learning .new-learning { margin: 8px 0 12px; }

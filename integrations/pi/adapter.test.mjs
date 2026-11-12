@@ -681,6 +681,207 @@ test("stage tool keeps the scope to init and defaults to complete", async () => 
   assert.equal(engine.calls[0].args.includes("--scope"), false, "complete scope is the engine default");
 });
 
+async function assertRejectedInitArguments(options, detail) {
+  const env = tempEnv();
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+
+  const result = await executeTool(host, { action: "init", topic: "exam-rejected", ...options });
+  const expected = { source: "adapter", status: "error", reason: "invalid-arguments", detail };
+  assert.equal(result.isError, true, "rejected init is an error result");
+  assert.deepEqual(result.structuredContent, expected);
+  assert.equal(result.content[0].text, JSON.stringify(expected, null, 2), "exact adapter error message");
+  assert.equal(engine.calls.length, 0, "rejected arguments never reach the engine");
+  assert.equal(existsSync(join(env.root, "exam-rejected")), false, "rejection leaves the topic directory untouched");
+  assert.equal(host.entries.length, 0, "rejection leaves enrollment state untouched");
+
+  const stillInactive = await executeTool(host, { action: "status" });
+  assert.deepEqual(stillInactive.structuredContent, {
+    source: "adapter",
+    status: "error",
+    reason: "inactive",
+    detail: "no active deep session; enroll the topic first with action init or start inside the Learnings root",
+  }, "rejected init does not activate a session");
+  assert.equal(engine.calls.length, 0);
+  assert.equal(host.entries.length, 0);
+}
+
+test("stage tool init accepts each exam format and passes each flag once after scope", async () => {
+  const env = tempEnv();
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+
+  const cases = [
+    { topic: "oral-exam", exam: "oral" },
+    { topic: "written-exam", exam: "written", scope: "pareto" },
+    { topic: "practical-exam", exam: "practical", practice: "build an app", scope: "pareto" },
+  ];
+  for (const { topic, exam, practice, scope } of cases) {
+    const result = await executeTool(host, { action: "init", topic, exam, ...(practice ? { practice } : {}), ...(scope ? { scope } : {}) });
+    assert.equal(result.isError, false, JSON.stringify(result.structuredContent));
+    const created = realpathSync(join(env.root, topic));
+    const expected = [
+      "init",
+      "--root",
+      realpathSync(env.root),
+      "--workspace",
+      created,
+      "--rules",
+      RULES_PATH,
+      "--mode",
+      "deep",
+      ...(scope ? ["--scope", scope] : []),
+      "--exam",
+      exam,
+      ...(practice ? ["--practice", practice] : []),
+      "--json",
+    ];
+    assert.deepEqual(engine.calls.at(-1).args, expected);
+    assert.equal(engine.calls.at(-1).args.filter((arg) => arg === "--exam").length, 1);
+    assert.equal(engine.calls.at(-1).args.filter((arg) => arg === "--practice").length, practice ? 1 : 0);
+  }
+  assert.equal(engine.calls.length, cases.length);
+});
+
+test("stage tool init without exam preserves the exact pre-exam argv", async () => {
+  const env = tempEnv();
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+
+  const result = await executeTool(host, { action: "init", topic: "ordinary-topic" });
+
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent));
+  assert.deepEqual(engine.calls[0].args, [
+    "init",
+    "--root",
+    realpathSync(env.root),
+    "--workspace",
+    realpathSync(join(env.root, "ordinary-topic")),
+    "--rules",
+    RULES_PATH,
+    "--mode",
+    "deep",
+    "--json",
+  ]);
+
+  const explicitComplete = await executeTool(host, { action: "init", topic: "explicit-complete", scope: "complete" });
+  assert.equal(explicitComplete.isError, false, JSON.stringify(explicitComplete.structuredContent));
+  assert.deepEqual(engine.calls[1].args, [
+    "init",
+    "--root",
+    realpathSync(env.root),
+    "--workspace",
+    realpathSync(join(env.root, "explicit-complete")),
+    "--rules",
+    RULES_PATH,
+    "--mode",
+    "deep",
+    "--scope",
+    "complete",
+    "--json",
+  ], "explicit complete scope still works on non-exam runs");
+  assert.equal(engine.calls.length, 2);
+});
+
+test("stage tool rejects exam and practice outside init without changing the active session", async () => {
+  const env = tempEnv();
+  const { host, engine } = install(env, okEngine);
+  await enroll(host);
+  const entriesBefore = host.entries.length;
+
+  for (const params of [
+    { action: "status", exam: "oral" },
+    { action: "start", topic: "demo-topic", practice: "build an app" },
+  ]) {
+    const result = await executeTool(host, params);
+    const expected = {
+      source: "adapter",
+      status: "error",
+      reason: "invalid-arguments",
+      detail: "exam and practice are only accepted by init",
+    };
+    assert.equal(result.isError, true);
+    assert.deepEqual(result.structuredContent, expected);
+    assert.equal(result.content[0].text, JSON.stringify(expected, null, 2));
+    assert.equal(engine.calls.length, 0, "invalid action arguments never reach the engine");
+    assert.equal(host.entries.length, entriesBefore, "invalid action arguments do not re-enroll the session");
+  }
+
+  const status = await executeTool(host, { action: "status" });
+  assert.equal(status.isError, false, "the pre-existing active session remains usable");
+  assert.equal(engine.calls.length, 1);
+  assert.deepEqual(engine.calls[0].args.slice(0, 5), ["status", "--root", realpathSync(env.root), "--workspace", realpathSync(env.topic)]);
+  assert.equal(host.entries.length, entriesBefore);
+});
+
+test("stage tool rejects invalid exam formats before any init side effect", async () => {
+  for (const format of ["oralish", "ORAL", "", null]) {
+    await assertRejectedInitArguments(
+      { exam: format },
+      `exam must be oral, written, or practical, got ${JSON.stringify(format)}`,
+    );
+  }
+});
+
+test("stage tool requires practical format when practice is supplied", async () => {
+  for (const options of [
+    { practice: "build an app" },
+    { exam: "oral", practice: "build an app" },
+    { exam: "written", practice: "build an app" },
+  ]) {
+    await assertRejectedInitArguments(options, "practice requires exam=practical");
+  }
+});
+
+test("stage tool rejects blank practical descriptions before any init side effect", async () => {
+  const practice = " \t\u2003";
+  const env = tempEnv();
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+  const entriesBefore = [...host.entries];
+
+  const result = await executeTool(host, { action: "init", topic: "blank-practice", exam: "practical", practice });
+  const statusAfter = await executeTool(host, { action: "status" });
+  const actual = {
+    rejected: result.isError,
+    reason: result.structuredContent.reason,
+    engineCalls: engine.calls.length,
+    topicCreated: existsSync(join(env.root, "blank-practice")),
+    enrollmentEntries: host.entries.length - entriesBefore.length,
+    statusAfterRejection: statusAfter.structuredContent.reason,
+  };
+
+  assert.deepEqual(actual, {
+    rejected: true,
+    reason: "invalid-arguments",
+    engineCalls: 0,
+    topicCreated: false,
+    enrollmentEntries: 0,
+    statusAfterRejection: "inactive",
+  }, `practice ${JSON.stringify(practice)} must be refused without side effects`);
+});
+
+test("stage tool rejects exam combined with complete scope before any init side effect", async () => {
+  for (const exam of ["oral", "written", "practical"]) {
+    await assertRejectedInitArguments(
+      { exam, scope: "complete" },
+      "exam cannot be combined with scope=complete",
+    );
+  }
+});
+
+test("learning_stage declares exam format and practice parameters and instructions", async () => {
+  const env = tempEnv();
+  const { host } = installAtRoot(env);
+  const tool = host.tools.get("learning_stage");
+
+  assert.deepEqual(tool.parameters.properties.exam.enum, ["oral", "written", "practical"]);
+  assert.equal(tool.parameters.properties.practice.type, "string");
+  assert.match(tool.description, /exam format.*oral.*written.*practical/i);
+  assert.ok(tool.promptGuidelines.some((guideline) => /exam/i.test(guideline)));
+  assert.ok(tool.promptGuidelines.some((guideline) => /practice/i.test(guideline)));
+});
+
 test("stage tool start resumes an existing topic with a status read", async () => {
   const env = tempEnv();
   const { host, engine } = installAtRoot(env);

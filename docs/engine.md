@@ -25,7 +25,7 @@ rtk go build -o bin/learning ./cmd/learning
 ## CLI contract
 
 ```text
-learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--stage STAGE] [--json]
+learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--exam oral|written|practical] [--practice KIND] [--stage STAGE] [--json]
 learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
 learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
 learning help
@@ -129,6 +129,56 @@ exactly as before.
 - Measurement is never trimmed: the quiz, its answer key, the diagnosis and
   the learner dump keep their full checks in both scopes.
 
+## Exam mode
+
+`--exam oral|written|practical` fixes the final mock-exam format at `init`.
+It is init-only, implies `pareto` scope, and cannot be combined with explicit
+`--scope complete` (exit 2). `--practice "<kind>"` is also init-only and is
+accepted only with `--exam practical`; it is optional even for practical runs.
+Later commands read the exam contract from state rather than accepting new flags.
+
+An exam run stores `state.exam` as `{"format":"practical","practice":"build an app"}`
+(the `practice` key is omitted when no kind was supplied). The init report
+returns it in `evidence.exam` alongside `evidence.scope: "pareto"`; `status`
+reports `exam` when present. Older states without `exam` still load unchanged,
+and runs without an exam retain their existing behavior.
+
+The plan binds itself and each part to that fixed contract. In `plan.json`, add
+an `examen` block matching the run; `practica` is required and must match when
+`--practice` was supplied, and otherwise must be omitted. Every part needs an
+`examen` line of at least 24 trimmed characters explaining what it contributes
+to this exam:
+
+```json
+{"topic":"Build an app",
+ "pareto":{"criterio":"Keep only concepts needed to build the core app.","descartado":["Advanced deployment"]},
+ "examen":{"formato":"practical","practica":"build an app"},
+ "parts":[{"id":"p1","title":"Core","slug":"Core","subtema":"1.1",
+   "examplesPlanned":true,"visualsPlanned":true,"pareto":"Builds the core app behavior.",
+   "examen":"This part prepares you to design and build the requested application."}]}
+```
+
+The `exam-plan` check runs at `preparation` and again at `planning` (where the
+plan may have been rewritten). It fails for a missing/mismatched exam block,
+practice kind, or part-purpose line. Its bounds come from
+`thresholds.exam: {"formats":["oral","written","practical"],"minPartChars":24}`.
+A rules file that declares `exam_plan` or `exam_mock` without `thresholds.exam`
+fails to load; the check also fails closed if the run format is not enabled.
+
+`cuestionario-final.json` adds a top-level `formato` equal to the run's exam
+format. The `exam-mock` check at `final_quiz` requires a nonempty question list
+and enforces the format-specific contract:
+
+- `oral`: at least as many open questions as choice questions.
+- `written`: keeps the existing choice/open mix.
+- `practical`: at least one question has `"tipo":"practica"` and a nonempty
+  `"entregable"`.
+
+The existing `final-quiz-note` check still owns plan coverage, recorded answers,
+scoring and its choice/open mix for every format; `exam-mock` checks shape, not
+subject-matter quality. In a non-exam run, `exam-plan` and `exam-mock` report
+`SKIP` because no exam format was declared.
+
 ## Explanation method (strict flow)
 
 Rules with `thresholds.strictFlow: true` ask the learner how to be taught once
@@ -223,16 +273,16 @@ is the source of truth for paths and checks; this table summarizes it.
 
 | Stage | Artifacts | Objective checks (summary) |
 |---|---|---|
-| preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned`; in `pareto` scope, a stated `pareto.criterio`, a nonempty `pareto.descartado`, one `pareto` line per part and at most `maxParts` parts. Optional per-part `demosPlanned` declares an interactive-demo promise |
+| preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned`; in `pareto` scope, a stated `pareto.criterio`, a nonempty `pareto.descartado`, one `pareto` line per part and at most `maxParts` parts. Optional per-part `demosPlanned` declares an interactive-demo promise. Exam runs also require the matching `examen` block and per-part `examen` purpose (`exam-plan`) |
 | diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | adaptive rounds (`thresholds.diagnostic.mode: adaptive`, see "Adaptive diagnosis") or, for runs whose rules snapshot has fixed counts, 6 prerequisite + 6 topic questions (2/2/2 by level); enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
-| planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part; in `pareto` scope the selection is re-checked because planning rewrites `plan.json` |
+| planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part; in `pareto` scope the selection is re-checked because planning rewrites `plan.json`; exam runs re-check the format and each part's exam-purpose line (`exam-plan`) |
 | explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, the measured explanation standard (`explanation-standard`, see [Explanation standard](#explanation-standard): `thresholds.partStandard` prose budget, content sections, route lines, one scene that draws, one walkthrough, paragraphs of at most two sentences, no drawn ASCII, formula legend over `<lk-math>`, plain `$$…$$`/`$…$` math and the formulas a scene draws symbol by symbol, with the annotated formula scene named in the fix, no closing summary), planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, an inline `thresholds.visualElements` element such as `<svg>`, or a scene element the kit draws — `<lk-figure>` and `<lk-scene>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step (scene-only markup does not render in the kit); always, whatever the run's frozen rules: at least one progressive walkthrough (see [Progressive walkthroughs](#progressive-walkthroughs)) |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
 | quiz | `mini-quiz/{part}.json`, `mini-quiz/{part}.answers.json` | part note has a mini-quiz section, 5 questions with enunciados present in it, complete answers, derived score ≥ 4/5 with no central miss |
 | feedback | `feedback/{part}.json` | matches the part, nonempty notes, `difficultyDetected=false` cannot contradict recorded wrong answers |
 | adaptation | — | conditional obligation below |
 | exercises | `ejercicios.md` | `tipo: ejercicios`, nonempty body with headings |
-| final_quiz | `cuestionario-final.md`, `cuestionario-final.json`, `cuestionario-final.answers.json` | every planned node covered, both choice and open questions, enunciados present in the note, choice answers are option letters, open answers nonempty, `estado: completado` and derived `puntaje` |
+| final_quiz | `cuestionario-final.md`, `cuestionario-final.json`, `cuestionario-final.answers.json` | every planned node covered, both choice and open questions, enunciados present in the note, choice answers are option letters, open answers nonempty, `estado: completado` and derived `puntaje`; exam runs also enforce the declared mock format (`exam-mock`) |
 | final | `planificador.md`, `mapa.mmd`, `plan.json` | all stages current, conditional obligations met, re-scored planner still valid and linked, re-scored map still a mermaid graph |
 
 Visual formats: `thresholds.visualBlocks` in `rules/deep.json` lists the fenced
@@ -425,9 +475,11 @@ section.
 `feedback/{part}.json`:
 `{"partId": "p1", "difficultyDetected": false, "notes": "..."}`.
 
-`cuestionario-final.json`: `formato` is `opción múltiple` (or `mcq`/`multiple
-choice`), whose `respuesta` is the correct letter, or an open format such as
-`respuesta corta`, whose `respuesta` may be empty.
+`cuestionario-final.json`: each question's `formato` is `opción múltiple` (or
+`mcq`/`multiple choice`), whose `respuesta` is the correct letter, or an open
+format such as `respuesta corta`, whose `respuesta` may be empty. In an exam
+run, the top-level `formato` additionally declares the mock-exam format (`oral`,
+`written`, or `practical`), as described in [Exam mode](#exam-mode).
 
 ```json
 {"questions": [{"id": "f1", "subtema": "1.2.2", "nivel": "medio",
@@ -753,7 +805,8 @@ quality, which rests on the evaluator named in each receipt.
 
 ```json
 {
-  "version": 1, "runId": "…", "mode": "deep", "scope": "pareto", "workspace": "…",
+  "version": 1, "runId": "…", "mode": "deep", "scope": "pareto",
+  "exam": {"format": "practical", "practice": "build an app"}, "workspace": "…",
   "createdAt": "…", "rulesHash": "sha256:…",
   "counters": {"successfulAdvances": 12},
   "global": {"planning": {"completedAt": "…", "receipts": {"plan.json": "sha256:…"}, "evidence": {}}},

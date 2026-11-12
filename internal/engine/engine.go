@@ -25,6 +25,8 @@ type Options struct {
 	RulesPath string
 	Mode      string // deep (default) | conceptual
 	Scope     string // init only: complete (default) | pareto
+	Exam      string // init only: oral | written | practical; implies pareto scope
+	Practice  string // init only: practical exam's optional practice kind
 	Method    string // method only: pareto | preferencias
 	Stage     string // required for advance and review, optional for validate
 	Rule      string // review: rubric id receiving the verdict
@@ -48,6 +50,7 @@ type Report struct {
 	Checks    []Check        `json:"checks"`
 	NextStage string         `json:"nextStage"`
 	Scope     string         `json:"scope,omitempty"`
+	Exam      *Exam          `json:"exam,omitempty"`
 	Method    string         `json:"method,omitempty"`
 	Part      string         `json:"part,omitempty"`
 	Evidence  map[string]any `json:"evidence,omitempty"`
@@ -93,13 +96,45 @@ func Run(opts Options) (Report, int) {
 	if opts.RulesPath == "" {
 		return errorReport("missing required argument --rules"), ExitOperational
 	}
-	// The learning scope is fixed at init and lives in state afterwards, so a
-	// later command passing --scope would silently disagree with the run.
+	// Scope and exam format are fixed at init and live in state afterwards.
+	// Later commands cannot change which material or exam contract a run uses.
 	if opts.Scope != "" && opts.Command != "init" {
 		return errorReport("--scope is only accepted by the init command"), ExitOperational
 	}
-	if opts.Scope == "" {
-		opts.Scope = scopeComplete
+	if opts.Exam != "" && opts.Command != "init" {
+		return errorReport("--exam is only accepted by the init command"), ExitOperational
+	}
+	if opts.Practice != "" && opts.Command != "init" {
+		return errorReport("--practice is only accepted by the init command"), ExitOperational
+	}
+	if opts.Practice != "" {
+		opts.Practice = strings.TrimSpace(opts.Practice)
+		if opts.Practice == "" {
+			return errorReport("--practice requires a non-empty kind"), ExitOperational
+		}
+	}
+	if opts.Exam != "" {
+		switch opts.Exam {
+		case "oral", "written", "practical":
+		default:
+			return errorReport(fmt.Sprintf("invalid exam format %q: expected oral, written or practical", opts.Exam)), ExitOperational
+		}
+		if opts.Practice != "" && opts.Exam != "practical" {
+			return errorReport("--practice is only valid with --exam practical"), ExitOperational
+		}
+		if opts.Scope == scopeComplete {
+			return errorReport("--exam requires scope pareto; --scope complete is incompatible"), ExitOperational
+		}
+		if opts.Scope == "" {
+			opts.Scope = scopePareto
+		}
+	} else {
+		if opts.Practice != "" {
+			return errorReport("--practice requires --exam practical"), ExitOperational
+		}
+		if opts.Scope == "" {
+			opts.Scope = scopeComplete
+		}
 	}
 	if opts.Scope != scopeComplete && opts.Scope != scopePareto {
 		return errorReport("invalid scope " + opts.Scope + ": expected complete or pareto"), ExitOperational
@@ -172,10 +207,20 @@ func Run(opts Options) (Report, int) {
 	if opts.Stage != "" && !containsStr(r.StageOrder, opts.Stage) {
 		return errorReport("unknown stage " + opts.Stage + ": not declared in the rules file"), ExitOperational
 	}
+	var exam *Exam
+	if opts.Exam != "" {
+		if !r.Thresholds.ExamMode() {
+			return errorReport("rules do not support exam mode: exam thresholds are missing"), ExitOperational
+		}
+		if !containsStr(r.Thresholds.Exam.Formats, opts.Exam) {
+			return errorReport(fmt.Sprintf("exam format %q is not enabled by the rules", opts.Exam)), ExitOperational
+		}
+		exam = &Exam{Format: opts.Exam, Practice: opts.Practice}
+	}
 
 	switch opts.Command {
 	case "init":
-		return runInit(wsReal, r, opts.Scope)
+		return runInit(wsReal, r, opts.Scope, exam)
 	case "status":
 		return runStatus(wsReal, r)
 	case "method":
@@ -244,7 +289,7 @@ func blocked(checks []Check, stage, next, part string, code int) (Report, int) {
 
 // --- init ------------------------------------------------------------------
 
-func runInit(ws string, r *rules.Rules, scope string) (Report, int) {
+func runInit(ws string, r *rules.Rules, scope string, exam *Exam) (Report, int) {
 	release, err := acquireLock(ws)
 	if err != nil {
 		return errorReport(err.Error()), ExitOperational
@@ -256,16 +301,20 @@ func runInit(ws string, r *rules.Rules, scope string) (Report, int) {
 	if err := os.WriteFile(rulesSnapshotPath(ws), r.Raw, 0o644); err != nil {
 		return errorReport("cannot snapshot the run rules: " + err.Error()), ExitOperational
 	}
-	st := newState(ws, r.Hash, scope)
+	st := newState(ws, r.Hash, scope, exam)
 	if err := saveState(ws, st); err != nil {
 		return errorReport(err.Error()), ExitOperational
+	}
+	evidence := map[string]any{"runId": st.RunID, "scope": scope}
+	if exam != nil {
+		evidence["exam"] = exam
 	}
 	return Report{
 		Status:    "accepted",
 		NextStage: r.StageOrder[0],
 		Checks: []Check{passCheck("run-initialized",
 			fmt.Sprintf("deep run %s created; rules %s recorded", st.RunID, shortHash(r.Hash)))},
-		Evidence: map[string]any{"runId": st.RunID, "scope": scope},
+		Evidence: evidence,
 	}, ExitOK
 }
 
@@ -281,10 +330,11 @@ func runStatus(ws string, r *rules.Rules) (Report, int) {
 	}
 	fStage, fPart, complete := frontier(r, st, ws)
 	scope := stateScope(st)
-	// Every status report carries the scope, including a blocked one: the
-	// adapter and the chat read it to know how much the run teaches.
+	// Every status report carries the scope and any declared exam, including a
+	// blocked one: the learner-facing tools read them from engine state.
 	report := func(rep Report, code int) (Report, int) {
 		rep.Scope = scope
+		rep.Exam = st.Exam
 		rep.Method = st.Method
 		return rep, code
 	}

@@ -1062,6 +1062,7 @@ test("a correction the runtime refuses is told in Spanish, not in the runtime's 
 const MODE_LINE = {
   rapido: "[Modo de estudio: rápido — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
   universitario: "[Modo de estudio: universitario — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
+  examen: "[Modo de estudio: examen — ya decidido en el estudio. No preguntes si prefiere rápido o universitario ni abras un diálogo para elegirlo; pregunta si su examen será oral, escrito o práctico y, si es práctico, qué tipo de práctica tendrá.]",
 };
 /** What the engine reports when the method is recorded and planning is next. */
 const METHOD_RECORDED = { status: "accepted", stage: "method", nextStage: "planning", method: "pareto", checks: [{ id: "method-chosen", status: "PASS", reason: "the learner chose pareto" }] };
@@ -1099,6 +1100,7 @@ test("«Aprender algo nuevo» refuses a request with no mode and sends nothing",
     for (const body of [{ text: "algo" }, { text: "algo", modo: "" }, { text: "algo", modo: "medio" }, { text: "algo", modo: "Universitario" }, { text: "  ", modo: "rapido" }]) {
       const res = await post(studio, "api/aprender", body);
       assert.equal(res.status, 400, `${JSON.stringify(body)} → ${res.body}`);
+      assert.equal(JSON.parse(res.body).error, body.text.trim() ? "elige rápido, universitario o examen antes de enviar" : "escribe qué quieres aprender");
     }
     assert.equal(prompts().length, 0, "nothing reached the tutor");
   } finally { stream.close(); }
@@ -1203,6 +1205,27 @@ test("a Universitario turn binds the topic its own writes create, and the engine
     const told = await stream.next("error");
     assert.match(told.message, /no pudo terminar/);
     assert.equal(prompts().length, 1 + MAX_CORRECTIONS, "the turn and its corrections, and no more");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
+test("an Examen turn binds and gates the new topic it creates", async () => {
+  const created = await creatingStudio((root) => [{ path: join(root, "nuevo", "plan.json") }]);
+  const { studio, root, prompts, stream, asked } = created;
+  try {
+    const response = await post(studio, "api/aprender", { text: "aprendizaje por refuerzo", modo: "examen" });
+    assert.equal(response.status, 200, response.body);
+    await until(() => prompts().length === 1);
+    assert.ok(prompts()[0].message.includes(MODE_LINE.examen), `the tutor receives exam mode guidance: ${prompts()[0].message}`);
+
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => asked().some((line) => line.startsWith("status ") && line.includes(`--workspace ${join(root, "nuevo")}`)));
+    await until(() => prompts().length === 2);
+    assert.match(prompts()[1].message, /FAIL state-initialized: run not initialized/, "the exam topic is gated by the engine after its first write");
+    assert.equal((await post(studio, "abort", {})).status, 200, "the test releases its held correction");
   } finally {
     stream.close();
     delete process.env.FAKE_PI_WRITES;

@@ -178,6 +178,12 @@ func evalCheck(c *evalCtx, decl rules.CheckDecl) Check {
 	case "pareto_part":
 		return evalParetoPart(c, decl)
 
+	case "exam_plan":
+		return evalExamPlan(c, decl)
+
+	case "exam_mock":
+		return evalExamMock(c, decl)
+
 	case "demo_part":
 		return evalDemoPart(c, decl)
 
