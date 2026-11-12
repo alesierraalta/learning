@@ -160,7 +160,7 @@ test("home artboard heading cards form and tutorial stay compact and usable", { 
   }
 });
 
-test("home offers quick, university, and exam modes and sends the selected exam mode", { skip: browser ? false : "playwright not installed" }, async (t) => {
+test("home asks for exam format and practice, sends the choice, and clears it on mode changes", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
@@ -171,7 +171,7 @@ test("home offers quick, university, and exam modes and sends the selected exam 
   await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
 
   const entry = page.locator(".home-page .new-learning");
-  const modes = await entry.locator(".mode-pick").evaluateAll((buttons) => buttons.map((button) => ({
+  const modes = await entry.locator(".mode-pick[data-modo]").evaluateAll((buttons) => buttons.map((button) => ({
     id: button.dataset.modo,
     title: button.querySelector("b").textContent,
     description: button.querySelector("span").textContent,
@@ -183,16 +183,60 @@ test("home offers quick, university, and exam modes and sends the selected exam 
   ]);
   const field = entry.locator(".ask-big textarea");
   const submit = entry.locator('button[type="submit"]');
+  const formatRow = entry.locator('[aria-label="Formato del examen"]');
+  const practiceRow = entry.locator('[aria-label="Tipo de práctica"]');
   await field.fill("redes neuronales");
+  assert.equal(await formatRow.isVisible(), false, "the format choices are hidden before Examen");
+  assert.equal(await practiceRow.isVisible(), false, "practice choices are hidden before Examen");
+
   const exam = entry.locator('.mode-pick[data-modo="examen"]');
   await exam.click();
   assert.equal(await exam.getAttribute("aria-pressed"), "true");
+  assert.equal(await formatRow.isVisible(), true);
+  assert.equal(await formatRow.getAttribute("role"), "group");
+  assert.equal(await formatRow.getAttribute("aria-label"), "Formato del examen");
+  assert.deepEqual(await formatRow.locator("button").allTextContents(), ["Oral", "Escrito", "Práctico"]);
+  assert.deepEqual(await formatRow.locator("button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-pressed"))), ["false", "false", "false"]);
+  assert.equal(await submit.isDisabled(), true, "the exam format is required");
+  await formatRow.getByRole("button", { name: "Práctico" }).click();
+  assert.deepEqual(await formatRow.locator("button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-pressed"))), ["false", "false", "true"]);
+  assert.equal(await practiceRow.isVisible(), true, "practice choices appear only for Práctico");
+  assert.equal(await practiceRow.getAttribute("role"), "group");
+  assert.equal(await practiceRow.getAttribute("aria-label"), "Tipo de práctica");
+  assert.deepEqual(await practiceRow.locator("button").allTextContents(), ["Laboratorios", "Construir una aplicación", "Ejercicios", "Otro"]);
+  assert.equal(await submit.isDisabled(), true, "the practice kind is required");
+  await practiceRow.getByRole("button", { name: "Otro" }).click();
+  const customPractice = practiceRow.getByRole("textbox", { name: "Describe el tipo de práctica" });
+  assert.equal(await customPractice.isVisible(), true, "Otro reveals its text field");
+  await customPractice.fill("API REST");
   assert.equal(await submit.isDisabled(), false);
+  await practiceRow.getByRole("button", { name: "Laboratorios" }).click();
+  assert.equal(await practiceRow.locator(".exam-practice-other").inputValue(), "", "a fixed practice choice clears Otro's text");
+
+  await entry.locator('.mode-pick[data-modo="universitario"]').click();
+  assert.equal(await formatRow.isVisible(), false);
+  assert.equal(await practiceRow.isVisible(), false);
+  assert.equal(await formatRow.locator('button[aria-pressed="true"]').count(), 0, "switching modes clears the selected format");
+  assert.equal(await practiceRow.locator('button[aria-pressed="true"]').count(), 0, "switching modes clears the selected practice");
+  assert.equal(await practiceRow.locator(".exam-practice-other").inputValue(), "", "switching modes clears custom practice text");
+  await exam.click();
+  assert.equal(await submit.isDisabled(), true, "reselecting Examen requires a fresh format choice");
+  await formatRow.getByRole("button", { name: "Práctico" }).click();
+  await practiceRow.getByRole("button", { name: "Otro" }).click();
+  await customPractice.fill("API REST");
+  assert.equal(await submit.isDisabled(), false);
+
+  const requests = [];
+  page.on("request", (request) => { if (request.url().includes("/api/aprender")) requests.push(request.postDataJSON()); });
   await submit.click();
-  const prompts = await sentPrompts(log);
-  assert.ok(prompts.some((message) => message.includes("[Modo de estudio: examen")), `the exam mode travels in the prompt: ${prompts.join(" | ")}`);
   await page.waitForFunction(() => document.querySelector('.mode-pick[data-modo="examen"]')?.getAttribute("aria-pressed") === "false");
+  assert.deepEqual(requests, [{ text: "redes neuronales", modo: "examen", examen: { formato: "practical", practica: "API REST" } }]);
+  const prompts = await sentPrompts(log);
+  assert.ok(prompts.some((message) => message.includes('(exam: "practical")') && message.includes('(practice: "API REST")')), `the exam choice travels in the prompt: ${prompts.join(" | ")}`);
   assert.equal(await field.inputValue(), "", "a sent request clears the text as before");
+  assert.equal(await formatRow.isVisible(), false, "a successful send hides the format row");
+  assert.equal(await practiceRow.isVisible(), false, "a successful send hides the practice row");
+  assert.equal(await practiceRow.locator(".exam-practice-other").inputValue(), "", "a successful send clears custom practice text");
   assert.equal(await submit.isDisabled(), true, "the next request still needs a mode");
 });
 
@@ -220,6 +264,7 @@ test("the learning entry preserves pasted lines, grows, and sends with Enter", {
   await field.type("Unidad dos");
   assert.equal(await field.inputValue(), "Unidad uno\nUnidad dos", "Shift+Enter inserts a line break");
   await entry.locator('.mode-pick[data-modo="examen"]').click();
+  await entry.locator('[aria-label="Formato del examen"]').getByRole("button", { name: "Escrito" }).click();
   await field.press("Enter");
   const prompts = await sentPrompts(log);
   assert.ok(prompts.some((message) => message.includes("Quiero aprender Unidad uno\nUnidad dos.\n\n[Modo de estudio: examen")), "Enter submits the source with its newline");
@@ -242,6 +287,7 @@ test("the learning entry explains and blocks an over-limit source before sending
   page.on("request", (request) => { if (request.url().includes("/api/aprender")) requests.push(request.url()); });
   await field.fill("x".repeat(200001));
   await entry.locator('.mode-pick[data-modo="examen"]').click();
+  await entry.locator('[aria-label="Formato del examen"]').getByRole("button", { name: "Escrito" }).click();
   assert.equal(await entry.locator('button[type="submit"]').isDisabled(), true, "Empezar is disabled above the source limit");
   assert.equal(await entry.locator(".learning-source-count").innerText(), "200001 / 200000 caracteres");
   assert.equal(await entry.locator(".learning-source-error").innerText(), "El texto es demasiado largo: como mucho 200000 caracteres.");

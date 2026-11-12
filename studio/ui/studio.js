@@ -741,7 +741,7 @@
 
   /**
    * «Aprender algo nuevo»: the learner writes what to learn and picks the mode before sending, so no
-   * tutor asks it. The mode travels in the prompt; sending without one is impossible from here.
+   * tutor asks it. Exam format and, when practical, the kind of practice are decided here too.
    */
   function newLearningEntry() {
     const input = h("textarea", { name: "topic", rows: "1", "aria-label": "¿Qué quieres aprender?", placeholder: "Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…", autocomplete: "off" });
@@ -749,10 +749,61 @@
     const sourceError = h("span", { class: "learning-source-error", hidden: true });
     const sourceHelp = h("p", { class: "learning-source-help", role: "status", "aria-live": "polite", hidden: true }, sourceCount, sourceError);
     let modo = "";
-    const pick = (id) => {
-      modo = id;
-      for (const b of picks) b.setAttribute("aria-pressed", String(b.dataset.modo === id));
-      refresh();
+    let formato = "";
+    let practica = "";
+    const picks = [
+      ["universitario", "Universitario", "plan, diagnóstico y partes con quiz"],
+      ["rapido", "Rápido", "una nota breve para entenderlo hoy"],
+      ["examen", "Examen", "lo vital del temario, el formato de tu examen (oral, escrito o práctico) y un simulacro final"],
+    ].map(([id, title, hint]) =>
+      h("button", { type: "button", class: "mode-pick", "data-modo": id, "aria-pressed": "false", onclick: () => pick(id) }, h("b", {}, title), h("span", {}, hint)),
+    );
+    const formatPicks = [
+      ["oral", "Oral"],
+      ["written", "Escrito"],
+      ["practical", "Práctico"],
+    ].map(([id, title]) =>
+      h("button", { type: "button", class: "mode-pick", "data-formato": id, "aria-pressed": "false", onclick: () => pickFormat(id) }, h("b", {}, title)),
+    );
+    const practicePicks = [
+      ["Laboratorios", "Laboratorios"],
+      ["Construir una aplicación", "Construir una aplicación"],
+      ["Ejercicios", "Ejercicios"],
+      ["otro", "Otro"],
+    ].map(([id, title]) =>
+      h("button", { type: "button", class: "mode-pick", "data-practica": id, "aria-pressed": "false", onclick: () => pickPractice(id) }, h("b", {}, title)),
+    );
+    const practiceInput = h("input", { type: "text", class: "exam-practice-other", maxlength: "120", "aria-label": "Describe el tipo de práctica", placeholder: "¿Qué práctica harás?", autocomplete: "off", hidden: true });
+    const formatGroup = h(
+      "div",
+      { class: "exam-choice-group", role: "group", "aria-label": "Formato del examen", hidden: true },
+      h("p", { class: "exam-choice-question" }, "¿Cómo será tu examen?"),
+      h("div", { class: "mode-picks" }, formatPicks),
+    );
+    const practiceGroup = h(
+      "div",
+      { class: "exam-choice-group", role: "group", "aria-label": "Tipo de práctica", hidden: true },
+      h("p", { class: "exam-choice-question" }, "¿Qué tipo de práctica?"),
+      h("div", { class: "mode-picks" }, practicePicks),
+      practiceInput,
+    );
+    const submit = h("button", { class: "btn primary", type: "submit", disabled: true }, icon("spark"), "Empezar");
+    const resetPractice = () => {
+      practica = "";
+      practiceInput.value = "";
+      for (const b of practicePicks) b.setAttribute("aria-pressed", "false");
+    };
+    const resetExam = () => {
+      formato = "";
+      for (const b of formatPicks) b.setAttribute("aria-pressed", "false");
+      resetPractice();
+    };
+    const canSubmit = () => {
+      const text = input.value.trim();
+      const examReady = modo !== "examen" || (
+        formato !== "" && (formato !== "practical" || (practica !== "" && (practica !== "otro" || practiceInput.value.trim() !== "")))
+      );
+      return Boolean(modo && text && input.value.length <= MAX_LEARNING_SOURCE_CHARS && examReady);
     };
     const resizeInput = () => {
       input.style.height = "auto";
@@ -763,7 +814,10 @@
     const refresh = () => {
       const text = input.value;
       const tooLong = text.length > MAX_LEARNING_SOURCE_CHARS;
-      submit.disabled = !modo || !text.trim() || tooLong;
+      formatGroup.hidden = modo !== "examen";
+      practiceGroup.hidden = modo !== "examen" || formato !== "practical";
+      practiceInput.hidden = practica !== "otro" || practiceGroup.hidden;
+      submit.disabled = !canSubmit();
       sourceCount.hidden = text.length <= LEARNING_SOURCE_COUNT_THRESHOLD;
       sourceCount.textContent = `${text.length} / ${MAX_LEARNING_SOURCE_CHARS} caracteres`;
       sourceError.hidden = !tooLong;
@@ -772,32 +826,51 @@
       submit.title = tooLong ? LEARNING_SOURCE_TOO_LONG : "";
       resizeInput();
     };
-    const picks = [
-      ["universitario", "Universitario", "plan, diagnóstico y partes con quiz"],
-      ["rapido", "Rápido", "una nota breve para entenderlo hoy"],
-      ["examen", "Examen", "lo vital del temario, el formato de tu examen (oral, escrito o práctico) y un simulacro final"],
-    ].map(([id, title, hint]) =>
-      h("button", { type: "button", class: "mode-pick", "data-modo": id, "aria-pressed": "false", onclick: () => pick(id) }, h("b", {}, title), h("span", {}, hint)),
-    );
-    const submit = h("button", { class: "btn primary", type: "submit", disabled: true }, icon("spark"), "Empezar");
+    const pick = (id) => {
+      modo = id;
+      for (const b of picks) b.setAttribute("aria-pressed", String(b.dataset.modo === id));
+      if (id !== "examen") resetExam();
+      refresh();
+    };
+    const pickFormat = (id) => {
+      formato = id;
+      for (const b of formatPicks) b.setAttribute("aria-pressed", String(b.dataset.formato === id));
+      if (id !== "practical") resetPractice();
+      refresh();
+    };
+    const pickPractice = (id) => {
+      practica = id;
+      for (const b of practicePicks) b.setAttribute("aria-pressed", String(b.dataset.practica === id));
+      if (id !== "otro") practiceInput.value = "";
+      refresh();
+    };
     const send = async () => {
       const text = input.value.trim();
-      // The source bound is checked again here so Enter cannot bypass the disabled button.
-      if (!text || !modo || text.length > MAX_LEARNING_SOURCE_CHARS) return input.focus();
+      // The source bound and every required exam choice are checked again so Enter cannot bypass the disabled button.
+      if (!canSubmit()) return input.focus();
+      const body = { text, modo };
+      if (modo === "examen") {
+        body.examen = {
+          formato,
+          ...(formato === "practical" ? { practica: practica === "otro" ? practiceInput.value.trim() : practica } : {}),
+        };
+      }
       openDrawer();
       try {
-        await post("api/aprender", { text, modo });
+        await post("api/aprender", body);
       } catch (error) {
         append(h("div", { class: "notice error" }, `No se pudo enviar: ${error.message}`));
         return; // what the learner wrote and chose stays where it is
       }
       input.value = "";
       modo = "";
+      resetExam();
       for (const b of picks) b.setAttribute("aria-pressed", "false");
       refresh();
     };
     const form = h("form", { class: "ask-big", onsubmit: (event) => { event.preventDefault(); send(); } }, input, submit);
     input.addEventListener("input", refresh);
+    practiceInput.addEventListener("input", refresh);
     input.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
       event.preventDefault();
@@ -806,10 +879,12 @@
     return h(
       "section",
       { class: "new-learning", "aria-label": "Aprender algo nuevo" },
-      h("p", { class: "learn-hint" }, "Elige rápido, universitario o examen: el tutor no te lo pregunta."),
       form,
+      h("p", { class: "learn-hint" }, "Elige rápido, universitario o examen; para Examen, elige también el formato (y el tipo de práctica si corresponde)."),
       sourceHelp,
       h("div", { class: "mode-picks", role: "group", "aria-label": "Modo de estudio" }, picks),
+      formatGroup,
+      practiceGroup,
     );
   }
 

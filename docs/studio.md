@@ -161,13 +161,20 @@ part runs no checks.
 
 - **The study mode.** `POST api/aprender {text, modo}` — the «Aprender algo nuevo» entry on the
   home and in the tutor panel — takes `rapido`, `universitario` or `examen`; without one it is `400`
-  and nothing reaches the tutor. The source text may be up to 200000 characters; a longer source is
-  refused with `400` and its character limit. The home entry and tutorial show all three modes. The
-  mode travels in the turn's prompt as one explicit line (`[Modo de estudio: …]`, built by
+  and nothing reaches the tutor. An `examen` request must also include
+  `examen: {formato: "oral"|"written"|"practical", practica?: string}`. The page asks «¿Cómo será tu
+  examen?» and offers Oral, Escrito or Práctico; a practical exam additionally requires a nonblank
+  practice kind, chosen from Laboratorios, Construir una aplicación, Ejercicios or Otro (which opens
+  a short text field). The API rejects a missing or invalid format, missing/blank practice for a
+  practical exam, practice on an oral or written exam, and any `examen` field on another mode with
+  `400` before a tutor turn starts. The source text may be up to 200000 characters; a longer source
+  is refused with `400` and its character limit. The home entry and tutorial show all three modes.
+  The mode travels in the turn's prompt as one explicit line (`[Modo de estudio: …]`, built by
   `modeLine` in `studio/runtime.ts`), and the studio tells each tutor never to ask or choose the
-  mode. For `examen`, the tutor then asks whether the exam is oral, written or practical, and, for
-  practical, what kind of practice it requires. Antigravity's contract says not to ask for the mode
-  on every turn; inside the studio Pi's system prompt carries the same rule (the adapter's
+  mode. For `examen`, that line also carries the chosen engine format (`exam: "oral"|"written"|"practical"`)
+  and, only for practical, the selected `practice` value; the tutor must pass them to
+  `learning_stage init` without asking for either again. Antigravity's contract says not to ask for
+  the mode on every turn; inside the studio Pi's system prompt carries the same rule (the adapter's
   `before_agent_start`, studio mode only).
 - **Exam topic tag.** A topic whose engine state contains `exam` shows an `Examen` tag in the
   library; its title and accessible label identify the exam format.
