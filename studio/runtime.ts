@@ -177,3 +177,178 @@ export function createSettleGate() {
     },
   };
 }
+
+/**
+ * The timing of one page generation: what each phase of the turn really cost, and how many times
+ * the tutor was called to produce the part.
+ *
+ * A generation is the turn that wrote the part, corrections included; its report is written when
+ * the turn ends, so two generations can be compared file to file. Nothing here changes what is
+ * measured: the prompt, the runtime, the model and the page are only read.
+ */
+
+/** The runtime that runs the turn, by its own name. */
+export type TutorRuntime = "pi" | "agy";
+
+/** Why a model call exists: the learner asked, or the studio corrected what the learner asked. */
+export type CallReason = "turn" | "engine-correction" | "part-correction";
+
+/** One prompt of the generation and what it cost: how much went in, how much came out, how long. */
+export interface CallTiming {
+  /** 1 for the learner's own request, then one per correction, in the order they happened. */
+  n: number;
+  reason: CallReason;
+  /** Characters the studio handed the runtime. Antigravity appends its own contract inside agy.ts. */
+  inputChars: number;
+  /** Characters of assistant text the call answered with. */
+  outputChars: number;
+  ms: number;
+  /** False for a call that was refused, never answered, or interrupted. */
+  ok: boolean;
+}
+
+/** How long one phase of the generation spent, and how many times it ran. */
+export interface PhaseTiming {
+  name: string;
+  ms: number;
+  times: number;
+}
+
+/** A phase that does not exist in the code: named with its reason instead of timed. */
+export interface AbsentPhase {
+  name: string;
+  reason: string;
+}
+
+/** The report a generation leaves on disk, in the studio's own state directory. */
+export interface PageTimingReport {
+  version: 1;
+  /** ISO-8601, when the turn was accepted. */
+  startedAt: string;
+  finishedAt: string;
+  tutor: TutorRuntime;
+  /** The model the runtime was started with; empty when the runtime picks it. */
+  model: string;
+  topic: string | null;
+  /** How many prompts the studio sent to the tutor: the number a generation cannot assume. */
+  modelCalls: number;
+  calls: CallTiming[];
+  /** The phases that were really measured, in the order they happen. */
+  phases: PhaseTiming[];
+  /** The phases the studio does not have, so a reader never waits for a number that cannot exist. */
+  absent: AbsentPhase[];
+  /** The notes the turn wrote, as a path inside the vault and the bytes it left. */
+  parts: Array<{ path: string; bytes: number }>;
+  /** Wall time from the accepted turn to its end, corrections included. */
+  totalMs: number;
+}
+
+/** The order the phases happen in; a name the studio adds later goes after them, alphabetically. */
+const PHASE_ORDER = ["contexto", "tutor", "motor", "comprobaciones"];
+
+/**
+ * The two phases the measurement asked for that a generation does not have. They are named with
+ * the reason that lives in the code, never timed as if they existed.
+ */
+export const ABSENT_PHASES: AbsentPhase[] = [
+  {
+    name: "referencias",
+    reason:
+      "the studio never rewrites the page it receives: references are only resolved by the offline snapshot route (studio/offline.ts), which is not part of a generation",
+  },
+  {
+    name: "guardado",
+    reason:
+      "the page is written by the tutor's own write/edit tool inside a model call, so its cost is inside the tutor phase; the studio saves the conversation at the end of a turn, never the page",
+  },
+];
+
+/**
+ * One generation's clocks, as the studio drives them: the prompt assembly is measured around work,
+ * the model calls are opened when a prompt is sent and closed when the runtime settles, and the
+ * settle's own engine call and part checks are measured around their work.
+ */
+export function createPageTiming(start: {
+  runtime: TutorRuntime;
+  model: string;
+  topic: string | null;
+  /** Read once per mark; a test drives them instead of waiting. */
+  now?: () => number;
+}) {
+  const now = start.now ?? Date.now;
+  const startedAt = now();
+  const calls: CallTiming[] = [];
+  const phases = new Map<string, PhaseTiming>();
+  /** The call in flight, with the mark it started at: one turn runs one prompt at a time. */
+  let open: { call: CallTiming; at: number } | null = null;
+
+  const spend = (name: string, ms: number) => {
+    const spent = phases.get(name) ?? { name, ms: 0, times: 0 };
+    phases.set(name, { name, ms: spent.ms + ms, times: spent.times + 1 });
+  };
+
+  const close = (ok: boolean) => {
+    if (open === null) return;
+    open.call.ms = now() - open.at;
+    open.call.ok = ok;
+    open = null;
+  };
+
+  return {
+    /** Time one phase around work that may await; a phase that throws still says what it spent. */
+    async measure<T>(name: string, work: () => T | Promise<T>): Promise<T> {
+      const at = now();
+      try {
+        return await work();
+      } finally {
+        spend(name, now() - at);
+      }
+    },
+    /** A prompt is on its way to the runtime: from here until the settle is the call's own time. */
+    startCall(reason: CallReason, inputChars: number) {
+      // A call left open would lose its time, so it is closed as unanswered before the next begins.
+      close(false);
+      const call: CallTiming = { n: calls.length + 1, reason, inputChars, outputChars: 0, ms: 0, ok: false };
+      calls.push(call);
+      open = { call, at: now() };
+    },
+    /** What the runtime answered: the assistant's own words, as the studio received them. */
+    addOutput(chars: number) {
+      const call = open?.call ?? calls.at(-1);
+      if (call) call.outputChars += chars;
+    },
+    /** The runtime settled, or refused: the call is over, and `ok` says which happened. */
+    endCall(ok: boolean) {
+      close(ok);
+    },
+    /** The report the studio writes when the turn ends: the phase list is the code's, not a guess. */
+    report(parts: Array<{ path: string; bytes: number }>): PageTimingReport {
+      // An unfinished call is still a measured one: it says the time it spent before the turn ended.
+      close(false);
+      const measured: PhaseTiming[] = [...phases.values()].map((phase) => ({ ...phase }));
+      const tutorMs = calls.reduce((total, call) => total + call.ms, 0);
+      if (calls.length > 0) measured.push({ name: "tutor", ms: tutorMs, times: calls.length });
+      const rank = (name: string) => {
+        const at = PHASE_ORDER.indexOf(name);
+        return at < 0 ? PHASE_ORDER.length : at;
+      };
+      measured.sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+      return {
+        version: 1,
+        startedAt: new Date(startedAt).toISOString(),
+        finishedAt: new Date(now()).toISOString(),
+        tutor: start.runtime,
+        model: start.model,
+        topic: start.topic,
+        modelCalls: calls.length,
+        calls: calls.map((call) => ({ ...call })),
+        phases: measured,
+        absent: ABSENT_PHASES.map((phase) => ({ ...phase })),
+        parts,
+        totalMs: now() - startedAt,
+      };
+    },
+  };
+}
+
+export type PageTiming = ReturnType<typeof createPageTiming>;
