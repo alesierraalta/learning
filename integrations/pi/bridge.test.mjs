@@ -1,6 +1,6 @@
 // Study-view bridge tests: a real HTTP server on 127.0.0.1 against a temporary
 // Learnings root, driven through the public learning_view tool and HTTP routes.
-import { after, test } from "node:test";
+import { after, afterEach, test } from "node:test";
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -797,8 +797,15 @@ test("code HTTP runs, free input, submissions and rejected requests", async (t) 
   assert.doesNotMatch(page.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
 });
 const openServers = [];
+// A bridge is this file's handle: `after` alone does not close it on a filtered run,
+// where the harness posts its root hooks before the matched test opens a server.
+// `afterEach` belongs to the test that opened it, so it always runs (#231).
+afterEach(async () => {
+  for (const shutdown of openServers.splice(0)) await shutdown();
+});
 after(async () => {
-  for (const shutdown of openServers) await shutdown();
+  // Kept as the safety net for anything a test body leaves outside its own teardown.
+  for (const shutdown of openServers.splice(0)) await shutdown();
 });
 
 function makeRoot() {

@@ -1,6 +1,6 @@
 // Learning studio server tests: a real server on 127.0.0.1 with a fake Pi RPC
 // child (testdata/fake-pi.mjs) and a temporary Learnings root.
-import { after, test } from "node:test";
+import { after, afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
@@ -71,8 +71,14 @@ const browser = await (async () => {
  */
 const startStudio = (options) => startStudioChecked({ skipContextCheck: true, ...options });
 const open = [];
+// A studio is this file's handle: `after` alone does not close it on a filtered run,
+// where the harness posts its root hooks before the matched test creates anything.
+// `afterEach` belongs to the test that opened the studio, so it always runs (#231).
+afterEach(async () => {
+  for (const studio of open.splice(0)) await studio.close();
+});
 after(async () => {
-  for (const studio of open) await studio.close();
+  for (const studio of open.splice(0)) await studio.close();
 });
 
 async function setup(options = {}) {
@@ -3075,7 +3081,10 @@ test("a held turn is readable as busy and the conversation is written as it happ
     assert.ok(held.messages.length >= 3, "the copy keeps the thread the runtime served at boot");
     assert.ok(held.interrupted, "a turn in flight is marked, so a process that dies leaves it marked");
 
-    assert.equal((await post(studio, "dialog", { id: "d1", value: "Universitario" })).status, 200);
+    // The runtime asks its dialog only once it reaches it: the answer waits for that request
+    // instead of assuming the id is open, or a loaded CI box posts it first and gets a 404 (#231).
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
     await stream.next("state", (s) => s.busy === false);
     assert.equal(existsSync(busy), false, "a finished turn leaves no marker");
     const ended = JSON.parse(readFileSync(snapshot, "utf8"));

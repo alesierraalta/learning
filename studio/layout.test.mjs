@@ -1,7 +1,7 @@
 // Layout tests in a real browser: the studio is a living page, and defects such
 // as a sticky card covered by its own actions only exist once CSS, DOM and
 // scrolling compose. Geometry is asserted, not eyeballed.
-import { after, test } from "node:test";
+import { after, afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -49,8 +49,14 @@ const writeMiniQuiz = (root) => {
   mkdirSync(join(root, "redes", "mini-quiz"), { recursive: true });
   writeFileSync(join(root, "redes", "mini-quiz", "p1.json"), JSON.stringify({ questions: [{ id: "q1", enunciado: "¿Qué hace una capa?", options: { A: "Nada.", B: "Encapsula los datos.", C: "Cifra el enlace.", D: "Mide el tiempo.", E: "No sé" }, answer: "B" }] }));
 };
+// A studio is this file's handle: `after` alone does not close it on a filtered run,
+// where the harness posts its root hooks before the matched test creates anything.
+// `afterEach` belongs to the test that opened the studio, so it always runs (#231).
+afterEach(async () => {
+  for (const studio of open.splice(0)) await studio.close();
+});
 after(async () => {
-  for (const studio of open) await studio.close();
+  for (const studio of open.splice(0)) await studio.close();
 });
 
 test("chat drawer creates and opens conversations and reuses the part chat", { skip: browser ? false : "playwright not installed" }, async (t) => {
