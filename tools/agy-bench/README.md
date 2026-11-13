@@ -17,19 +17,43 @@ producción (`agy` + `gemini-3.8-flash-high`, `rules/deep.json`, la skill
    escribe `plan.json` y el diagnóstico).
 2. El diagnóstico se responde como lo responde la página: `POST <vista>/submit` en el
    puente del estudio (`kind: "diagnosis"`), que escribe `quiz.answers.json` y entrega el
-   mensaje al tutor. La opción elegida es la clave del propio `quiz.json`, con su
-   razonamiento y `confianza: "seguro"`: un alumno competente, para que el tutor no tenga
-   que reenseñar lo que ya se sabe.
-3. `POST api/metodo` con `pareto` cuando el motor pide el método.
+   mensaje al tutor. Desde #272/#276 el puente dibuja las opciones de cada pregunta en un
+   orden por alumno y las renombra A–E, así que la clave del tutor en `quiz.json` ya no es
+   la letra que ve la persona. El banco trae el quiz servido de la propia página del
+   lector (`<vista>` es el `url` de `api/view?…&part=quiz`; sus preguntas están en el
+   bloque `#view-data`, sin claves) y empareja cada clave del tutor con la letra servida
+   por el **texto de la opción**. Responde con esa letra, con su razonamiento y
+   `confianza: "seguro"`: un alumno competente, para que el tutor no tenga que reenseñar
+   lo que ya se sabe. Un tema (Bayes) responde con la opción **E «No sé»** que la página
+   ofrece en cada pregunta (última por diseño): el camino del alumno que empieza desde
+   cero, no el del que ya sabe.
+3. `POST api/metodo` con el método que le toca al tema. La tarjeta de método de la página
+   (`studio/ui/studio.js`) ofrece exactamente dos: `pareto` y `preferencias`; no hay
+   opción «sorpréndeme» ni «no sé» en esa pregunta, y el motor solo acepta esas dos
+   (`studio/server.ts`, `internal/engine/method.go`). El banco los alterna, uno por tema,
+   y registra en `results.json` y en el informe cuál se eligió y quién lo eligió (el banco
+   o el tutor, si el tutor se adelantó).
 4. `POST prompt` pidiendo la Parte 1, con el texto que usa el botón del estudio.
 5. Espera a que el turno se asiente **con sus correcciones** (el gate del estudio puede
    pedir hasta dos), y mide la parte escrita con las cuatro puertas.
 
-Lo que se registra por tema: veredicto de las cuatro puertas, rondas de corrección
-(cada evento `gate` con `passing: false` del log del estudio), piezas, actores y **forma de
-cada figura** (cajas, flechas, actores, piezas por escena y por paso: dos cajas y una
-flecha es una forma, y cinco temas dibujados igual es el defecto que las puertas no ven),
-y una captura de cada parte en negro × ancho.
+Lo que se registra por tema: el **método elegido** y su origen, veredicto de las cuatro
+puertas, rondas de corrección (cada evento `gate` con `passing: false` del log del
+estudio), piezas, actores, **forma de cada figura** (cajas, flechas, actores, piezas por
+escena y por paso: dos cajas y una flecha es una forma, y cinco temas dibujados igual es
+el defecto que las puertas no ven) y una **huella estructural de la figura principal**
+(pieza, piezas usadas, pasos, actores y movimientos por paso), que va en la tabla del
+informe para que el esqueleto repetido se lea, no se adivine. Del diagnóstico se guarda
+además el emparejamiento **clave del tutor → letra servida**, con el texto de la opción,
+para poder auditarlo en `results.json`. También una captura de cada parte en negro × ancho.
+
+| Tema | Método | Diagnóstico |
+| --- | --- | --- |
+| Rust borrowing | `pareto` | clave del quiz |
+| TCP handshake | `preferencias` | clave del quiz |
+| Bayes' theorem | `pareto` | «No sé» (E) |
+| Git branching | `preferencias` | clave del quiz |
+| CSS flexbox | `pareto` | clave del quiz |
 
 Lo medido en la primera corrida está en [`findings.md`](findings.md).
 
@@ -128,7 +152,7 @@ tema, y si los puertos y las raíces son distintos entre sí.
 ```text
 <out>/results.json          todo lo medido, por tema y por turno (incluye la forma de las figuras)
 <out>/<tema>-result.json   el resultado de un tema (lo escribe su proceso `topic`; `run` lo fusiona)
-<out>/report.md             la tabla del issue + lo que dijo el motor en cada turno
+<out>/report.md             la tabla del issue (método elegido y huella de la figura principal) + lo que dijo el motor en cada turno
 <out>/<tema>-studio.log     el log del estudio: eventos SSE + líneas `estudio:` (JSONL)
 <out>/<tema>/vault/<carpeta>  copia del tema medido (plan, quiz, partes, mini-quiz)
 <out>/<tema>-timings/      informes de tiempo del estudio: cada llamada al modelo y su motivo

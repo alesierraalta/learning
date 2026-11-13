@@ -45,13 +45,19 @@ const PRODUCTION_PORTS = [4747, 4748];
 /** A topic's turn timeout (seconds) and turn cap when the flags are not given. */
 const TURN_TIMEOUT_S = 45 * 60;
 const MAX_TURNS = 8;
-/** The topics the issue asks for: five domains, no kit example for any of them. */
+/**
+ * The topics the issue asks for: five domains, no kit example for any of them. The page's
+ * method card offers exactly two choices (`pareto` and `preferencias`), so the bench picks
+ * one per topic and alternates them: what changes is the method, not only the subject. The
+ * learner also varies: `noSe` answers the diagnosis with the page's own «No sé» (E), the
+ * route of someone who starts from zero, instead of the competent learner every time.
+ */
 const TOPICS = [
-  { id: "rust-borrowing", request: "Rust borrowing" },
-  { id: "tcp-handshake", request: "TCP handshake" },
-  { id: "bayes-theorem", request: "Bayes' theorem" },
-  { id: "git-branching", request: "Git branching" },
-  { id: "css-flexbox", request: "CSS flexbox" },
+  { id: "rust-borrowing", request: "Rust borrowing", method: "pareto" },
+  { id: "tcp-handshake", request: "TCP handshake", method: "preferencias" },
+  { id: "bayes-theorem", request: "Bayes' theorem", method: "pareto", noSe: true },
+  { id: "git-branching", request: "Git branching", method: "preferencias" },
+  { id: "css-flexbox", request: "CSS flexbox", method: "pareto" },
 ];
 /** The four gates the standard is measured with, in the order the skill runs them. */
 const GATES = ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs"];
@@ -59,6 +65,8 @@ const GATES = ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "explain-che
 // lk-quick-quiz, lk-figure and lk-audio joined the kit after the first run (1d9046f).
 // lk-tree and lk-explorer are kit pieces (docs/kit.md) that were missing from this list until the third run.
 const PIECES = ["lk-story", "lk-scene", "lk-walkthrough", "lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-diagram", "lk-math", "lk-widget", "lk-checkpoint", "lk-quiz", "lk-quick-quiz", "lk-figure", "lk-audio", "lk-video", "lk-ask", "lk-tree", "lk-explorer"];
+/** The pieces that draw a figure: the main one is a story if the part has one, else the first. */
+const FIGURES = new Set(["lk-story", "lk-scene", "lk-walkthrough", "lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-diagram", "lk-math", "lk-widget", "lk-figure", "lk-tree", "lk-explorer"]);
 
 // ---- arguments -----------------------------------------------------------
 
@@ -363,27 +371,69 @@ async function vaultState(vault) {
 // ---- the learner ---------------------------------------------------------
 
 /**
- * The diagnosis answered the way the page answers it: the reader's own submit route, with
- * the answers file it writes and the reasoning the tutor quotes as evidence. The option is
- * the quiz's own key, so the learner is a competent one and the tutor is not asked to
- * re-teach what was already known.
+ * The diagnosis answered with the letters the page is served. Since #272/#276 the bridge
+ * draws each question's options in a per-learner order and relabels them A-E, so the vault's
+ * tutor key is not the letter the learner sees: the key is mapped to the served letter by
+ * its option text. With `noSe`, every question takes the served «No sé» option (last, E).
  */
-function diagnosisAnswers(quiz) {
+function diagnosisAnswers(quiz, served, { noSe = false } = {}) {
+  const byId = new Map((Array.isArray(served) ? served : []).map((question) => [question?.id, question]));
   const answers = {};
   const reasoning = {};
+  const mapping = [];
+  let answeredNoSe = false;
   for (const question of quiz.questions ?? []) {
     if (!question || typeof question.id !== "string" || typeof question.options !== "object" || question.options === null) continue;
     const keys = Object.keys(question.options);
     if (!keys.length) continue;
+    const shown = byId.get(question.id);
+    const shownOptions = shown && typeof shown.options === "object" && shown.options !== null ? shown.options : null;
+    if (!shownOptions) throw new Error(`diagnóstico: la página no sirvió la pregunta ${question.id}`);
+    const textOf = (key) => optionText(question.options[key]);
+    const shownLetterFor = (text) => Object.keys(shownOptions).find((letter) => optionText(shownOptions[letter]) === text) ?? null;
+    // «No sé» is the page's E, kept last by the bridge (NO_SE in bridge.ts); find it by text too.
+    const noSeKey = keys.find((key) => /^no\s*s[eé]$/i.test(textOf(key))) ?? null;
+    if (noSe && noSeKey) {
+      const letter = shownLetterFor(textOf(noSeKey)) ?? noSeKey;
+      answers[question.id] = letter;
+      reasoning[question.id] = { razonamiento: "No lo sé: elijo «No sé» para que el tutor empiece desde cero.", confianza: "dudo" };
+      mapping.push({ id: question.id, tutor: noSeKey, shown: letter, text: textOf(noSeKey) });
+      answeredNoSe = true;
+      continue;
+    }
     const keyed = typeof question.answer === "string" && question.answer in question.options;
     const chosen = keyed ? question.answer : keys[0];
-    const text = String(question.options[chosen] ?? "").trim();
-    const said = text ? `${text.charAt(0).toLowerCase()}${text.slice(1)}` : `la opción ${chosen}`;
-    answers[question.id] = chosen;
-    reasoning[question.id] = { razonamiento: `Elijo ${chosen} porque ${said}`, confianza: "seguro" };
+    const text = textOf(chosen);
+    const letter = shownLetterFor(text);
+    if (!letter) throw new Error(`diagnóstico: no pude emparejar «${text.slice(0, 80)}» (${question.id}, clave ${chosen}) con la opción servida`);
+    const said = text ? `${text.charAt(0).toLowerCase()}${text.slice(1)}` : `la opción ${letter}`;
+    answers[question.id] = letter;
+    reasoning[question.id] = { razonamiento: `Elijo ${letter} porque ${said}`, confianza: "seguro" };
+    mapping.push({ id: question.id, tutor: chosen, shown: letter, text });
   }
-  return { answers, reasoning };
+  return { answers, reasoning, noSe: answeredNoSe, mapping };
 }
+
+/**
+ * The quiz the page is served: the reader's own page carries it in `#view-data`, without
+ * keys (bridge.ts pageHtml/diagnosisPage). Fetching it is the only way to know the letters
+ * the learner sees after #272/#276 shuffled the options.
+ */
+async function servedQuiz(viewUrl) {
+  const url = parseUrl(viewUrl, "vista HTML");
+  const res = await fetch(url.href);
+  const html = await res.text();
+  if (!res.ok) throw new Error(`vista HTML ${url.pathname}: ${res.status} ${html.slice(0, 300)}`);
+  const found = /<script type="application\/json" id="view-data">([\s\S]*?)<\/script>/.exec(html);
+  if (!found) throw new Error("vista HTML: no encontré el bloque #view-data con el quiz servido");
+  const data = readJson(found[1], "view-data");
+  const questions = data?.quiz?.questions;
+  if (!Array.isArray(questions) || !questions.length) throw new Error("vista HTML: la página no trae las preguntas del diagnóstico");
+  return questions;
+}
+
+/** Option text as the same string: whitespace folded, so a relabelled option is still the same option. */
+const optionText = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 
 /**
  * The page's own submit route on the study-view bridge, with the origin it allows. The view
@@ -414,6 +464,50 @@ function partNote(root, topicId, plan, partId) {
   const suffix = ` - ${plan.parts[index].slug}.md`;
   const found = readdirSync(dir).find((name) => name.startsWith("Parte ") && name.endsWith(suffix));
   return found ? join(dir, found) : null;
+}
+
+/**
+ * The figure a part leads with, and its skeleton: the piece, the pieces the part uses, how
+ * many steps it has, its actors and its moves per step. A story wins over a scene because
+ * that is the recorrido; a part with no story is fingerprinted by its first figure. The
+ * one-line form goes in the report so a repeated skeleton is read, not spotted by eye.
+ */
+function mainFigureOf(text, pieces) {
+  const figures = [];
+  for (const match of text.matchAll(/<(lk-[a-z-]+)\b[^>]*>([\s\S]*?)<\/\1>/g)) {
+    const tag = match[1];
+    if (!FIGURES.has(tag)) continue;
+    const body = /<script type="application\/json">([\s\S]*?)<\/script>/.exec(match[2]);
+    if (!body) continue;
+    try {
+      figures.push({ tag, data: JSON.parse(body[1]) });
+    } catch {
+      // A payload the reader cannot parse is not a figure to fingerprint.
+    }
+  }
+  const main = figures.find((figure) => Array.isArray(figure.data?.steps) && figure.data.steps.length) ?? figures[0];
+  if (!main) return null;
+  const count = (value) => (Array.isArray(value) ? value.length : 0);
+  const steps = Array.isArray(main.data?.steps) ? main.data.steps : [];
+  const scenes = steps.length ? steps.map((step) => step?.stage?.scene).filter(Boolean) : [main.data?.scene].filter(Boolean);
+  const actors = new Set();
+  for (const scene of scenes) {
+    for (const actor of Array.isArray(scene?.actors) ? scene.actors : []) {
+      const label = String(actor?.label ?? actor?.tag ?? actor?.id ?? "").trim();
+      if (label) actors.add(label);
+    }
+  }
+  const actorList = [...actors];
+  const movesPerStep = steps.map((step) => count(step?.stage?.scene?.moves));
+  const used = Object.keys(pieces).filter((tag) => FIGURES.has(tag));
+  const line = [
+    main.tag,
+    `piezas ${used.join("+") || "-"}`,
+    `pasos ${steps.length}`,
+    `actores ${actorList.length}${actorList.length ? ` (${actorList.slice(0, 6).join(", ")})` : ""}`,
+    `movimientos por paso ${movesPerStep.length ? movesPerStep.join("/") : "-"}`,
+  ].join(" · ");
+  return { piece: main.tag, pieces: used, steps: steps.length, actors: actorList, movesPerStep, line };
 }
 
 /** What the part draws: the pieces it carries and the actors their payloads declare. */
@@ -465,7 +559,7 @@ function visualsOf(note) {
   }
   // The signature is what a reader sees at a glance: how many boxes, arrows and actors.
   const signatures = shapes.map((shape) => `cajas ${shape.boxes} · flechas ${shape.arrows} · actores ${shape.actors} · piezas ${shape.props} · movimientos ${shape.moves}`);
-  return { pieces, actors: [...actors], shapes, signatures };
+  return { pieces, actors: [...actors], shapes, signatures, main: mainFigureOf(text, pieces) };
 }
 
 /** The four gates, each on its own, in the repo's own Node. */
@@ -728,7 +822,7 @@ async function commandTopic(args) {
 
   try {
     for (const topic of wanted) {
-      const entry = { id: topic.id, request: topic.request, startedAt: new Date().toISOString(), turns: [], gateEvents: [], errors: [], parts: [], studio: studioOf({ port, token, root, stateHome: process.env.XDG_STATE_HOME, cacheHome: process.env.XDG_CACHE_HOME }), head: { start: await headOf(repo), end: null } };
+      const entry = { id: topic.id, request: topic.request, method: { asked: topic.method, chosen: null, by: null }, diagnosis: null, startedAt: new Date().toISOString(), turns: [], gateEvents: [], errors: [], parts: [], studio: studioOf({ port, token, root, stateHome: process.env.XDG_STATE_HOME, cacheHome: process.env.XDG_CACHE_HOME }), head: { start: await headOf(repo), end: null } };
       results.topics = results.topics.filter((item) => item.id !== topic.id).concat(entry);
       logFile = join(out, `${topic.id}-studio.log`);
       writeFileSync(logFile, "");
@@ -753,13 +847,15 @@ async function commandTopic(args) {
             if (action === "aprender") {
               await client.post("api/aprender", { text: topic.request, modo: "universitario" });
             } else if (action === "metodo") {
-              await client.post("api/metodo", { tema: topicId, metodo: "pareto" });
+              await client.post("api/metodo", { tema: topicId, metodo: topic.method });
+              entry.method = { asked: topic.method, chosen: topic.method, by: "banco", source: "api/metodo" };
             } else if (action === "diagnostico") {
               const view = await client.get(`api/view?topic=${encodeURIComponent(topicId)}&part=quiz`);
               const quiz = readJsonFile(join(root, topicId, "quiz.json"), "quiz");
-              const { answers, reasoning } = diagnosisAnswers(quiz);
+              const served = await servedQuiz(view.url);
+              const { answers, reasoning, noSe, mapping } = diagnosisAnswers(quiz, served, { noSe: Boolean(topic.noSe) });
               const submitted = await submitToBridge(view.url, { kind: "diagnosis", topic: topicId, answers, reasoning });
-              entry.diagnosis = { answers, score: submitted.score ?? null, saved: submitted.saved ?? null };
+              entry.diagnosis = { answers, score: submitted.score ?? null, saved: submitted.saved ?? null, noSe, mapping };
             } else if (action === "parte1") {
               const plan = readPlan(join(root, topicId));
               const first = plan?.parts?.[0];
@@ -842,6 +938,8 @@ async function commandTopic(args) {
           entry.library = current;
           entry.title = current.title ?? topicId;
           turn.engine = { status: current.status ?? null, stage: current.stage ?? null, nextStage: current.nextStage ?? null, part: current.part ?? null, method: current.method ?? null };
+          // A tutor that chose the method itself is recorded as such: the bench only answers when the page asks.
+          if (current.method && !entry.method.chosen) entry.method = { asked: topic.method, chosen: current.method, by: "tutor", source: "library" };
           const plan = readPlan(join(root, topicId));
           const note = partNote(root, topicId, plan, plan?.parts?.[0]?.id ?? "p1");
           if (note) {
@@ -1066,16 +1164,20 @@ function renderReport(results) {
     `- HEAD del repo: ${results.head?.start ?? "-"} → ${results.head?.end ?? "-"}${moved ? " (cambió durante la corrida)" : ""}`,
     `- Empezó: ${results.startedAt ?? "-"} · terminó: ${results.finishedAt ?? "-"}`,
     "",
-    "| Tema | Carpeta | Partes | Gates | Correcciones | Turnos | Piezas | Actores | Capturas |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Tema | Carpeta | Método | Partes | Gates | Correcciones | Turnos | Piezas | Actores | Figura principal | Capturas |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const topic of results.topics) {
     const gates = topic.parts.map((part) => `${part.id}: ${part.gates.verdict}${part.gates.failing.length ? ` (${part.gates.failing.join(", ")})` : ""}`).join("; ") || "-";
     const pieces = [...new Set(topic.parts.flatMap((part) => Object.keys(part.pieces ?? {})))].join(", ") || "-";
     const actors = [...new Set(topic.parts.flatMap((part) => part.actors ?? []))].slice(0, 12).join(", ") || "-";
+    const method = topic.method?.chosen ? `${topic.method.chosen}${topic.method.by ? ` (${topic.method.by})` : ""}` : "-";
+    const figure = topic.parts.map((part) => part.main?.line).filter(Boolean).join("<br>") || "-";
     const shots = topic.parts.map((part) => part.screenshot).filter(Boolean).join("<br>") || "-";
-    lines.push(`| ${topic.request} | ${topic.topic ?? "-"} | ${topic.parts.length} | ${gates} | ${topic.correctionRounds ?? 0} | ${topic.turns?.length ?? 0} | ${pieces} | ${actors} | ${shots} |`);
+    lines.push(`| ${topic.request} | ${topic.topic ?? "-"} | ${method} | ${topic.parts.length} | ${gates} | ${topic.correctionRounds ?? 0} | ${topic.turns?.length ?? 0} | ${pieces} | ${actors} | ${figure} | ${shots} |`);
   }
+  const noSeTopics = results.topics.filter((topic) => topic.diagnosis?.noSe).map((topic) => topic.request);
+  if (noSeTopics.length) lines.push("", `Diagnóstico respondido con «No sé» (E): ${noSeTopics.join(", ")}.`);
   // Each topic on its own studio: the isolation the run relies on, one row per topic.
   const ports = results.topics.map((topic) => topic.studio?.port).filter(Number.isInteger);
   const roots = results.topics.map((topic) => topic.studio?.root).filter(Boolean);
