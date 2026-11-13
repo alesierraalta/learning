@@ -19,6 +19,16 @@
 //                        justifica y esa regla no vale dentro de una pieza
 //   faint-ink            una tinta no se lee sobre su fondo (< 4,5:1)
 //   white-island         una superficie blanca sobre el papel de noche
+//   focused-out-of-view  el actor enfocado del explorador se sale de su mapa
+//   log-overflow         una fila del registro del explorador se desborda
+//   travel-over-text     la etiqueta de lo que viaja tapa una palabra
+//   map-underfilled      el mapa del explorador no llena su panel en el ancho amplio
+//   log-header-orphan    una cabecera del registro cae en otra línea o se parte
+//   log-cell-stacked     una celda del registro cae bajo su fila en el ancho amplio
+//   log-cell-wraps       una celda que no es la información se parte en dos líneas
+//   log-cell-overflow    una celda del registro se desborda de su columna
+//   subtitle-style       un subtítulo del paso va en versalitas, con espaciado o bajo el mínimo
+//   link-on-edge         un trazo del explorador queda al borde de su panel
 //
 // `scope`: "all" (por defecto), "geometry" (empty, off-canvas, size, connectors) o
 // "convivencia" (text-over-text, connector-over-text).
@@ -26,9 +36,12 @@ export function measurePiece(host, { minPx = 13, scope = 'all', slack = 1 } = {}
   const problems = [];
   const add = (kind, text, detail) => problems.push({ kind, text: String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 40), detail });
   const wants = (name) => scope === 'all' || scope === name;
+  // Una vista oculta no se mide: el `hidden` del atributo y un `<details>` cerrado
+  // dejan cajas con tamaño pero nada que el lector vea.
+  const off = (node) => Boolean(node.closest('[hidden], details:not([open])'));
   const shown = (el) => {
     const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' && !el.closest('[hidden]');
+    return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' && !off(el);
   };
   const pieces = [...host.querySelectorAll('.lk-p')].filter(shown);
   if (!pieces.length) { add('empty-piece', host.getAttribute('title') || host.tagName.toLowerCase(), 'la pieza no se dibujó'); return { problems }; }
@@ -72,16 +85,18 @@ export function measurePiece(host, { minPx = 13, scope = 'all', slack = 1 } = {}
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const text = node.textContent.replace(/\s+/g, ' ').trim();
       const owner = node.parentElement;
-      if (!text || !owner || owner.closest('[hidden], [data-measure-skip]') || owner.tagName === 'SCRIPT' || owner.tagName === 'STYLE') continue;
+      if (!text || !owner || off(owner) || owner.closest('[data-measure-skip]') || owner.tagName === 'SCRIPT' || owner.tagName === 'STYLE') continue;
       const range = document.createRange();
       range.selectNodeContents(node);
-      const b = range.getBoundingClientRect();
-      if (b.width < 1 || b.height < 1) continue;
+      // Un nodo que el texto parte en varias líneas se mide línea a línea: su caja entera
+      // se extiende hasta la línea de al lado y tapaba una ficha que no la toca.
+      const lines = [...range.getClientRects()].filter((b) => b.width >= 1 && b.height >= 1);
+      if (!lines.length) continue;
       const style = getComputedStyle(owner);
       const svg = owner instanceof SVGElement ? owner.ownerSVGElement : null;
       const px = parseFloat(style.fontSize) * (svg ? (svg.getScreenCTM()?.a || 1) : 1);
       const ink = rgb(svg ? style.fill : style.color);
-      words.push({ text, owner, b: seenBox(owner, b), full: b, px, ink });
+      for (const b of lines) words.push({ text, owner, b: seenBox(owner, b), full: b, px, ink });
     }
   }
 
@@ -129,6 +144,95 @@ export function measurePiece(host, { minPx = 13, scope = 'all', slack = 1 } = {}
       const c = ratio(over(w.ink, paper), paper);
       if (w.ink.a > 0.3 && c < 4.5) add('faint-ink', w.text, `${c.toFixed(1)}:1`);
     }
+    // #228: el explorador enfoca a los actores de cada paso. El enfocado se queda
+    // dentro de su mapa en cualquier ancho, y una fila del registro no se desborda.
+    for (const map of pieces.flatMap((piece) => [...piece.querySelectorAll('.lk-xmap')])) {
+      if (!shown(map)) continue;
+      const box = map.getBoundingClientRect();
+      for (const actor of map.querySelectorAll('.lk-xactor[data-focus="1"]')) {
+        const r = actor.getBoundingClientRect();
+        if (r.left < box.left - slack || r.right > box.right + slack || r.top < box.top - slack || r.bottom > box.bottom + slack) add('focused-out-of-view', actor.dataset.actor, 'el actor enfocado se sale de su mapa');
+        else if (r.left < -slack || r.right > innerWidth + slack) add('focused-out-of-view', actor.dataset.actor, 'el actor enfocado se sale de la ventana');
+      }
+    }
+    for (const row of pieces.flatMap((piece) => [...piece.querySelectorAll('.lk-xlogrow')])) {
+      if (!shown(row)) continue;
+      if (row.scrollWidth > row.clientWidth + 1) add('log-overflow', row.textContent, `${row.scrollWidth} > ${row.clientWidth}`);
+    }
+    // #228 (segunda tanda): el mapa llena su panel en el ancho amplio. El panel es la fila de
+    // la rejilla (la lista la marca): los actores cubren al menos el 60 % de su alto y van
+    // centrados. Apilado (teléfono) o en una sola columna, el mapa no comparte fila: no aplica.
+    for (const grid of pieces.flatMap((piece) => [...piece.querySelectorAll('.lk-xgrid')])) {
+      const list = grid.querySelector('.lk-xlist'), map = grid.querySelector('.lk-xmap');
+      if (!list || !map || off(map) || !shown(grid)) continue;
+      const g = grid.getBoundingClientRect();
+      if (list.getBoundingClientRect().right > map.getBoundingClientRect().left + 1) continue;
+      const cards = [...map.querySelectorAll('.lk-xactor')].filter(shown);
+      if (!cards.length) continue;
+      const top = Math.min(...cards.map((c) => c.getBoundingClientRect().top));
+      const bottom = Math.max(...cards.map((c) => c.getBoundingClientRect().bottom));
+      const share = (bottom - top) / g.height;
+      if (share < 0.6) add('map-underfilled', 'mapa', `los actores cubren ${Math.round(share * 100)} % del panel (mínimo 60 %)`);
+      else if (Math.abs((top + bottom) / 2 - (g.top + g.bottom) / 2) > 0.15 * g.height) add('map-underfilled', 'mapa', 'los actores no van centrados en el panel');
+    }
+    // #228 (segunda tanda): el registro es una tabla. Las cabeceras visibles comparten línea
+    // y cada título cabe en una; en el ancho amplio cada celda cae en su columna, en su línea,
+    // y la fila ocupa una sola salvo que su información se parta de verdad.
+    const linesOf = (node) => { const r = document.createRange(); r.selectNodeContents(node); return r.getClientRects().length; };
+    for (const log of pieces.flatMap((piece) => [...piece.querySelectorAll('.lk-xlog')])) {
+      if (!shown(log)) continue;
+      const wide = log.getBoundingClientRect().width >= 640;
+      const heads = [...log.querySelectorAll('.lk-xloghead > span')].filter(shown);
+      const headTops = heads.map((h) => h.getBoundingClientRect().top);
+      if (headTops.length && Math.max(...headTops) - Math.min(...headTops) > 1) add('log-header-orphan', heads.map((h) => h.textContent).join(' '), 'una cabecera del registro cae en otra línea');
+      for (const h of heads) {
+        if (linesOf(h) > 1) add('log-header-orphan', h.textContent, 'el título se parte en dos líneas');
+        if (h.scrollWidth > h.clientWidth + 1) add('log-cell-overflow', h.textContent, `${h.scrollWidth} > ${h.clientWidth}`);
+      }
+      for (const row of [...log.querySelectorAll('.lk-xlogrow')].filter(shown)) {
+        const cells = [...row.children].filter(shown);
+        for (const c of cells) if (c.scrollWidth > c.clientWidth + 1) add('log-cell-overflow', c.textContent, `${c.scrollWidth} > ${c.clientWidth}`);
+        if (!wide) continue;
+        const info = row.querySelector('.lk-xinfo');
+        const cellTops = cells.map((c) => c.getBoundingClientRect().top);
+        if (Math.max(...cellTops) - Math.min(...cellTops) > 1) add('log-cell-stacked', row.textContent, 'una celda cae bajo la fila');
+        for (const c of cells) if (c !== info && linesOf(c) > 1) add('log-cell-wraps', c.textContent, 'una celda que no es la información se parte en dos líneas');
+        const cs = getComputedStyle(row);
+        const lineH = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5;
+        const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+        const rowLines = Math.round((row.getBoundingClientRect().height - padY) / lineH);
+        const textLines = Math.max(1, ...cells.map((c) => linesOf(c)));
+        if (rowLines > textLines) add('log-cell-stacked', row.textContent, `la fila ocupa ${rowLines} líneas y su texto ${textLines}`);
+      }
+    }
+    // #228 (segunda tanda): el subtítulo de cada paso va en caja baja, con el espaciado normal
+    // y no más pequeño que el mínimo de lectura. El título puede seguir en versalitas.
+    for (const sub of pieces.flatMap((piece) => [...piece.querySelectorAll('.lk-xssub')])) {
+      if (!shown(sub)) continue;
+      const cs = getComputedStyle(sub);
+      if (cs.textTransform !== 'none') add('subtitle-style', sub.textContent, `va en ${cs.textTransform}`);
+      if (cs.letterSpacing !== 'normal' && Math.abs(parseFloat(cs.letterSpacing)) > 0.01) add('subtitle-style', sub.textContent, `espaciado ${cs.letterSpacing}`);
+      if (parseFloat(cs.fontSize) < minPx) add('subtitle-style', sub.textContent, `${parseFloat(cs.fontSize).toFixed(1)} px (mínimo ${minPx})`);
+    }
+    // #228 (segunda tanda): ningún trazo del explorador toca el borde de su panel. Son 8 px
+    // como mínimo; en el teléfono, donde los enlaces van por la cuneta, 20 px.
+    for (const panel of pieces.flatMap((piece) => [...piece.querySelectorAll('.lk-xmap, .lk-xseqrows')])) {
+      if (!shown(panel)) continue;
+      const P = panel.getBoundingClientRect();
+      const min = P.width < 420 ? 20 : 8;
+      for (const path of panel.querySelectorAll('path.lk-xlink, path.lk-xflow, path.lk-xseqarrow')) {
+        if (off(path) || !path.getAttribute('d')) continue;
+        const total = path.getTotalLength(), m = path.getScreenCTM();
+        if (!total || !m) continue;
+        let near = Infinity;
+        for (let len = 0; len <= total; len += 2) {
+          const p = path.getPointAtLength(len);
+          const x = m.a * p.x + m.c * p.y + m.e, y = m.b * p.x + m.d * p.y + m.f;
+          near = Math.min(near, x - P.left, P.right - x, y - P.top, P.bottom - y);
+        }
+        if (near < min) add('link-on-edge', path.dataset.from ? `${path.dataset.from}→${path.dataset.to || '·'}` : 'trazo', `a ${Math.round(near)} px del borde del panel (mínimo ${min})`);
+      }
+    }
     if (night) {
       for (const piece of pieces) for (const el of piece.querySelectorAll('*')) {
         const c = rgb(getComputedStyle(el).backgroundColor);
@@ -144,17 +248,23 @@ export function measurePiece(host, { minPx = 13, scope = 'all', slack = 1 } = {}
     const at = (len) => { const p = path.getPointAtLength(len); return { x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f }; };
     return { at, total: path.getTotalLength() };
   };
+  // Un conector declara el extremo que le toca: uno cortado por su etiqueta declara
+  // solo la salida en el primer tramo y solo la llegada en el segundo, y los dos se
+  // miden contra su ancla.
   for (const piece of pieces) {
-    for (const path of piece.querySelectorAll('svg path[data-from]')) {
+    for (const path of piece.querySelectorAll('svg path[data-from], svg path[data-to]')) {
       // Un conector oculto (su celda clave queda fuera de su marco) no se dibuja: no es un fallo de trazo.
-      if (path.getAttribute('visibility') === 'hidden') continue;
+      if (off(path) || path.getAttribute('visibility') === 'hidden') continue;
       const { at, total } = ends(path);
-      if (!total) { add('connector-miss', path.dataset.from, 'el conector no dibuja trazo'); continue; }
-      const from = anchorBox(piece, path.dataset.from);
+      const label = `${path.dataset.from || '·'}→${path.dataset.to || '·'}`;
+      if (!total) { add('connector-miss', label, 'el conector no dibuja trazo'); continue; }
+      const from = path.dataset.from ? anchorBox(piece, path.dataset.from) : null;
       const to = path.dataset.to ? anchorBox(piece, path.dataset.to) : null;
       if (wants('geometry') || scope === 'all') {
-        if (!from) add('connector-miss', path.dataset.from, 'el ancla de salida no existe en el paso');
-        else if (gap(at(0), from) > 3) add('connector-miss', path.dataset.from, `empieza a ${Math.round(gap(at(0), from))} px de su ancla`);
+        if (path.dataset.from) {
+          if (!from) add('connector-miss', path.dataset.from, 'el ancla de salida no existe en el paso');
+          else if (gap(at(0), from) > 3) add('connector-miss', path.dataset.from, `empieza a ${Math.round(gap(at(0), from))} px de su ancla`);
+        }
         if (path.dataset.to) {
           if (!to) add('connector-miss', path.dataset.to, 'el ancla de llegada no existe en el paso');
           else if (gap(at(total), to) > 3) add('connector-miss', path.dataset.to, `termina a ${Math.round(gap(at(total), to))} px de su ancla`);
@@ -164,13 +274,20 @@ export function measurePiece(host, { minPx = 13, scope = 'all', slack = 1 } = {}
         for (let len = 8; len < total - 8; len += 3) {
           const p = at(len);
           const hit = words.find((w) => p.x > w.b.left + 1 && p.x < w.b.right - 1 && p.y > w.b.top + 1 && p.y < w.b.bottom - 1);
-          if (hit) { add('connector-over-text', `${path.dataset.from}→${path.dataset.to || '✗'}`, `cruza «${hit.text}»`); break; }
+          if (hit) { add('connector-over-text', label, `cruza «${hit.text}»`); break; }
         }
       }
     }
   }
 
   if (wants('convivencia')) {
+    // #228: la etiqueta de lo que viaja no tapa una palabra del mapa.
+    for (const chip of pieces.flatMap((piece) => [...piece.querySelectorAll('.lk-xtravel')])) {
+      if (!shown(chip)) continue;
+      const c = chip.getBoundingClientRect();
+      const hit = words.find((w) => !chip.contains(w.owner) && Math.min(c.right, w.b.right) - Math.max(c.left, w.b.left) > 2 && Math.min(c.bottom, w.b.bottom) - Math.max(c.top, w.b.top) > 2);
+      if (hit) add('travel-over-text', chip.textContent, `tapa «${hit.text}»`);
+    }
     // El contorno de un conjunto (un círculo de un Venn) tampoco pasa por una palabra.
     for (const circle of pieces.flatMap((piece) => [...piece.querySelectorAll('circle[data-set]')])) {
       const m = circle.getScreenCTM();

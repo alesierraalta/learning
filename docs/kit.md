@@ -466,7 +466,7 @@ all local demos, diagrams, steps, and mathematics remain usable.
 
 ### Visual pieces: verdict cards, memory, joined tables, sets
 
-Four elements draw ideas the scene vocabulary tells badly. Each is declarative JSON in an
+Five elements draw ideas the scene vocabulary tells badly. Each is declarative JSON in an
 `<script type="application/json">`, anchored by ids: a pointer, a connector or a region names
 what it reaches and the kit traces it from the boxes the browser drew (`placeMemory`,
 `placeTables`), so a note never carries a coordinate. They are HTML, not a canvas: they stack in a
@@ -482,6 +482,7 @@ accepts a `caption`, drawn under the piece as its own reading guide.
 | `lk-memory` | State in numbered steps: each repeats its code line (badge + code), columns (STACK / HEAP, or SESIÓN / DISCO), segmented cells, status pills, a pointer from a cell to its target (`points`), invalid cells dashed and struck with a ✗. | `examples/memoria-string-rust.md`, `examples/plsql-transaccion.md` |
 | `lk-tables` | Real tables joined by curved connectors (one colour per match, derived from the data), the `ON` pill and the derived result; `kind: "left"` keeps unmatched rows with `NULL`; `show` reveals tables → links → on → result. Also `group`: rows → groups with value chips and a COUNT badge. | `examples/sql-join-videojuegos.md`, `examples/sql-group-by.md` |
 | `lk-venn` | Two or three labelled sets; `fill` lists the exact regions that answer (`a+b` = in A and B only; `a` = A only), `op` names the operation, `says` explains it. One region per story step. | `examples/sql-venn-joins.md` |
+| `lk-explorer` | A process between several systems over time: a map of the actors, a numbered step list that drives it, a details panel per step and an event log that fills as it runs; a second view draws the same steps as a sequence diagram. | `examples/abrir-una-pagina.md` |
 
 The engine and `explain-check` count a piece as the part's drawn figure (one scene *or* one piece
 per part, `pieceOpenCount` in `internal/engine/pieces.go`); its JSON is not prose; a story step that
@@ -492,6 +493,88 @@ a connector that misses its anchor (`connector-miss`), a word over a word, a con
 outline over a word. The bridge matrix (`integrations/pi/bridge.test.mjs`, `PIECE_EXAMPLES`)
 renders every example through the real reader in light/dark/black × narrow/wide/phone and in full
 screen, and writes the element screenshots to `/tmp/vp-shots/`.
+
+### `lk-explorer` — a system map whose focus follows the steps
+
+A scenario — opening a web page, a request through three services, a handshake — is not one
+scene: it is **several systems and a sequence over time**. The explorer draws the systems once on a
+map and then moves the focus with a numbered step list, the way the learner's reference
+(`protocol-explorer-alpha.vercel.app`) does, with our own pieces and drawing: boxes with a character (`kind`), a
+name and the detail that identifies the system, dashed links between the actors that talk, and the
+payload of each step written on the map.
+
+Use it when the answer to «what happens?» is *who talks to whom, in what order, and what travels*.
+Use `<lk-story>` with actors and props when the answer is *who holds what and when it stops being
+valid* (§8d): a story has one stage and a narrator, and the explorer has a map, a list, a panel and
+a log.
+
+```json
+{"title":"Abrir una página web","rows":[["client","router"],["dns","web"]],"views":["map","sequence"],
+ "actors":[{"id":"client","name":"Cliente","detail":"192.168.1.10","kind":"person","tone":"blue"},
+           {"id":"dns","name":"DNS","detail":"8.8.8.8","kind":"database","tone":"amber"}],
+ "links":[{"from":"client","to":"router"},{"from":"router","to":"dns"}],
+ "steps":[{"title":"La consulta","subtitle":"pregunta por el nombre","focus":["client","dns"],
+   "travels":{"from":"client","to":"dns","label":"www.example.com","kind":"query"},
+   "details":{"text":"El cliente no sabe dónde vive ese nombre.","rows":[["URL","www.example.com"],["PUERTO","53"]]},
+   "log":{"from":"client","to":"dns","kind":"query","info":"¿A qué IP va?"}}]}
+```
+
+- `actors` (2 to 6): `id`, `name`, `detail` (the identifying detail: an address, a port, a role)
+  and an optional `kind`: the characters the kit draws (`person`, `house`, `doc`,
+  `gear`, `robot`, `coin`, `database`, `server`, `row`, `session`, `lock`, `process`, `packet`). Without `kind` the actor is a box with its name; a `kind` the kit does
+  not draw is refused, not drawn empty. `rows` places them in the map's grid — an array of rows of
+  ids, `""` for an empty cell — and the phone stacks them in that order.
+- `links`: the dashed topology between actors. **Declare links between actors that are adjacent in
+  the map**; a link that skips over a card is drawn straight through it and `scene-lint` calls it
+  `connector-over-text`.
+- `steps` (1 to 8): `title` and `subtitle` for the list, `focus` (the actors that talk in this
+  step), `travels` (what moves: `from`, `to`, `label` and a `kind`), `details` (a short paragraph
+  and its `rows` of key/value) and `log` (the event row: `from`, `to`, `kind`, `info`).
+- `kind` colours the payload and the log row: `query`, `answer`, `syn`, `ack`, `get`, `ok`,
+  `render` have a tone of their own, any other word is slate, and `tone` overrides it.
+- `views: ["map","sequence"]` adds the second view: one lifeline per actor and one arrow per step,
+  with the payload written above the arrow. Without it the explorer is only the map.
+- `log` is optional: `"log": false` removes the event log, and a flow where no step has a `log` draws
+  none. Otherwise the log fills as the steps advance, and back, play, step and reset drive it.
+
+**The focus dims, it does not crop.** The active step marks its actors (`data-focus`) and the rest
+fade; the map never pans or zooms, so the focused actor stays whole at every width — a camera that
+zooms would push it out of the canvas on a phone. The transition and the flowing dashes of the
+payload arrow are turned off under `prefers-reduced-motion`.
+
+**Everything is placed from measured boxes.** The links leave one actor's border and land on the
+other's; the payload label goes to the empty lane the map leaves it — above the row of a
+side-by-side pair, the gap between rows when the pair is stacked or diagonal — and the arrow is cut
+where the label sits, so no word ends up under a stroke. On a phone the actors stack and the links
+run in a right-hand gutter, one lane per link (the longest one outermost), with each card's exit
+points ordered so that no two lines cross; the payload runs down a left-hand gutter. The phone margin
+is fixed in pixels, so both gutters sit 24 px or more from the panel edge whatever the font size.
+On a wide column the map fills its panel: the actors stretch to their rows (up to 12 em each) and the
+group is centred when the panel is taller than that. The layout is three panels (list | map | details)
+with the log below on a wide column, and map → details → collapsed list on a narrow one. The log is a
+table: the header and every row share the same columns, so its five columns sit on one line on a wide
+column, and on a phone the information stacks under each row while the header shows the four columns
+that have a title. Subtitles are sentence case, with normal tracking. Full screen gives the map the
+whole width, with the list and the panel below it.
+
+`measurePiece` (`piece-measure.mjs`) adds the explorer findings, and `scene-gate` /
+`scene-lint` run it in light, dark and black at 1440 and 390 px, step by step and once for the sequence view:
+`focused-out-of-view` (the focused actor leaves its map or the window), `log-overflow` (a log row is
+wider than its box), `travel-over-text` (the payload label covers a word), `map-underfilled` (on a wide
+column the actors cover less than 60 % of the panel height, or sit off centre), `log-header-orphan` and
+`log-cell-stacked` (a header or a cell falls off its line), `log-cell-wraps` and `log-cell-overflow`
+(a cell breaks or overflows its column), `subtitle-style` (a step subtitle in capitals, tracked, or under
+13 px) and `link-on-edge` (a line within 8 px of the panel edge, or 20 px on a phone). A connector that
+does not reach its anchor is `connector-miss`, and a connector cut by its label declares only the
+end it owns (`data-from` on the first half, `data-to` on the second), so both ends are still
+measured. Words are measured line by line, so a chip at the end of one line never hides the words
+that wrap under it. The bridge matrix (`integrations/pi/bridge.test.mjs`) renders the example through the
+real reader in light/dark/black × narrow/wide/phone, steps through every step, opens the sequence
+view and full screen, and writes the screenshots to `/tmp/se-shots/`.
+
+Worked example, gated: `integrations/pi/kit/examples/abrir-una-pagina.md` (client, router, DNS
+as a `database` and the web server as a `server`; eight steps, the most one explorer takes: the DNS query and its answer, the
+TCP handshake (SYN, SYN-ACK, ACK), the HTTP request and its 200 OK, and the browser painting the page).
 
 ## Injected config
 

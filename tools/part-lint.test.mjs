@@ -63,3 +63,21 @@ test('el JSON de un recorrido clásico no cuenta como prosa', () => {
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(words(r.stdout), PROSA.split(/\s+/).length, r.stdout);
 });
+
+// Un explorador de escenario es una figura: su mapa, sus pasos y su registro se miran.
+const EXPLORADOR = `<lk-explorer>
+<script type="application/json">
+{"title":"Dos sistemas","rows":[["a","b"]],"actors":[{"id":"a","name":"Cliente","detail":"192.168.1.10","kind":"person","tone":"blue"},{"id":"b","name":"Servidor web","detail":"93.184.216.34","kind":"house","tone":"green"}],"links":[{"from":"a","to":"b"}],"steps":[{"title":"La petición","subtitle":"pide la página","focus":["a","b"],"travels":{"from":"a","to":"b","label":"GET /","kind":"get"},"details":{"text":"El cliente pide el documento al servidor.","rows":[["MÉTODO","GET"],["RUTA","/"]]},"log":{"from":"a","to":"b","kind":"get","info":"GET / con Host: www.example.com"}}]}
+</script>
+</lk-explorer>`;
+
+test('el JSON de un explorador no cuenta como prosa', () => {
+  const bare = join(dir, 'explorador-sin-figura.md');
+  writeFileSync(bare, `# Parte 1\n\n${PROSA}\n`);
+  const file = join(dir, 'explorador.md');
+  writeFileSync(file, `# Parte 1\n\n${PROSA}\n\n${EXPLORADOR}\n`);
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(words(r.stdout), words(lint(bare).stdout), r.stdout);
+});
+

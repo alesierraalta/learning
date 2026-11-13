@@ -38,6 +38,7 @@ quien lee no puede ver lo único que la parte venía a explicar.
 | El estado de la memoria (stack, heap, punteros), paso a paso | `<lk-memory>` (§8e) |
 | Dos tablas unidas por una clave, o filas que se agrupan | `<lk-tables>` (§8e) |
 | Qué región de dos o tres conjuntos responde (INNER / LEFT / FULL JOIN) | `<lk-venn>` (§8e) |
+| Un proceso entre varios sistemas a lo largo del tiempo (abrir una página, un handshake, una petición que cruza tres servicios) | `<lk-explorer>` (§8f) |
 | Código que el lector podría ejecutar | bloque de código con su lenguaje |
 
 `lk-diagram` existe todavía para diagramas de arquitectura viejos. No se usa en material
@@ -424,7 +425,7 @@ Ejemplo aprobado y completo, en cuatro pasos (dueña, mover, la vieja se tacha, 
 
 ## 8e. Piezas visuales: tarjetas, memoria, tablas y conjuntos
 
-Cuatro piezas que el lector dibuja desde JSON declarativo, para lo que una escena de cajas y
+Cinco piezas que el lector dibuja desde JSON declarativo, para lo que una escena de cajas y
 flechas cuenta mal. **Se eligen por lo que la parte enseña**, no por variar: una por parte, y
 ocupa el lugar de la escena (cuenta contra el tope de una figura). Todas se anclan por id: un
 puntero, un conector o una región **nombran** a qué llegan y el lector los traza midiendo lo que
@@ -522,9 +523,74 @@ la operación y `says` la dice en una línea. Para tres conjuntos, `"a+b+c"` es 
 región por paso», el recorrido declara `"venn":{"sets":[…]}` una vez y cada paso solo `fill`, `op` y
 `says`.
 
+## 8f. Un escenario entre varios sistemas (`<lk-explorer>`)
+
+**Un proceso entre varios sistemas a lo largo del tiempo no es una escena ni un recorrido de
+actores.** Abrir una página web, un handshake, una petición que cruza tres servicios: lo que hay
+que ver es *quién habla con quién, en qué orden y qué viaja*. Eso se dibuja con un mapa del
+sistema y una lista de pasos que lo mueve.
+
+| Cuándo | Componente |
+|---|---|
+| Varios sistemas y un orden en el tiempo (DNS, TCP, HTTP, el dibujo) | `<lk-explorer>` |
+| Un concepto con estado: quién tiene qué y cuándo deja de valer | `<lk-story>` con actores y piezas (§8d) |
+| Un intercambio único, sin pasos | `<lk-scene>` con dos cajas y sus flechas |
+
+El explorador dibuja **cada sistema una vez** —su personaje (`kind`), su nombre y el detalle que lo identifica
+(`192.168.1.10`, `8.8.8.8`, `puerta de enlace`)—, une con trazos los que hablan y mueve el foco con
+la lista de pasos: el paso activo enfoca a sus actores, atenúa al resto y escribe en el mapa **qué
+viaja** (`www.example.com`, `SYN`, `200 OK`). Debajo, el registro se llena al avanzar (número,
+origen, destino, tipo e info, teñido por el tipo; `"log": false` lo quita), y el panel del paso cuenta qué pasa con un
+párrafo corto y sus filas clave/valor.
+
+```json
+{"title":"Abrir una página web","rows":[["client","router"],["dns","web"]],"views":["map","sequence"],
+ "actors":[{"id":"client","name":"Cliente","detail":"192.168.1.10","kind":"person","tone":"blue"},
+           {"id":"dns","name":"DNS","detail":"8.8.8.8","kind":"database","tone":"amber"}],
+ "links":[{"from":"client","to":"router"},{"from":"router","to":"dns"}],
+ "steps":[{"title":"La consulta","subtitle":"pregunta por el nombre","focus":["client","dns"],
+   "travels":{"from":"client","to":"dns","label":"www.example.com","kind":"query"},
+   "details":{"text":"El cliente no sabe dónde vive ese nombre.","rows":[["URL","www.example.com"],["PUERTO","53"]]},
+   "log":{"from":"client","to":"dns","kind":"query","info":"¿A qué IP va?"}}]}
+```
+
+Reglas:
+
+- **De dos a seis actores y de uno a ocho pasos.** Más es dos escenarios, no uno más largo.
+- **Personajes, no cajas**: `kind` toma los personajes que el kit dibuja (`person`, `house`, `doc`, `gear`, `robot`, `coin`, `database`, `server`, `row`, `session`, `lock`, `process`, `packet`). Un actor sin `kind` es una caja con su nombre, y un `kind` que el kit no dibuja se rechaza en vez de dibujarse a medias.
+- **El mapa se ordena con la topología**: `rows` coloca a cada actor en su celda y los enlaces se
+declaran entre actores **vecinos**. Un enlace que salta por encima de una tarjeta la cruza, y el
+lector lo llama `connector-over-text`.
+- **Un paso, una idea y un viaje.** `focus` son los que hablan, `travels` es lo que se mueve y `log`
+es su fila. El título y el subtítulo van a la lista; el párrafo, al panel.
+- **El tipo tiñe**: `query`, `answer`, `syn`, `ack`, `get`, `ok` y `render` tienen tono propio; otro
+palabra es gris, y `tone` lo cambia.
+- **`views: ["map","sequence"]`** añade la segunda vista: una vida por actor y una flecha por paso,
+con lo que viaja escrito encima. Es el mismo recorrido, no otro.
+- **El foco atenúa, no recorta.** El mapa no hace paneo ni zoom: el actor enfocado se ve entero en
+cualquier ancho. Con `prefers-reduced-motion` se apagan la transición y el movimiento de los
+trazos.
+- **Todo se coloca midiendo**: los enlaces salen del borde de un actor y llegan al borde del otro,
+la etiqueta de lo que viaja va a la franja vacía que el mapa le deja (encima de la fila, o entre
+las filas cuando están apilados) y la flecha se corta donde está la etiqueta. En un teléfono los
+actores se apilan: los enlaces bajan por la cuneta derecha, uno por carril y sin cruzarse, y lo que
+viaja por la izquierda. Todo queda a 20 px o más del borde del panel.
+
+**Qué rechaza el lector**: `focused-out-of-view` (el actor enfocado se sale de su mapa o de la
+ventana), `log-overflow` (una fila del registro no cabe en su ancho), `travel-over-text` (la
+etiqueta de lo que viaja tapa una palabra), `map-underfilled` (en el ancho amplio, el mapa cubre menos
+del 60 % de su panel o no va centrado), `log-header-orphan` y `log-cell-stacked` (una cabecera o una
+celda del registro cae fuera de su línea), `log-cell-wraps` y `log-cell-overflow` (una celda se parte
+o se desborda de su columna), `subtitle-style` (un subtítulo en versalitas, con espaciado o bajo 13 px)
+y `link-on-edge` (un trazo a menos de 8 px del borde del panel, o a menos de 20 px en el teléfono),
+además de `connector-miss` cuando un enlace no llega a su actor. `scene-gate` y `scene-lint` lo miden en las tres tintas (clara, oscura y negra) a 1440 y a 390 px, paso a paso y una vez para la
+secuencia.
+
+Ejemplo aprobado y completo, gated: `integrations/pi/kit/examples/abrir-una-pagina.md`. Ocho pasos: la consulta al DNS y su respuesta, el saludo TCP en tres mensajes (SYN, SYN-ACK, ACK), la petición HTTP con su 200 OK y el dibujo de la página.
+
 ### Qué mide el lector (y qué rechaza)
 
-`scene-gate` abre cada pieza a 1440 y a 390 px, paso a paso si es un recorrido, y mide: que no se
+`scene-gate` abre cada pieza a 1440 y a 390 px, en las tres tintas, paso a paso si es un recorrido, y mide: que no se
 salga de su escenario, ninguna palabra bajo 13 px, tinta con 4,5:1 sobre su papel, ninguna
 superficie blanca sobre el papel de noche, y que cada conector empiece y termine en su ancla
 (`connector-miss`). `scene-lint` mide la convivencia: una palabra sobre otra (`text-over-text`),
