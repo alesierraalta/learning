@@ -7,7 +7,7 @@
 // no termina en su celda, una palabra que se sale del lienzo.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, cpSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -362,6 +362,180 @@ test('tables and GROUP BY pass the measure in every theme and width', { skip: SK
       assert.deepEqual(problems, [], `${spec.group ? 'group' : 'join'} ${theme} ${width}px`);
     } finally { await browser.close(); }
   }
+});
+
+// ── #252 tables on a phone: stacked below the side-by-side width, a wide table scrolls ──
+// The learner's real part (the fixture) joins two tables that cannot sit side by side on
+// a 390 px column. They stack, the source above the target, and the connectors come back
+// in on their rows. A table wider than the column shrinks to a floor and then scrolls in
+// its own frame: no edge of it is ever cut off.
+const FIXTURE = JSON.parse(/<lk-tables>\s*<script type="application\/json">([\s\S]*?)<\/script>/.exec(readFileSync(join(KIT, 'test', 'fixtures', 'plsql-parte-1-v3.md'), 'utf8'))[1]);
+const NARROW = {
+  title: 'Una tabla que se encoge antes de desplazarse',
+  tables: [{ id: 'notas', name: 'notas', columns: ['id', 'nota', 'estado'], rows: [['10', 'el saldo se confirma al hacer COMMIT en disco', 'confirmado'], ['20', 'el saldo queda en reposo hasta que alguien lo toca', 'reposo']] }],
+};
+const WIDE = {
+  title: 'Una tabla más ancha que la columna',
+  tables: [{ id: 'cuentas', name: 'cuentas_disco', columns: ['identificador', 'saldo_disponible', 'fecha_de_confirmacion', 'estado_de_la_transaccion', 'sucursal'], rows: [['10', '800.00', '2026-11-12 23:54', 'confirmado', 'central'], ['20', '1000.00', '2026-11-12 23:55', 'pendiente de revisión', 'norte']] }],
+};
+
+test('joined tables stack below the side-by-side width: source above target, connectors coming in on their rows', { skip: SKIP }, async () => {
+  const { browser, view, errors } = await open('lk-tables', FIXTURE, { width: 390 });
+  try {
+    const seen = await view.evaluate(() => {
+      const join = document.querySelector('.lk-tjoin');
+      const tables = [...join.querySelectorAll(':scope > .lk-ttable')].map((t) => t.getBoundingClientRect());
+      const links = [...join.querySelectorAll('svg path[data-from][data-to]')].map((p) => {
+        const m = p.getScreenCTM(), len = p.getTotalLength();
+        const at = (l) => { const q = p.getPointAtLength(l); return { x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f }; };
+        return { start: at(0), end: at(len) };
+      });
+      return { layout: join.dataset.layout, tops: tables.map((r) => r.top), bottoms: tables.map((r) => r.bottom), links };
+    });
+    assert.deepEqual(errors, []);
+    assert.equal(seen.layout, 'stack', 'two tables wider than the column stack');
+    assert.ok(seen.tops[1] >= seen.bottoms[0] - 1, 'the target table sits below the source');
+    assert.equal(seen.links.length, 2, 'one connector per matched row');
+    assert.ok(seen.links.every((l) => l.end.y > l.start.y), 'every connector runs top to bottom');
+    assert.deepEqual((await view.locator('lk-tables').evaluate(measurePiece)).problems, []);
+  } finally { await browser.close(); }
+});
+
+test('stacked connectors stay apart when the matched rows keep their order', { skip: SKIP }, async () => {
+  const { browser, view } = await open('lk-tables', FIXTURE, { width: 390 });
+  try {
+    const seen = await view.evaluate(() => {
+      const paths = [...document.querySelectorAll('.lk-tjoin svg path[data-from][data-to]')];
+      const samples = paths.map((p) => {
+        const m = p.getScreenCTM(), len = p.getTotalLength(), pts = [];
+        for (let l = 0; l <= len; l += 1) { const q = p.getPointAtLength(l); pts.push({ x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f }); }
+        return pts;
+      });
+      let closest = Infinity;
+      for (let a = 0; a < samples.length; a++) for (let b = a + 1; b < samples.length; b++) {
+        for (const p of samples[a]) for (const q of samples[b]) closest = Math.min(closest, Math.hypot(p.x - q.x, p.y - q.y));
+      }
+      return { layout: document.querySelector('.lk-tjoin').dataset.layout, closest };
+    });
+    assert.equal(seen.layout, 'stack');
+    assert.ok(seen.closest > 3, `the closest two connectors come within ${seen.closest.toFixed(1)} px of each other`);
+  } finally { await browser.close(); }
+});
+
+test('a table that fits once its cells wrap shrinks instead of scrolling', { skip: SKIP }, async () => {
+  const { browser, view } = await open('lk-tables', NARROW, { width: 390 });
+  try {
+    const seen = await view.evaluate(() => {
+      const frame = document.querySelector('.lk-tframe');
+      const cell = frame?.querySelector('tbody td');
+      if (!frame || !cell) return { framed: false };
+      return { framed: true, scrolls: frame.scrollWidth > frame.clientWidth + 1, wrapped: cell.getBoundingClientRect().height > 3 * parseFloat(getComputedStyle(cell).fontSize) };
+    });
+    assert.equal(seen.framed, true, 'the table sits in a scroll frame');
+    assert.equal(seen.scrolls, false, 'a table that can shrink to the column does not scroll');
+    assert.equal(seen.wrapped, true, 'its long cells wrap to make the room');
+    assert.deepEqual((await view.locator('lk-tables').evaluate(measurePiece)).problems, []);
+  } finally { await browser.close(); }
+});
+
+test('a table wider than the column scrolls inside its own frame, shows an edge, and never cuts off its first or last column', { skip: SKIP }, async () => {
+  const { browser, view } = await open('lk-tables', WIDE, { width: 390 });
+  try {
+    const seen = await view.evaluate(async () => {
+      const scroll = document.querySelector('.lk-tscroll');
+      const frame = scroll?.querySelector('.lk-tframe');
+      if (!frame) return { framed: false };
+      const heads = [...frame.querySelectorAll('thead th')];
+      const inside = (el) => { const r = el.getBoundingClientRect(), f = frame.getBoundingClientRect(); return r.left >= f.left - 1 && r.right <= f.right + 1; };
+      const settle = () => new Promise((done) => setTimeout(done, 80));
+      await settle();
+      const atRest = { scrolls: frame.scrollWidth > frame.clientWidth + 1, first: inside(heads[0]), more: scroll.dataset.more ?? '', fade: getComputedStyle(scroll, '::after').backgroundImage };
+      frame.scrollLeft = frame.scrollWidth;
+      await settle();
+      return { framed: true, atRest, atEnd: { last: inside(heads.at(-1)), more: scroll.dataset.more ?? '' } };
+    });
+    assert.equal(seen.framed, true, 'the wide table sits in its own scroll frame');
+    assert.equal(seen.atRest.scrolls, true, 'it scrolls inside the frame');
+    assert.equal(seen.atRest.first, true, 'the first column is whole when the table opens');
+    assert.match(seen.atRest.more, /end/, 'the frame shows there is more to the right');
+    assert.match(seen.atRest.fade, /gradient/, 'the edge is drawn, not only a scrollbar');
+    assert.equal(seen.atEnd.last, true, 'the last column is whole once the frame is scrolled to its end');
+    assert.match(seen.atEnd.more, /start/, 'and the frame shows there is more to the left');
+    assert.deepEqual((await view.locator('lk-tables').evaluate(measurePiece)).problems, []);
+  } finally { await browser.close(); }
+});
+
+test('the stack decision depends on the width alone: a reader resized from a phone gets the layout a fresh load gets', { skip: SKIP }, async () => {
+  const resized = await open('lk-tables', FIXTURE, { width: 390 });
+  let after;
+  try {
+    await resized.view.setViewportSize({ width: 530, height: 900 });
+    await resized.view.waitForTimeout(250);
+    after = await resized.view.evaluate(() => document.querySelector('.lk-tjoin').dataset.layout ?? 'row');
+  } finally { await resized.browser.close(); }
+  const fresh = await open('lk-tables', FIXTURE, { width: 530 });
+  let loaded;
+  try {
+    loaded = await fresh.view.evaluate(() => document.querySelector('.lk-tjoin').dataset.layout ?? 'row');
+  } finally { await fresh.browser.close(); }
+  assert.equal(after, loaded, 'resizing from 390 px to 530 px must give the layout a fresh load gives');
+  const wide = await open('lk-tables', FIXTURE, { width: 600 });
+  try {
+    assert.equal(await wide.view.evaluate(() => document.querySelector('.lk-tjoin').dataset.layout ?? 'row'), 'row', 'two tables that fit side by side at 600 px are side by side');
+  } finally { await wide.browser.close(); }
+});
+
+// A joined pair where both tables are wider than the column. The source's key is its last column, so it
+// starts scrolled out of view: its connector has nothing to leave from until the frame shows it again.
+const WIDE_SOURCE = {
+  title: 'Pedidos y clientes',
+  tables: [
+    { id: 'pedidos', name: 'pedidos', columns: ['producto', 'descripcion_del_articulo', 'categoria_principal', 'id_cliente'], rows: [['lapiz', 'punta fina de grafito', 'papeleria', '1'], ['goma', 'borra blanca de caucho', 'papeleria', '2']] },
+    { id: 'clientes', name: 'clientes', columns: ['id_cliente', 'nombre_completo', 'correo_electronico_principal', 'telefono_de_contacto_movil', 'pais_de_residencia'], rows: [['1', 'Ana Quispe Rojas', 'ana.quispe@example.com', '+51 999 000 111', 'Perú'], ['2', 'Luis Alberto Mendoza', 'luis.mendoza@example.com', '+34 600 000 222', 'España']] },
+  ],
+  join: { from: 'pedidos.id_cliente', to: 'clientes.id_cliente', on: 'id_cliente = id_cliente', highlight: 'all' },
+};
+
+test('a joined table that scrolls keeps every connector on what its frame shows', { skip: SKIP }, async () => {
+  const { browser, view, errors } = await open('lk-tables', WIDE_SOURCE, { width: 390 });
+  try {
+    const state = () => view.evaluate(() => {
+      const join = document.querySelector('.lk-tjoin');
+      const frames = [...join.querySelectorAll('.lk-tframe')];
+      const box = (f) => { const r = f.getBoundingClientRect(); return { left: r.left, right: r.right }; };
+      const ends = [...join.querySelectorAll('svg path[data-from][data-to]')].map((p) => {
+        if (p.getAttribute('visibility') === 'hidden') return { hidden: true };
+        const m = p.getScreenCTM(), len = p.getTotalLength();
+        const at = (l) => { const q = p.getPointAtLength(l); return { x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f }; };
+        return { hidden: false, start: at(0), end: at(len) };
+      });
+      return { layout: join.dataset.layout, scrolls: frames.map((f) => f.scrollWidth > f.clientWidth + 1), source: box(frames[0]), target: box(frames[1]), ends };
+    });
+    const inside = (x, frame) => x >= frame.left - 1 && x <= frame.right + 1;
+    const first = await state();
+    assert.deepEqual(errors, []);
+    assert.equal(first.layout, 'stack');
+    assert.deepEqual(first.scrolls, [true, true], 'both tables are wider than the column');
+    for (const link of first.ends) {
+      if (!link.hidden) assert.ok(inside(link.start.x, first.source), `a connector is drawn from a key cell its frame does not show: x ${Math.round(link.start.x)}`);
+    }
+    assert.deepEqual((await view.locator('lk-tables').evaluate(measurePiece)).problems, [], 'a connector that is not drawn is not measured as a miss');
+    // The kit scrolls smoothly; an instant jump lets the test read the settled state.
+    await view.evaluate(() => { const f = document.querySelectorAll('.lk-tframe')[0]; f.scrollTo({ left: f.scrollWidth, behavior: 'instant' }); });
+    await view.waitForTimeout(200);
+    const sourceShown = await state();
+    for (const link of sourceShown.ends) {
+      assert.equal(link.hidden, false, 'a key cell scrolled into view draws its connector');
+      assert.ok(inside(link.start.x, sourceShown.source), `after scrolling the source, a connector starts at x ${Math.round(link.start.x)}, outside its frame`);
+    }
+    await view.evaluate(() => { const f = document.querySelectorAll('.lk-tframe')[1]; f.scrollTo({ left: f.scrollWidth, behavior: 'instant' }); });
+    await view.waitForTimeout(200);
+    const targetShown = await state();
+    for (const link of targetShown.ends) {
+      assert.ok(!link.hidden && Math.abs(link.end.x - targetShown.target.left) <= 1, `a row scrolled out of its frame ends at x ${Math.round(link.end.x)}, not at the frame edge ${Math.round(targetShown.target.left)}`);
+    }
+    assert.deepEqual((await view.locator('lk-tables').evaluate(measurePiece)).problems, []);
+  } finally { await browser.close(); }
 });
 
 test('a join that names a table or column the note does not have says so', { skip: SKIP }, async () => {

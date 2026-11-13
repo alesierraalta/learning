@@ -2913,9 +2913,31 @@ const PIECE_ASSERTS = {
       else assert.ok(seen.distinctTops < seen.n, `${where}: the cards do not sit side by side`);
     }
   },
+  // #252: two joined tables stack below the side-by-side width, and sit side by side above it.
+  "lk-tables": async (host, size, where) => {
+    const seen = await host.evaluate((node) => {
+      const join = node.querySelector(".lk-tjoin");
+      const tables = join ? [...join.querySelectorAll(":scope > .lk-ttable")] : [];
+      return {
+        joined: tables.length === 2,
+        stacked: join?.dataset.layout === "stack",
+        sameRow: tables.length === 2 && Math.abs(tables[0].getBoundingClientRect().top - tables[1].getBoundingClientRect().top) < 2,
+      };
+    });
+    if (!seen.joined) return;
+    if (size === "phone") assert.ok(seen.stacked, `${where}: the two tables sit side by side on a phone`);
+    else assert.ok(seen.sameRow, `${where}: the two tables stack although the column fits them side by side`);
+  },
 };
 // Pieces the example draws: [selector, owner, how many steps to photograph].
-const PIECE_EXAMPLES = [["prestamos-rust", "prestamos-rust.md"], ["memoria-string-rust", "memoria-string-rust.md"], ["sql-join-videojuegos", "sql-join-videojuegos.md"], ["sql-group-by", "sql-group-by.md"], ["sql-venn-joins", "sql-venn-joins.md"]];
+// The learner's real part (#252) is the fixture, not an example: two tables joined on a 390 px column.
+const PIECE_EXAMPLES = [["prestamos-rust", "prestamos-rust.md"], ["memoria-string-rust", "memoria-string-rust.md"], ["sql-join-videojuegos", "sql-join-videojuegos.md"], ["sql-group-by", "sql-group-by.md"], ["sql-venn-joins", "sql-venn-joins.md"], ["plsql-parte-1-v3", "../test/fixtures/plsql-parte-1-v3.md"]];
+// Every kit example that draws lk-tables is in the matrix, so a new one cannot skip the phone width.
+test("every kit example that draws lk-tables is in the visual matrix", () => {
+  const drawn = readdirSync(KIT_EXAMPLES).filter((file) => example(file).includes("lk-tables"));
+  assert.ok(drawn.length >= 1, "no kit example draws lk-tables");
+  for (const file of drawn) assert.ok(PIECE_EXAMPLES.some(([, owner]) => owner === file), `${file} draws lk-tables but is not in the piece matrix`);
+});
 
 for (const [name, file] of PIECE_EXAMPLES) {
   test(`the ${name} pieces pass the measure in every theme and width`, { skip: !playwright && "playwright not installed" }, async (t) => {
