@@ -290,6 +290,113 @@ function gradeRecorded(questions: Question[], recorded: AnswerFile | undefined, 
     .map((q) => ({ ...shownGrade(q, orderOf(q), grade(q, recorded.answers[q.id])), ...recorded.razonamientos[q.id] }));
 }
 
+/**
+ * An inline checkpoint (`<lk-quick-quiz>`) as the tutor wrote it (#276). Its key and its explanation stay with the
+ * bridge: the page gets the question and its options in the learner's order, and the answer is graded on the server.
+ */
+interface QuickCheckpoint {
+  id: string;
+  punto: string;
+  categoria: string;
+  pregunta: string;
+  opciones: Record<string, string>;
+  correcta: string;
+  explicacion?: string;
+}
+
+/** A checkpoint read as a question, so the quiz's own shuffle and grading answer it too (#272, #276). */
+const asQuestion = (c: QuickCheckpoint): Question => ({ id: c.id, enunciado: c.pregunta, options: c.opciones, answer: c.correcta });
+
+const CHECKPOINT_LETTER = /^[A-E]$/;
+
+/** The options a checkpoint offers, A to E: a letter outside that range is not one a learner can pick. */
+const checkpointOptions = (raw: Record<string, unknown>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(raw)
+      .filter((entry): entry is [string, string] => CHECKPOINT_LETTER.test(entry[0]) && typeof entry[1] === "string")
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+
+/** The attributes of an `<lk-quick-quiz>` tag, read the way the element reads them. */
+function tagAttributes(tag: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  for (const match of tag.matchAll(/([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) attrs[match[1]!.toLowerCase()] = match[2] ?? match[3] ?? "";
+  return attrs;
+}
+
+/** A checkpoint the tutor wrote, or undefined when the payload is not one the page can grade. */
+function readCheckpoint(spec: unknown, id: string, attrs: Record<string, string>): QuickCheckpoint | undefined {
+  if (!isRecord(spec)) return undefined;
+  const pregunta = typeof spec.pregunta === "string" ? spec.pregunta : typeof spec.enunciado === "string" ? spec.enunciado : "";
+  const opciones = checkpointOptions(isRecord(spec.opciones) ? spec.opciones : isRecord(spec.options) ? spec.options : {});
+  const correcta = (typeof spec.correcta === "string" ? spec.correcta : typeof spec.correct === "string" ? spec.correct : typeof spec.answer === "string" ? spec.answer : "").toUpperCase();
+  if (pregunta.trim() === "" || !(correcta in opciones)) return undefined;
+  const explicacion = typeof spec.explicacion === "string" ? spec.explicacion : typeof spec.explanation === "string" ? spec.explanation : undefined;
+  const categoria = attrs.categoria || attrs.category || attrs.tag || (typeof spec.categoria === "string" ? spec.categoria : "") || "conceptual";
+  return {
+    id: typeof spec.id === "string" && spec.id.trim() !== "" ? spec.id : id,
+    punto: attrs.point || (typeof spec.punto === "string" ? spec.punto : ""),
+    categoria,
+    pregunta,
+    opciones,
+    correcta,
+    ...(explicacion === undefined ? {} : { explicacion }),
+  };
+}
+
+/** One `<lk-quick-quiz>` element and the JSON payload its page parses. */
+const QUICK_QUIZ = /(<lk-quick-quiz\b[^>]*>)(\s*<script type="application\/json">)([\s\S]*?)(<\/script>\s*<\/lk-quick-quiz>)/gi;
+
+/** The checkpoint as the page receives it: no key, no explanation, options in the learner's own order (#276). */
+const publicCheckpoint = (c: QuickCheckpoint, order: string[]) => ({
+  id: c.id,
+  pregunta: c.pregunta,
+  opciones: shownOptions(asQuestion(c), order),
+});
+
+/**
+ * Each checkpoint of a page, drawn for the learner: its key and its explanation are taken out and its options are
+ * shuffled with the quiz's own scheme (#272); a checkpoint the tutor left without an id gets one, so the answer can
+ * be graded from the page it came from (#276). A payload that cannot be graded is served as written.
+ */
+function rewriteQuickQuizzes(text: string, orderFor: (q: Question) => string[], counter: { n: number }): string {
+  return text.replace(QUICK_QUIZ, (whole, tag: string, open: string, body: string, close: string) => {
+    let spec: unknown;
+    try {
+      spec = JSON.parse(body);
+    } catch {
+      return whole;
+    }
+    counter.n += 1;
+    const checkpoint = readCheckpoint(spec, `qq-${counter.n}`, tagAttributes(tag));
+    if (!checkpoint) return whole;
+    const json = JSON.stringify(publicCheckpoint(checkpoint, orderFor(asQuestion(checkpoint)))).replace(/</g, "\\u003c");
+    return `${tag}${open}${json}${close}`;
+  });
+}
+
+/** A served note or tutor page: its checkpoints drawn without their keys (#276). */
+const withoutQuickKeys = (markdown: string, orderFor: (q: Question) => string[]): string =>
+  rewriteQuickQuizzes(markdown, orderFor, { n: 0 });
+
+/** Every checkpoint a served page carries, by the id its element answers under (#276). */
+function pageCheckpoints(text: string): Map<string, QuickCheckpoint> {
+  const found = new Map<string, QuickCheckpoint>();
+  let n = 0;
+  for (const match of text.matchAll(QUICK_QUIZ)) {
+    n += 1;
+    let spec: unknown;
+    try {
+      spec = JSON.parse(match[3]!);
+    } catch {
+      continue;
+    }
+    const checkpoint = readCheckpoint(spec, `qq-${n}`, tagAttributes(match[1]!));
+    if (checkpoint) found.set(checkpoint.id, checkpoint);
+  }
+  return found;
+}
+
 /** `explicaciones/Parte N - <slug>.html`: the page the tutor wrote beside a part's note. It is served only when it measures as its note (#265). */
 function richPage(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string | undefined {
   const index = plan.parts.findIndex((p) => p.id === partId);
@@ -797,7 +904,7 @@ function writeAnswers(file: string, record: AnswerFile): void {
 }
 
 const ALLOWED_KEYS: Record<string, Set<string>> = {
-  "quick-quiz": new Set(["kind", "topic", "part", "entry"]),
+  "quick-quiz": new Set(["kind", "topic", "part", "note", "id", "chosen"]),
   "mini-quiz": new Set(["kind", "topic", "part", "answers", "reasoning", "ownWords", "exercises"]),
   diagnosis: new Set(["kind", "topic", "answers", "reasoning"]),
   question: new Set(["kind", "topic", "part", "text", "demo"]),
@@ -815,11 +922,24 @@ function optionalText(payload: Record<string, unknown>, key: string): string {
   return value;
 }
 
+/**
+ * A note and the page the tutor wrote beside it can both hold an inline checkpoint's key, so no route serves either
+ * raw (#276). Demos stay served: they are pages to run, not the explanation the checkpoints belong to.
+ */
+const holdsQuickKeys = (dir: string, target: string): boolean => {
+  const root = dir.toLowerCase() + sep;
+  if (!target.startsWith(root)) return false;
+  const relative = target.slice(root.length);
+  if (relative.endsWith(".md")) return true;
+  const demos = ["explicaciones", "demos", ""].join(sep);
+  return relative.endsWith(".html") && !relative.startsWith(demos);
+};
+
 /** The question banks hold the answer keys and the answer files hold the tutor's own letters: no route serves either (#272). */
 const holdsAnswers = (dir: string, target: string): boolean => {
   const miniQuiz = join(dir, "mini-quiz").toLowerCase() + sep;
   const files = [join(dir, "quiz.json"), join(dir, "quiz.answers.json")].map((file) => file.toLowerCase());
-  return files.includes(target) || (target.startsWith(miniQuiz) && target.endsWith(".json"));
+  return files.includes(target) || (target.startsWith(miniQuiz) && target.endsWith(".json")) || holdsQuickKeys(dir, target);
 };
 
 function checkAnswers(raw: unknown, questions: Question[], exact: boolean, orderOf: (q: Question) => string[]): Record<string, string> {
@@ -1293,6 +1413,8 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   const orderOf = (scope: string) => (q: Question) => shownOrder(q, scope, token);
   const miniScope = (topic: string, part: string) => `mini-quiz/${topic}/${part}`;
   const diagnosisScope = (topic: string) => `diagnosis/${topic}`;
+  // #276: an inline checkpoint draws its order from the page it belongs to, the same page that grades it.
+  const checkpointScope = (topic: string, page: string) => `checkpoint/${topic}/${page}`;
 
   const topicDir = (topic: unknown): string => {
     if (!safeTopic(topic)) throw new HttpError(400, "topic must be one folder name under the Learnings root");
@@ -1415,8 +1537,11 @@ ${scripts}
     // measures as its note; otherwise the learner gets the note, its story and its interactive quiz.
     const note = plan && partNote(dir, plan, partId);
     const rich = plan && note && richPage(dir, plan, partId);
+    // #276: an inline checkpoint is served drawn for the learner, whether the page is the note or the tutor's own.
+    const checkpoints = orderOf(checkpointScope(topic, partId));
     if (plan && note && rich && richPageServes(rich, note, existsSync(join(dir, "mini-quiz", `${partId}.json`)))) {
       let html = ensureNodeMedia(injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan, dir)), token);
+      html = withoutQuickKeys(html, checkpoints);
       // A hand-built part page carries its own design, so it gets only the
       // reading-mode assets: the book columns and the page-turn script. It runs
       // after the body, because the script looks for the page it paginates.
@@ -1435,6 +1560,7 @@ ${scripts}
     const part = plan.parts.find((p) => p.id === partId)!;
     const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
     const orderFor = orderOf(miniScope(topic, partId));
+    const noteText = obsidianToMarkdown(readFileSync(note, "utf8"), dir);
     page(res, part.title, {
       kind: "part",
       exercises: listExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId),
@@ -1443,7 +1569,7 @@ ${scripts}
       title: part.title,
       topicTitle: plan.topic || topic,
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
-      markdown: questions ? withoutMiniQuiz(obsidianToMarkdown(readFileSync(note, "utf8"), dir)) : obsidianToMarkdown(readFileSync(note, "utf8"), dir),
+      markdown: withoutQuickKeys(questions ? withoutMiniQuiz(noteText) : noteText, checkpoints),
       quiz: questions
         ? { questions: questions.map((q) => publicQuestion(q, orderFor(q))), exercises: partExercises(dir, partId, loadRunners(options.runnersFile)) }
         : null,
@@ -1504,12 +1630,13 @@ ${scripts}
     const dir = topicDir("rapidos");
     const contained = resolveContained(dir, join(dir, `${id}.md`));
     if (!contained.ok) throw new HttpError(404, `no quick note ${id}`);
-    const markdown = obsidianToMarkdown(readFileSync(contained.targetReal, "utf8"), dir);
+    const markdown = withoutQuickKeys(obsidianToMarkdown(readFileSync(contained.targetReal, "utf8"), dir), orderOf(checkpointScope("rapidos", id)));
     const title = /^#\s+(.+)$/m.exec(markdown)?.[1]?.trim() || id;
     page(res, title, {
       kind: "part",
       topic: "rapidos",
       part: "",
+      note: id,
       title,
       topicTitle: "Rápidos",
       topicBase: `/${token}/`,
@@ -1740,28 +1867,78 @@ ${scripts}
     }
 
     if (kind === "quick-quiz") {
-      const entry = payload.entry;
-      if (!isRecord(entry)) throw new HttpError(400, "entry is required for quick-quiz");
-      const punto = typeof entry.punto === "string" ? entry.punto : "";
-      const ok = Boolean(entry.ok);
-      const por_que = typeof entry.por_que === "string" ? entry.por_que : (ok ? "Acierto" : "Fallo");
-      const categoria = typeof entry.categoria === "string" ? entry.categoria : "conceptual";
-      const qEntry = {
-        ...entry,
+      // #276: the page holds no key, so the bridge grades the pick against the checkpoint the tutor wrote.
+      const id = optionalText(payload, "id");
+      if (id === "") throw new HttpError(400, "id is required for quick-quiz");
+      const chosen = optionalText(payload, "chosen").toUpperCase();
+      if (!CHOICES.has(chosen)) throw new HttpError(400, "chosen must be one of A, B, C, D, E");
+      const noteId = optionalText(payload, "note");
+      const quick = topic === "rapidos";
+      let found: Map<string, QuickCheckpoint>;
+      let saved: string;
+      let page_ = "";
+      if (quick) {
+        if (noteId === "" || !safeTopic(noteId)) throw new HttpError(400, "note is required for a quick note");
+        const rapidos = topicDir("rapidos");
+        const contained = resolveContained(rapidos, join(rapidos, `${noteId}.md`));
+        if (!contained.ok) throw new HttpError(404, `no quick note ${noteId}`);
+        found = pageCheckpoints(readFileSync(contained.targetReal, "utf8"));
+        saved = `rapidos/${noteId}.answers.json`;
+        page_ = noteId;
+      } else {
+        if (typeof partId !== "string") throw new HttpError(400, "part is required");
+        if (!plan) throw new HttpError(404, `part ${partId} has no page with checkpoints`);
+        const index = plan.parts.findIndex((p) => p.id === partId);
+        const rich = richPage(dir, plan, partId);
+        const noteFile = partNote(dir, plan, partId);
+        if (!rich && !noteFile) throw new HttpError(404, `part ${partId} has no page with checkpoints`);
+        // The learner's page is the tutor's page when that one serves and the note otherwise: both can carry checkpoints.
+        found = new Map([
+          ...(noteFile ? pageCheckpoints(readFileSync(noteFile, "utf8")) : []),
+          ...(rich ? pageCheckpoints(readFileSync(rich, "utf8")) : []),
+        ]);
+        saved = `explicaciones/Parte ${index + 1} - ${plan.parts[index]!.slug}.qq.answers.json`;
+        page_ = partId;
+      }
+      const checkpoint = found.get(id);
+      if (!checkpoint) throw new HttpError(404, `no checkpoint ${id} on this page`);
+      const question = asQuestion(checkpoint);
+      const orderFor = orderOf(checkpointScope(topic, page_));
+      if (!(chosen in question.options)) throw new HttpError(400, `invalid option for ${id}`);
+      const graded = grade(question, tutorLetter(question, orderFor(question), chosen));
+      const shown = shownAnswer(question, orderFor(question), graded);
+      const file = quick ? join(rootReal, saved) : join(dir, saved);
+      const recorded = readAnswers(file) ?? { answers: {}, razonamientos: {} };
+      // A checkpoint is answered once: a reload of the same page shows the verdict it already got.
+      if (checkpoint.id in recorded.answers) throw new HttpError(409, `Ya respondiste este punto de la explicación. ${SAVED_HINT}`);
+      writeAnswers(file, { answers: { ...recorded.answers, [checkpoint.id]: graded.chosen }, razonamientos: recorded.razonamientos });
+      const said = checkpoint.explicacion?.trim() ?? "";
+      const por_que = shown.ok
+        ? (said === "" ? "Acierto" : `Acierto: ${said}`)
+        : `Fallo (eligió ${shown.chosen}, correcta: ${shown.correct}): ${said === "" ? "No consolidó el concepto." : said}`;
+      const tele = recordQuizTelemetry(rootReal, {
+        id: checkpoint.id,
+        punto: checkpoint.punto,
+        categoria: checkpoint.categoria,
+        pregunta: checkpoint.pregunta,
+        respuesta_alumno: shown.chosen,
+        respuesta_correcta: shown.correct,
+        ok: shown.ok,
+        por_que,
         tema: topic,
-        parte: typeof partId === "string" ? partId : undefined,
-      };
-      const tele = recordQuizTelemetry(rootReal, qEntry);
-      const header = ["Vista HTML", topic, partId, "quiz rápido", punto].filter(Boolean).join(" · ");
+        ...(quick ? {} : { parte: partId }),
+      });
+      const header = ["Vista HTML", topic, page_, "quiz rápido", checkpoint.punto].filter(Boolean).join(" · ");
       const lines = [
         `[${header}]`,
-        `Pregunta: ${entry.pregunta ?? ""}`,
-        `Resultado: ${ok ? "✔ Correcto" : "✘ Incorrecto"} (Eligió: ${entry.respuesta_alumno ?? ""}, Correcta: ${entry.respuesta_correcta ?? ""})`,
-        `Categoría: ${categoria}`,
-        `Diagnóstico: ${por_que}`,
+        `Pregunta: ${checkpoint.pregunta}`,
+        `Resultado: ${shown.ok ? "✔ Correcto" : "✘ Incorrecto"} (Eligió: ${shown.chosen} «${shown.chosenText}», Correcta: ${shown.correct} «${shown.correctText}»)`,
+        `Categoría: ${checkpoint.categoria}`,
       ];
+      if (said !== "") lines.push(`Explicación: ${said}`);
+      lines.push(`Guardado en ${saved}`);
       await deliver(lines.join("\n"));
-      sendJson(res, 200, { ok: true, telemetry: tele });
+      sendJson(res, 200, { id: checkpoint.id, chosen: shown.chosen, correct: shown.correct, ok: shown.ok, explicacion: said, saved, telemetry: tele });
       return;
     }
 

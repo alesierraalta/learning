@@ -39,6 +39,13 @@
     app.textContent = "No se pudieron cargar los datos. Recarga la página.";
     return;
   }
+  // #276: an inline checkpoint carries no key, so the kit answers it through the bridge, as the mini-quiz does.
+  window.LEARNING_BRIDGE = {
+    submitUrl: data.submitUrl,
+    topic: data.topic,
+    ...(data.part ? { part: data.part } : {}),
+    ...(data.note ? { note: data.note } : {}),
+  };
   const element = (tag, text, className) => {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -72,8 +79,9 @@
     const clean = DOMPurify.sanitize(inline ? marked.parseInline(math.text) : marked.parse(math.text, { renderer }), {
       USE_PROFILES: { html: true, svg: true },
       ADD_TAGS: ["video", "audio", "source", "details", "summary", "script",
+        "lk-quick-quiz",
         "lk-walkthrough", "lk-story", "lk-callout", "lk-quiz", "lk-widget", "lk-diagram", "lk-scene", "lk-figure", "lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-tree", "lk-explorer", "lk-math", "lk-steps", "lk-ask", "lk-step"],
-      ADD_ATTR: ["controls", "preload", "type", "title"],
+      ADD_ATTR: ["controls", "preload", "type", "title", "point", "categoria", "tag"],
       FORBID_TAGS: ["foreignObject", "image", "use"],
     });
     // The sanitizer has already spoken; parsing the result in an inert document
