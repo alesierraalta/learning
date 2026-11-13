@@ -6,7 +6,20 @@
 2. GROUP BY junta las filas que repiten ese nombre.
 3. COUNT cuenta cuántas filas cayeron en cada grupo.
 
-Un grupo es una fila nueva por cada valor distinto. Mira cómo se juntan los videojuegos.
+Imagina la tabla de videojuegos, con su desarrolladora en cada fila.
+
+**GROUP BY**
+Es la orden que junta las filas con el mismo valor.
+
+**COUNT**
+Es la función que cuenta las filas de cada grupo.
+
+**Valor**
+Es lo que guarda una columna en cada fila: un nombre o un número.
+
+Antes, cada videojuego iba solo. Después, los de una misma desarrolladora caen en un grupo.
+
+En nuestro ejemplo, los dos juegos de Rockstar forman un grupo de dos.
 
 <lk-tables>
 <script type="application/json">

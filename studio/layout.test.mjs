@@ -504,7 +504,7 @@ test("preferences are reachable, editable and fit a phone", { skip: browser ? fa
   await page.getByRole("heading", { name: "Preferencias" }).waitFor();
   assert.equal(await page.getByRole("link", { name: /Volver al inicio/ }).count(), 1);
   assert.equal(await page.getByText("Tu forma de aprender").count(), 1);
-  assert.equal(await page.locator("fieldset.preference").count(), 7);
+  assert.equal(await page.locator("fieldset.preference").count(), 9);
   await page.setViewportSize({ width: 1280, height: 800 });
   const row = await page.locator("fieldset.preference").first().evaluate((el) => {
     const description = el.querySelector("p").getBoundingClientRect();
@@ -2411,13 +2411,13 @@ test("a discovered aspect is marked and reversible (S3)", { skip: browser ? fals
   assert.deepEqual(saved.evidencia, { respuestas: 3, aciertos: 1 });
   const fits = () => document.documentElement.scrollWidth <= innerWidth;
   assert.ok(await page.evaluate(fits));
-  // Removing it leaves the seven shipped aspects, none of them marked.
+  // Removing it leaves the nine shipped aspects, none of them marked.
   await aspect.getByRole("button", { name: "Quitar" }).click();
   await page.waitForFunction(
-    () => document.querySelectorAll("fieldset.preference").length === 7,
+    () => document.querySelectorAll("fieldset.preference").length === 9,
   );
   assert.equal(await page.locator(".preference-badge").count(), 0);
-  assert.equal(readPreferences(root).aspectos.length, 7);
+  assert.equal(readPreferences(root).aspectos.length, 9);
   // Saying no is remembered: the counts still say the learner fails it, and the
   // callout must not offer it again.
   assert.equal(await page.locator(".preference-found").count(), 0);

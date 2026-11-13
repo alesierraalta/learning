@@ -307,7 +307,7 @@ func TestPartStandardRefusesAGreekSymbolNeverNamed(t *testing.T) {
 // built exactly to the standard must never be refused for it.
 func TestPartStandardAcceptsTheApprovedPartShape(t *testing.T) {
 	f := standardFrontier(t)
-	f.writeStandardPart(t, "Hay decisiones donde acertar ahora no sirve.\n\nEl robot está en una habitación sucia. Le queda 4 % de batería.")
+	f.writeStandardPart(t, "Imagina un robot en una habitación sucia.\n\n**Robot**: es quien decide qué hacer. Antes decidía a ciegas; después mira su batería.\n\nHay decisiones donde acertar ahora no sirve. Le queda 4 % de batería.")
 	f.reviewPending(t, "explanation")
 	rep, code := f.run(t, f.opts("advance", "explanation"))
 	if code != 0 || rep.Status != "accepted" {
@@ -862,6 +862,7 @@ func snapshotWithoutShapeKeys(t *testing.T) string {
 		t.Fatal(err)
 	}
 	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	delete(block, "register") // an older snapshot predates the register block
 	if !ok {
 		t.Fatal("the production rules declare no partStandard block")
 	}
@@ -893,6 +894,7 @@ func snapshotWithoutFormulaWalkthrough(t *testing.T) string {
 		t.Fatal(err)
 	}
 	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	delete(block, "register") // an older snapshot predates the register block
 	if !ok {
 		t.Fatal("the production rules declare no partStandard block")
 	}
@@ -945,7 +947,7 @@ func TestPartStandardRefusesAFormulaWithoutAFormulaWalkthrough(t *testing.T) {
 // the formula.
 func TestPartStandardAcceptsAFormulaTaughtByAFormulaWalkthrough(t *testing.T) {
 	f := standardFrontier(t)
-	note := strings.Replace(standardNote("La densidad se explica paso a paso.\n"), fixtureStory, formulaStory, 1)
+	note := strings.Replace(standardNote("Imagina una campana de valores.\n\n**Densidad**: es la forma de la campana.\n\nLa densidad se explica paso a paso. Antes era plana; después se ve el pico.\n"), fixtureStory, formulaStory, 1)
 	f.writePartNote(t, note)
 	rep, code, c := standardCheck(t, f)
 	if code != 0 || rep.Status != "accepted" {
@@ -1049,6 +1051,7 @@ func snapshotWithoutStoryLanguage(t *testing.T) string {
 		t.Fatal(err)
 	}
 	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	delete(block, "register") // an older snapshot predates the register block
 	if !ok {
 		t.Fatal("the production rules declare no partStandard block")
 	}
@@ -1131,7 +1134,7 @@ func TestPartStandardRefusesAPartWithOnlyAScene(t *testing.T) {
 // carries walls of prose, so the deck is swapped on the standard-shaped part.
 func TestPartStandardAcceptsAPartWhoseDeckIsAStory(t *testing.T) {
 	f := standardFrontier(t)
-	f.writeStandardPart(t, "Hay decisiones donde acertar ahora no sirve.")
+	f.writeStandardPart(t, "Imagina un robot en una habitación sucia.\n\n**Robot**: es quien decide qué hacer. Antes decidía a ciegas; después mira su batería.\n\nHay decisiones donde acertar ahora no sirve.")
 	rep, code, c := standardCheck(t, f)
 	if code != 0 || rep.Status != "accepted" {
 		t.Fatalf("advance explanation = %q (exit %d), want accepted: %+v", rep.Status, code, rep.Checks)
@@ -1383,6 +1386,7 @@ func TestPartStandardSnapshotWithoutStoryQualityKeepsAccepting(t *testing.T) {
 		t.Fatal(err)
 	}
 	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	delete(block, "register") // an older snapshot predates the register block
 	if !ok {
 		t.Fatal("the production rules declare no partStandard block")
 	}
@@ -1613,6 +1617,7 @@ func TestPartStandardSnapshotWithoutCharactersKeepsAccepting(t *testing.T) {
 		t.Fatal(err)
 	}
 	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	delete(block, "register") // an older snapshot predates the register block
 	if !ok {
 		t.Fatal("the production rules declare no partStandard block")
 	}
@@ -1844,6 +1849,7 @@ func TestPartStandardSnapshotWithoutBenchKeysKeepsAccepting(t *testing.T) {
 		t.Fatal(err)
 	}
 	block, ok := doc["thresholds"].(map[string]any)["partStandard"].(map[string]any)
+	delete(block, "register") // an older snapshot predates the register block
 	if !ok {
 		t.Fatal("the production rules declare no partStandard block")
 	}

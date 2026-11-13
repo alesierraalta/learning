@@ -1,5 +1,12 @@
 # La curva gaussiana de latencia
 
+Imagina las latencias de mil peticiones al servidor.
+
+**Distribución**
+Es la forma en que se reparten los valores: la campana.
+
+Antes, teníamos una lista de números. Después, la curva los muestra de una vez.
+
 Una distribución se dibuja como su curva. La campana, el eje y la banda ±σ sombreada son la
 figura.
 

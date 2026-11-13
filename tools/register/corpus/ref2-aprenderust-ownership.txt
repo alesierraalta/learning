@@ -1,0 +1,57 @@
+# fuente: https://aprenderust.dev/ownership
+
+Cada valor tiene un dueño: la variable que lo guarda. Aquí s1 es la dueña del texto "hola".
+let s2 = s1; mueve el valor: el texto no se copia, cambia de manos. Ahora la dueña es s2.
+Solo puede haber un dueño a la vez. s1 ya no es válida: si intentas usarla, el código no compila.
+Cuando la dueña sale de su ámbito (la llave }), Rust libera la memoria. Sin recolector de basura.
+El ownership (propiedad) es la idea que hace único a Rust y, probablemente, la que más te costará al principio. Merece la pena: gracias a ella, Rust gestiona la memoria de forma segura sin recolector de basura y sin que tengas que liberarla a mano.
+No es una función ni una librería: es un conjunto de reglas que el compilador comprueba al compilar. Si las incumples, el programa no compila. Y como todo se decide antes de ejecutar, no tiene ningún coste en tiempo de ejecución.
+Todo programa reserva memoria mientras se ejecuta y, en algún momento, tiene que liberarla. Los lenguajes lo resuelven de tres formas:
+Rust se queda con lo mejor de cada mundo: la memoria se libera sola, como con un GC, pero en el momento exacto y sin coste extra, como si lo hubieras hecho tú a mano.
+Para entender el ownership necesitas conocer las dos zonas de memoria que usa tu programa:
+El stack (pila) guarda los valores en orden y los quita en orden inverso, como una pila de platos. Es muy rápido, pero solo admite datos de tamaño fijo y conocido al compilar: un i32, un bool, un char…
+El heap (montón) sirve para datos cuyo tamaño puede cambiar o no se conoce al compilar, como un texto que escribe el usuario. Pides espacio, el sistema lo busca y te devuelve un puntero: la dirección donde está. Es más lento y alguien tiene que liberar ese espacio cuando ya no haga falta.
+Las variables locales de una función viven en el stack y desaparecen solas al terminar. El reto es el heap: saber qué parte del código usa cada dato, no dejar basura y no liberar nada dos veces. Eso es exactamente lo que resuelve el ownership.
+Apréndetelas bien, porque todo lo demás se deriva de ellas:
+Cada valor tiene un dueño (owner): la variable que lo contiene.
+Solo puede haber un dueño a la vez.
+Cuando el dueño sale de su ámbito, el valor se libera.
+El ámbito (scope) es la zona del programa en la que una variable es válida. Va desde que la declaras hasta la llave } que cierra su bloque:
+Los literales de texto como "hola" tienen un tamaño fijo y se guardan dentro del propio binario: son rápidos, pero no pueden cambiar. Para un texto que puede crecer, Rust tiene el tipo String, que guarda su contenido en el heap:
+Un String tiene dos partes:
+En el stack: un puntero al texto, su longitud (len, los bytes que ocupa) y su capacidad (cap, los bytes reservados).
+En el heap: los bytes del texto.
+¿Y quién libera el heap? Su dueño. Cuando la variable sale de su ámbito, Rust llama automáticamente a una función especial, drop, que devuelve esa memoria al sistema. Sin GC y sin que escribas nada:
+Con números, asignar una variable a otra hace una copia y las dos siguen siendo válidas:
+Con un String pasa algo distinto:
+Rust copia la parte del stack (puntero, longitud y capacidad), pero no el texto del heap. Si las dos variables fueran dueñas, al salir de ámbito ambas intentarían liberar la misma memoria: un error grave llamado double free. Para evitarlo, después de la asignación Rust considera que s1 ya no es válida. Se dice que el valor se ha movido (move) de s1 a s2:
+Si intentas usar s1 después del move, el programa no compila. Pulsa Ejecutar para ver el error real:
+El mensaje lo cuenta todo: s1 es un String, que no es Copy; en la línea 3 su valor se movió a s2 y en la línea 4 intentas usarlo. Lo de borrowed (prestado) es porque println! toma prestado lo que imprime: los préstamos los verás en la siguiente lección.
+Importante: Rust nunca hace copias profundas de forma automática. Por eso una asignación siempre es barata: como mucho copia unos pocos bytes del stack.
+Si de verdad necesitas dos copias independientes, incluido el texto del heap, usa el método .clone():
+Ahora hay dos textos en el heap, cada uno con su dueño. Clonar puede ser caro si los datos son grandes, así que cuando veas .clone() en un código tómalo como una señal: ahí se duplica memoria a propósito.
+Entonces, ¿por qué let y = x; no movía el número? Porque un entero tiene tamaño fijo y vive entero en el stack: copiarlo es tan barato que no hay diferencia entre copia superficial y profunda. Estos tipos son Copy: en lugar de moverse, se copian.
+Todos los enteros: i32, u8, u64, usize…
+Los booleanos: bool.
+Los flotantes: f32 y f64.
+Los caracteres: char.
+Las tuplas y los arrays cuyos elementos sean todos Copy: (i32, f64) sí lo es, (i32, String) no.
+Una regla práctica: si el tipo guarda algo en el heap, como String, no es Copy y se mueve.
+Pasar un valor a una función funciona igual que asignarlo: los tipos Copy se copian y el resto se mueven al parámetro.
+Si usas el String después de pasarlo a la función, vuelves a encontrarte con el error E0382:
+El compilador te propone dos soluciones: clonar el valor o hacer que la función lo tome prestado. La segunda suele ser la buena y la verás en la siguiente lección.
+Cuidado con los bucles: Si mueves un valor dentro de un bucle, deja de ser válido en la primera vuelta y el compilador te avisará con value moved here, in previous iteration of loop.
+Una función también puede devolver un valor y, con él, su propiedad. El nuevo dueño es quien recibe el resultado:
+Funciona, pero imagina que solo quieres saber la longitud de un texto sin quedarte con él. Tendrías que devolverlo junto al resultado en una tupla:
+Demasiada ceremonia para algo tan simple. Por suerte, Rust permite usar un valor sin tomar su propiedad: con referencias, el tema de la siguiente lección.
+Clave: Cada valor tiene un único dueño. Mover es pasar la propiedad, clonar es duplicar y, cuando el dueño desaparece, el valor se libera. Si entiendes esto, ya tienes lo más difícil de Rust.
+Hora de practicar
+0/4 resueltos
+1
+2
+3
+4
+Reto 1 de 4 Resuelto
+Al ejecutar, unos tests ocultos comprueban tus funciones.
+Solución · solo lectura
+Pulsa Ejecutar para compilar y ver aquí la salida de tu programa.

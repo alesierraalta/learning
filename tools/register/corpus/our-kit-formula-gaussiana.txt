@@ -1,0 +1,14 @@
+# fuente: /home/ale/documents/learning-worktrees/feat-250-prose-register/integrations/pi/kit/examples/formula-gaussiana.md
+
+1. La fórmula entera, de un vistazo.
+2. Cada símbolo: qué es y para qué se usa.
+3. El ejemplo de latencia, con sus números.
+Imagina la latencia de una petición en un servidor.
+**Densidad gaussiana**
+Es la altura de la campana en cada punto.
+Antes, la fórmula parecía un símbolo raro. Después, cada símbolo tiene su paso.
+Una fórmula se recorre paso a paso. Primero entera.
+Después, un símbolo por paso. Al final, con los números del ejemplo.
+Cómo leerlo: el paso 1 muestra la fórmula entera. Cada paso siguiente resalta un símbolo en la cabecera.
+Ese paso dice qué es, para qué se usa y cuánto vale en el ejemplo de latencia. El último paso sustituye los números y da el resultado.
+La fórmula evaluada, para leerla de una vez:

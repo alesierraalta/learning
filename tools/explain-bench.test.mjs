@@ -22,11 +22,15 @@ const CUMPLE = `# Parte
 
 ## 1. Algo
 
-Texto corto.
+Imagina un robot en la sala.
+
+**Robot**: es el que sube la escalera.
+
+Antes estaba abajo. Después está arriba.
 
 ## 2. Otra cosa
 
-Más texto.
+Cada paso se cuenta una vez.
 
 <lk-story>
 <script type="application/json">

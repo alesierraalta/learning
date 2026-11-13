@@ -192,7 +192,7 @@ are blocked with the `method-chosen` check, writing nothing.
 - `pareto` sets `state.method` and the pareto scope, so the pareto checks of
   planning and every part apply from then on.
 - `preferencias` sets `state.method` and keeps the complete scope; the tutor
-  teaches with the learner's stored preferences (`preferencias.json`).
+  teaches with the learner's stored preferences (the `preferencias` document of the store, copied to `niveles-alumno.json`).
 
 Any other value is an argument error (exit 2); a choice before the diagnosis
 settles or a second choice is `blocked` (exit 1). Neither changes the state.
@@ -902,6 +902,53 @@ quality, which rests on the evaluator named in each receipt.
 
 States written before the scoped learner-note receipts can fail freshness. They
 are never migrated or rewritten implicitly; start a new topic workspace.
+
+### Register
+
+The register is the prose the explanation must keep: a technical term stays, is
+named, is explained in plain words where it first appears, and is tied to the
+part's example. Its numbers are one table, `thresholds.partStandard.register.levels`:
+each measure of the learner's two axes, `sencillez` (how much an idea is split)
+and `tecnicidad` (how much a term is explained), at each level (`menos`, `medio`,
+`más`). `más` on both axes is the reference the calibration measured:
+
+```json
+{"levels": {
+  "sencillez": {"frasesMedia": {"menos": 14, "medio": 11, "más": 8},
+                "frasesP90": {"menos": 20, "medio": 16, "más": 13},
+                "contraste": {"menos": 2, "medio": 3, "más": 4},
+                "pasos": {"menos": 1, "medio": 6, "más": 12},
+                "racha": {"menos": 1, "medio": 2, "más": 3},
+                "escenaAntes": {"menos": 0, "medio": 0.7, "más": 1}},
+  "tecnicidad": {"explicado": {"menos": 0.2, "medio": 0.35, "más": 0.5},
+                 "negritas": {"menos": 1, "medio": 3, "más": 5}}}}
+```
+
+The engine reads the learner's levels from `niveles-alumno.json` in the Learnings
+root above the note: the nearest folder, at most four up, that holds the file. A
+folder that holds `learning.db` is the root itself, so with no file there the
+defaults apply, as they do for an unreadable file or an unknown level. The studio
+keeps that file equal to the learner's stored preferences, and
+`tools/explain-check.mjs` reads the same file and the same table
+(`tools/register/niveles.mjs`): both answer the same question at the same levels.
+
+The engine measures five structural rules, and each finding starts with the rule
+name `tools/explain-check.mjs` prints: `frases-largas` (mean and p90 of words per
+sentence), `sin-negritas` (bold term spans per thousand words), `sin-escena-antes`
+(the share of definitions that come after the first example), `sin-contraste`
+(before/after markers per thousand words) and `cuentas-sin-pasos` (a calculation
+written line by line). `termino-sin-explicar` needs the common-Spanish lexicon, so
+only the tool enforces it. Source lines (`**Fuente**: …`, `Fuente: …`) are not
+prose in either.
+
+Three tests hold the two verdicts and the table together:
+`TestRegisterMatchesExplainCheck` (the same rules on the same text),
+`TestEngineAndExplainCheckAgreeOnTheLearnersLevels` (the same answer at `menos` and
+at `más`), and `TestRegisterLevelsAreOneTableForBothLanguages` (the same numbers
+from `rules/deep.json` in Go and in the tool).
+
+A snapshot without the block declares no register and refuses nothing: the frozen
+snapshots are unchanged.
 
 ## Rules file
 

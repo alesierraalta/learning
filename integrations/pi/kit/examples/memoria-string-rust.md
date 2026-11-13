@@ -2,9 +2,22 @@
 
 ## Ruta
 
-1. Un String guarda un puntero, una longitud y una capacidad en el stack.
+1. Un String guarda en el stack su puntero, su longitud y su capacidad.
 2. El texto vive en el heap.
 3. Mover copia el puntero y deja inválida a la dueña vieja.
+
+Imagina un String llamado s1, con el texto «hola».
+
+**Puntero**
+Es la dirección donde está el dato.
+
+**Heap**
+Es la zona de memoria para datos de tamaño variable, como un texto.
+
+**Stack**
+Es la pila de memoria para datos de tamaño fijo.
+
+Antes, el texto y su tamaño cabían en el mismo sitio. Después, el texto vive en el heap y el stack guarda solo su dirección.
 
 Cada paso repite la línea que explica. Mira dónde está cada cosa.
 

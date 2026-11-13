@@ -1,0 +1,11 @@
+# fuente: /home/ale/documents/learning-worktrees/feat-250-prose-register/integrations/pi/kit/examples/curva-gaussiana.md
+
+Imagina las latencias de mil peticiones al servidor.
+**Distribución**
+Es la forma en que se reparten los valores: la campana.
+Antes, teníamos una lista de números. Después, la curva los muestra de una vez.
+Una distribución se dibuja como su curva. La campana, el eje y la banda ±σ sombreada son la
+figura.
+Cómo leerlo: la curva es la distribución entera. El paso 1 marca el centro; el 2, el ancho
+típico; el 3, las colas.
+La figura completa, para mirarla de una vez:

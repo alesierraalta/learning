@@ -1,0 +1,41 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Usaremos siempre el mismo ejemplo.
+Tenemos un robot aspirador en una casa.
+Abramos esa caja.
+**Agente**
+Es quien **toma decisiones**.
+En nuestro ejemplo:
+agente = robot aspirador.
+Podría ser también:
+- un personaje de videojuego;
+- un sistema de recomendaciones;
+- un algoritmo de trading;
+- un controlador de tráfico;
+- un modelo que aprende a resolver problemas.
+**Entorno**
+Es todo aquello con lo que interactúa el agente.
+Aquí:
+entorno = casa + habitaciones + suciedad + batería + obstáculos.
+El agente controla sus acciones, pero **no controla directamente las consecuencias**.
+**Estado**
+El **estado \(s_t\)** contiene la información relevante sobre cómo está el entorno en el instante \(t\).
+Ejemplo:
+Todo eso podría formar el estado actual \(s_t\).
+[SIMPLIFICADO: suponemos que el agente conoce completamente el estado del mundo. En problemas parcialmente observables puede conocer solo una observación.]
+**Acción**
+Una **acción \(a_t\)** es algo que el agente puede hacer.
+Por ejemplo:
+**Recompensa**
+La **recompensa \(r\)** es una señal numérica que indica qué tan deseable fue una consecuencia.
+Podemos diseñar:
+Importante:
+La recompensa evalúa una consecuencia inmediata, no necesariamente si la decisión fue buena a largo plazo.
+Esto será crucial cuando lleguemos a la **función de valor**.
+
+```cuenta
+limpiar habitación        +10
+movimiento innecesario     -1
+quedarse sin batería       -5
+```
+

@@ -1,0 +1,43 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+**2,77 bpw no es el promedio de todo DeepSeek-V4.1-Flash**
+Es la tasa reportada para los **routed experts del backbone**.
+En ese checkpoint, atención, shared experts, routers, Engram, DSpark/MTP, vision tower, embeddings y `lm_head` se mantienen en sus formatos originales FP8/BF16/MXFP4. Hugging Face
+Por eso sería incorrecto pensar:
+“DeepSeek-V4.1 completo está almacenado a 2,77 bits por parámetro.”
+No lo está.
+**K2 no equivale a un Q2 clásico**
+EXL3/Trellis no hace simplemente:
+Hace algo mucho más parecido a:
+Por eso comparar “EXL3 K2” y “una cuantización uniforme de 2 bits” únicamente por el número 2 puede ser engañoso.
+La forma mental más útil es: **EXL3 tiene un presupuesto de bits y Trellis decide cómo representar muy eficientemente cada secuencia; la mezcla K2/K3/K5 decide dónde merece la pena gastar ese presupuesto.**# Unidad 2: Estrategias de Aprendizaje Tabulares
+
+```cuenta
+EXL3
+= formato de cuantización weight-only de ExLlamaV3 basado en ideas de QTIP.
+Trellis
+= en vez de cuantizar cada peso aislado, representa una secuencia como
+un camino por un grafo y busca un buen camino con Viterbi.
+K
+= bitrate del stream Trellis.
+K2 ≈ 2 bits/peso de payload.
+K3 ≈ 3 bits/peso.
+K5 ≈ 5 bits/peso.
+DeepSeek-V4.1-Flash-Spark:
+K2: 7.279 expertos
+K3: 6.299 expertos
+K5: 1.782 expertos
+Total: 15.360
+Promedio nominal:
+(7279·2 + 6299·3 + 1782·5) / 15360
+= 2,758 bpw.
+Sumando el pequeño overhead del formato:
+≈ 2,77 bpw.
+La clave:
+no se usan 2,77 bits en todos los expertos.
+Se gastan pocos bits donde K2 basta y muchos bits donde K5 protege
+información sensible.
+Así se obtiene mejor calidad para un presupuesto medio cercano a
+2,77 bits por peso.
+```
+

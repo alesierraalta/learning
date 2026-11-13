@@ -1,0 +1,35 @@
+# fuente: https://aprenderust.dev/structs
+
+Un struct crea tu propio tipo agrupando datos con nombre. Jugador es la plantilla y tiene tres campos.
+Para crear una instancia das un valor a todos los campos. Este jugador se llama "Ferris".
+Con el punto accedes a cada campo: jugador.nivel vale 3.
+Si la instancia es let mut, puedes cambiar sus campos: con jugador.nivel += 1, Ferris sube al nivel 4.
+Hasta ahora has agrupado datos con tuplas, como (String, u32). Funcionan, pero sus elementos no tienen nombre: ¿qué era .1? Un struct te permite crear tu propio tipo y ponerle nombre a cada dato.
+Si vienes de JavaScript, piensa en un objeto con una forma fija; si vienes de otros lenguajes, en una clase que solo tiene datos. El comportamiento (los métodos) lo añadirás en la siguiente lección.
+struct va seguido del nombre del tipo, en PascalCase.
+Entre llaves, los campos: cada uno con su nombre (en snake_case) y su tipo, separados por comas.
+La definición es solo un molde: describe la forma de los datos, pero todavía no crea ninguno.
+Para crear un valor de ese tipo, una instancia, escribe el nombre del struct y da un valor a todos sus campos, en el orden que quieras. Con el punto accedes a cada campo:
+Para cambiar un campo, la instancia entera tiene que ser mutable. Rust no permite marcar como mut solo algunos campos:
+Es habitual crear instancias desde una función. Si un parámetro se llama igual que un campo, basta con escribir su nombre una vez (field init shorthand):
+Con la sintaxis de actualización ..otra creas una instancia nueva que toma de otra todos los campos que no indiques:
+..mario siempre va al final. Y ojo con el ownership: los campos que se toman de mario se mueven o se copian igual que en una asignación. Aquí solo se toman nivel y activo, que son Copy, así que mario sigue intacto. Si luigi tomara también el nombre de mario, ese String se movería y ya no podrías usar mario.nombre.
+Los tuple structs tienen campos sin nombre, solo con tipo. Son útiles cuando el nombre del tipo ya lo dice todo:
+Accedes a los campos por su posición (.0, .1…) o desestructurando. Aunque Color y Punto se parezcan, son tipos distintos: una función que espera un Punto no acepta un Color.
+También puedes definir un struct sin campos, un unit struct. Sirve cuando necesitas un tipo, pero no datos que guardar; le sacarás partido cuando veas los traits:
+Se crea escribiendo solo su nombre: let valor = SiempreIgual;.
+Si intentas imprimir un struct con {}, no compila: Rust no sabe cómo quieres mostrarlo.
+Para depurar, añade #[derive(Debug)] encima del struct: le pide al compilador que genere automáticamente el formato de depuración. Después usa {:?}, o {:#?} para verlo en varias líneas:
+Aviso del compilador: Si un campo solo se lee a través de Debug, Rust te avisará con field is never read: imprimir con {:?} no cuenta como usarlo. Es una advertencia, no un error, pero te recuerda que ese dato no se usa en ningún sitio.
+Para depurar es todavía más cómoda la macro dbg!: imprime el fichero, la línea, la expresión y su valor, y además devuelve el valor, así que puedes meterla en medio de una expresión:
+Dos detalles: dbg! escribe en la salida de errores (stderr), no en la estándar, y toma la propiedad de lo que le pasas. Por eso se usa dbg!(&rect): así solo lo presta.
+Hora de practicar
+0/4 resueltos
+1
+2
+3
+4
+Reto 1 de 4 Resuelto
+Al ejecutar, unos tests ocultos comprueban tus funciones.
+Solución · solo lectura
+Pulsa Ejecutar para compilar y ver aquí la salida de tu programa.

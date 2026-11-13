@@ -5,7 +5,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 import { findingsOf, runPartChecks } from "./checks.ts";
 
@@ -31,14 +33,16 @@ const BROKEN = `# Parte 1 — Capas
 ## Ruta
 
 1. Qué es una capa.
-2. Cómo se encapsula.
+2. Cómo esconde sus detalles.
 3. Por qué importa.
 
 ## 1. La capa
 
-Una capa hace una cosa y la esconde del resto.
+Imagina un robot que aspira la sala.
 
-El ejemplo sigue: el robot aspira la sala.
+**Capa**: es un grupo de funciones que hace una cosa y la esconde del resto.
+
+Antes, el robot tenía que saber cada detalle. Ahora solo usa la capa.
 
 <lk-scene>
 <script type="application/json">
@@ -223,4 +227,16 @@ test("a deck gate without a browser is a check failure, never a clean pass", asy
 test("the deck gate's own report is read as findings", () => {
   const output = `${JSON.stringify({ decks: 1, problems: 1, bad: [{ note: "x.md", deck: 1, step: 2, kind: "text-over-arrow", over: 0, text: "encima" }] }, null, 1)}\nGATE FAILED\n`;
   assert.deepEqual(findingsOf("deck-gate.mjs", output), ["text-over-arrow: encima"]);
+});
+
+// The clean part is the studio's own proof that a note passes the measure. Its prose must pass the
+// register rules too, and this one runs without a browser: the rules are plain text measures.
+test("the clean part's prose passes the register rules of explain-check", () => {
+  const file = note("limpia-registro.md", CLEAN);
+  const tool = join(dirname(fileURLToPath(import.meta.url)), "..", "tools", "explain-check.mjs");
+  const r = spawnSync(process.execPath, [tool, file, "--json"], { encoding: "utf8", env: { ...process.env, STUDIO_DB: "" } });
+  const rows = Object.fromEntries(JSON.parse(r.stdout).rows.map((row) => [row.rule, row]));
+  for (const rule of ["termino-sin-explicar", "frases-largas", "sin-negritas", "sin-escena-antes", "sin-contraste", "cuentas-sin-pasos"]) {
+    assert.equal(rows[rule].ok, true, `${rule}: ${rows[rule].detail}`);
+  }
 });

@@ -2,11 +2,22 @@
 
 ## Ruta
 
-1. Muchas lecturas a la vez compilan.
-2. Una sola escritura compila.
-3. Leer y escribir a la vez no compila.
+1. Muchas lecturas a la vez: el compilador las acepta.
+2. Una sola escritura: el compilador la acepta.
+3. Leer y escribir a la vez: el compilador lo rechaza.
 
-Una referencia presta el valor sin darlo. El borrow checker cuenta quién lee y quién escribe.
+Imagina un libro con varios lectores a la vez.
+
+**Compilador**
+Es el programa que revisa el código antes de ejecutarlo.
+
+**Valor**
+Es el dato que guarda una variable.
+
+**Borrow checker**
+Es la parte del compilador que cuenta quién lee y quién escribe.
+
+Antes, cualquiera podía tocar el dato. Después, una referencia lo presta: lo mira sin darlo.
 
 <lk-story>
 <script type="application/json">

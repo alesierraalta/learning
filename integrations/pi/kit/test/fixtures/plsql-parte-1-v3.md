@@ -10,20 +10,23 @@ nivel: básico
 
 ## Ruta
 
-1. Estructura de un bloque anónimo y enlace seguro con `%TYPE`.
-2. Modificación de datos con DML y retención en el buffer de sesión.
-3. Control transaccional con SAVEPOINT, reversión parcial y confirmación.
+1. Bloque anónimo y enlace seguro con `%TYPE`.
+2. Cambios con DML en el buffer de sesión.
+3. Control con SAVEPOINT, reversión parcial y COMMIT.
 
 ## El 20% que rinde el 80%: Anatomía del bloque PL/SQL y enlace de variables
 
-Presentamos el ejemplo conductor del tema: un banco con dos cuentas.
-La cuenta 10 y la cuenta 20 inician con un saldo exacto de 1000 cada una.
+El ejemplo conductor: un banco con dos cuentas.
+Cada cuenta empieza con un saldo de 1000.
 
-Un bloque anónimo es un programa temporal sin nombre en el catálogo.
-Se ejecuta una sola vez para resolver una tarea inmediata en el servidor.
+Un bloque anónimo es un programa sin nombre en el catálogo.
+Se ejecuta una sola vez, en el servidor.
 
-Consta de tres secciones: DECLARE para variables, BEGIN para instrucciones y EXCEPTION para errores.
-La sección ejecutable BEGIN es la única obligatoria para el motor.
+Tiene tres secciones:
+- DECLARE: variables.
+- BEGIN: instrucciones que se ejecutan.
+- EXCEPTION: captura de errores.
+BEGIN es la única sección obligatoria.
 
 ```sql
 DECLARE
@@ -33,11 +36,21 @@ BEGIN
 END;
 ```
 
-El calificador `%TYPE` vincula una variable al tipo exacto de una columna.
-Si la columna cambia en la tabla base, la variable se ajusta sola.
+**%TYPE**: es un calificador que copia el tipo de una columna.
+Si la columna cambia, la variable se ajusta sola.
 
-Las sentencias DML como UPDATE o INSERT alteran datos primero en memoria.
-Esa memoria se llama buffer de sesión y nadie más ve los borradores.
+**DML**: son las sentencias que cambian datos, como UPDATE o INSERT.
+
+**UPDATE**: cambia el valor de una fila.
+
+**INSERT**: añade una fila nueva.
+**Buffer**: es la memoria donde se guardan los cambios sin confirmar.
+
+**Sesión**: es tu conexión con la base de datos.
+
+**COMMIT**: graba los cambios pendientes en el disco.
+
+Otra sesión no los ve hasta el COMMIT.
 
 <lk-tables>
 <script type="application/json">
@@ -72,20 +85,24 @@ Esa memoria se llama buffer de sesión y nadie más ve los borradores.
 </script>
 </lk-tables>
 
-Cómo leerlo: la tabla de memoria retiene el borrador y apunta al disco. Al confirmar, ambos lados guardan el nuevo saldo.
+Cómo leerlo: a la izquierda, la memoria. A la derecha, el disco.
+
+Antes del COMMIT, el disco dice 1000.
+
+Después, dice 800.
 
 ## 2. Control transaccional fino: SAVEPOINT, reversión parcial y confirmación
 
-Una transacción agrupa operaciones que deben confirmarse juntas o cancelarse enteras.
-Cada fila modificada recibe un candado exclusivo para evitar interferencias ajenas.
+**Transacción**: es un grupo de cambios que se confirman o se cancelan juntos.
+Cada fila modificada recibe un candado exclusivo.
 
-El comando SAVEPOINT fija una marca con nombre dentro de la sesión.
-Funciona como un punto de control que no toca el disco.
+**SAVEPOINT**: es un comando que fija una marca con nombre.
+No toca el disco.
 
-Calculamos el paso intermedio de cada operación en el ejemplo:
 
-- Cuenta 10: 1000 − 200 = 800.
-- Cuenta 20: 1000 + 500 = 1500.
+
+
+
 
 ```sql
 SAVEPOINT sp_debito;
@@ -96,11 +113,13 @@ END IF;
 COMMIT;
 ```
 
-La instrucción ROLLBACK TO retrocede al marcador indicado en el comando.
-La cuenta 20 regresa a 1000, mientras la cuenta 10 conserva 800.
+**ROLLBACK**: deshace los cambios hasta el punto fijado.
+Antes del ROLLBACK, la cuenta 20 vale 1500.
 
-La sentencia COMMIT graba todos los cambios pendientes en el disco.
-En ese instante exacto los saldos se vuelven permanentes y públicos.
+Después, vale 1000. La cuenta 10 conserva 800.
+
+Al COMMIT, los cambios pendientes van al disco.
+Desde ese momento, los saldos son públicos.
 
 <lk-story>
 <script type="application/json">
@@ -285,7 +304,9 @@ En ese instante exacto los saldos se vuelven permanentes y públicos.
 </script>
 </lk-story>
 
-Cómo leerlo: cada paso resalta su instrucción SQL en la cabecera. Los personajes y marcas muestran qué cuenta cambia y cuándo se confirma.
+Cómo leerlo: cada paso resalta su instrucción en la cabecera.
+
+Los personajes muestran qué cuenta cambia y cuándo se confirma.
 
 ## Mini-quiz
 

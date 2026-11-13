@@ -592,7 +592,8 @@ func (f *fixture) writeExplanation(t *testing.T, part string, vis bool, marker s
 	// production rules (the ones that carry the standard) run this fixture.
 	body := "---\ntipo: explicacion\nnodo: T." + part + "\nnivel: medio\n---\n# " + part + "\n\n" +
 		"## Ruta\n\nVamos a construirlo en este orden:\n\n1. Qué es el estado.\n2. Qué es la acción.\n3. Cómo se combinan.\n\n" +
-		"## Ejemplo\n\nExplicación de la parte con ejemplos concretos. " + marker + " Caso numérico paso a paso.\n\n" +
+		"## Ejemplo\n\nImagina un robot aspirador en la sala. **Estado**: es todo lo que hace falta saber para decidir.\n\n" +
+		"Explicación de la parte con ejemplos concretos. " + marker + " Caso numérico paso a paso.\n\nAntes el robot sabía poco; después sabe que la sala está sucia.\n\n" +
 		// El recorrido de la parte es la historia (#237): el `<lk-walkthrough>`
 		// clásico ya no cuenta como recorrido en el estándar de producción.
 		fixtureStory + "\n\n**Fuente**: Sutton & Barto, verificación de fixture.\n\n## Mini-quiz\n"
