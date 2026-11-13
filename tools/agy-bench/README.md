@@ -55,28 +55,31 @@ scp tools/agy-bench/bench.mjs synchub:/tmp/bench246/bench.mjs
 ssh -x synchub
 export PATH=$HOME/.local/node/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH
 cd /tmp/bench246
-XDG_STATE_HOME=/tmp/bench246/state XDG_CACHE_HOME=/tmp/bench246/cache \
-  node bench.mjs run \
+node bench.mjs run \
     --repo "$HOME/learning" \
     --scratch /tmp/bench246/scratch \
     --out /tmp/bench246/out \
     --port 4799 \
+    --concurrency 5 \
     --vault "$HOME/Learnings"
 ```
 
 - `--vault` solo se **lee**: antes y después corre `git --no-optional-locks status --porcelain`
   en el vault real (sin refrescar su índice) y lo anota en el informe, para probar que el banco
   no escribió ahí.
-- Los temas van en serie (un turno puede tardar ~10 min). `--topic <id>` corre uno solo y
-  `--skip-done false` vuelve a medir los ya medidos; `results.json` se escribe después de
-  cada tema, así que un corte no pierde lo anterior.
+- Los temas corren en paralelo: `--concurrency N` dice cuántos a la vez (5 por defecto; un turno
+  puede tardar ~10 min). Cada tema es un proceso (`topic`) con su propio estudio: `run` lo lanza y
+  fusiona su resultado en `results.json` y `report.md` al terminar, así que un corte no pierde lo
+  que ya terminó. `--topic <id>` corre solo esos temas; `--skip-done false` vuelve a medir los ya
+  medidos.
 - `--turn-timeout` (segundos, 2700 por defecto) y `--max-turns` (8) acotan un tema que se
   atasque; el tema queda marcado como `stuck` en el informe, no se reintenta a ciegas.
 
 - `run` tiene que correr contra `$HOME/learning`, no contra una copia: el tutor exige que
   `~/.claude/skills/explicacion-interactiva` resuelva al repo que se corre (una copia en `/tmp`
   responde 409 «El tutor no empieza»). Como el despliegue puede mover `main` durante la corrida,
-  cada tema guarda `head.start` y `head.end` en `results.json`: si cambian, el informe lo dice.
+  cada tema guarda `head.start` y `head.end` en `results.json`, y la corrida entera guarda `head`
+  (inicio y fin): si cambian, el informe lo dice.
 - Las correcciones se cuentan de los informes de tiempo del estudio (`engine-correction` y
   `part-correction`, que no pasan por el log). `gateFailures` cuenta las puertas que fallaron en
   el log: el último fallo de un presupuesto gastado no es una corrección, es el alto que sigue.
@@ -101,10 +104,30 @@ sin runtime:
 node tools/agy-bench/bench.mjs gates --repo . --out /tmp/bench246/out
 ```
 
+## Aislamiento por tema
+
+Un tema no comparte nada con otro de la misma corrida. Cada uno tiene su proceso y su estudio:
+
+| Qué | Dónde (`<scratch>` es `--scratch`, `<id>` el tema) |
+| --- | --- |
+| Puerto | `--port` más la posición del tema en la lista (4799, 4800…); el 4747 y el 4748 se rechazan |
+| Raíz del estudio | `<scratch>/<id>/root` |
+| Estado del estudio | `<scratch>/<id>/state` (`opened.json`, `chats.json`, `page-timings/`) |
+| Estado de los procesos | `XDG_STATE_HOME=<scratch>/<id>/xdg-state` y `XDG_CACHE_HOME=<scratch>/<id>/xdg-cache`: el motor y el runtime `agy` heredan esas variables |
+| Token | derivado del id del tema (sha256, 64 hex): repetir la corrida reusa el mismo origen |
+
+`topic` se niega a correr si su `XDG_STATE_HOME` o su `XDG_CACHE_HOME` no están dentro de su carpeta
+de prueba, así que el estado de `learning-studio` no se toca. Lo que el runtime escriba fuera de XDG
+(por ejemplo bajo `$HOME`) no se aísla: es un límite conocido.
+
+`report.md` tiene una sección «Aislamiento»: puerto, raíz, estado, token, HEAD y duración de cada
+tema, y si los puertos y las raíces son distintos entre sí.
+
 ## Salidas
 
 ```text
 <out>/results.json          todo lo medido, por tema y por turno (incluye la forma de las figuras)
+<out>/<tema>-result.json   el resultado de un tema (lo escribe su proceso `topic`; `run` lo fusiona)
 <out>/report.md             la tabla del issue + lo que dijo el motor en cada turno
 <out>/<tema>-studio.log     el log del estudio: eventos SSE + líneas `estudio:` (JSONL)
 <out>/<tema>/vault/<carpeta>  copia del tema medido (plan, quiz, partes, mini-quiz)
@@ -118,7 +141,8 @@ node tools/agy-bench/bench.mjs gates --repo . --out /tmp/bench246/out
 - No escribe en `~/Learnings`, no toca el servicio `learning-studio` ni
   `learning-autodeploy`, no lee `~/.config/learning-studio.env`.
 - No usa el puerto 4747/4748 de producción: el estudio de prueba escucha en `--port`
-  (4799) y el puente del lector en un puerto libre.
+  (`--port` más la posición del tema: 4799, 4800…) y el puente del lector en un puerto libre.
 - No copia `preferencias.json` ni `preferencias.md` del alumno: el tutor arranca con las
   preferencias por defecto. Es una diferencia conocida con producción y se anota como
   tal en el informe.
+- No comparte estado entre temas: ver «Aislamiento por tema» para lo que queda aislado y lo que no.
