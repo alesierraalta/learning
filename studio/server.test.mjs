@@ -487,6 +487,9 @@ for (const runtime of ["pi", "agy"]) {
 // ---- #202: the studio measures the part a turn wrote, for both tutors -------------
 
 /** A part whose arrow runs over its own words: `scene-lint` reports `trazo-sobre-texto`. */
+// A part's rich page sits beside its note (#261): the studio asks the tutor for it when it is missing,
+// so the turns that write a part write its page too, the way a real part does.
+const PAGINA_RICA = { name: "Parte 1 - Capas.html", content: "<!doctype html><html lang=\"es\"><title>Capas</title></html>" };
 const BROKEN_PART = `# Parte 1 — Capas
 
 ## Ruta
@@ -517,9 +520,9 @@ Antes, el robot tenía que saber cada detalle. Ahora solo usa la capa.
 <lk-story>
 <script type="application/json">
 {"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
- {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"}]}}},
- {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
- {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
+ {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}]}}},
+ {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
+ {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
 ]}
 </script>
 </lk-story>
@@ -594,7 +597,7 @@ for (const runtime of ["pi", "agy"]) {
     // settle is clean and the budget is never reached.
     const measured = [];
     const tutor = await checkingTutor(runtime, {
-      parts: [[{ name: "Parte 1 - Capas.md", content: BROKEN_PART }], [{ name: "Parte 1 - Capas.md", content: CLEAN_PART }]],
+      parts: [[{ name: "Parte 1 - Capas.md", content: BROKEN_PART }, PAGINA_RICA], [{ name: "Parte 1 - Capas.md", content: CLEAN_PART }, PAGINA_RICA]],
       partChecks: measuring(measured),
     });
     try {
@@ -614,6 +617,8 @@ for (const runtime of ["pi", "agy"]) {
       await tutor.endTurn();
       await until(() => settleIdle(tutor.stream), 30000);
       assert.equal(tutor.turnsSoFar(), 2, "a part the tools pass asks for nothing else");
+      // Two settles, one measurement each: the part's .md and its .html are one measured note, never two.
+      assert.equal(measured.length, 2, "one measurement per settle, not one per file the turn wrote");
       assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "a part that passes says nothing to the learner");
     } finally { tutor.close(); }
   });
@@ -621,7 +626,7 @@ for (const runtime of ["pi", "agy"]) {
   test(`a part that passes the checks asks for no correction: ${runtime}`, { skip: browser ? false : "playwright not installed" }, async () => {
     const measured = [];
     const tutor = await checkingTutor(runtime, {
-      parts: [[{ name: "Parte 1 - Capas.md", content: CLEAN_PART }]],
+      parts: [[{ name: "Parte 1 - Capas.md", content: CLEAN_PART }, PAGINA_RICA]],
       partChecks: measuring(measured),
     });
     try {
@@ -629,7 +634,7 @@ for (const runtime of ["pi", "agy"]) {
       await until(() => tutor.turnsSoFar() === 1);
       await tutor.endTurn();
       await until(() => settleIdle(tutor.stream), 30000);
-      assert.equal(measured.length, 1, "the part was measured, not skipped");
+      assert.equal(measured.length, 1, "the part written as its .md and its .html is measured once, not skipped or doubled");
       assert.equal(tutor.turnsSoFar(), 1, "nothing to correct");
       assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0);
     } finally { tutor.close(); }

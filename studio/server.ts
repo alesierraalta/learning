@@ -212,8 +212,8 @@ type Turn = {
   /** A new deep-mode request whose topic does not exist yet: the first topic folder it writes. */
   creation?: boolean;
   /**
-   * The part notes this turn wrote or edited, in order: what the studio measures itself before the
-   * turn is offered as done. A turn that wrote no part owes no measurement.
+   * The part notes this turn wrote or edited, in order, each part once as its `.md` note: what the
+   * studio measures itself before the turn is offered as done. A turn that wrote no part owes no measurement.
    */
   parts: string[];
   /**
@@ -538,7 +538,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         if (turn && !record.isError && note !== null && "index" in note && typeof args === "object" && args !== null) {
           const path = (args as Json).path;
           if (typeof path === "string") {
-            const file = resolve(root, path);
+            // A part is listed as its note: the rich page (`.html`) is written beside the `.md` the standard
+            // is written in, so the two writes of one part are one entry (#261). Only part notes reach here.
+            const file = resolve(root, path).replace(/\.html$/i, ".md");
             if (!turn.parts.includes(file)) turn.parts.push(file);
           }
         }
@@ -1019,14 +1021,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   /**
-   * The part notes a turn wrote, as the tools measure them: a note is the `.md` the standard is
-   * written in, so a rich `.html` page is measured through the note beside it, and one with no note
-   * is left to the reader's own gate instead of being measured as prose.
+   * The part notes a turn wrote, as the tools measure them. The parts list already holds each part once,
+   * as its `.md` note (see the tool-event handler), so a part is measured once however many files it
+   * wrote; a note that is not on disk is left out.
    */
-  const partNotes = (parts: string[]): string[] =>
-    parts
-      .map((part) => (part.endsWith(".md") ? part : part.replace(/\.html$/i, ".md")))
-      .filter((file) => existsSync(file));
+  const partNotes = (parts: string[]): string[] => parts.filter((file) => existsSync(file));
 
   /**
    * What the tools say about the parts a turn wrote. A tool that could not run is the studio's own

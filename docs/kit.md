@@ -464,9 +464,16 @@ one is the «🎧 Generar …» request. `lk-ask` sends a question.
 Without bridge config these three show the instruction to open the page in Pi;
 all local demos, diagrams, steps, and mathematics remain usable.
 
+### Story steps: marks, ground lines and stage share (#261)
+
+- A **mark** names the outcome it approves (`«conexión pedida»`, `«0.50»`), never the move or the tag of its own step: a mark that repeats a `moves[].verb` or an actor's `tag` is `marca-eco` (`explain-check`).
+- A **ground line** (a horizontal `paths` entry at the foot of the stage, without an arrow) belongs to a `derivation` declared as a scope or a timeline: `"frame": "scope"` or `"frame": "timeline"`. Anywhere else it is `suelo-sin-sentido` (`scene-gate`). A formula story draws the axes of its function, so it is not measured this way.
+- The drawing of each step covers at least a quarter of its stage (the box around its pieces, the ground left out): `escenario-vacio` (`scene-gate`). The floor is calibrated on the approved examples, whose steps run from 27 % to 77 %.
+- `tools/register/fixtures/bench261/` holds the four real parts that exposed these rules (Git, TCP, Rust, Bayes). The counts example is `examples/bayes-mil-personas.md` (gated): counts first, then the derivation.
+
 ### Visual pieces: verdict cards, memory, joined tables, sets
 
-Five elements draw ideas the scene vocabulary tells badly. Each is declarative JSON in an
+Six elements draw ideas the scene vocabulary tells badly. Each is declarative JSON in an
 `<script type="application/json">`, anchored by ids: a pointer, a connector or a region names
 what it reaches and the kit traces it from the boxes the browser drew (`placeMemory`,
 `placeTables`), so a note never carries a coordinate. They are HTML, not a canvas: they stack in a
@@ -478,10 +485,11 @@ accepts a `caption`, drawn under the piece as its own reading guide.
 
 | Element | Draws | Worked example (gated) |
 |---|---|---|
-| `lk-cards` | 2–4 verdict cards side by side (stacked on a narrow column): pill, title, a tiny drawing of the case (`refs` chips with `read`/`write`/`value` icons → `target`), one line of reason; the `verdict: "no"` card is tinted red. For code only (compila / no compila, correcto / error). | `examples/prestamos-rust.md` |
+| `lk-cards` | 2–4 verdict cards side by side (stacked on a narrow column): pill, title, a tiny drawing of the case (`refs` chips with `read`/`write`/`value` icons → `target`), one line of reason; the `verdict: "no"` card is tinted red, and only an error earns the tint (NO COMPILA, ERROR, INCORRECTO, RECHAZADO); `verdict: "neutral"` is the contrast between two valid states, untinted with a slate pill (#261). A `read`/`write` icon needs its card's words to say what is read or written (`accesorio-sin-sentido`). For code only (compila / no compila, correcto / error). | `examples/prestamos-rust.md` |
 | `lk-memory` | State in numbered steps: each repeats its code line (badge + code), columns (STACK / HEAP, or SESIÓN / DISCO), segmented cells, status pills, a pointer from a cell to its target (`points`), invalid cells dashed and struck with a ✗. | `examples/memoria-string-rust.md`, `examples/plsql-transaccion.md` |
 | `lk-tables` | Real tables joined by curved connectors (one colour per match, derived from the data), the `ON` pill and the derived result; `kind: "left"` keeps unmatched rows with `NULL`; `show` reveals tables → links → on → result. Also `group`: rows → groups with value chips and a COUNT badge. | `examples/sql-join-videojuegos.md`, `examples/sql-group-by.md` |
 | `lk-venn` | Two or three labelled sets; `fill` lists the exact regions that answer (`a+b` = in A and B only; `a` = A only), `op` names the operation, `says` explains it. One region per story step. | `examples/sql-venn-joins.md` |
+| `lk-tree` | A frequency tree: each group is a person (`kind`), each branch carries its count and its rate, the highlighted leaves stand out; two branches per group, laid out by the kit and measured at 1440 and 390 px (labels on their branch, no word over a word, the group's text inside its person). | `examples/bayes-mil-personas.md` |
 | `lk-explorer` | A process between several systems over time: a map of the actors, a numbered step list that drives it, a details panel per step and an event log that fills as it runs; a second view draws the same steps as a sequence diagram. | `examples/abrir-una-pagina.md` |
 
 The engine and `explain-check` count a piece as the part's drawn figure (one scene *or* one piece

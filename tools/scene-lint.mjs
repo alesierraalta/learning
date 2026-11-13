@@ -34,6 +34,38 @@ const CROSS = 3.5;
 // Una pieza a menos de 40 unidades de otra ya se lee con ella; más lejos y sin
 // nada que la alcance es una palabra flotando al lado de la figura.
 const LOOSE = 40;
+// Dos fichas de nombre de actores vecinos a menos de 6 píxeles se leen como una sola (#261).
+const TAG_MIN_PX = 6;
+
+// Las fichas de nombre de los actores (`[data-tag-to]`) que se pisan en vertical y quedan a menos de
+// `minPx` píxeles de la pantalla se tocan: se leen como una sola ficha. Un paso oculto mide cero, así
+// que se muestran todos mientras se mide y luego se dejan como estaban.
+const tagGapsPx = ({ minPx }) => {
+  const out = [];
+  const hiddenSteps = [...document.querySelectorAll('[data-step]')];
+  const wasShown = hiddenSteps.map((g) => g.style.display);
+  hiddenSteps.forEach((g) => { g.style.display = ''; });
+  document.querySelectorAll('lk-scene, lk-walkthrough, lk-story').forEach((host, i) => {
+    const title = host.querySelector('svg')?.getAttribute('aria-label') || '';
+    const stepOf = (el) => el.closest('[data-step]')?.dataset.step || '0';
+    const chips = [...host.querySelectorAll('[data-tag-to]')].filter((tag) => !tag.closest('.lk-p') && tag.querySelector('rect'));
+    for (let a = 0; a < chips.length; a++) {
+      for (let b = a + 1; b < chips.length; b++) {
+        if (stepOf(chips[a]) !== stepOf(chips[b])) continue;
+        const ra = chips[a].querySelector('rect').getBoundingClientRect();
+        const rb = chips[b].querySelector('rect').getBoundingClientRect();
+        const level = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top) > 0;
+        const gap = Math.max(rb.left - ra.right, ra.left - rb.right);
+        if (!level || gap >= minPx) continue;
+        const text = `${chips[a].dataset.tagText} / ${chips[b].dataset.tagText}`;
+        const measured = gap < 0 ? `se pisan ${Math.abs(gap).toFixed(1)} px` : `quedan a ${gap.toFixed(1)} px`;
+        out.push({ block: i + 1, title, kind: 'texto-encimado', text, detail: `a 390 px ${measured} (mínimo ${minPx} px): se leen como una sola ficha` });
+      }
+    }
+  });
+  hiddenSteps.forEach((g, i) => { g.style.display = wasShown[i]; });
+  return out;
+};
 
 async function loadPlaywright() {
   const attempts = [];
@@ -619,7 +651,7 @@ try {
           const actors = [...svg.querySelectorAll('[data-actor]')].map((el) => {
             const f = figureOf(el).getBBox();
             const tag = tagOf.get(`${stepOf(el)}|${el.dataset.actor}`);
-            return { id: el.dataset.actor, step: stepOf(el), figure: f, cy: f.y + f.height / 2, tag: tag ? tag.getBBox() : null };
+            return { id: el.dataset.actor, step: stepOf(el), figure: f, cy: f.y + f.height / 2, tag: tag ? (tag.querySelector('rect') || tag).getBBox() : null };
           });
           // Una fila son dos actores uno al lado del otro —sus figuras no se pisan
           // en horizontal— a menos de una figura de distancia en vertical. Más lejos
@@ -638,7 +670,9 @@ try {
               const figures = Math.abs(a.cy - b.cy);
               if (figures > 6) add('fila-torcida', ids, `los centros de sus personajes difieren en ${figures.toFixed(0)}u (máximo 6): tiende la fila desde el marco más grande, estado incluido`);
               if (a.tag && b.tag) {
-                const tags = Math.abs((a.tag.y + a.tag.height / 2) - (b.tag.y + b.tag.height / 2));
+                // La ficha se mide por la base de su pastilla: el trazo que baja hasta el personaje no cuenta, y una
+                // ficha partida en dos líneas es más alta pero se apoya en la misma base (#261).
+                const tags = Math.abs((a.tag.y + a.tag.height) - (b.tag.y + b.tag.height));
                 if (tags > 6) add('fila-torcida', ids, `sus fichas de nombre quedan a ${tags.toFixed(0)}u de altura (máximo 6): la fila se lee torcida`);
               }
             }
@@ -685,6 +719,11 @@ try {
     return out;
   }, { minShaft: MIN_SHAFT, maxRatio: MAX_HEAD_RATIO, cross: CROSS, loose: LOOSE, maxHead: MAX_HEAD, maxHeadStrokes: MAX_HEAD_STROKES });
   findings.push(...report);
+  // Las fichas de nombre se miden también a 390 px, en píxeles de la pantalla: el teléfono reduce el
+  // lienzo, así que lo que cabe en unidades puede tocarse en píxeles (#261).
+  await page.setViewportSize({ width: 390, height: 1000 });
+  await page.waitForTimeout(250);
+  findings.push(...await page.evaluate(tagGapsPx, { minPx: TAG_MIN_PX }));
   // Las piezas visuales (tarjetas, memoria, tablas, conjuntos): una palabra no se
   // monta sobre otra y un conector no atraviesa lo que no es suyo.
   for (const piece of await measurePieces(page, { scope: 'convivencia' })) {

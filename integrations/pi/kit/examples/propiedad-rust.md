@@ -27,7 +27,7 @@ El robot que ya no vale se apaga. El que usa algo inválido se tacha.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Mover un valor: la dueña cambia","viewBox":"0 60 360 190","steps":[
+{"kind":"derivation","frame":"scope","title":"Mover un valor: la dueña cambia","viewBox":"0 60 360 190","steps":[
  {"title":"Una dueña","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"s1","id":"s1"},{"t":" = ","id":"eq"},{"t":"String::from(","id":"from"},{"t":"\"hola\"","id":"value"},{"t":");","id":"end"}]},"focus":["s1","value"],
   "narrator":"«s1» es la *dueña* del texto «\"hola\"». Un valor tiene una sola dueña.",
   "stage":{"scene":{

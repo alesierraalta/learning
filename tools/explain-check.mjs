@@ -55,7 +55,7 @@ add('secciones', secciones.length <= 2, `${secciones.length} sección(es) de con
 // Las piezas visuales (tarjetas, memoria, tablas, conjuntos, el explorador de un
 // escenario) son figuras como la escena: ocupan su lugar en la parte y gastan su
 // tope. El motor cuenta igual (`pieceOpenCount` en `internal/engine/pieces.go`).
-const PIEZAS = 'cards|memory|tables|venn|explorer';
+const PIEZAS = 'cards|memory|tables|venn|explorer|tree';
 const piezas = (src.match(new RegExp(`<lk-(?:${PIEZAS})[\\s>]`, 'g')) || []).length;
 const escenas = (src.match(/<lk-scene[\s>]/g) || []).length + piezas;
 // Un recorrido de fórmula o de ejercicio (`<lk-story>`) es un recorrido más: la
@@ -286,7 +286,7 @@ add('historia-cabecera', sinCabecera.length === 0, sinCabecera.length
 // El vocabulario que dibuja una acción: lo que el paso tiene que traer. Una caja
 // con su texto no es una acción, y un recorrido de cajas no enseña nada.
 const VOCABULARIO = ['actors', 'props', 'moves', 'tags', 'icons', 'callouts', 'curves', 'paths', 'formulas', 'formula', 'grids', 'sheets', 'bars', 'stats', 'nodes', 'badges', 'dashed', 'policy', 'arrows'];
-const PIEZAS_DIBUJADAS = ['cards', 'memory', 'tables', 'venn'];
+const PIEZAS_DIBUJADAS = ['cards', 'memory', 'tables', 'venn', 'tree'];
 const declara = (value) => Array.isArray(value) ? value.length > 0 : Boolean(value);
 const pasoDibujaAccion = (step) => {
   const stage = step?.stage || {};
@@ -413,7 +413,7 @@ const senalesDeLaHistoria = (steps) => {
     moves += (scene.moves || []).length;
     for (const a of scene.actors || []) anota(`actor:${a.id}`, a.state || 'active');
     for (const p of scene.props || []) anota(`prop:${p.id}`, `${p.label || ''}|${p.state || ''}|${p.tone || ''}`);
-    const piece = ['cards', 'memory', 'tables', 'venn'].map((k) => stage[k]).find(Boolean);
+    const piece = ['cards', 'memory', 'tables', 'venn', 'tree'].map((k) => stage[k]).find(Boolean);
     piezas.push(piece ? JSON.stringify(piece) : '');
     punteros.push([...JSON.stringify(stage).matchAll(/"points"\s*:\s*"([^"]*)"/g)].map((m) => m[1]).join('|'));
   }
@@ -457,7 +457,7 @@ add('cabecera-con-flechas', conFlechas.length === 0, conFlechas.length
 // declara un dibujo que nadie dibuja. El escenario vive en `stage` y su dibujo en
 // `stage.scene`; lo demás es dato muerto que enseña mal el esquema al tutor.
 const CLAVES_DEL_PASO = new Set(['title', 'narrator', 'equation', 'focus', 'stage', 'say', 'header']);
-const CLAVES_DEL_ESCENARIO = new Set(['scene', 'cards', 'memory', 'tables', 'venn', 'caption']);
+const CLAVES_DEL_ESCENARIO = new Set(['scene', 'cards', 'memory', 'tables', 'venn', 'tree', 'caption']);
 const CLAVES_DE_LA_ESCENA = new Set(['actors', 'props', 'moves', 'tags', 'marks', 'icons', 'callouts',
   'curves', 'paths', 'formulas', 'formula', 'grids', 'sheets', 'gears', 'boxes', 'arrows', 'nodes',
   'bars', 'stats', 'policy', 'badges', 'dashed', 'labels', 'title', 'aria', 'caption']);
@@ -473,6 +473,112 @@ for (const spec of historiasSpecs) {
 }
 add('clave-muerta', clavesMuertas.length === 0, clavesMuertas.length
   ? `el paso ${clavesMuertas[0].step} lleva \`${clavesMuertas[0].path}\`, que el esquema no lee · el escenario vive en \`stage\` y su dibujo en \`stage.scene\`; las claves del paso son ${[...CLAVES_DEL_PASO].join(', ')}`
+  : '');
+
+// 7i. Las marcas, las tarjetas y sus iconos (#261). Tres defectos que el segundo
+// banco repitió con todas las puertas en verde: una marca que repite la flecha o la
+// etiqueta de su mismo paso («SYN» bajo la flecha «SYN»), una tarjeta teñida de rojo para
+// un estado válido (DETACHED) y un ojo o un lápiz que el texto no nombra. Se leen del
+// JSON, sin navegador, y el motor aplica las mismas reglas con las claves aditivas
+// `markEcho`, `verdictError` y `accessorySense`.
+const normaTexto = (t) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const fichas = (t) => normaTexto(t).split(/[^a-z0-9]+/).filter(Boolean);
+// Una marca repite una etiqueta cuando sus palabras son las de la etiqueta, o un tramo
+// seguido suyo: «SYN» repite «SYN-ACK» y «servidor» repite «Servidor».
+const repiteEtiqueta = (marca, etiqueta) => {
+  const m = fichas(marca), e = fichas(etiqueta);
+  if (!m.length || !e.length) return false;
+  for (let i = 0; i + m.length <= e.length; i++) if (m.every((w, j) => e[i + j] === w)) return true;
+  return false;
+};
+const marcaEco = [];
+for (const spec of historiasSpecs) {
+  for (const [i, step] of (spec.steps || []).entries()) {
+    const scene = step?.stage?.scene || step?.stage || {};
+    const etiquetas = [
+      ...(scene.moves || []).map((m) => m?.verb),
+      ...(scene.actors || []).flatMap((a) => [a?.tag, a?.label]),
+    ].filter((t) => typeof t === 'string' && t.trim());
+    for (const marca of scene.marks || []) {
+      if (typeof marca?.label !== 'string' || !marca.label.trim()) continue;
+      const eco = etiquetas.find((e) => repiteEtiqueta(marca.label, e));
+      if (eco !== undefined) marcaEco.push({ paso: i + 1, marca: marca.label.trim(), eco: eco.trim() });
+    }
+  }
+}
+add('marca-eco', marcaEco.length === 0, marcaEco.length
+  ? `el paso ${marcaEco[0].paso} marca «${marcaEco[0].marca}», que repite la etiqueta «${marcaEco[0].eco}» de ese mismo paso · la marca nombra lo que el paso aprueba («conexión pedida», «0.50»), no el movimiento ni el nombre que ya dibuja`
+  : '');
+
+// Las tarjetas de veredicto: el tinte rojo es para un error. Una tarjeta que falla y no
+// dice NO COMPILA, ERROR, INCORRECTO o RECHAZADO tiñe un estado válido (#261). La
+// tarjeta neutra (`verdict: "neutral"`) es el contraste sin tinte.
+const VEREDICTO_DE_ERROR = /\b(no compila|errores?|incorrect[oa]|rechazad[oa]|falla|fallo|invalid[oa]|no valid[oa]|prohibid[oa]|denegad[oa]|bloquead[oa]|panic|excepcion)\b/;
+const tarjetas = [];
+for (const m of sinCodigo.matchAll(/<lk-cards[^>]*>[\s\S]*?<\/lk-cards>/g)) {
+  const payload = m[0].match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+  if (!payload) continue;
+  try { tarjetas.push(...(JSON.parse(payload[1]).cards || [])); } catch {}
+}
+const sinError = tarjetas.filter((c) => c?.verdict === 'no' && !VEREDICTO_DE_ERROR.test(normaTexto(c.pill || 'ERROR')));
+add('veredicto-sin-error', sinError.length === 0, sinError.length
+  ? `la tarjeta «${sinError[0].title || sinError[0].id || ''}» se teñe de rojo con su veredicto «${sinError[0].pill}», que no es un error · si los dos estados son válidos, márcala neutra con "verdict": "neutral"; el rojo es para un error: NO COMPILA, ERROR, INCORRECTO, RECHAZADO`
+  : '');
+
+// El icono de leer o escribir (#261): el ojo y el lápiz dicen algo solo si el texto de
+// la tarjeta habla de leer o de escribir. Un icono sin esa palabra es un adorno.
+const LEER_O_ESCRIBIR = /\b(leer|lee|leen|lectura|lector\w*|escrib\w*|escritura|escritor\w*|modific\w*|read\w*|write\w*)\b/;
+const iconoSinSentido = tarjetas.map((c) => {
+  const icono = (c?.draw?.refs || []).find((r) => r?.icon === 'read' || r?.icon === 'write');
+  if (!icono) return null;
+  const texto = [c.title, c.reason, c.pill, c.draw?.target?.text, ...(c.draw?.refs || []).map((r) => r?.text)]
+    .filter((t) => typeof t === 'string').join(' ');
+  return LEER_O_ESCRIBIR.test(normaTexto(texto)) ? null : { card: c, icono: icono.icon };
+}).filter(Boolean);
+add('accesorio-sin-sentido', iconoSinSentido.length === 0, iconoSinSentido.length
+  ? `la tarjeta «${iconoSinSentido[0].card.title || iconoSinSentido[0].card.id || ''}» lleva el icono de ${iconoSinSentido[0].icono === 'read' ? 'lectura' : 'escritura'}, y ni su título, ni su razón, ni su código hablan de ${iconoSinSentido[0].icono === 'read' ? 'leer' : 'escribir'} · quita el icono o di en la razón qué se ${iconoSinSentido[0].icono === 'read' ? 'lee' : 'escribe'}`
+  : '');
+
+// 7j. El personaje contradice su etiqueta (#261): un servidor, un archivo o una base que es una persona
+// o un resultado de la prueba, o una persona que es una máquina o un documento. Un léxico corto, medido en
+// la etiqueta del actor de una historia y en la del grupo de un árbol; el motor aplica la misma regla
+// (`characterSenseFindings`) con la clave aditiva `characterSense`, y lee las mismas palabras.
+const PERSONA_PALABRAS = new Set(['persona', 'personas', 'paciente', 'pacientes', 'enfermo', 'enfermos', 'sano', 'sanos', 'usuario', 'usuarios', 'alumno', 'alumnos', 'cliente', 'clientes', 'gente', 'poblacion', 'estudiante', 'estudiantes', 'ciudadano', 'ciudadanos', 'vecino', 'vecinos', 'individuo', 'individuos', 'habitante', 'habitantes']);
+const RESULTADO_PALABRAS = new Set(['positivo', 'positivos', 'negativo', 'negativos', 'resultado', 'resultados', 'diagnostico', 'diagnosticos', 'falso', 'falsos', 'verdadero', 'verdaderos', 'prueba', 'pruebas', 'test', 'tests']);
+const MAQUINA_PALABRAS = new Set(['servidor', 'servidores', 'host', 'archivo', 'archivos', 'documento', 'documentos', 'bd']);
+// `doc` es el nombre del documento en el kit: el mismo dibujo que `file` (`S.icon`, ALIAS).
+const PERSONAJE_DE_MAQUINA = new Set(['server', 'file', 'doc', 'database']);
+const contradice = (kind, tag) => {
+  const palabras = new Set(fichas(tag));
+  const tiene = (lexico) => [...palabras].some((w) => lexico.has(w));
+  const maquina = tiene(MAQUINA_PALABRAS) || (palabras.has('base') && palabras.has('datos'));
+  if (PERSONAJE_DE_MAQUINA.has(kind) && (tiene(PERSONA_PALABRAS) || tiene(RESULTADO_PALABRAS))) return 'persona o resultado';
+  if (kind === 'user' && maquina) return 'máquina';
+  return null;
+};
+const personajes = [];
+const revisa = (kind, tag, donde) => {
+  const motivo = contradice(kind, tag);
+  if (motivo) personajes.push({ kind, tag: tag.trim(), donde, motivo });
+};
+for (const spec of historiasSpecs) {
+  for (const [i, step] of (spec.steps || []).entries()) {
+    const scene = step?.stage?.scene || step?.stage || {};
+    for (const a of scene.actors || []) revisa(a?.kind || a?.icon || '', String(a?.tag || a?.label || ''), `paso ${i + 1}`);
+  }
+}
+for (const m of sinCodigo.matchAll(/<lk-tree[^>]*>[\s\S]*?<\/lk-tree>/g)) {
+  const payload = m[0].match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+  if (!payload) continue;
+  let arbol;
+  try { arbol = JSON.parse(payload[1]); } catch { continue; }
+  for (const n of arbol.nodes || []) {
+    const tag = Array.isArray(n?.lines) && n.lines.length ? n.lines.join(' ') : String(n?.label || n?.id || '');
+    revisa(n?.kind || 'user', tag, 'el árbol');
+  }
+}
+add('personaje-sin-sentido', personajes.length === 0, personajes.length
+  ? `el personaje «${personajes[0].kind}» de «${personajes[0].tag}» (${personajes[0].donde}) contradice su etiqueta · ${personajes[0].motivo === 'máquina' ? 'un servidor, un archivo o una base se dibuja con su propio personaje («server», «file», «database»)' : 'una persona o un resultado se dibuja con «user»; «server», «file» y «database» son máquinas o documentos'}`
   : '');
 
 // 9. El registro: seis reglas que separan la referencia de lo nuestro (`tools/register/`). Cada una

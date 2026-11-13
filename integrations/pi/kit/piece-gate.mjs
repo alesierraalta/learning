@@ -5,7 +5,7 @@
 // con `measurePiece`.
 import { measurePiece } from './piece-measure.mjs';
 
-export const PIECE_TAGS = ['cards', 'memory', 'tables', 'venn', 'explorer'];
+export const PIECE_TAGS = ['cards', 'memory', 'tables', 'venn', 'explorer', 'tree'];
 export const PIECE_HOSTS = PIECE_TAGS.map((t) => `lk-${t}`).join(', ');
 export const WIDTHS = [1440, 390];
 // Las tres tintas de la página: la clara, la oscura y la negra. Una pieza se mide en las tres.

@@ -673,19 +673,77 @@
     // lado que declara, y si ahí no cabe —borde del lienzo, otro actor, otra pieza o
     // el nombre que el actor lleva arriba— en el primero que sí.
     const parse = (markup) => [...new DOMParser().parseFromString(`<svg xmlns="${ns}">${markup}</svg>`, "image/svg+xml").documentElement.childNodes].map((n) => document.importNode(n, true));
-    const placeProps = (step, rows) => {
+    // #261: las fichas de nombre de dos actores vecinos no se tocan. Cada ficha se mide con su texto al
+    // tamaño de lectura (16 unidades). Si dos fichas que se pisan en vertical quedan a menos de TAG_GAP
+    // unidades (a 390 px, menos de 6 píxeles), se parte en dos líneas la más ancha que tenga dos palabras:
+    // su ancho baja a la de la palabra más larga y la vecina respira.
+    const TAG_SIZE = 16, TAG_GAP = 8;
+    const tagWidth = (lines) => Math.max(30, Math.max(...lines.map((line) => line.length)) * TAG_SIZE * 0.56 + 16);
+    const tagHeight = (lines) => lines.length * TAG_SIZE + (lines.length - 1) * 4 + 12;
+    // La partición en dos líneas que deja la línea más larga más corta; null si el texto es una palabra.
+    const splitTag = (text) => {
+      const words = String(text).trim().split(/\s+/);
+      let best = null;
+      for (let i = 1; i < words.length; i++) {
+        const lines = [words.slice(0, i).join(" "), words.slice(i).join(" ")];
+        if (!best || tagWidth(lines) < tagWidth(best)) best = lines;
+      }
+      return best;
+    };
+    const layoutTags = (step, rows) => {
+      const chips = [...step.querySelectorAll("[data-tag-to]")].map((tag) => {
+        const target = findIn(step, tag.dataset.tagTo);
+        if (!target) return null;
+        const b = target.getBBox();
+        const fig = figureOf(target).getBBox();
+        const row = target.hasAttribute("data-actor") ? rows.get(target.dataset.actor) : null;
+        const at = tag.dataset.tagAt ? tag.dataset.tagAt.split(",").map(Number) : [];
+        return {
+          tag, target, fig, t: tone(tag.dataset.tagTone), lines: [tag.dataset.tagText || ""],
+          // La ficha nunca se sale del lienzo: se centra en su actor y se mete dentro del canvas (#243).
+          wanted: at.length && Number.isFinite(at[0]) ? at[0] : fig.x + fig.width / 2,
+          fixedY: at.length > 1 && Number.isFinite(at[1]) ? at[1] : null,
+          baseY: row ? row.top : b.y,
+        };
+      }).filter(Boolean);
+      const place = () => {
+        for (const c of chips) {
+          c.w = tagWidth(c.lines);
+          c.h = tagHeight(c.lines);
+          c.cx = Math.min(Math.max(c.wanted, room.x + c.w / 2 + 12), room.x + room.width - c.w / 2 - 12);
+          c.cy = c.fixedY ?? c.baseY - 8;
+        }
+      };
+      // Dos fichas se tocan si sus cajas se pisan en vertical y quedan a menos de TAG_GAP en horizontal.
+      const clashes = (a, b) => {
+        const gap = Math.max(b.cx - b.w / 2 - (a.cx + a.w / 2), a.cx - a.w / 2 - (b.cx + b.w / 2));
+        return Math.min(a.cy, b.cy) - Math.max(a.cy - a.h, b.cy - b.h) > 0 && gap < TAG_GAP;
+      };
+      place();
+      let split = true;
+      while (split) {
+        split = false;
+        for (let i = 0; i < chips.length && !split; i++) {
+          for (let j = i + 1; j < chips.length && !split; j++) {
+            if (!clashes(chips[i], chips[j])) continue;
+            // Se parte la más ancha que tenga dos palabras: es la que más aire recupera.
+            const candidate = [chips[i], chips[j]].sort((p, q) => q.w - p.w).find((c) => c.lines.length === 1 && splitTag(c.lines[0]));
+            if (!candidate) continue;
+            candidate.lines = splitTag(candidate.lines[0]);
+            place();
+            split = true;
+          }
+        }
+      }
+      return chips;
+    };
+
+    const placeProps = (step, rows, chips) => {
       const props = [...step.querySelectorAll("[data-prop-id]")];
       props.forEach((p) => p.replaceChildren());
-      const reserved = [...step.querySelectorAll("[data-tag-to]")].map((tg) => {
-        const target = findIn(step, tg.dataset.tagTo);
-        if (!target || target.hasAttribute("data-prop-id")) return null;
-        const b = target.getBBox();
-        // La ficha mide lo que mide su texto al tamaño de lectura (16 unidades): la
-        // reserva con 13 dejaba la pieza encima de la ficha, y con la ficha al lado
-        // del actor la pieza caía sobre el vecino (#243).
-        const w = Math.max(30, String(tg.dataset.tagText || "").length * 16 * 0.56 + 16);
-        return { x: b.x + b.width / 2 - w / 2 - 4, y: b.y - 8 - 28 - 8, width: w + 8, height: 28 + 8 + 8 };
-      }).filter(Boolean);
+      // Cada ficha reserva su caja medida, con las líneas que tiene (#261). Una ficha que nombra a una pieza
+      // no reserva nada: la pieza va en su lado.
+      const reserved = chips.filter((c) => !c.target.hasAttribute("data-prop-id")).map((c) => ({ x: c.cx - c.w / 2 - 4, y: c.cy - c.h - 8, width: c.w + 8, height: c.h + 16 }));
       const placed = [];
       for (const prop of props) {
         const kind = prop.dataset.propKind || "value";
@@ -748,33 +806,16 @@
     };
     for (const step of scopes) {
       const rows = rowFrames(step);
-      placeProps(step, rows);
-      for (const tag of step.querySelectorAll("[data-tag-to]")) {
-        const target = findIn(step, tag.dataset.tagTo);
-        if (!target) continue;
-        const b = target.getBBox();
-        const fig = figureOf(target).getBBox();
-        const row = target.hasAttribute("data-actor") ? rows.get(target.dataset.actor) : null;
-        const t = tone(tag.dataset.tagTone);
-        const text = tag.dataset.tagText || "";
-        // La ficha del nombre se dibuja al tamaño de lectura de la figura: a 13
-        // unidades una escena quieta (1 unidad ≈ 1 píxel) la dejaba por debajo del
-        // mínimo del lector, que es lo que el alumno vio en la Parte 1 de PL/SQL (#243).
-        const size = 16;
-        const w = Math.max(30, text.length * size * 0.56 + 16), h = size + 12;
-        const at = tag.dataset.tagAt ? tag.dataset.tagAt.split(",").map(Number) : [];
-        // La ficha nunca se sale del lienzo: a 16 unidades la de «el resultado» medía
-        // 150 y su borde derecho quedaba a 5 del tope, donde el lector la recorta
-        // (#243). Se centra en su actor y se mete dentro del canvas.
-        const wanted = at.length && Number.isFinite(at[0]) ? at[0] : fig.x + fig.width / 2;
-        const cx = Math.min(Math.max(wanted, room.x + w / 2 + 12), room.x + room.width - w / 2 - 12);
-        const cy = at.length > 1 && Number.isFinite(at[1]) ? at[1] : (row ? row.top : b.y) - 8;
-        // La ficha se escribe en coordenadas absolutas, no con un `transform`:
-        // las puertas miden `getBBox()`, que vive en el espacio local del nodo, y
-        // una ficha transformada se medía en el origen y se veía fuera del lienzo.
+      const chips = layoutTags(step, rows);
+      placeProps(step, rows, chips);
+      for (const c of chips) {
+        const { tag, cx, cy, w, h, lines, t, fig } = c;
+        // La ficha se escribe en coordenadas absolutas, no con un `transform`: las puertas miden
+        // `getBBox()`, que vive en el espacio local del nodo, y una ficha transformada se medía en el origen.
+        const lineY = (i) => cy - h / 2 + TAG_SIZE * 0.36 + (i - (lines.length - 1) / 2) * (TAG_SIZE + 4);
         tag.replaceChildren(
           make("rect", { x: cx - w / 2, y: cy - h, width: w, height: h, rx: h / 2, fill: "#ffffff", stroke: t.stroke, "stroke-width": 1.5 }),
-          make("text", { x: cx, y: cy - h / 2 + size * 0.36, "font-size": size, fill: t.color, "text-anchor": "middle", "font-weight": 700 }, text),
+          ...lines.map((line, i) => make("text", { x: cx, y: lineY(i), "font-size": TAG_SIZE, fill: t.color, "text-anchor": "middle", "font-weight": 700 }, line)),
           make("path", { d: `M ${cx - 4} ${cy} L ${cx} ${cy + 6} L ${cx + 4} ${cy} Z`, fill: t.stroke }),
         );
         const tx = fig.x + fig.width / 2, ty = fig.y, my = (cy + ty) / 2;
@@ -1389,6 +1430,14 @@
     return svg;
   };
 
+  // #261: cada veredicto tiene su tono y su píldora por defecto. «neutral» es el
+  // contraste entre dos estados que son válidos: sin tinte de error, con el tono de la
+  // pizarra. El rojo es solo para un error.
+  const CARD_VERDICT = {
+    ok: { tone: 'green', fallback: 'CORRECTO' },
+    no: { tone: 'red', fallback: 'ERROR' },
+    neutral: { tone: 'slate', fallback: 'ESTADO' },
+  };
   // #218: de dos a cuatro casos lado a lado. Cada tarjeta lleva su veredicto en una
   // píldora, un título, el dibujo mínimo del caso y una línea de razón; la que falla
   // se tiñe de rojo. Es para código: compila / no compila, correcto / error.
@@ -1397,9 +1446,11 @@
     if (cards.length < 2 || cards.length > 4) throw new Error('Las tarjetas de veredicto necesitan de 2 a 4 casos');
     const root = el('div', undefined, { class: 'lk-p lk-cards', role: 'list', 'data-n': String(cards.length) });
     cards.forEach((c, i) => {
-      const bad = c.verdict === 'no';
-      const card = el('article', undefined, { class: 'lk-card', role: 'listitem', 'data-verdict': bad ? 'no' : 'ok', 'data-anchor': c.id ?? `card-${i + 1}` });
-      card.append(el('span', c.pill || (bad ? 'ERROR' : 'CORRECTO'), { class: 'lk-pill', 'data-tone': bad ? 'red' : 'green' }));
+      const verdict = c.verdict === 'no' || c.verdict === 'neutral' ? c.verdict : 'ok';
+      const { tone, fallback } = CARD_VERDICT[verdict];
+      const bad = verdict === 'no';
+      const card = el('article', undefined, { class: 'lk-card', role: 'listitem', 'data-verdict': verdict, 'data-anchor': c.id ?? `card-${i + 1}` });
+      card.append(el('span', c.pill || fallback, { class: 'lk-pill', 'data-tone': tone }));
       const title = el('h4', undefined, { class: 'lk-card-title' });
       title.append(inline(c.title));
       card.append(title);
@@ -2411,7 +2462,90 @@
       }
     }
   }
-  const PIECES = { cards: cardsPiece, memory: memoryPiece, tables: tablesPiece, venn: vennPiece };
+  // #261: un árbol de frecuencias. Cada grupo es una persona (su personaje, con `kind`), cada
+  // rama lleva su cuenta y su porcentaje sobre el grupo de arriba, y las hojas que cuentan
+  // van destacadas. El diseño es fijo: los grupos van por niveles, las hojas en orden y cada
+  // padre centrado sobre sus dos ramas, así el rótulo de una rama cae encima de su trazo
+  // horizontal, entre los dos trazos de su nivel. Dos ramas por grupo, o ninguna.
+  const TREE = { leaf: 90, nodeW: 84, rootW: 132, h: 74, top: 6, gap: 64, drop: 40, icon: 30 };
+  function treePiece(spec) {
+    const S = window.LKScene;
+    const nodes = Array.isArray(spec.nodes) ? spec.nodes : [];
+    const links = Array.isArray(spec.links) ? spec.links : [];
+    if (nodes.length < 2) throw new Error('Un árbol necesita al menos dos grupos');
+    const byId = new Map(nodes.map((n) => [String(n.id), n]));
+    const children = new Map([...byId.keys()].map((id) => [id, []]));
+    const parent = new Map();
+    for (const link of links) {
+      const from = String(link.from), to = String(link.to);
+      if (!byId.has(from) || !byId.has(to)) throw new Error(`La rama «${from} → ${to}» nombra un grupo que el árbol no tiene`);
+      if (parent.has(to)) throw new Error(`El grupo «${to}» cuelga de dos ramas: cada grupo tiene una sola rama hacia él`);
+      children.get(from).push(to);
+      parent.set(to, from);
+    }
+    for (const [id, kids] of children) {
+      if (kids.length === 1 || kids.length > 2) throw new Error(`El grupo «${id}» tiene ${kids.length} ramas: cada grupo se divide en dos ramas, o no se divide`);
+    }
+    const roots = [...byId.keys()].filter((id) => !parent.has(id));
+    if (roots.length !== 1) throw new Error('El árbol tiene un solo grupo de arriba: el que no cuelga de ninguna rama');
+    const depth = new Map();
+    const visit = (id, level) => {
+      if (depth.has(id)) throw new Error(`El grupo «${id}» se repite: un árbol no tiene ciclos`);
+      depth.set(id, level);
+      for (const kid of children.get(id)) visit(kid, level + 1);
+    };
+    visit(roots[0], 0);
+    if (depth.size !== nodes.length) throw new Error('Hay grupos que no cuelgan del de arriba');
+    const leaves = [];
+    const collect = (id) => (children.get(id).length ? children.get(id).forEach(collect) : leaves.push(id));
+    collect(roots[0]);
+    const width = Math.max(360, leaves.length * TREE.leaf);
+    const left = (width - leaves.length * TREE.leaf) / 2;
+    const x = new Map(leaves.map((id, i) => [id, left + TREE.leaf / 2 + i * TREE.leaf]));
+    const center = (id) => {
+      if (!x.has(id)) x.set(id, children.get(id).map((kid) => center(kid)).reduce((a, b) => a + b, 0) / children.get(id).length);
+      return x.get(id);
+    };
+    center(roots[0]);
+    const rows = Math.max(...depth.values()) + 1;
+    const height = TREE.top + rows * TREE.h + (rows - 1) * TREE.gap + 8;
+    const top = (id) => TREE.top + depth.get(id) * (TREE.h + TREE.gap);
+    const boxW = (id) => (depth.get(id) === 0 ? TREE.rootW : TREE.nodeW);
+    const svg = svgPart('svg', { class: 'lk-tsvg', viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': spec.title || 'Árbol de frecuencias' });
+    const branches = svgPart('g', { class: 'lk-tbranches' });
+    for (const link of links) {
+      const from = String(link.from), to = String(link.to);
+      const px = x.get(from), cx = x.get(to);
+      const bottom = top(from) + TREE.h, joint = bottom + TREE.drop;
+      const tone = toneOf(link.tone || byId.get(to).tone);
+      branches.append(svgPart('path', { class: 'lk-tlink', 'data-from': from, 'data-to': to, 'data-tone': tone, d: `M ${px} ${bottom} V ${joint} H ${cx} V ${top(to)}` }));
+      const mid = (px + cx) / 2;
+      const label = svgPart('g', { class: 'lk-tbranch', 'data-branch': `${from}→${to}`, 'data-tone': tone });
+      label.append(svgPart('text', { class: 'lk-tcount', x: mid, y: bottom + 20, 'text-anchor': 'middle' }, String(link.count)));
+      label.append(svgPart('text', { class: 'lk-trate', x: mid, y: bottom + 35, 'text-anchor': 'middle' }, String(link.rate)));
+      branches.append(label);
+    }
+    const groups = svgPart('g', { class: 'lk-tnodes' });
+    for (const node of nodes) {
+      const id = String(node.id), w = boxW(id), cx = x.get(id), t = top(id);
+      const g = svgPart('g', { class: 'lk-tnode', 'data-node': id, 'data-highlight': node.highlight ? '1' : '0', 'data-tone': toneOf(node.tone) });
+      g.append(svgPart('rect', { class: 'lk-tbox', 'data-anchor': id, x: cx - w / 2, y: t, width: w, height: TREE.h, rx: 10 }));
+      const glyph = svgPart('g', { class: 'lk-tglyph' });
+      // El dibujo del personaje sale de `S.icon` como marcado SVG: se lee como SVG y se
+      // añaden sus nodos, sin pasarlo por innerHTML.
+      const drawn = new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${S.icon(node.kind || 'user', cx, t + 22, TREE.icon, { stroke: 'currentColor', fill: 'none' })}</svg>`, 'image/svg+xml');
+      glyph.append(...drawn.documentElement.childNodes);
+      g.append(glyph);
+      const lines = Array.isArray(node.lines) ? node.lines : [node.label ?? id];
+      lines.forEach((line, k) => g.append(svgPart('text', { class: 'lk-tname', x: cx, y: t + 50 + k * 16, 'text-anchor': 'middle' }, String(line))));
+      groups.append(g);
+    }
+    svg.append(branches, groups);
+    const root = el('div', undefined, { class: 'lk-p lk-tree', 'data-piece': 'tree' });
+    root.append(svg);
+    return root;
+  }
+  const PIECES = { cards: cardsPiece, memory: memoryPiece, tables: tablesPiece, venn: vennPiece, tree: treePiece };
   // Un paso de un recorrido dibuja una pieza en vez de una escena: la que su
   // `stage` nombra. Lo que el recorrido declara a su nivel (`spec.venn`, por
   // ejemplo, con los conjuntos) se hereda en cada paso, así un paso escribe solo lo
@@ -2422,7 +2556,7 @@
     return kind ? { kind, spec: { ...(story[kind] || {}), ...stage[kind] } } : null;
   }
   define('lk-explorer', function () { explorerPiece(this); });
-  for (const [kind, label] of [['cards', 'Las tarjetas'], ['memory', 'El diagrama de memoria'], ['tables', 'Las tablas'], ['venn', 'El diagrama de conjuntos']]) {
+  for (const [kind, label] of [['cards', 'Las tarjetas'], ['memory', 'El diagrama de memoria'], ['tables', 'Las tablas'], ['venn', 'El diagrama de conjuntos'], ['tree', 'El árbol de frecuencias']]) {
     define(`lk-${kind}`, function () {
       const spec = readSpec(this, label);
       this.classList.add('lk-piece-host');

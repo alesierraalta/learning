@@ -2827,7 +2827,7 @@ const storyFocus = (markdown) => {
   return spec.steps.map((step) => step.focus ?? []);
 };
 
-const STORY_EXAMPLES = [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"], ["propiedad-rust", "propiedad-rust.md"], ["prestamos-rust", "prestamos-rust.md"], ["plsql-transaccion", "plsql-transaccion.md"]];
+const STORY_EXAMPLES = [["formula-gaussiana", "formula-gaussiana.md"], ["derivacion-x", "derivacion-x.md"], ["propiedad-rust", "propiedad-rust.md"], ["prestamos-rust", "prestamos-rust.md"], ["plsql-transaccion", "plsql-transaccion.md"], ["bayes-mil-personas", "bayes-mil-personas.md"]];
 
 for (const [name, file] of STORY_EXAMPLES) {
   test(`the ${name} walkthrough anchors every tag and moving term and keeps its labels at reading size, in every theme and width`, { skip: !playwright && "playwright not installed" }, async (t) => {
@@ -2882,7 +2882,17 @@ const PIECE_MATRIX = [
   { theme: "light", size: "phone", width: 390, wide: false },
   { theme: "black", size: "phone", width: 390, wide: false },
 ];
-const PIECE_HOSTS = "lk-cards, lk-memory, lk-tables, lk-venn";
+// The study view keeps the kit's elements (#261): a note with a frequency tree gets the tree in the
+// real reader, drawn by the kit, not an element the sanitiser strips.
+test("a note with a frequency tree renders the tree in the real reader", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const page = await readerPart(t, example("bayes-mil-personas.md"));
+  const tree = page.locator("lk-tree").first();
+  await tree.locator(".lk-tsvg").waitFor();
+  assert.equal(await tree.locator(".lk-tnode").count(), 7, "one node per group");
+  assert.equal(await tree.locator(".lk-tbranch").count(), 6, "one branch per split");
+});
+
+const PIECE_HOSTS = "lk-cards, lk-memory, lk-tables, lk-venn, lk-tree";
 // What each kind owes the learner beyond the generic measure.
 const PIECE_ASSERTS = {
   "lk-memory": async (host, _size, where) => {
@@ -2931,7 +2941,7 @@ const PIECE_ASSERTS = {
 };
 // Pieces the example draws: [selector, owner, how many steps to photograph].
 // The learner's real part (#252) is the fixture, not an example: two tables joined on a 390 px column.
-const PIECE_EXAMPLES = [["prestamos-rust", "prestamos-rust.md"], ["memoria-string-rust", "memoria-string-rust.md"], ["sql-join-videojuegos", "sql-join-videojuegos.md"], ["sql-group-by", "sql-group-by.md"], ["sql-venn-joins", "sql-venn-joins.md"], ["plsql-parte-1-v3", "../test/fixtures/plsql-parte-1-v3.md"]];
+const PIECE_EXAMPLES = [["bayes-mil-personas", "bayes-mil-personas.md"], ["prestamos-rust", "prestamos-rust.md"], ["memoria-string-rust", "memoria-string-rust.md"], ["sql-join-videojuegos", "sql-join-videojuegos.md"], ["sql-group-by", "sql-group-by.md"], ["sql-venn-joins", "sql-venn-joins.md"], ["plsql-parte-1-v3", "../test/fixtures/plsql-parte-1-v3.md"]];
 // Every kit example that draws lk-tables is in the matrix, so a new one cannot skip the phone width.
 test("every kit example that draws lk-tables is in the visual matrix", () => {
   const drawn = readdirSync(KIT_EXAMPLES).filter((file) => example(file).includes("lk-tables"));

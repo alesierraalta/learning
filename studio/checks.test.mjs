@@ -58,9 +58,9 @@ Antes, el robot tenía que saber cada detalle. Ahora solo usa la capa.
 <lk-story>
 <script type="application/json">
 {"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
- {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"}]}}},
- {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
- {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
+ {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}]}}},
+ {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
+ {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
 ]}
 </script>
 </lk-story>
@@ -239,4 +239,56 @@ test("the clean part's prose passes the register rules of explain-check", () => 
   for (const rule of ["termino-sin-explicar", "frases-largas", "sin-negritas", "sin-escena-antes", "sin-contraste", "cuentas-sin-pasos"]) {
     assert.equal(rows[rule].ok, true, `${rule}: ${rows[rule].detail}`);
   }
+});
+
+// La página rica (#261): la explicación principal de una parte es su `.html` junto a la nota. Una
+// parte sin ella se avisa al tutor como un hallazgo; una nota que no es una parte no se mide así.
+// Se importa dentro de cada prueba: el módulo nuevo no debe romper las pruebas de arriba.
+test("a part note without its rich page is a finding the tutor hears, and the page clears it", async () => {
+  const { richPageWarnings } = await import("./checks.ts");
+  const folder = mkdtempSync(join(tmpdir(), "rich-page-"));
+  const sinPagina = join(folder, "Parte 1 - Capas.md");
+  writeFileSync(sinPagina, CLEAN);
+  const avisos = richPageWarnings([sinPagina]);
+  assert.equal(avisos.length, 1, "the note has no page beside it");
+  assert.equal(avisos[0].tool, "rich-page");
+  assert.match(avisos[0].findings[0], /página rica[^]*Parte 1 - Capas\.html/);
+  writeFileSync(join(folder, "Parte 1 - Capas.html"), "<!doctype html><title>Capas</title>");
+  assert.deepEqual(richPageWarnings([sinPagina]), [], "the page beside the note clears the warning");
+});
+
+test("a note that is not a part is never asked for a rich page", async () => {
+  const { richPageWarnings } = await import("./checks.ts");
+  assert.deepEqual(richPageWarnings([note("limpia.md", CLEAN)]), []);
+});
+
+// Through the whole check: a part without its page is a finding (not a crash), so the tutor
+// corrects it. The tools are replaced by an empty folder so the test runs without a browser.
+test("a part without its rich page reaches the tutor as a rich-page finding", async () => {
+  const { runPartChecks } = await import("./checks.ts");
+  const folder = mkdtempSync(join(tmpdir(), "rich-page-run-"));
+  const sinPagina = join(folder, "Parte 2 - Protocolos.md");
+  writeFileSync(sinPagina, CLEAN);
+  const checked = await runPartChecks([sinPagina], { toolsDir: folder });
+  assert.equal(checked.kind, "findings", JSON.stringify(checked));
+  assert.equal(checked.tools[0].tool, "rich-page");
+  assert.match(checked.first, /página rica/);
+});
+
+// Un turno que escribe la parte y su página puede nombrar la nota dos veces: cada herramienta la mide
+// una sola vez, y el lector no recibe el mismo hallazgo dos veces (#261).
+test("a note named twice is measured once by each tool", async () => {
+  const { runPartChecks } = await import("./checks.ts");
+  const { readFileSync } = await import("node:fs");
+  const folder = mkdtempSync(join(tmpdir(), "measured-once-"));
+  const log = join(folder, "calls.log");
+  const fake = join(folder, "tools");
+  mkdirSync(fake);
+  for (const tool of ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs"]) {
+    writeFileSync(join(fake, tool), `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(log)}, ${JSON.stringify(tool)} + " " + process.argv[2] + "\\n");\n`);
+  }
+  const file = note("dos-veces.md", CLEAN);
+  await runPartChecks([file, file], { toolsDir: fake });
+  const lines = readFileSync(log, "utf8").trim().split("\n");
+  assert.equal(lines.length, 4, lines.join("\n"));
 });

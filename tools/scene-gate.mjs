@@ -31,6 +31,10 @@ const BAND = 60;
 // La parte del lienzo que el dibujo tiene que usar: un cuarto de papel en blanco
 // ya no es margen, es una figura que no se atrevió a ocupar su canvas (#243).
 const SHARE = 0.75;
+// El dibujo de un paso de historia cubre al menos esta parte de su escenario (la caja que
+// envuelve sus piezas, sin el suelo). El mínimo sale de los ejemplos aprobados del kit,
+// que van del 27 % al 77 %: por debajo del 25 % un paso dibuja casi nada (#261).
+const STAGE_SHARE_MIN = 0.25;
 
 async function loadPlaywright() {
   const attempts = [];
@@ -68,6 +72,25 @@ function notesAt(target) {
 // Una escena quieta y un recorrido de fórmula o de ejercicio (`<lk-story>`): los dos se
 // dibujan con el mismo vocabulario y se miden igual; el recorrido, paso a paso.
 const SCENE = new RegExp(`<lk-(scene|story|${PIECE_TAGS.join('|')})[^>]*>\\s*<script type="application\\/json">([\\s\\S]*?)<\\/script>\\s*<\\/lk-\\1>`, 'g');
+
+// La línea de suelo (#261): una historia de derivación traza una línea horizontal al pie de su
+// lienzo bajo sus actores, y esa línea no significa nada salvo en un alcance o en una línea de
+// tiempo, que lo declaran con `frame`. Una historia de fórmula dibuja ejes de su función (la
+// campana), no suelos, y no entra.
+const groundOf = (spec) => {
+  if (spec.kind !== 'derivation' || ['scope', 'timeline'].includes(spec.frame)) return null;
+  const [, vy, vw, vh] = String(spec.viewBox || '0 0 360 250').trim().split(/\s+/).map(Number);
+  for (const [i, step] of (spec.steps || []).entries()) {
+    const scene = step?.stage?.scene || step?.stage || {};
+    for (const p of scene.paths || []) {
+      const m = /^\s*M\s*([-\d.]+)\s+([-\d.]+)\s+L\s*([-\d.]+)\s+([-\d.]+)\s*$/.exec(p?.d || '');
+      if (!m || p.arrow) continue;
+      const [x1, y1, x2, y2] = m.slice(1).map(Number);
+      if (y1 === y2 && Math.abs(x2 - x1) >= 0.5 * vw && y1 >= vy + 0.6 * vh) return { paso: i + 1 };
+    }
+  }
+  return null;
+};
 
 const playwright = await loadPlaywright();
 if (!playwright) {
@@ -122,6 +145,15 @@ try {
     }
     if (!readable.length) continue;
     const specsToDraw = readable;
+    // El suelo se mide en el JSON, sin navegador: la misma regla que `explain-check` no tiene.
+    for (const spec of readable) {
+      if (spec.tag !== 'story') continue;
+      const suelo = groundOf(JSON.parse(spec.json));
+      if (!suelo) continue;
+      failures += 1;
+      console.log(`${note}: historia con suelo`);
+      console.log(`  suelo-sin-sentido: el paso ${suelo.paso} traza una línea de suelo y la historia no es de alcance ni de línea de tiempo · un suelo solo significa algo en un alcance o en una línea de tiempo: declara "frame": "scope" o "timeline" en la historia, o quita la línea`);
+    }
 
     const dir = mkdtempSync(join(tmpdir(), 'scene-gate-'));
     mkdirSync(join(dir, 'kit'), { recursive: true });
@@ -136,7 +168,7 @@ try {
       await page.goto(pathToFileURL(join(dir, 'page.html')).href);
       await page.waitForSelector('lk-scene svg, lk-story svg, .lk-p', { timeout: 15000 });
       await page.waitForTimeout(400);
-      const report = await page.evaluate(({ minPx, minReadPx, share, EDGE, BAND }) => [...document.querySelectorAll('lk-scene, lk-story')].map((host) => {
+      const report = await page.evaluate(({ minPx, minReadPx, share, stageMin, EDGE, BAND }) => [...document.querySelectorAll('lk-scene, lk-story')].map((host) => {
         // El lienzo de escena de un recorrido es el SVG que cuelga del escenario: las
         // piezas (tarjetas, memoria, tablas, conjuntos) llevan SVG propios y las mide
         // `measurePieces`.
@@ -226,15 +258,36 @@ try {
         }
           return found;
         };
+        // El dibujo de un paso cubre su parte del escenario: la caja que envuelve sus piezas,
+        // sin el suelo. Un paso con dos actores y una flecha en un lienzo ancho queda por debajo.
+        const stageShare = (g, label) => {
+          const box = svg.viewBox.baseVal;
+          const ink = [];
+          for (const el of g.querySelectorAll('rect, circle, text, path')) {
+            if (el.closest('marker')) continue;
+            const b = el.getBBox();
+            if (b.width <= 1 && b.height <= 1) continue;
+            // El suelo no es dibujo: una línea horizontal al pie del lienzo no cuenta.
+            if (el.tagName === 'path' && b.height < 1 && b.width >= 0.5 * box.width && b.y >= box.y + 0.6 * box.height) continue;
+            ink.push(b);
+          }
+          if (!ink.length) return [];
+          const x0 = Math.min(...ink.map((b) => b.x)), y0 = Math.min(...ink.map((b) => b.y));
+          const x1 = Math.max(...ink.map((b) => b.x + b.width)), y1 = Math.max(...ink.map((b) => b.y + b.height));
+          const covered = ((x1 - x0) * (y1 - y0)) / (box.width * box.height);
+          if (covered >= stageMin) return [];
+          return [{ kind: 'escenario-vacio', text: label, detail: `el dibujo ocupa el ${Math.round(covered * 100)} % de su escenario (mínimo ${Math.round(stageMin * 100)} %) · dibuja la acción más grande: actores de más tamaño, la pieza que cuenta el caso o un movimiento que llene el lienzo` }];
+        };
         if (steps.length) {
           steps.forEach((g, i) => {
             steps.forEach((o) => { o.style.display = o === g ? '' : 'none'; });
             problems.push(...measure(g, `paso ${i + 1}`));
+            problems.push(...stageShare(g, `paso ${i + 1}`));
           });
           steps.forEach((g, i) => { g.style.display = shown[i]; });
         } else problems.push(...measure(svg, ''));
         return { title: host.getAttribute('title') || '', problems };
-      }), { minPx: MIN_PX, minReadPx: MIN_READ_PX, share: SHARE, EDGE, BAND });
+      }), { minPx: MIN_PX, minReadPx: MIN_READ_PX, share: SHARE, stageMin: STAGE_SHARE_MIN, EDGE, BAND });
 
       scenes += report.length;
       // Las piezas se miden aparte: a dos anchos y paso a paso.

@@ -103,6 +103,40 @@ test('verdict cards draw pill, title, drawing and reason, and tint the failing c
   } finally { await browser.close(); }
 });
 
+// #261: el contraste neutro. Dos estados válidos (un HEAD en rama y otro desvinculado)
+// se comparan sin tinte de error: la tarjeta neutra no se tiñe de rojo, su píldora toma
+// el tono de la pizarra y su dibujo sigue entero.
+const NEUTRAL = {
+  title: 'Estados del puntero HEAD',
+  cards: [
+    { id: 'conectado', verdict: 'ok', pill: 'EN RAMA', title: 'HEAD en rama activa', draw: { refs: [{ text: 'HEAD' }], target: { text: 'refs/heads/main' } }, reason: 'Avanza al confirmar' },
+    { id: 'desvinculado', verdict: 'neutral', pill: 'DETACHED', title: 'HEAD desvinculado', draw: { refs: [{ text: 'HEAD' }], target: { text: 'commit C1' } }, reason: 'Apunta directo a C1' },
+  ],
+};
+
+test('a neutral verdict card is a contrast without the failing tint: its pill takes the slate tone', { skip: SKIP }, async () => {
+  const { browser, view, errors } = await open('lk-cards', NEUTRAL);
+  try {
+    const seen = await view.evaluate(() => [...document.querySelectorAll('.lk-card')].map((card) => {
+      const pill = card.querySelector('.lk-pill');
+      const border = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)/.exec(getComputedStyle(card).borderTopColor);
+      return {
+        verdict: card.dataset.verdict,
+        pill: pill?.textContent,
+        tone: pill?.dataset.tone,
+        redBorder: border ? +border[1] > +border[2] + 40 && +border[1] > +border[3] : false,
+        chips: card.querySelectorAll('.lk-card-draw .lk-pchip').length,
+      };
+    }));
+    assert.deepEqual(errors, []);
+    assert.deepEqual(seen.map((c) => c.verdict), ['ok', 'neutral']);
+    assert.deepEqual(seen.map((c) => c.pill), ['EN RAMA', 'DETACHED']);
+    assert.deepEqual(seen.map((c) => c.tone), ['green', 'slate'], 'the neutral pill is slate, never red');
+    assert.deepEqual(seen.map((c) => c.redBorder), [false, false], 'a valid state is never tinted red');
+    assert.deepEqual(seen.map((c) => c.chips), [2, 2], 'the neutral card still draws its reference and its target');
+  } finally { await browser.close(); }
+});
+
 test('verdict cards sit side by side on a wide column and stack on a narrow one', { skip: SKIP }, async () => {
   for (const [width, stacked] of [[1000, false], [380, true]]) {
     const { browser, view } = await open('lk-cards', CARDS, { width });

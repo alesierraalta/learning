@@ -40,6 +40,7 @@ func TestVisualCounterCountsPieces(t *testing.T) {
 		{"tables without rows", piece("lk-tables", `{"tables":[]}`), 0, 0},
 		{"a venn with two sets", piece("lk-venn", `{"sets":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"fill":["a+b"],"op":"INNER JOIN"}`), 1, 1},
 		{"a venn with one set", piece("lk-venn", `{"sets":[{"id":"a","label":"A"}]}`), 0, 0},
+		{"a frequency tree with one branch", piece("lk-tree", `{"nodes":[{"id":"a","lines":["personas"]},{"id":"b","lines":["sanos"]}],"links":[{"from":"a","to":"b","count":990,"rate":"99 %"}]}`), 1, 1},
 		{"a piece and a scene", piece("lk-cards", cardsPayload) + "\n" + figureScene, 2, 2},
 	}
 	for _, tc := range cases {

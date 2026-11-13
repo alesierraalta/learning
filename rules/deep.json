@@ -141,6 +141,10 @@
       "storyMotion": true,
       "arrowFlows": true,
       "deadKeys": true,
+      "markEcho": true,
+      "verdictError": true,
+      "accessorySense": true,
+      "characterSense": true,
       "register": {
         "levels": {
           "sencillez": {
