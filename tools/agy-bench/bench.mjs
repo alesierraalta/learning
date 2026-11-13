@@ -45,7 +45,8 @@ const TOPICS = [
 const GATES = ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs"];
 /** The visual pieces a part can carry, and the tag each one is written with. */
 // lk-quick-quiz, lk-figure and lk-audio joined the kit after the first run (1d9046f).
-const PIECES = ["lk-story", "lk-scene", "lk-walkthrough", "lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-diagram", "lk-math", "lk-widget", "lk-checkpoint", "lk-quiz", "lk-quick-quiz", "lk-figure", "lk-audio", "lk-video", "lk-ask"];
+// lk-tree and lk-explorer are kit pieces (docs/kit.md) that were missing from this list until the third run.
+const PIECES = ["lk-story", "lk-scene", "lk-walkthrough", "lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-diagram", "lk-math", "lk-widget", "lk-checkpoint", "lk-quiz", "lk-quick-quiz", "lk-figure", "lk-audio", "lk-video", "lk-ask", "lk-tree", "lk-explorer"];
 
 // ---- arguments -----------------------------------------------------------
 
