@@ -610,8 +610,8 @@ window.LEARNING_BRIDGE = {
 ```
 
 Quiz responses are `{questions, answered, verdicts, exercises}`; `exercises` lists the part's code exercises as `{id,titulo,enunciado}` and is empty when the part has none. Questions have `id`,
-`enunciado` and an A–E `options` object, without keys. `answered` is null or a
-graded array of `{id,chosen,correct,ok,razonamiento,confianza}` (the bridge
+`enunciado` and an A–E `options` object, without keys, in the order the learner sees: shuffled per learner and question, «No sé» last. The file route never serves `quiz.json`, `quiz.answers.json` or `mini-quiz/*.json`. `answered` is null or a
+graded array of `{id,chosen,correct,ok,razonamiento,confianza}` (`chosen` and `correct` are the letters shown; the answers file keeps the tutor's own letters; the bridge
 format; a file written by the older two-prompt page is still read and merged). It also accepts a grading object with `results`, `score`, `reasoning`
 (or `razonamientos`) and optional `answers`, `ownWords`, `exercises`. Verdicts
 are an array of `{codigo,estado,pregunta,evidencia}`; a concept-ID map to

@@ -120,3 +120,24 @@ test('a blank exercise box sends nothing', { skip: SKIP }, async (t) => {
   await send(page);
   assert.equal('exercises' in submitted[0], false);
 });
+
+// #272: the bridge serves each question's options in the learner's order («No sé» last) and reads back the letter picked.
+const SHOWN = { A: 'c', B: 'a', C: 'b', D: 'd', E: 'No sé' };
+const SERVED = [{ id: 'q1', enunciado: 'Pregunta uno', options: SHOWN }, { id: 'q2', enunciado: 'Pregunta dos', options: SHOWN }];
+
+test('the mini-quiz draws the options in the order served and sends the letter each one shows (#272)', { skip: SKIP }, async (t) => {
+  const { page, submitted } = await open(t, { questions: SERVED });
+  assert.deepEqual(await page.locator('fieldset.lk-question').first().locator('label.lk-option').allTextContents(), ['A. c', 'B. a', 'C. b', 'D. d', 'E. No sé']);
+  await answerAll(page);
+  await send(page);
+  assert.equal(submitted[0].answers.q1, 'B', 'the kit sends the letter the learner picked: B shows «a»');
+  assert.equal(submitted[0].answers.q2, 'B');
+});
+
+test('a reload checks the letter the learner picked and grades it in that letter (#272)', { skip: SKIP }, async (t) => {
+  const answered = [{ id: 'q1', chosen: 'B', correct: 'C', ok: false }, { id: 'q2', chosen: 'A', correct: 'A', ok: true }];
+  const { page } = await open(t, { questions: SERVED, answered });
+  assert.equal(await page.locator('input[name="q1"][value="B"]').isChecked(), true);
+  assert.equal(await page.locator('input[name="q1"][value="B"]').isDisabled(), true);
+  assert.match(await page.locator('fieldset.lk-question').first().textContent(), /Elegiste B; correcta: C/);
+});

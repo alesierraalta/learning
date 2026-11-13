@@ -441,8 +441,11 @@ test('diagnosis iframe presents the editorial layout and retains every question 
   assert.equal(await fields.count(), 3);
   assert.equal(await frame.getByText('Ronda 1', { exact: true }).count(), 1);
   assert.equal(await frame.getByText('Ronda 2', { exact: true }).count(), 1);
-  assert.equal(await fields.nth(0).locator('input[value=B]').isChecked(), true);
-  assert.equal(await fields.nth(0).locator('input[value=B]').isDisabled(), true);
+  // The fixture records d1 under the tutor's B: the learner sees it under the letter that B is drawn as (#272).
+  const d1 = pageData((await http(result.structuredContent.url)).body).quiz.questions.find((q) => q.id === 'd1');
+  const recorded = `input[value=${shownLetter(d1, 'B')}]`;
+  assert.equal(await fields.nth(0).locator(recorded).isChecked(), true);
+  assert.equal(await fields.nth(0).locator(recorded).isDisabled(), true);
   for (const field of [fields.nth(1), fields.nth(2)]) {
     assert.equal(await field.locator('input[type=radio][name^=question-]').count(), 5);
     assert.equal(await field.locator('textarea').count(), 1);
@@ -478,13 +481,15 @@ test('«No sé» needs no confidence and a framed submit notifies the studio', {
   const frame = page.frameLocator('iframe');
   const fields = frame.locator('fieldset.quiz-question');
   await fields.first().waitFor();
+  const [s1, s2] = await servedPart(base(result));
+  const [b1, b2] = [shownLetter(s1, 'B'), shownLetter(s2, 'B')];
   const [first, second] = [fields.nth(0), fields.nth(1)];
   await first.locator('input[value=A]').check();
   assert.equal(await first.locator('.confidence').isVisible(), true);
   await first.locator('.confidence input').first().check();
   await first.locator('input[value=E]').check();
   assert.equal(await first.locator('.confidence').isVisible(), false);
-  await second.locator('input[value=B]').check();
+  await second.locator(`input[value=${b2}]`).check();
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
   await frame.getByText('Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.').waitFor();
   await second.locator('.confidence input').first().check();
@@ -498,8 +503,8 @@ test('«No sé» needs no confidence and a framed submit notifies the studio', {
   assert.deepEqual((await page.evaluate(() => window.received)).filter((message) => message.type === 'learning:submitted'), [{
     type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
     results: [
-      { id: 'q1', enunciado: 'Pregunta q1', chosen: 'E', chosenText: 'No sé', correct: 'B', correctText: 'b', ok: false },
-      { id: 'q2', enunciado: 'Pregunta q2', chosen: 'B', chosenText: 'b', correct: 'B', correctText: 'b', ok: true },
+      { id: 'q1', enunciado: 'Pregunta q1', chosen: 'E', chosenText: 'No sé', correct: b1, correctText: 'b', ok: false },
+      { id: 'q2', enunciado: 'Pregunta q2', chosen: b2, chosenText: 'b', correct: b2, correctText: 'b', ok: true },
     ],
   }]);
 });
@@ -531,6 +536,8 @@ test('rich-page quiz: «No sé» hides confidence and a framed submit notifies t
   const frame = page.frameLocator('iframe');
   const boxes = frame.locator('fieldset.lk-question');
   await boxes.first().waitFor();
+  const [s1, s2] = await servedPart(base(result));
+  const [b1, b2] = [shownLetter(s1, 'B'), shownLetter(s2, 'B')];
   const [first, second] = [boxes.nth(0), boxes.nth(1)];
   await first.locator('input[value=A]').check();
   await first.locator('.lk-controls input').first().check();
@@ -538,7 +545,7 @@ test('rich-page quiz: «No sé» hides confidence and a framed submit notifies t
   await first.locator('input[value=E]').check();
   assert.equal(await first.locator('.lk-controls').isVisible(), false);
   await first.locator('textarea').fill('ni idea');
-  await second.locator('input[value=B]').check();
+  await second.locator(`input[value=${b2}]`).check();
   const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
   const payload = (await sent).postDataJSON();
@@ -548,8 +555,8 @@ test('rich-page quiz: «No sé» hides confidence and a framed submit notifies t
   assert.deepEqual((await page.evaluate(() => window.received)).filter((message) => message.type === 'learning:submitted'), [{
     type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
     results: [
-      { id: 'q1', enunciado: 'Pregunta q1', chosen: 'E', chosenText: 'No sé', correct: 'B', correctText: 'b', ok: false },
-      { id: 'q2', enunciado: 'Pregunta q2', chosen: 'B', chosenText: 'b', correct: 'B', correctText: 'b', ok: true },
+      { id: 'q1', enunciado: 'Pregunta q1', chosen: 'E', chosenText: 'No sé', correct: b1, correctText: 'b', ok: false },
+      { id: 'q2', enunciado: 'Pregunta q2', chosen: b2, chosenText: 'b', correct: b2, correctText: 'b', ok: true },
     ],
   }]);
 });
@@ -1130,7 +1137,7 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   assert.equal(quiz.verdicts, null);
   writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), JSON.stringify({ answers: { q1: "B", q2: "A" }, razonamientos: why("q1", "q2") }));
   const after = JSON.parse((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p1`)).body);
-  assert.deepEqual(after.answered[1], { id: "q2", chosen: "A", correct: "B", ok: false, ...why("q2").q2 });
+  assert.deepEqual(after.answered[1], { id: "q2", chosen: shownLetter(quiz.questions[1], "A"), correct: shownLetter(quiz.questions[1], "B"), ok: false, ...why("q2").q2 });
   assert.equal((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p9`)).status, 404);
   assert.equal((await http(`${result.structuredContent.base}api/quiz?topic=..&part=p1`)).status, 400);
   for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
@@ -1352,11 +1359,12 @@ test("session_shutdown closes the server", async () => {
 test("mini-quiz submit grades, stores the answers file and sends one follow-up chat message", async () => {
   const { view, topic, host, shutdown } = await setup();
   const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const [q1, q2] = await servedPart(url);
   const res = await submit(url, {
     kind: "mini-quiz",
     topic: TOPIC,
     part: "p1",
-    answers: { q1: "B", q2: "C" },
+    answers: { q1: shownLetter(q1, "B"), q2: shownLetter(q2, "C") },
     reasoning: {
       ...why("q1"),
       q2: { razonamiento: "Pide qué error da Oracle. Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
@@ -1366,8 +1374,8 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
   assert.equal(res.status, 200, res.body);
   const body = JSON.parse(res.body);
   assert.deepEqual(body.results, [
-    { id: "q1", chosen: "B", correct: "B", ok: true },
-    { id: "q2", chosen: "C", correct: "B", ok: false },
+    { id: "q1", chosen: shownLetter(q1, "B"), correct: shownLetter(q1, "B"), ok: true },
+    { id: "q2", chosen: shownLetter(q2, "C"), correct: shownLetter(q2, "B"), ok: false },
   ]);
   assert.equal(body.score, "1/2");
   assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")), {
@@ -1382,9 +1390,136 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
   const text = host.sent[0].content;
   assert.match(text, /^\[Vista HTML · sql-demo · p1 · mini-quiz\]/);
   assert.match(text, /mini-quiz\/p1\.answers\.json/);
-  assert.match(text, /- q1: B ✔\n  Pensamiento: pienso q1\n  Confianza: seguro\n/);
-  assert.match(text, /- q2: C ✘ \(correcta: B\)\n  Pensamiento: Pide qué error da Oracle\. Pensé que C porque\.\.\.\n    lo vi en clase\n  Confianza: adiviné/);
+  // The chat reads what the page showed: the letter the learner saw and its text, for the correct option too (#272).
+  assert.ok(text.includes(`- q1: ${shownLetter(q1, "B")} «b» ✔\n  Pensamiento: pienso q1\n  Confianza: seguro\n`), text);
+  assert.ok(text.includes(`- q2: ${shownLetter(q2, "C")} «c» ✘ (correcta: ${shownLetter(q2, "B")} «b»)\n  Pensamiento: Pide qué error da Oracle. Pensé que C porque...\n    lo vi en clase\n  Confianza: adiviné`), text);
   assert.match(text, /Vuelco con mis palabras:\n"""\nUna clave identifica una fila\.\n"""/);
+  await shutdown();
+});
+
+// #272: a learner sees each question's options in an order of their own, relabelled A–E in that order, so the
+// letter they pick is not always the tutor's. These helpers find the letter a page shows for a tutor's option by
+// its text: the fixture's options are all different.
+const TUTOR = { A: "a", B: "b", C: "c", D: "d", E: "No sé" };
+const LEARNER = { tokenSeed: "ab".repeat(32) };
+const shownLetter = (question, tutorLetter) => Object.keys(question.options).find((letter) => question.options[letter] === TUTOR[tutorLetter]);
+const quizJson = async (url) => JSON.parse((await http(url)).body);
+/** The questions of a part's mini-quiz, as the learner's page receives them. */
+const servedPart = async (url, part = 'p1') => (await quizJson(`${url}api/quiz?topic=${TOPIC}&part=${part}`)).questions;
+const pageData = (html) => JSON.parse(/<script type="application\/json" id="view-data">([\s\S]*?)<\/script>/.exec(html)[1]);
+
+/** A second bridge over the same vault, as after a restart: the same root with the token its options derive. */
+async function openBridge(root, options) {
+  const host = makeHost();
+  registerBridge(host.api, { root, ...options });
+  const view = (params) => host.tools.get("learning_view").execute("call", params, undefined, undefined, { cwd: root });
+  const shutdown = async () => {
+    for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
+  };
+  openServers.push(shutdown);
+  return { view, shutdown };
+}
+
+test("the quiz pages and API draw each question's options shuffled, «No sé» last, and never the key (#272)", async () => {
+  const { view, shutdown } = await setup(LEARNER);
+  const api = await quizJson(`${base(await view({ topic: TOPIC, part: "p1" }))}api/quiz?topic=${TOPIC}&part=p1`);
+  const diagnosis = await view({ topic: TOPIC, part: "quiz" });
+  const served = [...api.questions, ...pageData((await http(diagnosis.structuredContent.url)).body).quiz.questions];
+  for (const q of served) {
+    assert.deepEqual(Object.keys(q.options), ["A", "B", "C", "D", "E"]);
+    assert.equal(q.options.E, "No sé", "«No sé» stays last");
+    assert.deepEqual(Object.values(q.options).sort(), Object.values(TUTOR).sort(), "the options are the tutor's, in another order");
+    assert.equal("answer" in q, false, "no answer key is served");
+  }
+  assert.ok(served.some((q) => Object.values(q.options).join("|") !== Object.values(TUTOR).join("|")), "some question is drawn in another order");
+  assert.equal(JSON.stringify(api).includes('"answer"'), false);
+  await shutdown();
+});
+
+test("a reload draws the same order, a restart with the same token draws it again, and another learner another (#272)", async () => {
+  const { root, view, shutdown } = await setup(LEARNER);
+  const quiz = async (bridge) => quizJson(`${base(await bridge.view({ topic: TOPIC, part: "p1" }))}api/quiz?topic=${TOPIC}&part=p1`);
+  const first = await quiz({ view });
+  assert.deepEqual(await quiz({ view }), first, "a reload shows the same order");
+  await shutdown();
+  const restarted = await openBridge(root, LEARNER);
+  assert.deepEqual(await quiz(restarted), first, "a restart with the same token shows the same order");
+  await restarted.shutdown();
+  const other = await openBridge(root, { tokenSeed: "cd".repeat(32) });
+  assert.notDeepEqual(await quiz(other), first, "another learner's token draws another order");
+  await other.shutdown();
+});
+
+test("a mini-quiz answer is stored and graded in the tutor's letters and read back in the letters shown (#272)", async () => {
+  const { view, topic, host, shutdown } = await setup(LEARNER);
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const { questions: [q1, q2] } = await quizJson(`${url}api/quiz?topic=${TOPIC}&part=p1`);
+  const picks = { q1: shownLetter(q1, "B"), q2: shownLetter(q2, "C") };
+  assert.notDeepEqual(picks, { q1: "B", q2: "C" }, "the learner sees other letters than the tutor's");
+  const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: picks });
+  assert.equal(res.status, 200, res.body);
+  assert.deepEqual(JSON.parse(res.body).results, [
+    { id: "q1", chosen: picks.q1, correct: shownLetter(q1, "B"), ok: true },
+    { id: "q2", chosen: picks.q2, correct: shownLetter(q2, "B"), ok: false },
+  ], "the results come in the letters shown");
+  assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")).answers, { q1: "B", q2: "C" }, "the file keeps the tutor's letters");
+  assert.ok(host.sent[0].content.includes(`- q2: ${picks.q2} «c» ✘ (correcta: ${shownLetter(q2, "B")} «b»)`), host.sent[0].content);
+  const after = await quizJson(`${url}api/quiz?topic=${TOPIC}&part=p1`);
+  assert.deepEqual(after.answered.map(({ id, chosen, correct, ok }) => ({ id, chosen, correct, ok })), JSON.parse(res.body).results, "a reload shows the answers in the letters shown");
+  await shutdown();
+});
+
+test("a diagnosis answer is stored in the tutor's letter and read back in the letter shown (#272)", async () => {
+  const { view, topic, shutdown } = await setup(LEARNER);
+  const diagnosis = await view({ topic: TOPIC, part: "quiz" });
+  const { questions } = pageData((await http(diagnosis.structuredContent.url)).body).quiz;
+  const d2 = questions.find((q) => q.id === "d2");
+  // d1 is answered in the fixture already; d2 takes a letter the learner sees for another tutor letter.
+  const tutorPick = ["A", "B", "C", "D"].find((letter) => shownLetter(d2, letter) !== letter);
+  assert.ok(tutorPick, "d2 is drawn in another order");
+  const expected = { id: "d2", chosen: shownLetter(d2, tutorPick), correct: shownLetter(d2, "B"), ok: tutorPick === "B" };
+  const res = await submit(base(diagnosis), { kind: "diagnosis", topic: TOPIC, answers: { d2: expected.chosen } });
+  assert.equal(res.status, 200, res.body);
+  assert.deepEqual(JSON.parse(res.body).results, [expected]);
+  assert.equal(JSON.parse(readFileSync(join(topic, "quiz.answers.json"), "utf8")).answers.d2, tutorPick, "the file keeps the tutor's letter");
+  const reloaded = pageData((await http(diagnosis.structuredContent.url)).body).answered;
+  assert.deepEqual(reloaded.find((r) => r.id === "d2"), expected, "the page reloads the letter the learner saw");
+  await shutdown();
+});
+
+test("the question banks and the answer files are never served, whatever the file route is asked for (#272)", async () => {
+  const { topic, view, shutdown } = await setup();
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), JSON.stringify({ answers: { q1: "B" } }));
+  assert.equal((await http(`${url}${TOPIC}/file/plan.json`)).status, 200, "the file route still serves topic files");
+  for (const file of ["quiz.json", "mini-quiz/p1.json", "quiz.answers.json", "mini-quiz/p1.answers.json"]) {
+    assert.equal((await http(`${url}${TOPIC}/file/${file}`)).status, 404, `${file} holds the keys or the tutor's own letters`);
+  }
+  await shutdown();
+});
+
+test("the reader draws the mini-quiz in the served order and answers with the letter it shows (#272)", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { view, topic, shutdown } = await setup(LEARNER);
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const { questions: [q1, q2] } = await quizJson(`${base(result)}api/quiz?topic=${TOPIC}&part=p1`);
+  const picks = { q1: shownLetter(q1, "B"), q2: shownLetter(q2, "C") };
+  assert.notDeepEqual(picks, { q1: "B", q2: "C" }, "the learner sees other letters than the tutor's");
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(result.structuredContent.url);
+  const fields = page.locator("fieldset.quiz-question");
+  const options = (index) => page.locator(`input[type=radio][name="question-${index}"]`);
+  assert.deepEqual(await options(0).evaluateAll((radios) => radios.map((radio) => radio.value)), Object.keys(q1.options), "the reader draws the letters in the served order");
+  await page.locator(`input[type=radio][name="question-0"][value="${picks.q1}"]`).check();
+  await page.locator(`input[type=radio][name="question-1"][value="${picks.q2}"]`).check();
+  await page.getByRole("button", { name: "Enviar al tutor" }).click();
+  await page.getByText("Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.").waitFor();
+  for (const field of await fields.all()) await field.locator(".confidence input").first().check();
+  const received = page.waitForResponse((response) => response.url().endsWith("/submit"));
+  await page.getByRole("button", { name: "Enviar al tutor" }).click();
+  assert.equal((await received).status(), 200);
+  assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")).answers, { q1: "B", q2: "C" }, "the file keeps the tutor's letters");
   await shutdown();
 });
 
@@ -1593,9 +1728,10 @@ test("the part page reports recorded answers with their grading once the quiz is
   );
   const page = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
   const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
+  const [q1, q2] = data.quiz.questions;
   assert.deepEqual(data.answered, [
-    { id: "q1", chosen: "B", correct: "B", ok: true },
-    { id: "q2", chosen: "A", correct: "B", ok: false, razonamiento: "pienso q2", confianza: "seguro" },
+    { id: "q1", chosen: shownLetter(q1, "B"), correct: shownLetter(q1, "B"), ok: true },
+    { id: "q2", chosen: shownLetter(q2, "A"), correct: shownLetter(q2, "B"), ok: false, razonamiento: "pienso q2", confianza: "seguro" },
   ]);
   assert.equal(data.verdicts, null);
   await shutdown();
@@ -1607,7 +1743,8 @@ test("diagnosis submit adds only new ids of the current round and keeps recorded
   const page = await http(`${url}${TOPIC}/quiz`);
   const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
   assert.deepEqual(data.quiz.questions.map((q) => q.id), ["d1", "d2", "d3"]);
-  assert.deepEqual(data.answered, [{ id: "d1", chosen: "B", correct: "B", ok: true }]);
+  const [d1, , d3] = data.quiz.questions;
+  assert.deepEqual(data.answered, [{ id: "d1", chosen: shownLetter(d1, "B"), correct: shownLetter(d1, "B"), ok: true }]);
   const res = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d2: "E" }, reasoning: why("d2") });
   assert.equal(res.status, 200, res.body);
   assert.deepEqual(JSON.parse(readFileSync(join(topic, "quiz.answers.json"), "utf8")), {
@@ -1617,7 +1754,7 @@ test("diagnosis submit adds only new ids of the current round and keeps recorded
   assert.match(host.sent[0].content, /^\[Vista HTML · sql-demo · diagnóstico\]/);
   const again = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d1: "A" }, reasoning: why("d1") });
   assert.equal(again.status, 409);
-  const third = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d3: "A" }, reasoning: why("d3") });
+  const third = await submit(url, { kind: "diagnosis", topic: TOPIC, answers: { d3: shownLetter(d3, "A") }, reasoning: why("d3") });
   assert.equal(third.status, 200);
   assert.deepEqual(JSON.parse(readFileSync(join(topic, "quiz.answers.json"), "utf8")), {
     answers: { d1: "B", d2: "E", d3: "A" },
@@ -1724,7 +1861,8 @@ test("submit refuses foreign origins, non-JSON, oversize, unknown fields and inv
 test("a quiz is answered without writing a thought, and the message quotes no empty reasoning", async () => {
   const { view, topic, host, shutdown } = await setup();
   const url = base(await view({}));
-  const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" } });
+  const [q1, q2] = await servedPart(url);
+  const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: shownLetter(q1, "B"), q2: shownLetter(q2, "B") } });
   assert.equal(res.status, 200, res.body);
   const graded = JSON.parse(res.body);
   assert.equal(graded.score, "2/2");

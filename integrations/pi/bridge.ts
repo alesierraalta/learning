@@ -224,16 +224,70 @@ function readVerdicts(file: string): Record<string, unknown>[] | null {
   );
 }
 
-/** The browser never receives answer keys before the learner answers. */
-const publicQuestion = (q: Question) => ({ id: q.id, enunciado: q.enunciado, options: q.options, pieza: q.pieza, round: q.round });
+/** «No sé» (E) is the last option a learner sees, whatever order the others are drawn in (#272). */
+const NO_SE = "E";
+
+/** The letters a question offers, sorted: the labels a learner sees, A to E. */
+const shownLetters = (q: Question): string[] => Object.keys(q.options).sort();
+
+/**
+ * The tutor's letters in the order a learner sees them (#272). Each question draws its own order from the
+ * bridge's token (one learner, one bridge), the quiz scope and the question id: a reload, or a restart with
+ * the same token, draws the same order. «No sé» stays last.
+ */
+function shownOrder(q: Question, scope: string, key: string): string[] {
+  const letters = shownLetters(q);
+  const order = letters.filter((letter) => letter !== NO_SE);
+  for (let i = order.length - 1; i > 0; i -= 1) {
+    const draw = createHmac("sha256", key).update(`${scope}\0${q.id}\0${i}`).digest().readUInt32BE(0);
+    const j = draw % (i + 1);
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return letters.includes(NO_SE) ? [...order, NO_SE] : order;
+}
+
+/** The options as a learner sees them: relabelled A to E in their shown order, so no label carries the tutor's letter. */
+const shownOptions = (q: Question, order: string[]): Record<string, string> =>
+  Object.fromEntries(shownLetters(q).map((letter, index) => [letter, q.options[order[index]]]));
+
+/** The letter a learner sees for one of the tutor's letters. */
+const shownLetter = (q: Question, order: string[], tutor: string): string => shownLetters(q)[order.indexOf(tutor)] ?? tutor;
+
+/** The tutor's letter behind the letter a learner picked. */
+const tutorLetter = (q: Question, order: string[], shown: string): string => order[shownLetters(q).indexOf(shown)] ?? shown;
+
+/** The browser never receives answer keys before the learner answers; its options come in the learner's order. */
+const publicQuestion = (q: Question, order: string[]) => ({ id: q.id, enunciado: q.enunciado, options: shownOptions(q, order), pieza: q.pieza, round: q.round });
 
 const grade = (q: Question, chosen: string): Graded => ({ id: q.id, chosen, correct: q.answer, ok: chosen === q.answer });
 
-function gradeRecorded(questions: Question[], recorded: AnswerFile | undefined): Graded[] | null {
+/** A graded answer in the letters the learner sees. The stored answer and the tutor's key keep the tutor's own letters. */
+const shownGrade = (q: Question, order: string[], graded: Graded): Graded => ({
+  ...graded,
+  chosen: shownLetter(q, order, graded.chosen),
+  correct: shownLetter(q, order, graded.correct),
+});
+
+/** A graded answer as the learner reads it: the letter the page shows, and the text under it (#272). */
+interface ShownAnswer extends Graded {
+  chosenText: string;
+  correctText: string;
+}
+
+const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
+
+/** The chat quotes an answer under the letter the learner saw, never the tutor's own letter (#272). */
+const shownAnswer = (q: Question, order: string[], graded: Graded): ShownAnswer => ({
+  ...shownGrade(q, order, graded),
+  chosenText: oneLine(q.options[graded.chosen] ?? ""),
+  correctText: oneLine(q.options[graded.correct] ?? ""),
+});
+
+function gradeRecorded(questions: Question[], recorded: AnswerFile | undefined, orderOf: (q: Question) => string[]): Graded[] | null {
   if (!recorded) return null;
   return questions
     .filter((q) => q.id in recorded.answers)
-    .map((q) => ({ ...grade(q, recorded.answers[q.id]), ...recorded.razonamientos[q.id] }));
+    .map((q) => ({ ...shownGrade(q, orderOf(q), grade(q, recorded.answers[q.id])), ...recorded.razonamientos[q.id] }));
 }
 
 /** `explicaciones/Parte N - <slug>.html`: the page the tutor wrote beside a part's note. It is served only when it measures as its note (#265). */
@@ -674,11 +728,11 @@ const quote = (text: string) => `"""\n${text.trim()}\n"""`;
 
 const indented = (text: string) => text.trim().replace(/\n/g, "\n    ");
 
-function quizMessage(header: string, saved: string, results: Graded[], reasoning: Record<string, Reasoning>): string[] {
+function quizMessage(header: string, saved: string, results: ShownAnswer[], reasoning: Record<string, Reasoning>): string[] {
   const score = results.filter((r) => r.ok).length;
   const lines = [header, `Respuestas y razonamientos guardados en ${saved} (resultado inmediato: ${score}/${results.length}):`];
   for (const r of results) {
-    lines.push(`- ${r.id}: ${r.chosen} ${r.ok ? "✔" : `✘ (correcta: ${r.correct})`}`);
+    lines.push(`- ${r.id}: ${r.chosen} «${r.chosenText}» ${r.ok ? "✔" : `✘ (correcta: ${r.correct} «${r.correctText}»)`}`);
     const said = thought(reasoning[r.id]);
     if (said) {
       lines.push(`  Pensamiento: ${indented(said)}`);
@@ -761,18 +815,28 @@ function optionalText(payload: Record<string, unknown>, key: string): string {
   return value;
 }
 
-function checkAnswers(raw: unknown, questions: Question[], exact: boolean): Record<string, string> {
+/** The question banks hold the answer keys and the answer files hold the tutor's own letters: no route serves either (#272). */
+const holdsAnswers = (dir: string, target: string): boolean => {
+  const miniQuiz = join(dir, "mini-quiz").toLowerCase() + sep;
+  const files = [join(dir, "quiz.json"), join(dir, "quiz.answers.json")].map((file) => file.toLowerCase());
+  return files.includes(target) || (target.startsWith(miniQuiz) && target.endsWith(".json"));
+};
+
+function checkAnswers(raw: unknown, questions: Question[], exact: boolean, orderOf: (q: Question) => string[]): Record<string, string> {
   if (!isRecord(raw) || Object.keys(raw).length === 0) throw new HttpError(400, "answers must be a non-empty object");
   const byId = new Map(questions.map((q) => [q.id, q]));
+  // The learner picked the letter they see; the answers file and the grading keep the tutor's own letter (#272).
+  const tutor: Record<string, string> = {};
   for (const [id, choice] of Object.entries(raw)) {
     const q = byId.get(id);
     if (!q) throw new HttpError(400, `unknown question id: ${id}`);
     if (typeof choice !== "string" || !CHOICES.has(choice) || !(choice in q.options)) {
       throw new HttpError(400, `invalid option for ${id}`);
     }
+    tutor[id] = tutorLetter(q, orderOf(q), choice);
   }
   if (exact && Object.keys(raw).length !== questions.length) throw new HttpError(400, "every question must be answered");
-  return raw as Record<string, string>;
+  return tutor;
 }
 
 /** The learner's thought is optional: when they write it, it is stored and quoted; silence is allowed. */
@@ -1225,6 +1289,11 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
     return a.length === b.length && timingSafeEqual(a, b);
   };
 
+  // #272: a learner's order is drawn from this bridge's token, so a reload, and a restart with the same token, draw it again.
+  const orderOf = (scope: string) => (q: Question) => shownOrder(q, scope, token);
+  const miniScope = (topic: string, part: string) => `mini-quiz/${topic}/${part}`;
+  const diagnosisScope = (topic: string) => `diagnosis/${topic}`;
+
   const topicDir = (topic: unknown): string => {
     if (!safeTopic(topic)) throw new HttpError(400, "topic must be one folder name under the Learnings root");
     const contained = resolveContained(rootReal, join(rootReal, topic));
@@ -1365,6 +1434,7 @@ ${scripts}
     if (!plan || !note) throw new HttpError(404, `part ${partId} is not written yet`);
     const part = plan.parts.find((p) => p.id === partId)!;
     const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
+    const orderFor = orderOf(miniScope(topic, partId));
     page(res, part.title, {
       kind: "part",
       exercises: listExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId),
@@ -1375,9 +1445,9 @@ ${scripts}
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
       markdown: questions ? withoutMiniQuiz(obsidianToMarkdown(readFileSync(note, "utf8"), dir)) : obsidianToMarkdown(readFileSync(note, "utf8"), dir),
       quiz: questions
-        ? { questions: questions.map(publicQuestion), exercises: partExercises(dir, partId, loadRunners(options.runnersFile)) }
+        ? { questions: questions.map((q) => publicQuestion(q, orderFor(q))), exercises: partExercises(dir, partId, loadRunners(options.runnersFile)) }
         : null,
-      answered: questions ? gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))) : null,
+      answered: questions ? gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`)), orderFor) : null,
       demos: partDemos(dir, partId),
       video: partVideoInfo(dir, plan, partId),
       audio: partAudioInfo(dir, plan, partId),
@@ -1386,17 +1456,18 @@ ${scripts}
   };
 
   const quizApi = (res: ServerResponse, url: URL) => {
-    const topic = url.searchParams.get("topic");
+    const topic = url.searchParams.get("topic") ?? "";
     const partId = url.searchParams.get("part") ?? "";
     const dir = topicDir(topic);
     const plan = readPlan(dir);
     if (!plan?.parts.some((p) => p.id === partId)) throw new HttpError(404, `part ${partId} is not in plan.json`);
     const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
     if (!questions) throw new HttpError(404, `part ${partId} has no mini-quiz`);
+    const orderFor = orderOf(miniScope(topic, partId));
     sendJson(res, 200, {
-      questions: questions.map(publicQuestion),
+      questions: questions.map((q) => publicQuestion(q, orderFor(q))),
       exercises: partExercises(dir, partId, loadRunners(options.runnersFile)),
-      answered: gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))),
+      answered: gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`)), orderFor),
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
     });
   };
@@ -1456,14 +1527,15 @@ ${scripts}
     const questions = readQuestions(join(dir, "quiz.json"));
     if (!questions) throw new HttpError(404, `topic ${topic} has no diagnosis quiz`);
     const plan = readPlan(dir);
+    const orderFor = orderOf(diagnosisScope(topic));
     page(res, "Diagnóstico", {
       kind: "diagnosis",
       topic,
       title: "Diagnóstico",
       topicTitle: plan?.topic || topic,
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
-      quiz: { questions: questions.map(publicQuestion) },
-      answered: gradeRecorded(questions, readAnswers(join(dir, "quiz.answers.json"))),
+      quiz: { questions: questions.map((q) => publicQuestion(q, orderFor(q))) },
+      answered: gradeRecorded(questions, readAnswers(join(dir, "quiz.answers.json")), orderFor),
       demos: [],
       verdicts: readVerdicts(join(dir, "diagnostico-conceptos.json")),
     });
@@ -1481,6 +1553,8 @@ ${scripts}
     const target = contained.targetReal.toLowerCase();
     const codeRoot = codeDir.ok ? codeDir.targetReal.toLowerCase() : join(dir, "codigo").toLowerCase();
     if (target === codeRoot || target.startsWith(codeRoot + sep)) throw new HttpError(404, "not found");
+    // No route serves the question banks or the answer files, whatever the file is named (#272).
+    if (holdsAnswers(dir, target)) throw new HttpError(404, "not found");
     const stat = statSync(contained.targetReal);
     if (!stat.isFile()) throw new HttpError(404, "not found");
     const headers: Record<string, string> = {
@@ -1695,7 +1769,8 @@ ${scripts}
       if (typeof partId !== "string") throw new HttpError(400, "part is required");
       const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
       if (!questions) throw new HttpError(400, `part ${partId} has no mini-quiz`);
-      const answers = checkAnswers(payload.answers, questions, true);
+      const orderFor = orderOf(miniScope(topic, partId));
+      const answers = checkAnswers(payload.answers, questions, true, orderFor);
       const reasoning = optionalReasoning(payload.reasoning, answers);
       const ownWords = optionalText(payload, "ownWords");
       const declared = partExercises(dir, partId, loadRunners(options.runnersFile));
@@ -1706,18 +1781,20 @@ ${scripts}
       if (existsSync(file)) throw new HttpError(409, `Ya respondiste el mini-quiz de esta parte. ${SAVED_HINT}`);
       const ordered = Object.fromEntries(questions.map((q) => [q.id, answers[q.id]]));
       writeAnswers(file, { answers: ordered, razonamientos: Object.fromEntries(questions.map((q) => [q.id, reasoning[q.id]])) });
-      const results = questions.map((q) => grade(q, ordered[q.id]));
-      const lines = quizMessage(`[Vista HTML · ${topic} · ${partId} · mini-quiz]`, saved, results, reasoning);
+      const graded = questions.map((q) => grade(q, ordered[q.id]));
+      const shown = questions.map((q, i) => shownAnswer(q, orderFor(q), graded[i]));
+      const lines = quizMessage(`[Vista HTML · ${topic} · ${partId} · mini-quiz]`, saved, shown, reasoning);
       if (ownWords.trim()) lines.push("", "Vuelco con mis palabras:", quote(ownWords));
       lines.push(...exerciseMessage(declared, exercises));
       await deliver(lines.join("\n"));
-      sendJson(res, 200, { results, score: `${results.filter((r) => r.ok).length}/${results.length}`, saved });
+      sendJson(res, 200, { results: shown.map(({ id, chosen, correct, ok }) => ({ id, chosen, correct, ok })), score: `${graded.filter((r) => r.ok).length}/${graded.length}`, saved });
       return;
     }
 
     const questions = readQuestions(join(dir, "quiz.json"));
     if (!questions) throw new HttpError(400, `topic ${topic} has no diagnosis quiz`);
-    const answers = checkAnswers(payload.answers, questions, false);
+    const orderFor = orderOf(diagnosisScope(topic));
+    const answers = checkAnswers(payload.answers, questions, false, orderFor);
     const reasoning = optionalReasoning(payload.reasoning, answers);
     const saved = "quiz.answers.json";
     const file = join(dir, saved);
@@ -1728,9 +1805,11 @@ ${scripts}
       answers: { ...recorded.answers, ...answers },
       razonamientos: { ...recorded.razonamientos, ...reasoning },
     });
-    const results = questions.filter((q) => q.id in answers).map((q) => grade(q, answers[q.id]));
-    await deliver(quizMessage(`[Vista HTML · ${topic} · diagnóstico]`, saved, results, reasoning).join("\n"));
-    sendJson(res, 200, { results, score: `${results.filter((r) => r.ok).length}/${results.length}`, saved });
+    const asked = questions.filter((q) => q.id in answers);
+    const graded = asked.map((q) => grade(q, answers[q.id]));
+    const shown = asked.map((q, i) => shownAnswer(q, orderFor(q), graded[i]));
+    await deliver(quizMessage(`[Vista HTML · ${topic} · diagnóstico]`, saved, shown, reasoning).join("\n"));
+    sendJson(res, 200, { results: shown.map(({ id, chosen, correct, ok }) => ({ id, chosen, correct, ok })), score: `${graded.filter((r) => r.ok).length}/${graded.length}`, saved });
   };
 
   // A draft preview draws what the author is typing without touching the vault: the
