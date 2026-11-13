@@ -690,7 +690,7 @@ lk-story:fullscreen .lk-story-piece, lk-story:-webkit-full-screen .lk-story-piec
    fila, sin título; en el ancho amplio las cinco van en una línea. La cabecera va dentro del área
    que se desplaza y queda pegada arriba. Cabecera y filas tienen el mismo tamaño de letra: `em` en
    la plantilla se resuelve en cada elemento. */
-.lk-xlog { --xlogcols:2em minmax(0,1fr) minmax(0,1fr) 4em; border:1px solid var(--hair); border-radius:.6em; overflow:hidden; font-size:.92em; }
+.lk-xlog { --xlogcols:2em minmax(0,1fr) minmax(0,1fr) 6.5em; border:1px solid var(--hair); border-radius:.6em; overflow:hidden; font-size:.92em; }
 .lk-xloghead, .lk-xlogrow { display:grid; grid-template-columns:var(--xlogcols); gap:.5em; padding:.4em .7em; align-items:baseline; }
 .lk-xloghead { position:sticky; top:0; z-index:1; font-weight:700; color:var(--pt-slate); background:var(--pt-slate-bg); }
 .lk-xloghead span { min-width:0; overflow-wrap:anywhere; }
@@ -703,12 +703,12 @@ lk-story:fullscreen .lk-story-piece, lk-story:-webkit-full-screen .lk-story-piec
 /* El tipo va en la misma letra y el mismo tamaño que su fila. Con la línea base compartida, una
    familia distinta (la monoespaciada) tiene otra altura de ascendente: la celda cambia de línea a
    pantalla completa y la fila deja de estar alineada. */
-.lk-xkind { font-weight:700; color:var(--c, var(--pt-slate)); text-transform:uppercase; }
+.lk-xkind { font-weight:700; color:var(--c, var(--pt-slate)); text-transform:uppercase; white-space:nowrap; }
 .lk-xinfo { grid-column:2 / -1; color:var(--pt-slate); }
 .lk-xhinfo { display:none; }
 /* En el ancho amplio la información es la columna más ancha, en la misma línea que su fila. */
 @container (min-width:640px) {
-  .lk-xlog { --xlogcols:2.4em minmax(0,1.1fr) minmax(0,1.1fr) 4.4em minmax(0,2.4fr); }
+  .lk-xlog { --xlogcols:2.4em minmax(0,1.1fr) minmax(0,1.1fr) 6.5em minmax(0,2.4fr); }
   .lk-xloghead { letter-spacing:.05em; text-transform:uppercase; }
   .lk-xinfo { grid-column:auto; }
   .lk-xhinfo { display:block; }
