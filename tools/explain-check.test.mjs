@@ -549,6 +549,40 @@ test('una historia que dibuja una pieza en su escenario pasa el escenario', () =
   assert.match(r.stdout, /ok\s+escenario-de-cajas/);
 });
 
+// Un icono sobre una caja es su adorno (#273): la parte real de Git dibuja dos cajas, una
+// flecha y el documento sobre «Commit», y eso no es un dibujo. Un icono suelto sí lo es.
+const PARTE_GIT = join(TOOLS, '..', 'internal', 'engine', 'testdata', 'git-branching-parte-1.md');
+test('la escena quieta de la parte real de Git es cajas y flechas con un adorno', () => {
+  const r = run(PARTE_GIT);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA escenario-de-cajas/);
+});
+
+test('un icono suelto en una escena de cajas sí es un dibujo', () => {
+  const file = join(dir, 'escena-con-icono-suelto.md');
+  writeFileSync(file, CUMPLE.replace(ESCENA, `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","caption":"El estado entra y la acción sale.","scene":{"boxes":[{"x":88,"y":48,"w":212,"h":100,"label":"el estado","tone":"blue","size":22}],"icons":[{"kind":"robot","x":380,"y":170,"size":56,"tone":"slate"}],"arrows":[{"x1":306,"y1":98,"x2":412,"y2":98,"tone":"slate","width":3}]}}
+</script>
+</lk-scene>`));
+  const r = run(file);
+  assert.match(r.stdout, /ok\s+escenario-de-cajas/);
+});
+
+test('una historia cuyos pasos solo dibujan cajas y un icono sobre una caja falla el escenario', () => {
+  const file = join(dir, 'escenario-con-adorno.md');
+  writeFileSync(file, CUMPLE.replace(HISTORIA, `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Dos cajas","viewBox":"0 0 360 210","steps":[
+ {"title":"Uno","equation":{"atoms":[{"t":"a","id":"a"}]},"narrator":"Uno.","stage":{"scene":{"boxes":[{"x":40,"y":60,"w":120,"h":80,"label":"HEAD","tone":"blue"}],"icons":[{"kind":"doc","x":150,"y":72,"size":20,"tone":"slate"}]}}}
+]}
+</script>
+</lk-story>`));
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA escenario-de-cajas/);
+});
+
 // ── Personajes, escenas y la pieza que le toca (#245) ────────────────────────
 // La Parte 1 de PL/SQL pasó todas las puertas y el alumno la rechazó igual: sus
 // actores son rectángulos con una etiqueta («Cuenta 10»), su escena quieta es dos

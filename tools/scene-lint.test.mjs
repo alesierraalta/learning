@@ -406,6 +406,65 @@ test('un icono dentro del lienzo no es un hallazgo', { skip: SKIP }, () => {
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
 
+// Un icono suelto encima de una palabra (#273): el alumno vio un documento sobre el
+// rótulo «Commit» y todos los gates pasaban. Un icono sobre una caja lo lleva el kit a
+// una esquina de esa caja; este no es de ninguna caja, así que el lint lo mide donde cae.
+test('un icono suelto encima de una palabra es un hallazgo icono-sobre-texto', { skip: SKIP }, () => {
+  const file = join(dir, 'icono-sobre-texto.md');
+  writeFileSync(file, `# Parte 1\n\n<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 200","scene":{
+  "icons":[{"kind":"robot","x":180,"y":100,"size":56,"tone":"blue"}],
+  "labels":[{"x":180,"y":112,"text":"el robot","size":18}]}}
+</script>
+</lk-scene>
+`);
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /icono-sobre-texto/);
+});
+
+test('un icono suelto junto a una palabra, sin tocarla, no es un hallazgo', { skip: SKIP }, () => {
+  const file = join(dir, 'icono-junto-texto.md');
+  writeFileSync(file, `# Parte 1\n\n<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 200","scene":{
+  "icons":[{"kind":"robot","x":80,"y":100,"size":56,"tone":"blue"}],
+  "labels":[{"x":150,"y":112,"text":"el robot","size":18}]}}
+</script>
+</lk-scene>
+`);
+  const r = lint(file);
+  // Sin hallazgos: si el lint no llegara a medir, el test fallaría en vez de pasar en vacío.
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// Un icono y una palabra de pasos distintos no se miden juntos (#273): los pasos de una
+// historia se dibujan en el mismo SVG y se miden a la vez, pero nunca se ven a la vez.
+test('un icono del paso 1 no se mide contra la palabra del paso 2', { skip: SKIP }, () => {
+  const file = join(dir, 'icono-otro-paso.md');
+  writeFileSync(file, `# Parte 1\n\n<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Dos pasos","viewBox":"0 0 360 200","steps":[
+ {"title":"Uno","equation":{"atoms":[{"t":"a","id":"a"}]},"narrator":"Uno.","stage":{"scene":{"icons":[{"kind":"robot","x":180,"y":100,"size":56,"tone":"blue"}],"labels":[{"x":180,"y":112,"text":"uno","size":18}]}}},
+ {"title":"Dos","equation":{"atoms":[{"t":"b","id":"b"}]},"narrator":"Dos.","stage":{"scene":{"labels":[{"x":180,"y":112,"text":"dos","size":18}]}}}
+]}
+</script>
+</lk-story>
+`);
+  const r = lint(file);
+  assert.match(r.stdout, /icono-sobre-texto: uno/, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /icono-sobre-texto: dos/);
+});
+
+// La parte real de Git (#273): el documento de la caja «Commit» se dibujaba encima de su
+// rótulo. El kit lo lleva a una esquina libre de esa caja, así que el lint no lo encuentra.
+const GIT_PART = join(TOOLS, '..', 'internal', 'engine', 'testdata', 'git-branching-parte-1.md');
+test('la parte real de Git no tiene un icono encima de su rótulo', { skip: SKIP }, () => {
+  const r = lint(GIT_PART);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
 // scene-gate mide también los recorridos de fórmula y de ejercicio (`<lk-story>`), paso a
 // paso, y lo que miden son las marcas: una etiqueta de «combina» o un ✓ fuera del lienzo
 // lo recorta el SVG y el lector ve una astilla. Antes la puerta solo abría `<lk-scene>` y

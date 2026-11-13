@@ -16,7 +16,8 @@ dirección, una proporción, una posición, un antes y un después, una cantidad
 
 **La escena dibuja la cosa misma.** Una distribución o una función se dibuja como su curva,
 con sus ejes y la región que importa marcada; un objeto que actúa o cambia se dibuja con
-`scene.icons`. Una caja con una palabra dentro no es ninguna de las dos cosas: dice el nombre
+`scene.icons` suelto, fuera de las cajas: el que va sobre una caja es su adorno y no cuenta.
+Una caja con una palabra dentro no es ninguna de las dos cosas: dice el nombre
 de lo que debería estar dibujado. «Evolución de la curva gaussiana de latencia» con una caja y
 una flecha por paso no muestra ninguna curva — no hay campana, no hay eje, no hay banda ±σ, y
 quien lee no puede ver lo único que la parte venía a explicar.

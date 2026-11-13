@@ -36,6 +36,8 @@ const CROSS = 3.5;
 const LOOSE = 40;
 // Dos fichas de nombre de actores vecinos a menos de 6 píxeles se leen como una sola (#261).
 const TAG_MIN_PX = 6;
+// Un icono que pisa una palabra más de 3 unidades se lee encima de ella (#273).
+const ICON_TEXT_OVERLAP = 3;
 
 // Las fichas de nombre de los actores (`[data-tag-to]`) que se pisan en vertical y quedan a menos de
 // `minPx` píxeles de la pantalla se tocan: se leen como una sola ficha. Un paso oculto mide cero, así
@@ -113,7 +115,7 @@ try {
   await page.goto(pathToFileURL(join(dir, 'page.html')).href);
   await page.waitForSelector('lk-scene svg, lk-walkthrough svg, lk-story svg, .lk-p', { timeout: 15000 });
   await page.waitForTimeout(400);
-  const report = await page.evaluate(({ minShaft, maxRatio, cross, loose, maxHead, maxHeadStrokes }) => {
+  const report = await page.evaluate(({ minShaft, maxRatio, cross, loose, maxHead, maxHeadStrokes, iconText }) => {
     const out = [];
     // Un paso oculto mide cero: se mide con todos los pasos puestos.
     const hiddenSteps = [...document.querySelectorAll('[data-step]')];
@@ -552,6 +554,19 @@ try {
           add('pieza-invisible', what, outside ? 'queda entera fuera del lienzo y el SVG la recorta' : 'no dibuja tinta');
         }
 
+        // 11b. un icono que pisa una palabra de su paso (#273): el documento de «Commit»
+        // se dibujó encima de su rótulo y todos los gates pasaban. El kit lleva un icono
+        // de caja a una esquina libre antes de medir; el que queda donde lo declaró se mide
+        // donde cae, y pisar una palabra más de `iconText` unidades es un hallazgo.
+        for (const g of svg.querySelectorAll('[data-icon]')) {
+          const b = g.getBBox();
+          const step = stepOf(g);
+          const hit = texts.find((t) => t.step === step
+            && Math.min(b.x + b.width, t.b.x + t.b.width) - Math.max(b.x, t.b.x) > iconText
+            && Math.min(b.y + b.height, t.b.y + t.b.height) - Math.max(b.y, t.b.y) > iconText);
+          if (hit) add('icono-sobre-texto', hit.s.slice(0, 40), `el icono ${g.dataset.icon} se dibuja encima de esta palabra: mueve el icono o la etiqueta`);
+        }
+
         // 12. las piezas del escenario de un recorrido (#217): un valor, un ojo o un
         // lápiz anclados a un actor, una marca entre dos actores, el nombre de un
         // actor. Se anclan por id, así que la que nombra algo que el paso no tiene no
@@ -717,7 +732,7 @@ try {
     });
     hiddenSteps.forEach((g, i) => { g.style.display = wasShown[i]; });
     return out;
-  }, { minShaft: MIN_SHAFT, maxRatio: MAX_HEAD_RATIO, cross: CROSS, loose: LOOSE, maxHead: MAX_HEAD, maxHeadStrokes: MAX_HEAD_STROKES });
+  }, { minShaft: MIN_SHAFT, maxRatio: MAX_HEAD_RATIO, cross: CROSS, loose: LOOSE, maxHead: MAX_HEAD, maxHeadStrokes: MAX_HEAD_STROKES, iconText: ICON_TEXT_OVERLAP });
   findings.push(...report);
   // Las fichas de nombre se miden también a 390 px, en píxeles de la pantalla: el teléfono reduce el
   // lienzo, así que lo que cabe en unidades puede tocarse en píxeles (#261).

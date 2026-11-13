@@ -1605,6 +1605,94 @@ func TestSceneStageRefusesASceneOfBoxesAndArrows(t *testing.T) {
 	}
 }
 
+// gitPart is the Git part the fourth bench refused (#273): every gate passed, and a
+// document icon sat on the box label «Commit».
+func gitPart(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "git-branching-parte-1.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// boxesWithOrnament is a still scene of two boxes and an arrow whose only icon sits
+// on the second box: a decoration of that box, not a drawing (#273).
+const boxesWithOrnament = `# Parte 1
+
+<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 100","title":"Punteros","scene":{"boxes":[{"x":16,"y":12,"w":86,"h":76,"label":"HEAD","tone":"blue"},{"x":134,"y":12,"w":86,"h":76,"label":"main","tone":"green"}],"icons":[{"kind":"doc","x":200,"y":30,"size":20,"tone":"slate"}],"arrows":[{"x1":102,"y1":50,"x2":134,"y2":50,"tone":"blue","width":2}]}}
+</script>
+</lk-scene>
+`
+
+// boxesWithLooseIcon is the same scene with its icon outside every box: a drawing of
+// its own (#273).
+const boxesWithLooseIcon = `# Parte 1
+
+<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 130","title":"Punteros","scene":{"boxes":[{"x":16,"y":12,"w":86,"h":76,"label":"HEAD","tone":"blue"},{"x":134,"y":12,"w":86,"h":76,"label":"main","tone":"green"}],"icons":[{"kind":"doc","x":200,"y":110,"size":20,"tone":"slate"}],"arrows":[{"x1":102,"y1":50,"x2":134,"y2":50,"tone":"blue","width":2}]}}
+</script>
+</lk-scene>
+`
+
+// boxesStoryWithOrnament draws boxes with text in every step and one icon on a box
+// in each step: the icons decorate the boxes, so no step draws the action (#273).
+const boxesStoryWithOrnament = `# Parte 1
+
+<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Dos cajas","viewBox":"0 0 360 210","steps":[
+ {"title":"Uno","equation":{"atoms":[{"t":"a","id":"a"}]},"narrator":"Uno.","stage":{"scene":{"boxes":[{"x":40,"y":60,"w":120,"h":80,"label":"HEAD","tone":"blue"}],"icons":[{"kind":"doc","x":150,"y":72,"size":20,"tone":"slate"}]}}},
+ {"title":"Dos","equation":{"atoms":[{"t":"b","id":"b"}]},"narrator":"Dos.","stage":{"scene":{"boxes":[{"x":200,"y":60,"w":120,"h":80,"label":"main","tone":"green"}],"icons":[{"kind":"doc","x":310,"y":72,"size":20,"tone":"slate"}]}}}
+]}
+</script>
+</lk-story>
+`
+
+// boxesStoryWithLooseIcon moves each step's icon off its box: a drawing of its own.
+const boxesStoryWithLooseIcon = `# Parte 1
+
+<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Dos cajas","viewBox":"0 0 360 210","steps":[
+ {"title":"Uno","equation":{"atoms":[{"t":"a","id":"a"}]},"narrator":"Uno.","stage":{"scene":{"boxes":[{"x":40,"y":60,"w":120,"h":80,"label":"HEAD","tone":"blue"}],"icons":[{"kind":"doc","x":150,"y":170,"size":20,"tone":"slate"}]}}},
+ {"title":"Dos","equation":{"atoms":[{"t":"b","id":"b"}]},"narrator":"Dos.","stage":{"scene":{"boxes":[{"x":200,"y":60,"w":120,"h":80,"label":"main","tone":"green"}],"icons":[{"kind":"doc","x":310,"y":170,"size":20,"tone":"slate"}]}}}
+]}
+</script>
+</lk-story>
+`
+
+// A decorative icon on a box is the box's ornament (#273): it draws nothing the box
+// does not, so a still scene whose only icon sits on a box is a scene of boxes. The
+// Git part is that scene; the same icon standing loose is a drawing of its own.
+func TestSceneStageRefusesASceneWhoseOnlyIconSitsOnABox(t *testing.T) {
+	th := rules.PartStandardThresholds{SceneStage: true}
+	if findings := sceneStageFindings(gitPart(t), th); len(findings) == 0 {
+		t.Fatal("the engine accepts the Git scene: the document on the Commit box draws nothing")
+	}
+	if findings := sceneStageFindings(boxesWithOrnament, th); len(findings) == 0 {
+		t.Fatal("the engine accepts a scene of boxes whose only icon sits on a box")
+	}
+	if findings := sceneStageFindings(boxesWithLooseIcon, th); len(findings) != 0 {
+		t.Fatalf("the engine refuses a scene whose icon stands loose: %v", findings)
+	}
+}
+
+// The story rule reads the icon the same way: a step whose only drawing is an icon on
+// one of its boxes is still a row of boxes with text (#273).
+func TestStoryStageRefusesStepsWhoseOnlyIconSitsOnABox(t *testing.T) {
+	th := rules.PartStandardThresholds{StoryStage: true}
+	if findings := storyStageFindings(boxesStoryWithOrnament, th); len(findings) == 0 {
+		t.Fatal("the engine accepts a story whose steps draw boxes and an icon on each box")
+	}
+	if findings := storyStageFindings(boxesStoryWithLooseIcon, th); len(findings) != 0 {
+		t.Fatalf("the engine refuses a story whose icons stand loose: %v", findings)
+	}
+}
+
 // The two keys are additive: the production rules declare them, and a snapshot
 // with them removed keeps accepting the part they refuse.
 func TestPartStandardSnapshotWithoutCharactersKeepsAccepting(t *testing.T) {
