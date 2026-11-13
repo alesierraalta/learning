@@ -555,6 +555,65 @@
     addEventListener("resize", () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(place); }, { passive: true });
     new MutationObserver(place).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   }
+  // Un icono sobre una caja (#273) es su adorno: se apoya en una esquina libre de esa
+  // caja, nunca encima de su rótulo, aunque la nota lo haya puesto allí. Se mide lo que
+  // el navegador dibujó: gana la primera esquina que no toca ninguna palabra (con dos
+  // unidades de aire) ni otra pieza del paso, y la tinta se desplaza dentro de su grupo.
+  function placeIcons(stage) {
+    const svg = stage.querySelector("svg");
+    if (!svg) return;
+    const attached = [...svg.querySelectorAll("[data-icon-box]")];
+    if (!attached.length) return;
+    // Un paso oculto mide cero: se mide con todos los pasos puestos.
+    const groups = [...svg.querySelectorAll("[data-step]")];
+    const shown = groups.map((g) => g.style.display);
+    groups.forEach((g) => { g.style.display = ""; });
+    const room = svg.viewBox.baseVal;
+    const rectOf = (el) => { const b = el.getBBox(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
+    const grow = (r, m) => ({ x: r.x - m, y: r.y - m, width: r.width + 2 * m, height: r.height + 2 * m });
+    const touches = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    for (const icon of attached) {
+      const ink = icon.querySelector(":scope > [data-icon-ink]");
+      if (!ink) continue;
+      // La tinta vuelve a su sitio antes de medirla: el grupo exterior ya incluye el
+      // desplazamiento de su hijo, así que se mide la posición declarada.
+      ink.removeAttribute("transform");
+      const at = rectOf(icon);
+      if (!at.width && !at.height) continue;
+      const [bx, by, bw, bh] = icon.dataset.iconBox.split(",").map(Number);
+      const w = at.width, h = at.height, pad = 3;
+      const scope = icon.closest("[data-step]") || svg;
+      const texts = [...scope.querySelectorAll("text")].filter((t) => !t.closest("[data-callout]")).map(rectOf);
+      const ownBox = (r) => Number(r.getAttribute("x")) === bx && Number(r.getAttribute("y")) === by && Number(r.getAttribute("width")) === bw && Number(r.getAttribute("height")) === bh;
+      const pieces = [...scope.querySelectorAll("[data-icon]")].filter((g) => g !== icon).map(rectOf)
+        .concat([...scope.querySelectorAll("[data-box] rect")].filter((r) => !ownBox(r)).map(rectOf));
+      const inside = [
+        { x: bx + bw - pad - w, y: by + pad },
+        { x: bx + pad, y: by + pad },
+        { x: bx + bw - pad - w, y: by + bh - pad - h },
+        { x: bx + pad, y: by + bh - pad - h },
+      ];
+      // Sobre la esquina: la mitad del icono sale de la caja, como una insignia.
+      const hanging = [
+        { x: bx + bw - w / 2, y: by - h / 2 },
+        { x: bx - w / 2, y: by - h / 2 },
+        { x: bx + bw - w / 2, y: by + bh - h / 2 },
+        { x: bx - w / 2, y: by + bh - h / 2 },
+      ];
+      // Se prueban primero las esquinas de dentro, de la más cercana a donde la nota la puso.
+      const dist = (c) => Math.hypot(c.x - at.x, c.y - at.y);
+      const byDist = (list) => [...list].sort((p, q) => dist(p) - dist(q));
+      const corners = [...byDist(inside), ...byDist(hanging)];
+      const fits = (c) => c.x >= room.x && c.y >= room.y && c.x + w <= room.x + room.width && c.y + h <= room.y + room.height;
+      const free = (c) => {
+        const r = { x: c.x, y: c.y, width: w, height: h };
+        return fits(c) && !texts.some((t) => touches(r, grow(t, 2))) && !pieces.some((p) => touches(r, p));
+      };
+      const spot = corners.find(free) ?? corners.find(fits) ?? corners[0];
+      ink.setAttribute("transform", `translate(${(spot.x - at.x).toFixed(2)} ${(spot.y - at.y).toFixed(2)})`);
+    }
+    groups.forEach((g, i) => { g.style.display = shown[i]; });
+  }
   // La escena de un paso de `lk-story` no escribe coordenadas de rótulos ni de
   // flechas: nombra el actor que el rótulo acompaña y el término que se mueve, y
   // esta pasada mide las cajas que el navegador dibujó. El rótulo con punta se
@@ -563,6 +622,7 @@
   function placeStory(stage) {
     const svg = stage.querySelector("svg");
     if (!svg) return;
+    placeIcons(stage);
     const ns = "http://www.w3.org/2000/svg";
     const S = window.LKScene;
     const make = (tag, attrs = {}, text) => {
@@ -996,8 +1056,13 @@
       const size = ic.size || 64;
       const cx = stageWidth ? Math.min(Math.max(ic.x, size / 2), stageWidth - size / 2) : ic.x;
       const cy = stageHeight ? Math.min(Math.max(ic.y, stageTop + size / 2), stageTop + stageHeight - size / 2) : ic.y;
-      out += `<g data-icon="${S.esc(ic.kind || 'doc')}"${ic.id ? ` data-icon-id="${S.esc(ic.id)}"` : ''}>`
-        + S.icon(ic.kind || 'doc', cx, cy, size, { stroke: t.stroke, fill: ic.fill || t.fill }) + '</g>';
+      // Un icono sobre una caja es su adorno (#273): `placeIcons` lo lleva a una esquina
+      // libre de esa caja, nunca encima de su rótulo, aunque la nota lo haya puesto allí.
+      // Su tinta va en un grupo propio para que esa pasada la desplace.
+      const onBox = (scene.boxes || []).find((b) => ic.x >= b.x && ic.x <= b.x + b.w && ic.y >= b.y && ic.y <= b.y + b.h);
+      const ink = S.icon(ic.kind || 'doc', cx, cy, size, { stroke: t.stroke, fill: ic.fill || t.fill });
+      out += `<g data-icon="${S.esc(ic.kind || 'doc')}"${ic.id ? ` data-icon-id="${S.esc(ic.id)}"` : ''}`
+        + (onBox ? ` data-icon-box="${onBox.x},${onBox.y},${onBox.w},${onBox.h}"><g data-icon-ink="1">${ink}</g>` : `>${ink}`) + '</g>';
     }
     // Un número pegado al dibujo: dice «mira acá» sin repetir el nombre de la pieza.
     const atoms = sceneAtoms(scene);

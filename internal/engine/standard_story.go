@@ -61,11 +61,12 @@ func storyStepDrawsAction(stage map[string]json.RawMessage) bool {
 		}
 	}
 	for _, key := range storyVocabulary {
-		if declared(scene[key]) {
+		// An icon counts only when it stands loose: one on a box decorates the box (#273).
+		if key != "icons" && declared(scene[key]) {
 			return true
 		}
 	}
-	return false
+	return drawsFreeIcon(scene)
 }
 
 // storyActor is the part of an actor the character rule reads (#245): its name

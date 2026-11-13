@@ -68,6 +68,10 @@ async function measure(url, ids) {
       return {
         width,
         overflow: host.querySelector('.lk-scene-stage')?.dataset.overflow || '',
+        icons: [...svg.querySelectorAll('[data-icon]')].map((g) => {
+          const b = g.getBBox();
+          return { kind: g.dataset.icon, x: b.x, y: b.y, w: b.width, h: b.height };
+        }),
         texts: [...svg.querySelectorAll('text')].map((t) => {
           const b = t.getBBox();
           return { content: t.textContent, x: b.x, y: b.y, w: b.width, h: b.height, px: (Number(t.getAttribute('font-size')) || 0) * scale };
@@ -135,4 +139,40 @@ test('en una columna estrecha la escena conserva la escala y hace scroll', { ski
   assert.ok(shot.width >= 640, `la escena se aplastó a ${shot.width.toFixed(0)} px de ancho`);
   const agent = shot.texts.find((t) => t.content === 'AGENTE');
   assert.ok(agent && agent.px >= 12, `la etiqueta de caja se dibuja a ${agent?.px.toFixed(1)} px`);
+});
+
+// Un icono sobre una caja es su adorno (#273): el kit lo apoya en una esquina libre de esa
+// caja, así que la coordenada que escribe la nota no lo puede dejar encima del rótulo.
+const COMMIT = { x: 252, y: 12, w: 92, h: 76, label: 'Commit', sub: '1a2b3c', tone: 'slate', rx: 0, size: 18, subSize: 14, subDy: 20 };
+test('un icono sobre una caja se apoya en una esquina libre y no tapa su rótulo', { skip: SKIP }, async () => {
+  const spec = {
+    viewBox: '0 0 360 100', title: 'prueba',
+    scene: {
+      boxes: [{ x: 16, y: 12, w: 86, h: 76, label: 'HEAD', sub: 'activa', tone: 'blue', rx: 0, size: 18, subSize: 14, subDy: 20 }, COMMIT],
+      // La nota pone el documento en la esquina de «Commit», encima de su rótulo.
+      icons: [{ kind: 'doc', x: 322, y: 30, size: 20, tone: 'slate' }],
+      arrows: [{ x1: 102, y1: 50, x2: 252, y2: 50, tone: 'blue', width: 2 }],
+    },
+  };
+  const [shot] = await measure(page({ s: spec }), ['s']);
+  const [icon] = shot.icons;
+  assert.ok(icon, 'la escena perdió su icono');
+  const overlaps = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 0 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 0;
+  for (const t of shot.texts.filter((t) => t.content.trim())) {
+    assert.equal(overlaps(icon, t), false, `el icono tapa «${t.content}»: ${JSON.stringify(icon)} sobre ${JSON.stringify(t)}`);
+  }
+  // Sigue sobre su caja: se apoya en una esquina, no se va a otro sitio de la escena.
+  assert.equal(overlaps(icon, { x: COMMIT.x, y: COMMIT.y, w: COMMIT.w, h: COMMIT.h }), true, `el icono se fue de su caja: ${JSON.stringify(icon)}`);
+});
+
+test('un icono suelto se dibuja donde la nota lo declara', { skip: SKIP }, async () => {
+  const spec = {
+    viewBox: '0 0 360 200', title: 'prueba',
+    scene: { boxes: [{ ...BOX_A, x: 8, w: 120 }], icons: [{ kind: 'robot', x: 280, y: 110, size: 56, tone: 'blue' }] },
+  };
+  const [shot] = await measure(page({ s: spec }), ['s']);
+  const [icon] = shot.icons;
+  assert.ok(icon, 'la escena perdió su icono');
+  const cx = icon.x + icon.w / 2, cy = icon.y + icon.h / 2;
+  assert.ok(Math.abs(cx - 280) < 4 && Math.abs(cy - 110) < 4, `el icono suelto se movió: ${JSON.stringify(icon)}`);
 });

@@ -1,14 +1,25 @@
 // 7f. La escena quieta se mide con el mismo rasero que el escenario del recorrido
 // (#245): una `<lk-scene>` que solo dibuja cajas con su texto y flechas es «dos
 // cajas y una flecha», el defecto que el alumno rechazó. Una pieza, un personaje,
-// un icono, una curva, una fórmula o un callout la salvan; el motor aplica la
-// misma regla (`sceneStageFindings`).
+// un icono suelto (el de una caja es su adorno, #273), una curva, una fórmula o un
+// callout la salvan; el motor aplica la misma regla (`sceneStageFindings`).
 import { declara } from '../nota.mjs';
 
 const VOCABULARIO = ['actors', 'props', 'moves', 'tags', 'icons', 'callouts', 'curves', 'paths', 'formulas', 'formula', 'grids', 'sheets', 'bars', 'stats', 'nodes', 'badges', 'dashed', 'policy', 'arrows'];
 const PIEZAS_DIBUJADAS = ['cards', 'memory', 'tables', 'venn', 'tree'];
-const DIBUJO_DE_ESCENA = ['actors', 'props', 'icons', 'nodes', 'grids', 'sheets', 'bars', 'stats',
+const DIBUJO_DE_ESCENA = ['actors', 'props', 'nodes', 'grids', 'sheets', 'bars', 'stats',
   'formulas', 'formula', 'curves', 'paths', 'dashed', 'badges', 'callouts', 'policy', 'tags'];
+
+// Un icono sobre una caja es su adorno (#273): el kit lo lleva a una esquina de esa
+// caja y no dibuja nada que la caja no dibuje. Un icono suelto, fuera de toda caja,
+// sí es un dibujo.
+const enCaja = (icono, cajas) => cajas.some((b) => b && icono.x >= b.x && icono.x <= b.x + b.w && icono.y >= b.y && icono.y <= b.y + b.h);
+const dibujaIconos = (scene) => {
+  if (!declara(scene.icons)) return false;
+  if (!Array.isArray(scene.icons)) return true;
+  const cajas = Array.isArray(scene.boxes) ? scene.boxes : [];
+  return scene.icons.some((icono) => !enCaja(icono ?? {}, cajas));
+};
 
 // El vocabulario que dibuja una acción: lo que el paso tiene que traer. Una caja
 // con su texto no es una acción, y un recorrido de cajas no enseña nada.
@@ -16,7 +27,7 @@ const pasoDibujaAccion = (step) => {
   const stage = step?.stage || {};
   if (PIEZAS_DIBUJADAS.some((k) => declara(stage[k]))) return true;
   const scene = stage.scene || stage;
-  return VOCABULARIO.some((k) => declara(scene[k]));
+  return dibujaIconos(scene) || VOCABULARIO.some((k) => k !== 'icons' && declara(scene[k]));
 };
 
 export default {
@@ -25,7 +36,7 @@ export default {
     const soloCajas = historiasSpecs.filter((spec) => (spec.steps || []).length > 0 && (spec.steps || []).every((step) => !pasoDibujaAccion(step)));
     const escenasDeCajas = escenasSpecs.filter((spec) => {
       const scene = spec.scene || {};
-      if (DIBUJO_DE_ESCENA.some((k) => declara(scene[k]))) return false;
+      if (DIBUJO_DE_ESCENA.some((k) => declara(scene[k])) || dibujaIconos(scene)) return false;
       return declara(scene.boxes) || declara(scene.arrows);
     });
     return {
