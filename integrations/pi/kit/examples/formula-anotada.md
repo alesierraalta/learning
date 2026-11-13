@@ -1,5 +1,12 @@
 # La fórmula anotada
 
+Imagina la fórmula de la densidad, con sus cinco símbolos.
+
+**Callout**
+Es la etiqueta numerada que señala un símbolo.
+
+Antes, la fórmula era una sola línea. Después, cada símbolo lleva su número.
+
 Una fórmula se dibuja símbolo por símbolo. Cada símbolo lleva un callout numerado, y cada
 número tiene su línea de `labels` que dice qué es.
 
@@ -21,6 +28,9 @@ número tiene su línea de `labels` que dice qué es.
 
 Cómo leerlo: sigue el número de cada símbolo hasta su línea. Los dos factores del producto
 son el ⑤ y el ⑥.
+
+**Renglón**
+Es cada línea de una cuenta.
 
 La misma fórmula, cuando la parte la opera, va con `<lk-math>` y su cuenta renglón a renglón.
 Nunca se escribe dos veces la misma fórmula.

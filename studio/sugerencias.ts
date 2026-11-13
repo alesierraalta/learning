@@ -18,14 +18,15 @@ import { readPreferences, savePreferences } from "./preferences.ts";
 
 /** The vocabulary the reader offers. Each chip moves the preferences one level. */
 export const motivos = [
-  { id: "demasiado-texto", texto: "Demasiado texto", ajustes: { texto: -1 } },
+  // «Demasiado texto» sube la sencillez: «más» es el nivel más sencillo, así que el chip sube (§7 dice «bajar»).
+  { id: "demasiado-texto", texto: "Demasiado texto", ajustes: { texto: -1, sencillez: 1 } },
   { id: "faltan-ejemplos", texto: "Faltan ejemplos", ajustes: { ejemplos: 1 } },
   { id: "faltan-visuales", texto: "Faltan visuales", ajustes: { visuales: 1 } },
   { id: "muy-abstracto", texto: "Muy abstracto", ajustes: { analogias: 1 } },
   { id: "matematicas-confusas", texto: "Matemáticas confusas", ajustes: { matematicas: -1, pasos: 1 } },
-  { id: "sin-paso-a-paso", texto: "Sin paso a paso", ajustes: { pasos: 1 } },
+  { id: "sin-paso-a-paso", texto: "Sin paso a paso", ajustes: { pasos: 1, sencillez: 1 } },
   { id: "sobran-preguntas", texto: "Sobran preguntas", ajustes: { preguntas: -1 } },
-  { id: "no-entendi", texto: "No entendí una idea", ajustes: {} },
+  { id: "no-entendi", texto: "No entendí una idea", ajustes: { tecnicidad: 1 } },
 ] as const;
 
 /** A level is a string here: the preferences file is read from disk, not only from this module. */

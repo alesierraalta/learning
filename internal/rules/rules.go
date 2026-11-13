@@ -285,6 +285,104 @@ type PartStandardThresholds struct {
 	// draws, and it teaches the tutor the wrong schema. False means the rule is
 	// not declared, so a frozen snapshot keeps accepting the parts it accepted.
 	DeadKeys bool `json:"deadKeys,omitempty"`
+	// Register is the prose register the part must keep (the learner's two axes,
+	// sencillez and tecnicidad, at their default «más»). A nil block declares
+	// nothing, so a frozen snapshot keeps accepting the parts it accepted.
+	Register *RegisterThresholds `json:"register,omitempty"`
+}
+
+// RegisterThresholds is the prose register as one table: each measure of the
+// learner's two axes (sencillez and tecnicidad) at each level (menos, medio, más).
+// The table lives in rules/deep.json, where the engine and `tools/register/niveles.mjs`
+// (explain-check) read the same numbers. A nil block declares nothing, so a frozen
+// snapshot keeps accepting the parts it accepted.
+type RegisterThresholds struct {
+	// Levels is axis → measure → level → value. The default level is the reference.
+	Levels map[string]map[string]map[string]float64 `json:"levels"`
+}
+
+// RegisterDefaultLevel is the level a learner has when no preferences say otherwise.
+const RegisterDefaultLevel = "más"
+
+// RegisterLevels are the three levels of each axis, from the most permissive to the strictest.
+var RegisterLevels = []string{"menos", "medio", RegisterDefaultLevel}
+
+// registerMeasures are the measures the table must carry, per axis.
+var registerMeasures = map[string][]string{
+	"sencillez":  {"frasesMedia", "frasesP90", "contraste", "pasos", "racha", "escenaAntes"},
+	"tecnicidad": {"explicado", "negritas"},
+}
+
+// RegisterLimits are the numbers one part is measured against, at the learner's two levels.
+type RegisterLimits struct {
+	MeanWords   float64 // sencillez: mean words per sentence (maximum)
+	P90Words    float64 // sencillez: 90th percentile of words per sentence (maximum)
+	Contrast    float64 // sencillez: before/after markers per thousand words (minimum)
+	Steps       float64 // sencillez: stepped calculation lines per thousand words (minimum)
+	Run         float64 // sencillez: the shortest stepped block (minimum)
+	EscenaAntes float64 // sencillez: share of definitions after the first example (minimum)
+	Explicado   float64 // tecnicidad: share of term uses explained in plain words (minimum)
+	Negritas    float64 // tecnicidad: bold term spans per thousand words (minimum)
+}
+
+// Limits reads the limits at the learner's levels. A level the table does not name reads the default.
+func (t RegisterThresholds) Limits(sencillez, tecnicidad string) RegisterLimits {
+	at := func(axis, measure, level string) float64 {
+		values := t.Levels[axis][measure]
+		if v, ok := values[level]; ok {
+			return v
+		}
+		return values[RegisterDefaultLevel]
+	}
+	return RegisterLimits{
+		MeanWords:   at("sencillez", "frasesMedia", sencillez),
+		P90Words:    at("sencillez", "frasesP90", sencillez),
+		Contrast:    at("sencillez", "contraste", sencillez),
+		Steps:       at("sencillez", "pasos", sencillez),
+		Run:         at("sencillez", "racha", sencillez),
+		EscenaAntes: at("sencillez", "escenaAntes", sencillez),
+		Explicado:   at("tecnicidad", "explicado", tecnicidad),
+		Negritas:    at("tecnicidad", "negritas", tecnicidad),
+	}
+}
+
+// validateRegisterTable keeps the table fail-closed: every measure of both axes at every level, and no
+// negative number. A table without them would leave the engine no number to measure a part against.
+func validateRegisterTable(reg *RegisterThresholds) error {
+	if reg == nil {
+		return nil
+	}
+	if len(reg.Levels) != len(registerMeasures) {
+		return fmt.Errorf("register.levels must name exactly the axes sencillez and tecnicidad")
+	}
+	for axis, measures := range registerMeasures {
+		table, ok := reg.Levels[axis]
+		if !ok {
+			return fmt.Errorf("register.levels has no %q axis", axis)
+		}
+		if len(table) != len(measures) {
+			return fmt.Errorf("register.levels.%s must name exactly %v", axis, measures)
+		}
+		for _, measure := range measures {
+			values, ok := table[measure]
+			if !ok {
+				return fmt.Errorf("register.levels.%s has no %q", axis, measure)
+			}
+			for _, level := range RegisterLevels {
+				v, ok := values[level]
+				if !ok {
+					return fmt.Errorf("register.levels.%s.%s has no level %q", axis, measure, level)
+				}
+				if v < 0 {
+					return fmt.Errorf("register.levels.%s.%s.%s is negative", axis, measure, level)
+				}
+			}
+			if len(values) != len(RegisterLevels) {
+				return fmt.Errorf("register.levels.%s.%s names a level outside %v", axis, measure, RegisterLevels)
+			}
+		}
+	}
+	return nil
 }
 
 // ParetoThresholds bound a pareto-scope run: only the vital slice of each
@@ -466,6 +564,11 @@ func (r *Rules) validatePartStandard() error {
 			if d.Kind == "part_standard" && !usesStandard {
 				return fmt.Errorf("stage %q check %q needs the partStandard thresholds", stage, d.ID)
 			}
+		}
+	}
+	if usesStandard {
+		if err := validateRegisterTable(r.Thresholds.PartStandard.Register); err != nil {
+			return err
 		}
 	}
 	return nil

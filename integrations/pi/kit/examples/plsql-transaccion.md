@@ -12,15 +12,24 @@ nivel: básico
 
 1. Estructura del bloque anónimo y enlace seguro con `%TYPE`.
 2. Modificación de datos con DML y buffer de sesión.
-3. Control transaccional con SAVEPOINT, ROLLBACK parcial y COMMIT.
+3. Control de la transacción con SAVEPOINT, ROLLBACK parcial y COMMIT.
 
 ## El 20% que rinde el 80%: Anatomía del bloque PL/SQL y enlace de variables
 
 Como ejemplo conductor, usamos un sistema bancario de cuentas de clientes. Transferimos fondos entre la cuenta 10 y la cuenta 20.
 
-Un bloque anónimo PL/SQL agrupa lógica procedural y sentencias SQL. Se ejecuta sin guardarse con nombre en el catálogo.
+**Bloque anónimo**
+Es un trozo de código PL/SQL. No tiene nombre y se ejecuta una vez.
 
-Consta de tres secciones: DECLARE para variables locales, BEGIN para sentencias ejecutables y EXCEPTION para capturar errores.
+**SQL**: el lenguaje para pedir y cambiar datos.
+
+En nuestro ejemplo, el bloque resta 200 de la cuenta 10.
+
+Se ejecuta sin nombre. No se guarda en el catálogo.
+
+Consta de tres secciones. DECLARE: variables locales.
+
+BEGIN: sentencias que se ejecutan. EXCEPTION: captura de errores.
 
 ```sql
 DECLARE
@@ -30,9 +39,20 @@ BEGIN
 END;
 ```
 
-El calificador `%TYPE` vincula el tipo de la variable a una columna de la tabla base. Si la columna cambia de formato, la variable se adapta automáticamente.
+**%TYPE**
+Es un calificador: copia el tipo de la columna.
 
-Las sentencias DML modifican datos en el buffer de sesión antes de confirmarse. Cada fila afectada queda protegida por un bloqueo exclusivo de transacción.
+En nuestro ejemplo, `v_saldo` copia el tipo de `saldo`. Si la columna cambia de formato, la variable se adapta sola.
+
+**DML**: las sentencias que cambian datos.
+
+**Buffer**: la memoria donde la sesión guarda los cambios sin confirmar.
+
+**Sesión**: tu conexión con la base de datos.
+
+Antes de confirmar, un DML cambia solo el buffer. Después, el COMMIT escribe en disco.
+
+Hasta confirmar, otra sesión no puede cambiar esa fila.
 
 <lk-memory>
 <script type="application/json">
@@ -47,13 +67,21 @@ Las sentencias DML modifican datos en el buffer de sesión antes de confirmarse.
 </script>
 </lk-memory>
 
-Cómo leerlo: la columna izquierda es la sesión con su variable tipada y su buffer. La columna derecha es el disco, y el paso del COMMIT es el único que lo cambia.
+Cómo leerlo: a la izquierda está la sesión. Tiene su variable y su buffer.
+
+La columna derecha es el disco. Solo el COMMIT lo cambia.
 
 ## Control transaccional fino: SAVEPOINT, reversión parcial y confirmación
 
-Una transacción agrupa operaciones que deben confirmarse o revertirse como un todo atómico.
+**Transacción**: es un grupo de cambios que se confirman o se deshacen juntos.
 
-El comando SAVEPOINT establece un marcador con nombre en el segmento de deshacer (Undo). No graba cambios en disco ni libera bloqueos.
+**SAVEPOINT**: fija un punto con nombre dentro de la transacción.
+
+Marcador: la señal con nombre que marca ese punto.
+
+No graba cambios en disco ni libera bloqueos. Lo anota en el registro de deshacer.
+
+Ese registro, llamado Undo, guarda cómo volver atrás.
 
 ```sql
 SAVEPOINT sp_debito;
@@ -64,9 +92,15 @@ END IF;
 COMMIT;
 ```
 
-La sentencia ROLLBACK TO revierte solo las modificaciones posteriores al punto fijado. El débito inicial en la cuenta 10 se conserva, mientras el crédito posterior se descarta.
+**ROLLBACK**: deshace los cambios hasta un punto fijado.
 
-La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y en disco. En ese instante se liberan los bloqueos de fila para las demás sesiones.
+La sentencia ROLLBACK TO deshace solo lo posterior al punto fijado.
+
+En nuestro ejemplo, el débito de la cuenta 10 se conserva. El crédito posterior se descarta.
+
+**COMMIT**: confirma todos los cambios pendientes y los escribe en disco.
+
+Al confirmar, se liberan los bloqueos para las demás sesiones.
 
 <lk-story>
 <script type="application/json">
@@ -555,7 +589,7 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
 </script>
 </lk-story>
 
-Cómo leerlo: el paso 1 deja las dos cuentas en reposo. Cada paso resalta su token y su ✓ o su ✗ dice qué saldo aprueba.
+Cómo leerlo: el paso 1 deja las dos cuentas en reposo. Cada paso resalta su parte; su ✓ o su ✗ dice qué saldo aprueba.
 
 ## Mini-quiz
 

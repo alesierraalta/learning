@@ -12,6 +12,9 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hallazgosDeRegistro } from './register/hallazgos.mjs';
+import { umbralesDe } from './register/niveles.mjs';
+import { preferenciasDe } from './register/preferencias.mjs';
 
 const TOOLS = dirname(fileURLToPath(import.meta.url));
 const file = process.argv[2];
@@ -476,6 +479,11 @@ add('clave-muerta', clavesMuertas.length === 0, clavesMuertas.length
   ? `el paso ${clavesMuertas[0].step} lleva \`${clavesMuertas[0].path}\`, que el esquema no lee · el escenario vive en \`stage\` y su dibujo en \`stage.scene\`; las claves del paso son ${[...CLAVES_DEL_PASO].join(', ')}`
   : '');
 
+// 9. El registro: seis reglas que separan la referencia de lo nuestro (`tools/register/`). Cada una
+// mide con el umbral del nivel que el alumno eligió en sus preferencias; sin preferencias, «más» en
+// los dos ejes, que son los valores de la referencia. Un hallazgo cita la frase y dice cómo reescribirla.
+rows.push(...hallazgosDeRegistro(src, umbralesDe(preferenciasDe(file))));
+
 // 8. Las figuras conviven: se delega en scene-lint, que abre un navegador.
 let figuras = { ok: true, detail: 'sin figuras' };
 if (escenas || recorridos) {  // `escenas` ya incluye las piezas
@@ -492,7 +500,11 @@ add('figuras', figuras.ok, figuras.detail);
 const fallan = rows.filter((r) => !r.ok);
 if (asJson) console.log(JSON.stringify({ file, rows, ok: fallan.length === 0 }, null, 1));
 else {
-  for (const r of rows) console.log(`${r.ok ? 'ok   ' : 'FALLA'} ${r.rule.padEnd(12)} ${r.detail}`);
+  for (const r of rows) {
+    console.log(`${r.ok ? 'ok   ' : 'FALLA'} ${r.rule.padEnd(12)} ${r.detail}`);
+    // Cada término o frase que falla va debajo de su regla, con la instrucción de reescritura.
+    if (!r.ok) for (const item of r.items ?? []) console.log(`  · ${item.linea}`);
+  }
   console.log(`\n${fallan.length ? `NO cumple: ${fallan.length} regla(s)` : 'cumple el estándar'} · ${file}`);
 }
 process.exit(fallan.length ? 1 : 0);

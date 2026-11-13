@@ -1,0 +1,31 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Aquí está una confusión frecuente.
+**K2 no significa que cada peso sea un entero normal de 2 bits.**
+Significa aproximadamente:
+el stream del Trellis dedica **2 bits de información por paso/peso**.
+Para EXL3, las matrices se procesan en tiles de:
+Y el propio código define para un bitrate `K`:
+Veamos por qué eso produce exactamente `K` bits/peso.
+Por tanto:
+Y el código de ExLlamaV3 incluso permite bitrates fraccionarios como `K=2.5`, alternando pasos de 2 y 3 bits. GitHub
+Porque **no todos los expertos son igual de sensibles a la cuantización**.
+Este modelo es MoE:
+DeepSeek-V4.1-Flash tiene:
+y utiliza solo un subconjunto por token. La configuración oficial confirma 384 routed experts y top-6. Hugging Face
+La estrategia es conceptualmente:
+Eso es **mixed precision**.
+No se paga K5 por todo el modelo.
+
+```cuenta
+16 × 2 = 32 palabras uint16
+32 × 16 bits = 512 bits
+512 bits / 256 pesos = 2 bits/peso
+16 × 3 = 48 palabras uint16
+48 × 16 = 768 bits
+768 / 256 = 3 bits/peso
+16 × 5 = 80 palabras uint16
+80 × 16 = 1280 bits
+1280 / 256 = 5 bits/peso
+```
+

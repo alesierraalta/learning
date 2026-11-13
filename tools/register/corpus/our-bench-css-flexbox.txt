@@ -1,0 +1,21 @@
+# fuente: /tmp/bench246/out/css-flexbox/vault/css-flexbox/explicaciones/Parte 1 - contenedor-flex-y-ejes.md
+
+1. Declaramos display: flex en el contenedor para activar el contexto flexible.
+2. Identificamos el eje principal y el eje cruzado perpendicular.
+3. Modificamos la orientación del flujo mediante la propiedad flex-direction.
+Flexbox establece un modelo unidimensional donde los elementos se ordenan sobre un eje.
+Al declarar display: flex, los hijos directos se transforman inmediatamente en flex items.
+En nuestro ejemplo, una barra de navegación contiene tres botones de menú.
+El contenedor mide 600px de ancho y aloja los ítems Inicio, Cursos y Perfil.
+**Pieza**
+El eje principal es la dirección directriz sobre la cual se colocan los ítems flexibles.
+En nuestro ejemplo: pieza = eje horizontal con `flex-direction: row`.
+Podría ser también:
+- Una barra lateral vertical configurada con `flex-direction: column`.
+- Una fila de tarjetas de producto en un catálogo de comercio electrónico.
+- Una botonera de reproducción multimedia con controles alineados.
+- Un carrusel horizontal de imágenes con desplazamiento continuo.
+La orientación del eje principal define el sentido en el que crecen los elementos.
+El eje cruzado se sitúa siempre de manera estrictamente perpendicular al eje principal.
+Observa cómo cambia la disposición de los tres botones al modificar la dirección.
+Pasar de row a column rota el eje principal noventa grados hacia la vertical.

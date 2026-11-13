@@ -1,0 +1,21 @@
+# fuente: git show origin/feat/245-icon-actors:internal/engine/testdata/tcp-parte-1-banco.md
+
+1. El cliente envía un segmento SYN para solicitar apertura y sincronizar su secuencia.
+2. El servidor responde con SYN-ACK confirmando el pedido y ofreciendo su propia secuencia.
+3. El cliente devuelve un ACK y ambos extremos transicionan a ESTABLISHED.
+El handshake de tres vías abre un canal confiable entre dos extremos antes de transferir datos.
+Cada máquina elige un número de secuencia inicial que la otra debe confirmar.
+En nuestro ejemplo, un cliente web se conecta al servidor en el puerto 80.
+El cliente inicia con `Seq = 1000` y el servidor responde con `Seq = 5000`.
+**Pieza**
+Un segmento SYN sincroniza números de secuencia sin transportar carga útil.
+En nuestro ejemplo: pieza = segmento SYN con `Seq = 1000`.
+Podría ser también:
+- Un paquete de inicio en una videollamada WebRTC.
+- La apertura de un socket hacia PostgreSQL.
+- Una conexión HTTPS desde un navegador web.
+- Una sesión SSH para administración remota.
+El intercambio evita que segmentos duplicados viejos abran conexiones fantasma.
+Al exigir que cada SYN reciba acuse, TCP verifica que ambos interlocutores están activos.
+Observa cómo fluyen los tres segmentos ordenados en el tiempo.
+Cada paquete confirma el avance del interlocutor sumando una unidad a su secuencia.

@@ -1,0 +1,243 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+1. **Qué es EXL3 y qué significa “Trellis”.**
+2. **Qué significa realmente K2 / K3 / K5.**
+3. **Por qué mezclar esos tres niveles da ≈ 2,77 bits por peso.**
+4. **Qué gana el modelo al hacer esta mezcla y qué NO significa ese 2,77.**
+El caso concreto que describes coincide con el reciente **DeepSeek-V4.1-Flash-Spark**: sus 15.360 expertos enrutados se dividen en **7.279 K2, 6.299 K3 y 1.782 K5**, y el autor reporta **2,77 bpw** para esos expertos. Hugging Face
+Imagina un modelo con cientos de miles de millones de pesos.
+En BF16, cada peso ocupa:
+Si pudiéramos llevarlo a unos:
+los pesos ocuparían aproximadamente **5,8 veces menos** espacio bruto.
+El problema es que simplemente tomar cada número y redondearlo a uno de cuatro valores de 2 bits destruye demasiada información.
+EXL3 intenta resolver precisamente eso.
+**EXL3** es un formato de cuantización *weight-only* derivado de las ideas de QTIP. En lugar de tratar cada peso independientemente, usa **trellis coded quantization**: busca buenas representaciones de **secuencias completas de pesos**. El proyecto ExLlamaV3 describe EXL3 como una variante simplificada de QTIP, aunque cambia aspectos del regularizado y del empaquetado. GitHub
+La idea inicial es:
+Pero todavía falta entender qué hay dentro de esa caja.
+Supongamos estos pesos:
+Una cuantización escalar muy simple haría conceptualmente:
+Cada peso se decide casi aisladamente.
+Trellis piensa de otra manera:
+La decisión para representar una secuencia forma **un camino por un grafo**.
+QTIP explica esta propiedad como una cuantización **stateful**: si cada estado tiene `2ᴷ` caminos posibles de salida, solamente hacen falta `K` bits para indicar qué transición se tomó. Luego se busca, mediante un algoritmo tipo Viterbi, el camino cuya secuencia reconstruida se parece más a la original. Together AI
+Esta es la imagen mental importante:
+Eso permite utilizar muy pocos bits de forma bastante más inteligente.
+Hay otro problema.
+Las matrices de un LLM contienen valores atípicos y direcciones especialmente importantes. Una cuantización agresiva sufre mucho con ellos.
+QTIP y la familia QuIP utilizan transformaciones tipo **Hadamard aleatorizada** para distribuir esa información antes de cuantizar. El resultado se parece más a una distribución suave/Gaussiana y es más fácil de comprimir eficientemente. Together AI
+Mentalmente:
+No se pierde mágicamente el outlier. Su información queda **distribuida entre muchas coordenadas**.
+EXL3 conserva vectores asociados a estas transformaciones, `suh` y `svh`, además del stream `trellis`. El código oficial acepta esos vectores en FP16 y deriva directamente `K` del ancho del tensor Trellis. GitHub
+Aquí está una confusión frecuente.
+**K2 no significa que cada peso sea un entero normal de 2 bits.**
+Significa aproximadamente:
+el stream del Trellis dedica **2 bits de información por paso/peso**.
+Para EXL3, las matrices se procesan en tiles de:
+Y el propio código define para un bitrate `K`:
+Veamos por qué eso produce exactamente `K` bits/peso.
+Por tanto:
+Y el código de ExLlamaV3 incluso permite bitrates fraccionarios como `K=2.5`, alternando pasos de 2 y 3 bits. GitHub
+Porque **no todos los expertos son igual de sensibles a la cuantización**.
+Este modelo es MoE:
+DeepSeek-V4.1-Flash tiene:
+y utiliza solo un subconjunto por token. La configuración oficial confirma 384 routed experts y top-6. Hugging Face
+La estrategia es conceptualmente:
+Eso es **mixed precision**.
+No se paga K5 por todo el modelo.
+La distribución publicada es: Hugging Face
+En porcentajes:
+Visualmente:
+Casi la mitad puede comprimirse agresivamente a K2.
+Solo aproximadamente **1 de cada 9 expertos** recibe el costoso K5.
+Ese es el truco económico de toda la mezcla.
+Ahora usamos simplemente una media ponderada.
+Cada grupo aporta:
+Dividimos por los 15.360 expertos:
+Así que el **payload Trellis puro** queda en aproximadamente:
+**2,758 bits/peso**
+No 2,77 todavía.
+Y aquí aparece un detalle interesante.
+EXL3 no almacena solamente los bits del camino Trellis.
+También necesita una pequeña cantidad de metadatos para reconstruir las matrices, principalmente los vectores relacionados con las transformaciones Hadamard/signos (`suh` y `svh`), además del identificador del codebook. El código oficial muestra explícitamente `trellis`, `suh`, `svh` y el marcador del codebook entre los componentes de una matriz EXL3. GitHub
+En este DeepSeek:
+Una proyección de experto contiene aproximadamente:
+Pero sus dos vectores Hadamard/signo tienen:
+Si están almacenados como FP16:
+Distribuidos sobre los 11.796.480 pesos:
+Por tanto:
+Redondeado:
+**≈ 2,77 bits/peso**
+Esto encaja prácticamente exactamente con el valor publicado.
+**Importante:** la tarjeta del modelo publica directamente `2.77 bpw`, pero no desarrolla esta derivación. La separación `2,758 + ~0,010` es una inferencia a partir del layout EXL3 oficial y de las dimensiones de DeepSeek; no es una fórmula que el autor haya escrito explícitamente. Hugging Face
+Ahora abramos un poco más la caja.
+Supongamos un pequeño fragmento ya transformado:
+Para un Trellis K2, cada estado tiene conceptualmente:
+transiciones posibles.
+El cuantizador considera secuencias enteras:
+Busca el camino que produzca la reconstrucción con menor error.
+Eso es radicalmente diferente a decir:
+Con Trellis, **los pesos sucesivos están codificados por un camino compartido**.
+Ese contexto adicional es una de las razones por las que puede obtener mucha calidad con tan pocos bits. QTIP fue diseñado precisamente para conseguir cuantización de dimensión muy alta sin que el codebook crezca exponencialmente como en vector quantization convencional. Together AI
+K5 proporciona:
+frente a:
+Por tanto, el buscador tiene muchas más opciones para aproximar una secuencia delicada.
+Pero tampoco significa literalmente que K5 tenga “8 veces más calidad” que K2.
+Lo que aumenta por 8 es el número de **transiciones posibles por estado**:
+La calidad final depende del peso, de la capa, del Hessiano/calibración, del codebook y del resto del modelo.
+Piensa en 15.360 fotografías que tienes que almacenar.
+Podrías guardar absolutamente todas a calidad media:
+Pero algunas fotos son casi irrelevantes y otras contienen texto pequeño crítico.
+Una asignación mejor sería:
+El presupuesto total sigue siendo aproximadamente el mismo:
+El mapeo es:
+**Dónde se rompe la analogía:** K2/K3/K5 no son niveles JPEG ni cuantización escalar. Trellis representa secuencias mediante caminos por un grafo.
+**2,77 bpw no es el promedio de todo DeepSeek-V4.1-Flash**
+Es la tasa reportada para los **routed experts del backbone**.
+En ese checkpoint, atención, shared experts, routers, Engram, DSpark/MTP, vision tower, embeddings y `lm_head` se mantienen en sus formatos originales FP8/BF16/MXFP4. Hugging Face
+Por eso sería incorrecto pensar:
+“DeepSeek-V4.1 completo está almacenado a 2,77 bits por parámetro.”
+No lo está.
+**K2 no equivale a un Q2 clásico**
+EXL3/Trellis no hace simplemente:
+Hace algo mucho más parecido a:
+Por eso comparar “EXL3 K2” y “una cuantización uniforme de 2 bits” únicamente por el número 2 puede ser engañoso.
+La forma mental más útil es: **EXL3 tiene un presupuesto de bits y Trellis decide cómo representar muy eficientemente cada secuencia; la mezcla K2/K3/K5 decide dónde merece la pena gastar ese presupuesto.**# Unidad 2: Estrategias de Aprendizaje Tabulares
+**Método tabular** = método que guarda lo aprendido explícitamente en una **tabla**.
+Imagina un robot que puede estar en tres lugares:
+- Cocina
+- Pasillo
+- Dormitorio
+Y puede hacer dos acciones:
+- Izquierda
+- Derecha
+Podríamos guardar cuánto conviene cada acción así:
+Esos números podrían representar **valores Q**: estimaciones de qué tan conveniente es realizar una acción desde un estado.
+La gran pregunta de esta unidad es:
+**¿Cómo aprendemos esos números?**
+DP, Monte Carlo y TD responden de forma diferente.
+Una idea extremadamente importante:
+**DP usa un modelo. MC y TD pueden aprender directamente de la experiencia.**
+Supón que conoces perfectamente un videojuego.
+Sabes:
+- qué estados existen;
+- qué acciones puedes realizar;
+- a qué estado puedes llegar;
+- con qué probabilidad;
+- qué recompensa obtienes.
+Por ejemplo:
+Entonces podrías calcular matemáticamente qué decisiones son mejores **sin tener que jugar miles de partidas**.
+Eso es lo que aprovecha **Dynamic Programming (DP)**.
+Un **modelo del entorno** = descripción de qué puede ocurrir después de realizar una acción.
+Normalmente incluye:
+No te preocupes todavía por la notación.
+Significa:
+Si estoy en el estado `s` y realizo la acción `a`, ¿qué probabilidad hay de llegar a `s'` y recibir recompensa `r`?
+Necesitamos dos conceptos.
+Una **política** \(\pi\) = regla que utiliza el agente para decidir qué acción realizar.
+Ejemplo:
+Una **función de valor** estima cuánto beneficio futuro puedes esperar desde un estado.
+Se lee:
+valor del estado `s` siguiendo la política π.
+Ejemplo:
+Cuanto mayor sea el valor, mejor consideramos ese estado.
+Aquí aparece una idea central de RL:
+Podemos mejorar una política calculando primero qué tan buena es.
+La **Policy Iteration** alterna dos procesos:
+1. **Policy Evaluation**
+2. **Policy Improvement**
+**Policy Evaluation** = calcular cuánto vale cada estado si continuamos usando la política actual.
+Supongamos:
+Si nuestra política dice:
+desde Cocina, ve a la derecha
+entonces Cocina probablemente tenga un valor alto.
+Bellman nos permite actualizarlo.
+Una versión simplificada sería:
+Donde:
+- \(s\) = estado actual.
+- \(s'\) = siguiente estado.
+- \(R\) = recompensa.
+- \(\gamma\) = factor de descuento.
+**Factor de descuento** = cuánto nos importan las recompensas futuras.
+Por ejemplo:
+significa que una recompensa futura vale algo menos que una inmediata.
+Ahora ya conocemos aproximadamente los valores.
+Entonces preguntamos:
+¿Existe alguna acción mejor que la que actualmente recomienda mi política?
+Ejemplo:
+Nuestra política decía:
+Pero descubrimos que derecha lleva a mejores resultados.
+La cambiamos:
+Eso es **Policy Improvement**.
+Policy Iteration separaba:
+**Value Iteration** los mezcla.
+En lugar de evaluar completamente una política y después mejorarla, pregunta directamente:
+De todas las acciones disponibles, ¿cuál parece producir el mayor valor?
+Su actualización fundamental es:
+No necesitas memorizarla todavía.
+Mira su significado:
+El `max` significa:
+toma la mejor acción disponible.
+Esta distinción es importante.
+Una forma mental de recordarlo:
+Un entrenador analiza toda la temporada del jugador y después cambia la estrategia.
+El entrenador va corrigiendo la estrategia mientras analiza el rendimiento.
+Aquí aparece una idea todavía más general.
+**GPI = Generalized Policy Iteration**.
+No es simplemente otro algoritmo.
+Es un **principio**.
+Dice que en muchos métodos de RL están ocurriendo simultáneamente dos fuerzas:
+
+```cuenta
+16 × 2 = 32 palabras uint16
+32 × 16 bits = 512 bits
+512 bits / 256 pesos = 2 bits/peso
+16 × 3 = 48 palabras uint16
+48 × 16 = 768 bits
+768 / 256 = 3 bits/peso
+16 × 5 = 80 palabras uint16
+80 × 16 = 1280 bits
+1280 / 256 = 5 bits/peso
+hidden_size            = 5120
+moe_intermediate_size  = 2304
+118.784 / 11.796.480
+≈
+0,01007 bits adicionales/peso
+K2 → 2² = 4
+K3 → 2³ = 8
+K5 → 2⁵ = 32
+EXL3
+= formato de cuantización weight-only de ExLlamaV3 basado en ideas de QTIP.
+Trellis
+= en vez de cuantizar cada peso aislado, representa una secuencia como
+un camino por un grafo y busca un buen camino con Viterbi.
+K
+= bitrate del stream Trellis.
+K2 ≈ 2 bits/peso de payload.
+K3 ≈ 3 bits/peso.
+K5 ≈ 5 bits/peso.
+DeepSeek-V4.1-Flash-Spark:
+K2: 7.279 expertos
+K3: 6.299 expertos
+K5: 1.782 expertos
+Total: 15.360
+Promedio nominal:
+(7279·2 + 6299·3 + 1782·5) / 15360
+= 2,758 bpw.
+Sumando el pequeño overhead del formato:
+≈ 2,77 bpw.
+La clave:
+no se usan 2,77 bits en todos los expertos.
+Se gastan pocos bits donde K2 basta y muchos bits donde K5 protege
+información sensible.
+Así se obtiene mejor calidad para un presupuesto medio cercano a
+2,77 bits por peso.
+P(s',r|s,a)
+V_\pi(s)
+Cocina       V = 8
+Pasillo      V = 5
+Dormitorio   V = 2
+V(s) \leftarrow R + \gamma V(s')
+\gamma=0.9
+V(s) \leftarrow \max_a \sum_{s',r} p(s',r|s,a) [R+\gamma V(s')]
+```
+

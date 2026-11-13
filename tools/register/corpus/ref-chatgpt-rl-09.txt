@@ -1,0 +1,97 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Ahora el retorno es:
+Cada recompensa futura vale menos.
+Aunque hay infinitos términos, la suma converge.
+El resultado es:
+Llamemos \(G\) a toda la suma:
+Multiplicamos todo por 0.9:
+Restamos:
+Si recibimos constantemente una recompensa \(c\):
+el retorno es:
+Sacamos \(c\):
+La serie geométrica da:
+si:
+En RL normalmente usamos:
+para este caso infinito descontado.
+Si:
+y:
+entonces:
+Tiene sentido:
+Entonces:
+y no obtenemos un número finito.
+Por eso la fórmula:
+con \(\gamma=1\) produciría:
+que no está definido.
+En tareas episódicas esto no necesariamente es un problema.
+Por ejemplo:
+Aunque:
+la suma es simplemente:
+porque el episodio termina.
+El problema aparece cuando tenemos simultáneamente:
+Es incorrecto.
+Una acción puede tener recompensa inmediata 0 y un enorme valor futuro.
+No.
+El objetivo habitual es maximizar el **retorno esperado**.
+Una pequeña pérdida ahora puede permitir una recompensa mucho mayor después.
+Es al revés.
+La recompensa inmediata no lleva descuento:
+El descuento empieza en el futuro:
+etc.
+No exactamente.
+El agente sigue considerando recompensas posteriores.
+Simplemente reciben cada vez menos peso.
+No.
+Existen métodos **model-based** y **model-free**.
+Antes simplificamos el concepto de estado.
+En un **MDP** clásico, el estado debe contener suficiente información relevante para predecir el futuro dado lo que hagamos.
+Pero un agente real podría no observar todo.
+Por ejemplo:
+Entonces tenemos una situación parcialmente observable. Más adelante esto lleva a conceptos como **POMDP**.
+También hemos utilizado el retorno descontado como formulación principal de tareas continuas. No es la única posibilidad. Otra formulación importante es el **average reward**, donde interesa la recompensa media conseguida por unidad de tiempo.
+Todo lo visto encaja así:
+Y sobre todo el sistema aparece permanentemente este conflicto:
+Profundiza en los conceptos clave
+- Comparar V(s) y Q(s,a)
+- Ver un ejemplo numérico de retorno
+
+```cuenta
+1
++ 0.9
++ 0.81
++ 0.729
++ 0.6561
++ ...
+10
+G=1+0.9+0.9^2+0.9^3+\cdots
+0.9G=0.9+0.9^2+0.9^3+\cdots
+G-0.9G=1
+0.1G=1
+G=10
+c,c,c,c,\ldots
+G=c+\gamma c+\gamma^2c+\gamma^3c+\cdots
+G=c(1+\gamma+\gamma^2+\gamma^3+\cdots)
+\boxed{G=\frac{c}{1-\gamma}}
+|\gamma|<1
+0\leq\gamma<1
+c=2
+\gamma=0.9
+G=\frac{2}{1-0.9}
+G=\frac{2}{0.1}
+\boxed{G=20}
+2
++1.8
++1.62
++1.458
++...
+=20
+G=1+1+1+1+\cdots
+\frac{c}{1-\gamma}
+\frac{c}{0}
+\gamma=1
+4
+R_{t+1}
+\gamma R_{t+2}
+\gamma^2R_{t+3}
+```
+

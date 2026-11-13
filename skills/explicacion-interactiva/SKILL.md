@@ -135,6 +135,35 @@ Activa ante cualquier petición de **entender un concepto, término o tema** («
 - **Extensive**: bundle (`quiz.md`, `planificador.md`, `explicacion.md` como índice, partes, `mis-palabras.md`, ejercicios y cuestionario final); cada parte conserva su mini-quiz y vuelco. El motor gobierna reenseñanzas y avance; al cerrar, continuar de inmediato. Ver `learning-validation.md`.
 - **Page**: single-file HTML, runtime-resolved dir (**never a hardcoded host path**), verified before SendUserFile.
 
+## Registro
+
+La regla es **técnico en el contenido, sencillo en la forma**: el término técnico se conserva, se nombra y se explica en palabras llanas donde aparece, y se ata al ejemplo que la parte ya tiene. Nunca se resuelve borrando el término.
+
+Cada término sigue cuatro pasos:
+
+1. **Se nombra** en negrita la primera vez.
+2. **Se define en palabras llanas** en la misma frase o en la siguiente: «**Estado**: es todo lo que hace falta saber para decidir.»
+3. **Se ata al ejemplo** de la parte: «En nuestro ejemplo, el estado es «sala sucia, batería 70 %».»
+4. **El ejemplo va antes** que la definición: primero se dibuja o se nombra («Imagina un robot aspirador en la sala») y después se define.
+
+La forma es sencilla: frases de 8 palabras de media como mucho (13 en el percentil 90), una idea por línea, al menos cuatro marcadores de contraste por cada mil palabras («antes», «después», «en cambio»), y cada cuenta renglón a renglón, nunca dentro de una frase.
+
+`explain-check` mide esto con seis reglas, y cada hallazgo cita la frase que falla y dice cómo reescribirla: `termino-sin-explicar`, `frases-largas`, `sin-negritas`, `sin-escena-antes`, `sin-contraste` y `cuentas-sin-pasos`. Los umbrales siguen las preferencias de la persona, «qué tan simple» (sencillez) y «qué tan técnico» (tecnicidad), en «menos», «medio» o «más»; «más» en los dos es el defecto.
+
+Tres pares reales de la parte de PL/SQL (antes → después):
+
+**1. El buffer.** Antes: «Las sentencias DML modifican datos en el buffer de sesión antes de confirmarse.»
+
+Después: «Cuando ejecutas un DML, los datos no van al disco: van al buffer de sesión. El buffer de sesión es la zona de memoria donde tu sesión guarda los cambios sin confirmar. En nuestro ejemplo, el débito de 200 deja el saldo nuevo solo en ese buffer; la tabla en disco todavía dice 1000.»
+
+**2. Una tupla huérfana.** Antes: «El motor relacional intercepta y rechaza tuplas huérfanas antes de persistir cambios.»
+
+Después: «Una tupla huérfana es una fila que apunta a otra que no existe. El motor la detecta y rechaza la inserción: el cambio nunca llega al disco. En nuestro ejemplo, el empleado 999 apunta al departamento 50, que no está en la tabla, y la fila no entra.»
+
+**3. Una sesión.** Antes: «La sesión en memoria ejecuta el bloque procedural y retiene los cambios antes de confirmarlos en disco.»
+
+Después: «El bloque se ejecuta dentro de tu sesión. La sesión es tu espacio de trabajo privado: ahí viven los cambios que todavía no has confirmado. En nuestro ejemplo, tras el UPDATE la sesión ve 800 en la cuenta 10, pero el disco sigue en 1000 hasta el COMMIT.»
+
 ## References
 
 - `references/pareto.md` — ley de Pareto: cómo se pregunta, cómo se elige el 20%, qué se recorta y qué nunca, forma del `plan.json` en scope pareto y de la nota rápida.

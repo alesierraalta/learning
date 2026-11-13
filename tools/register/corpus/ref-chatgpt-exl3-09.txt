@@ -1,0 +1,40 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Necesitamos dos conceptos.
+Una **política** \(\pi\) = regla que utiliza el agente para decidir qué acción realizar.
+Ejemplo:
+Una **función de valor** estima cuánto beneficio futuro puedes esperar desde un estado.
+Se lee:
+valor del estado `s` siguiendo la política π.
+Ejemplo:
+Cuanto mayor sea el valor, mejor consideramos ese estado.
+Aquí aparece una idea central de RL:
+Podemos mejorar una política calculando primero qué tan buena es.
+La **Policy Iteration** alterna dos procesos:
+1. **Policy Evaluation**
+2. **Policy Improvement**
+**Policy Evaluation** = calcular cuánto vale cada estado si continuamos usando la política actual.
+Supongamos:
+Si nuestra política dice:
+desde Cocina, ve a la derecha
+entonces Cocina probablemente tenga un valor alto.
+Bellman nos permite actualizarlo.
+Una versión simplificada sería:
+Donde:
+- \(s\) = estado actual.
+- \(s'\) = siguiente estado.
+- \(R\) = recompensa.
+- \(\gamma\) = factor de descuento.
+**Factor de descuento** = cuánto nos importan las recompensas futuras.
+Por ejemplo:
+significa que una recompensa futura vale algo menos que una inmediata.
+
+```cuenta
+V_\pi(s)
+Cocina       V = 8
+Pasillo      V = 5
+Dormitorio   V = 2
+V(s) \leftarrow R + \gamma V(s')
+\gamma=0.9
+```
+

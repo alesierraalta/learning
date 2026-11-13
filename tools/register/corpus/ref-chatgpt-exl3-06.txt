@@ -1,0 +1,22 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+K5 proporciona:
+frente a:
+Por tanto, el buscador tiene muchas más opciones para aproximar una secuencia delicada.
+Pero tampoco significa literalmente que K5 tenga “8 veces más calidad” que K2.
+Lo que aumenta por 8 es el número de **transiciones posibles por estado**:
+La calidad final depende del peso, de la capa, del Hessiano/calibración, del codebook y del resto del modelo.
+Piensa en 15.360 fotografías que tienes que almacenar.
+Podrías guardar absolutamente todas a calidad media:
+Pero algunas fotos son casi irrelevantes y otras contienen texto pequeño crítico.
+Una asignación mejor sería:
+El presupuesto total sigue siendo aproximadamente el mismo:
+El mapeo es:
+**Dónde se rompe la analogía:** K2/K3/K5 no son niveles JPEG ni cuantización escalar. Trellis representa secuencias mediante caminos por un grafo.
+
+```cuenta
+K2 → 2² = 4
+K3 → 2³ = 8
+K5 → 2⁵ = 32
+```
+

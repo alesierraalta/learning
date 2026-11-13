@@ -6,6 +6,13 @@
 2. Cada símbolo: qué es y para qué se usa.
 3. El ejemplo de latencia, con sus números.
 
+Imagina la latencia de una petición en un servidor.
+
+**Densidad gaussiana**
+Es la altura de la campana en cada punto.
+
+Antes, la fórmula parecía un símbolo raro. Después, cada símbolo tiene su paso.
+
 Una fórmula se recorre paso a paso. Primero entera.
 
 Después, un símbolo por paso. Al final, con los números del ejemplo.

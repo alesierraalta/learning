@@ -60,12 +60,18 @@ const CUMPLE = `# Parte 1
 
 ## 1. El estado
 
-El estado es lo que hace falta saber para decidir.
+Imagina un robot aspirador en la sala.
 
 ${ESCENA}
+**Estado**: es todo lo que hace falta saber para decidir.
+
+Antes, el robot sabía poco. Ahora sabe que la sala está sucia.
+
 ## 2. La acción
 
-La acción es lo que el agente puede hacer.
+**Acción**: es lo que el robot puede hacer.
+
+Antes de aspirar, la batería está al 70 %. Después de aspirar, baja al 68 %.
 
 ${HISTORIA}
 
@@ -169,8 +175,8 @@ test('una viñeta con tres frases es un párrafo muro', () => {
 
 // «Las partes de matemáticas deben indicar qué es cada elemento» y «dices c/(1−γ)
 // pero no lo habías nombrado antes»: una fórmula sin su leyenda de símbolos es un muro.
-const CON_FORMULA = CUMPLE.replace('El estado es lo que hace falta saber para decidir.',
-  'El valor se escribe así:\n\n<lk-math>Q(s,a) = c/(1-\\gamma)</lk-math>\n');
+const CON_FORMULA = CUMPLE.replace('**Estado**: es todo lo que hace falta saber para decidir.',
+  '**Estado**: es todo lo que hace falta saber para decidir.\n\nEl valor se escribe así:\n\n<lk-math>Q(s,a) = c/(1-\\gamma)</lk-math>\n');
 
 test('una fórmula con su leyenda de símbolos pasa', () => {
   const f = join(dir, 'formula-con-leyenda.md');
@@ -216,6 +222,12 @@ const CON_VIVA = `# Parte 1
 
 ## 1. La densidad
 
+Imagina una campana de valores.
+
+**Densidad**: es la forma de la campana.
+
+Antes de calcularla, la curva parece plana. Después, con la fórmula, se ve el pico.
+
 La densidad se escribe así:
 
 <lk-math>${VIVA}</lk-math>
@@ -253,7 +265,7 @@ test('la misma fórmula pasa cuando su leyenda nombra sus cuatro símbolos', () 
 // sabe cuál de los párrafos partir.
 test('el rechazo de párrafos cita el primer muro', () => {
   const f = join(dir, 'muro-citado.md');
-  writeFileSync(f, CUMPLE.replace('El estado es lo que hace falta saber para decidir.', 'Una. Dos. Tres.'));
+  writeFileSync(f, CUMPLE.replace('**Estado**: es todo lo que hace falta saber para decidir.', 'Una. Dos. Tres.'));
   const r = run(f);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALLA parrafos/);
@@ -307,8 +319,8 @@ test('una fórmula anotada con un símbolo sin callout falla la leyenda', () => 
 
 // La fórmula en LaTeX plano se lee igual, y el arreglo es la escena anotada;
 // <lk-math> queda para una cuenta.
-const PLANA = CUMPLE.replace('El estado es lo que hace falta saber para decidir.',
-  'El valor se escribe así:\n\n$$Q(s,a) = c/(1-\\gamma)$$');
+const PLANA = CUMPLE.replace('**Estado**: es todo lo que hace falta saber para decidir.',
+  '**Estado**: es todo lo que hace falta saber para decidir.\n\nEl valor se escribe así:\n\n$$Q(s,a) = c/(1-\\gamma)$$');
 
 test('una fórmula en LaTeX plano sin leyenda falla y nombra la escena anotada', () => {
   const f = join(dir, 'formula-plana.md');
@@ -743,8 +755,8 @@ test('una etiqueta de escena con flechas de texto es un hallazgo', () => {
 // La prosa también: la regla de ASCII cubre ahora las flechas de texto.
 test('una flecha de texto en la prosa falla el ascii', () => {
   const file = join(dir, 'prosa-con-flechas.md');
-  writeFileSync(file, CUMPLE.replace('El estado es lo que hace falta saber para decidir.',
-    'El flujo es Cliente ---> Servidor y vuelve.'));
+  writeFileSync(file, CUMPLE.replace('**Estado**: es todo lo que hace falta saber para decidir.',
+    '**Estado**: es todo lo que hace falta saber para decidir.\n\nEl flujo es Cliente ---> Servidor y vuelve.'));
   const r = run(file);
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /FALLA ascii/);

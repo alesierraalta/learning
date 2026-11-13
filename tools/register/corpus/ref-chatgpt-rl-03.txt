@@ -1,0 +1,41 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Supongamos:
+El robot selecciona:
+El entorno responde:
+Visualmente:
+Este ciclo se repite:
+Ese bucle es el corazón del RL.
+Aquí hay una diferencia fundamental.
+Al modelo se le muestran ejemplos donde ya conocemos la respuesta correcta.
+Por ejemplo:
+El modelo intenta aprender:
+Hay una especie de profesor que dice:
+Para esta entrada, la respuesta correcta era esta.
+Aquí no existen etiquetas correctas.
+Podríamos darle al modelo miles de imágenes de habitaciones.
+El algoritmo podría descubrir grupos:
+Nadie le dijo cuáles eran esos grupos.
+El algoritmo descubre **estructura en los datos**.
+Al robot normalmente nadie le proporciona:
+En lugar de eso recibe consecuencias:
+Tiene que descubrir qué comportamiento produce mejores resultados acumulados.
+La diferencia mental importante es:
+Ahora podemos separar cuatro conceptos que suelen confundirse.
+
+```cuenta
+recompensa = +10
+nuevo estado:
+posición = sala
+sala = limpia
+batería = 68 %
+foto 1 → "habitación sucia"
+foto 2 → "habitación limpia"
+foto 3 → "habitación sucia"
+estado 1 → acción correcta = aspirar
+estado 2 → acción correcta = girar
+estado 3 → acción correcta = cargar
+hizo X → recompensa +10
+hizo Y → recompensa -5
+```
+

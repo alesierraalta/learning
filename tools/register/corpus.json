@@ -1,0 +1,244 @@
+{
+  "texts": [
+    {
+      "id": "aprenderust-funciones",
+      "corpus": "ref2",
+      "file": "corpus/ref2-aprenderust-funciones.txt"
+    },
+    {
+      "id": "aprenderust-ownership",
+      "corpus": "ref2",
+      "file": "corpus/ref2-aprenderust-ownership.txt"
+    },
+    {
+      "id": "aprenderust-referencias-y-prestamos",
+      "corpus": "ref2",
+      "file": "corpus/ref2-aprenderust-referencias-y-prestamos.txt"
+    },
+    {
+      "id": "aprenderust-structs",
+      "corpus": "ref2",
+      "file": "corpus/ref2-aprenderust-structs.txt"
+    },
+    {
+      "id": "aprenderust-tipos-de-datos",
+      "corpus": "ref2",
+      "file": "corpus/ref2-aprenderust-tipos-de-datos.txt"
+    },
+    {
+      "id": "aprenderust-variables-y-mutabilidad",
+      "corpus": "ref2",
+      "file": "corpus/ref2-aprenderust-variables-y-mutabilidad.txt"
+    },
+    {
+      "id": "chatgpt-exl3",
+      "corpus": "ref-exl3-whole",
+      "file": "corpus/ref-chatgpt-exl3.txt"
+    },
+    {
+      "id": "chatgpt-exl3-01",
+      "corpus": "ref-exl3",
+      "file": "corpus/ref-chatgpt-exl3-01.txt"
+    },
+    {
+      "id": "chatgpt-exl3-02",
+      "corpus": "ref-exl3",
+      "file": "corpus/ref-chatgpt-exl3-02.txt"
+    },
+    {
+      "id": "chatgpt-exl3-03",
+      "corpus": "ref-exl3",
+      "file": "corpus/ref-chatgpt-exl3-03.txt"
+    },
+    {
+      "id": "chatgpt-exl3-04",
+      "corpus": "ref-exl3",
+      "file": "corpus/ref-chatgpt-exl3-04.txt"
+    },
+    {
+      "id": "chatgpt-exl3-05",
+      "corpus": "ref-exl3",
+      "file": "corpus/ref-chatgpt-exl3-05.txt"
+    },
+    {
+      "id": "chatgpt-exl3-06",
+      "corpus": "ref-exl3",
+      "file": "corpus/ref-chatgpt-exl3-06.txt"
+    },
+    {
+      "id": "chatgpt-exl3-07",
+      "corpus": "ref-exl3",
+      "file": "corpus/ref-chatgpt-exl3-07.txt"
+    },
+    {
+      "id": "chatgpt-exl3-08",
+      "corpus": "ref-exl3",
+      "file": "corpus/ref-chatgpt-exl3-08.txt"
+    },
+    {
+      "id": "chatgpt-exl3-09",
+      "corpus": "ref-exl3",
+      "file": "corpus/ref-chatgpt-exl3-09.txt"
+    },
+    {
+      "id": "chatgpt-exl3-10",
+      "corpus": "ref-exl3",
+      "file": "corpus/ref-chatgpt-exl3-10.txt"
+    },
+    {
+      "id": "chatgpt-rl",
+      "corpus": "ref-whole",
+      "file": "corpus/ref-chatgpt-rl.txt"
+    },
+    {
+      "id": "chatgpt-rl-01",
+      "corpus": "ref",
+      "file": "corpus/ref-chatgpt-rl-01.txt"
+    },
+    {
+      "id": "chatgpt-rl-02",
+      "corpus": "ref",
+      "file": "corpus/ref-chatgpt-rl-02.txt"
+    },
+    {
+      "id": "chatgpt-rl-03",
+      "corpus": "ref",
+      "file": "corpus/ref-chatgpt-rl-03.txt"
+    },
+    {
+      "id": "chatgpt-rl-04",
+      "corpus": "ref",
+      "file": "corpus/ref-chatgpt-rl-04.txt"
+    },
+    {
+      "id": "chatgpt-rl-05",
+      "corpus": "ref",
+      "file": "corpus/ref-chatgpt-rl-05.txt"
+    },
+    {
+      "id": "chatgpt-rl-06",
+      "corpus": "ref",
+      "file": "corpus/ref-chatgpt-rl-06.txt"
+    },
+    {
+      "id": "chatgpt-rl-07",
+      "corpus": "ref",
+      "file": "corpus/ref-chatgpt-rl-07.txt"
+    },
+    {
+      "id": "chatgpt-rl-08",
+      "corpus": "ref",
+      "file": "corpus/ref-chatgpt-rl-08.txt"
+    },
+    {
+      "id": "chatgpt-rl-09",
+      "corpus": "ref",
+      "file": "corpus/ref-chatgpt-rl-09.txt"
+    },
+    {
+      "id": "bench-bayes-theorem",
+      "corpus": "our",
+      "file": "corpus/our-bench-bayes-theorem.txt"
+    },
+    {
+      "id": "bench-css-flexbox",
+      "corpus": "our",
+      "file": "corpus/our-bench-css-flexbox.txt"
+    },
+    {
+      "id": "bench-git-branching",
+      "corpus": "our",
+      "file": "corpus/our-bench-git-branching.txt"
+    },
+    {
+      "id": "bench-rust-borrowing",
+      "corpus": "our",
+      "file": "corpus/our-bench-rust-borrowing.txt"
+    },
+    {
+      "id": "bench-tcp-handshake",
+      "corpus": "our",
+      "file": "corpus/our-bench-tcp-handshake.txt"
+    },
+    {
+      "id": "kit-curva-gaussiana",
+      "corpus": "our",
+      "file": "corpus/our-kit-curva-gaussiana.txt"
+    },
+    {
+      "id": "kit-derivacion-x",
+      "corpus": "our",
+      "file": "corpus/our-kit-derivacion-x.txt"
+    },
+    {
+      "id": "kit-formula-anotada",
+      "corpus": "our",
+      "file": "corpus/our-kit-formula-anotada.txt"
+    },
+    {
+      "id": "kit-formula-gaussiana",
+      "corpus": "our",
+      "file": "corpus/our-kit-formula-gaussiana.txt"
+    },
+    {
+      "id": "kit-memoria-string-rust",
+      "corpus": "our",
+      "file": "corpus/our-kit-memoria-string-rust.txt"
+    },
+    {
+      "id": "kit-plsql-transaccion",
+      "corpus": "our",
+      "file": "corpus/our-kit-plsql-transaccion.txt"
+    },
+    {
+      "id": "kit-prestamos-rust",
+      "corpus": "our",
+      "file": "corpus/our-kit-prestamos-rust.txt"
+    },
+    {
+      "id": "kit-propiedad-rust",
+      "corpus": "our",
+      "file": "corpus/our-kit-propiedad-rust.txt"
+    },
+    {
+      "id": "kit-sql-group-by",
+      "corpus": "our",
+      "file": "corpus/our-kit-sql-group-by.txt"
+    },
+    {
+      "id": "kit-sql-join-videojuegos",
+      "corpus": "our",
+      "file": "corpus/our-kit-sql-join-videojuegos.txt"
+    },
+    {
+      "id": "kit-sql-venn-joins",
+      "corpus": "our",
+      "file": "corpus/our-kit-sql-venn-joins.txt"
+    },
+    {
+      "id": "plsql-parte-1",
+      "corpus": "our",
+      "file": "corpus/our-plsql-parte-1.txt"
+    },
+    {
+      "id": "plsql-parte-1-actores",
+      "corpus": "our",
+      "file": "corpus/our-plsql-parte-1-actores.txt"
+    },
+    {
+      "id": "proof-part",
+      "corpus": "our",
+      "file": "corpus/our-proof-part.txt"
+    },
+    {
+      "id": "sql-parte-1",
+      "corpus": "our",
+      "file": "corpus/our-sql-parte-1.txt"
+    },
+    {
+      "id": "tcp-parte-1-banco",
+      "corpus": "our",
+      "file": "corpus/our-tcp-parte-1-banco.txt"
+    }
+  ]
+}

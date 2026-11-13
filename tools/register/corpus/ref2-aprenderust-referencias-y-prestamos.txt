@@ -1,0 +1,43 @@
+# fuente: https://aprenderust.dev/referencias-y-prestamos
+
+Con &s prestas el valor sin darlo: r1 puede leer el texto, pero la dueña sigue siendo s.
+Las referencias & son de solo lectura, así que puede haber todas las que quieras a la vez.
+Con &mut el préstamo permite modificar, pero es exclusivo: solo uno a la vez y sin & activas.
+Si mezclas & y &mut a la vez, el borrow checker lo detecta y el código no compila.
+En la lección anterior viste que pasar un String a una función lo mueve y que, para recuperarlo, la función tenía que devolverlo. Es como si, para dejarle un libro a alguien, tuvieras que regalárselo y pedirle que te lo regale de vuelta.
+Las referencias resuelven esto: permiten usar un valor sin tomar su propiedad. Crear una referencia se llama tomar prestado (borrowing), y el compilador vigila que todos los préstamos sean seguros.
+Fíjate en los dos &:
+&s1 crea una referencia a s1: un puntero que apunta al valor sin ser su dueño.
+&String en la firma indica que el parámetro es una referencia a un String.
+Como calcular_longitud no es dueña del texto, al terminar no lo libera. La propiedad nunca cambia de manos y s1 sigue siendo válida en main.
+Analogía: Prestar es como dejar un libro: la otra persona puede leerlo, pero sigue siendo tuyo y te lo devuelve al terminar.
+Igual que las variables, una referencia normal no permite modificar el valor al que apunta:
+Para prestar un valor y permitir que lo modifiquen, usa una referencia mutable, &mut. Es justo lo que te sugería el help: del error:
+Necesitas mut en tres sitios: en la variable (let mut s), al prestarla (&mut s) y en el tipo del parámetro (&mut String). Así, con solo leer la llamada ya sabes que la función puede cambiar tu valor.
+Con números, para cambiar el valor al que apunta la referencia tienes que desreferenciarla con el operador *:
+Con métodos como push_str o len no hace falta: al usar el punto, Rust desreferencia por ti.
+En cada momento, para un mismo valor puedes tener:
+una referencia mutable (&mut), o bien
+cualquier número de referencias inmutables (&),
+pero nunca las dos cosas a la vez.
+Además, una referencia siempre tiene que ser válida: no puede apuntar a un valor que ya no existe.
+Piensa en un documento compartido: muchas personas pueden leerlo a la vez, pero si alguien lo está editando, nadie más debería tocarlo ni leer una versión a medias. Con estas reglas, Rust evita al compilar las carreras de datos (data races), uno de los errores más difíciles de depurar.
+Dos referencias mutables al mismo valor no compilan:
+Y mezclar una referencia inmutable con una mutable, tampoco:
+Quien tiene r1 espera que el texto no cambie mientras lo usa. Si r2 pudiera modificarlo, r1 se encontraría datos inesperados.
+La parte del compilador que comprueba estas reglas se llama borrow checker (comprobador de préstamos). Al principio te parecerá muy estricto, pero cada error que te muestra es un fallo que en C o C++ podría haber llegado a producción. En Rust, si compila, esos errores de memoria no existen.
+Un préstamo no dura hasta el final del bloque, sino hasta la última vez que se usa la referencia. Esto se conoce como non-lexical lifetimes (NLL) y hace que este código sea correcto:
+Muchas veces, para arreglar un error del borrow checker basta con reordenar el código para que los préstamos no se solapen.
+Una referencia colgante (dangling reference) apunta a memoria que ya se ha liberado. En C es un error clásico. En Rust, el compilador no te deja crearla:
+s se crea dentro de la función y se libera al terminar, así que la referencia apuntaría a la nada. El error habla de lifetimes, que verás más adelante en el curso. La solución aquí es devolver el String directamente para mover su propiedad a quien llama:
+Consejo: Por defecto, haz que tus funciones reciban referencias (&T). Pide &mut T solo si necesitan modificar el valor, y toma la propiedad (T) solo si la función tiene que quedarse con él.
+Hora de practicar
+0/4 resueltos
+1
+2
+3
+4
+Reto 1 de 4 Resuelto
+Al ejecutar, unos tests ocultos comprueban tus funciones.
+Solución · solo lectura
+Pulsa Ejecutar para compilar y ver aquí la salida de tu programa.

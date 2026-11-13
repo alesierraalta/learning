@@ -6,7 +6,16 @@
 2. JOIN une cada fila con la fila que tiene el mismo id.
 3. El resultado trae las columnas de las dos tablas.
 
-Dos tablas se relacionan por una columna que tienen en común. Mira qué fila encuentra cada videojuego.
+Imagina dos tablas: los videojuegos y sus desarrolladoras.
+
+**JOIN**
+Es la orden que une dos tablas. Lo hace por una columna común.
+
+Antes, cada videojuego estaba solo en su tabla. Después, lleva el nombre de su desarrolladora.
+
+En nuestro ejemplo, «Portal 2» tiene el id 7. Encuentra a Valve.
+
+Mira qué fila encuentra cada videojuego.
 
 <lk-story>
 <script type="application/json">

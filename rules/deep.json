@@ -139,7 +139,23 @@
       "sceneStage": true,
       "storyMotion": true,
       "arrowFlows": true,
-      "deadKeys": true
+      "deadKeys": true,
+      "register": {
+        "levels": {
+          "sencillez": {
+            "frasesMedia": {"menos": 14, "medio": 11, "más": 8},
+            "frasesP90": {"menos": 20, "medio": 16, "más": 13},
+            "contraste": {"menos": 2, "medio": 3, "más": 4},
+            "pasos": {"menos": 1, "medio": 6, "más": 12},
+            "racha": {"menos": 1, "medio": 2, "más": 3},
+            "escenaAntes": {"menos": 0, "medio": 0.7, "más": 1}
+          },
+          "tecnicidad": {
+            "explicado": {"menos": 0.2, "medio": 0.35, "más": 0.5},
+            "negritas": {"menos": 1, "medio": 3, "más": 5}
+          }
+        }
+      }
     },
     "pareto": {
       "maxParts": 4,

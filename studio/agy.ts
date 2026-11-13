@@ -34,6 +34,7 @@ const STUDIO_CONTRACT = [
   "«Aprender algo nuevo» se ofrece solo cuando la persona pide estudiar un tema nuevo entero («quiero aprender X», «enséñame un tema nuevo»): ahí, una sola línea que la lleve a esa entrada y nada creado.",
   "No elijas por ella el modo (rápido o universitario) ni se lo preguntes: se elige en «Aprender algo nuevo», antes de que el turno exista.",
   "El recorrido de una parte nueva se escribe con el lenguaje de historia —<lk-story> (actores con estado, movimientos y marcas) o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>—; una escena, un SVG o el <lk-walkthrough> clásico no cuentan: el motor rechaza la parte que no trae historia ni pieza. Ver la skill explicacion-interactiva, «Forma de parte» regla 4.",
+  "Registro: técnico en el contenido, sencillo en la forma. Cada término se nombra, se explica en palabras llanas donde aparece y se ata al ejemplo; frases cortas, una idea por línea, un antes y un después, y la cuenta renglón a renglón. El checador mide esto con explain-check (reglas de registro). Ver la skill explicacion-interactiva, «Registro».",
   "Reply in neutral Spanish with tú, never voseo (escribe, responde, mira; never escribí, respondé, mirá, acá).",
 ].join("\n");
 

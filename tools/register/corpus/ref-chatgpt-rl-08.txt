@@ -1,0 +1,46 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Entonces:
+El agente solo se preocupa por la siguiente recompensa.
+Es extremadamente cortoplacista.
+El futuro importa, pero pierde peso rápidamente.
+El futuro importa bastante.
+Las recompensas lejanas conservan mucho peso.
+Por tanto:
+cuanto más cerca está γ de 1, más largo es el horizonte temporal considerado.
+[SIMPLIFICADO: a veces se usa \(1/(1-\gamma)\) como intuición del "horizonte efectivo", pero no es un punto exacto donde el agente deje de mirar.]
+Por ejemplo:
+Un agente racional en RL no busca necesariamente:
+Busca:
+Por eso:
+puede ser mejor que:
+si cargar permite conseguir:
+posteriormente.
+Esta es una de las ideas más importantes de todo RL.
+Esta parte parece rara hasta que ponemos números.
+Supongamos una tarea continua donde obtenemos:
+en cada paso para siempre.
+Entonces:
+Sin descuento, la suma nunca termina:
+Esto es problemático si queremos asignar un valor finito al estado.
+
+```cuenta
+G_t=R_{t+1}
+ahora       1.000
++1 paso     0.500
++2 pasos    0.250
++3 pasos    0.125
+ahora       1.000
++1 paso     0.900
++2 pasos    0.810
++3 pasos    0.729
+ahora       1.000
++1 paso     0.990
++10 pasos   ≈0.904
++100 pasos  ≈0.366
+γ = 0.90 → ≈ 10 pasos
+γ = 0.99 → ≈ 100 pasos
+γ = 0.999 → ≈ 1000 pasos
+\infty
+```
+

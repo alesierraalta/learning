@@ -1,0 +1,21 @@
+# fuente: /tmp/bench246/out/bayes-theorem/vault/teorema-de-bayes/explicaciones/Parte 1 - probabilidad-condicional-y-producto.md
+
+1. Restringimos el espacio muestral al subconjunto determinado por la condición dada.
+2. Definimos la probabilidad condicional como proporción de la intersección sobre la condición.
+3. Obtenemos la regla del producto para calcular la probabilidad de eventos simultáneos.
+La probabilidad condicional mide la certeza de un suceso sabiendo que ya ocurrió otro.
+Conocer información previa descarta casos imposibles y reduce el espacio de posibilidades.
+En nuestro ejemplo, un laboratorio analiza 1000 muestras clínicas.
+Exactamente 20 muestras presentan una condición médica y 18 de ellas dan positivo.
+**Pieza**
+Un filtro condicional restringe el cálculo al subconjunto donde la evidencia es cierta.
+En nuestro ejemplo: pieza = subconjunto de 20 muestras con la condición.
+Podría ser también:
+- Transacciones bancarias marcadas desde una dirección IP desconocida.
+- Paquetes de red capturados únicamente en el puerto 443.
+- Correos electrónicos que contienen archivos adjuntos ejecutables.
+- Sensores industriales que superan el umbral crítico de vibración.
+La probabilidad conjunta calcula la ocurrencia simultánea de dos eventos dependientes.
+Multiplicamos la probabilidad de la condición por la probabilidad condicional del resultado.
+Observa cómo se calcula la probabilidad conjunta a partir de los datos.
+El producto de 0.02 y 0.90 confirma una probabilidad conjunta de 0.018.

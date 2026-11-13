@@ -1,0 +1,21 @@
+# fuente: /tmp/bench246/out/git-branching/vault/git-branching/explicaciones/Parte 1 - punteros-y-referencia-head.md
+
+1. Representamos el historial de commits encadenados hacia sus ancestros.
+2. Definimos una rama como un puntero móvil hacia un commit concreto.
+3. Analizamos cómo HEAD apunta a la rama activa y avanza con cada confirmación.
+Una rama en Git no es una copia de archivos sino un puntero liviano de 41 bytes.
+El archivo de la rama contiene solo el identificador hash del commit más reciente.
+En nuestro ejemplo, el proyecto `tienda-app` registra dos confirmaciones consecutivas.
+El commit inicial `c1` precede al commit `c2`, y la rama `main` apunta a `c2`.
+**Pieza**
+Un puntero de rama asocia un nombre legible con un commit específico del repositorio.
+En nuestro ejemplo: pieza = puntero `refs/heads/main` con el hash de `c2`.
+Podría ser también:
+- El puntero `main` en un repositorio de documentación técnica.
+- La rama `produccion` en un servicio de despliegue continuo.
+- La referencia `master` en un proyecto heredado de código abierto.
+- Una rama temporal `pruebas` para validar cambios locales.
+El puntero especial HEAD indica sobre qué línea de desarrollo trabajamos actualmente.
+Cuando registramos un commit, la rama activa avanza automáticamente hacia el nuevo nodo.
+Observa cómo evoluciona la estructura de punteros al añadir un commit.
+La rama `main` avanza al nuevo commit `c3` y HEAD continúa señalando a `main`.

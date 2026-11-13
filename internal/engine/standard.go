@@ -1363,7 +1363,15 @@ func evalPartStandard(c *evalCtx, decl rules.CheckDecl) Check {
 		return failCheck(decl.ID, "missing artifact: "+rel)
 	}
 	text := string(data)
-	if findings := standardFindings(text, *th); len(findings) > 0 {
+	findings := standardFindings(text, *th)
+	levelsNote := ""
+	if th.Register != nil {
+		// The register is measured at the learner's own levels, read from the Learnings root of this note.
+		sencillez, tecnicidad := learnerLevels(absPath(c.ws, rel))
+		findings = append(findings, registerFindings(text, th.Register.Limits(sencillez, tecnicidad))...)
+		levelsNote = fmt.Sprintf(", register sencillez=%s tecnicidad=%s", sencillez, tecnicidad)
+	}
+	if len(findings) > 0 {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"part %s misses the explanation standard in %s: %s",
 			c.part, rel, strings.Join(findings, "; ")))
@@ -1386,7 +1394,7 @@ func evalPartStandard(c *evalCtx, decl rules.CheckDecl) Check {
 	if th.StoryLanguage {
 		shape += fmt.Sprintf(", %d story or piece block(s) (at least 1)", len(storyOpen.FindAllStringIndex(withoutCodeFences(text), -1))+pieceOpenCount(text))
 	}
-	return passCheck(decl.ID, fmt.Sprintf("%s meets the explanation standard: %s", rel, shape))
+	return passCheck(decl.ID, fmt.Sprintf("%s meets the explanation standard: %s%s", rel, shape, levelsNote))
 }
 
 // jsonPayload returns the JSON a kit block carries inside its

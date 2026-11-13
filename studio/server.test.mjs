@@ -493,14 +493,16 @@ const BROKEN_PART = `# Parte 1 — Capas
 ## Ruta
 
 1. Qué es una capa.
-2. Cómo se encapsula.
+2. Cómo esconde sus detalles.
 3. Por qué importa.
 
 ## 1. La capa
 
-Una capa hace una cosa y la esconde del resto.
+Imagina un robot que aspira la sala.
 
-El ejemplo sigue: el robot aspira la sala.
+**Capa**: es un grupo de funciones que hace una cosa y la esconde del resto.
+
+Antes, el robot tenía que saber cada detalle. Ahora solo usa la capa.
 
 <lk-scene>
 <script type="application/json">

@@ -1,0 +1,37 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+También podemos preguntar:
+Estoy en este estado. ¿Qué tan bueno sería ejecutar específicamente esta acción?
+Entonces usamos:
+Por ejemplo:
+Aunque:
+El futuro hace que la segunda opción pueda valer más.
+Un **modelo** intenta predecir qué ocurrirá si realizamos una acción.
+Conceptualmente:
+Ejemplo:
+El agente puede usar ese modelo para **planificar antes de actuar**.
+Pero no todos los algoritmos de RL necesitan un modelo.
+Por eso existen dos grandes familias:
+No todos los sistemas utilizan explícitamente los cuatro, pero son los conceptos clásicos del RL.
+Ahora aparece uno de los problemas centrales del RL.
+Supongamos que el robot conoce dos estrategias:
+¿Qué debe hacer?
+Usar lo que actualmente parece mejor.
+Ventaja:
+obtiene una recompensa conocida.
+Problema:
+podría existir una opción mucho mejor que nunca descubre.
+
+```cuenta
+Q^\pi(s,a)
+estado:
+posición = sala
+batería = 4 %
+acción:
+aspirar
+modelo predice:
+batería → 1 %
+sala → limpia
+recompensa → +10
+```
+

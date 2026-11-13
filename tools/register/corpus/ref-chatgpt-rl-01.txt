@@ -1,0 +1,16 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Vamos a construirlo en este orden:
+1. **Agente ↔ entorno:** qué ocurre en cada paso.
+2. **Qué aprende el agente:** política, recompensa, valor y modelo.
+3. **Por qué RL es distinto** del aprendizaje supervisado y no supervisado.
+4. **Exploración vs. explotación:** probar o aprovechar lo aprendido.
+5. **Retorno:** cómo se evalúa una secuencia completa de decisiones.
+6. **Factor de descuento γ:** cuánto importa el futuro.
+7. **Recompensas infinitas:** por qué aparece \(c/(1-\gamma)\).
+Hay problemas donde no basta con contestar correctamente **ahora**.
+Una acción puede parecer mala inmediatamente, pero ser necesaria para obtener algo mejor después.
+Por ejemplo, un robot aspirador podría alejarse temporalmente de una habitación sucia para ir a cargarse. En ese instante no limpia nada, pero gracias a esa decisión puede terminar toda la casa.
+El problema fundamental de RL es:
+**¿Qué acciones debo elegir a lo largo del tiempo para maximizar las recompensas que obtendré en el futuro?**
+Esto es diferente de simplemente predecir una etiqueta.

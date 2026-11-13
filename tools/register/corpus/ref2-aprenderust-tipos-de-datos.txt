@@ -1,0 +1,43 @@
+# fuente: https://aprenderust.dev/tipos-de-datos
+
+Cada valor tiene un tipo y Rust lo conoce al compilar. Casi siempre lo infiere: 42 es un i32.
+Los enteros tienen tamaño: un u8 usa 8 bits y va de 0 a 255. Si un valor no cabe, Rust no lo deja pasar.
+Una tupla agrupa valores de tipos distintos y tamaño fijo. Lees cada uno con .0, .1, .2...
+Un array guarda valores del mismo tipo con longitud fija: [&str; 3]. Los índices empiezan en 0.
+Rust es un lenguaje de tipado estático: el compilador conoce el tipo de cada valor antes de ejecutar el programa. Gracias a eso detecta al compilar muchos errores que en otros lenguajes descubrirías en producción, como sumar un número con un texto.
+Eso no significa que tengas que escribir los tipos en todas partes, porque casi siempre Rust los infiere. En esta lección vas a conocer los tipos básicos: los escalares, que guardan un único valor, y los compuestos, que agrupan varios.
+Si no dices nada, un número entero es i32 y uno con decimales es f64. Para elegir otro tipo, añade una anotación con : tipo después del nombre. También puedes usar un sufijo en el propio número, como 255u8 o 2.5f32.
+Los enteros son números sin parte decimal. Su nombre indica dos cosas: si admiten negativos (i, con signo) o no (u, de unsigned, sin signo) y cuántos bits ocupan.
+Con n bits caben 2ⁿ valores distintos. Un tipo sin signo va de 0 a 2ⁿ - 1 y uno con signo reparte esos valores entre negativos y positivos: de -2ⁿ⁻¹ a 2ⁿ⁻¹ - 1.
+No hace falta que memorices los límites: cada tipo los tiene como constantes MIN y MAX.
+isize y usize ocupan 64 bits en un ordenador de 64 bits. usize es el tipo que Rust usa para posiciones y tamaños, como la longitud de un texto o el índice de un array.
+Qué tipo elegir: Si no tienes un motivo concreto, usa i32. Usa usize para posiciones y tamaños, y un tipo sin signo cuando el valor nunca pueda ser negativo.
+¿Qué pasa si un valor se sale del rango de su tipo? Si el compilador lo ve venir, directamente no compila: let x: u8 = 256; es un error. Si ocurre mientras el programa se ejecuta, en modo debug el programa se detiene con un panic:
+Al compilar en modo release (cargo build --release) no se comprueba y el valor da la vuelta: en un u8, 255 + 1 pasa a ser 0. Como casi nunca es lo que quieres, si necesitas ese comportamiento pídelo de forma explícita:
+Rust tiene dos tipos de coma flotante: f64, el predeterminado, y f32, que ocupa la mitad y tiene menos precisión. Usa f64 salvo que tengas un buen motivo.
+Rust no mezcla tipos en las operaciones. No puedes sumar un entero y un flotante sin convertir antes uno de ellos:
+Tampoco dos enteros de tipos distintos, como i32 e i64. Verás cómo convertirlos al final de la lección.
+El tipo bool solo tiene dos valores: true y false. Es el resultado de las comparaciones y se combina con && (y), || (o) y ! (no):
+El tipo char representa un único carácter Unicode y se escribe entre comillas simples. Ocupa 4 bytes, así que sirve para letras con tilde, otros alfabetos o emojis:
+Comillas: Las simples son para un char ('a') y las dobles, para un texto ("a"). No son intercambiables: 'hola' no compila.
+Una tupla agrupa varios valores, que pueden ser de tipos distintos, en un único valor. Su tamaño es fijo:
+&str es el tipo de los textos entre comillas dobles; lo verás a fondo más adelante. La desestructuración reparte los elementos de la tupla en variables, en el mismo orden.
+La tupla vacía () tiene nombre propio: unit. Representa «ningún valor» y volverás a verla en la lección de funciones.
+Un array guarda varios valores del mismo tipo con una longitud fija. Su tipo se escribe [T; N]: el tipo de los elementos y cuántos hay.
+Se accede a cada elemento con su índice entre corchetes, empezando en 0.
+.len() devuelve cuántos elementos tiene.
+{:?} imprime el array completo (también sirve para tuplas). Es el formato de depuración.
+Si usas un índice fuera del array, Rust no lee memoria que no le corresponde, como pasaría en C: el programa se detiene con un panic.
+Arrays y vectores: Un array no puede crecer. Cuando necesites una lista que cambie de tamaño usarás Vec, que verás más adelante.
+Rust nunca convierte entre tipos numéricos por su cuenta: lo haces tú con as.
+Cuidado: as no avisa si pierdes información. Úsalo cuando sepas que el valor cabe en el tipo de destino.
+Hora de practicar
+0/4 resueltos
+1
+2
+3
+4
+Reto 1 de 4 Resuelto
+Al ejecutar, unos tests ocultos comprueban tus funciones.
+Solución · solo lectura
+Pulsa Ejecutar para compilar y ver aquí la salida de tu programa.

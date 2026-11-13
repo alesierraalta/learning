@@ -6,6 +6,19 @@
 2. LEFT JOIN deja todas las de la izquierda.
 3. FULL JOIN deja todas las de las dos tablas.
 
+Imagina dos conjuntos: los videojuegos y las desarrolladoras.
+
+**INNER JOIN**
+Es la unión que deja solo las filas que coinciden.
+
+**LEFT JOIN**
+Es la unión que deja todas las filas de la izquierda.
+
+**FULL JOIN**
+Es la unión que deja todas las filas de las dos tablas.
+
+Antes, cada tabla se veía aparte. Después, el centro muestra lo que coincide.
+
 Cada conjunto es una tabla. La parte rellena es lo que el resultado conserva.
 
 <lk-story>
