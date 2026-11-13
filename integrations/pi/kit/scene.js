@@ -267,8 +267,10 @@
         + [0, 1, 2].map((i) => `<path d="M ${f(cx - s * 0.18)} ${f(cy - s * 0.08 + i * s * 0.16)} H ${f(cx + s * 0.18)}" fill="none" stroke="${stroke}" stroke-width="${f(sw * 0.8)}" stroke-linecap="round"/>`).join("");
     }
     if (kind === "person") {
-      return `<circle cx="${f(cx)}" cy="${f(cy - s * 0.2)}" r="${f(s * 0.17)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
-        + `<path d="M ${f(cx - s * 0.3)} ${f(cy + s * 0.44)} Q ${f(cx)} ${f(cy - s * 0.02)} ${f(cx + s * 0.3)} ${f(cy + s * 0.44)}" ${st}/>`;
+      // Una persona entera (#261): la cabeza y el torso se tocan y la figura ocupa su caja. Los hombros
+      // caen bajo la línea de los actores: una flecha que sale de su costado en esa línea no los roza.
+      return `<circle cx="${f(cx)}" cy="${f(cy - s * 0.24)}" r="${f(s * 0.2)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`
+        + `<path d="M ${f(cx - s * 0.34)} ${f(cy + s * 0.46)} V ${f(cy + s * 0.22)} Q ${f(cx)} ${f(cy - s * 0.26)} ${f(cx + s * 0.34)} ${f(cy + s * 0.22)} V ${f(cy + s * 0.46)} Z" ${st}/>`;
     }
     if (kind === "coin") {
       return `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(s * 0.42)}" fill="${fill}" stroke="${stroke}" stroke-width="${f(sw)}"/>`

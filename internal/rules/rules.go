@@ -285,6 +285,27 @@ type PartStandardThresholds struct {
 	// draws, and it teaches the tutor the wrong schema. False means the rule is
 	// not declared, so a frozen snapshot keeps accepting the parts it accepted.
 	DeadKeys bool `json:"deadKeys,omitempty"`
+	// MarkEcho turns on the mark-echo rule (#261): a mark whose label repeats a
+	// move's verb or an actor's tag of the same step (the arrow «SYN» and then
+	// «✓ SYN») says nothing the step does not already say. False means the rule is
+	// not declared, so a frozen snapshot keeps accepting the parts it accepted.
+	MarkEcho bool `json:"markEcho,omitempty"`
+	// VerdictError turns on the verdict-error rule (#261): the failing tint of a
+	// verdict card is for an error, so a card whose verdict is `no` names one in its
+	// pill (NO COMPILA, ERROR, INCORRECTO, RECHAZADO); a valid state is a neutral
+	// card. False means the rule is not declared, so a frozen snapshot keeps
+	// accepting the parts it accepted.
+	VerdictError bool `json:"verdictError,omitempty"`
+	// AccessorySense turns on the accessory-sense rule (#261): a card that draws a
+	// read or write icon says so in its own words, or the icon is an accessory. False
+	// means the rule is not declared, so a frozen snapshot keeps accepting the parts
+	// it accepted.
+	AccessorySense bool `json:"accessorySense,omitempty"`
+	// CharacterSense turns on the character-sense rule (#261): an actor's character
+	// contradicts its tag, a server, a file or a database for a person or a test
+	// result, or a person for a server. False means the rule is not declared, so a
+	// frozen snapshot keeps accepting the parts it accepted.
+	CharacterSense bool `json:"characterSense,omitempty"`
 	// Register is the prose register the part must keep (the learner's two axes,
 	// sencillez and tecnicidad, at their default «más»). A nil block declares
 	// nothing, so a frozen snapshot keeps accepting the parts it accepted.

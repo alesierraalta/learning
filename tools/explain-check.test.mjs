@@ -180,7 +180,7 @@ const CON_FORMULA = CUMPLE.replace('**Estado**: es todo lo que hace falta saber 
 
 test('una fórmula con su leyenda de símbolos pasa', () => {
   const f = join(dir, 'formula-con-leyenda.md');
-  writeFileSync(f, STORY_SIMPLE + '\n\n' + CON_FORMULA.replace(HISTORIA, '') + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
+  writeFileSync(f, `${STORY_SIMPLE}\n\n${CON_FORMULA.replace(HISTORIA, '')}\nDonde:\n\n- \`Q\` es el valor de hacer \`a\` en \`s\`.\n- \`c\` es el coste de un paso.\n- \`\\gamma\` es el descuento.\n`);
   const r = run(f);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+leyenda/);
@@ -190,7 +190,7 @@ test('una fórmula con su leyenda de símbolos pasa', () => {
 // `q` suelta en otro JSON de la página no nombra a `Q`.
 test('un símbolo no se nombra con otra caja', () => {
   const f = join(dir, 'otra-caja.md');
-  writeFileSync(f, CON_FORMULA + '\nDonde:\n\n- `q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
+  writeFileSync(f, `${CON_FORMULA}\nDonde:\n\n- \`q\` es el valor de hacer \`a\` en \`s\`.\n- \`c\` es el coste de un paso.\n- \`\\gamma\` es el descuento.\n`);
   const r = run(f);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALLA leyenda/);
@@ -255,7 +255,7 @@ test('la leyenda de una fórmula real pide sus símbolos, no sus comandos', () =
 
 test('la misma fórmula pasa cuando su leyenda nombra sus cuatro símbolos', () => {
   const f = join(dir, 'formula-viva-leyenda.md');
-  writeFileSync(f, STORY_SIMPLE + '\n\n' + CON_VIVA.replace(HISTORIA, '') + '\nDonde:\n\n- `f` es la densidad.\n- `x` es el valor que miras.\n- `\\sigma` es el ancho.\n- `\\mu` es el centro.\n');
+  writeFileSync(f, `${STORY_SIMPLE}\n\n${CON_VIVA.replace(HISTORIA, '')}\nDonde:\n\n- \`f\` es la densidad.\n- \`x\` es el valor que miras.\n- \`\\sigma\` es el ancho.\n- \`\\mu\` es el centro.\n`);
   const r = run(f);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+leyenda/);
@@ -336,7 +336,7 @@ test('una fórmula en LaTeX plano sin leyenda falla y nombra la escena anotada',
 
 test('una fórmula plana con su leyenda pasa', () => {
   const f = join(dir, 'formula-plana-leyenda.md');
-  writeFileSync(f, STORY_SIMPLE + '\n\n' + PLANA.replace(HISTORIA, '') + '\nDonde:\n\n- `Q` es el valor de hacer `a` en `s`.\n- `c` es el coste de un paso.\n- `\\gamma` es el descuento.\n');
+  writeFileSync(f, `${STORY_SIMPLE}\n\n${PLANA.replace(HISTORIA, '')}\nDonde:\n\n- \`Q\` es el valor de hacer \`a\` en \`s\`.\n- \`c\` es el coste de un paso.\n- \`\\gamma\` es el descuento.\n`);
   const r = run(f);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+leyenda/);
@@ -768,4 +768,227 @@ test('una historia sin claves muertas pasa', () => {
   const r = run(file);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+clave-muerta/);
+});
+
+// ── Lo que midió el banco 2 (#261) ───────────────────────────────────────────
+// Las cuatro partes del segundo banco pasaron todas las puertas y eran genéricas:
+// una marca que repite el movimiento (la flecha «SYN» y luego «✓ SYN»), una tarjeta
+// teñida de rojo para un estado válido (DETACHED) y un ojo o un lápiz que el texto
+// no nombra. Son las partes reales del banco: se miden tal cual salieron.
+const BANCO_2 = join(TOOLS, 'register', 'fixtures', 'bench261');
+const bancoDos = (nombre) => join(BANCO_2, nombre);
+
+test('el banco de TCP repite el movimiento en su marca: «SYN» bajo la flecha «SYN»', () => {
+  const r = run(bancoDos('tcp-handshake.md'));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA marca-eco/);
+  assert.match(r.stdout, /«SYN»/);
+});
+
+test('el banco de Rust repite el verbo del movimiento en su marca: «presta»', () => {
+  const r = run(bancoDos('rust-borrowing.md'));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA marca-eco/);
+  assert.match(r.stdout, /«presta»/);
+});
+
+test('el banco de Git tiñe de rojo un estado válido: DETACHED no es un error', () => {
+  const r = run(bancoDos('git-branching.md'));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA veredicto-sin-error/);
+  assert.match(r.stdout, /DETACHED/);
+});
+
+test('el banco de Git lleva el ojo y el lápiz en HEAD sin que el texto hable de leer o escribir', () => {
+  const r = run(bancoDos('git-branching.md'));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA accesorio-sin-sentido/);
+  assert.match(r.stdout, /HEAD en rama activa/);
+});
+
+test('el banco de TCP lleva un icono de lectura en el acuse sin que su texto lo diga', () => {
+  const r = run(bancoDos('tcp-handshake.md'));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA accesorio-sin-sentido/);
+});
+
+// El banco de Bayes no repite marcas, no tiñe tarjetas y no lleva iconos: pasa las
+// reglas nuevas, que no son un castigo a todo lo que tiene una tarjeta.
+test('el banco de Bayes pasa las reglas de marca, veredicto e icono', () => {
+  const r = run(bancoDos('bayes-theorem.md'));
+  assert.match(r.stdout, /ok\s+marca-eco/);
+  assert.match(r.stdout, /ok\s+veredicto-sin-error/);
+  assert.match(r.stdout, /ok\s+accesorio-sin-sentido/);
+});
+
+// Una marca que nombra el resultado, no el movimiento, pasa: el ✓ dice «conexión
+// pedida» y no repite la flecha. Se cambia solo la marca del paso 1; el paso 2 sigue.
+test('una marca que nombra el resultado, no el movimiento, deja de ser eco en su paso', () => {
+  const file = join(dir, 'tcp-marca-resultado.md');
+  const origen = readFileSync(bancoDos('tcp-handshake.md'), 'utf8');
+  const editado = origen.replace('{ "kind": "ok", "actor": "c1", "label": "SYN" }', '{ "kind": "ok", "actor": "c1", "label": "conexión pedida" }');
+  assert.notEqual(editado, origen, 'el texto a cambiar no está en el banco');
+  writeFileSync(file, editado);
+  const r = run(file);
+  assert.match(r.stdout, /FALLA marca-eco/);
+  assert.match(r.stdout, /el paso 2 marca «SYN-ACK»/);
+  assert.doesNotMatch(r.stdout, /el paso 1 marca/);
+});
+
+// Una tarjeta neutra con los dos estados válidos no se tiñe: el banco de Git con
+// DETACHED como contraste neutro pasa la regla del veredicto.
+test('una tarjeta neutra con un estado válido no se tiñe de error', () => {
+  const file = join(dir, 'git-neutro.md');
+  const origen = readFileSync(bancoDos('git-branching.md'), 'utf8');
+  const editado = origen.replace('"verdict": "no",\n      "pill": "DETACHED"', '"verdict": "neutral",\n      "pill": "DETACHED"');
+  assert.notEqual(editado, origen, 'el veredicto a cambiar no está en el banco');
+  writeFileSync(file, editado);
+  const r = run(file);
+  assert.match(r.stdout, /ok\s+veredicto-sin-error/);
+});
+
+// Una tarjeta de error con su veredicto de error pasa, y su icono también si la
+// razón dice qué se lee.
+const CASOS_CON_ICONO = (verdict, pill, razon) => `<lk-cards>
+<script type="application/json">
+{"title":"Dos casos","cards":[
+ {"id":"a","verdict":"${verdict}","pill":"${pill}","title":"Caso compartido","draw":{"refs":[{"text":"&s1","icon":"read","tone":"green"}],"target":{"text":"s1"}},"reason":"${razon}"},
+ {"id":"b","verdict":"ok","pill":"COMPILA","title":"Otro caso","draw":{"refs":[{"text":"s2","tone":"slate"}],"target":{"text":"s1"}},"reason":"Sin icono."}
+]}
+</script>
+</lk-cards>`;
+
+test('una tarjeta de error con veredicto de error pasa la regla del veredicto', () => {
+  const file = join(dir, 'tarjeta-error.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA + CASOS_CON_ICONO('no', 'NO COMPILA', 'Se lee y se mueve a la vez.'));
+  const r = run(file);
+  assert.match(r.stdout, /ok\s+veredicto-sin-error/);
+});
+
+test('un icono de lectura cuya razón dice que se lee pasa la regla del icono', () => {
+  const file = join(dir, 'icono-con-sentido.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA + CASOS_CON_ICONO('ok', 'COMPILA', 'El ojo lee el dato sin moverlo.'));
+  const r = run(file);
+  assert.match(r.stdout, /ok\s+accesorio-sin-sentido/);
+});
+
+test('un icono de lectura cuya razón no dice nada de leer es un hallazgo', () => {
+  const file = join(dir, 'icono-sin-sentido.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA + CASOS_CON_ICONO('ok', 'COMPILA', 'Lo compara con el otro caso.'));
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA accesorio-sin-sentido/);
+  assert.match(r.stdout, /Caso compartido/);
+});
+
+// ── Probabilidad: los conteos antes que la fórmula (#261) ─────────────────────────────────────────
+// Una parte de probabilidad cuenta los casos antes de la fórmula. El ejemplo de Bayes con
+// mil personas es el modelo gated: la skill lo nombra y el banco de la gate lo mide.
+const KIT_EXAMPLES = join(TOOLS, '..', 'integrations', 'pi', 'kit', 'examples');
+
+test('el ejemplo de Bayes con mil personas cuenta los casos antes de la fórmula y cumple el estándar', () => {
+  const r = run(join(KIT_EXAMPLES, 'bayes-mil-personas.md'));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /cumple el estándar/);
+});
+
+test('la skill y sus visuales piden contar antes de la fórmula, con el ejemplo de mil personas', () => {
+  const repo = join(TOOLS, '..');
+  const skill = readFileSync(join(repo, 'skills', 'explicacion-interactiva', 'SKILL.md'), 'utf8');
+  const visuales = readFileSync(join(repo, 'skills', 'explicacion-interactiva', 'references', 'visuales.md'), 'utf8');
+  for (const [name, text] of [['SKILL.md', skill], ['visuales.md', visuales]]) {
+    assert.match(text, /probabilidad/i, `${name} no nombra la probabilidad`);
+    assert.match(text, /conteos[^\n]*antes de la fórmula|antes de la fórmula[^\n]*conteos/i, `${name} no pide los conteos antes de la fórmula`);
+    assert.match(text, /mil personas/i, `${name} no nombra el ejemplo de mil personas`);
+  }
+});
+
+// La página rica es la explicación de cada parte: la skill dice cuándo es obligatoria, y que
+// el estudio avisa cuando la nota no tiene su .html junto a ella.
+test('la skill dice que la página rica es obligatoria y que el estudio avisa si falta', () => {
+  const skill = readFileSync(join(TOOLS, '..', 'skills', 'explicacion-interactiva', 'SKILL.md'), 'utf8');
+  assert.match(skill, /página rica[^\n]*obligatoria|obligatoria[^\n]*página rica/i, 'SKILL.md no dice que la página rica es obligatoria');
+  assert.match(skill, /avisa[^\n]*\.html|\.html[^\n]*avisa/i, 'SKILL.md no dice que el estudio avisa si falta el .html');
+});
+
+// El árbol de frecuencias (#261) es una figura, como la escena y las demás piezas: una parte
+// con una escena y un árbol tiene dos figuras, y el tope de una parte es una.
+const ARBOL = `<lk-tree>
+<script type="application/json">
+{"title":"Mil personas","nodes":[{"id":"a","lines":["personas"]},{"id":"b","lines":["sanos"]}],"links":[{"from":"a","to":"b","count":990,"rate":"99 %"}]}
+</script>
+</lk-tree>
+`;
+
+test('a frequency tree is the part\'s figure: with a scene beside it the part has two', () => {
+  const file = join(dir, 'arbol-y-escena.md');
+  writeFileSync(file, CUMPLE.replace('<lk-quiz>', `${ARBOL}\n<lk-quiz>`));
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA escena\s+2 escena\(s\)/);
+});
+
+// El personaje contradice su etiqueta (#261): un servidor, un documento o una base que es una persona o
+// un resultado de la prueba, o una persona que es un servidor. Un léxico corto, medido en la etiqueta.
+const HISTORIA_CON_PERSONAJE = (kind, tag) => `<lk-story>\n<script type="application/json">\n{"kind":"derivation","title":"Un grupo","viewBox":"0 0 360 300","steps":[\n {"title":"Uno","narrator":"El grupo aparece.","stage":{"scene":{"actors":[{"id":"g","kind":"${kind}","x":110,"y":150,"size":56,"tone":"blue","tag":"${tag}"}]}}},\n {"title":"Dos","narrator":"El grupo cambia.","stage":{"scene":{"actors":[{"id":"g","kind":"${kind}","x":110,"y":150,"size":56,"tone":"blue","tag":"${tag}","state":"faded"}]}}}\n]}\n</script>\n</lk-story>`;
+
+test('a server drawn for a group of people is a finding: the character contradicts its tag', () => {
+  const file = join(dir, 'personaje-servidor.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA + HISTORIA_CON_PERSONAJE('server', '9 enfermos'));
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA personaje-sin-sentido/);
+  assert.match(r.stdout, /«server»/);
+});
+
+test('a document drawn for a test result is a finding', () => {
+  const file = join(dir, 'personaje-documento.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA + HISTORIA_CON_PERSONAJE('file', '108 positivos'));
+  const r = run(file);
+  assert.match(r.stdout, /FALLA personaje-sin-sentido/);
+});
+
+// `doc` es el nombre del documento en el kit: el mismo dibujo que `file`, y la misma falta.
+test('a doc drawn for a test result is a finding: the kit draws doc as file', () => {
+  const file = join(dir, 'personaje-doc.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA + HISTORIA_CON_PERSONAJE('doc', '108 positivos'));
+  const r = run(file);
+  assert.match(r.stdout, /FALLA personaje-sin-sentido/);
+});
+
+test('a person drawn for a server is a finding', () => {
+  const file = join(dir, 'personaje-persona-servidor.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA + HISTORIA_CON_PERSONAJE('user', 'Servidor'));
+  const r = run(file);
+  assert.match(r.stdout, /FALLA personaje-sin-sentido/);
+});
+
+test('a person for a group of people, and a server for a server, are not findings', () => {
+  const persona = join(dir, 'personaje-persona.md');
+  writeFileSync(persona, CUMPLE_SIN_HISTORIA + HISTORIA_CON_PERSONAJE('user', '9 enfermos'));
+  assert.match(run(persona).stdout, /ok\s+personaje-sin-sentido/);
+  const servidor = join(dir, 'personaje-servidor-ok.md');
+  writeFileSync(servidor, CUMPLE_SIN_HISTORIA + HISTORIA_CON_PERSONAJE('server', 'Servidor'));
+  assert.match(run(servidor).stdout, /ok\s+personaje-sin-sentido/);
+});
+
+// El árbol de frecuencias también tiene personajes: un grupo de personas dibujado como servidor es el
+// mismo hallazgo.
+test('a frequency tree with a server for its group of people is a finding', () => {
+  const file = join(dir, 'arbol-servidor.md');
+  const arbol = `<lk-tree>\n<script type="application/json">\n{"nodes":[{"id":"a","lines":["personas"],"kind":"user"},{"id":"b","lines":["enfermos"],"kind":"server"},{"id":"c","lines":["sanos"],"kind":"user"}],"links":[{"from":"a","to":"b","count":10,"rate":"1 %"},{"from":"a","to":"c","count":990,"rate":"99 %"}]}\n</script>\n</lk-tree>`;
+  writeFileSync(file, CUMPLE_SIN_HISTORIA + arbol);
+  const r = run(file);
+  assert.match(r.stdout, /FALLA personaje-sin-sentido/);
+});
+
+// La skill y los visuales nombran el árbol de frecuencias para los conteos: el modelo que lee
+// la skill tiene que saber qué pieza es la de los conteos, y qué regla mide los personajes.
+test('la skill y los visuales nombran el árbol de frecuencias y la regla del personaje', () => {
+  const repo = join(TOOLS, '..');
+  const skill = readFileSync(join(repo, 'skills', 'explicacion-interactiva', 'SKILL.md'), 'utf8');
+  const visuales = readFileSync(join(repo, 'skills', 'explicacion-interactiva', 'references', 'visuales.md'), 'utf8');
+  assert.match(skill, /<lk-tree>/, 'SKILL.md no nombra <lk-tree>');
+  assert.match(visuales, /<lk-tree>/, 'visuales.md no nombra <lk-tree>');
+  assert.match(visuales, /personaje-sin-sentido/, 'visuales.md no nombra la regla del personaje');
 });

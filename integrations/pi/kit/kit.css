@@ -454,7 +454,7 @@ lk-audio { margin:28px 0; padding:20px 0; border-top:1px solid var(--hair); bord
    y la tinta de la página (`--paper`, `--ink`, `--hair`, `--muted`) y con cinco tonos
    propios (`--pt-*`) que en los papeles de noche se aclaran: nunca una hoja blanca
    flotando. Todo se mide en `em` de la pieza (15 px; más grande en pantalla completa). */
-.lk-piece-host, lk-cards, lk-memory, lk-tables, lk-venn { display:block; container-type:inline-size; margin:30px 0; }
+.lk-piece-host, lk-cards, lk-memory, lk-tables, lk-venn, lk-tree { display:block; container-type:inline-size; margin:30px 0; }
 .lk-piece-host > .lk-title { display:block; margin-bottom:12px; }
 .lk-story-piece { display:block; container-type:inline-size; padding:6px 4px; }
 .lk-p {
@@ -598,6 +598,19 @@ lk-story:fullscreen .lk-story-piece, lk-story:-webkit-full-screen .lk-story-piec
 /* #221 conjuntos: un círculo por conjunto, la región que responde rellena, y el pie
    con la operación. El dibujo mide 1 unidad ≈ 1 píxel hasta 20 em de ancho. */
 .lk-venn { max-width:26em; }
+/* #261 árbol de frecuencias: cada grupo es una persona con su nombre; cada rama lleva su cuenta y su porcentaje sobre su trazo. */
+.lk-tree { max-width:30em; }
+.lk-tsvg { display:block; width:100%; height:auto; overflow:visible; }
+.lk-tlink { fill:none; stroke:var(--muted, currentColor); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.lk-tlink[data-tone] { stroke:var(--c); }
+.lk-tbox { fill:var(--pt-card, transparent); stroke:var(--hair, currentColor); stroke-width:1.5; }
+.lk-tnode[data-tone] { color:var(--c); }
+.lk-tnode[data-tone] .lk-tbox { stroke:var(--line, currentColor); }
+.lk-tnode[data-highlight="1"] .lk-tbox { stroke-width:3; fill:var(--bg, var(--pt-card, transparent)); }
+.lk-tname { font:600 14px "DejaVu Sans", sans-serif; fill:var(--ink); }
+.lk-tnode[data-highlight="1"] .lk-tname { font-weight:700; }
+.lk-tcount { font:700 14px "DejaVu Sans", sans-serif; fill:var(--ink); }
+.lk-trate { font:400 14px "DejaVu Sans", sans-serif; fill:var(--ink); }
 .lk-vcard { display:flex; flex-direction:column; align-items:center; gap:.7em; padding:1.2em 1em 1.1em; border:1px solid var(--hair); border-radius:.9em; background:var(--pt-card); }
 .lk-vsvg { display:block; width:min(100%, 20em); height:auto; }
 .lk-vcircle { stroke:var(--pt-slate); stroke-width:2; }

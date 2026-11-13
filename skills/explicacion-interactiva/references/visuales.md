@@ -598,6 +598,39 @@ un conector o el borde de un conjunto que atraviesa una palabra (`connector-over
 `outline-over-text`). El motor y `explain-check` aceptan la pieza como una figura: **una
 pieza o una escena, no las dos** en la misma parte, y su JSON no cuenta como prosa.
 
+## 8g. Probabilidad: los conteos antes de la fórmula (#261)
+
+Los conteos van antes de la fórmula: una parte de probabilidad cuenta los casos antes de escribirla, para que el lector vea cuántas personas hay en cada grupo y de dónde sale el número.
+
+- **Qué dibuja** (la figura de los conteos es el árbol de la sección 8h): un `<lk-venn>` con el conteo en la nota de cada conjunto (`"note":"Enfermos"`) y en `says` (los dos a la vez, los que dan positivo); o un `<lk-tables>` con los casos cuando los grupos son filas. Un conjunto sirve cuando lo que importa es la zona compartida; una tabla, cuando importan las cuentas por grupo.
+- **El ejemplo gated**: `integrations/pi/kit/examples/bayes-mil-personas.md`. Mil personas, diez enfermos, nueve de ellos con positivo y noventa y nueve sanos con positivo; el resultado es 9 de 108, un 8,3 %. Cuatro pasos, cada uno con un movimiento, y la cabecera es la fórmula con el token del paso resaltado.
+- **Tabla de decisión**: una probabilidad condicional o de Bayes se cuenta con `<lk-venn>` (o `<lk-tables>`) antes de la fórmula, y el recorrido de derivación la escribe después.
+- **Quién lo mide**: `explain-check` (la parte cumple el estándar), `scene-gate` (el paso no queda vacío ni trae suelo) y la matriz de `integrations/pi/bridge.test.mjs` (`STORY_EXAMPLES`), en cada tinta y ancho.
+
+## 8h. El árbol de frecuencias y los personajes (#261)
+
+Los conteos de una probabilidad se dibujan como **árbol de frecuencias**: `<lk-tree>`. Cada grupo es una persona con su personaje (`kind: "user"`); cada rama lleva su cuenta y su porcentaje sobre el grupo de arriba; las hojas que responden a la pregunta van destacadas con `"highlight": true`.
+
+```
+<lk-tree>
+<script type="application/json">
+{"title":"De mil personas","caption":"…","nodes":[
+ {"id":"todas","lines":["1000 personas"],"kind":"user","tone":"slate"},
+ {"id":"enf","lines":["enfermos"],"kind":"user","tone":"blue"},
+ {"id":"enf-pos","lines":["positivos"],"kind":"user","tone":"amber","highlight":true}
+],"links":[
+ {"from":"todas","to":"enf","count":10,"rate":"1 %"},
+ {"from":"enf","to":"enf-pos","count":9,"rate":"90 %"}
+]}
+</script>
+</lk-tree>
+```
+
+- **Forma**: cada grupo se divide en dos ramas, o no se divide. El kit coloca los grupos por niveles, las hojas en orden y cada padre centrado sobre sus dos ramas, así el rótulo de cada rama cae sobre su trazo.
+- **Medidas**: `scene-lint`, `scene-gate` y la matriz de `integrations/pi/kit/test/tree.test.mjs` miden la pieza a 1440 y a 390 px, en las tres tintas: texto de 13 px como mínimo, ningún rótulo sobre otro, ningún trazo sobre un texto, cada rótulo a 10 px como mucho de su rama, y el texto de cada grupo dentro de su persona.
+- **El ejemplo gated**: `integrations/pi/kit/examples/bayes-mil-personas.md`. El árbol de mil personas y, después, la historia que aísla los 108 positivos (9 + 99) y calcula 9/108 ≈ 8,3 % con la fórmula en la cabecera.
+- **Personajes** (`personaje-sin-sentido`, #261): un personaje contradice su etiqueta cuando un `server`, un `file` o una `database` dibuja a una persona («enfermos», «sanos», «pacientes») o a un resultado de la prueba («positivos», «negativos», «prueba»), o cuando un `user` dibuja un servidor, un archivo o una base. Una persona se dibuja con `user`; un resultado, con una marca o una pieza. La regla vale para las historias, las escenas y los grupos de un `<lk-tree>`. El léxico es corto, y lo comparten `explain-check` y el motor.
+
 ## 9. La curva, no la caja
 
 Una distribución, una función, una serie temporal o una relación entre dos variables **se

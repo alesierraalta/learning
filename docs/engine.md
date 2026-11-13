@@ -565,7 +565,8 @@ tutor correct the part before the learner reads it. The numbers live in
  "maxRutaLines": 4, "maxScenes": 1, "maxWalkthroughs": 1,
  "minScenes": 1, "maxSentencesPerParagraph": 2, "formulaElement": "lk-math",
  "formulaWalkthrough": true, "storyLanguage": true, "storyHeader": true,
- "storyStage": true, "actorCharacter": true, "sceneStage": true}
+ "storyStage": true, "actorCharacter": true, "sceneStage": true,
+ "markEcho": true, "verdictError": true, "accessorySense": true, "characterSense": true}
 ```
 
 The block also turns on the standard's non-numeric rules, and the check is
@@ -678,6 +679,17 @@ checks). What it measures, and how:
   personaje (<lk-scene> con `actors` y `kind`) o usa la pieza que le toca:
   <lk-memory>, <lk-tables>, <lk-venn>, <lk-cards>». The tutor's tool mirrors it
   as `escenario-de-cajas` (the same row that measures the story stage).
+- **Mark echo.** `markEcho` turns on the mark-echo rule (#261): a mark whose label
+  repeats a move's verb or an actor's tag of the same step says nothing the step
+  does not already say. The tutor's tool mirrors it as `marca-eco`.
+- **Verdict error.** `verdictError` turns on the verdict-error rule (#261): a card
+  whose verdict is `no` names an error in its pill (NO COMPILA, ERROR, INCORRECTO,
+  RECHAZADO); a valid state is a neutral card. Mirrored as `veredicto-sin-error`.
+- **Accessory sense.** `accessorySense` turns on the accessory-sense rule (#261):
+  a card with a read or write icon says so in its own words. Mirrored as
+  `accesorio-sin-sentido`. The three keys are additive: a snapshot without them
+  keeps the parts it accepted.
+- **Character sense.** `characterSense` turns on the character-sense rule (#261): an actor's character contradicts its tag, a server, a file or a database for a person or a test result, or a person for a server. A frequency tree's groups are read the same way. Mirrored as `personaje-sin-sentido`; the key is additive, so a snapshot without it keeps the parts it accepted.
 - **Story language.** `storyLanguage` turns on the story-language rule: a part
   draws its step-by-step visual with `<lk-story>` (the deck of actors with
   state, moves and marks) or with a piece (`<lk-cards>`, `<lk-memory>`,

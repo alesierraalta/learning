@@ -574,7 +574,7 @@ var storyVocabulary = []string{
 }
 
 // storyPieces are the visual pieces a step may draw instead of a scene.
-var storyPieces = []string{"cards", "memory", "tables", "venn"}
+var storyPieces = []string{"cards", "memory", "tables", "venn", "tree"}
 
 // declared reports whether the author wrote something under a key: an absent key,
 // an empty array and an empty object draw nothing.
@@ -615,6 +615,7 @@ type storyActor struct {
 	Kind  string `json:"kind"`
 	Icon  string `json:"icon"`
 	State string `json:"state"`
+	Tag   string `json:"tag"`
 }
 
 // character returns the character the actor draws, or "" when it is a box.
@@ -1116,7 +1117,7 @@ func arrowFlowFindings(text string, th rules.PartStandardThresholds) []string {
 // drawing nobody draws (#246).
 var (
 	storyStepKeys  = map[string]bool{"title": true, "narrator": true, "equation": true, "focus": true, "stage": true, "say": true, "header": true}
-	storyStageKeys = map[string]bool{"scene": true, "cards": true, "memory": true, "tables": true, "venn": true, "caption": true}
+	storyStageKeys = map[string]bool{"scene": true, "cards": true, "memory": true, "tables": true, "venn": true, "tree": true, "caption": true}
 	storySceneKeys = map[string]bool{
 		"actors": true, "props": true, "moves": true, "tags": true, "marks": true, "icons": true,
 		"callouts": true, "curves": true, "paths": true, "formulas": true, "formula": true, "grids": true,
@@ -1226,6 +1227,334 @@ func unnamedSymbols(text string) []string {
 	return out
 }
 
+// The mark, verdict and icon rules (#261) read the payloads the kit draws, never the
+// drawing: a mark that repeats a label of its step, a card tinted as a failure for a
+// state that is valid, and a read or write icon the card's own words do not name.
+// They mirror `tools/explain-check.mjs` (`marca-eco`, `veredicto-sin-error`,
+// `accesorio-sin-sentido`), which normalises the same way: lower case, no accents.
+var (
+	cardsBlock    = regexp.MustCompile(`(?s)<lk-cards[\s>].*?</lk-cards>`)
+	errorVerdict  = regexp.MustCompile(`\b(no compila|errores?|incorrect[oa]|rechazad[oa]|falla|fallo|invalid[oa]|no valid[oa]|prohibid[oa]|denegad[oa]|bloquead[oa]|panic|excepcion)\b`)
+	readOrWrite   = regexp.MustCompile(`\b(leer|lee|leen|lectura|lector\w*|escrib\w*|escritura|escritor\w*|modific\w*|read\w*|write\w*)\b`)
+	wordSeparator = regexp.MustCompile(`[^a-z0-9]+`)
+	accentFold    = strings.NewReplacer("á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n")
+)
+
+// foldWords lowers a text and drops its Spanish accents, so «Servidor» and
+// «servidor» are one word and «Confirmación» reads as «confirmacion».
+func foldWords(text string) string {
+	return accentFold.Replace(strings.ToLower(text))
+}
+
+// wordsOf splits a text into its folded words, without the empty ones.
+func wordsOf(text string) []string {
+	var words []string
+	for _, w := range wordSeparator.Split(foldWords(text), -1) {
+		if w != "" {
+			words = append(words, w)
+		}
+	}
+	return words
+}
+
+// repeatsLabel reports whether a mark's words are a label's words, or a run of them:
+// «SYN» repeats «SYN-ACK» and «servidor» repeats «Servidor» (#261).
+func repeatsLabel(mark, label string) bool {
+	m, e := wordsOf(mark), wordsOf(label)
+	if len(m) == 0 {
+		return false
+	}
+	for i := 0; i+len(m) <= len(e); i++ {
+		same := true
+		for j := range m {
+			if e[i+j] != m[j] {
+				same = false
+				break
+			}
+		}
+		if same {
+			return true
+		}
+	}
+	return false
+}
+
+// stepTagLabels returns the labels a step already draws: its moves' verbs, then its
+// actors' tags and labels, in the order the tutor's tool reads them.
+func stepTagLabels(scene map[string]json.RawMessage) []string {
+	var moves []struct {
+		Verb string `json:"verb"`
+	}
+	if raw, ok := scene["moves"]; ok {
+		_ = json.Unmarshal(raw, &moves)
+	}
+	var actors []struct {
+		Tag   string `json:"tag"`
+		Label string `json:"label"`
+	}
+	if raw, ok := scene["actors"]; ok {
+		_ = json.Unmarshal(raw, &actors)
+	}
+	var labels []string
+	for _, m := range moves {
+		labels = append(labels, m.Verb)
+	}
+	for _, a := range actors {
+		labels = append(labels, a.Tag, a.Label)
+	}
+	var out []string
+	for _, l := range labels {
+		if strings.TrimSpace(l) != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// markEchoFindings measures the mark-echo rule (#261): a mark whose label repeats a
+// move's verb or an actor's tag of the same step says nothing the step does not
+// already say. A rules snapshot that does not declare `markEcho` keeps accepting the
+// parts it accepted.
+func markEchoFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.MarkEcho {
+		return nil
+	}
+	for _, doc := range storyRawDocs(text) {
+		for i, step := range doc.Steps {
+			_, scene, _ := storyStageOf(step)
+			labels := stepTagLabels(scene)
+			var marks []struct {
+				Label string `json:"label"`
+			}
+			if raw, ok := scene["marks"]; ok {
+				_ = json.Unmarshal(raw, &marks)
+			}
+			for _, mark := range marks {
+				if strings.TrimSpace(mark.Label) == "" {
+					continue
+				}
+				for _, label := range labels {
+					if repeatsLabel(mark.Label, label) {
+						return []string{fmt.Sprintf(
+							"el paso %d marca «%s», que repite la etiqueta «%s» de ese mismo paso — la marca nombra lo que el paso aprueba («conexión pedida», «0.50»), no el movimiento ni el nombre que ya dibuja",
+							i+1, strings.TrimSpace(mark.Label), strings.TrimSpace(label))}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// verdictCard is the part of a verdict card the two card rules read.
+type verdictCard struct {
+	ID      string `json:"id"`
+	Verdict string `json:"verdict"`
+	Pill    string `json:"pill"`
+	Title   string `json:"title"`
+	Reason  string `json:"reason"`
+	Draw    struct {
+		Refs []struct {
+			Text string `json:"text"`
+			Icon string `json:"icon"`
+		} `json:"refs"`
+		Target struct {
+			Text string `json:"text"`
+		} `json:"target"`
+	} `json:"draw"`
+}
+
+// verdictCards returns the cards of every verdict piece outside fenced code. A card
+// with a field the schema does not read still counts: the reader draws it.
+func verdictCards(text string) []verdictCard {
+	var cards []verdictCard
+	for _, block := range cardsBlock.FindAllString(withoutCodeFences(text), -1) {
+		payload, ok := jsonPayload(block)
+		if !ok {
+			continue
+		}
+		var doc struct {
+			Cards []verdictCard `json:"cards"`
+		}
+		_ = json.Unmarshal([]byte(payload), &doc)
+		cards = append(cards, doc.Cards...)
+	}
+	return cards
+}
+
+// cardName is the name a finding gives a card: its title, or its id without one.
+func cardName(card verdictCard) string {
+	if card.Title != "" {
+		return card.Title
+	}
+	return card.ID
+}
+
+// verdictErrorFindings measures the verdict-error rule (#261): the failing tint is for
+// an error. A card whose verdict is `no` names one in its pill (NO COMPILA, ERROR,
+// INCORRECTO, RECHAZADO); a valid state is a neutral card. A rules snapshot that does
+// not declare `verdictError` keeps accepting the parts it accepted.
+func verdictErrorFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.VerdictError {
+		return nil
+	}
+	for _, card := range verdictCards(text) {
+		if card.Verdict != "no" {
+			continue
+		}
+		pill := card.Pill
+		if pill == "" {
+			pill = "ERROR"
+		}
+		if errorVerdict.MatchString(foldWords(pill)) {
+			continue
+		}
+		return []string{fmt.Sprintf(
+			"la tarjeta «%s» se tiñe de rojo con su veredicto «%s», que no es un error — si los dos estados son válidos, márcala neutra con \"verdict\": \"neutral\"; el rojo es para un error: NO COMPILA, ERROR, INCORRECTO, RECHAZADO",
+			cardName(card), card.Pill)}
+	}
+	return nil
+}
+
+// accessorySenseFindings measures the accessory-sense rule (#261): a card that draws a
+// read or write icon says so in its own words (title, reason, pill, the drawing's
+// target or its code). An icon the words never name is an accessory. A rules snapshot
+// that does not declare `accessorySense` keeps accepting the parts it accepted.
+func accessorySenseFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.AccessorySense {
+		return nil
+	}
+	for _, card := range verdictCards(text) {
+		icon := ""
+		words := []string{card.Title, card.Reason, card.Pill, card.Draw.Target.Text}
+		for _, ref := range card.Draw.Refs {
+			if icon == "" && (ref.Icon == "read" || ref.Icon == "write") {
+				icon = ref.Icon
+			}
+			words = append(words, ref.Text)
+		}
+		if icon == "" || readOrWrite.MatchString(foldWords(strings.Join(words, " "))) {
+			continue
+		}
+		noun, verb, does := "lectura", "leer", "lee"
+		if icon == "write" {
+			noun, verb, does = "escritura", "escribir", "escribe"
+		}
+		return []string{fmt.Sprintf(
+			"la tarjeta «%s» lleva el icono de %s, y ni su título, ni su razón, ni su código hablan de %s — quita el icono o di en la razón qué se %s",
+			cardName(card), noun, verb, does)}
+	}
+	return nil
+}
+
+// The character rule (#261): an actor's character contradicts its tag. The lexicon is
+// the tool's (`tools/explain-check.mjs`, rule `personaje-sin-sentido`), folded the same
+// way, so the two read the same parts the same way.
+var (
+	personaPalabras    = wordSet("persona", "personas", "paciente", "pacientes", "enfermo", "enfermos", "sano", "sanos", "usuario", "usuarios", "alumno", "alumnos", "cliente", "clientes", "gente", "poblacion", "estudiante", "estudiantes", "ciudadano", "ciudadanos", "vecino", "vecinos", "individuo", "individuos", "habitante", "habitantes")
+	resultadoPalabras  = wordSet("positivo", "positivos", "negativo", "negativos", "resultado", "resultados", "diagnostico", "diagnosticos", "falso", "falsos", "verdadero", "verdaderos", "prueba", "pruebas", "test", "tests")
+	maquinaPalabras    = wordSet("servidor", "servidores", "host", "archivo", "archivos", "documento", "documentos", "bd")
+	personajeDeMaquina = wordSet("server", "file", "doc", "database")
+	treeBlock          = regexp.MustCompile(`(?s)<lk-tree[\s>].*?</lk-tree>`)
+)
+
+func wordSet(words ...string) map[string]bool {
+	out := make(map[string]bool, len(words))
+	for _, w := range words {
+		out[w] = true
+	}
+	return out
+}
+
+// characterContradicts names the way a character and its tag contradict each other,
+// or reports false when they agree.
+func characterContradicts(kind, tag string) (string, bool) {
+	words := map[string]bool{}
+	for _, w := range wordsOf(tag) {
+		words[w] = true
+	}
+	has := func(lexicon map[string]bool) bool {
+		for w := range words {
+			if lexicon[w] {
+				return true
+			}
+		}
+		return false
+	}
+	machine := has(maquinaPalabras) || (words["base"] && words["datos"])
+	if personajeDeMaquina[kind] && (has(personaPalabras) || has(resultadoPalabras)) {
+		return "persona o resultado", true
+	}
+	if kind == "user" && machine {
+		return "máquina", true
+	}
+	return "", false
+}
+
+// characterSenseFindings measures the character rule (#261): every actor of a story, and
+// every group of a frequency tree, draws a character its tag does not fit. A rules
+// snapshot that does not declare `characterSense` keeps accepting the parts it accepted.
+func characterSenseFindings(text string, th rules.PartStandardThresholds) []string {
+	if !th.CharacterSense {
+		return nil
+	}
+	var out []string
+	note := func(kind, tag, where string) {
+		if why, bad := characterContradicts(kind, tag); bad {
+			fix := "una persona o un resultado se dibuja con «user»; «server», «file» y «database» son máquinas o documentos"
+			if why == "máquina" {
+				fix = "un servidor, un archivo o una base se dibuja con su propio personaje («server», «file», «database»)"
+			}
+			out = append(out, fmt.Sprintf("el personaje «%s» de «%s» (%s) contradice su etiqueta — %s", kind, tag, where, fix))
+		}
+	}
+	for _, doc := range storyRawDocs(text) {
+		for i, step := range doc.Steps {
+			stage, _, _ := storyStageOf(step)
+			for _, actor := range storyStepActors(stage) {
+				tag := actor.Tag
+				if tag == "" {
+					tag = actor.Label
+				}
+				note(actor.character(), tag, fmt.Sprintf("paso %d", i+1))
+			}
+		}
+	}
+	for _, block := range treeBlock.FindAllString(withoutCodeFences(text), -1) {
+		payload, ok := jsonPayload(block)
+		if !ok {
+			continue
+		}
+		var spec struct {
+			Nodes []struct {
+				ID    string          `json:"id"`
+				Kind  string          `json:"kind"`
+				Label string          `json:"label"`
+				Lines json.RawMessage `json:"lines"`
+			} `json:"nodes"`
+		}
+		if json.Unmarshal([]byte(payload), &spec) != nil {
+			continue
+		}
+		for _, n := range spec.Nodes {
+			kind := n.Kind
+			if kind == "" {
+				kind = "user"
+			}
+			tag := n.Label
+			if tag == "" {
+				tag = n.ID
+			}
+			var lines []string
+			if json.Unmarshal(n.Lines, &lines) == nil && len(lines) > 0 {
+				tag = strings.Join(lines, " ")
+			}
+			note(kind, tag, "el árbol")
+		}
+	}
+	return out
+}
+
 // standardFindings returns one finding per rule the part misses, each naming the
 // rule, the measured value, the limit and the fix, so the tutor can correct the
 // part from the message alone.
@@ -1277,6 +1606,10 @@ func standardFindings(text string, th rules.PartStandardThresholds) []string {
 	findings = append(findings, storyMotionFindings(text, th)...)
 	findings = append(findings, arrowFlowFindings(text, th)...)
 	findings = append(findings, deadKeyFindings(text, th)...)
+	findings = append(findings, markEchoFindings(text, th)...)
+	findings = append(findings, verdictErrorFindings(text, th)...)
+	findings = append(findings, accessorySenseFindings(text, th)...)
+	findings = append(findings, characterSenseFindings(text, th)...)
 
 	if th.MaxSentencesPerParagraph > 0 {
 		if walls := wallParagraphs(text, th.MaxSentencesPerParagraph); len(walls) > 0 {

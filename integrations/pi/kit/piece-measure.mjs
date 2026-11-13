@@ -310,5 +310,35 @@ export function measurePiece(host, { minPx = 13, scope = 'all', slack = 1 } = {}
       }
     }
   }
+  // #261: el árbol de frecuencias. El texto de cada grupo cabe en su persona, y el rótulo de
+  // cada rama cae a lo sumo a 10 px de su propio trazo: un rótulo suelto no dice de qué rama es.
+  if (wants('geometry')) {
+    for (const node of pieces.flatMap((piece) => [...piece.querySelectorAll('.lk-tnode')])) {
+      const box = node.querySelector('[data-anchor]');
+      if (!box || !shown(node)) continue;
+      const b = box.getBoundingClientRect();
+      for (const t of node.querySelectorAll('text')) {
+        const r = t.getBoundingClientRect();
+        if (r.left < b.left - slack || r.right > b.right + slack) add('node-text-overflow', t.textContent, `«${t.textContent}» se sale de su persona: ${Math.round(r.width)} px en ${Math.round(b.width)} px`);
+      }
+    }
+  }
+  if (wants('convivencia')) {
+    const branches = pieces.flatMap((piece) => [...piece.querySelectorAll('path.lk-tlink[data-from][data-to]')]);
+    for (const label of pieces.flatMap((piece) => [...piece.querySelectorAll('.lk-tbranch[data-branch]')])) {
+      if (!shown(label)) continue;
+      const [from, to] = label.dataset.branch.split('→');
+      const path = branches.find((p) => p.dataset.from === from && p.dataset.to === to);
+      if (!path) { add('label-off-branch', label.dataset.branch, 'la rama de este rótulo no se dibuja'); continue; }
+      const r = label.getBoundingClientRect(), m = path.getScreenCTM(), total = path.getTotalLength();
+      let near = Infinity;
+      for (let len = 0; len <= total; len += 2) {
+        const p = path.getPointAtLength(len);
+        const x = m.a * p.x + m.c * p.y + m.e, y = m.b * p.x + m.d * p.y + m.f;
+        near = Math.min(near, Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom)));
+      }
+      if (near > 10) add('label-off-branch', label.dataset.branch, `el rótulo queda a ${Math.round(near)} px de su rama (máximo 10)`);
+    }
+  }
   return { problems };
 }

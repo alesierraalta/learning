@@ -410,12 +410,20 @@ test('un icono dentro del lienzo no es un hallazgo', { skip: SKIP }, () => {
 // paso, y lo que miden son las marcas: una etiqueta de «combina» o un ✓ fuera del lienzo
 // lo recorta el SVG y el lector ve una astilla. Antes la puerta solo abría `<lk-scene>` y
 // decía «sin escenas» ante un recorrido entero.
+// Cada paso de la historia de prueba lleva un trazo de marco arriba (#261): un paso con un solo dibujo
+// en un lienzo vacío es el escenario vacío que `scene-gate` mide. El trazo está lejos de todo, no es
+// una flecha ni una pieza, y no cambia lo que cada prueba comprueba.
+const conMarco = (stage) => {
+  const scene = JSON.parse(stage);
+  scene.paths = [...(scene.paths || []), { d: 'M 30 30 L 330 30', tone: 'slate', width: 2, arrow: false }];
+  return JSON.stringify(scene);
+};
 const story = (stage) => `# Parte 1\n\n<lk-story>
 <script type="application/json">
 {"kind":"derivation","title":"Una cuenta","viewBox":"0 0 360 250","steps":[
- {"title":"Uno","equation":{"atoms":[{"t":"a","id":"a"}]},"narrator":"Uno.","stage":{"scene":{"actors":[{"id":"a","x":150,"y":120,"w":44,"h":40,"label":"a","tone":"blue"}]}}},
- {"title":"Dos","equation":{"atoms":[{"t":"b","id":"b"}]},"narrator":"Dos.","stage":{"scene":{"actors":[{"id":"a","x":150,"y":120,"w":44,"h":40,"label":"a","tone":"blue"}]}}},
- {"title":"Tres","equation":{"atoms":[{"t":"c","id":"c"}]},"narrator":"Tres.","stage":{"scene":${stage}}}
+ {"title":"Uno","equation":{"atoms":[{"t":"a","id":"a"}]},"narrator":"Uno.","stage":{"scene":${conMarco('{"actors":[{"id":"a","x":150,"y":120,"w":44,"h":40,"label":"a","tone":"blue"}]}')}}},
+ {"title":"Dos","equation":{"atoms":[{"t":"b","id":"b"}]},"narrator":"Dos.","stage":{"scene":${conMarco('{"actors":[{"id":"a","x":150,"y":120,"w":44,"h":40,"label":"a","tone":"blue"}]}')}}},
+ {"title":"Tres","equation":{"atoms":[{"t":"c","id":"c"}]},"narrator":"Tres.","stage":{"scene":${conMarco(stage)}}}
 ]}
 </script>
 </lk-story>
@@ -946,4 +954,114 @@ test('una marca sin sitio en su columna cae al hueco y es un hallazgo', { skip: 
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /marca-suelta/);
   assert.match(r.stdout, /hueco|dueño/);
+});
+
+// ── El escenario de un paso y el suelo de una historia (#261) ────────────────
+// Una historia de derivación no pone un suelo horizontal bajo sus actores: el suelo
+// solo significa algo en un alcance o en una línea de tiempo. Y un paso dibuja la
+// parte de su escenario que el kit calibró. El banco segundo trae los dos casos.
+const BANCO_2 = join(TOOLS, 'register', 'fixtures', 'bench261');
+const bancoDos = (nombre) => join(BANCO_2, nombre);
+
+test('el primer paso del banco de Rust deja casi vacío su escenario', { skip: SKIP }, () => {
+  const r = gate(bancoDos('rust-borrowing.md'));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /escenario-vacio: paso 1/);
+});
+
+test('una historia de derivación que traza un suelo bajo sus actores es un hallazgo', { skip: SKIP }, () => {
+  const r = gate(bancoDos('tcp-handshake.md'));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /suelo-sin-sentido: el paso 1/);
+});
+
+// Una línea de tiempo declara su marco: su suelo es el eje del tiempo, no decoración.
+test('una historia de línea de tiempo puede trazar su suelo', { skip: SKIP }, () => {
+  const file = join(dir, 'tcp-linea-de-tiempo.md');
+  const origen = readFileSync(bancoDos('tcp-handshake.md'), 'utf8');
+  const editado = origen.replace('"kind": "derivation",', '"kind": "derivation",\n  "frame": "timeline",');
+  assert.notEqual(editado, origen, 'el kind a cambiar no está en el banco');
+  writeFileSync(file, editado);
+  const r = gate(file);
+  assert.doesNotMatch(r.stdout, /suelo-sin-sentido/);
+});
+
+// Una historia de fórmula dibuja sus ejes: la línea horizontal de la campana es el eje
+// de la latencia, no un suelo.
+test('el eje de la campana gaussiana no es un suelo ni un escenario vacío', { skip: SKIP }, () => {
+  const r = gate(join(EXAMPLES, 'formula-gaussiana.md'));
+  assert.doesNotMatch(r.stdout, /suelo-sin-sentido/);
+  assert.doesNotMatch(r.stdout, /escenario-vacio/);
+});
+
+// Los ejemplos de historia aprobados del kit pasan las dos medidas.
+test('los ejemplos de historia del kit pasan el escenario y el suelo', { skip: SKIP }, () => {
+  for (const name of ['derivacion-x.md', 'plsql-transaccion.md', 'prestamos-rust.md', 'propiedad-rust.md']) {
+    const r = gate(join(EXAMPLES, name));
+    assert.doesNotMatch(r.stdout, /suelo-sin-sentido/, name);
+    assert.doesNotMatch(r.stdout, /escenario-vacio/, name);
+  }
+});
+
+// Dos fichas de nombre de actores vecinos que se tocan a 390 px se leen como una sola ficha (#261): la
+// regla de texto encimado mide también las fichas, en píxeles de la pantalla del lector.
+test('dos fichas de nombre de una sola palabra que se tocan a 390 px son un hallazgo: el kit no puede partirlas', { skip: SKIP }, () => {
+  const file = join(dir, 'fichas-pegadas.md');
+  writeFileSync(file, `# Parte 1\n\n<lk-story>\n<script type="application/json">\n{"kind":"derivation","title":"Dos cuentas","viewBox":"0 60 360 190","steps":[\n {"title":"Uno","equation":{"atoms":[{"t":"a","id":"a"}]},"narrator":"Uno.","stage":{"scene":{"actors":[{"id":"x","kind":"user","x":100,"y":168,"size":72,"tone":"blue","tag":"Cuentaprincipal"},{"id":"y","kind":"user","x":200,"y":168,"size":72,"tone":"amber","tag":"Cuentasecundaria"}]}}},\n {"title":"Dos","equation":{"atoms":[{"t":"b","id":"b"}]},"narrator":"Dos.","stage":{"scene":{"actors":[{"id":"x","kind":"user","x":100,"y":168,"size":72,"tone":"blue","tag":"Cuentaprincipal","state":"faded"},{"id":"y","kind":"user","x":200,"y":168,"size":72,"tone":"amber","tag":"Cuentasecundaria"}]}}}\n]}\n</script>\n</lk-story>\n`);
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /texto-encimado/);
+  assert.match(r.stdout, /390 px/);
+});
+
+// Un cliente (un robot) y un servidor de figura distinta en una fila: sus fichas se alinean por la base de
+// la pastilla, no por el trazo que baja hasta cada personaje (#261).
+test('una fila de personajes de figura distinta tiene las fichas alineadas por su base', { skip: SKIP }, () => {
+  const file = join(dir, 'fila-figuras-distintas.md');
+  writeFileSync(file, `# Parte 1\n\n<lk-story>\n<script type="application/json">\n{"kind":"derivation","title":"Cliente y servidor","viewBox":"0 60 360 190","steps":[\n {"title":"Uno","equation":{"atoms":[{"t":"a","id":"a"}]},"narrator":"Uno.","stage":{"scene":{"actors":[{"id":"c","kind":"robot","x":100,"y":150,"size":56,"tone":"blue","tag":"Cliente"},{"id":"s","kind":"server","x":260,"y":150,"size":56,"tone":"purple","tag":"Servidor"}]}}},\n {"title":"Dos","equation":{"atoms":[{"t":"b","id":"b"}]},"narrator":"Dos.","stage":{"scene":{"actors":[{"id":"c","kind":"robot","x":100,"y":150,"size":56,"tone":"blue","tag":"Cliente","state":"faded"},{"id":"s","kind":"server","x":260,"y":150,"size":56,"tone":"purple","tag":"Servidor"}]}}}\n]}\n</script>\n</lk-story>\n`);
+  const r = lint(file);
+  assert.doesNotMatch(r.stdout, /fila-torcida/, r.stdout + r.stderr);
+});
+
+// Dos fichas de dos palabras se parten en dos líneas y no tuercen la fila: se mide la base de la ficha (#261).
+test('una ficha partida en dos líneas no tuerce la fila de sus vecinos', { skip: SKIP }, () => {
+  const file = join(dir, 'fila-partida.md');
+  writeFileSync(file, `# Parte 1\n\n<lk-story>\n<script type="application/json">\n{"kind":"derivation","title":"Dos cuentas","viewBox":"0 60 360 190","steps":[\n {"title":"Uno","equation":{"atoms":[{"t":"a","id":"a"}]},"narrator":"Uno.","stage":{"scene":{"actors":[{"id":"x","kind":"user","x":100,"y":168,"size":72,"tone":"blue","tag":"Cuenta uno"},{"id":"y","kind":"user","x":200,"y":168,"size":72,"tone":"amber","tag":"Cuenta dos"}]}}},\n {"title":"Dos","equation":{"atoms":[{"t":"b","id":"b"}]},"narrator":"Dos.","stage":{"scene":{"actors":[{"id":"x","kind":"user","x":100,"y":168,"size":72,"tone":"blue","tag":"Cuenta uno"},{"id":"y","kind":"user","x":200,"y":168,"size":72,"tone":"amber","tag":"Cuenta dos"}]}}}\n]}\n</script>\n</lk-story>\n`);
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// El ejemplo de Bayes con mil personas deja 6 px entre sus fichas a 390 px: es el caso que midió el alumno.
+test('el ejemplo de Bayes con mil personas deja 6 px entre sus fichas a 390 px', { skip: SKIP }, () => {
+  const r = lint(join(EXAMPLES, 'bayes-mil-personas.md'));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+// El árbol de frecuencias (#261) es una pieza: sus rótulos de rama no se encimen. Con cuentas
+// tan largas que dos rótulos vecinos se pisan, el lint lo encuentra.
+test('frequency-tree branch labels that pile on each other are a finding', { skip: SKIP }, () => {
+  const file = join(dir, 'arbol-encimado.md');
+  const arbol = {
+    nodes: [
+      { id: 'todas', lines: ['1000 personas'], kind: 'user' },
+      { id: 'enf', lines: ['enfermos'], kind: 'user' },
+      { id: 'san', lines: ['sanos'], kind: 'user' },
+      { id: 'a', lines: ['positivos'], kind: 'user' },
+      { id: 'b', lines: ['negativos'], kind: 'user' },
+      { id: 'c', lines: ['positivos'], kind: 'user' },
+      { id: 'd', lines: ['negativos'], kind: 'user' },
+    ],
+    links: [
+      { from: 'todas', to: 'enf', count: 1000000, rate: '99,99 %' },
+      { from: 'todas', to: 'san', count: 1000000, rate: '99,99 %' },
+      { from: 'enf', to: 'a', count: 1000000, rate: '99,99 %' },
+      { from: 'enf', to: 'b', count: 1000000, rate: '99,99 %' },
+      { from: 'san', to: 'c', count: 1000000, rate: '99,99 %' },
+      { from: 'san', to: 'd', count: 1000000, rate: '99,99 %' },
+    ],
+  };
+  writeFileSync(file, `# Parte 1\n\n## 1. Mil personas\n\n<lk-tree>\n<script type="application/json">\n${JSON.stringify(arbol)}\n</script>\n</lk-tree>\n`);
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /text-over-text/);
 });

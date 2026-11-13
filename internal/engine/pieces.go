@@ -15,11 +15,11 @@ import (
 
 // pieceElements are the closed elements that carry a piece, in the order the
 // kit defines them.
-var pieceElements = []string{"lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-explorer"}
+var pieceElements = []string{"lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-explorer", "lk-tree"}
 
 // pieceStageKeys are the keys a story step's `stage` uses to draw a piece
 // instead of a scene.
-var pieceStageKeys = []string{"cards", "memory", "tables", "venn"}
+var pieceStageKeys = []string{"cards", "memory", "tables", "venn", "tree"}
 
 func isPieceElement(el string) bool {
 	for _, p := range pieceElements {
@@ -90,6 +90,9 @@ func pieceSpecDraws(kind string, spec map[string]json.RawMessage) bool {
 		// Two or three sets.
 		n := count("sets")
 		return n >= 2 && n <= 3
+	case "tree":
+		// A frequency tree: at least two groups and the branch that joins them (#261).
+		return count("nodes") >= 2 && count("links") >= 1
 	case "explorer":
 		// A scenario is a map of at least two systems and at least one step.
 		return count("actors") >= 2 && count("steps") >= 1
