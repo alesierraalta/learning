@@ -5,11 +5,13 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
 import { request, createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { entryUrl, noteFromMessages, noteFromPath, startStudio as startStudioChecked, studioLinks, topicFromPath } from "./server.ts";
+import { entryUrl, idleMinutesFor, DEFAULT_IDLE_MINUTES, noteFromMessages, noteFromPath, startStudio as startStudioChecked, studioLinks, topicFromPath } from "./server.ts";
+import { busyFile, clearBusy, markBusy, pidAlive } from "./state.ts";
 import { runPartChecks } from "./checks.ts";
 import { stripLecciones } from "./sugerencias.ts";
 import extension from "../integrations/pi/index.ts";
@@ -3279,4 +3281,178 @@ test("an Antigravity reply carrying a file:// link reaches the chat as the studi
     assert.match(answer.text, /\(#\/leer\/redes\/p1\)/, `the reply carries the studio's route: ${answer.text}`);
     assert.doesNotMatch(answer.text, /file:/, "no filesystem URL survives into the chat");
   } finally { stream.close(); }
+});
+
+// ---- Idle exit (#183) ------------------------------------------------------
+// A studio nobody has open used to live until someone killed it, one Pi child per
+// worktree. The window is minutes, so these tests run it as 0.002 (120 ms).
+const IDLE_MS = 120;
+const IDLE_MINUTES = IDLE_MS / 60_000;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** The `opened.json` a test owns, so its busy marker never touches the real state directory. */
+const ownedState = () => join(mkdtempSync(join(tmpdir(), "idle-state-")), "opened.json");
+
+/**
+ * A stand-in for `pi` that reports its pid before it becomes the fake RPC host: the
+ * idle exit has to take the child with it, and a pid that is gone is what proves it.
+ */
+function pidReportingPi(dir) {
+  const pidFile = join(dir, "pi.pid");
+  const script = join(dir, "pid-pi.mjs");
+  writeFileSync(script, [
+    'import { writeFileSync } from "node:fs";',
+    "writeFileSync(process.env.FAKE_PI_PID, String(process.pid));",
+    "await import(process.env.FAKE_PI_MODULE);",
+    "",
+  ].join("\n"));
+  return { script, pidFile };
+}
+
+/** Waits for the studio to leave by itself; a studio that stays is the failure, not a hang. */
+const untilClosed = (studio) =>
+  Promise.race([
+    studio.whenIdleClosed,
+    delay(10000).then(() => { throw new Error("the studio with no page open is still running"); }),
+  ]);
+
+/** Reads a child pid a wrapper wrote, once the studio has started it. */
+async function startedPid(file) {
+  let pid = 0;
+  await untilAsync(() => {
+    if (!existsSync(file)) return false;
+    pid = Number(readFileSync(file, "utf8").trim());
+    return pid > 0;
+  });
+  return pid;
+}
+
+test("the idle window is 30 minutes locally and off for a deploy unless it says otherwise", () => {
+  assert.equal(DEFAULT_IDLE_MINUTES, 30);
+  assert.equal(idleMinutesFor({}), 30);
+  assert.equal(idleMinutesFor({ publicOrigin: "https://box.tail0.ts.net:8445" }), 0);
+  assert.equal(idleMinutesFor({ idleMinutes: 5 }), 5);
+  assert.equal(idleMinutesFor({ idleMinutes: 5, publicOrigin: "https://box.tail0.ts.net:8445" }), 5);
+  assert.equal(idleMinutesFor({ idleMinutes: 0 }), 0);
+  assert.throws(() => idleMinutesFor({ idleMinutes: -1 }), /idleMinutes/);
+  assert.throws(() => idleMinutesFor({ idleMinutes: Number.NaN }), /idleMinutes/);
+});
+
+test("a studio nobody has open closes itself and takes its Pi with it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "idle-pi-"));
+  const { script, pidFile } = pidReportingPi(dir);
+  process.env.FAKE_PI_PID = pidFile;
+  process.env.FAKE_PI_MODULE = pathToFileURL(FAKE_PI).href;
+  try {
+    const { studio } = await setup({ piCommand: [process.execPath, script], idleMinutes: IDLE_MINUTES, openedFile: join(dir, "opened.json") });
+    const pid = await startedPid(pidFile);
+    // Nobody opens the page: the studio leaves by itself, and takes the tutor with it.
+    await untilClosed(studio);
+    await untilAsync(() => !pidAlive(pid));
+    await assert.rejects(() => http(`${studio.url}api/library`), /ECONNREFUSED/);
+    // A shutdown path may close twice: the second close is the same one.
+    await studio.close();
+  } finally {
+    delete process.env.FAKE_PI_PID;
+    delete process.env.FAKE_PI_MODULE;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a connected page keeps the studio alive and the window restarts when it leaves", async () => {
+  const { studio } = await setup({ idleMinutes: IDLE_MINUTES, openedFile: ownedState() });
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  // Two windows with the page open: the studio is still there and still answering it.
+  await delay(IDLE_MS * 2);
+  assert.equal((await http(`${studio.url}api/library`)).status, 200);
+  stream.close();
+  // The last page left, so the window starts over instead of closing on its old countdown.
+  await delay(IDLE_MS / 2);
+  assert.equal((await http(`${studio.url}api/library`)).status, 200);
+  await untilClosed(studio);
+});
+
+test("a turn in flight keeps the studio open after the page leaves", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "idle-turn-"));
+  const { script, pidFile } = pidReportingPi(dir);
+  process.env.FAKE_PI_PID = pidFile;
+  process.env.FAKE_PI_MODULE = pathToFileURL(FAKE_PI).href;
+  try {
+    const { studio } = await setup({ piCommand: [process.execPath, script], idleMinutes: IDLE_MINUTES, openedFile: join(dir, "opened.json") });
+    const stream = sse(`${studio.url}events`);
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "Hola" })).status, 200);
+    const dialog = await stream.next("dialog");
+    stream.close();
+    // Three windows with the tutor holding its turn and nobody watching: still running.
+    await delay(IDLE_MS * 3);
+    assert.equal((await http(`${studio.url}api/library`)).status, 200);
+    // The turn ends: now the window counts, and with no page on it the studio leaves.
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await untilClosed(studio);
+  } finally {
+    delete process.env.FAKE_PI_PID;
+    delete process.env.FAKE_PI_MODULE;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a busy marker a deploy can read keeps the studio open", async () => {
+  const openedFile = ownedState();
+  const { studio } = await setup({ idleMinutes: IDLE_MINUTES, openedFile });
+  // The turn another process holds: a live pid and a turn that just started.
+  markBusy(busyFile(openedFile), { pid: process.pid, startedAt: Date.now(), topic: null });
+  try {
+    await delay(IDLE_MS * 3);
+    assert.equal((await http(`${studio.url}api/library`)).status, 200);
+  } finally {
+    clearBusy(busyFile(openedFile));
+  }
+  await untilClosed(studio);
+});
+
+test("the window is off with idleMinutes 0 and for a deployed studio", async () => {
+  const off = await setup({ idleMinutes: 0, openedFile: ownedState() });
+  await delay(IDLE_MS * 3);
+  assert.equal((await http(`${off.studio.url}api/library`)).status, 200);
+
+  const deployed = await setup({
+    publicOrigin: "https://box.tail0.ts.net:8445",
+    bridgePublicOrigin: "https://box.tail0.ts.net:8446",
+    bridgePort: 0,
+    openedFile: ownedState(),
+  });
+  await delay(IDLE_MS * 3);
+  assert.equal((await http(`${deployed.studio.url}api/library`)).status, 200);
+});
+
+test("the studio command exits 0 when its window passes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "idle-cli-"));
+  const { root } = makeRoot();
+  // A whole `node studio/server.ts`, as the shell function starts it: a disabled tutor
+  // starts no Pi, so the exit this proves is the studio's own.
+  const child = spawn(process.execPath, [join(HERE, "server.ts"), "--no-open"], {
+    env: {
+      ...process.env,
+      LEARNING_ROOT: root,
+      STUDIO_AGENT_DISABLED: "1",
+      STUDIO_IDLE_MINUTES: String(IDLE_MINUTES),
+      XDG_STATE_HOME: dir,
+      XDG_CACHE_HOME: join(dir, "cache"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let said = "";
+  child.stdout.on("data", (chunk) => { said += chunk; });
+  child.stderr.on("data", (chunk) => { said += chunk; });
+  const status = await new Promise((resolve) => {
+    const timer = setTimeout(() => { child.kill("SIGKILL"); resolve("still running"); }, 20000);
+    child.on("exit", (code) => { clearTimeout(timer); resolve(code); });
+  });
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(status, 0, `the studio command must leave by itself; it said: ${said}`);
 });

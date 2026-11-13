@@ -43,9 +43,11 @@ import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
 import { createAgy, parseAgyModels } from "./agy.ts";
 import { checkTutorContext, driftMessage } from "./context.ts";
 import {
+  busyActive,
   busyFile,
   clearBusy,
   markBusy,
+  readBusy,
   readRestartSnapshot,
   saveSnapshot as saveSnapshotFile,
   snapshotFile,
@@ -107,6 +109,14 @@ const TOKEN_SHAPE = /^[a-f0-9]{64}$/;
  */
 const HARNESS_NOTICE = /^(?:gentle\s*ai|el\s+gentleman|gentle-ai)\b/i;
 const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
+/**
+ * A local studio nobody has open is a studio and a Pi child nobody asked for: it waits this
+ * long with no page before closing itself. A deploy keeps its own uptime rules, so it is off
+ * there unless `idleMinutes` says otherwise.
+ */
+export const DEFAULT_IDLE_MINUTES = 30;
+/** How long a closing studio waits for Pi to end on its own before it is killed. */
+const CHILD_EXIT_MS = 5000;
 /** The slides' serif: Tinos is metric-compatible with the Liberation Serif the decks render with. */
 const FONT_STYLESHEETS = [
   ["https://cdn.jsdelivr.net/npm/@fontsource/tinos@5.3.0/latin-400.css", "sha384-8zbxI8QzWEG4vEML31iP2/kJ3U7lZQKpjbhBQnsXSbyqwu2/5YmJNYnEi8S+uHyC"],
@@ -151,12 +161,22 @@ export interface StudioOptions {
    * `scene-lint`, `deck-gate` and `explain-check`, run with the studio's Node.
    */
   partChecks?: (files: string[]) => Promise<PartChecks>;
+  /**
+   * Minutes with nobody watching before the studio closes itself and its Pi child; `0`
+   * turns it off. Default: `DEFAULT_IDLE_MINUTES` locally, off for a deploy (#183).
+   */
+  idleMinutes?: number;
 }
 
 export interface Studio {
   url: string;
   port: number;
   close: () => Promise<void>;
+  /**
+   * Resolves once the studio closed because nobody had it open; it never settles while the
+   * window is off, nor while a page or a turn holds the studio.
+   */
+  whenIdleClosed: Promise<void>;
 }
 
 
@@ -349,6 +369,33 @@ export function noteFromMessages(messages: unknown, root?: string): Note | null 
   return found;
 }
 
+/**
+ * The idle window, in minutes: `DEFAULT_IDLE_MINUTES` with nobody watching a local studio, off
+ * for a deploy (`publicOrigin` set), because a deploy has its own uptime rules. `0` disables it.
+ */
+export function idleMinutesFor(options: { idleMinutes?: number; publicOrigin?: string }): number {
+  if (options.idleMinutes !== undefined) {
+    if (!Number.isFinite(options.idleMinutes) || options.idleMinutes < 0) {
+      throw new Error("idleMinutes must be a number of minutes, 0 to disable it");
+    }
+    return options.idleMinutes;
+  }
+  return options.publicOrigin === undefined ? DEFAULT_IDLE_MINUTES : 0;
+}
+
+/**
+ * A studio that closes never leaves its Pi behind (#183): SIGTERM, a bounded wait for the exit,
+ * and only a child that ignored it is killed. The caller clears `child` first, so this exit is
+ * the studio's own close and not a runtime that died mid-turn.
+ */
+async function stopChild(proc: ChildProcessWithoutNullStreams): Promise<void> {
+  if (proc.exitCode !== null || proc.signalCode !== null) return;
+  const gone = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
+  proc.kill();
+  await Promise.race([gone, new Promise<void>((resolve) => { setTimeout(resolve, CHILD_EXIT_MS).unref(); })]);
+  if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+}
+
 export async function startStudio(options: StudioOptions = {}): Promise<Studio> {
   if ((options.transcriberUrl !== undefined) !== (options.transcriberToken !== undefined)) {
     throw new Error("transcriberUrl and transcriberToken must be set together");
@@ -444,6 +491,47 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const toolArgs = new Map<string, unknown>();
   const dialogs = new Map<string, Json>();
   const state = () => ({ busy: turn !== null, alive, tema: turnTopic });
+
+  // ---- Idle exit ---------------------------------------------------------
+  /**
+   * A studio nobody has open is a studio and a Pi child nobody asked for (#183): after the idle
+   * window with no `/events` client it closes itself and its tutor. Nothing closes while a turn
+   * is in flight, while the busy marker names one, or while the page is still connected.
+   */
+  const idleMs = idleMinutesFor(options) * 60_000;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let shuttingDown = false;
+  let announceIdle = () => {};
+  /** Resolves once the studio closed because nobody had it open; never when the window is off. */
+  const whenIdleClosed = new Promise<void>((resolve) => { announceIdle = resolve; });
+  /** What holds a studio open with no page on it: a message stream, a turn, or a marker a deploy wrote. */
+  const idleHeld = () => clients.size > 0 || turn !== null || busyActive(readBusy(busyMarker));
+  /** A page or a turn took over: the countdown starts again when it lets go. */
+  const holdIdle = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = undefined;
+  };
+  const armIdle = () => {
+    holdIdle();
+    if (shuttingDown || idleMs <= 0) return;
+    const timer = setTimeout(() => void idleExit(), idleMs);
+    // A countdown is never the reason a process stays up: the server and Pi already are.
+    // SAFETY: under Node this handle is a `Timeout`, which has `unref`; the inferred DOM
+    // lib types it as a number, so the call is made optional instead of retyped.
+    (timer as unknown as { unref?: () => void }).unref?.();
+    idleTimer = timer;
+  };
+  const idleExit = async () => {
+    idleTimer = undefined;
+    if (shuttingDown) return;
+    // The window passing is not the whole rule: what holds the studio is asked once more here.
+    if (idleHeld()) {
+      armIdle();
+      return;
+    }
+    await close();
+    announceIdle();
+  };
 
   const handle = (record: Json) => {
     const type = record.type;
@@ -911,6 +999,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (ended.parts.length > 0) savePageTiming(ended.timing, ended.parts);
     saveSnapshot();
     emit("state", state());
+    // The turn that held the studio is over: the idle window starts counting again.
+    armIdle();
   };
 
   /** One prompt to the runtime. A refusal is the studio's log, never the learner's words. */
@@ -1733,14 +1823,22 @@ ${scripts}
   };
 
   const events = async (res: ServerResponse) => {
+    // A page on the studio holds it open, even before the stream has written its first frame.
+    holdIdle();
+    // Whatever ends this connection, the studio is unwatched again when it closes.
+    res.on("close", () => {
+      clients.delete(res);
+      armIdle();
+    });
     res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", "x-content-type-options": "nosniff" });
     const shown = await history();
     res.write(`event: history\ndata: ${JSON.stringify(shown)}\n\n`);
     if (shown.interrupted?.cause === "update") spendUpdateNotice();
     res.write(`event: state\ndata: ${JSON.stringify(state())}\n\n`);
     for (const dialog of dialogs.values()) res.write(`event: dialog\ndata: ${JSON.stringify(dialog)}\n\n`);
-    clients.add(res);
-    res.on("close", () => clients.delete(res));
+    // A page that left while the history was being read has already fired its close: counting
+    // it now would hold the studio open for a client that is not there.
+    if (!res.destroyed) clients.add(res);
   };
 
   const tokenMatches = (candidate: string) => {
@@ -1943,24 +2041,35 @@ ${scripts}
   if (!bridgeOrigin) throw new Error("the study-view bridge did not start");
   if (!options.agentDisabled) startTutor(tutor);
 
+  let closing: Promise<void> | null = null;
+  /** Closing is once, whoever asks first: the idle window, a deploy's SIGTERM or a test. */
+  const close = (): Promise<void> => (closing ??= shutDown());
+  const shutDown = async (): Promise<void> => {
+    shuttingDown = true;
+    holdIdle();
+    // SIGTERM from a deploy lands here: the conversation and the turn it was holding are
+    // written before the process goes, so the next boot can say what was interrupted.
+    saveSnapshot();
+    clearBusy(busyMarker);
+    for (const res of clients) res.end();
+    clients.clear();
+    const proc = child;
+    // Cleared before the kill, so Pi's exit is this close and not a runtime that died mid-turn.
+    child = undefined;
+    if (proc) await stopChild(proc);
+    agy?.stop();
+    for (const handler of shutdownHandlers) await handler();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  };
+  // The window starts with the studio: a run nobody opens is the case this is for.
+  armIdle();
+
   return {
     url: `http://127.0.0.1:${port}/${token}/`,
     port,
-    close: async () => {
-      // SIGTERM from a deploy lands here: the conversation and the turn it was holding are
-      // written before the process goes, so the next boot can say what was interrupted.
-      saveSnapshot();
-      clearBusy(busyMarker);
-      for (const res of clients) res.end();
-      clients.clear();
-      const proc = child;
-      child = undefined;
-      proc?.kill();
-      agy?.stop();
-      for (const handler of shutdownHandlers) await handler();
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    },
+    close,
+    whenIdleClosed,
   };
 }
 
@@ -1973,11 +2082,14 @@ export function entryUrl(publicOrigin: string | undefined, port: number): string
 /** `node studio/server.ts` starts the studio and opens it in the Windows browser (WSL). */
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const publicOrigin = process.env.STUDIO_PUBLIC_ORIGIN;
+  const configuredIdle = process.env.STUDIO_IDLE_MINUTES?.trim();
   const studio = await startStudio({
     root: process.env.LEARNING_ROOT?.trim() || undefined,
     agentDisabled: process.env.STUDIO_AGENT_DISABLED === "1",
     port: Number(process.env.STUDIO_PORT) || 4747,
     publicOrigin,
+    // Unset is the default rule: 30 minutes locally, off for a deploy that has no STUDIO_IDLE_MINUTES.
+    idleMinutes: configuredIdle ? Number(configuredIdle) : undefined,
     transcriberUrl: process.env.STUDIO_TRANSCRIBER_URL,
     transcriberToken: process.env.STUDIO_TRANSCRIBER_TOKEN,
     bridgePublicOrigin: process.env.STUDIO_BRIDGE_PUBLIC_ORIGIN,
@@ -1995,4 +2107,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
+  // Nobody has had the studio open for the whole window: it leaves with its Pi, exit 0 (#183).
+  void studio.whenIdleClosed.then(() => {
+    console.log("Estudio: nadie lo tenía abierto; cierro el estudio y su Pi.");
+    process.exit(0);
+  });
 }
