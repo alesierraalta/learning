@@ -72,7 +72,18 @@ import { parsePiModels } from "./pi-models.ts";
 import { enrolled } from "./gate.ts";
 import { runPartChecks, type PartChecks, type PartReport } from "./checks.ts";
 import { PASS_STATUSES, gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
-import { STUDY_MODES, createSettleGate, isStudioPrompt, modeLine, type ExamChoice, type ExamFormat } from "./runtime.ts";
+import {
+  STUDY_MODES,
+  createPageTiming,
+  createSettleGate,
+  isStudioPrompt,
+  modeLine,
+  type CallReason,
+  type ExamChoice,
+  type ExamFormat,
+  type PageTiming,
+  type PageTimingReport,
+} from "./runtime.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, tutorContext, validateSugerencia, withLecciones } from "./sugerencias.ts";
@@ -205,6 +216,11 @@ type Turn = {
    * turn is offered as done. A turn that wrote no part owes no measurement.
    */
   parts: string[];
+  /**
+   * What each phase of this turn cost and how many times the tutor was called: the data of the
+   * report the studio writes when the turn ends. It only reads the turn; it never changes it.
+   */
+  timing: PageTiming;
 };
 
 /** The learner reads this when the studio refuses a second turn: one turn at a time, studio-wide. */
@@ -239,6 +255,54 @@ export function noteFromPath(path: unknown, root?: string): Note | null {
   const name = /^Parte (\d+) - .+\.(md|html)$/.exec(segments[folder + 1] ?? "");
   const index = name === null ? 0 : Number(name[1]);
   return index < 1 ? null : { topic, index };
+}
+
+/**
+ * A reply the learner can act on. A tutor that cannot see the page hands a note over as a `file://`
+ * URL, which opens nothing in a studio served over https. A link to a part note becomes the studio's
+ * own route (`#/leer/<topic>/<part>`, what «Ir a Parte N» opens); any other filesystem link keeps
+ * its words and loses the URL, because a path the browser cannot open is not a link.
+ */
+export function studioLinks(text: string, root?: string): string {
+  if (!text.includes("file:")) return text;
+  const route = (target: string): string | null => {
+    let path: string;
+    try {
+      path = fileURLToPath(target);
+    } catch {
+      return null;
+    }
+    const note = noteFromPath(path, root);
+    if (note === null) return null;
+    if ("quick" in note) return `#/rapido/${encodeURIComponent(note.quick)}`;
+    if ("diagnosis" in note) return `#/leer/${note.topic}/quiz`;
+    // The part's id comes from the plan, never from the file name: the page routes by id.
+    let part: string | undefined;
+    try {
+      part = readPlan(join(root ?? ".", note.topic))?.parts[note.index - 1]?.id;
+    } catch {
+      return null;
+    }
+    return part === undefined ? null : `#/leer/${note.topic}/${part}`;
+  };
+  const name = (target: string): string => {
+    const last = target.split("/").pop() ?? target;
+    try {
+      return decodeURIComponent(last);
+    } catch {
+      return last;
+    }
+  };
+  return text
+    .replace(/\[([^\]\n]*)\]\(\s*(file:[^)\s]+)\s*\)/g, (_whole, words: string, target: string) => {
+      const to = route(target);
+      return to === null ? words.trim() || name(target) : `[${words.trim() || name(target)}](${to})`;
+    })
+    .replace(/(^|[\s(<])file:\/\/[^\s<>)"'\]]+/g, (whole, before: string) => {
+      // The URL is the match without the character that opened the line or the bracket.
+      const target = whole.slice(before.length);
+      return `${before}${route(target) ?? name(target)}`;
+    });
 }
 
 /**
@@ -393,6 +457,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         return;
       case "agent_settled": {
         toolArgs.clear();
+        // The call the studio was waiting for is over: its time is the runtime's own work, and what
+        // follows (the engine's verdict, the part's checks) is the studio's own phase.
+        turn?.timing.endCall(true);
         // Only the session Pi is in can report its usage, so it is read while it is active.
         if (!agy) void refreshContexto();
         emit("library_changed", {});
@@ -437,7 +504,13 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       case "message_end": {
         const message = record.message;
         if (isRecord(message) && message.role === "assistant") {
-          const text = messageText(message);
+          // A tutor that was handed a `file://` URL hands it back: the reply carries the studio's own
+          // route to the part instead, so the learner can open what the turn wrote (#248).
+          const raw = messageText(message);
+          const text = studioLinks(raw, root);
+          // What the call answered, as the model produced it: the size of its own output, before the
+          // studio rewrote a single link.
+          if (raw && turn) turn.timing.addOutput(raw.length);
           if (text) emit("assistant_end", { id: assistantId, text });
           if (agy && text) agyTurns.push({ role: "assistant", text });
           if (text) remember({ role: "assistant", text });
@@ -788,6 +861,34 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     emit("state", state());
   };
 
+  // ---- the timing of a generation --------------------------------------------
+  /**
+   * One report per generation, inside the studio's own state directory (beside `opened.json`),
+   * never in the vault: the page the tutor wrote is left exactly as it is. Each report is a whole
+   * JSON document with the same shape, so two generations are compared by reading two files.
+   */
+  const pageTimingsDir = join(dirname(openedFile), "page-timings");
+  const savePageTiming = (timing: PageTiming, parts: string[]) => {
+    try {
+      const written = parts.map((file) => ({
+        // Inside the vault, never the absolute path of whoever ran the studio.
+        path: relative(root, file),
+        bytes: existsSync(file) ? statSync(file).size : 0,
+      }));
+      const report: PageTimingReport = timing.report(written);
+      // A measurement must never end a turn the page already survived.
+      mkdirSync(pageTimingsDir, { recursive: true });
+      const base = `page-${report.startedAt.replace(/[:.]/g, "-")}`;
+      let file = join(pageTimingsDir, `${base}.json`);
+      for (let n = 2; existsSync(file); n += 1) file = join(pageTimingsDir, `${base}-${n}.json`);
+      const temporary = `${file}.${process.pid}.tmp`;
+      writeFileSync(temporary, `${JSON.stringify(report, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+      renameSync(temporary, file);
+    } catch (error) {
+      process.stderr.write(`estudio: no se pudo escribir el reporte de tiempos · ${(error as Error).message}\n`);
+    }
+  };
+
   /**
    * Every exit of a turn goes through here: settled and decided, aborted, restarted, a dead runtime
    * or an engine call that could not answer. Nothing may leave a turn held.
@@ -800,15 +901,21 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const releaseTurn = (owner?: Turn) => {
     if (!turn) return;
     if (owner !== undefined && turn !== owner) return;
+    const ended = turn;
     turn = null;
     interrupted = null;
     clearBusy(busyMarker);
+    // A turn that wrote a part generated a page: its timings are on disk before the page hears
+    // the turn is over, so a reader can compare this generation with the next one.
+    if (ended.parts.length > 0) savePageTiming(ended.timing, ended.parts);
     saveSnapshot();
     emit("state", state());
   };
 
   /** One prompt to the runtime. A refusal is the studio's log, never the learner's words. */
-  const deliver = async (text: string, started: Turn) => {
+  const deliver = async (text: string, started: Turn, reason: CallReason = "turn") => {
+    // From here until the runtime settles is this call's own time; the sizes are what it sends.
+    started.timing.startCall(reason, text.length);
     try {
       if (agy) {
         agy.prompt(text);
@@ -818,6 +925,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         if (reply.success === false) throw new HttpError(409, String(reply.error ?? "el tutor rechazó el turno"));
       }
     } catch (error) {
+      // A prompt that never reached the tutor is a call that produced nothing.
+      started.timing.endCall(false);
       const cause = error instanceof HttpError ? `${error.status} ${error.message}` : (error as Error).message;
       process.stderr.write(`estudio: el turno de ${started.topic ?? "chat general"} no llegó al tutor · ${cause}\n`);
       // A studio refusal the route already explains (disabled or stopped tutor) keeps its status;
@@ -880,13 +989,23 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     await ready;
     // `ready` can take a moment, and the studio must not hold two turns because of it.
     requireNoTurn();
-    const started: Turn = { topic: spec.topic, correction: spec.correction === true, creation: spec.creation === true, parts: [] };
+    const started: Turn = {
+      topic: spec.topic,
+      correction: spec.correction === true,
+      creation: spec.creation === true,
+      parts: [],
+      // The generation's clocks start when the studio accepts the turn, not when the tutor starts.
+      timing: createPageTiming({ runtime: tutor.agente, model: tutor.modelo, topic: spec.topic }),
+    };
     holdTurn(started);
     try {
       // Every turn of every topic carries the learner's standing lessons: the same place for both
       // runtimes, so neither can start a turn without them. Read per turn, so a lesson just
       // recorded already applies to the next one.
-      await deliver(withLecciones(namedPart(text), root), started);
+      // Building the prompt the tutor reads (the part's own name, the learner's standing lessons)
+      // is a phase of its own: it is the studio's work, before the model is called at all.
+      const prompt = await started.timing.measure("contexto", () => withLecciones(namedPart(text), root));
+      await deliver(prompt, started);
     } catch (error) {
       releaseTurn(started);
       throw error;
@@ -936,14 +1055,24 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     let corrected = false;
     try {
       if (!topic) return;
-      const { report } = await runGate(topic);
+      const { report } = await settled.timing.measure("motor", () => runGate(topic));
       // Aborted or restarted while the engine answered: this turn is no longer the studio's.
       if (turn !== settled) return;
+      // The method is the learner's choice on the topic page. A turn that recorded one itself took
+      // that choice away, and the studio does not accept it: the learner hears it instead of being
+      // taught a route they never picked (#248).
+      const chose = tutorChoseMethod(topic, report);
+      if (chose) {
+        emit("error", {
+          message: `El tutor eligió el método por ti (${chose}): el método se elige en la página del tema, no en el chat. El turno no se da por bueno.`,
+        });
+        return;
+      }
       const decision = settleGate.decide(report);
       if (decision.action === "ask") {
         // The correction is the same turn, one more prompt: it is not a new turn start.
         try {
-          await deliver(decision.text, settled);
+          await deliver(decision.text, settled, "engine-correction");
           corrected = true;
         } catch {
           correctionRefused(topic);
@@ -956,13 +1085,13 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         }
         // The engine is done with this turn, so what it cannot measure is measured here: the part
         // the turn wrote still owes the scene and explanation checks before it reaches the learner.
-        const found = await checkParts(settled);
+        const found = await settled.timing.measure("comprobaciones", () => checkParts(settled));
         if (turn !== settled) return;
         if (found) {
           const verdict = settleGate.decideFindings(found);
           if (verdict.action === "ask") {
             try {
-              await deliver(verdict.text, settled);
+              await deliver(verdict.text, settled, "part-correction");
               corrected = true;
             } catch {
               correctionRefused(topic);
@@ -1078,6 +1207,36 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const temporary = `${openedFile}.${process.pid}.tmp`;
     writeFileSync(temporary, JSON.stringify(opened));
     renameSync(temporary, openedFile);
+  };
+
+  // ---- the method the learner chose ------------------------------------------
+  // `<root>::<topic>` -> the method the page recorded. The engine cannot tell who called its method
+  // command (the page and the tutor run the same CLI), so the studio keeps the page's own choices
+  // and refuses a turn that recorded one itself. The root is part of the key because one state
+  // directory serves every vault this user opens. Kept beside `opened.json`, so a restarted studio
+  // does not mistake a page choice for a tutor's.
+  const methodsFile = join(dirname(openedFile), "metodos.json");
+  const methodKey = (topic: string) => `${root}::${topic}`;
+  const readMethods = (): Record<string, string> => {
+    try {
+      const stored = JSON.parse(readFileSync(methodsFile, "utf8"));
+      return isRecord(stored) ? Object.fromEntries(Object.entries(stored).filter(([, m]) => typeof m === "string")) as Record<string, string> : {};
+    } catch {
+      return {};
+    }
+  };
+  const pageMethods = readMethods();
+  const recordPageMethod = (topic: string, metodo: string) => {
+    pageMethods[methodKey(topic)] = metodo;
+    mkdirSync(dirname(methodsFile), { recursive: true });
+    const temporary = `${methodsFile}.${process.pid}.tmp`;
+    writeFileSync(temporary, JSON.stringify(pageMethods));
+    renameSync(temporary, methodsFile);
+  };
+  /** The method the engine reports but the page never recorded: the tutor chose for the learner. */
+  const tutorChoseMethod = (topic: string, report: Json): string => {
+    const method = typeof report.method === "string" ? report.method : "";
+    return method !== "" && pageMethods[methodKey(topic)] !== method ? method : "";
   };
 
   const library = async () => {
@@ -1337,6 +1496,7 @@ ${scripts}
         }
         tema = topic;
         gateBlocked = false;
+        recordPageMethod(topic, metodo);
         emit("library_changed", {});
         // The tutor continues to planning with the method the learner just chose.
         await startTurn(methodPrompt(metodo), { topic });
@@ -1376,13 +1536,21 @@ ${scripts}
         emit("dialog_closed", { id });
         break;
       }
-      case "abort":
+      case "abort": {
         // A turn the learner stopped is not the engine's business, and not a correction either:
         // releasing it here is what makes the abort final, whatever the runtime does afterwards.
+        // A deploy names its cause, so the restart that follows can say the studio was updated.
+        const cause = isRecord(body) && body.cause === "update" ? "update" : undefined;
+        const held = turn;
         releaseTurn();
+        if (cause !== undefined && held !== null) {
+          interrupted = { topic: held.topic, at: Date.now(), cause };
+          saveSnapshot();
+        }
         if (agy) agy.abort();
         else await call({ type: "abort" }, 60000);
         break;
+      }
       case "api/draft": {
         const written = (value: unknown) => (typeof value === "string" ? value : "");
         const markdown = body.body;
@@ -1520,15 +1688,16 @@ ${scripts}
     sendJson(res, 200, { ok: true });
   };
 
-  /** What the chat shows about a turn a previous process was holding: the topic and its title. */
+  /** What the chat shows about a turn a previous process was holding: the topic, its title and why it ended. */
   const interruptedView = () => {
     const turn = interrupted;
     if (turn === null) return null;
     const topic = turn.topic;
-    return { topic, title: topic === null ? null : listTopics(root).find((t) => t.id === topic)?.title ?? topic };
+    const view = { topic, title: topic === null ? null : listTopics(root).find((t) => t.id === topic)?.title ?? topic };
+    return turn.cause === undefined ? view : { ...view, cause: turn.cause };
   };
 
-  const history = async (): Promise<{ messages: Json[]; note: Note | null; interrupted: { topic: string | null; title: string | null } | null }> => {
+  const history = async (): Promise<{ messages: Json[]; note: Note | null; interrupted: { topic: string | null; title: string | null; cause?: "update" } | null }> => {
     const shown = interruptedView();
     const copy = transcript.map((message) => ({ role: message.role, text: message.text }));
     if (!alive || agy) return { messages: agy ? [...agyTurns] : copy, note: null, interrupted: shown };
@@ -1559,9 +1728,18 @@ ${scripts}
     return shown;
   };
 
+  /** The update notice is one notice: once a page has been sent it, no later page or restart repeats it. */
+  const spendUpdateNotice = () => {
+    if (interrupted?.cause !== "update") return;
+    interrupted = null;
+    saveSnapshot();
+  };
+
   const events = async (res: ServerResponse) => {
     res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", "x-content-type-options": "nosniff" });
-    res.write(`event: history\ndata: ${JSON.stringify(await history())}\n\n`);
+    const shown = await history();
+    res.write(`event: history\ndata: ${JSON.stringify(shown)}\n\n`);
+    if (shown.interrupted?.cause === "update") spendUpdateNotice();
     res.write(`event: state\ndata: ${JSON.stringify(state())}\n\n`);
     for (const dialog of dialogs.values()) res.write(`event: dialog\ndata: ${JSON.stringify(dialog)}\n\n`);
     clients.add(res);

@@ -6,7 +6,10 @@
 //
 // Cada hallazgo es { kind, text, detail }:
 //   empty-piece          la pieza no dibujó nada o mide casi cero
-//   off-canvas           algo se sale de su escenario o la pieza desborda en horizontal
+//   off-canvas           algo se sale de su escenario o la pieza desborda en horizontal;
+//                        dentro del marco de desplazamiento de una tabla, lo que se corta antes de su
+//                        inicio o una primera columna cortada al abrir sí cuenta, y lo que queda tras
+//                        su final es alcanzable deslizando
 //   text-too-small       una palabra baja del tamaño de lectura
 //   text-over-text       dos palabras se pisan
 //   connector-miss       un conector no empieza o no termina en su ancla medida
@@ -53,6 +56,16 @@ export function measurePiece(host, { minPx = 13, scope = 'all', slack = 1 } = {}
   };
   const night = ['dark', 'black'].includes(document.documentElement.dataset.theme);
 
+  // Lo que el lector ve de una palabra: dentro de un marco de desplazamiento, solo lo que el marco deja ver.
+  // Una palabra fuera de su marco no se ve y su caja vacía no choca con nada.
+  const seenBox = (node, b) => {
+    const frame = node.closest?.('.lk-tframe');
+    if (!frame) return b;
+    const f = frame.getBoundingClientRect();
+    const left = Math.max(b.left, f.left), right = Math.min(b.right, f.right);
+    if (right <= left) return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 };
+    return { left, right, top: b.top, bottom: b.bottom, width: right - left, height: b.height };
+  };
   const words = [];
   for (const piece of pieces) {
     const walker = document.createTreeWalker(piece, NodeFilter.SHOW_TEXT);
@@ -68,10 +81,23 @@ export function measurePiece(host, { minPx = 13, scope = 'all', slack = 1 } = {}
       const svg = owner instanceof SVGElement ? owner.ownerSVGElement : null;
       const px = parseFloat(style.fontSize) * (svg ? (svg.getScreenCTM()?.a || 1) : 1);
       const ink = rgb(svg ? style.fill : style.color);
-      words.push({ text, owner, b, px, ink });
+      words.push({ text, owner, b: seenBox(owner, b), full: b, px, ink });
     }
   }
 
+  // Lo que vive en el marco de desplazamiento de una tabla se mide contra ese marco, no
+  // contra el escenario: lo que queda tras su final se alcanza deslizando; lo que se corta
+  // antes de su inicio, la primera columna cortada al abrir y lo que no puede deslizar sí.
+  const inFrame = (node, r) => {
+    const frame = node.closest?.('.lk-tframe');
+    if (!frame) return undefined;
+    const f = frame.getBoundingClientRect();
+    const cell = node.closest('td, th');
+    if (frame.scrollLeft < 1 && r.left < f.left - slack) return `cortada antes de su marco: x ${Math.round(r.left)} < ${Math.round(f.left)}`;
+    if (cell?.cellIndex === 0 && frame.scrollLeft < 1 && r.right > f.right + slack) return 'la primera columna queda cortada al abrir la tabla';
+    if (frame.scrollWidth <= frame.clientWidth + 1 && (r.left < f.left - slack || r.right > f.right + slack)) return `fuera de su marco: x ${Math.round(r.left)}–${Math.round(r.right)} fuera de ${Math.round(f.left)}–${Math.round(f.right)}`;
+    return null;
+  };
   if (wants('geometry') || scope === 'all') {
     for (const piece of pieces) {
       if (piece.scrollWidth > piece.clientWidth + 1) add('off-canvas', piece.className, `la pieza desborda en horizontal: ${piece.scrollWidth} > ${piece.clientWidth}`);
@@ -83,12 +109,19 @@ export function measurePiece(host, { minPx = 13, scope = 'all', slack = 1 } = {}
       // La prosa del lector se justifica; una pieza no. Su texto se alinea al inicio o
       // al centro, y una línea corta justificada abre huecos entre palabras.
       if (getComputedStyle(w.owner).textAlign === 'justify') add('texto-justificado', w.text, 'la pieza se alinea justificada, no al inicio ni al centro');
-      if (w.b.left < canvas.left - slack || w.b.right > canvas.right + slack) add('off-canvas', w.text, `x ${Math.round(w.b.left)}–${Math.round(w.b.right)} fuera de ${Math.round(canvas.left)}–${Math.round(canvas.right)}`);
-      if (w.b.left < -slack || w.b.right > innerWidth + slack) add('off-canvas', w.text, 'queda fuera de la ventana');
+      const framed = inFrame(w.owner, w.full);
+      if (framed === undefined) {
+        if (w.full.left < canvas.left - slack || w.full.right > canvas.right + slack) add('off-canvas', w.text, `x ${Math.round(w.full.left)}–${Math.round(w.full.right)} fuera de ${Math.round(canvas.left)}–${Math.round(canvas.right)}`);
+        if (w.full.left < -slack || w.full.right > innerWidth + slack) add('off-canvas', w.text, 'queda fuera de la ventana');
+      } else if (framed) add('off-canvas', w.text, framed);
     }
     for (const piece of pieces) for (const box of piece.querySelectorAll('[data-anchor], svg')) {
       const r = box.getBoundingClientRect();
-      if (r.width && (r.left < canvas.left - slack || r.right > canvas.right + slack)) add('off-canvas', box.dataset?.anchor || box.tagName.toLowerCase(), `x ${Math.round(r.left)}–${Math.round(r.right)} fuera de ${Math.round(canvas.left)}–${Math.round(canvas.right)}`);
+      if (!r.width) continue;
+      const framed = inFrame(box, r);
+      if (framed === undefined) {
+        if (r.left < canvas.left - slack || r.right > canvas.right + slack) add('off-canvas', box.dataset?.anchor || box.tagName.toLowerCase(), `x ${Math.round(r.left)}–${Math.round(r.right)} fuera de ${Math.round(canvas.left)}–${Math.round(canvas.right)}`);
+      } else if (framed) add('off-canvas', box.dataset?.anchor || box.tagName.toLowerCase(), framed);
     }
     for (const w of words) {
       if (!w.ink) continue;
@@ -113,6 +146,8 @@ export function measurePiece(host, { minPx = 13, scope = 'all', slack = 1 } = {}
   };
   for (const piece of pieces) {
     for (const path of piece.querySelectorAll('svg path[data-from]')) {
+      // Un conector oculto (su celda clave queda fuera de su marco) no se dibuja: no es un fallo de trazo.
+      if (path.getAttribute('visibility') === 'hidden') continue;
       const { at, total } = ends(path);
       if (!total) { add('connector-miss', path.dataset.from, 'el conector no dibuja trazo'); continue; }
       const from = anchorBox(piece, path.dataset.from);

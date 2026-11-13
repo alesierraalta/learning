@@ -2399,9 +2399,12 @@
    * A turn the studio lost (a deploy stopped it) is not a silent empty chat: the chat says
    * so in Spanish and offers the way back to the topic it was teaching.
    */
-  function interruptedCard({ topic, title }) {
+  function interruptedCard({ topic, title, cause }) {
     const name = title || topic || "";
-    const text = name ? `El turno se interrumpió; el tutor puede seguir con ${name}.` : "El turno se interrumpió; el tutor puede seguir.";
+    // A deploy ended the turn on purpose: the request is sent again, and the card says why.
+    const text = cause === "update"
+      ? (name ? `Actualizamos el estudio y se interrumpió tu última petición sobre «${name}»; vuelve a enviarla.` : "Actualizamos el estudio y se interrumpió tu última petición; vuelve a enviarla.")
+      : (name ? `El turno se interrumpió; el tutor puede seguir con ${name}.` : "El turno se interrumpió; el tutor puede seguir.");
     const resume = () => (topic ? say(`Sigamos con ${name} (carpeta ${topic}).`, topic, { deep: true }) : say("Sigamos."));
     return h("div", { class: "next-cta interrupted" }, h("p", {}, text), btn(name ? `Seguir con ${name}` : "Seguir", resume, "btn small primary", "next"));
   }

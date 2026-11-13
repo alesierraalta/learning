@@ -94,3 +94,35 @@ test("the studio preamble points at the story language, and names the classic wa
     delete process.env.FAKE_AGY_TURNS;
   }
 });
+
+// El método es la pregunta de la página del tema y la parte se señala por su nombre en el estudio:
+// agy no tiene herramienta de preguntas en modo -p y no puede abrir un `file://` (#248). El
+// preámbulo es lo único que recibe en cada turno, así que las dos reglas viajan ahí.
+test("the studio preamble leaves the method to the page and forbids filesystem links", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agy-method-"));
+  const log = join(dir, "turns.log");
+  process.env.FAKE_AGY_TURNS = log;
+  let settled = 0;
+  const agy = createAgy({
+    command: [process.execPath, FAKE_AGY],
+    cwd: dir,
+    config: { version: 1, agente: "agy", modelo: "", pensamiento: "" },
+    onRecord: (record) => {
+      if (record.type === "agent_settled") settled += 1;
+    },
+    onError: (message) => assert.fail(message),
+  });
+  try {
+    agy.prompt("escribe la parte 1");
+    await until(() => settled === 1);
+    const prompt = turns(log)[0].join(" ");
+    assert.match(prompt, /El método \(pareto o preferencias\) es la pregunta de la página del tema/);
+    assert.match(prompt, /nunca lo registres tú/);
+    assert.match(prompt, /no corras `learning method`/);
+    assert.match(prompt, /dile a la persona que elija en la página del tema y termina el turno/);
+    assert.match(prompt, /«Ir a Parte N»/);
+    assert.match(prompt, /nunca un enlace `file:\/\/` ni una ruta del sistema de archivos/);
+  } finally {
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});

@@ -1385,7 +1385,11 @@ test("a quick note is created, listed first and edited through the reader", { sk
   await page.waitForFunction(() => location.hash === "#/");
   await page.locator(".quick-card").first().getByRole("button", { name: "Editar" }).click();
   await page.waitForFunction(() => location.hash.startsWith("#/editar/"));
-  assert.match(await editorBody(page).inputValue(), /lk-walkthrough/, "the editor holds the Markdown with its deck");
+  // The editor fills once the note is fetched, after the route changes: wait for the text, not the route.
+  const body = editorBody(page);
+  await body.waitFor();
+  await page.waitForFunction((el) => el.value.length > 0, await body.elementHandle(), { timeout: 10000 });
+  assert.match(await body.inputValue(), /lk-walkthrough/, "the editor holds the Markdown with its deck");
   const preview = await page.waitForSelector(".editor-preview iframe.sheet[src]");
   assert.match(await preview.getAttribute("src"), /rapidos\/nota-con-diapositivas/, "the preview is the real reader page");
 

@@ -404,6 +404,13 @@ type OptionThresholds struct {
 	NoSayKey   string   `json:"noSayKey"`
 	NoSayText  string   `json:"noSayText"`
 	AnswerKeys []string `json:"answerKeys"`
+	// VaryAnswerKeys turns on the answer-key distribution rule: in a round of
+	// three or more questions the correct option may not sit in the same letter
+	// every time, and in a round of four or more no letter may hold more than
+	// half of the keys. A learner who always marks A would otherwise pass
+	// without reading. False means the rule is not declared, so a frozen
+	// snapshot keeps accepting the keys it accepted.
+	VaryAnswerKeys bool `json:"varyAnswerKeys,omitempty"`
 }
 
 type Thresholds struct {

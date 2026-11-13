@@ -157,6 +157,74 @@ timed out, or failed without naming a finding) is a **check failure for the stud
 finding for the tutor: nobody is asked to fix a part that was never measured. A turn that wrote no
 part runs no checks.
 
+### The time of one generation, measured phase by phase
+
+A page was a black box: the studio sent one prompt and never said what it cost. Every turn that
+writes a part now leaves a report on disk, written when the turn ends, in
+`$XDG_STATE_HOME/learning-studio/page-timings/` beside `opened.json` — never in the vault: the page
+the tutor wrote is left exactly as it is. One file per generation, `page-<startedAt>.json`, a whole
+JSON document with the same shape every time, so two generations are compared by reading two files.
+
+```jsonc
+{
+  "version": 1,
+  "startedAt": "2026-11-12T18:27:31.112Z",   // the accepted turn, ISO-8601
+  "finishedAt": "2026-11-12T18:27:31.165Z",
+  "tutor": "pi",                              // or "agy": the runtime that ran the turn
+  "model": "",                                // the model the runtime was started with
+  "topic": "redes",
+  "modelCalls": 2,                            // how many prompts the studio sent
+  "calls": [
+    { "n": 1, "reason": "turn", "inputChars": 753, "outputChars": 29, "ms": 26, "ok": true },
+    { "n": 2, "reason": "engine-correction", "inputChars": 334, "outputChars": 29, "ms": 14, "ok": true }
+  ],
+  "phases": [                                  // ms and times, the code's own phases
+    { "name": "contexto", "ms": 2, "times": 1 },
+    { "name": "tutor", "ms": 40, "times": 2 },
+    { "name": "motor", "ms": 9, "times": 2 },
+    { "name": "comprobaciones", "ms": 0, "times": 1 }
+  ],
+  "absent": [ /* phases a generation does not have, each with its reason */ ],
+  "parts": [ { "path": "redes/explicaciones/Parte 1 - Capas.md", "bytes": 5 } ],
+  "totalMs": 53
+}
+```
+
+The phases are the ones the code really has, and nothing else is invented:
+
+| Fase | Qué mide |
+| --- | --- |
+| `contexto` | construir el prompt que el tutor lee: el nombre de la parte y las lecciones permanentes del alumno (`withLecciones`) |
+| `tutor` | las llamadas al modelo: una por prompt enviado, abierta al enviarlo y cerrada cuando el runtime hace su `settle` |
+| `motor` | la llamada al motor (`learning status`) en cada settle, que decide si el turno sigue |
+| `comprobaciones` | los cuatro `tools/` del estudio sobre la parte que el turno escribió |
+
+`tutor` aparece cuando hubo al menos una llamada, y `times` es exactamente `modelCalls`. El motor se
+pregunta una vez por settle; las comprobaciones de la parte se corren una sola vez, en el settle que
+el motor da por cerrado. Un turno que escribió ninguna parte no deja reporte: no hubo página.
+
+`absent` nombra las dos fases que la medición pidió y que una generación **no** tiene, con su razón
+en el código (`ABSENT_PHASES`, `studio/runtime.ts`): **`referencias`** — el estudio nunca reescribe la
+página que recibe; las referencias solo se resuelven en la copia sin conexión
+(`studio/offline.ts`), que no es parte de una generación — y **`guardado`** — la página la escribe
+la propia herramienta `write` del tutor dentro de una llamada al modelo, así que su coste está
+dentro de `tutor`; el estudio guarda la conversación al final del turno, nunca la página.
+
+Los tamaños son caracteres: `inputChars` es el prompt que el estudio entregó al runtime (Antigravity
+le añade su contrato fijo dentro de `studio/agy.ts`, así que su entrada real es algo mayor) y
+`outputChars` es el texto del asistente que la llamada devolvió, no los bytes de la página. Los
+bytes de la página están en `parts`, con la ruta dentro del vault.
+
+Para comparar dos generaciones:
+
+```bash
+jq -s 'map({at: .startedAt, calls: .modelCalls, ms: .totalMs, phases: [.phases[] | {(.name): .ms}]})' \
+  ~/.local/state/learning-studio/page-timings/*.json
+```
+
+Medir no cambia lo medido: el prompt, el tope de 20 000 caracteres, el timeout de 30 s y el modelo
+son los mismos, y el markdown de la parte que el tutor escribió no se toca.
+
 ### The learner's questions are asked by the page
 
 - **The study mode.** `POST api/aprender {text, modo}` — the «Aprender algo nuevo» entry on the

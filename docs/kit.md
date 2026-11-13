@@ -449,7 +449,7 @@ studio and the bridge backend (`telemetria.json`), feeding the tutor's adaptive 
 `lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
 the learner drains what they are thinking, typed or dictated with the microphone button — and
 `confianza` (`seguro`, `dudo`, `adivine`) are optional extras that show the tutor how the learner
-reasons; leaving them empty never blocks grading. Own-words and exercise fields are optional too.
+reasons; leaving them empty never blocks grading. Own-words is optional too. Each code exercise linked to the part (`parte` in its `ejercicio.json`) gets a box under its statement, numbered, and a part without exercises shows no exercise box: an optional exercise always carries its statement.
 When bridge config includes `transcribeUrl`, «Dictar» records browser audio and
 «Detener» uploads it for server-side transcription, showing «Transcribiendo…».
 The microphone needs HTTPS remotely; the server keeps the transcriber credential
@@ -515,7 +515,7 @@ window.LEARNING_BRIDGE = {
 };
 ```
 
-Quiz responses are `{questions, answered, verdicts}`. Questions have `id`,
+Quiz responses are `{questions, answered, verdicts, exercises}`; `exercises` lists the part's code exercises as `{id,titulo,enunciado}` and is empty when the part has none. Questions have `id`,
 `enunciado` and an A–E `options` object, without keys. `answered` is null or a
 graded array of `{id,chosen,correct,ok,razonamiento,confianza}` (the bridge
 format; a file written by the older two-prompt page is still read and merged). It also accepts a grading object with `results`, `score`, `reasoning`
@@ -527,7 +527,7 @@ are an array of `{codigo,estado,pregunta,evidencia}`; a concept-ID map to
 - Audio: `{kind:'audio', topic, part, style}` with `style` one of `debate`,
   `entrevista`, `charla`, `formal`; anything else is rejected with 400.
 - Question: `{kind:'question', topic, part, text}`.
-- Quiz: `{kind:'mini-quiz', topic, part, answers, reasoning, ownWords?, exercises?}`.
+- Quiz: `{kind:'mini-quiz', topic, part, answers, reasoning, ownWords?, exercises?}`, where `exercises` maps the part's exercise ids to the learner's text. Blank answers are dropped; any other id, or a value that is not text, is refused with 400.
   `reasoning` maps question IDs to `{razonamiento, confianza}`; the older
   `{entendi, porque, confianza}` shape is accepted and stored as one
   `razonamiento`. Successful grading returns

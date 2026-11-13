@@ -30,10 +30,20 @@ jobs:
       # update.sh is the operator path documented in docs/deploy-vps.md: it
       # fast-forwards ~/learning, rebuilds bin/learning, restarts the user
       # service and finishes with health.sh. A failed build stops before the
-      # restart.
+      # restart; a failed health check rolls the tree back and fails the run.
+      # Exit 3 is a deferral, not a failure: the tutor is busy, or another
+      # deploy holds the lock. The autodeploy timer retries the commit every
+      # minute and finishes it once the studio is idle, or at the deadline.
       - name: Pull, rebuild, restart and verify
-        run: bash "$HOME/learning/deploy/vps/update.sh"
+        run: |
+          status=0
+          bash "$HOME/learning/deploy/vps/update.sh" || status=$?
+          if (( status == 3 )); then
+            echo "::notice::deferred, the autodeploy will finish it"
+            exit 0
+          fi
+          exit "$status"
 
-      - name: Report the deployed commit
+      - name: Report the checked-out commit
         if: always()
         run: git -C "$HOME/learning" log -1 --format='%h %s'

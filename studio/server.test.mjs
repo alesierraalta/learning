@@ -9,7 +9,7 @@ import { request, createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { entryUrl, noteFromMessages, noteFromPath, startStudio as startStudioChecked, topicFromPath } from "./server.ts";
+import { entryUrl, noteFromMessages, noteFromPath, startStudio as startStudioChecked, studioLinks, topicFromPath } from "./server.ts";
 import { runPartChecks } from "./checks.ts";
 import { stripLecciones } from "./sugerencias.ts";
 import extension from "../integrations/pi/index.ts";
@@ -57,13 +57,12 @@ const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
 const browser = await (async () => {
   for (const id of [process.env.PLAYWRIGHT_MODULE, "playwright", "/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs"].filter(Boolean)) {
     try {
-      await import(id.startsWith("/") ? pathToFileURL(id).href : id);
-      return true;
+      return await import(id.startsWith("/") ? pathToFileURL(id).href : id);
     } catch {
       // Try the next entry point.
     }
   }
-  return false;
+  return null;
 })();
 /**
  * Every studio here starts with the tutor context check off: the links a machine
@@ -3053,7 +3052,7 @@ async function stateSetup(options = {}) {
     ...options,
   });
   open.push(studio);
-  return { studio, root, stateDir, busy: join(stateDir, "busy.json"), snapshot: join(stateDir, "conversacion.json") };
+  return { studio, root, engine, stateDir, busy: join(stateDir, "busy.json"), snapshot: join(stateDir, "conversacion.json") };
 }
 
 test("a held turn is readable as busy and the conversation is written as it happens", async () => {
@@ -3121,4 +3120,151 @@ test("closing the studio, as SIGTERM does, writes the conversation and the turn 
   const doc = JSON.parse(readFileSync(snapshot, "utf8"));
   assert.deepEqual(doc.messages.slice(-1), [{ role: "user", text: "Escribe la Parte 1" }], "the turn reached the copy before the process went away");
   assert.ok(doc.interrupted, "the turn it was holding is marked as interrupted");
+});
+
+// #254: a deploy ends the turn it is waiting on through the studio's own abort, and the first page after the
+// restart names the interrupted topic once: a later page, or a later restart, does not repeat it.
+test("a deploy's abort leaves one update notice for the first page after the restart, and never repeats it", async () => {
+  const { studio, root, engine, stateDir, busy, snapshot } = await stateSetup();
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+  await stream.next("user");
+  assert.equal(existsSync(busy), true, "the turn is held while the deploy asks for it to end");
+
+  assert.equal((await post(studio, "abort", { cause: "update" })).status, 200);
+  await stream.next("state", (s) => s.busy === false);
+  stream.close();
+  assert.equal(JSON.parse(readFileSync(snapshot, "utf8")).interrupted?.cause, "update", "the abort is written as an update notice");
+  await studio.close();
+
+  // The restart: the process that wrote the copy is gone, so the new studio comes back to it.
+  const copy = JSON.parse(readFileSync(snapshot, "utf8"));
+  writeFileSync(snapshot, JSON.stringify({ ...copy, pid: 2 ** 22 + 12345 }));
+  const restarted = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, openedFile: join(stateDir, "opened.json") });
+  open.push(restarted);
+  const first = sse(`${restarted.url}events`);
+  try {
+    const shown = await first.next("history");
+    assert.deepEqual(shown.interrupted, { topic: "redes", title: "Redes", cause: "update" }, "the first page after the restart says the studio was updated and names the topic");
+  } finally { first.close(); }
+  const later = sse(`${restarted.url}events`);
+  try {
+    assert.equal((await later.next("history")).interrupted, null, "a later page does not repeat the notice");
+  } finally { later.close(); }
+});
+
+// #254: the learner's page draws the update notice from the first history it is sent, and a reload finds it spent.
+test("the first page after an update restart draws the update notice once", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const stateDir = mkdtempSync(join(tmpdir(), "studio-state-"));
+  const chatId = "abc123abc123";
+  writeFileSync(join(stateDir, "chats.json"), JSON.stringify({
+    version: 1,
+    activo: chatId,
+    chats: [{ id: chatId, nombre: "Chat general", ambito: null, piSession: null, agyConversation: null, creado: 1, usado: 1, contexto: null }],
+  }));
+  writeFileSync(join(stateDir, "conversacion.json"), JSON.stringify({
+    version: 1,
+    chat: chatId,
+    messages: [{ role: "user", text: "Responde el diagnóstico" }],
+    interrupted: { topic: "redes", at: 1, cause: "update" },
+  }));
+  // The runtime lost its session, so the studio's copy of the thread is what the page shows.
+  process.env.FAKE_PI_HISTORY = "1";
+  const { studio } = await stateSetup({ openedFile: join(stateDir, "opened.json") });
+  delete process.env.FAKE_PI_HISTORY;
+
+  const instance = await (browser.chromium ?? browser.default).launch();
+  t.after(() => instance.close());
+  const page = await instance.newPage({ viewport: { width: 390, height: 844 } });
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  // The learner reads the thread in the chat drawer, so the notice is read there too.
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  const card = page.locator(".next-cta.interrupted");
+  await card.waitFor({ timeout: 20000 });
+  assert.equal(await card.count(), 1, "the notice is drawn once");
+  assert.match(await card.locator("p").innerText(), /Actualizamos el estudio.*Redes.*vuelve a enviarla/, "the notice says the studio was updated and names the topic");
+
+  // A reload is a new page; the first one already spent the notice. The user message is drawn by the same
+  // history handler as the card, so once it shows, the card is final.
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.locator(".msg.user").first().waitFor({ timeout: 20000 });
+  assert.equal(await page.locator(".next-cta.interrupted").count(), 0, "a later page does not draw the notice again");
+});
+
+// #248: the method is the learner's question on the topic page, and the engine cannot tell who
+// called its method command (the page and the tutor run the same CLI). The studio keeps the page's
+// own choices, so a turn that recorded one itself is refused instead of taught.
+const TUTOR_CHOSE_METHOD = { status: "accepted", stage: "planning", nextStage: "planning", method: "pareto", checks: [{ id: "plan", status: "PASS", reason: "plan written" }] };
+
+test("a turn that records the method itself is refused, because the method is the page's question", async () => {
+  const { studio, stream } = await agyStudio({ root: { statuses: [TUTOR_CHOSE_METHOD] } });
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    const error = await stream.next("error", (data) => /método/.test(data.message));
+    assert.match(error.message, /el método se elige en la página del tema/);
+    assert.match(error.message, /pareto/, "the learner is told which method the tutor picked");
+    await until(() => settleIdle(stream));
+    assert.equal(stream.events.some((event) => event.name === "notice" && /método/.test(event.data.message)), false, "the refusal is an error, not a passing notice");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+test("the method the page recorded is the learner's, so the same report is not refused", async () => {
+  const { studio, stream } = await piStudio({ root: { statuses: [METHOD_RECORDED, METHOD_RECORDED] } });
+  try {
+    assert.equal((await post(studio, "api/metodo", { tema: "redes", metodo: "pareto" })).status, 200);
+    // The turn the page started runs to its end: the fake tutor asks its own question first.
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => settleIdle(stream));
+    assert.equal(stream.events.some((event) => event.name === "error" && /método/.test(event.data.message)), false);
+  } finally { stream.close(); }
+});
+
+test("a file:// link in a reply becomes the studio's own part route, and any other one loses the URL", async () => {
+  const { root } = makeRoot();
+  const part = pathToFileURL(join(root, "redes", "explicaciones", "Parte 1 - Capas.md")).href;
+  assert.equal(studioLinks(`Ya está: [Parte 1](${part})`, root), "Ya está: [Parte 1](#/leer/redes/p1)");
+  assert.equal(studioLinks(`Ya está: ${part}`, root), "Ya está: #/leer/redes/p1", "a bare URL is the same route");
+  assert.equal(studioLinks(`[El diagnóstico](${pathToFileURL(join(root, "redes", "quiz.md")).href})`, root), "[El diagnóstico](#/leer/redes/quiz)");
+  // A part the plan does not have, and a file that is not a note: the words stay, the URL goes.
+  const missing = pathToFileURL(join(root, "redes", "explicaciones", "Parte 9 - Nada.md")).href;
+  assert.equal(studioLinks(`Mira [la Parte 9](${missing})`, root), "Mira la Parte 9");
+  assert.equal(studioLinks(`Mira ${pathToFileURL(join(root, "redes", "plan.json")).href}`, root), "Mira plan.json");
+  // A reply with no filesystem link is left byte for byte.
+  const clean = "Hola [x](#/leer/redes/p1) y `file://` en un ejemplo";
+  assert.equal(studioLinks(clean, root), clean);
+});
+
+test("an Antigravity reply carrying a file:// link reaches the chat as the studio's part route", async () => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const dir = mkdtempSync(join(tmpdir(), "agy-file-link-"));
+  const fake = join(dir, "agy.mjs");
+  writeFileSync(fake, [
+    'import { pathToFileURL } from "node:url";',
+    'const url = pathToFileURL(process.cwd() + "/redes/explicaciones/Parte 1 - Capas.md").href;',
+    'const out = (record) => process.stdout.write(`${JSON.stringify(record)}\\n`);',
+    'out({ event: "init", conversation_id: "file-link" });',
+    'out({ event: "result", result: { status: "SUCCESS", response: `Ya está escrita: [Parte 1](${url})` } });',
+  ].join("\n"));
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, fake] });
+  open.push(studio);
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1" })).status, 200);
+    const answer = await stream.next("assistant_end");
+    assert.match(answer.text, /\(#\/leer\/redes\/p1\)/, `the reply carries the studio's route: ${answer.text}`);
+    assert.doesNotMatch(answer.text, /file:/, "no filesystem URL survives into the chat");
+  } finally { stream.close(); }
 });

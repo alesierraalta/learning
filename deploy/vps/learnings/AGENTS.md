@@ -12,6 +12,7 @@ Toda sesión de tutor abierta en esta carpeta (Pi o Antigravity, desde el estudi
 6. **El motor manda.** Valida y avanza cada etapa con `learning_stage`. Un `FAIL`, `blocked` o `error` significa que la etapa no está terminada. `waiting` significa que esperas su respuesta.
 7. **No muevas ni renombres notas existentes** sin preguntar primero: el estudio y el motor las encuentran por su ruta. Excepción: **archivar** una explicación rápida (o un tema universitario ya `completed`) cuando la persona dice que ya le quedó claro. Pregúntale con la herramienta de preguntas (`ask_user_choice`) «¿Quieres cerrar y archivar esta explicación?» y, si acepta, muévela a `_archivo/rapidos/` (o `_archivo/<tema>/`) como indica «Modo rápido» en `metodo-explicame.md`.
 8. Responde siempre en español neutro, tratando de **tú** y nunca de vos: «responde», «mira», «escribe», «aquí»; nunca «respondé», «mirá», «escribí», «acá».
+9. **Un ejercicio opcional siempre lleva su enunciado** (y sus datos o ejemplo), nunca una caja de respuesta vacía. Un ejercicio de código enlazado a la parte (`parte` en su `codigo/<id>/ejercicio.json`) se muestra en el mini-quiz con su enunciado numerado encima de su caja; una parte sin ejercicios no tiene caja.
 
 ## Esto no es desarrollo de software
 
