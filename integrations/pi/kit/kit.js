@@ -1870,6 +1870,547 @@
     return root;
   }
 
+  // #228: el explorador de un escenario. Un mapa donde cada actor del sistema se
+  // dibuja una vez (su nombre y el detalle que lo identifica), una lista de pasos
+  // numerados que mueve el mapa —el paso activo enfoca a sus actores y muestra qué
+  // viaja entre ellos—, un panel de detalles por paso y un registro de eventos que
+  // se llena al avanzar. La segunda vista es el mismo recorrido como diagrama de
+  // secuencia. Los enlaces y lo que viaja se trazan midiendo las cajas que el
+  // navegador dibujó: el autor no escribe una coordenada.
+  const EXPLORER_TONES = { query: 'blue', answer: 'green', syn: 'amber', ack: 'amber', get: 'blue', ok: 'green', render: 'slate' };
+  let explorerCount = 0;
+  const explorerTone = (item) => (item && item.tone ? toneOf(item.tone) : EXPLORER_TONES[item && item.kind] || 'slate');
+
+  function explorerPiece(host) {
+    const S = window.LKScene;
+    if (!S) throw new Error('Falta scene.js: no se puede dibujar el explorador');
+    const spec = readSpec(host, 'El explorador');
+    const actors = Array.isArray(spec.actors) ? spec.actors : [];
+    if (actors.length < 2) throw new Error('El explorador necesita al menos dos actores: un escenario es un intercambio entre sistemas');
+    if (actors.length > 6) throw new Error('El explorador dibuja hasta seis actores: un escenario con más es dos escenarios');
+    const ids = new Set();
+    for (const a of actors) {
+      if (!a.id || !a.name) throw new Error('Cada actor del explorador necesita un id y un nombre');
+      if (ids.has(a.id)) throw new Error(`El explorador repite el actor «${a.id}»`);
+      ids.add(a.id);
+    }
+    const who = (id, where) => {
+      if (!ids.has(id)) throw new Error(`El explorador nombra a «${id}» en ${where}, y su mapa no lo tiene`);
+      return id;
+    };
+    const steps = (Array.isArray(spec.steps) ? spec.steps : []).map((s, i) => {
+      if (!s.title) throw new Error(`El paso ${i + 1} del explorador no tiene título`);
+      const step = { ...s, focus: (s.focus || []).map((id) => who(id, `el foco del paso ${i + 1}`)) };
+      if (s.travels) step.travels = { ...s.travels, from: who(s.travels.from, `lo que viaja en el paso ${i + 1}`), to: who(s.travels.to, `lo que viaja en el paso ${i + 1}`) };
+      if (s.log) step.log = { ...s.log, from: who(s.log.from, `el registro del paso ${i + 1}`), to: who(s.log.to, `el registro del paso ${i + 1}`) };
+      return step;
+    });
+    if (!steps.length) throw new Error('El explorador necesita sus pasos');
+    if (steps.length > 8) throw new Error('El explorador cuenta hasta ocho pasos: un escenario más largo son dos');
+    const links = (spec.links || []).map((l) => ({ from: who(l.from, 'un enlace'), to: who(l.to, 'un enlace'), tone: toneOf(l.tone) }));
+    const rows = Array.isArray(spec.rows) && spec.rows.length ? spec.rows : [actors.map((a) => a.id)];
+    const cell = new Map();
+    rows.forEach((row, r) => (Array.isArray(row) ? row : []).forEach((id, c) => { if (id) { who(id, 'el mapa'); cell.set(id, { row: r, col: c }); } }));
+    for (const a of actors) if (!cell.has(a.id)) throw new Error(`El mapa del explorador no coloca a «${a.id}»: escríbelo en «rows»`);
+    const cols = rows.reduce((n, row) => Math.max(n, Array.isArray(row) ? row.length : 0), 1);
+    const nameOf = (id) => (actors.find((a) => a.id === id) || {}).name || id;
+    const views = (Array.isArray(spec.views) && spec.views.length ? spec.views : ['map']).filter((v) => v === 'map' || v === 'sequence');
+    const n = ++explorerCount;
+    const root = el('div', undefined, { class: 'lk-p lk-explorer', 'data-piece': 'explorer' });
+    const bar = el('div', undefined, { class: 'lk-xbar' });
+    const grid = el('div', undefined, { class: 'lk-xgrid' });
+    // La lista de pasos: en una columna ancha vive a la izquierda; en un teléfono se
+    // pliega, porque el panel de detalles ya dice en qué paso está el lector.
+    const list = el('details', undefined, { class: 'lk-xlist' });
+    list.append(el('summary', 'Los pasos', { class: 'lk-xsummary' }));
+    const ol = el('ol', undefined, { class: 'lk-xsteps' });
+    list.append(ol);
+    const map = el('div', undefined, { class: 'lk-xmap' });
+    // El número de columnas del mapa y el de actores: la rejilla y la secuencia usan
+    // uno cada una (la secuencia tiene una columna por actor).
+    root.style.setProperty('--xcols', String(cols));
+    root.style.setProperty('--xactors', String(actors.length));
+    root.style.setProperty('--xrows', String(Math.max(1, rows.length)));
+    const details = el('div', undefined, { class: 'lk-xdetails' });
+    grid.append(list, map, details);
+    // El mapa: cada actor una vez, con su icono, su nombre y su detalle. `data-anchor`
+    // es el id que los enlaces nombran; `data-focus` lo pone el paso activo.
+    for (const a of actors) {
+      const at = cell.get(a.id);
+      const card = el('div', undefined, { class: 'lk-xactor', 'data-actor': a.id, 'data-anchor': a.id, 'data-tone': toneOf(a.tone), 'data-focus': '0' });
+      card.style.setProperty('--row', String(at.row + 1));
+      card.style.setProperty('--col', String(at.col + 1));
+      // El personaje del actor (`kind`) es el que dibuja `scene.icon`, el mismo de una
+      // historia. Sin `kind` el actor es una caja con su nombre; un `kind` que el kit no
+      // dibuja se declara, en vez de quedar como una caja vacía.
+      if (a.kind) {
+        const markup = S.icon(a.kind, 22, 22, 34, { stroke: 'currentColor', fill: 'none' });
+        if (!markup) throw new Error(`El actor «${a.id}» pide el personaje «${a.kind}», que el kit no dibuja`);
+        const icon = svgPart('svg', { class: 'lk-xicon', viewBox: '0 0 44 44', 'aria-hidden': 'true' });
+        // El personaje son todas sus figuras: `svgNode` devuelve el `<svg>` entero y se
+        // pasan todos sus hijos, no solo el primero.
+        icon.append(...svgNode(`<svg xmlns="http://www.w3.org/2000/svg">${markup}</svg>`).children);
+        card.append(icon);
+      }
+      card.append(el('span', a.name, { class: 'lk-xname' }));
+      if (a.detail) card.append(el('span', a.detail, { class: 'lk-xdetail' }));
+      map.append(card);
+    }
+    const overlay = svgPart('svg', { class: 'lk-xlinks', 'aria-hidden': 'true' });
+    const defs = svgPart('defs');
+    for (const tone of PIECE_TONES) {
+      const marker = svgPart('marker', { id: `lk-xm-${n}-${tone}`, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse', 'data-tone': tone });
+      marker.append(svgPart('path', { d: 'M 0 0 L 10 5 L 0 10 Z' }));
+      defs.append(marker);
+    }
+    overlay.append(defs);
+    for (const l of links) overlay.append(svgPart('path', { class: 'lk-xlink', fill: 'none', 'data-link': '1', 'data-from': l.from, 'data-to': l.to, 'data-tone': l.tone }));
+    overlay.append(svgPart('path', { class: 'lk-xflow', fill: 'none', 'data-travel': '1' }));
+    overlay.append(svgPart('path', { class: 'lk-xflow', fill: 'none', 'data-travel-to': '1' }));
+    map.append(overlay);
+    const travel = el('span', undefined, { class: 'lk-xtravel', 'aria-hidden': 'true' });
+    map.append(travel);
+    // La segunda vista: las mismas vidas y los mismos pasos, como secuencia.
+    const seq = el('div', undefined, { class: 'lk-xseq' });
+    seq.hidden = true;
+    const seqHead = el('div', undefined, { class: 'lk-xseqhead' });
+    seqHead.append(el('span', undefined, { class: 'lk-xgutter' }));
+    for (const a of actors) seqHead.append(el('span', a.name, { class: 'lk-xseqname', 'data-tone': toneOf(a.tone) }));
+    const seqRows = el('div', undefined, { class: 'lk-xseqrows' });
+    for (const a of actors) seqRows.append(el('span', undefined, { class: 'lk-xlife', 'data-anchor': `life-${a.id}`, 'data-life': a.id, 'data-tone': toneOf(a.tone) }));
+    const seqOverlay = svgPart('svg', { class: 'lk-xseqlinks', 'aria-hidden': 'true' });
+    seqRows.append(seqOverlay);
+    const seqLabels = [];
+    steps.forEach((s, i) => {
+      const row = el('div', undefined, { class: 'lk-xseqrow', 'data-seq': String(i + 1) });
+      row.append(el('span', String(i + 1), { class: 'lk-xseqn' }));
+      for (let k = 0; k < actors.length; k++) row.append(el('span', undefined, { class: 'lk-xseqcell' }));
+      seqRows.append(row);
+      const label = el('span', s.travels ? s.travels.label || '' : '', { class: 'lk-xseqmsg', 'data-tone': explorerTone(s.travels) });
+      label.hidden = !s.travels;
+      seqRows.append(label);
+      seqLabels.push(label);
+      if (!s.travels) return;
+      const path = svgPart('path', { class: 'lk-xseqarrow', fill: 'none', 'data-seq': String(i + 1), 'data-from': `life-${s.travels.from}`, 'data-tone': explorerTone(s.travels) });
+      if (s.travels.from !== s.travels.to) path.setAttribute('data-to', `life-${s.travels.to}`);
+      seqOverlay.append(path);
+    });
+    seq.append(seqHead, seqRows);
+    // El registro: una fila por paso, con su número, origen, destino, tipo e info. Se
+    // llena al avanzar y se vacía al reiniciar.
+    // Una tabla: la cabecera y cada fila usan las mismas columnas (`--xlogcols` en el CSS), así
+    // cada texto cae bajo su título. La cabecera va dentro del área que se desplaza, pegada arriba,
+    // para que ambas tengan el mismo ancho aunque aparezca la barra de desplazamiento.
+    const log = el('div', undefined, { class: 'lk-xlog', role: 'table', 'aria-label': 'Registro de eventos' });
+    const logBody = el('div', undefined, { class: 'lk-xlogbody' });
+    const logHead = el('div', undefined, { class: 'lk-xloghead', role: 'row' });
+    ['Nº', 'Origen', 'Destino', 'Tipo', 'Info'].forEach((h, c) => logHead.append(el('span', h, c === 4 ? { class: 'lk-xhinfo', role: 'columnheader' } : { role: 'columnheader' })));
+    logBody.append(logHead);
+    const logRows = steps.map((s, i) => {
+      const row = el('div', undefined, { class: 'lk-xlogrow', role: 'row', 'data-tone': explorerTone(s.log) });
+      row.append(el('span', String(i + 1), { class: 'lk-xln', role: 'cell' }));
+      row.append(el('span', s.log ? nameOf(s.log.from) : '—', { class: 'lk-xfrom', role: 'cell' }));
+      row.append(el('span', s.log ? nameOf(s.log.to) : '—', { class: 'lk-xto', role: 'cell' }));
+      row.append(el('span', (s.log && s.log.kind) || '—', { class: 'lk-xkind', role: 'cell' }));
+      row.append(el('span', (s.log && s.log.info) || '', { class: 'lk-xinfo', role: 'cell' }));
+      row.hidden = i > 0;
+      logBody.append(row);
+      return row;
+    });
+    log.append(logBody);
+    // El registro es opcional: `"log": false` lo quita, y un recorrido en el que ningún
+    // paso escribe una fila no tiene nada que llenar.
+    root.append(bar, grid, seq);
+    if (spec.log !== false && steps.some((s) => s.log)) root.append(log);
+    // Los controles: atrás, reproducir, adelante, reiniciar, la vista y la pantalla
+    // completa. El contador lleva `role="status"` para que el lector sepa en qué paso
+    // está sin mirar la lista.
+    const count = el('span', undefined, { class: 'lk-xpos', role: 'status' });
+    const prev = button('◀', () => go(index - 1));
+    const next = button('▶', () => go(index + 1));
+    const play = button('▶ Reproducir', () => toggle());
+    const reset = button('↺ Reiniciar', () => { stop(); index = 0; draw(); });
+    prev.setAttribute('aria-label', 'Paso anterior');
+    next.setAttribute('aria-label', 'Paso siguiente');
+    play.setAttribute('aria-label', 'Reproducir los pasos');
+    reset.setAttribute('aria-label', 'Reiniciar los pasos');
+    bar.append(prev, play, next, reset);
+    let view = 'map';
+    let viewButton = null;
+    if (views.includes('sequence')) {
+      viewButton = button('Secuencia', () => { view = view === 'map' ? 'sequence' : 'map'; draw(); });
+      viewButton.setAttribute('aria-label', 'Ver la secuencia');
+      bar.append(viewButton);
+    }
+    const full = button('Pantalla completa', () => {
+      if (document.fullscreenElement === host) { document.exitFullscreen?.(); return; }
+      host.requestFullscreen?.().catch(() => { full.textContent = 'Pantalla completa bloqueada'; });
+    });
+    full.className = 'lk-xfull';
+    full.setAttribute('aria-label', 'Pantalla completa');
+    bar.append(full, count);
+    const syncFull = () => {
+      const on = document.fullscreenElement === host;
+      full.textContent = on ? 'Salir' : 'Pantalla completa';
+      full.setAttribute('aria-pressed', String(on));
+      placeExplorer(root);
+    };
+    document.addEventListener('fullscreenchange', syncFull);
+    let index = 0, timer = null;
+    const stepButtons = steps.map((s, i) => {
+      const item = el('li');
+      const b = el('button', undefined, { type: 'button', class: 'lk-xstep', 'data-step': String(i + 1) });
+      b.append(el('span', String(i + 1), { class: 'lk-xn' }));
+      const text = el('span', undefined, { class: 'lk-xst' });
+      text.append(el('b', s.title, { class: 'lk-xstitle' }));
+      if (s.subtitle) text.append(el('i', s.subtitle, { class: 'lk-xssub' }));
+      b.append(text);
+      b.addEventListener('click', () => { stop(); go(i); });
+      item.append(b);
+      ol.append(item);
+      return b;
+    });
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const go = (to) => { index = Math.max(0, Math.min(steps.length - 1, to)); draw(); };
+    const toggle = () => {
+      if (timer) { stop(); draw(); return; }
+      if (index === steps.length - 1) { index = 0; draw(); }
+      timer = setInterval(() => {
+        if (index >= steps.length - 1) { stop(); draw(); return; }
+        index += 1; draw();
+      }, 4200);
+      draw();
+    };
+    function draw() {
+      const step = steps[index];
+      const focus = new Set(step.focus.length ? step.focus : actors.map((a) => a.id));
+      for (const card of map.querySelectorAll('.lk-xactor')) card.dataset.focus = focus.has(card.dataset.actor) ? '1' : '0';
+      map.dataset.focusing = '1';
+      stepButtons.forEach((b, i) => {
+        b.setAttribute('aria-current', String(i === index));
+        b.dataset.state = i === index ? 'current' : i < index ? 'done' : 'next';
+      });
+      details.replaceChildren();
+      details.append(el('p', `Paso ${index + 1} de ${steps.length}`, { class: 'lk-xcount' }));
+      details.append(el('h4', step.title, { class: 'lk-xtitle' }));
+      if (step.subtitle) details.append(el('p', step.subtitle, { class: 'lk-xsub' }));
+      if (step.details && step.details.text) {
+        const p = el('p', undefined, { class: 'lk-xtext' });
+        p.append(inline(step.details.text));
+        details.append(p);
+      }
+      const pairs = (step.details && step.details.rows) || [];
+      if (pairs.length) {
+        const dl = el('dl', undefined, { class: 'lk-xrows' });
+        for (const [k, v] of pairs) {
+          const row = el('div', undefined, { class: 'lk-xrow' });
+          row.append(el('dt', k), el('dd', v));
+          dl.append(row);
+        }
+        details.append(dl);
+      }
+      logRows.forEach((row, i) => { row.hidden = i > index; row.dataset.state = i === index ? 'current' : 'done'; });
+      seq.querySelectorAll('.lk-xseqrow').forEach((row, i) => { row.dataset.state = i === index ? 'current' : i < index ? 'done' : 'next'; });
+      seqLabels.forEach((label, i) => { label.dataset.state = i === index ? 'current' : i < index ? 'done' : 'next'; });
+      seqOverlay.querySelectorAll('.lk-xseqarrow').forEach((path, i) => { path.dataset.state = i === index ? 'current' : i < index ? 'done' : 'next'; });
+      travel.textContent = step.travels ? step.travels.label || '' : '';
+      travel.dataset.tone = explorerTone(step.travels);
+      travel.hidden = !step.travels || !step.travels.label;
+      map.hidden = view !== 'map';
+      seq.hidden = view !== 'sequence';
+      if (viewButton) {
+        viewButton.textContent = view === 'map' ? 'Secuencia' : 'Mapa';
+        viewButton.setAttribute('aria-pressed', String(view === 'sequence'));
+      }
+      root.dataset.step = String(index + 1);
+      count.textContent = `${index + 1} / ${steps.length}`;
+      prev.disabled = index === 0;
+      next.disabled = index === steps.length - 1;
+      play.textContent = timer ? '❚❚ Pausa' : index === steps.length - 1 ? '↺ Repetir' : '▶ Reproducir';
+      play.setAttribute('aria-pressed', String(Boolean(timer)));
+      placeExplorer(root);
+    }
+    root.xsteps = steps;
+    host.classList.add('lk-piece-host', 'lk-explorer-host');
+    if (spec.title) host.append(el('strong', spec.title, { class: 'lk-title' }));
+    host.append(root);
+    if (spec.caption) host.append(el('p', spec.caption, { class: 'lk-piece-caption' }));
+    host.tabIndex = 0;
+    host.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowRight') { event.preventDefault(); stop(); go(index + 1); }
+      else if (event.key === 'ArrowLeft') { event.preventDefault(); stop(); go(index - 1); }
+    });
+    // La lista se pliega sola en una columna estrecha y se abre en una ancha: el
+    // lector de un teléfono ya tiene el paso en el panel de detalles.
+    const fitList = () => { list.open = root.getBoundingClientRect().width >= 640; };
+    if (window.ResizeObserver) new ResizeObserver(fitList).observe(root);
+    fitList();
+    watchPiece(host);
+    draw();
+  }
+
+  // La medida del explorador: los enlaces salen del borde de un actor y llegan al
+  // borde del otro; lo que viaja se pone en la franja vacía que el mapa le deja
+  // (encima de su fila, o entre las dos filas) y la flecha se corta donde está la
+  // etiqueta, para que ninguna palabra quede debajo de un trazo.
+  function placeExplorer(root) {
+    const map = root.querySelector('.lk-xmap');
+    if (!map) return;
+    const f = (n) => n.toFixed(1);
+    const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+    const rectAt = (box) => (node) => {
+      const r = node.getBoundingClientRect();
+      return { x: r.left - box.left, y: r.top - box.top, w: r.width, h: r.height, cx: r.left - box.left + r.width / 2, cy: r.top - box.top + r.height / 2, right: r.right - box.left, bottom: r.bottom - box.top };
+    };
+    if (!map.hidden) {
+      const box = map.getBoundingClientRect();
+      if (box.width) {
+        const at = rectAt(box);
+        const svg = map.querySelector('svg.lk-xlinks');
+        svg.setAttribute('width', f(box.width));
+        svg.setAttribute('height', f(box.height));
+        svg.setAttribute('viewBox', `0 0 ${f(box.width)} ${f(box.height)}`);
+        const cards = new Map([...map.querySelectorAll('.lk-xactor')].map((node) => [node.dataset.actor, at(node)]));
+        // El borde de una caja por donde sale la recta que va al centro de la otra.
+        const border = (r, sx, sy) => {
+          const tx = sx ? r.w / 2 / Math.abs(sx) : Infinity;
+          const ty = sy ? r.h / 2 / Math.abs(sy) : Infinity;
+          const t = Math.min(tx, ty);
+          return { x: r.cx + sx * t, y: r.cy + sy * t };
+        };
+        const pair = (a, b) => {
+          const dx = b.cx - a.cx, dy = b.cy - a.cy;
+          return [border(a, dx, dy), border(b, -dx, -dy)];
+        };
+        const all = [...cards.values()];
+        // Los actores apilados (el teléfono) no tienen franja a los lados de la columna. Cada
+        // enlace baja por una cuneta a la derecha de las tarjetas, fuera de ellas: el enlace entre
+        // actores más cercanos va por el carril de dentro, y el más largo por el de fuera. Cada
+        // tarjeta reparte sus puntos de salida entre sus enlaces, y se prueban las órdenes de esos
+        // puntos para quedarse con la que no hace cruzar ninguna recta. Lo que viaja baja por la
+        // cuneta de la izquierda: nunca se mezcla con los enlaces.
+        const stackedLinkRoutes = (paths, cardsById, { right, edge, step }) => {
+          const order = [...cardsById.keys()].sort((p, q) => cardsById.get(p).cy - cardsById.get(q).cy);
+          const rank = (id) => order.indexOf(id);
+          const lanes = paths.map((p, i) => ({ p, i, span: Math.abs(rank(p.dataset.from) - rank(p.dataset.to)) })).sort((x, y) => x.span - y.span || x.i - y.i);
+          const laneX = new Map(lanes.map((item, k) => [item.p, right + edge + step * k]));
+          const onCard = new Map();
+          for (const p of paths) for (const id of [p.dataset.from, p.dataset.to]) onCard.set(id, [...(onCard.get(id) || []), p]);
+          const perms = (xs) => (xs.length <= 1 ? [xs] : xs.flatMap((x, i) => perms([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest])));
+          // Las órdenes posibles de cada tarjeta, la original primero. Si son demasiadas, solo la original.
+          let orders = [new Map()];
+          for (const [id, list] of onCard) {
+            const options = perms(list);
+            const next = orders.length * options.length <= 720 ? options : [list];
+            orders = orders.flatMap((o) => next.map((opt) => new Map([...o, [id, opt]])));
+          }
+          const yAt = (ord, id, p) => { const c = cardsById.get(id), list = ord.get(id); return c.y + (c.h * (list.indexOf(p) + 1)) / (list.length + 1); };
+          const hits = (s, t) => Math.max(Math.min(s.x1, s.x2), Math.min(t.x1, t.x2)) <= Math.min(Math.max(s.x1, s.x2), Math.max(t.x1, t.x2)) + 0.5
+            && Math.max(Math.min(s.y1, s.y2), Math.min(t.y1, t.y2)) <= Math.min(Math.max(s.y1, s.y2), Math.max(t.y1, t.y2)) + 0.5;
+          const segments = (ord, p) => {
+            const x = laneX.get(p), ya = yAt(ord, p.dataset.from, p), yb = yAt(ord, p.dataset.to, p);
+            return [{ x1: right, y1: ya, x2: x, y2: ya }, { x1: x, y1: ya, x2: x, y2: yb }, { x1: x, y1: yb, x2: right, y2: yb }];
+          };
+          const crossings = (ord) => {
+            const S = paths.map((p) => segments(ord, p));
+            let n = 0;
+            for (let i = 0; i < S.length; i++) for (let j = i + 1; j < S.length; j++) for (const s of S[i]) for (const t of S[j]) if (hits(s, t)) n++;
+            return n;
+          };
+          let best = orders[0], fewest = Infinity;
+          for (const ord of orders) { const n = crossings(ord); if (n < fewest) { best = ord; fewest = n; } if (!n) break; }
+          return new Map(paths.map((p) => {
+            const x = laneX.get(p), ya = yAt(best, p.dataset.from, p), yb = yAt(best, p.dataset.to, p);
+            return [p, `M ${f(right)} ${f(ya)} H ${f(x)} V ${f(yb)} H ${f(right)}`];
+          }));
+        };
+        const stacked = all.every((c) => Math.abs(c.cx - all[0].cx) < 2);
+        const stackedRoutes = stacked ? stackedLinkRoutes([...svg.querySelectorAll('path[data-link]')].filter((p) => cards.has(p.dataset.from) && cards.has(p.dataset.to)), cards, { right: all[0].right, edge: 12, step: 6 }) : null;
+        for (const path of svg.querySelectorAll('path[data-link]')) {
+          const a = cards.get(path.dataset.from), b = cards.get(path.dataset.to);
+          if (!a || !b) continue;
+          if (stacked) {
+            path.setAttribute('d', stackedRoutes.get(path));
+            continue;
+          }
+          const [p, q] = pair(a, b);
+          path.setAttribute('d', `M ${f(p.x)} ${f(p.y)} L ${f(q.x)} ${f(q.y)}`);
+        }
+        const travel = map.querySelector('.lk-xtravel');
+        const flow = svg.querySelector('path[data-travel]');
+        const tail = svg.querySelector('path[data-travel-to]');
+        const clear = (path) => { path.setAttribute('d', ''); path.removeAttribute('data-from'); path.removeAttribute('data-to'); path.removeAttribute('marker-end'); };
+        const step = root.xsteps ? root.xsteps[Number(root.dataset.step) - 1] : null;
+        const tr = step && step.travels;
+        if (!tr || travel.hidden || !cards.has(tr.from) || !cards.has(tr.to)) { clear(flow); clear(tail); return; }
+        const a = cards.get(tr.from), b = cards.get(tr.to);
+        const tone = explorerTone(tr);
+        const marker = `url(#lk-xm-${explorerCount}-${tone})`;
+        travel.style.left = '0px';
+        travel.style.top = '0px';
+        const chip = travel.getBoundingClientRect();
+        const w = chip.width, h = chip.height;
+        // La franja vacía del mapa: encima de la fila del actor, o entre las dos filas.
+        const laneAbove = (r) => {
+          const same = all.filter((c) => Math.abs(c.cy - r.cy) < r.h / 2);
+          const top = Math.min(...same.map((c) => c.y));
+          const above = all.filter((c) => c.bottom <= top + 1);
+          const floor = above.length ? Math.max(...above.map((c) => c.bottom)) : 0;
+          return (floor + top) / 2;
+        };
+        const place = (cx, cy) => {
+          travel.style.left = `${f(cx - w / 2)}px`;
+          travel.style.top = `${f(cy - h / 2)}px`;
+        };
+        const single = (path, from, to, d) => {
+          path.setAttribute('data-from', from);
+          path.setAttribute('data-to', to);
+          path.setAttribute('marker-end', marker);
+          path.dataset.tone = tone;
+          path.setAttribute('d', d);
+        };
+        const part = (path, from, to, d) => {
+          if (from) path.setAttribute('data-from', from); else path.removeAttribute('data-from');
+          if (to) path.setAttribute('data-to', to); else path.removeAttribute('data-to');
+          path.setAttribute('marker-end', marker);
+          path.dataset.tone = tone;
+          path.setAttribute('d', d);
+        };
+        // La franja vacía que sigue a un actor por abajo: ahí cabe una etiqueta aunque
+        // entre los dos actores haya otros.
+        const gapBelow = (r) => {
+          const next = all.filter((c) => c.y > r.bottom + 1).map((c) => c.y);
+          return (r.bottom + (next.length ? Math.min(...next) : box.height)) / 2;
+        };
+        if (tr.from === tr.to) {
+          // El paso ocurre dentro de un actor: la etiqueta va en la franja de arriba y
+          // una guía corta baja hasta su borde.
+          const cy = laneAbove(a);
+          const cx = clamp(a.cx, w / 2 + 2, box.width - w / 2 - 2);
+          place(cx, cy);
+          part(flow, tr.from, null, `M ${f(a.cx)} ${f(a.y)} L ${f(cx)} ${f(cy + h / 2)}`);
+          flow.removeAttribute('marker-end');
+          clear(tail);
+          return;
+        }
+        const sameRow = Math.abs(a.cy - b.cy) < Math.min(a.h, b.h) / 2;
+        if (sameRow) {
+          // Dos actores en la misma fila: la etiqueta va encima de la fila y la flecha
+          // sube hasta ella y baja al otro actor.
+          const cy = laneAbove(a);
+          const cx = clamp((a.cx + b.cx) / 2, w / 2 + 2, box.width - w / 2 - 2);
+          place(cx, cy);
+          const under = cy + h / 2 + 8;
+          single(flow, tr.from, tr.to, `M ${f(a.cx)} ${f(a.y)} C ${f(a.cx)} ${f(under)}, ${f(b.cx)} ${f(under)}, ${f(b.cx)} ${f(b.y)}`);
+          clear(tail);
+          return;
+        }
+        if (stacked) {
+          // Lo que viaja baja por la cuneta de la izquierda, a 12 px de la columna; la etiqueta va
+          // centrada en la franja que queda entre las dos tarjetas.
+          const lane = all[0].x - 12;
+          const cy = gapBelow(a.cy < b.cy ? a : b);
+          const cx = clamp(box.width / 2, w / 2 + 2, box.width - w / 2 - 2);
+          place(cx, cy);
+          single(flow, tr.from, tr.to, `M ${f(a.x)} ${f(a.cy)} H ${f(lane)} V ${f(b.cy)} H ${f(b.x)}`);
+          clear(tail);
+          return;
+        }
+        // Uno encima del otro en la rejilla ancha: la etiqueta busca la franja entre las
+        // dos filas que no tape una tarjeta ni el trazo de un enlace, y la flecha se corta
+        // a su paso cuando la etiqueta cae sobre la línea.
+        const [p, q] = pair(a, b);
+        const lane = gapBelow(a.cy < b.cy ? a : b);
+        const spots = [[(p.x + q.x) / 2, (p.y + q.y) / 2], [a.cx, lane], [b.cx, lane], [(a.cx + b.cx) / 2, lane]];
+        const chipRect = (x, y) => ({ left: x - w / 2, right: x + w / 2, top: y - h / 2, bottom: y + h / 2 });
+        const overRect = (r, o) => Math.min(r.right, o.right) - Math.max(r.left, o.left) > 0 && Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top) > 0;
+        const overLink = (r) => [...svg.querySelectorAll('path[data-link]')].some((link) => {
+          const len = link.getTotalLength ? link.getTotalLength() : 0;
+          for (let i = 0; i <= 24 && len; i++) {
+            const pt = link.getPointAtLength((len * i) / 24);
+            if (pt.x > r.left && pt.x < r.right && pt.y > r.top && pt.y < r.bottom) return true;
+          }
+          return false;
+        });
+        let spot = null;
+        for (const [sx, sy] of spots) {
+          const x = clamp(sx, w / 2 + 2, box.width - w / 2 - 2);
+          const y = clamp(sy, h / 2 + 2, box.height - h / 2 - 2);
+          const r = chipRect(x, y);
+          spot = spot || { x, y };
+          if (all.some((c) => overRect(r, c)) || overLink(r)) continue;
+          spot = { x, y };
+          break;
+        }
+        const cx = spot.x, cy = spot.y;
+        place(cx, cy);
+        const dx = q.x - p.x, dy = q.y - p.y;
+        // Liang–Barsky: el tramo de la recta que queda dentro de la etiqueta.
+        let lo = 0, hi = 1;
+        for (const [dir, start, min, max] of [[dx, p.x, cx - w / 2, cx + w / 2], [dy, p.y, cy - h / 2, cy + h / 2]]) {
+          if (Math.abs(dir) < 1e-6) { if (start < min || start > max) { lo = hi; } continue; }
+          const t0 = (min - start) / dir, t1 = (max - start) / dir;
+          lo = Math.max(lo, Math.min(t0, t1));
+          hi = Math.min(hi, Math.max(t0, t1));
+        }
+        if (hi - lo > 0.02) {
+          const enter = { x: p.x + dx * lo, y: p.y + dy * lo };
+          const exit = { x: p.x + dx * hi, y: p.y + dy * hi };
+          part(flow, tr.from, null, `M ${f(p.x)} ${f(p.y)} L ${f(enter.x)} ${f(enter.y)}`);
+          flow.removeAttribute('marker-end');
+          part(tail, null, tr.to, `M ${f(exit.x)} ${f(exit.y)} L ${f(q.x)} ${f(q.y)}`);
+          return;
+        }
+        single(flow, tr.from, tr.to, `M ${f(p.x)} ${f(p.y)} L ${f(q.x)} ${f(q.y)}`);
+        clear(tail);
+        return;
+      }
+    }
+    // La secuencia: las vidas se colocan bajo su nombre y cada paso es una flecha de
+    // una vida a la otra, con lo que viaja escrito encima.
+    const seq = root.querySelector('.lk-xseq');
+    const seqRows = root.querySelector('.lk-xseqrows');
+    if (!seq || !seqRows || seq.hidden) return;
+    const box = seqRows.getBoundingClientRect();
+    if (!box.width) return;
+    const at = rectAt(box);
+    const head = [...root.querySelectorAll('.lk-xseqname')].map((node) => at(node));
+    const lives = new Map([...seqRows.querySelectorAll('.lk-xlife')].map((node, i) => [node.dataset.life, { node, x: head[i] ? head[i].cx : 0 }]));
+    for (const life of lives.values()) {
+      life.node.style.left = `${f(life.x)}px`;
+      life.node.style.top = '0px';
+      life.node.style.bottom = '0px';
+    }
+    const svg = seqRows.querySelector('.lk-xseqlinks');
+    if (svg) {
+      svg.setAttribute('width', f(box.width));
+      svg.setAttribute('height', f(box.height));
+      svg.setAttribute('viewBox', `0 0 ${f(box.width)} ${f(box.height)}`);
+      for (const path of svg.querySelectorAll('path[data-seq]')) {
+        const row = seqRows.querySelector(`.lk-xseqrow[data-seq="${path.dataset.seq}"]`);
+        const label = seqRows.querySelectorAll('.lk-xseqmsg')[Number(path.dataset.seq) - 1];
+        if (!row) continue;
+        const r = at(row);
+        const from = lives.get(String(path.dataset.from).replace(/^life-/, ''));
+        const to = lives.get(String(path.dataset.to || '').replace(/^life-/, ''));
+        if (!from) continue;
+        const y = r.cy;
+        if (!to || to === from) {
+          path.setAttribute('d', `M ${f(from.x)} ${f(y - 9)} C ${f(from.x + 26)} ${f(y - 9)}, ${f(from.x + 26)} ${f(y + 9)}, ${f(from.x)} ${f(y + 9)}`);
+        } else {
+          path.setAttribute('d', `M ${f(from.x)} ${f(y)} L ${f(to.x)} ${f(y)}`);
+        }
+        const marker = `url(#lk-xm-${explorerCount}-${path.dataset.tone || 'slate'})`;
+        path.setAttribute('marker-end', marker);
+        if (label && !label.hidden) {
+          const lb = label.getBoundingClientRect();
+          const mid = to && to !== from ? (from.x + to.x) / 2 : from.x + 26;
+          label.style.left = `${f(clamp(mid - lb.width / 2, 2, box.width - lb.width - 2))}px`;
+          label.style.top = `${f(y - lb.height - 6)}px`;
+        }
+      }
+    }
+  }
   const PIECES = { cards: cardsPiece, memory: memoryPiece, tables: tablesPiece, venn: vennPiece };
   // Un paso de un recorrido dibuja una pieza en vez de una escena: la que su
   // `stage` nombra. Lo que el recorrido declara a su nivel (`spec.venn`, por
@@ -1880,6 +2421,7 @@
     const kind = Object.keys(PIECES).find((k) => stage[k]);
     return kind ? { kind, spec: { ...(story[kind] || {}), ...stage[kind] } } : null;
   }
+  define('lk-explorer', function () { explorerPiece(this); });
   for (const [kind, label] of [['cards', 'Las tarjetas'], ['memory', 'El diagrama de memoria'], ['tables', 'Las tablas'], ['venn', 'El diagrama de conjuntos']]) {
     define(`lk-${kind}`, function () {
       const spec = readSpec(this, label);
@@ -1899,6 +2441,7 @@
       piece.querySelectorAll('.lk-tjoin').forEach(placeTables);
       piece.querySelectorAll('.lk-tscroll').forEach(markFrame);
     }
+    if (piece.dataset.piece === 'explorer') placeExplorer(piece);
   }
   const piecesWatched = new WeakSet();
   function watchPiece(host) {

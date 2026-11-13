@@ -247,6 +247,12 @@ button.secondary { background: transparent; color: var(--ink); }
   body.wide .note-pair { display: block; }
 }
 
+/* #228: el explorador de un escenario necesita el ancho de una figura ancha: su lista, su
+   mapa y su panel van en fila a partir de 640 px. Se extiende sobre la columna de lectura,
+   centrado; en un teléfono ocupa el ancho de la pantalla. */
+.prose > lk-explorer, .prose > section > lk-explorer { width: min(64em, 100vw - 48px); max-width: none; margin-left: calc((100% - min(64em, 100vw - 48px)) / 2); }
+body.wide .prose > lk-explorer, body.wide .prose > section > lk-explorer { column-span: all; }
+
 /* Inside the note, the kit's interactive figures keep their component; these
    rules only bring their controls into the same paper language. */
 .prose .lk-walkthrough button,

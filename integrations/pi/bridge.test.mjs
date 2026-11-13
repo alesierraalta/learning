@@ -3083,3 +3083,98 @@ test("all six icon kinds draw visible ink in the reader, in every theme and widt
     await page.close();
   }
 });
+
+// ── #228 the scenario explorer: a system map whose focus follows the steps ───
+// The learner's reference draws every actor of a scenario once and then moves the
+// camera with a numbered step list. The explorer does the same with our own pieces:
+// the active step focuses its actors, the map says what travels, the details panel
+// tells the step and the log fills as it advances. This renders the worked example
+// through the real reader in every theme and width, steps through all of it, and
+// measures what the learner sees with the same function the gates use.
+const EXPLORER_SHOTS = "/tmp/se-shots";
+const EXPLORER_MATRIX = ["light", "dark", "black"].flatMap((theme) => [
+  { theme, size: "narrow", width: 900, wide: false },
+  { theme, size: "wide", width: 1920, wide: true },
+  { theme, size: "phone", width: 390, wide: false },
+]);
+const explorerSpec = (markdown) => JSON.parse(/<lk-explorer[\s\S]*?<script type="application\/json">([\s\S]*?)<\/script>/.exec(markdown)[1]);
+
+test("the scenario explorer follows its steps in every theme and width, in both views and full screen", { skip: !playwright && "playwright not installed" }, async (t) => {
+  // La matriz cubre las tres tintas en los tres anchos: estrecho, ancho y teléfono.
+  assert.deepEqual(EXPLORER_MATRIX.map(({ theme, size }) => `${theme}-${size}`).sort(), ["black-narrow", "black-phone", "black-wide", "dark-narrow", "dark-phone", "dark-wide", "light-narrow", "light-phone", "light-wide"], "la matriz del explorador no cubre las tres tintas en los tres anchos");
+  mkdirSync(EXPLORER_SHOTS, { recursive: true });
+  const markdown = example("abrir-una-pagina.md");
+  const spec = explorerSpec(markdown);
+  for (const { theme, size, width, wide } of EXPLORER_MATRIX) {
+    const page = await readerPart(t, markdown, { theme, width, wide });
+    const host = page.locator("lk-explorer").first();
+    await host.locator(".lk-p").waitFor();
+    // The reader's reading-progress line is a 2 px fixed bar at the top of the viewport. A tall piece
+    // is captured from a viewport that starts inside it, so the bar lands across the control row in the
+    // image. The review shots show the explorer only: the bar stays in the reader, hidden here.
+    await page.addStyleTag({ content: "progress.lk-progress { display: none !important; }" });
+    const steps = await host.locator(".lk-xstep").count();
+    assert.equal(steps, spec.steps.length, `${theme} · ${size}: el explorador no dibujó todos sus pasos`);
+    // El diseño de la columna en el lector real: con sitio, la lista, el mapa y el panel van
+    // en fila; en un teléfono, el mapa, el panel, la lista y el registro, uno debajo de otro.
+    const box = (sel) => host.locator(sel).first().evaluate((n) => { const r = n.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; });
+    const [list, map, details, log] = [await box(".lk-xlist"), await box(".lk-xmap"), await box(".lk-xdetails"), await box(".lk-xlog")];
+    const hostWidth = Math.round(await host.evaluate((n) => n.getBoundingClientRect().width));
+    if (size === "phone") assert.ok(map.b <= details.t + 1 && details.b <= list.t + 1 && list.b <= log.t + 1, `${theme} · ${size}: el teléfono no apila mapa, panel, lista y registro (host ${hostWidth}px)`);
+    else assert.ok(list.r <= map.l + 1 && map.r <= details.l + 1, `${theme} · ${size}: la lista, el mapa y el panel no van en fila (host ${hostWidth}px)`);
+    for (let s = 0; s < steps; s++) {
+      if (s) await host.getByRole("button", { name: "Paso siguiente" }).click();
+      await host.locator(".lk-xpos").filter({ hasText: `${s + 1} / ${steps}` }).waitFor();
+      await page.waitForTimeout(80);
+      const where = `explorador · ${theme} · ${size} · paso ${s + 1}`;
+      const { problems } = await host.evaluate(measurePiece);
+      assert.deepEqual(problems, [], where);
+      const seen = await host.evaluate(() => ({
+        focused: [...document.querySelectorAll(".lk-xactor[data-focus='1']")].map((c) => c.dataset.actor).sort(),
+        travel: document.querySelector(".lk-xtravel").textContent,
+        log: [...document.querySelectorAll(".lk-xlogrow")].filter((r) => !r.hidden).length,
+        title: document.querySelector(".lk-xtitle")?.textContent,
+        rows: document.querySelectorAll(".lk-xrow").length,
+      }));
+      assert.deepEqual(seen.focused, [...(spec.steps[s].focus ?? [])].sort(), `${where}: el mapa no enfoca a los actores del paso`);
+      assert.equal(seen.travel, spec.steps[s].travels.label, `${where}: el mapa no dice qué viaja`);
+      assert.equal(seen.title, spec.steps[s].title, `${where}: el panel no cuenta el paso`);
+      assert.equal(seen.rows, spec.steps[s].details.rows.length, `${where}: el panel no muestra sus filas`);
+      assert.equal(seen.log, s + 1, `${where}: el registro no tiene una fila por paso`);
+      // The screenshots the review asks for: black × wide, every step; light × phone,
+      // the first and the last.
+      if ((theme === "black" && wide) || (theme === "light" && size === "phone" && (s === 0 || s === steps - 1))) {
+        await host.screenshot({ path: join(EXPLORER_SHOTS, `explorador-${theme}-${size}-paso-${s + 1}.png`) });
+      }
+    }
+    // The second view of the same flow: one lifeline per actor, one arrow per step.
+    await host.getByRole("button", { name: "Ver la secuencia" }).click();
+    await page.waitForTimeout(150);
+    const seq = await host.evaluate(measurePiece);
+    assert.deepEqual(seq.problems, [], `explorador · ${theme} · ${size} · secuencia`);
+    const arrows = await host.evaluate(() => [...document.querySelectorAll(".lk-xseqarrow")].map((p) => (p.getAttribute("d") || "").length));
+    assert.equal(arrows.length, spec.steps.length, `${theme} · ${size}: la secuencia no dibuja una flecha por paso`);
+    assert.ok(arrows.every((len) => len > 8), `${theme} · ${size}: una flecha de la secuencia no une dos vidas`);
+    await host.getByRole("button", { name: "Ver la secuencia" }).click();
+    await page.waitForTimeout(120);
+    // Full screen: the explorer takes the screen, the map grows with it and every
+    // piece of the map stays measured.
+    const before = await host.evaluate((node) => Math.round(node.querySelector(".lk-xmap").getBoundingClientRect().width));
+    await host.evaluate((node) => node.requestFullscreen?.());
+    await page.waitForFunction(() => document.fullscreenElement?.tagName === "LK-EXPLORER");
+    await page.waitForTimeout(250);
+    const full = await host.evaluate((node) => {
+      const map = node.querySelector(".lk-xmap").getBoundingClientRect();
+      return { host: Math.round(node.getBoundingClientRect().width), w: Math.round(map.width), h: Math.round(map.height), screen: [innerWidth, innerHeight] };
+    });
+    assert.ok(full.host >= full.screen[0] * 0.85, `${theme} · ${size}: el explorador no ocupa la pantalla (${full.host} en ${full.screen[0]})`);
+    // En un teléfono la pantalla completa es la misma pantalla: el mapa no puede
+    // crecer más allá de su ancho, así que se le pide el ancho útil de la ventana.
+    assert.ok(full.w >= Math.min(before, Math.round(full.screen[0] * 0.85)), `${theme} · ${size}: el mapa se encogió en pantalla completa (${before} → ${full.w})`);
+    assert.ok(full.w >= 320, `${theme} · ${size}: el mapa no creció en pantalla completa (${full.w}×${full.h})`);
+    const fullProblems = await host.evaluate(measurePiece);
+    assert.deepEqual(fullProblems.problems, [], `explorador · ${theme} · ${size} · pantalla completa`);
+    await page.screenshot({ path: join(EXPLORER_SHOTS, `explorador-${theme}-${size}-pantalla-completa.png`) });
+    await page.close();
+  }
+});

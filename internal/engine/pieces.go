@@ -7,15 +7,15 @@ import (
 )
 
 // The visual pieces the reader draws from a note's JSON (`kit.js`): verdict cards,
-// memory diagrams, joined tables and set diagrams. Each is a visual in its own
-// right, like a scene: the part's drawn example may be one, and it spends the
-// part's one-scene budget. The engine reads presence, never geometry:
+// memory diagrams, joined tables, set diagrams and the scenario explorer. Each is a
+// visual in its own right, like a scene: the part's drawn example may be one, and it
+// spends the part's one-scene budget. The engine reads presence, never geometry:
 // `tools/scene-gate.mjs` and `tools/scene-lint.mjs` measure the drawing in a
 // browser.
 
 // pieceElements are the closed elements that carry a piece, in the order the
 // kit defines them.
-var pieceElements = []string{"lk-cards", "lk-memory", "lk-tables", "lk-venn"}
+var pieceElements = []string{"lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-explorer"}
 
 // pieceStageKeys are the keys a story step's `stage` uses to draw a piece
 // instead of a scene.
@@ -90,6 +90,9 @@ func pieceSpecDraws(kind string, spec map[string]json.RawMessage) bool {
 		// Two or three sets.
 		n := count("sets")
 		return n >= 2 && n <= 3
+	case "explorer":
+		// A scenario is a map of at least two systems and at least one step.
+		return count("actors") >= 2 && count("steps") >= 1
 	}
 	return false
 }

@@ -52,10 +52,10 @@ add('secciones', secciones.length <= 2, `${secciones.length} sección(es) de con
 // `minScenes`) exige además que haya una escena y que su payload dibuje: eso
 // necesita leer el JSON, y el rechazo del motor nombra el arreglo («dibuja el
 // ejemplo con <lk-scene>»). Aquí se cuenta la presencia y el tope.
-// Las piezas visuales (tarjetas, memoria, tablas, conjuntos) son figuras como la
-// escena: ocupan su lugar en la parte y gastan su tope. El motor cuenta igual
-// (`pieceOpenCount` en `internal/engine/pieces.go`).
-const PIEZAS = 'cards|memory|tables|venn';
+// Las piezas visuales (tarjetas, memoria, tablas, conjuntos, el explorador de un
+// escenario) son figuras como la escena: ocupan su lugar en la parte y gastan su
+// tope. El motor cuenta igual (`pieceOpenCount` en `internal/engine/pieces.go`).
+const PIEZAS = 'cards|memory|tables|venn|explorer';
 const piezas = (src.match(new RegExp(`<lk-(?:${PIEZAS})[\\s>]`, 'g')) || []).length;
 const escenas = (src.match(/<lk-scene[\s>]/g) || []).length + piezas;
 // Un recorrido de fórmula o de ejercicio (`<lk-story>`) es un recorrido más: la
@@ -395,10 +395,6 @@ add('pieza-adecuada', piezasQueFaltan.length === 0, piezasQueFaltan.join(' · ')
 // nada —ni un `moves`, ni un cambio de estado, ni una pieza que cambie, ni un
 // puntero— es la misma foto tres veces. Una historia de fórmula no entra: su
 // avance es el token resaltado de la cabecera.
-const escenaDelPaso = (step) => {
-  const stage = step?.stage || {};
-  return stage.scene || stage;
-};
 // La historia se mueve si algo cambia en cualquier paso: un movimiento, un actor
 // que en algún paso está en otro estado, una pieza que en algún paso está en
 // otro estado, o un puntero que cambia. Un actor que aparece o una pieza que se
