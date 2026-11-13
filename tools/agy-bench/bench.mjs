@@ -12,8 +12,13 @@
  * measure the written part with the four gates and copy it back for screenshots.
  *
  * Subcommands
- *   run     start the scratch studio and drive the topics (on the machine that has the
- *           repo, the engine binary and the agy runtime: the VPS)
+ *   run     start one scratch studio per topic and drive them, --concurrency at a time
+ *           (default 5). Each topic is a `topic` process with its own root, port, token and
+ *           XDG state (on the machine that has the repo, the engine binary and the agy
+ *           runtime: the VPS)
+ *   topic   one topic on its own scratch studio, in its own process: what `run` starts for
+ *           each topic. It can also be run by hand, with XDG_STATE_HOME and XDG_CACHE_HOME
+ *           inside its scratch
  *   shots   render the copied parts with the reader and screenshot them black × wide
  *           (on the machine with a browser, i.e. locally)
  *   gates   re-run the four gates on the copied parts (no runtime needed)
@@ -21,18 +26,25 @@
  * Nothing here writes outside its own scratch root and output directory; the real
  * vault is only read, to prove the bench never touched it.
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const SELF = fileURLToPath(import.meta.url);
 const REPO_DEFAULT = resolve(HERE, "..", "..");
 /** The tutor production runs: same runtime, same model (tutor.json on the VPS). */
 const AGENTE = "agy";
 const MODELO = "gemini-3.8-flash-high";
-/** A fixed 64-hex token, so a rerun reuses the same studio origin. */
-const TOKEN = "2462462462462462462462462462462462462462462462462462462462462462";
+/** The first port of a run: each topic takes the next one in the order of TOPICS. */
+const PORT_DEFAULT = 4799;
+/** The ports of learning-studio, the running service: the bench never binds them. */
+const PRODUCTION_PORTS = [4747, 4748];
+/** A topic's turn timeout (seconds) and turn cap when the flags are not given. */
+const TURN_TIMEOUT_S = 45 * 60;
+const MAX_TURNS = 8;
 /** The topics the issue asks for: five domains, no kit example for any of them. */
 const TOPICS = [
   { id: "rust-borrowing", request: "Rust borrowing" },
@@ -66,6 +78,29 @@ function parseArgs(argv) {
 }
 
 const num = (value, fallback) => (value === undefined ? fallback : Number(value));
+
+/** A flag that must be a positive whole number; the fallback when it is not given. */
+function positiveInteger(value, fallback, flag) {
+  if (value === undefined) return fallback;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 1) throw new Error(`${flag} debe ser un entero mayor que cero (${value})`);
+  return number;
+}
+
+/** The bench never binds a port the running studio services use. */
+function assertPort(port) {
+  if (PRODUCTION_PORTS.includes(port)) throw new Error(`el puerto ${port} es del estudio de producción`);
+  return port;
+}
+
+/** A token per topic, derived from its id: a rerun reuses its origin, and two topics never share one. */
+const tokenFor = (topicId) => createHash("sha256").update(`agy-bench:${topicId}`).digest("hex");
+
+/** Whether a path is inside a directory: a topic's XDG state must stay inside its own scratch. */
+const within = (path, dir) => resolve(path).startsWith(`${resolve(dir)}${sep}`);
+
+/** Whole seconds between two ISO times. */
+const elapsed = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / 1000);
 
 // ---- shared helpers ------------------------------------------------------
 
@@ -144,9 +179,9 @@ function subscribe(url, onEvent, onError) {
 }
 
 /** The studio's HTTP surface: every route behind the token, every POST from its own origin. */
-function studioClient(port) {
+function studioClient(port, token) {
   const origin = `http://127.0.0.1:${port}`;
-  const base = `${origin}/${TOKEN}/`;
+  const base = `${origin}/${token}/`;
   const host = `127.0.0.1:${port}`;
   const get = async (path) => {
     const res = await fetch(base + path, { headers: { host } });
@@ -452,39 +487,185 @@ async function runGates(repo, note) {
 
 // ---- run -----------------------------------------------------------------
 
+/**
+ * The scratch studio of every topic: its own root, port, token and XDG state and cache, all
+ * under the topic's own directory. The ports count up from the base port in the order of
+ * TOPICS, so a topic keeps its port whether or not the others run.
+ */
+function topicPlans(args, topics) {
+  const scratch = resolve(args.scratch ?? "/tmp/bench246/scratch");
+  const out = resolve(args.out ?? "/tmp/bench246/out");
+  const base = num(args.port, PORT_DEFAULT);
+  return topics.map((topic) => {
+    const index = TOPICS.findIndex((item) => item.id === topic.id);
+    const dir = join(scratch, topic.id);
+    return {
+      topic,
+      dir,
+      root: join(dir, "root"),
+      port: assertPort(base + index),
+      token: tokenFor(topic.id),
+      stateHome: join(dir, "xdg-state"),
+      cacheHome: join(dir, "xdg-cache"),
+      out,
+      result: join(out, `${topic.id}-result.json`),
+    };
+  });
+}
+
+/** The studio a topic ran on, kept in its result so the report can show the isolation. */
+const studioOf = (plan) => ({
+  port: plan.port,
+  root: plan.root,
+  stateHome: plan.stateHome,
+  cacheHome: plan.cacheHome,
+  token: `${plan.token.slice(0, 8)}…`,
+});
+
+/** Runs `work` on every item, `size` at a time: each slot takes the next item when it is free. */
+async function runPool(items, size, work) {
+  const queue = [...items];
+  const drain = async () => {
+    while (queue.length) await work(queue.shift());
+  };
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, () => drain()));
+}
+
+/**
+ * One topic in its own process: the `topic` subcommand starts the topic's studio and writes
+ * the topic's result. Its environment carries the topic's XDG state and cache, so the
+ * studio's children (the engine and the agy runtime) inherit a state of their own.
+ */
+function runTopicProcess(plan, { repo, turnTimeout, maxTurns }) {
+  const argv = [SELF, "topic", "--topic", plan.topic.id, "--repo", repo, "--scratch", plan.dir, "--out", plan.out, "--port", String(plan.port), "--result", plan.result, "--turn-timeout", String(turnTimeout), "--max-turns", String(maxTurns)];
+  const env = { ...process.env, XDG_STATE_HOME: plan.stateHome, XDG_CACHE_HOME: plan.cacheHome };
+  const started = new Date().toISOString();
+  return new Promise((done) => {
+    const child = spawn(process.execPath, argv, { env, stdio: ["ignore", "inherit", "inherit"] });
+    child.on("error", (error) => done({ started, reason: error.message }));
+    child.on("exit", (code, signal) => done({ started, reason: signal ? `señal ${signal}` : `código ${code}` }));
+  });
+}
+
+/** The topic's entry from its result file; a process that left none is recorded as stuck. */
+function topicEntry(plan, exit) {
+  const fromFile = existsSync(plan.result) ? readJsonFile(plan.result, "resultado del tema").topics?.[0] : null;
+  if (fromFile) return fromFile;
+  return {
+    id: plan.topic.id,
+    request: plan.topic.request,
+    startedAt: exit.started,
+    finishedAt: new Date().toISOString(),
+    turns: [],
+    gateEvents: [],
+    errors: [`el proceso del tema terminó sin resultado (${exit.reason})`],
+    parts: [],
+    head: { start: null, end: null },
+    stuck: "el proceso del tema no dejó resultado",
+  };
+}
+
+/**
+ * The parent of the topics: one process per topic, `--concurrency` at a time. The results
+ * are merged as each process ends, so results.json and report.md are written after every
+ * topic, as before.
+ */
 async function commandRun(args) {
+  const repo = resolve(args.repo ?? REPO_DEFAULT);
+  const out = resolve(args.out ?? "/tmp/bench246/out");
+  const scratch = resolve(args.scratch ?? "/tmp/bench246/scratch");
+  const concurrency = positiveInteger(args.concurrency, 5, "--concurrency");
+  const turnTimeout = num(args["turn-timeout"], TURN_TIMEOUT_S);
+  const maxTurns = num(args["max-turns"], MAX_TURNS);
+  const vault = args.vault ? resolve(args.vault) : undefined;
+  const wanted = args.topics.length ? TOPICS.filter((topic) => args.topics.includes(topic.id)) : TOPICS;
+  const plans = topicPlans({ ...args, scratch, out }, wanted);
+  mkdirSync(out, { recursive: true });
+  mkdirSync(scratch, { recursive: true });
+
+  const stateFile = join(out, "results.json");
+  const results = existsSync(stateFile) ? readJsonFile(stateFile, "resultados anteriores") : { topics: [] };
+  results.repo = repo;
+  results.scratch = scratch;
+  results.port = num(args.port, PORT_DEFAULT);
+  results.concurrency = concurrency;
+  results.startedAt = results.startedAt ?? new Date().toISOString();
+  results.head = { start: await headOf(repo), end: null };
+  const vaultBefore = await vaultState(vault);
+
+  const todo = [];
+  for (const plan of plans) {
+    const measured = results.topics.find((entry) => entry.id === plan.topic.id && entry.done);
+    if (measured && args["skip-done"] !== "false") {
+      console.error(`bench: ${plan.topic.id} ya está medido`);
+      continue;
+    }
+    console.error(`bench: ${plan.topic.id} · puerto ${plan.port} · raíz ${plan.root} · estado ${plan.stateHome}`);
+    todo.push(plan);
+  }
+  if (todo.length) console.error(`bench: ${todo.length} tema(s), concurrencia ${concurrency}`);
+
+  const merge = (entry) => {
+    results.topics = results.topics.filter((item) => item.id !== entry.id).concat(entry);
+    writeFileSync(stateFile, `${JSON.stringify(results, null, 2)}\n`);
+    writeFileSync(join(out, "report.md"), renderReport(results));
+  };
+  await runPool(todo, concurrency, async (plan) => {
+    const exit = await runTopicProcess(plan, { repo, turnTimeout, maxTurns });
+    const entry = topicEntry(plan, exit);
+    entry.studio = studioOf(plan);
+    console.error(`bench: ${plan.topic.id} · proceso ${exit.reason} · ${elapsed(entry.startedAt, entry.finishedAt)} s`);
+    merge(entry);
+  });
+
+  results.head.end = await headOf(repo);
+  results.vault = { path: vault ?? null, before: vaultBefore, after: await vaultState(vault) };
+  results.finishedAt = new Date().toISOString();
+  writeFileSync(stateFile, `${JSON.stringify(results, null, 2)}\n`);
+  writeFileSync(join(out, "report.md"), renderReport(results));
+  console.error(`bench: resultados en ${stateFile}`);
+}
+
+// ---- topic ---------------------------------------------------------------
+
+/**
+ * One topic on its own scratch studio, in its own process. It writes the topic's result to
+ * --result. Its XDG state and cache must sit inside its scratch: the studio's processes read
+ * them, and the production state of learning-studio is never one of those.
+ */
+async function commandTopic(args) {
   const repo = resolve(args.repo ?? REPO_DEFAULT);
   const scratch = resolve(args.scratch ?? "/tmp/bench246/scratch");
   const out = resolve(args.out ?? "/tmp/bench246/out");
-  const port = num(args.port, 4799);
-  const turnTimeout = num(args["turn-timeout"], 45 * 60) * 1000;
-  const maxTurns = num(args["max-turns"], 8);
-  const vault = args.vault ? resolve(args.vault) : undefined;
-  const wanted = args.topics.length ? TOPICS.filter((topic) => args.topics.includes(topic.id)) : TOPICS;
+  const port = assertPort(num(args.port, PORT_DEFAULT));
+  const turnTimeout = num(args["turn-timeout"], TURN_TIMEOUT_S) * 1000;
+  const maxTurns = num(args["max-turns"], MAX_TURNS);
+  const target = TOPICS.find((item) => item.id === args.topics[0]);
+  if (args.topics.length !== 1 || !target) throw new Error("topic: hace falta un solo --topic de la lista");
+  for (const name of ["XDG_STATE_HOME", "XDG_CACHE_HOME"]) {
+    if (!process.env[name] || !within(process.env[name], scratch)) throw new Error(`${name} tiene que estar dentro de ${scratch}`);
+  }
+  const wanted = [target];
+  const token = tokenFor(target.id);
+  const resultFile = resolve(args.result ?? join(out, `${target.id}-result.json`));
   mkdirSync(out, { recursive: true });
   mkdirSync(scratch, { recursive: true });
   const root = prepareRoot(scratch, repo);
   const { startStudio, readPlan, listTopics } = await loadRepo(repo);
 
-  const stateFile = join(out, "results.json");
+  const results = { repo, scratch, port, startedAt: new Date().toISOString(), topics: [] };
   // The studio writes one timing report per generation beside opened.json: the bench reads them there.
   const timingsDir = join(scratch, "state", "page-timings");
-  const results = existsSync(stateFile) ? readJsonFile(stateFile, "resultados anteriores") : { topics: [] };
-  results.repo = repo;
-  results.scratch = scratch;
-  results.port = port;
-  results.startedAt = results.startedAt ?? new Date().toISOString();
 
-  const vaultBefore = await vaultState(vault);
   const studio = await startStudio({
     root,
     port,
-    token: TOKEN,
+    token,
     openedFile: join(scratch, "state", "opened.json"),
     chatsFile: join(scratch, "state", "chats.json"),
     offlineCacheDir: join(scratch, "cache"),
   });
-  console.error(`bench: studio en ${studio.url} · raíz ${root}`);
+  console.error(`bench: studio en ${studio.url} · raíz ${root} · estado ${process.env.XDG_STATE_HOME}`);
 
   // Every event the studio emits and every line it logs, in one file per topic: this is
   // the log the correction rounds are counted from.
@@ -523,7 +704,7 @@ async function commandRun(args) {
     (error) => console.error(`bench: el flujo de eventos se cortó · ${error.message}`),
   );
 
-  const client = studioClient(studio.port);
+  const client = studioClient(studio.port, token);
   const pause = (ms) => new Promise((done) => setTimeout(done, ms));
   const waitIdle = async (timeout) => {
     const until = Date.now() + timeout;
@@ -547,12 +728,7 @@ async function commandRun(args) {
 
   try {
     for (const topic of wanted) {
-      const measured = results.topics.find((entry) => entry.id === topic.id && entry.done);
-      if (measured && args["skip-done"] !== "false") {
-        console.error(`bench: ${topic.id} ya está medido`);
-        continue;
-      }
-      const entry = { id: topic.id, request: topic.request, startedAt: new Date().toISOString(), turns: [], gateEvents: [], errors: [], parts: [], head: { start: await headOf(repo), end: null } };
+      const entry = { id: topic.id, request: topic.request, startedAt: new Date().toISOString(), turns: [], gateEvents: [], errors: [], parts: [], studio: studioOf({ port, token, root, stateHome: process.env.XDG_STATE_HOME, cacheHome: process.env.XDG_CACHE_HOME }), head: { start: await headOf(repo), end: null } };
       results.topics = results.topics.filter((item) => item.id !== topic.id).concat(entry);
       logFile = join(out, `${topic.id}-studio.log`);
       writeFileSync(logFile, "");
@@ -721,17 +897,13 @@ async function commandRun(args) {
       entry.gateFailures = correctionsInLog(logFile);
       entry.head.end = await headOf(repo);
       entry.finishedAt = new Date().toISOString();
-      writeFileSync(stateFile, `${JSON.stringify(results, null, 2)}\n`);
-      writeFileSync(join(out, "report.md"), renderReport(results));
       const verdicts = entry.parts.map((part) => part.gates.verdict).join("/") || "-";
       const stuck = entry.stuck ? ` · ATASCADO: ${entry.stuck}` : "";
       console.error(`bench: ${topic.id}: ${entry.parts.length} parte(s) · gates ${verdicts} · ${entry.correctionRounds} corrección(es) · ${entry.turns.length} turno(s)${stuck}`);
     }
-    results.vault = { path: vault ?? null, before: vaultBefore, after: await vaultState(vault) };
     results.finishedAt = new Date().toISOString();
-    writeFileSync(stateFile, `${JSON.stringify(results, null, 2)}\n`);
-    writeFileSync(join(out, "report.md"), renderReport(results));
-    console.error(`bench: resultados en ${stateFile}`);
+    writeFileSync(resultFile, `${JSON.stringify(results, null, 2)}\n`);
+    console.error(`bench: resultado en ${resultFile}`);
   } finally {
     unsubscribe();
     process.stderr.write = stderrWrite;
@@ -882,12 +1054,16 @@ async function commandShots(args) {
 
 /** The table the issue asks for: one row per topic, and the defects the numbers show. */
 function renderReport(results) {
+  const distinct = (values) => new Set(values).size === values.length;
+  const moved = Boolean(results.head?.end) && results.head.start !== results.head.end;
   const lines = [
     "# Bench del tutor en temas sin ejemplo (issue #246)",
     "",
     `- Repo: \`${results.repo}\``,
     `- Raíz de prueba: \`${results.scratch}\``,
     `- Runtime: ${AGENTE} · ${MODELO} (el de producción)`,
+    `- Concurrencia: ${results.concurrency ?? 1} tema(s) a la vez · puerto base ${results.port ?? "-"}`,
+    `- HEAD del repo: ${results.head?.start ?? "-"} → ${results.head?.end ?? "-"}${moved ? " (cambió durante la corrida)" : ""}`,
     `- Empezó: ${results.startedAt ?? "-"} · terminó: ${results.finishedAt ?? "-"}`,
     "",
     "| Tema | Carpeta | Partes | Gates | Correcciones | Turnos | Piezas | Actores | Capturas |",
@@ -900,6 +1076,16 @@ function renderReport(results) {
     const shots = topic.parts.map((part) => part.screenshot).filter(Boolean).join("<br>") || "-";
     lines.push(`| ${topic.request} | ${topic.topic ?? "-"} | ${topic.parts.length} | ${gates} | ${topic.correctionRounds ?? 0} | ${topic.turns?.length ?? 0} | ${pieces} | ${actors} | ${shots} |`);
   }
+  // Each topic on its own studio: the isolation the run relies on, one row per topic.
+  const ports = results.topics.map((topic) => topic.studio?.port).filter(Number.isInteger);
+  const roots = results.topics.map((topic) => topic.studio?.root).filter(Boolean);
+  lines.push("", "## Aislamiento: un estudio por tema", "", "| Tema | Puerto | Raíz | Estado (XDG_STATE_HOME) | Token | HEAD inicio → fin | Duración |", "| --- | --- | --- | --- | --- | --- | --- |");
+  for (const topic of results.topics) {
+    const studio = topic.studio ?? {};
+    const took = topic.startedAt && topic.finishedAt ? `${elapsed(topic.startedAt, topic.finishedAt)} s` : "-";
+    lines.push(`| ${topic.request} | ${studio.port ?? "-"} | \`${studio.root ?? "-"}\` | \`${studio.stateHome ?? "-"}\` | \`${studio.token ?? "-"}\` | ${topic.head?.start ?? "-"} → ${topic.head?.end ?? "-"} | ${took} |`);
+  }
+  if (ports.length) lines.push("", `Puertos distintos: ${distinct(ports) ? "sí" : "no"} · raíces distintas: ${distinct(roots) ? "sí" : "no"}`);
   // The shape of every figure: the gates measure geometry, not whether the drawing is the
   // thing being taught. Five topics drawn with the same two boxes is the pattern to see.
   lines.push("", "## Forma de las figuras", "");
@@ -951,9 +1137,10 @@ function renderReport(results) {
 
 const args = parseArgs(process.argv.slice(2));
 if (args.command === "run") await commandRun(args);
+else if (args.command === "topic") await commandTopic(args);
 else if (args.command === "shots") await commandShots(args);
 else if (args.command === "gates") await commandGates(args);
 else {
-  console.error("uso: bench.mjs run|shots|gates [--repo --scratch --out --port --shots --topic --max-turns --turn-timeout --vault]");
+  console.error("uso: bench.mjs run|topic|shots|gates [--repo --scratch --out --port --shots --topic --concurrency --max-turns --turn-timeout --vault]");
   process.exit(2);
 }
