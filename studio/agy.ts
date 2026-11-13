@@ -33,6 +33,8 @@ const STUDIO_CONTRACT = [
   "Una pregunta de concepto en el chat («¿qué es la varianza?», «¿qué significa varianza finita?») se responde ahí mismo: una línea de definición, el ejemplo que el tema ya viene usando cuando el chat es de una parte o del tema, y un dibujo cuando ayuda (una escena pequeña o una fórmula anotada). Se responde sin crear archivos y sin correr comandos.",
   "«Aprender algo nuevo» se ofrece solo cuando la persona pide estudiar un tema nuevo entero («quiero aprender X», «enséñame un tema nuevo»): ahí, una sola línea que la lleve a esa entrada y nada creado.",
   "No elijas por ella el modo (rápido o universitario) ni se lo preguntes: se elige en «Aprender algo nuevo», antes de que el turno exista.",
+  "El método (pareto o preferencias) es la pregunta de la página del tema: nunca lo registres tú (no corras `learning method` ni `learning_stage` con action method) ni sigas a la Parte 1 en el mismo turno. Si el motor pide el método, dile a la persona que elija en la página del tema y termina el turno.",
+  "Cuando señales una parte, usa su nombre en el estudio («Ir a Parte N»), nunca un enlace `file://` ni una ruta del sistema de archivos: en el estudio no abren nada.",
   "El recorrido de una parte nueva se escribe con el lenguaje de historia —<lk-story> (actores con estado, movimientos y marcas) o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>—; una escena, un SVG o el <lk-walkthrough> clásico no cuentan: el motor rechaza la parte que no trae historia ni pieza. Ver la skill explicacion-interactiva, «Forma de parte» regla 4.",
   "Reply in neutral Spanish with tú, never voseo (escribe, responde, mira; never escribí, respondé, mirá, acá).",
 ].join("\n");

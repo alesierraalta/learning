@@ -242,6 +242,54 @@ export function noteFromPath(path: unknown, root?: string): Note | null {
 }
 
 /**
+ * A reply the learner can act on. A tutor that cannot see the page hands a note over as a `file://`
+ * URL, which opens nothing in a studio served over https. A link to a part note becomes the studio's
+ * own route (`#/leer/<topic>/<part>`, what «Ir a Parte N» opens); any other filesystem link keeps
+ * its words and loses the URL, because a path the browser cannot open is not a link.
+ */
+export function studioLinks(text: string, root?: string): string {
+  if (!text.includes("file:")) return text;
+  const route = (target: string): string | null => {
+    let path: string;
+    try {
+      path = fileURLToPath(target);
+    } catch {
+      return null;
+    }
+    const note = noteFromPath(path, root);
+    if (note === null) return null;
+    if ("quick" in note) return `#/rapido/${encodeURIComponent(note.quick)}`;
+    if ("diagnosis" in note) return `#/leer/${note.topic}/quiz`;
+    // The part's id comes from the plan, never from the file name: the page routes by id.
+    let part: string | undefined;
+    try {
+      part = readPlan(join(root ?? ".", note.topic))?.parts[note.index - 1]?.id;
+    } catch {
+      return null;
+    }
+    return part === undefined ? null : `#/leer/${note.topic}/${part}`;
+  };
+  const name = (target: string): string => {
+    const last = target.split("/").pop() ?? target;
+    try {
+      return decodeURIComponent(last);
+    } catch {
+      return last;
+    }
+  };
+  return text
+    .replace(/\[([^\]\n]*)\]\(\s*(file:[^)\s]+)\s*\)/g, (_whole, words: string, target: string) => {
+      const to = route(target);
+      return to === null ? words.trim() || name(target) : `[${words.trim() || name(target)}](${to})`;
+    })
+    .replace(/(^|[\s(<])file:\/\/[^\s<>)"'\]]+/g, (whole, before: string) => {
+      // The URL is the match without the character that opened the line or the bracket.
+      const target = whole.slice(before.length);
+      return `${before}${route(target) ?? name(target)}`;
+    });
+}
+
+/**
  * The topic folder a path lies in: `<root>/<topic>/...`, any file of it. Quick notes and hidden
  * folders belong to no topic. Without a root the first folder is the topic.
  */
@@ -437,7 +485,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       case "message_end": {
         const message = record.message;
         if (isRecord(message) && message.role === "assistant") {
-          const text = messageText(message);
+          // A tutor that was handed a `file://` URL hands it back: the reply carries the studio's own
+          // route to the part instead, so the learner can open what the turn wrote (#248).
+          const text = studioLinks(messageText(message), root);
           if (text) emit("assistant_end", { id: assistantId, text });
           if (agy && text) agyTurns.push({ role: "assistant", text });
           if (text) remember({ role: "assistant", text });
@@ -939,6 +989,16 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       const { report } = await runGate(topic);
       // Aborted or restarted while the engine answered: this turn is no longer the studio's.
       if (turn !== settled) return;
+      // The method is the learner's choice on the topic page. A turn that recorded one itself took
+      // that choice away, and the studio does not accept it: the learner hears it instead of being
+      // taught a route they never picked (#248).
+      const chose = tutorChoseMethod(topic, report);
+      if (chose) {
+        emit("error", {
+          message: `El tutor eligió el método por ti (${chose}): el método se elige en la página del tema, no en el chat. El turno no se da por bueno.`,
+        });
+        return;
+      }
       const decision = settleGate.decide(report);
       if (decision.action === "ask") {
         // The correction is the same turn, one more prompt: it is not a new turn start.
@@ -1078,6 +1138,36 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const temporary = `${openedFile}.${process.pid}.tmp`;
     writeFileSync(temporary, JSON.stringify(opened));
     renameSync(temporary, openedFile);
+  };
+
+  // ---- the method the learner chose ------------------------------------------
+  // `<root>::<topic>` -> the method the page recorded. The engine cannot tell who called its method
+  // command (the page and the tutor run the same CLI), so the studio keeps the page's own choices
+  // and refuses a turn that recorded one itself. The root is part of the key because one state
+  // directory serves every vault this user opens. Kept beside `opened.json`, so a restarted studio
+  // does not mistake a page choice for a tutor's.
+  const methodsFile = join(dirname(openedFile), "metodos.json");
+  const methodKey = (topic: string) => `${root}::${topic}`;
+  const readMethods = (): Record<string, string> => {
+    try {
+      const stored = JSON.parse(readFileSync(methodsFile, "utf8"));
+      return isRecord(stored) ? Object.fromEntries(Object.entries(stored).filter(([, m]) => typeof m === "string")) as Record<string, string> : {};
+    } catch {
+      return {};
+    }
+  };
+  const pageMethods = readMethods();
+  const recordPageMethod = (topic: string, metodo: string) => {
+    pageMethods[methodKey(topic)] = metodo;
+    mkdirSync(dirname(methodsFile), { recursive: true });
+    const temporary = `${methodsFile}.${process.pid}.tmp`;
+    writeFileSync(temporary, JSON.stringify(pageMethods));
+    renameSync(temporary, methodsFile);
+  };
+  /** The method the engine reports but the page never recorded: the tutor chose for the learner. */
+  const tutorChoseMethod = (topic: string, report: Json): string => {
+    const method = typeof report.method === "string" ? report.method : "";
+    return method !== "" && pageMethods[methodKey(topic)] !== method ? method : "";
   };
 
   const library = async () => {
@@ -1337,6 +1427,7 @@ ${scripts}
         }
         tema = topic;
         gateBlocked = false;
+        recordPageMethod(topic, metodo);
         emit("library_changed", {});
         // The tutor continues to planning with the method the learner just chose.
         await startTurn(methodPrompt(metodo), { topic });

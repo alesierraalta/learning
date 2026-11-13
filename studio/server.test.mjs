@@ -9,7 +9,7 @@ import { request, createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { entryUrl, noteFromMessages, noteFromPath, startStudio as startStudioChecked, topicFromPath } from "./server.ts";
+import { entryUrl, noteFromMessages, noteFromPath, startStudio as startStudioChecked, studioLinks, topicFromPath } from "./server.ts";
 import { runPartChecks } from "./checks.ts";
 import { stripLecciones } from "./sugerencias.ts";
 import extension from "../integrations/pi/index.ts";
@@ -3119,4 +3119,77 @@ test("closing the studio, as SIGTERM does, writes the conversation and the turn 
   const doc = JSON.parse(readFileSync(snapshot, "utf8"));
   assert.deepEqual(doc.messages.slice(-1), [{ role: "user", text: "Escribe la Parte 1" }], "the turn reached the copy before the process went away");
   assert.ok(doc.interrupted, "the turn it was holding is marked as interrupted");
+});
+
+// #248: the method is the learner's question on the topic page, and the engine cannot tell who
+// called its method command (the page and the tutor run the same CLI). The studio keeps the page's
+// own choices, so a turn that recorded one itself is refused instead of taught.
+const TUTOR_CHOSE_METHOD = { status: "accepted", stage: "planning", nextStage: "planning", method: "pareto", checks: [{ id: "plan", status: "PASS", reason: "plan written" }] };
+
+test("a turn that records the method itself is refused, because the method is the page's question", async () => {
+  const { studio, stream } = await agyStudio({ root: { statuses: [TUTOR_CHOSE_METHOD] } });
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    const error = await stream.next("error", (data) => /método/.test(data.message));
+    assert.match(error.message, /el método se elige en la página del tema/);
+    assert.match(error.message, /pareto/, "the learner is told which method the tutor picked");
+    await until(() => settleIdle(stream));
+    assert.equal(stream.events.some((event) => event.name === "notice" && /método/.test(event.data.message)), false, "the refusal is an error, not a passing notice");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
+test("the method the page recorded is the learner's, so the same report is not refused", async () => {
+  const { studio, stream } = await piStudio({ root: { statuses: [METHOD_RECORDED, METHOD_RECORDED] } });
+  try {
+    assert.equal((await post(studio, "api/metodo", { tema: "redes", metodo: "pareto" })).status, 200);
+    // The turn the page started runs to its end: the fake tutor asks its own question first.
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => settleIdle(stream));
+    assert.equal(stream.events.some((event) => event.name === "error" && /método/.test(event.data.message)), false);
+  } finally { stream.close(); }
+});
+
+test("a file:// link in a reply becomes the studio's own part route, and any other one loses the URL", async () => {
+  const { root } = makeRoot();
+  const part = pathToFileURL(join(root, "redes", "explicaciones", "Parte 1 - Capas.md")).href;
+  assert.equal(studioLinks(`Ya está: [Parte 1](${part})`, root), "Ya está: [Parte 1](#/leer/redes/p1)");
+  assert.equal(studioLinks(`Ya está: ${part}`, root), "Ya está: #/leer/redes/p1", "a bare URL is the same route");
+  assert.equal(studioLinks(`[El diagnóstico](${pathToFileURL(join(root, "redes", "quiz.md")).href})`, root), "[El diagnóstico](#/leer/redes/quiz)");
+  // A part the plan does not have, and a file that is not a note: the words stay, the URL goes.
+  const missing = pathToFileURL(join(root, "redes", "explicaciones", "Parte 9 - Nada.md")).href;
+  assert.equal(studioLinks(`Mira [la Parte 9](${missing})`, root), "Mira la Parte 9");
+  assert.equal(studioLinks(`Mira ${pathToFileURL(join(root, "redes", "plan.json")).href}`, root), "Mira plan.json");
+  // A reply with no filesystem link is left byte for byte.
+  const clean = "Hola [x](#/leer/redes/p1) y `file://` en un ejemplo";
+  assert.equal(studioLinks(clean, root), clean);
+});
+
+test("an Antigravity reply carrying a file:// link reaches the chat as the studio's part route", async () => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const dir = mkdtempSync(join(tmpdir(), "agy-file-link-"));
+  const fake = join(dir, "agy.mjs");
+  writeFileSync(fake, [
+    'import { pathToFileURL } from "node:url";',
+    'const url = pathToFileURL(process.cwd() + "/redes/explicaciones/Parte 1 - Capas.md").href;',
+    'const out = (record) => process.stdout.write(`${JSON.stringify(record)}\\n`);',
+    'out({ event: "init", conversation_id: "file-link" });',
+    'out({ event: "result", result: { status: "SUCCESS", response: `Ya está escrita: [Parte 1](${url})` } });',
+  ].join("\n"));
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, fake] });
+  open.push(studio);
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1" })).status, 200);
+    const answer = await stream.next("assistant_end");
+    assert.match(answer.text, /\(#\/leer\/redes\/p1\)/, `the reply carries the studio's route: ${answer.text}`);
+    assert.doesNotMatch(answer.text, /file:/, "no filesystem URL survives into the chat");
+  } finally { stream.close(); }
 });

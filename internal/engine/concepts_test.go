@@ -461,6 +461,7 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	undoStrictFlow(prod)
 	delete(prod["thresholds"].(map[string]any), "strictFlow")
 	delete(prod["thresholds"].(map[string]any), "partStandard")
+	delete(prod["thresholds"].(map[string]any)["options"].(map[string]any), "varyAnswerKeys")
 	prod["thresholds"].(map[string]any)["minVisuals"] = float64(2)
 	checks := prod["checks"].(map[string]any)
 	for stage, list := range checks {
