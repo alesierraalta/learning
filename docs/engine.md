@@ -777,6 +777,25 @@ initialised before this rule keeps its frozen `.learning/rules.json`, which has
 no `partStandard` block and no `part_standard` check: its parts are measured
 exactly as before and a certified part never re-fails.
 
+### Where the rules live
+
+The standard is one rule per file on both sides (#269), so a new rule touches no
+shared file except one registry line:
+
+- **Engine.** `internal/engine/standard_rules.go` is the table `standardRules`, in
+  the order the findings are reported. Each entry is an id and a check; the check
+  lives in `internal/engine/standard_<id>.go` (the id with `_` for `-`).
+  `standard.go` keeps the shared lexicon, the JSON readers and
+  `evalPartStandard`, which runs the table and then the #265 rules, each in its
+  own file (`standard_265.go` for the glossary, `standard_mini_quiz.go`,
+  `standard_figuras.go` and `standard_pagina.go`).
+- **Tool.** `tools/explain-check.mjs` is the runner. It reads the note once
+  (`tools/explain-check/nota.mjs`) and runs the registry
+  `tools/explain-check/reglas.mjs` in order. Each rule is
+  `tools/explain-check/rules/<id>.mjs`, exporting `{ id, check(note, ctx) }`.
+
+`CONTRIBUTING.md` lists the steps to add a rule.
+
 ## Conditional obligations (S4)
 
 `rules/deep.json` declares two:
