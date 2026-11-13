@@ -17,8 +17,8 @@
 
   // ---------- illustrations (ported from illus.py) ----------
 
-  const txt = (x, y, t, { size = 28, color = C.ink, bold = true, anchor = "middle", italic = false, fit = 0 } = {}) =>
-    `<text x="${f(x)}" y="${f(y)}" font-size="${size}" fill="${color}" text-anchor="${anchor}"${bold ? ' font-weight="700"' : ""}${italic ? ' font-style="italic"' : ""}${fit ? ` data-fit="${f(fit)}"` : ""}>${esc(t)}</text>`;
+  const txt = (x, y, t, { size = 28, color = C.ink, bold = true, anchor = "middle", italic = false, fit = 0, edge = false } = {}) =>
+    `<text x="${f(x)}" y="${f(y)}" font-size="${size}" fill="${color}" text-anchor="${anchor}"${edge ? ' data-edge-label="1"' : ""}${bold ? ' font-weight="700"' : ""}${italic ? ' font-style="italic"' : ""}${fit ? ` data-fit="${f(fit)}"` : ""}>${esc(t)}</text>`;
 
   const lbl = (x, y, t, o = {}) => txt(x, y, t, { size: 26, color: C.slate, bold: false, italic: true, ...o });
 

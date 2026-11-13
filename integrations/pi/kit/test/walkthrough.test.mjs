@@ -18,15 +18,28 @@ import { pathToFileURL } from 'node:url';
 
 const KIT = resolve(import.meta.dirname, '..');
 
-function loadPlaywright() {
+async function loadPlaywright() {
+  // El mismo orden que el resto del kit: el módulo que indique el entorno, el del
+  // proyecto y el global. En la máquina de pruebas el navegador llega por
+  // `PLAYWRIGHT_MODULE`; sin mirarlo, estas pruebas se saltaban y el recorrido
+  // clásico quedaba sin medir.
+  const attempts = [];
+  if (process.env.PLAYWRIGHT_MODULE) attempts.push(() => import(process.env.PLAYWRIGHT_MODULE));
+  attempts.push(() => import('playwright'));
   try {
-    return createRequire(execSync('npm root -g', { encoding: 'utf8' }).trim() + '/')('playwright');
-  } catch {
-    return null;
+    const root = execSync('npm root -g', { encoding: 'utf8' }).trim();
+    attempts.push(async () => createRequire(root + '/')('playwright'));
+  } catch {}
+  for (const attempt of attempts) {
+    try {
+      const mod = await attempt();
+      if (mod?.chromium || mod?.default?.chromium) return mod.chromium ? mod : mod.default;
+    } catch {}
   }
+  return null;
 }
 
-const playwright = loadPlaywright();
+const playwright = await loadPlaywright();
 
 test('un paso con & y con < se dibuja como texto', { skip: playwright ? false : 'playwright is not installed' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kit-wt-'));

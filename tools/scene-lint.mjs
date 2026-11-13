@@ -70,7 +70,12 @@ const tagGapsPx = ({ minPx }) => {
 };
 
 async function loadPlaywright() {
+  // El mismo orden que `scene-gate` y `deck-gate`: el módulo que indique el
+  // entorno, el del proyecto y el global. En la máquina de pruebas el navegador
+  // está fuera del árbol del repo y solo llega por `PLAYWRIGHT_MODULE`; una
+  // puerta que no lo mira no puede medir y el lint se caía en vez de medir.
   const attempts = [];
+  if (process.env.PLAYWRIGHT_MODULE) attempts.push(() => import(process.env.PLAYWRIGHT_MODULE));
   attempts.push(() => import('playwright'));
   try {
     const root = execSync('npm root -g', { encoding: 'utf8' }).trim();
@@ -398,13 +403,15 @@ try {
           // El trazo de «el pico» entraba a la campana desde abajo y cortaba el
           // flanco derecho a 156 unidades de la punta: el lector veía una línea
           // metida dentro de la curva. Se mide sobre los extremos que escribió el
-          // autor, no sobre los tramos que deja el hueco de las palabras.
+          // autor, no sobre los tramos que deja el hueco de las palabras. Los
+          // primeros 12u son el enganche: una flecha que arranca sobre la pieza que
+          // conecta no la atraviesa (#280).
           const reach = Math.hypot(end.x - start.x, end.y - start.y);
-          if (reach > 12) {
+          if (reach > 24) {
             const inkPoints = inkOf(step);
             const step12 = Math.max(0.5, reach / 500);
             let cut = null;
-            for (let at = 0; at <= reach - 12 && !cut; at += step12) {
+            for (let at = 12; at <= reach - 12 && !cut; at += step12) {
               const p = { x: start.x + ((end.x - start.x) * at) / reach, y: start.y + ((end.y - start.y) * at) / reach };
               if (inkPoints.some((q) => Math.hypot(q.x - p.x, q.y - p.y) <= cross)) cut = reach - at;
             }
