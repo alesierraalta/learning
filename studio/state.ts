@@ -21,8 +21,8 @@ export type BusyMark = { busy: true; pid: number; startedAt: number; topic: stri
 /** One message of the conversation the studio keeps for itself. */
 export type ChatMessage = { role: "user" | "assistant"; text: string };
 
-/** The turn a process was holding when it went away. */
-export type InterruptedTurn = { topic: string | null; at: number };
+/** The turn a process was holding when it went away; `cause: "update"` marks a turn a deploy ended on purpose. */
+export type InterruptedTurn = { topic: string | null; at: number; cause?: "update" };
 
 /** The active chat's thread and the turn that was in flight, written outside the vault. */
 export type ChatSnapshot = {
@@ -131,7 +131,7 @@ export function readSnapshot(file: string): ChatSnapshot | null {
   const pid = typeof parsed.pid === "number" && Number.isInteger(parsed.pid) && parsed.pid > 0 ? parsed.pid : null;
   const raw = parsed.interrupted;
   const interrupted = isRecord(raw) && typeof raw.at === "number" && Number.isFinite(raw.at)
-    ? { topic: typeof raw.topic === "string" ? raw.topic : null, at: raw.at }
+    ? { topic: typeof raw.topic === "string" ? raw.topic : null, at: raw.at, ...(raw.cause === "update" ? { cause: "update" as const } : {}) }
     : null;
   return { version: 1, chat: parsed.chat, pid, messages, interrupted };
 }

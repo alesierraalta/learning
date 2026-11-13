@@ -1,0 +1,7 @@
+[Unit]
+Description=Deploy the Learnings studio when origin/main moves (pull-based)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/learning-autodeploy
+TimeoutStartSec=20min
