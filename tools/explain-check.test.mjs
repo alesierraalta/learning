@@ -104,7 +104,7 @@ test('acepta una parte que cumple el estándar', () => {
 
 // El mini-quiz es el quiz que el mismo estándar pide, no una tercera idea: su
 // heading no gasta una de las dos secciones de contenido. El motor cuenta igual
-// (`contentSections` en `internal/engine/standard.go`), para que el tutor y el
+// (`contentSections` en `internal/engine/standard_secciones.go`), para que el tutor y el
 // motor coincidan.
 test('un heading de mini-quiz no es una sección de contenido', () => {
   const f = join(dir, 'con-heading-quiz.md');

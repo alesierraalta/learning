@@ -2,8 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -103,104 +101,6 @@ func glosarioFindings(text string, th rules.PartStandardThresholds) []string {
 		if run.count >= glosarioEnBloque {
 			out = append(out, fmt.Sprintf("glosario en bloque: %d definiciones seguidas, sin una frase del ejemplo entre ellas (empieza en «%s») · reparte las definiciones: entre una y otra va una frase del ejemplo o una escena", run.count, run.term))
 		}
-	}
-	return out
-}
-
-// miniQuizSection returns the body of «## Mini-quiz», up to the next «## » heading, and whether the note has one.
-func miniQuizSection(text string) (string, bool) {
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		if !miniQuizTitulo.MatchString(line) {
-			continue
-		}
-		end := len(lines)
-		for j := i + 1; j < len(lines); j++ {
-			if encabezado.MatchString(lines[j]) {
-				end = j
-				break
-			}
-		}
-		return strings.Join(lines[i+1:end], "\n"), true
-	}
-	return "", false
-}
-
-// quizFindings measures the mini-quiz (#265): it is the interactive lk-quiz, never a numbered list under its
-// heading. A page the tutor wrote must carry the lk-quiz itself: the reader adds nothing to such a page.
-func quizFindings(text string, th rules.PartStandardThresholds, page bool) []string {
-	if !th.InteractiveQuiz {
-		return nil
-	}
-	sinCodigo := cercado.ReplaceAllString(text, " ")
-	var out []string
-	if body, ok := miniQuizSection(sinCodigo); ok && preguntaNumerada.MatchString(body) {
-		out = append(out, "el mini-quiz es una lista numerada: el lector lo dibuja como lk-quiz interactivo · deja el encabezado «## Mini-quiz» y pon las preguntas en mini-quiz/<parte>.json")
-	}
-	if page && !lkQuizEtiqueta.MatchString(sinCodigo) {
-		out = append(out, "la página no trae el lk-quiz · escribe <lk-quiz></lk-quiz> bajo «## Mini-quiz»: el lector no añade el quiz a una página que escribió el turno")
-	}
-	return out
-}
-
-// figureFindings measures that the page carries every figure of the note, as the same block (whitespace aside).
-func figureFindings(note, page string, th rules.PartStandardThresholds) []string {
-	if !th.RichPage {
-		return nil
-	}
-	kept := espacios.ReplaceAllString(page, "")
-	for _, block := range figureBlocks(note) {
-		if !strings.Contains(kept, espacios.ReplaceAllString(block.text, "")) {
-			return []string{fmt.Sprintf("la página no trae la figura <%s> de la nota: cada figura de la nota va en la página tal cual", block.tag)}
-		}
-	}
-	return nil
-}
-
-type figureBlock struct{ tag, text string }
-
-// figureBlocks returns every `<lk-…>` block of a note, up to its own closing tag.
-func figureBlocks(note string) []figureBlock {
-	var out []figureBlock
-	for _, open := range figuraAbre.FindAllStringSubmatchIndex(note, -1) {
-		name := note[open[2]:open[3]]
-		closing := "</" + name + ">"
-		end := strings.Index(note[open[1]:], closing)
-		if end < 0 {
-			continue
-		}
-		stop := open[1] + end + len(closing)
-		out = append(out, figureBlock{tag: name, text: note[open[0]:stop]})
-	}
-	return out
-}
-
-// richPageFindings measures the page the turn wrote beside the part's note with the same thresholds (#265). The
-// page must measure as its note, carry every figure the note draws, and carry the interactive quiz. Its findings
-// name the page, so the tutor corrects the file that is wrong.
-func richPageFindings(c *evalCtx, rel, note string, th rules.PartStandardThresholds) []string {
-	if !th.RichPage {
-		return nil
-	}
-	pagePath := absPath(c.ws, strings.TrimSuffix(rel, ".md")+".html")
-	raw, err := os.ReadFile(pagePath)
-	if err != nil {
-		return nil
-	}
-	page := string(raw)
-	text := notaDeHTML(page)
-	var out []string
-	out = append(out, standardFindings(text, th)...)
-	if th.Register != nil {
-		sencillez, tecnicidad := learnerLevels(absPath(c.ws, rel))
-		out = append(out, registerFindings(text, th.Register.Limits(sencillez, tecnicidad))...)
-	}
-	out = append(out, glosarioFindings(text, th)...)
-	out = append(out, quizFindings(text, th, true)...)
-	out = append(out, figureFindings(note, page, th)...)
-	name := filepath.Base(pagePath)
-	for i := range out {
-		out[i] = name + ": " + out[i]
 	}
 	return out
 }
