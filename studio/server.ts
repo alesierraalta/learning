@@ -1536,13 +1536,21 @@ ${scripts}
         emit("dialog_closed", { id });
         break;
       }
-      case "abort":
+      case "abort": {
         // A turn the learner stopped is not the engine's business, and not a correction either:
         // releasing it here is what makes the abort final, whatever the runtime does afterwards.
+        // A deploy names its cause, so the restart that follows can say the studio was updated.
+        const cause = isRecord(body) && body.cause === "update" ? "update" : undefined;
+        const held = turn;
         releaseTurn();
+        if (cause !== undefined && held !== null) {
+          interrupted = { topic: held.topic, at: Date.now(), cause };
+          saveSnapshot();
+        }
         if (agy) agy.abort();
         else await call({ type: "abort" }, 60000);
         break;
+      }
       case "api/draft": {
         const written = (value: unknown) => (typeof value === "string" ? value : "");
         const markdown = body.body;
@@ -1680,15 +1688,16 @@ ${scripts}
     sendJson(res, 200, { ok: true });
   };
 
-  /** What the chat shows about a turn a previous process was holding: the topic and its title. */
+  /** What the chat shows about a turn a previous process was holding: the topic, its title and why it ended. */
   const interruptedView = () => {
     const turn = interrupted;
     if (turn === null) return null;
     const topic = turn.topic;
-    return { topic, title: topic === null ? null : listTopics(root).find((t) => t.id === topic)?.title ?? topic };
+    const view = { topic, title: topic === null ? null : listTopics(root).find((t) => t.id === topic)?.title ?? topic };
+    return turn.cause === undefined ? view : { ...view, cause: turn.cause };
   };
 
-  const history = async (): Promise<{ messages: Json[]; note: Note | null; interrupted: { topic: string | null; title: string | null } | null }> => {
+  const history = async (): Promise<{ messages: Json[]; note: Note | null; interrupted: { topic: string | null; title: string | null; cause?: "update" } | null }> => {
     const shown = interruptedView();
     const copy = transcript.map((message) => ({ role: message.role, text: message.text }));
     if (!alive || agy) return { messages: agy ? [...agyTurns] : copy, note: null, interrupted: shown };
@@ -1719,9 +1728,18 @@ ${scripts}
     return shown;
   };
 
+  /** The update notice is one notice: once a page has been sent it, no later page or restart repeats it. */
+  const spendUpdateNotice = () => {
+    if (interrupted?.cause !== "update") return;
+    interrupted = null;
+    saveSnapshot();
+  };
+
   const events = async (res: ServerResponse) => {
     res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", "x-content-type-options": "nosniff" });
-    res.write(`event: history\ndata: ${JSON.stringify(await history())}\n\n`);
+    const shown = await history();
+    res.write(`event: history\ndata: ${JSON.stringify(shown)}\n\n`);
+    if (shown.interrupted?.cause === "update") spendUpdateNotice();
     res.write(`event: state\ndata: ${JSON.stringify(state())}\n\n`);
     for (const dialog of dialogs.values()) res.write(`event: dialog\ndata: ${JSON.stringify(dialog)}\n\n`);
     clients.add(res);
