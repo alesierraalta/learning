@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parte 1 — Punteros a commits y la referencia HEAD</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<script src="../kit/scene.js" defer></script>
+<script src="../kit/kit.js" defer></script>
+</head>
+<body>
+<main class="page">
+
+<p class="kicker">Git branching · Parte 1</p>
+<h1>Parte 1 — Punteros a commits y la referencia HEAD</h1>
+
+<p class="definition">En Git, una rama es simplemente un puntero móvil de 41 bytes que almacena el hash SHA-1 del commit más reciente de esa línea de desarrollo, mientras que la referencia simbólica HEAD señala la rama activa.</p>
+
+<p class="source">Fuente: Libro Pro Git por Chacon y Straub (2014), capítulo tres sobre ramas en Git.</p>
+
+<h2>El 20% que rinde el 80%</h2>
+
+<p>Imagina un repositorio con dos commits.</p>
+<p>El primero es C1. El segundo es C2.</p>
+
+<p><strong>Commit</strong>: Es una instantánea inmutable. En nuestro ejemplo, C2 guarda datos.</p>
+<p><strong>Rama</strong>: Es un puntero móvil. En nuestro ejemplo, main apunta a C2.</p>
+<p><strong>Puntero HEAD</strong>: Es la referencia activa. En nuestro ejemplo, HEAD señala a main.</p>
+<p><strong>Historial</strong>: Es la cadena enlazada. En nuestro ejemplo, C2 apunta a C1.</p>
+
+<p>Antes, otros sistemas copiaban carpetas enteras.</p>
+<p>En cambio, Git escribe un archivo ligero.</p>
+<p>Guarda un texto muy corto.</p>
+<p>Sin embargo, mover la rama no altera el commit.</p>
+
+<lk-cards>
+<script type="application/json">
+{"title":"Elementos de referencia en el repositorio","cards":[
+ {"id":"rama","verdict":"ok","pill":"CORRECTO","title":"Puntero de rama","draw":{"refs":[{"text":"41 B","icon":"read","tone":"green"}],"target":{"text":"hash"}},"reason":"Lee el commit de la punta"},
+ {"id":"head","verdict":"ok","pill":"CORRECTO","title":"Referencia HEAD","draw":{"refs":[{"text":"main","icon":"read","tone":"blue"}],"target":{"text":"rama"}},"reason":"Lee la rama de trabajo activa"},
+ {"id":"error","verdict":"no","pill":"RECHAZADO","title":"Commit huérfano","draw":{"refs":[{"text":"sin rama","icon":"write","tone":"amber"}],"target":{"text":"perdido"}},"reason":"Escribe cambios sin referencia activa"}
+]}
+</script>
+</lk-cards>
+<p>Cómo leerlo: las tarjetas comparan los tres elementos de referencia en el repositorio.</p>
+
+<h2>Mini-quiz</h2>
+<ol>
+<li>¿Qué información almacena exactamente el archivo de una rama dentro de .git/refs/heads/?</li>
+<li>¿Hacia dónde apunta normalmente la referencia especial HEAD en un repositorio de Git?</li>
+<li>¿Qué ocurre con el puntero de la rama activa al registrar un nuevo commit en el historial?</li>
+</ol>
+
+</main>
+</body>
+</html>

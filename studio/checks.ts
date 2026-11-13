@@ -12,7 +12,6 @@
  * deploy, so it is a rule here, not a preference.
  */
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,14 +22,10 @@ const REPO = join(HERE, "..");
 export const PART_TOOLS = ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs"] as const;
 export type PartTool = (typeof PART_TOOLS)[number];
 
-/** The rich page a part's note is read beside, `explicaciones/Parte N - <slug>.html` (#261). */
-export const RICH_PAGE_TOOL = "rich-page" as const;
-export type RichPageTool = typeof RICH_PAGE_TOOL;
-
 /** What one tool said about one note: its own words, kept whole for the tutor's correction. */
 export interface ToolFindings {
   file: string;
-  tool: PartTool | RichPageTool;
+  tool: PartTool;
   /** The tool's own output, exactly as it printed it. */
   output: string;
   /** The finding lines inside that output, in the tool's own words. */
@@ -86,24 +81,6 @@ const runTool = (tool: PartTool, file: string, options: PartCheckOptions): Promi
     );
   });
 
-const LEARNING_PART = /(^|[\\/])Parte \d+ - [^\\/]+\.md$/i;
-
-/**
- * A part note with no rich `.html` page beside it. The page is the part's main explanation (the skill
- * says so), so the studio warns the tutor with a finding it corrects in the same turn. A note that is
- * not a part (a quick note, a scratch file) is never asked for a page.
- */
-export function richPageWarnings(files: string[]): ToolFindings[] {
-  return files
-    .filter((file) => LEARNING_PART.test(file) && !existsSync(file.replace(/\.md$/i, ".html")))
-    .map((file) => ({
-      file,
-      tool: RICH_PAGE_TOOL,
-      output: "",
-      findings: [`falta la página rica ${basename(file.replace(/\.md$/i, ".html"))} junto a la nota · la página HTML es la explicación principal de la parte: escríbela con el kit, junto a la nota`],
-    }));
-}
-
 /**
  * The finding lines of one tool, read in the tool's own vocabulary. A tool that fails without
  * naming anything is not a finding: it is a check that could not run.
@@ -149,9 +126,8 @@ const errorLine = (run: Run): string => {
 export async function runPartChecks(files: string[], options: PartCheckOptions = {}): Promise<PartChecks> {
   const tools: ToolFindings[] = [];
   const failures: string[] = [];
-  // A note named twice (the part and its page, both written in one turn) is measured once.
+  // A file named twice is measured once; a part's note and its page are two files, each measured once (#265).
   const notes = [...new Set(files)];
-  tools.push(...richPageWarnings(notes));
   for (const file of notes) {
     for (const tool of PART_TOOLS) {
       const run = await runTool(tool, file, options);

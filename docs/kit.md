@@ -1,8 +1,11 @@
 # Rich part pages
 
-Write a plain HTML page beside its Markdown note, with the same basename and an
-`.html` extension. Markdown remains the Obsidian copy and fallback. No build or
-framework is required. The bridge serves the page at `/<token>/<topic>/<part>`.
+The part's Markdown note is what the learner reads (#265): the reader renders it with the
+kit's pieces, the interactive mini-quiz and the video. A plain HTML page beside the note,
+with the same basename and an `.html` extension, is optional. The bridge serves it at
+`/<token>/<topic>/<part>` only when it measures as its note (the same rules, read as a page)
+and carries every `<lk-…>` figure of the note and the interactive `<lk-quiz>`; otherwise the
+learner gets the note. No build or framework is required.
 
 ```html
 <html lang="es">

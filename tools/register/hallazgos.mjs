@@ -20,7 +20,13 @@ export const REGLAS_DE_REGISTRO = [
   'sin-escena-antes',
   'sin-contraste',
   'cuentas-sin-pasos',
+  'glosario-en-bloque',
 ];
+
+// Tres definiciones seguidas son un glosario en bloque (#265). La referencia del alumno nunca pone dos
+// seguidas: su explicación de RL reparte cada definición con una frase del ejemplo. El banco de #264 pone
+// cinco; el umbral es el primero que la referencia no alcanza.
+export const GLOSARIO_EN_BLOQUE = 3;
 
 const INSTRUCCION = {
   termino: 'explícalo en palabras llanas aquí y átalo al ejemplo',
@@ -30,6 +36,7 @@ const INSTRUCCION = {
   contraste: 'escribe un antes y un después con las mismas palabras: «Antes: … Después: …»',
   cuenta: 'pásala a renglones: un bloque cercado con un paso por línea y el resultado al final',
   cuentaBloque: 'alarga el bloque de cuenta: un paso por renglón, con el resultado al final',
+  glosario: 'reparte las definiciones: entre una y otra va una frase del ejemplo («Imagina…», «En nuestro ejemplo…») o una escena, nunca tres «Término: Es …» seguidos',
 };
 
 // Una cuenta dentro de la frase: «10 - 0.9 + 8.1 = 17.2». Un signo entre dos cifras y un «=» con cifra.
@@ -109,5 +116,51 @@ export function hallazgosDeRegistro(text, umbrales) {
       : 'sin cuentas',
     enFrase.length ? enFrase.map((s) => item(null, s, INSTRUCCION.cuenta)) : renglones.slice(0, 1).map((s) => item(null, s, INSTRUCCION.cuentaBloque)));
 
+  // 7. Glosario en bloque: tres o más definiciones seguidas, sin una frase del ejemplo entre ellas.
+  const bloques = bloquesDeDefiniciones(text);
+  const largo = Math.max(0, ...bloques.map((b) => b.count));
+  add('glosario-en-bloque', largo < GLOSARIO_EN_BLOQUE,
+    largo < GLOSARIO_EN_BLOQUE
+      ? `${largo} definición(es) seguida(s) como mucho (en bloque desde ${GLOSARIO_EN_BLOQUE})`
+      : `${largo} definiciones seguidas, sin una frase del ejemplo entre ellas (en bloque desde ${GLOSARIO_EN_BLOQUE})`,
+    bloques.filter((b) => b.count >= GLOSARIO_EN_BLOQUE).map((b) => item(b.first.term, b.first.sentence, INSTRUCCION.glosario)));
+
   return rows;
+}
+
+// Una definición: un término en negrita (o «Término:») seguido de un verbo que define («Es …», «Son …»),
+// en la misma línea o en la siguiente. Las líneas en blanco no cortan una serie; una frase cualquiera sí.
+const DEFINE = /^(Es|Son|Significa|Significan|Se llama|Se trata de)\b/;
+export function bloquesDeDefiniciones(text) {
+  const lineas = text.split('\n').map((l) => l.trim());
+  const marcas = [];
+  for (let i = 0; i < lineas.length; i++) {
+    const l = lineas[i];
+    if (l === '') continue;
+    const misma = /^\*\*([^*]+)\*\*\s*:\s*(.+)$/.exec(l) ?? /^([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ .-]{1,40}):\s*(.+)$/.exec(l);
+    if (misma && DEFINE.test(misma[2])) { marcas.push({ def: true, term: misma[1].trim(), sentence: misma[2].trim() }); continue; }
+    if (/^\*\*[^*]+\*\*\s*:?$/.test(l)) {
+      let j = i + 1;
+      while (j < lineas.length && lineas[j] === '') j++;
+      if (j < lineas.length && DEFINE.test(lineas[j])) {
+        marcas.push({ def: true, term: l.replace(/\*/g, '').replace(/:$/, '').trim(), sentence: lineas[j] });
+        i = j;
+        continue;
+      }
+    }
+    marcas.push({ def: false });
+  }
+  const bloques = [];
+  let actual = null;
+  for (const marca of marcas) {
+    if (marca.def) {
+      actual ??= { count: 0, first: marca };
+      actual.count += 1;
+    } else if (actual) {
+      bloques.push(actual);
+      actual = null;
+    }
+  }
+  if (actual) bloques.push(actual);
+  return bloques;
 }

@@ -1,0 +1,61 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "central": true,
+      "subtema": "prestamos-referencias-inmutables",
+      "nivel": "básico",
+      "conceptos": [
+        "prestamos-referencias-inmutables",
+        "prestamos-mutables-exclusividad"
+      ],
+      "enunciado": "¿Por qué el compilador de Rust permite tener múltiples referencias inmutables `&s` al mismo tiempo?",
+      "options": {
+        "A": "Porque al ser de solo lectura ninguna puede modificar el dato ni invalidar las lecturas de las demás.",
+        "B": "Porque el compilador clona automáticamente el dato en el stack para cada nueva referencia inmutable creada.",
+        "C": "Porque las referencias inmutables omiten por completo las comprobaciones del borrow checker en tiempo de ejecución.",
+        "D": "Porque el recolector de basura de Rust sincroniza los accesos concurrentes mediante bloqueos implícitos.",
+        "E": "No sé"
+      },
+      "answer": "A"
+    },
+    {
+      "id": "q2",
+      "central": true,
+      "subtema": "prestamos-referencias-inmutables",
+      "nivel": "básico",
+      "conceptos": [
+        "prestamos-referencias-inmutables",
+        "aliasing-y-mutabilidad"
+      ],
+      "enunciado": "¿Qué ocurre con la propiedad (`ownership`) de `s` al pasarlo como `&s` a una función?",
+      "options": {
+        "A": "Se transfiere temporalmente a la función receptora y debe ser devuelta en el valor de retorno.",
+        "B": "Permanece intacta en el ámbito emisor, ya que la función solo recibe una dirección prestada para leer.",
+        "C": "Se destruye de inmediato al terminar la llamada porque Rust libera la memoria al salir de la función prestada.",
+        "D": "Se comparte en un contador atómico de referencias similar a Arc de forma transparente.",
+        "E": "No sé"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q3",
+      "central": false,
+      "subtema": "prestamos-referencias-inmutables",
+      "nivel": "medio",
+      "conceptos": [
+        "prestamos-referencias-inmutables",
+        "prestamos-mutables-exclusividad"
+      ],
+      "enunciado": "¿Por qué no compila una referencia mutable `&mut s` si ya existe una referencia inmutable `&s` activa?",
+      "options": {
+        "A": "Porque el compilador exige convertir previamente todas las variables a constantes estáticas.",
+        "B": "Porque las referencias inmutables ocupan toda la memoria disponible del stack bloqueando nuevos punteros.",
+        "C": "Porque Rust garantiza la ausencia de carreras de datos prohibiendo la coexistencia de lectores y un escritor simultáneo.",
+        "D": "Porque una referencia mutable requiere necesariamente que el dato resida siempre en memoria estática.",
+        "E": "No sé"
+      },
+      "answer": "C"
+    }
+  ]
+}

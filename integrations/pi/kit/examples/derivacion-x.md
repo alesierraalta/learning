@@ -67,4 +67,4 @@ La misma cuenta, escrita para el lector que la quiere en una línea:
 
 ## Mini-quiz
 
-1. ¿Qué le pasa al 2 cuando cruza la ecuación?
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

@@ -11,8 +11,12 @@ Imagina la tabla de videojuegos, con su desarrolladora en cada fila.
 **GROUP BY**
 Es la orden que junta las filas con el mismo valor.
 
+En nuestro ejemplo, junta los juegos por desarrolladora.
+
 **COUNT**
 Es la función que cuenta las filas de cada grupo.
+
+En nuestro ejemplo, cuenta cuántos juegos tiene cada desarrolladora.
 
 **Valor**
 Es lo que guarda una columna en cada fila: un nombre o un número.
@@ -29,4 +33,4 @@ En nuestro ejemplo, los dos juegos de Rockstar forman un grupo de dos.
 
 ## Mini-quiz
 
-1. ¿Cuántas filas tiene el resultado de GROUP BY developer?
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

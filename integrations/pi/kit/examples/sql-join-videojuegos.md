@@ -41,4 +41,4 @@ Mira qué fila encuentra cada videojuego.
 
 ## Mini-quiz
 
-1. ¿Qué fila de «developers» encuentra «Portal 2»?
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

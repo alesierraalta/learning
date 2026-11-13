@@ -74,4 +74,4 @@ El cofre se deshace en trazos. Su ✓ aprueba que el valor se libera una sola ve
 
 ## Mini-quiz
 
-1. ¿Qué pasa con «s1» después de «let s2 = s1;»?
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

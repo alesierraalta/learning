@@ -67,7 +67,8 @@
         "C",
         "D"
       ],
-      "varyAnswerKeys": true
+      "varyAnswerKeys": true,
+      "positionalKeys": true
     },
     "niveles": [
       "básico",
@@ -145,6 +146,9 @@
       "verdictError": true,
       "accessorySense": true,
       "characterSense": true,
+      "glosarioEnBloque": true,
+      "interactiveQuiz": true,
+      "richPage": true,
       "register": {
         "levels": {
           "sencillez": {

@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { hallazgosDeRegistro } from './register/hallazgos.mjs';
 import { umbralesDe } from './register/niveles.mjs';
 import { preferenciasDe } from './register/preferencias.mjs';
+import { notaDeHtml } from './register/nota-html.mjs';
 
 const TOOLS = dirname(fileURLToPath(import.meta.url));
 const file = process.argv[2];
@@ -26,7 +27,10 @@ if (!file) {
   process.exit(2);
 }
 
-const src = readFileSync(file, 'utf8');
+// Una página HTML que escribió un turno se mide con las mismas reglas que su nota (#265): se traduce a la
+// forma de nota, con sus figuras del kit intactas. La nota Markdown se lee tal cual.
+const esPagina = /\.html?$/i.test(file);
+const src = esPagina ? notaDeHtml(readFileSync(file, 'utf8')) : readFileSync(file, 'utf8');
 const rows = [];
 const add = (rule, ok, detail) => rows.push({ rule, ok, detail });
 
@@ -77,9 +81,18 @@ const lenguajeDeHistoria = historias + piezasDibujadas > 0;
 add('historia', lenguajeDeHistoria, lenguajeDeHistoria ? '' :
   'no hay historia ni pieza · usa una historia por pasos <lk-story> o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>; un <lk-walkthrough> clásico no cuenta');
 
-// 5. Mini-quiz: la parte se cierra con preguntas, no con un resumen.
-const quiz = /lk-(quick-)?quiz|mini-quiz|##\s*Mini-quiz/i.test(src);
-add('mini-quiz', quiz, quiz ? '' : 'no hay mini-quiz');
+// 5. Mini-quiz (#265): la parte se cierra con su mini-quiz interactivo, el lk-quiz, nunca con una lista
+// numerada. En una nota basta el encabezado «## Mini-quiz» sin lista: el lector dibuja las preguntas de
+// mini-quiz/<parte>.json. Una página propia tiene que traer el lk-quiz escrito, porque el lector no añade
+// nada a una página que escribió el turno.
+const seccionQuiz = (src.match(/^##\s*Mini-quiz\s*$([\s\S]*?)(?=^##\s|(?![\s\S]))/mi) ?? [])[1];
+const listaDeQuiz = seccionQuiz !== undefined && /^\s*\d+[.)]\s/m.test(seccionQuiz.replace(/```[\s\S]*?```/g, ' '));
+const lkQuiz = /<lk-(quick-)?quiz[\s>]/.test(sinCodigo);
+const quiz = !listaDeQuiz && (esPagina ? lkQuiz : lkQuiz || seccionQuiz !== undefined);
+const fallaQuiz = listaDeQuiz
+  ? 'la lista numerada bajo «Mini-quiz» es el quiz sin controles · el mini-quiz es el lk-quiz interactivo: deja el encabezado y pon las preguntas en mini-quiz/<parte>.json, que el lector dibuja solo'
+  : esPagina ? 'la página no trae el lk-quiz · escribe <lk-quiz></lk-quiz> bajo «Mini-quiz»: el lector no añade el quiz a una página que escribió el turno' : 'no hay mini-quiz';
+add('mini-quiz', quiz, quiz ? '' : fallaQuiz);
 
 // Un flujo escrito con guiones es geometría escrita, no dibujada: `--->`, `---[`,
 // `-->`, `==>`, `<--`. La regla de ASCII de la prosa y la de la cabecera usan el

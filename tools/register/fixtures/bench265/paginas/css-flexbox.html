@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parte 1 — Contenedor flex y los dos ejes</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<script src="../kit/scene.js" defer></script>
+<script src="../kit/kit.js" defer></script>
+</head>
+<body>
+<main class="page">
+
+<p class="kicker">CSS flexbox · Parte 1</p>
+<h1>Parte 1 — Contenedor flex y los dos ejes</h1>
+
+<p class="definition">El modelo Flexbox se activa al declarar display: flex en el contenedor padre, estableciendo un sistema de coordenadas gobernado por dos ejes perpendiculares: el eje principal (main axis) y el eje cruzado (cross axis).</p>
+
+<p class="source">Fuente: Especificación W3C CSS Flexible Box Layout por W3C (2018), sección sobre ejes flex.</p>
+
+<h2>El 20% que rinde el 80%</h2>
+
+<p>Imagina una barra de navegación con tres botones.</p>
+<p>Los botones son Inicio, Perfil y Ajustes.</p>
+
+<p><strong>Contenedor</strong>: Es la caja padre que activa flex. En nuestro ejemplo, la barra es el contenedor.</p>
+<p><strong>Flex item</strong>: Es cada hijo directo dentro del contenedor. En nuestro ejemplo, los tres botones son ítems.</p>
+<p><strong>Eje principal</strong>: Es la dirección elegida para ordenar. En nuestro ejemplo, el eje principal es horizontal.</p>
+<p><strong>Eje cruzado</strong>: Es la línea perpendicular al flujo principal. En nuestro ejemplo, el eje cruzado es vertical.</p>
+
+<p>Antes, los bloques caían apilados hacia abajo.</p>
+<p>En cambio, Flexbox los coloca en una fila.</p>
+<p>Sin embargo, cambiar la dirección rota ambos ejes.</p>
+
+<lk-cards>
+<script type="application/json">
+{"title":"Orientaciones de los ejes flex","cards":[
+ {"id":"row","verdict":"ok","pill":"CORRECTO","title":"Dirección fila","draw":{"refs":[{"text":"row","icon":"read","tone":"green"}],"target":{"text":"horizontal"}},"reason":"Lee los elementos de izquierda a derecha"},
+ {"id":"col","verdict":"ok","pill":"CORRECTO","title":"Dirección columna","draw":{"refs":[{"text":"column","icon":"read","tone":"blue"}],"target":{"text":"vertical"}},"reason":"Lee los elementos de arriba hacia abajo"},
+ {"id":"error","verdict":"no","pill":"RECHAZADO","title":"Eje roto","draw":{"refs":[{"text":"display: block","icon":"write","tone":"amber"}],"target":{"text":"sin ejes"}},"reason":"Escribe un valor que anula flexbox"}
+]}
+</script>
+</lk-cards>
+<p>Cómo leerlo: las tarjetas comparan las dos orientaciones posibles de los ejes flex.</p>
+
+<h2>Mini-quiz</h2>
+<ol>
+<li>¿Qué ocurre con los elementos hijos directos al aplicar display: flex en el contenedor padre?</li>
+<li>¿Cuál es la orientación del eje principal cuando se declara flex-direction: row?</li>
+<li>¿Cómo se comporta el eje cruzado con respecto al eje principal en cualquier contenedor flexible?</li>
+</ol>
+
+</main>
+</body>
+</html>

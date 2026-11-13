@@ -1,0 +1,61 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "central": true,
+      "subtema": "syn-inicio-secuencias",
+      "nivel": "básico",
+      "conceptos": [
+        "syn-inicio-secuencias",
+        "syn-ack-respuesta-servidor"
+      ],
+      "enunciado": "¿Por qué el cliente genera un número de secuencia inicial aleatorio en el handshake?",
+      "options": {
+        "A": "Para prevenir confusiones con paquetes antiguos retrasados y evitar ataques de predicción de secuencia.",
+        "B": "Para obligar al servidor a duplicar el tamaño de la ventana de recepción asignada en el kernel.",
+        "C": "Porque el estándar prohíbe explícitamente usar números pares en conexiones hacia puertos privilegiados.",
+        "D": "Para comprimir la cabecera IP reduciendo el retardo de transmisión en enlaces de bajo ancho de banda.",
+        "E": "No sé"
+      },
+      "answer": "A"
+    },
+    {
+      "id": "q2",
+      "central": true,
+      "subtema": "syn-inicio-secuencias",
+      "nivel": "básico",
+      "conceptos": [
+        "syn-inicio-secuencias",
+        "ack-establecimiento-conexion"
+      ],
+      "enunciado": "¿Cuántos bytes de datos útiles transporta habitualmente el primer segmento SYN?",
+      "options": {
+        "A": "Transporta exactamente 1000 bytes correspondientes al tamaño del buffer del socket.",
+        "B": "Transporta cero bytes de datos de usuario, ya que su única función es sincronizar contadores.",
+        "C": "Transporta una copia completa de la petición HTTP GET del cliente para acelerar la carga.",
+        "D": "Transporta 65535 bytes equivalentes al tamaño máximo de la ventana negociada.",
+        "E": "No sé"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q3",
+      "central": false,
+      "subtema": "syn-inicio-secuencias",
+      "nivel": "medio",
+      "conceptos": [
+        "syn-inicio-secuencias",
+        "syn-ack-respuesta-servidor"
+      ],
+      "enunciado": "¿A qué estado pasa el cliente tras emitir el paquete SYN hacia la red?",
+      "options": {
+        "A": "Pasa directamente al estado ESTABLISHED para comenzar a enviar datos sin esperar respuesta.",
+        "B": "Regresa al estado CLOSED para liberar la memoria del socket local de inmediato.",
+        "C": "Pasa al estado SYN-SENT aguardando la recepción del segmento SYN-ACK del servidor.",
+        "D": "Pasa al estado LISTEN para aceptar conexiones entrantes de otros clientes remotos.",
+        "E": "No sé"
+      },
+      "answer": "C"
+    }
+  ]
+}

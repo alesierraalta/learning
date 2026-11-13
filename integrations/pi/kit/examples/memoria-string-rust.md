@@ -11,8 +11,12 @@ Imagina un String llamado s1, con el texto «hola».
 **Puntero**
 Es la dirección donde está el dato.
 
+Así, s1 apunta a «hola» y no lo copia.
+
 **Heap**
 Es la zona de memoria para datos de tamaño variable, como un texto.
+
+Por eso «hola» vive en el heap.
 
 **Stack**
 Es la pila de memoria para datos de tamaño fijo.
@@ -37,4 +41,4 @@ Cada paso repite la línea que explica. Mira dónde está cada cosa.
 </lk-memory>
 ## Mini-quiz
 
-1. ¿Qué copia «let s2 = s1;» y qué deja intacto?
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

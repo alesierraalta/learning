@@ -1704,6 +1704,10 @@ func evalPartStandard(c *evalCtx, decl rules.CheckDecl) Check {
 		findings = append(findings, registerFindings(text, th.Register.Limits(sencillez, tecnicidad))...)
 		levelsNote = fmt.Sprintf(", register sencillez=%s tecnicidad=%s", sencillez, tecnicidad)
 	}
+	// #265: the glossary block and the interactive quiz of the note, and the page the turn wrote beside it.
+	findings = append(findings, glosarioFindings(text, *th)...)
+	findings = append(findings, quizFindings(text, *th, false)...)
+	findings = append(findings, richPageFindings(c, rel, text, *th)...)
 	if len(findings) > 0 {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"part %s misses the explanation standard in %s: %s",

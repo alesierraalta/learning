@@ -1,0 +1,51 @@
+{
+  "topic": "TCP handshake",
+  "parts": [
+    {
+      "id": "p1",
+      "title": "El saludo inicial y los números de secuencia",
+      "slug": "El saludo inicial y los números de secuencia",
+      "subtema": "syn-inicio-secuencias",
+      "examplesPlanned": true,
+      "visualsPlanned": true,
+      "pareto": "Sincronización del ISN y solicitud de conexión mediante el segmento SYN"
+    },
+    {
+      "id": "p2",
+      "title": "Respuesta del servidor y confirmación SYN-ACK",
+      "slug": "Respuesta del servidor y confirmación SYN-ACK",
+      "subtema": "syn-ack-respuesta-servidor",
+      "examplesPlanned": true,
+      "visualsPlanned": true,
+      "pareto": "Acuse de recibo del SYN del cliente y generación del ISN del servidor con SYN-ACK"
+    },
+    {
+      "id": "p3",
+      "title": "Confirmación final y estado establecido",
+      "slug": "Confirmación final y estado establecido",
+      "subtema": "ack-establecimiento-conexion",
+      "examplesPlanned": true,
+      "visualsPlanned": true,
+      "pareto": "Transición bidireccional al estado ESTABLISHED mediante el último ACK"
+    },
+    {
+      "id": "p4",
+      "title": "Retransmisiones, fallos y seguridad en el enlace",
+      "slug": "Retransmisiones, fallos y seguridad en el enlace",
+      "subtema": "perdidas-retransmision-timeouts",
+      "examplesPlanned": true,
+      "visualsPlanned": true,
+      "pareto": "Gestión de paquetes perdidos y temporizadores de retransmisión SYN"
+    }
+  ],
+  "diagnosisSummary": "El diagnóstico completado con 3/3 demostró familiaridad con el flag SYN, el cálculo del ACK en SYN-ACK y el estado ESTABLISHED. La ruta profundizará de forma aplicada en la mecánica interna del protocolo.",
+  "focusAreas": [],
+  "pareto": {
+    "criterio": "Selección del 20% vital de los mecanismos del handshake TCP (sincronización de ISN, acuse acumulativo y estados del autómata) que resuelven el 80% de los problemas de depuración y diseño de conexiones.",
+    "descartado": [
+      "Opciones TCP avanzadas complejas como SACK alternativo y multipath TCP (MPTCP)",
+      "Ataques avanzados de inyección ciega de reset (RST injection) y envenenamiento BGP",
+      "Negociación de algoritmos de control de congestión específicos (BBR vs Cubic) durante el handshake"
+    ]
+  }
+}

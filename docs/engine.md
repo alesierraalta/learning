@@ -430,6 +430,20 @@ fix every count and vocabulary, and a violation names itself in the failing
 check's reason. Option keys are `A`–`D` plus `E` = `No sé`; answer keys
 (`answer`) are `A`–`D`; learner answers may be `A`–`E`.
 
+### The part rules of #265
+
+Four additive keys in `thresholds.partStandard` (and `thresholds.options.positionalKeys` above). A snapshot
+that does not declare a key keeps the part checks it started with.
+
+- `glosarioEnBloque`: three or more definitions («**Término**: Es …») in a row, with no sentence of the example
+  between them, refuse the part and name the first one. The learner's register reference never puts two in a
+  row; the bench of #264 put five.
+- `interactiveQuiz`: the mini-quiz is the interactive `lk-quiz`, never a numbered list under its heading.
+- `richPage`: the page the turn wrote beside the note is measured with the same thresholds, its findings name
+  the page, and it must carry every figure of the note (the same `<lk-…>` block). The reader serves the page only
+  when it passes these rules; otherwise it serves the note (`internal/engine/nota_html.go` translates the page
+  into the note form the rules read, the same translation as `tools/register/nota-html.mjs`).
+
 ### Answer keys must vary
 
 The engine validates the option text, not where the correct option sits, so a
@@ -447,6 +461,10 @@ the count and asks the tutor to *vary the position of the correct option*, so it
 arrives at turn end as the failing `quiz-structure` / `mini-quiz-questions`
 reason. The key is additive: a run whose rules snapshot does not declare it
 keeps accepting the keys it accepted.
+
+`thresholds.options.positionalKeys` (#265) refuses the positional pattern: a round whose correct option
+follows the question's position (question 1 `A`, question 2 `B`, question 3 `C`, cycling through the letters)
+is refused like one fixed letter, with the pattern named. The key is additive, as the one above.
 
 `plan.json` (preparation; `diagnosisSummary` and `focusAreas` are added at
 planning, focus areas naming the diagnosis' wrong answers):

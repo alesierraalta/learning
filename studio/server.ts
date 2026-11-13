@@ -212,7 +212,7 @@ type Turn = {
   /** A new deep-mode request whose topic does not exist yet: the first topic folder it writes. */
   creation?: boolean;
   /**
-   * The part notes this turn wrote or edited, in order, each part once as its `.md` note: what the
+   * The part files this turn wrote or edited, in order, each file once (a part's note and its page apart): what the
    * studio measures itself before the turn is offered as done. A turn that wrote no part owes no measurement.
    */
   parts: string[];
@@ -538,9 +538,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         if (turn && !record.isError && note !== null && "index" in note && typeof args === "object" && args !== null) {
           const path = (args as Json).path;
           if (typeof path === "string") {
-            // A part is listed as its note: the rich page (`.html`) is written beside the `.md` the standard
-            // is written in, so the two writes of one part are one entry (#261). Only part notes reach here.
-            const file = resolve(root, path).replace(/\.html$/i, ".md");
+            // A part's note and its page are two files: each is listed once and measured on its own (#265).
+            const file = resolve(root, path);
             if (!turn.parts.includes(file)) turn.parts.push(file);
           }
         }
@@ -1021,9 +1020,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   /**
-   * The part notes a turn wrote, as the tools measure them. The parts list already holds each part once,
-   * as its `.md` note (see the tool-event handler), so a part is measured once however many files it
-   * wrote; a note that is not on disk is left out.
+   * The part files a turn wrote, as the tools measure them. The list holds each file once (#265), so a
+   * part's note and its page are each measured once; a file that is not on disk is left out.
    */
   const partNotes = (parts: string[]): string[] => parts.filter((file) => existsSync(file));
 

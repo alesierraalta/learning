@@ -143,9 +143,10 @@ already names:
 `scene-gate` runs first: a figure drawn past the edge of its own canvas is clipped in the reader no
 matter how well its pieces live together, so the learner hears about that before the rest. They run
 with **the studio's own Node** (`process.execPath`), never `node` from `PATH`: one of them imports a
-`.ts` module and the distro's Node 22 cannot load it, which already broke a deploy. A
-note is the `.md` the standard is written in, so a rich `.html` part is measured through the note
-beside it. This applies to every topic, including one whose `.learning/rules.json` is frozen: the
+`.ts` module and the distro's Node 22 cannot load it, which already broke a deploy. A part's note (`explicaciones/Parte N - <slug>.md`) and the page the turn wrote beside it
+(`explicaciones/Parte N - <slug>.html`) are two files, each measured with these tools (#265): a page is
+read as its note, rule by rule. The reader serves the page only when it measures as its note and carries
+every figure of the note (and the interactive quiz); otherwise the learner gets the note. This applies to every topic, including one whose `.learning/rules.json` is frozen: the
 engine's exemptions are about shape, not about a figure drawn over its own text.
 
 On findings the tutor gets **one correction turn on the same turn**, through the same gate path,

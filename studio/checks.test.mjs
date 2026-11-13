@@ -67,8 +67,6 @@ Antes, el robot tenía que saber cada detalle. Ahora solo usa la capa.
 Cómo leerlo: avanza y mira la casilla que cambia.
 
 ## Mini-quiz
-
-1. ¿Qué hace una capa?
 `;
 
 /** The same part with its words beside the arrow: the three tools pass it. */
@@ -241,38 +239,30 @@ test("the clean part's prose passes the register rules of explain-check", () => 
   }
 });
 
-// La página rica (#261): la explicación principal de una parte es su `.html` junto a la nota. Una
-// parte sin ella se avisa al tutor como un hallazgo; una nota que no es una parte no se mide así.
+// La nota es lo que la persona lee (#265): la página rica de #261 queda revertida. Una parte sin
+// `.html` junto a la nota no es un hallazgo: la página es opcional y el estudio no la pide.
 // Se importa dentro de cada prueba: el módulo nuevo no debe romper las pruebas de arriba.
-test("a part note without its rich page is a finding the tutor hears, and the page clears it", async () => {
-  const { richPageWarnings } = await import("./checks.ts");
-  const folder = mkdtempSync(join(tmpdir(), "rich-page-"));
-  const sinPagina = join(folder, "Parte 1 - Capas.md");
-  writeFileSync(sinPagina, CLEAN);
-  const avisos = richPageWarnings([sinPagina]);
-  assert.equal(avisos.length, 1, "the note has no page beside it");
-  assert.equal(avisos[0].tool, "rich-page");
-  assert.match(avisos[0].findings[0], /página rica[^]*Parte 1 - Capas\.html/);
-  writeFileSync(join(folder, "Parte 1 - Capas.html"), "<!doctype html><title>Capas</title>");
-  assert.deepEqual(richPageWarnings([sinPagina]), [], "the page beside the note clears the warning");
-});
-
-test("a note that is not a part is never asked for a rich page", async () => {
-  const { richPageWarnings } = await import("./checks.ts");
-  assert.deepEqual(richPageWarnings([note("limpia.md", CLEAN)]), []);
+test("a part note without a rich page is not a finding: the page is optional and never asked for", async () => {
+  const { runPartChecks } = await import("./checks.ts");
+  const folder = mkdtempSync(join(tmpdir(), "sin-pagina-"));
+  const nota = join(folder, "Parte 1 - Capas.md");
+  writeFileSync(nota, CLEAN);
+  const checked = await runPartChecks([nota], { toolsDir: folder });
+  assert.equal((checked.tools ?? []).some((tool) => tool.tool === "rich-page"), false, JSON.stringify(checked));
 });
 
 // Through the whole check: a part without its page is a finding (not a crash), so the tutor
 // corrects it. The tools are replaced by an empty folder so the test runs without a browser.
-test("a part without its rich page reaches the tutor as a rich-page finding", async () => {
+// La página que escribe un turno es un archivo más (#265): pasa por las mismas herramientas que su nota,
+// y se mide con sus propias palabras. La del banco (#264) pone cinco definiciones seguidas y su mini-quiz
+// numerado: el glosario y el lk-quiz se avisan al tutor sobre la página, no sobre la nota.
+test("a rich page the turn wrote is measured as a file of its own, with the same tools", async () => {
   const { runPartChecks } = await import("./checks.ts");
-  const folder = mkdtempSync(join(tmpdir(), "rich-page-run-"));
-  const sinPagina = join(folder, "Parte 2 - Protocolos.md");
-  writeFileSync(sinPagina, CLEAN);
-  const checked = await runPartChecks([sinPagina], { toolsDir: folder });
-  assert.equal(checked.kind, "findings", JSON.stringify(checked));
-  assert.equal(checked.tools[0].tool, "rich-page");
-  assert.match(checked.first, /página rica/);
+  const page = join(dirname(fileURLToPath(import.meta.url)), "..", "tools", "register", "fixtures", "bench265", "paginas", "tcp-handshake.html");
+  const checked = await runPartChecks([page]);
+  const mine = checked.tools.filter((tool) => tool.file === page);
+  assert.ok(mine.some((tool) => tool.findings.some((line) => /glosario-en-bloque/.test(line))), JSON.stringify(mine));
+  assert.ok(mine.some((tool) => tool.findings.some((line) => /mini-quiz/.test(line))), JSON.stringify(mine));
 });
 
 // Un turno que escribe la parte y su página puede nombrar la nota dos veces: cada herramienta la mide

@@ -1,0 +1,61 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "central": true,
+      "subtema": "contenedor-y-ejes-flex",
+      "nivel": "básico",
+      "conceptos": [
+        "contenedor-y-ejes-flex",
+        "alineacion-justify-align"
+      ],
+      "enunciado": "¿Qué ocurre con los elementos hijos directos al aplicar display: flex en el contenedor padre?",
+      "options": {
+        "A": "Pasan a ser flex items y se alinean de inmediato a lo largo del eje principal.",
+        "B": "Pierden todas sus dimensiones de ancho y alto colapsando a cero píxeles.",
+        "C": "Se convierten en elementos de posicionamiento absoluto desconectados del flujo normal.",
+        "D": "Se transforman en celdas de tabla fija con bordes colapsados automáticamente.",
+        "E": "No sé"
+      },
+      "answer": "A"
+    },
+    {
+      "id": "q2",
+      "central": true,
+      "subtema": "contenedor-y-ejes-flex",
+      "nivel": "básico",
+      "conceptos": [
+        "contenedor-y-ejes-flex",
+        "crecimiento-flex-grow-shrink"
+      ],
+      "enunciado": "¿Cuál es la orientación del eje principal cuando se declara flex-direction: row?",
+      "options": {
+        "A": "Sigue una dirección diagonal desde la esquina superior izquierda a la inferior derecha.",
+        "B": "Sigue una dirección horizontal, distribuyendo los elementos de izquierda a derecha en modos LTR.",
+        "C": "Sigue una dirección vertical descendente idéntica al flujo de bloques estándar.",
+        "D": "Queda deshabilitado obligando a usar márgenes automáticos para separar los ítems.",
+        "E": "No sé"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q3",
+      "central": false,
+      "subtema": "contenedor-y-ejes-flex",
+      "nivel": "medio",
+      "conceptos": [
+        "contenedor-y-ejes-flex",
+        "envoltorio-y-multilinea-wrap"
+      ],
+      "enunciado": "¿Cómo se comporta el eje cruzado con respecto al eje principal en cualquier contenedor flexible?",
+      "options": {
+        "A": "Discurre en paralelo al eje principal compartiendo los mismos puntos de inicio y final.",
+        "B": "Se activa exclusivamente cuando el número de elementos supera el tamaño de la pantalla.",
+        "C": "Se sitúa de manera estrictamente perpendicular (a 90 grados) respecto al eje principal.",
+        "D": "Se calcula restando el margen superior al relleno inferior del elemento padre.",
+        "E": "No sé"
+      },
+      "answer": "C"
+    }
+  ]
+}

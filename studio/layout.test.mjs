@@ -40,6 +40,15 @@ async function playwright() {
 
 const browser = await playwright();
 const open = [];
+// A tutor's page beside a note is served only when it passes the gates (#265). The bench's clean TCP page
+// passes them: each test about a page starts from it and adds only what that test is about.
+const QUALIFYING_PAGE = readFileSync(new URL("../tools/register/fixtures/bench265/clean/tcp-handshake.html", import.meta.url), "utf8");
+// A part with a page has its mini-quiz file, as the tutor writes both. lk-quiz does not read the body of a
+// failed quiz request, so a page whose part has no quiz file leaves that request open and never settles.
+const writeMiniQuiz = (root) => {
+  mkdirSync(join(root, "redes", "mini-quiz"), { recursive: true });
+  writeFileSync(join(root, "redes", "mini-quiz", "p1.json"), JSON.stringify({ questions: [{ id: "q1", enunciado: "¿Qué hace una capa?", options: { A: "Nada.", B: "Encapsula los datos.", C: "Cifra el enlace.", D: "Mide el tiempo.", E: "No sé" }, answer: "B" }] }));
+};
 after(async () => {
   for (const studio of open) await studio.close();
 });
@@ -1034,7 +1043,12 @@ test("the reading index follows the real markdown headings", { skip: browser ? f
 
 test("the rich reader keeps its index and anchors on desktop and mobile", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
-  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.html"), "<!doctype html><html><head></head><body><main><h1>Capas</h1><lk-callout type=note>Una conexión real.</lk-callout><h2 id=existente>Primera sección</h2><p>Texto</p><h2>Segunda sección</h2></main></body></html>");
+  writeMiniQuiz(root);
+  // A page that passes the gates, so the reader serves it. The index lists every h2 of the page, the route
+  // and the quiz included, and the id the page gave its first section is the one its link points to.
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.html"), QUALIFYING_PAGE
+    .replace("<h2>El 20% que rinde el 80%</h2>", "<h2 id=existente>Primera sección</h2>")
+    .replace("<h2>Mini-quiz</h2>", "<h2>Segunda sección</h2><p>Texto.</p><lk-callout type=note>Una conexión real.</lk-callout>\n<h2>Mini-quiz</h2>"));
   process.env.FAKE_PI_LOG = log;
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
   open.push(studio);
@@ -1044,11 +1058,11 @@ test("the rich reader keeps its index and anchors on desktop and mobile", { skip
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
   const frame = await (await page.waitForSelector("iframe.sheet[src]")).contentFrame();
   const toc = frame.getByRole("navigation", { name: "Índice de lectura" });
-  assert.deepEqual(await toc.locator("a").allTextContents(), ["Primera sección", "Segunda sección"]);
+  assert.deepEqual(await toc.locator("a").allTextContents(), ["Ruta", "Primera sección", "Segunda sección", "Mini-quiz"]);
   const callout = frame.locator("lk-callout");
   assert.match(await callout.textContent(), /Una conexión real/);
   assert.ok(parseFloat(await callout.evaluate((node) => getComputedStyle(node).borderLeftWidth)) >= 3, "the rich callout needs the editorial accent rule");
-  assert.equal(await toc.locator("a").first().getAttribute("href"), "#existente");
+  assert.equal(await toc.getByRole("link", { name: "Primera sección", exact: true }).getAttribute("href"), "#existente");
   const desktop = await frame.evaluate(() => ({ index: document.querySelector(".lk-toc").getBoundingClientRect().left, main: document.querySelector("main").getBoundingClientRect().right, viewport: innerWidth, indexRight: document.querySelector(".lk-toc").getBoundingClientRect().right }));
   assert.ok(desktop.index >= desktop.main && desktop.indexRight <= desktop.viewport);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1067,7 +1081,11 @@ test("reader media uses editorial sections and keeps real controls on desktop an
     mkdirSync(join(attachments, "audio"), { recursive: true });
     writeFileSync(join(attachments, "Parte 1 - Capas.mp4"), "video fixture");
     writeFileSync(join(attachments, "audio", "Parte 1 - Capas - entrevista.m4a"), "audio fixture");
-    if (rich) writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.html"), "<!doctype html><html><head></head><body><main><h1>Capas</h1><lk-video></lk-video><lk-audio></lk-audio></main></body></html>");
+    // The rich branch is a page that passes the gates: the bridge adds its media controls, as it does for any page.
+    if (rich) {
+      writeMiniQuiz(root);
+      writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.html"), QUALIFYING_PAGE);
+    }
     process.env.FAKE_PI_LOG = log;
     const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
     open.push(studio);
@@ -2234,10 +2252,11 @@ test("where the browser cannot keep parts, saving a topic says why instead of fa
 // Online, so only the studio's frame-src can be what stops it.
 test("a saved part cannot navigate the reader away from itself", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, page, studio } = await controlledStudio(t);
+  writeMiniQuiz(root);
   // A rich page: the one kind of part whose author scripts run as written.
   writeFileSync(
     join(root, "redes", "explicaciones", "Parte 1 - Capas.html"),
-    "<!doctype html><html><head><meta charset=\"utf-8\"></head><body><main><h1>Capas</h1><p>Texto.</p></main><script>console.log('trying to leave'); setTimeout(() => { location.href = 'https://example.com/?leak=1'; }, 300);</script></body></html>",
+    QUALIFYING_PAGE.replace("</body>", "<script>console.log('trying to leave'); setTimeout(() => { location.href = 'https://example.com/?leak=1'; }, 300);</script></body>"),
   );
   const attempted = [];
   page.on("console", (message) => attempted.push(message.text()));
@@ -2247,7 +2266,10 @@ test("a saved part cannot navigate the reader away from itself", { skip: browser
     frame.src = src;
     document.body.append(frame);
   }, `${studio.url}api/offline?topic=redes&part=p1`);
-  await page.waitForTimeout(2500);
+  // The saved copy is built when the frame opens, which takes a moment: wait for the author's script to run,
+  // then give its navigation time to happen, instead of a fixed wait.
+  for (let i = 0; i < 80 && !attempted.includes("trying to leave"); i++) await page.waitForTimeout(250);
+  await page.waitForTimeout(1000);
   const urls = page.frames().map((frame) => frame.url());
   assert.equal(urls.some((url) => url.includes("example.com")), false, `no frame reached the outside: ${urls.join(", ")}`);
   assert.ok(attempted.includes("trying to leave"), `the author's script ran and tried: ${attempted.join(" | ")}`);

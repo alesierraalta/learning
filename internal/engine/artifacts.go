@@ -296,7 +296,15 @@ const (
 // keeps accepting the keys it accepted. The refusal names the letter, the count
 // and what to do, because the tutor reads it as a finding at the end of a turn.
 func varyAnswerKeys(keys []string, th rules.Thresholds) error {
-	if !th.Options.VaryAnswerKeys || len(keys) < varyKeysMinRound {
+	if len(keys) < varyKeysMinRound || !(th.Options.VaryAnswerKeys || th.Options.PositionalKeys) {
+		return nil
+	}
+	// The positional pattern (#265): question 1 A, question 2 B, question 3 C, cycling through the letters. A
+	// learner who learns the order passes without reading, so the round is refused like one fixed letter.
+	if th.Options.PositionalKeys && followsPosition(keys, th.Options.AnswerKeys) {
+		return fmt.Errorf("answer keys follow a fixed positional pattern: %s; vary the position of the correct option (A, B, C, D): a learner who learns the order passes without reading", positionOf(keys))
+	}
+	if !th.Options.VaryAnswerKeys {
 		return nil
 	}
 	counts := map[string]int{}
@@ -318,12 +326,35 @@ func varyAnswerKeys(keys []string, th rules.Thresholds) error {
 	return nil
 }
 
+// followsPosition reports whether the correct option of every question sits at the letter of its position,
+// cycling through the option letters (#265).
+func followsPosition(keys, letters []string) bool {
+	if len(letters) == 0 {
+		return false
+	}
+	for i, key := range keys {
+		if key != letters[i%len(letters)] {
+			return false
+		}
+	}
+	return true
+}
+
+// positionOf names the first three answers of a round, as the refusal shows them: «question 1 A, question 2 B, …».
+func positionOf(keys []string) string {
+	parts := make([]string, 0, 3)
+	for i := 0; i < len(keys) && i < 3; i++ {
+		parts = append(parts, fmt.Sprintf("question %d %s", i+1, keys[i]))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // varyDiagnosticKeys applies the answer-key distribution rule round by round: a
 // diagnosis asks in rounds, and one round with a fixed key is what a learner
 // learns to game. A fixed-format diagnosis carries no round, so its whole set is
 // measured as one.
 func varyDiagnosticKeys(qs []diagQuestion, th rules.Thresholds) error {
-	if !th.Options.VaryAnswerKeys {
+	if !th.Options.VaryAnswerKeys && !th.Options.PositionalKeys {
 		return nil
 	}
 	var order []int

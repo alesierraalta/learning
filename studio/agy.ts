@@ -36,6 +36,7 @@ const STUDIO_CONTRACT = [
   "El método (pareto o preferencias) es la pregunta de la página del tema: nunca lo registres tú (no corras `learning method` ni `learning_stage` con action method) ni sigas a la Parte 1 en el mismo turno. Si el motor pide el método, dile a la persona que elija en la página del tema y termina el turno.",
   "Cuando señales una parte, usa su nombre en el estudio («Ir a Parte N»), nunca un enlace `file://` ni una ruta del sistema de archivos: en el estudio no abren nada.",
   "El recorrido de una parte nueva se escribe con el lenguaje de historia —<lk-story> (actores con estado, movimientos y marcas) o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>—; una escena, un SVG o el <lk-walkthrough> clásico no cuentan: el motor rechaza la parte que no trae historia ni pieza. Ver la skill explicacion-interactiva, «Forma de parte» regla 4.",
+  "No escribas un .html aparte para una parte: la nota de cada parte es lo que la persona lee; el lector sirve una página solo si pasa las mismas puertas que la nota y trae cada figura suya.",
   "Registro: técnico en el contenido, sencillo en la forma. Cada término se nombra, se explica en palabras llanas donde aparece y se ata al ejemplo; frases cortas, una idea por línea, un antes y un después, y la cuenta renglón a renglón. El checador mide esto con explain-check (reglas de registro). Ver la skill explicacion-interactiva, «Registro».",
   "Reply in neutral Spanish with tú, never voseo (escribe, responde, mira; never escribí, respondé, mirá, acá).",
 ].join("\n");

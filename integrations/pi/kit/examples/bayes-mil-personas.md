@@ -54,6 +54,4 @@ La cuenta sale de los conteos, un paso por vez.
 
 ## Mini-quiz
 
-1. ¿Por qué el denominador son los 108 positivos?
-2. ¿Cuántos positivos son falsos positivos?
-3. Con estos conteos, ¿cuánto vale P(enfermo | positivo)?
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

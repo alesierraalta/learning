@@ -1,0 +1,61 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "central": true,
+      "subtema": "probabilidad-condicional-y-prior",
+      "nivel": "básico",
+      "conceptos": [
+        "probabilidad-condicional-y-prior",
+        "verosimilitud-y-evidencia"
+      ],
+      "enunciado": "¿Qué representa la probabilidad previa P(A) en un modelo bayesiano?",
+      "options": {
+        "A": "La creencia o probabilidad asignada a la hipótesis A antes de considerar los datos observados.",
+        "B": "La tasa de falsos positivos reportada por el fabricante del instrumental analítico.",
+        "C": "La probabilidad final calculada tras multiplicar todos los factores de verosimilitud posibles.",
+        "D": "El valor límite al que converge la distribución de muestreo en muestras infinitas.",
+        "E": "No sé"
+      },
+      "answer": "A"
+    },
+    {
+      "id": "q2",
+      "central": true,
+      "subtema": "probabilidad-condicional-y-prior",
+      "nivel": "básico",
+      "conceptos": [
+        "probabilidad-condicional-y-prior",
+        "actualizacion-bayesiana-posterior"
+      ],
+      "enunciado": "¿Qué ocurre con el espacio muestral al calcular la probabilidad condicional P(A|B)?",
+      "options": {
+        "A": "Se duplica para considerar simétricamente los casos positivos y negativos.",
+        "B": "Se reduce exclusivamente al subconjunto de eventos donde la condición B se cumple.",
+        "C": "Se transforma en una distribución continua normal mediante tipificación estándar.",
+        "D": "Permanece idéntico al espacio muestral total sin descartar ningún resultado.",
+        "E": "No sé"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q3",
+      "central": false,
+      "subtema": "probabilidad-condicional-y-prior",
+      "nivel": "medio",
+      "conceptos": [
+        "probabilidad-condicional-y-prior",
+        "verosimilitud-y-evidencia"
+      ],
+      "enunciado": "¿Por qué no está definida la probabilidad condicional P(A|B) cuando P(B) es igual a cero?",
+      "options": {
+        "A": "Porque el teorema exige que la hipótesis A y la evidencia B sean estadísticamente independientes.",
+        "B": "Porque el logaritmo de cero produce una indeterminación matemática de signo negativo.",
+        "C": "Porque la fórmula requiere dividir por P(B) y la división entre cero es indefinida.",
+        "D": "Porque un evento con probabilidad cero no puede representarse mediante conjuntos finitos.",
+        "E": "No sé"
+      },
+      "answer": "C"
+    }
+  ]
+}

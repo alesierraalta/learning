@@ -270,6 +270,12 @@ func conceptQuiz(n int) []quizQuestionWire {
 		qs[i].Central = i == 0
 		qs[i].Conceptos = []string{"T.p1", "P0.1"}
 	}
+	// The correct letters do not follow the question's position (#265): A, B, C in order is the pattern the
+	// production rules refuse. The concept quizzes keep one correct letter per question, in this order.
+	conceptKeys := []string{"B", "D", "A", "C", "B"}
+	for i := range qs {
+		qs[i].Answer = conceptKeys[i%len(conceptKeys)]
+	}
 	return qs
 }
 
@@ -462,6 +468,8 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	delete(prod["thresholds"].(map[string]any), "strictFlow")
 	delete(prod["thresholds"].(map[string]any), "partStandard")
 	delete(prod["thresholds"].(map[string]any)["options"].(map[string]any), "varyAnswerKeys")
+	// The positional key (#265) is declared by production and not by this run.
+	delete(prod["thresholds"].(map[string]any)["options"].(map[string]any), "positionalKeys")
 	prod["thresholds"].(map[string]any)["minVisuals"] = float64(2)
 	checks := prod["checks"].(map[string]any)
 	for stage, list := range checks {
