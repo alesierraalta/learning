@@ -485,6 +485,11 @@
       red: { stroke: C.red, fill: 'rgba(221,74,104,0.06)', color: C.red },
     };
   };
+  // La letra de la ficha de nombre de un escenario y el aire mínimo al borde del
+  // lienzo (#280): la etiqueta de una flecha se mide contra la letra de la figura
+  // y contra el mismo margen que las puertas exigen a cualquier pieza.
+  const STAGE_TAG_SIZE = 16;
+  const STAGE_EDGE = 12;
   // Compass words to a unit vector, so a deck can say "up" instead of computing
   // the endpoint by hand.
   function policyDir(dir) {
@@ -745,7 +750,7 @@
     // tamaño de lectura (16 unidades). Si dos fichas que se pisan en vertical quedan a menos de TAG_GAP
     // unidades (a 390 px, menos de 6 píxeles), se parte en dos líneas la más ancha que tenga dos palabras:
     // su ancho baja a la de la palabra más larga y la vecina respira.
-    const TAG_SIZE = 16, TAG_GAP = 8;
+    const TAG_SIZE = STAGE_TAG_SIZE, TAG_GAP = 8;
     const tagWidth = (lines) => Math.max(30, Math.max(...lines.map((line) => line.length)) * TAG_SIZE * 0.56 + 16);
     const tagHeight = (lines) => lines.length * TAG_SIZE + (lines.length - 1) * 4 + 12;
     // La partición en dos líneas que deja la línea más larga más corta; null si el texto es una palabra.
@@ -780,6 +785,40 @@
           c.h = tagHeight(c.lines);
           c.cx = Math.min(Math.max(c.wanted, room.x + c.w / 2 + 12), room.x + room.width - c.w / 2 - 12);
           c.cy = c.fixedY ?? c.baseY - 8;
+        }
+        // Una flecha que arranca o termina sobre la columna de una ficha y la roza
+        // —o la cruza— deja a la ficha sin aire: el lector ve el trazo metido en
+        // sus palabras o la flecha colgando sobre ellas (#280). La ficha sube por
+        // encima de la flecha, dentro del lienzo, y su puntero sigue llegando al
+        // actor; si arriba no cabe, baja a la flecha. Sube la fila entera: dos
+        // fichas de la misma fila a distinta altura se leen torcidas (#245).
+        const rowsOfChips = new Map();
+        for (const c of chips) {
+          if (!rowsOfChips.has(c.baseY)) rowsOfChips.set(c.baseY, []);
+          rowsOfChips.get(c.baseY).push(c);
+        }
+        for (const group of rowsOfChips.values()) {
+          const crowded = group.flatMap((c) => {
+            const at = c.fixedY ?? c.baseY - 8;
+            return [...step.querySelectorAll('[data-arrow]')]
+              .flatMap((g) => [
+                String(g.dataset.arrow || '').split(',').map(Number),
+                String(g.dataset.to || '').split(',').map(Number),
+              ])
+              .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
+              .filter(([x, y]) => Math.abs(x - c.cx) <= c.w / 2 + 4 && y < at && at - y <= 2 * c.h)
+              .map(([, y]) => y);
+          });
+          if (!crowded.length) continue;
+          // La tinta del trazo ocupa 2 unidades a cada lado; 4 más de aire y las
+          // palabras no lo tocan. Arriba manda el margen del lienzo.
+          const above = Math.min(...crowded) - 6;
+          const tallest = Math.max(...group.map((c) => c.h));
+          const lift = above - tallest >= room.y + STAGE_EDGE;
+          for (const c of group) {
+            if (c.fixedY !== null) continue;
+            c.cy = lift ? above : Math.max(...crowded) + 6 + c.h;
+          }
         }
       };
       // Dos fichas se tocan si sus cajas se pisan en vertical y quedan a menos de TAG_GAP en horizontal.
@@ -1016,7 +1055,105 @@
         glyphAt(holder, "no", boxOf(target), { corner: true, avoid: pieces().filter((b) => !(b.x === target.getBBox().x && b.y === target.getBBox().y)), size: Math.min(24, letterOf(step)) });
       }
     }
+    // La etiqueta de la flecha se coloca al final, cuando las fichas, los cofres y
+    // las marcas ya están dibujados: su sitio depende de lo que el navegador midió.
+    placeEdgeLabels(svg);
     groups.forEach((g, i) => { g.style.display = shown[i]; });
+  }
+  // El contrato de la etiqueta de una flecha (#237) también rige en el escenario de
+  // una historia (#280): no pasa la letra de la figura, no se apoya en su propio
+  // trazo y cabe en el lienzo con el margen de la figura. Si el sitio recto —arriba,
+  // al medio— no cabe porque la flecha roza el borde o las fichas de nombre ocupan
+  // ese aire, la etiqueta sube al hombro de la flecha —sobre uno de sus extremos— o
+  // pasa debajo del trazo. Se mide lo que el navegador dibujó, no una estimación.
+  function placeEdgeLabels(svg) {
+    const room = svg.viewBox.baseVal;
+    const clear = 4;
+    const touches = (a, b) => a.x < b.x + b.width + 2 && b.x < a.x + a.width + 2 && a.y < b.y + b.height + 2 && b.y < a.y + a.height + 2;
+    for (const text of svg.querySelectorAll('text[data-edge-label]')) {
+      const group = text.closest('[data-arrow]');
+      if (!group) continue;
+      const [x1, y1] = String(group.dataset.arrow || '').split(',').map(Number);
+      const [x2, y2] = String(group.dataset.to || '').split(',').map(Number);
+      if (![x1, y1, x2, y2].every(Number.isFinite)) continue;
+      // La tinta que la etiqueta no puede tocar es la de su propia flecha.
+      const ink = [];
+      for (const stroke of group.querySelectorAll('path, line')) {
+        if (stroke.closest('marker') || !stroke.getTotalLength) continue;
+        const len = stroke.getTotalLength();
+        if (!len) continue;
+        for (let at = 0; at <= len; at += 2) ink.push(stroke.getPointAtLength(at));
+        ink.push(stroke.getPointAtLength(len));
+      }
+      const step = group.closest('[data-step]') || svg;
+      const others = [...step.querySelectorAll('text, rect, circle')]
+        .filter((el) => el !== text && !group.contains(el))
+        .map((el) => el.getBBox())
+        .filter((b) => b.width || b.height);
+      const anchor = text.getAttribute('text-anchor') || 'middle';
+      // El sitio que dibujó el render se guarda: cada pasada parte de ahí, así el
+      // ajuste no se corre al medirse dos veces (fuentes, ancho, tema).
+      if (text.dataset.edgeX === undefined) {
+        text.dataset.edgeX = text.getAttribute('x');
+        text.dataset.edgeY = text.getAttribute('y');
+        text.dataset.edgeAnchor = anchor;
+      }
+      const baseX = Number(text.dataset.edgeX) || 0;
+      const baseY = Number(text.dataset.edgeY) || 0;
+      text.setAttribute('x', text.dataset.edgeX);
+      text.setAttribute('y', text.dataset.edgeY);
+      text.setAttribute('text-anchor', text.dataset.edgeAnchor);
+      const origin = text.getBBox();
+      if (!origin.width && !origin.height) continue;
+      const ascent = baseY - origin.y;
+      const descent = origin.y + origin.height - baseY;
+      const fits = () => {
+        const b = text.getBBox();
+        const air = Math.min(b.x - room.x, b.y - room.y, room.x + room.width - (b.x + b.width), room.y + room.height - (b.y + b.height));
+        // Medio punto de colchón: el redondeo de la medición no puede dejar la
+        // etiqueta justo por debajo del margen que la puerta exige.
+        if (air < STAGE_EDGE + 0.5) return false;
+        const near = (p) => p.x > b.x - clear && p.x < b.x + b.width + clear && p.y > b.y - clear && p.y < b.y + b.height + clear;
+        if (ink.some(near)) return false;
+        return !others.some((o) => touches(b, o));
+      };
+      const tryAt = (x, y, where) => {
+        text.setAttribute('x', String(Math.round(x * 10) / 10));
+        text.setAttribute('y', String(Math.round(y * 10) / 10));
+        text.setAttribute('text-anchor', where);
+        return fits();
+      };
+      const left = Math.min(x1, x2), right = Math.max(x1, x2);
+      const top = Math.min(y1, y2), bottom = Math.max(y1, y2);
+      const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+      const below = bottom + clear + 1.5 + ascent;
+      const horizontal = Math.abs(y2 - y1) <= Math.abs(x2 - x1) * 1.5;
+      let placed = false;
+      if (horizontal) {
+        // El sitio recto, sus dos hombros y los mismos tres debajo del trazo.
+        for (const [x, y, where] of [[midX, baseY, 'middle'], [left, baseY, 'start'], [right, baseY, 'end'], [midX, below, 'middle'], [left, below, 'start'], [right, below, 'end']]) {
+          if (tryAt(x, y, where)) { placed = true; break; }
+        }
+      } else {
+        // Una flecha vertical lleva sus palabras a un lado: se prueban el lado que
+        // declaró el autor y el otro, al medio y en los dos extremos.
+        const gap = anchor === 'start' ? origin.x - right : left - (origin.x + origin.width);
+        const flip = anchor === 'start' ? 'end' : 'start';
+        const flipX = anchor === 'start' ? left - Math.max(4, gap) : right + Math.max(4, gap);
+        for (const [x, y, where] of [[baseX, baseY, anchor], [baseX, midY, anchor], [baseX, top, anchor], [baseX, bottom, anchor], [flipX, midY, flip], [flipX, top, flip]]) {
+          if (tryAt(x, y, where)) { placed = true; break; }
+        }
+      }
+      if (placed) continue;
+      // Sin sitio limpio, la etiqueta se mete dentro del lienzo: una palabra a
+      // caballo del borde no se lee y la puerta la rechaza.
+      text.setAttribute('text-anchor', 'middle');
+      const b = text.getBBox();
+      const x = Math.min(Math.max(baseX, room.x + STAGE_EDGE + 0.5 + b.width / 2), room.x + room.width - STAGE_EDGE - 0.5 - b.width / 2);
+      const y = Math.min(Math.max(baseY, room.y + STAGE_EDGE + 0.5 + ascent), room.y + room.height - STAGE_EDGE - 0.5 - descent);
+      text.setAttribute('x', String(Math.round(x * 10) / 10));
+      text.setAttribute('y', String(Math.round(y * 10) / 10));
+    }
   }
   function walkScene(scene, stageWidth, stageTop = 0, stageHeight = 0) {
     const S = window.LKScene;
@@ -1030,7 +1167,13 @@
     const figureSizes = [
       ...(scene.labels || []).map((l) => l.size || 24),
       ...(scene.boxes || []).map((b) => b.size || 26),
-    ];
+      // La ficha de nombre de un actor y el nombre de una caja son letra de la
+      // figura. En un escenario la ficha es la única palabra que el lector
+      // compara, así que la etiqueta de la flecha no se dibuja más grande que
+      // ella: a 22 sobre fichas de 16 se leía como un título (#280).
+      ...(scene.actors || []).map((a) => (a.kind || a.icon ? (a.tag ? STAGE_TAG_SIZE : 0) : a.size || 18)),
+      ...(scene.tags || []).map(() => STAGE_TAG_SIZE),
+    ].filter((size) => size > 0);
     const labelCap = figureSizes.length ? Math.min(...figureSizes) : 22;
     let out = '';
     // Sheets and boxes first: a highlight drawn before them would disappear
@@ -1188,7 +1331,7 @@
         out += S.line(a.x1, a.y1, midX - ux * half, midY - uy * half, { color, dashedLine: !!a.dashed, arrow: false, width: shaft });
         out += S.line(head.x, head.y, a.x2, a.y2, { color, dashedLine: !!a.dashed, width: shaft });
         out += S.lbl(midX + (vertical ? 0 : 0), midY + size * 0.36, a.label, {
-          anchor: 'middle', color: tone(a.labelTone || a.tone).color, size,
+          anchor: 'middle', color: tone(a.labelTone || a.tone).color, size, edge: true,
           fit: vertical ? Math.max(1, 2 * Math.min(midX - 4, stageWidth - midX - 4)) : Math.max(1, cut - 14),
         });
       } else {
@@ -1228,7 +1371,7 @@
           out += S.lbl(x, vertical ? midY + size * 0.36 : labelY, a.label, {
             anchor: vertical ? (side > 0 ? 'start' : 'end') : 'middle',
             color: tone(a.labelTone || a.tone).color,
-            size, fit,
+            size, fit, edge: true,
           });
         }
       }

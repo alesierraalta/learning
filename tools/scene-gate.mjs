@@ -124,21 +124,21 @@ try {
     // escena rota tiene que volver al tutor para que la corrija. Se valida antes de
     // abrir el navegador, porque un JSON roto deja la página en blanco y la puerta
     // se rendía esperando un SVG que nunca llegaba (#237).
-    const unreadable = [];
+    const illegible = [];
     const readable = specs.filter((spec) => {
       try {
         JSON.parse(spec.json);
         return true;
       } catch (error) {
-        unreadable.push({ tag: spec.tag, detail: `el payload no es JSON: ${error.message}` });
+        illegible.push({ tag: spec.tag, detail: `el payload no es JSON: ${error.message}` });
         return false;
       }
     });
     // Una apertura sin su `<script>` no entra en `specs`: tampoco se dibuja, y
     // también es un hallazgo en vez de un «sin escenas» que nadie corrige.
     const openings = [...source.matchAll(new RegExp(`<lk-(scene|story|${PIECE_TAGS.join('|')})[\\s>]`, 'g'))].length;
-    for (let i = specs.length; i < openings; i++) unreadable.push({ tag: 'scene', detail: 'no tiene payload JSON' });
-    for (const bad of unreadable) {
+    for (let i = specs.length; i < openings; i++) illegible.push({ tag: 'scene', detail: 'no tiene payload JSON' });
+    for (const bad of illegible) {
       failures += 1;
       console.log(`${note}: <lk-${bad.tag}> ilegible`);
       console.log(`  escena-ilegible: <lk-${bad.tag}> (${bad.detail})`);

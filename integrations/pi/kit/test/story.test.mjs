@@ -8,7 +8,7 @@
 // `viewBox` lo cortaba por la mitad).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, cpSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -668,8 +668,143 @@ test('los actores de una fila comparten línea base aunque uno esté bloqueado',
   }
 });
 
-// Una marca con nombre se pega a su dueño: debajo de su columna, o a su lado si
-// abajo no cabe. Centrada en el hueco entre dos actores no aprueba a ninguno.
+// ── La etiqueta de la flecha de un escenario (#280) ─────────────────────────
+// El contrato de #237 se aplicó al recorrido clásico y nunca al escenario de una
+// historia: una flecha rotulada «transferencia» sobre dos cuentas dibujaba sus
+// palabras a 22 —las fichas de nombre van a 16— apoyadas 2 unidades fuera del
+// lienzo. Aquí se mide el contrato entero: tamaño, borde, trazo y hombro.
+const STAGE_ARROW = (arrow) => ({
+  ...ROW_SCENE,
+  arrows: [arrow],
+});
+
+const stageShot = (view) => view.evaluate(() => {
+  const svg = document.querySelector('lk-story svg');
+  const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+  const vb = svg.viewBox.baseVal;
+  const box = (el) => { const b = el.getBBox(); return { x: b.x, y: b.y, w: b.width, h: b.height, right: b.x + b.width, bottom: b.y + b.height }; };
+  const label = step.querySelector('[data-edge-label]');
+  const arrow = step.querySelector('[data-arrow]');
+  const letters = [...step.querySelectorAll('[data-tag-to] text, [data-actor] text, [data-box] text, [data-label] text')].map((t) => Number(t.getAttribute('font-size')) || 0).filter(Boolean);
+  const lb = label ? box(label) : null;
+  // La tinta que el lector ve: los trazos que el kit dibujó de verdad, no el eje
+  // declarado. Una flecha cortada por sus palabras no tiene tinta dentro de ellas.
+  const ink = [];
+  for (const stroke of arrow.querySelectorAll('path, line')) {
+    const len = stroke.getTotalLength ? stroke.getTotalLength() : 0;
+    if (!len) continue;
+    for (let at = 0; at <= len; at += 2) ink.push(stroke.getPointAtLength(at));
+  }
+  // Lo que el lector ve: ninguna palabra puede tener la tinta del trazo dentro.
+  const over = [];
+  for (const t of step.querySelectorAll('text')) {
+    if (t.closest('[data-callout]')) continue;
+    const b = box(t);
+    if (ink.some((p) => p.x > b.x + 3 && p.x < b.right - 3 && p.y > b.y + 3 && p.y < b.bottom - 3)) over.push(t.textContent.trim());
+  }
+  return {
+    text: label?.textContent.trim(),
+    size: label ? Number(label.getAttribute('font-size')) : null,
+    cap: letters.length ? Math.min(...letters) : null,
+    air: lb ? Math.min(lb.x - vb.x, lb.y - vb.y, vb.x + vb.width - lb.right, vb.y + vb.height - lb.bottom) : null,
+    box: lb, over,
+  };
+});
+
+test('la etiqueta de una flecha de historia no pasa la letra de la figura, no toca el trazo y cabe en el lienzo', { skip: SKIP }, async () => {
+  const arrow = { x1: 90, y1: 50, x2: 270, y2: 50, tone: 'slate', label: 'transferencia' };
+  const { browser, view, errors } = await open(page(one(STAGE_ARROW(arrow), '0 0 360 260')));
+  try {
+    assert.deepEqual(errors, []);
+    const shot = await stageShot(view);
+    assert.equal(shot.text, 'transferencia');
+    assert.ok(shot.cap, 'el paso no dibujó la letra de su figura');
+    assert.ok(shot.size <= shot.cap, `la etiqueta se dibuja a ${shot.size} y la letra de la figura a ${shot.cap}`);
+    assert.ok(shot.air >= 12, `la etiqueta queda a ${shot.air.toFixed(1)}u del borde del lienzo (mínimo 12u): ${JSON.stringify(shot.box)}`);
+    assert.deepEqual(shot.over, [], `hay palabras sobre el trazo de la flecha: ${shot.over.join(', ')} · etiqueta a ${shot.size} en ${JSON.stringify(shot.box)}`);
+  } finally {
+    await browser.close();
+  }
+});
+
+// Una flecha pegada al tope del lienzo no tiene aire arriba: la etiqueta se
+// coloca igual dentro del lienzo —en el hombro de la flecha, en el hueco de sus
+// palabras o debajo del trazo— y nunca a caballo del borde.
+const STAGE_SOLO = {
+  actors: [
+    { id: 'c10', x: 40, y: 120, w: 120, h: 60, label: 'Cuenta 10', tone: 'slate', size: 18 },
+    { id: 'c20', x: 200, y: 120, w: 120, h: 60, label: 'Cuenta 20', tone: 'slate', size: 18 },
+  ],
+};
+
+test('sin aire arriba la etiqueta sigue dentro del lienzo y fuera del trazo', { skip: SKIP }, async () => {
+  const arrow = { x1: 90, y1: 16, x2: 270, y2: 16, tone: 'slate', label: 'transferencia' };
+  const { browser, view, errors } = await open(page(one({ ...STAGE_SOLO, arrows: [arrow] }, '0 0 360 260')));
+  try {
+    assert.deepEqual(errors, []);
+    const shot = await stageShot(view);
+    assert.ok(shot.size <= shot.cap, `la etiqueta se dibuja a ${shot.size} y la letra de la figura a ${shot.cap}`);
+    assert.ok(shot.air >= 12, `la etiqueta queda a ${shot.air.toFixed(1)}u del borde del lienzo (mínimo 12u): ${JSON.stringify(shot.box)}`);
+    assert.deepEqual(shot.over, [], `hay palabras sobre el trazo de la flecha: ${shot.over.join(', ')} · etiqueta a ${shot.size} en ${JSON.stringify(shot.box)}`);
+  } finally {
+    await browser.close();
+  }
+});
+
+// Una flecha corta y pegada al borde izquierdo no deja sitio para sus palabras:
+// la etiqueta se mete dentro del lienzo aunque el trazo quede a un lado.
+test('una etiqueta más ancha que su flecha se mete en el lienzo, no se sale', { skip: SKIP }, async () => {
+  const arrow = { x1: 20, y1: 50, x2: 60, y2: 50, tone: 'slate', label: 'transferencia' };
+  const { browser, view, errors } = await open(page(one(STAGE_ARROW(arrow), '0 0 360 260')));
+  try {
+    assert.deepEqual(errors, []);
+    const shot = await stageShot(view);
+    assert.ok(shot.size <= shot.cap, `la etiqueta se dibuja a ${shot.size} y la letra de la figura a ${shot.cap}`);
+    assert.ok(shot.air >= 12, `la etiqueta queda a ${shot.air.toFixed(1)}u del borde del lienzo (mínimo 12u): ${JSON.stringify(shot.box)}`);
+    assert.deepEqual(shot.over, [], `hay palabras sobre el trazo de la flecha: ${shot.over.join(', ')} · etiqueta a ${shot.size} en ${JSON.stringify(shot.box)}`);
+  } finally {
+    await browser.close();
+  }
+});
+
+// La parte real que el alumno regeneró, tal como la escribió el tutor: seis pasos y
+// una flecha rotulada por paso. Se lee el `<lk-story>` del fixture y se mide paso a
+// paso lo que el lector ve, con la regla de deck-gate: ninguna palabra se apoya en
+// la tinta del trazo, ni la de la flecha ni la de las fichas de nombre.
+const PARTE_PLSQL = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'plsql-parte-1-v4.md');
+
+test('la historia de la parte real de PL/SQL: etiqueta a la letra de la figura y fuera del trazo en los seis pasos', { skip: SKIP }, async () => {
+  const block = readFileSync(PARTE_PLSQL, 'utf8').match(/<lk-story[\s\S]*?<\/lk-story>/)[0];
+  const dir = mkdtempSync(join(tmpdir(), 'kit-story-real-'));
+  mkdirSync(join(dir, 'kit'), { recursive: true });
+  for (const file of ['kit.css', 'kit.js', 'scene.js', 'dictate.js']) cpSync(join(KIT, file), join(dir, 'kit', file));
+  writeFileSync(join(dir, 'p.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8">
+<link rel="stylesheet" href="kit/kit.css"><script src="kit/scene.js" defer></script><script src="kit/kit.js" defer></script>
+</head><body><main style="max-width:700px;margin:0 auto">${block}</main></body></html>`);
+  const browser = await PLAYWRIGHT.chromium.launch();
+  try {
+    const view = await browser.newPage({ viewport: { width: 1000, height: 1000 } });
+    const errors = [];
+    view.on('pageerror', (error) => errors.push(String(error.message)));
+    await view.goto('file://' + join(dir, 'p.html'));
+    await view.waitForSelector('lk-story svg');
+    await view.waitForTimeout(300);
+    const steps = await view.locator('.lk-story-seg').count();
+    assert.ok(steps >= 3, `la historia perdió sus pasos: ${steps}`);
+    for (let s = 0; s < steps; s++) {
+      if (s > 0) await view.getByRole('button', { name: 'Paso siguiente' }).click();
+      await view.locator('.lk-story-count').filter({ hasText: `${s + 1} / ${steps}` }).waitFor();
+      const shot = await stageShot(view);
+      assert.ok(shot.size <= shot.cap, `paso ${s + 1}: la etiqueta «${shot.text}» se dibuja a ${shot.size} y la letra de la figura a ${shot.cap}`);
+      assert.ok(shot.air >= 12, `paso ${s + 1}: la etiqueta queda a ${shot.air.toFixed(1)}u del borde del lienzo (mínimo 12u)`);
+      assert.deepEqual(shot.over, [], `paso ${s + 1}: hay palabras sobre el trazo de la flecha: ${shot.over.join(', ')} · etiqueta a ${shot.size} en ${JSON.stringify(shot.box)}`);
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('una marca con nombre se pega a su dueño, no al hueco', { skip: SKIP }, async () => {
   // Las dos filas bloqueadas: los dos cofres caen a la misma altura y el hueco
   // entre ellos es el único sitio que le queda a una marca que se centre mal.

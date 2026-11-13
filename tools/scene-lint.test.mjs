@@ -1096,6 +1096,34 @@ test('el ejemplo de Bayes con mil personas deja 6 px entre sus fichas a 390 px',
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
 
+// ── El escenario de una historia rotula su flecha como el recorrido (#280) ──
+// La parte real que el alumno regeneró: seis pasos, dos cuentas con su ficha a 16 y
+// una flecha rotulada «transferencia». La etiqueta se dibujaba a 22 —más grande que
+// la letra de la figura— y se apoyaba en el borde del lienzo, a 2 unidades del
+// tope. Los dos hallazgos eran del kit: el contrato de #237 se aplicó al recorrido
+// clásico y nunca al escenario de una historia. El fixture es la nota tal como la
+// escribió el tutor, sin una línea tocada.
+const PARTE_PLSQL_HISTORIA = join(TOOLS, '..', 'integrations', 'pi', 'kit', 'test', 'fixtures', 'plsql-parte-1-v4.md');
+
+test('la parte real de PL/SQL no trae etiquetas de flecha más grandes que su figura', { skip: SKIP }, () => {
+  const r = lint(PARTE_PLSQL_HISTORIA);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /etiqueta-desproporcionada/);
+});
+
+test('la parte real de PL/SQL no apoya su etiqueta en el borde del lienzo', { skip: SKIP }, () => {
+  const g = gate(PARTE_PLSQL_HISTORIA);
+  assert.equal(g.status, 0, g.stdout + g.stderr);
+  assert.doesNotMatch(g.stdout, /al-borde/);
+});
+
+// La cuarta puerta también mide la misma parte: `explain-check` corre el estándar
+// y llama a `scene-lint` con sus figuras. `deck-gate` la mide en su archivo.
+test('la parte real de PL/SQL pasa explain-check con sus figuras', { skip: SKIP }, () => {
+  const r = spawnSync(process.execPath, [join(TOOLS, 'explain-check.mjs'), PARTE_PLSQL_HISTORIA], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
 // El árbol de frecuencias (#261) es una pieza: sus rótulos de rama no se encimen. Con cuentas
 // tan largas que dos rótulos vecinos se pisan, el lint lo encuentra.
 test('frequency-tree branch labels that pile on each other are a finding', { skip: SKIP }, () => {
