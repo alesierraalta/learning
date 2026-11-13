@@ -44,7 +44,8 @@ const TOPICS = [
 /** The four gates the standard is measured with, in the order the skill runs them. */
 const GATES = ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs"];
 /** The visual pieces a part can carry, and the tag each one is written with. */
-const PIECES = ["lk-story", "lk-scene", "lk-walkthrough", "lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-diagram", "lk-math", "lk-widget", "lk-checkpoint", "lk-quiz", "lk-video", "lk-ask"];
+// lk-quick-quiz, lk-figure and lk-audio joined the kit after the first run (1d9046f).
+const PIECES = ["lk-story", "lk-scene", "lk-walkthrough", "lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-diagram", "lk-math", "lk-widget", "lk-checkpoint", "lk-quiz", "lk-quick-quiz", "lk-figure", "lk-audio", "lk-video", "lk-ask"];
 
 // ---- arguments -----------------------------------------------------------
 
@@ -257,10 +258,69 @@ function correctionsInLog(file) {
   return rounds;
 }
 
+/** How a turn ended, in the studio's own words: the error it raised, if it raised one. */
+function turnOutcome(events) {
+  const messages = events.filter((item) => item.event === "error").map((item) => String(item.data?.message ?? ""));
+  if (messages.some((message) => message.includes("Se agotaron"))) return "se agotaron las correcciones";
+  if (messages.some((message) => message.includes("eligió el método"))) return "el tutor eligió el método";
+  return messages.length ? "error" : "termina";
+}
+
+/**
+ * The studio's page-timing reports for the topic's turns: one per generation that wrote a part,
+ * each listing its model calls by reason. A correction is a call that is not the learner's turn.
+ * The reports are kept beside the results, so the count can be read again.
+ */
+function timingsOf(dir, since, keep) {
+  const summary = { reports: 0, modelCalls: 0, turns: 0, engineCorrections: 0, partCorrections: 0, corrections: 0 };
+  if (!existsSync(dir)) return summary;
+  for (const name of readdirSync(dir).filter((item) => item.endsWith(".json")).sort()) {
+    const report = readJsonFile(join(dir, name), "reporte de tiempos");
+    if (Date.parse(report.startedAt) < Date.parse(since)) continue;
+    summary.reports += 1;
+    mkdirSync(keep, { recursive: true });
+    cpSync(join(dir, name), join(keep, name));
+    for (const call of report.calls ?? []) {
+      summary.modelCalls += 1;
+      if (call.reason === "engine-correction") summary.engineCorrections += 1;
+      else if (call.reason === "part-correction") summary.partCorrections += 1;
+      else summary.turns += 1;
+    }
+  }
+  summary.corrections = summary.engineCorrections + summary.partCorrections;
+  return summary;
+}
+
+/** The register numbers of one part's note, from the studio's own measure tool (tools/register). */
+async function registerOf(repo, note) {
+  const result = await run(process.execPath, [join(repo, "tools", "register", "measure.mjs"), "--text", note, "--json"], { cwd: repo, timeout: 300_000 });
+  if (result.code !== 0) return { error: result.stderr.trim().slice(-400) };
+  let measured;
+  try {
+    measured = JSON.parse(result.stdout);
+  } catch {
+    return { error: "measure.mjs no devolvió JSON" };
+  }
+  return {
+    words: measured.words,
+    wordsPerSentence: measured.wordsPerSentence?.mean ?? null,
+    explainedWeighted: measured.explainedWeighted ?? null,
+    boldTermsPer1000: measured.boldTermsPer1000 ?? null,
+    contrastPer1000: measured.contrastPer1000 ?? null,
+  };
+}
+
+/** The commit the repo is at: a deploy can move it between two topics, so each topic records it. */
+async function headOf(repo) {
+  const result = await run("git", ["-C", repo, "rev-parse", "--short", "HEAD"]);
+  return result.code === 0 ? result.stdout.trim() : null;
+}
+
 /** The real vault is only read: this is the proof the bench never wrote in it. */
 async function vaultState(vault) {
   if (!vault) return null;
-  const status = await run("git", ["-C", vault, "status", "--porcelain"]);
+  // No optional locks: a status that cannot refresh the index of the real vault.
+  const status = await run("git", ["--no-optional-locks", "-C", vault, "status", "--porcelain"]);
   return status.code === 0 ? status.stdout.trim() : null;
 }
 
@@ -335,7 +395,9 @@ function visualsOf(note) {
   const count = (value) => (Array.isArray(value) ? value.length : 0);
   const sceneShape = (scene) => ({
     boxes: count(scene?.boxes),
-    arrows: count(scene?.arrows),
+    // Arrows: the older `arrows` list, or the reader's paths with `arrow` set (the 53700d1 scenes).
+    arrows: count(scene?.arrows) + count((scene?.paths ?? []).filter((path) => path?.arrow)),
+    paths: count(scene?.paths),
     icons: count(scene?.icons),
     labels: count(scene?.labels),
     actors: count(scene?.actors),
@@ -359,13 +421,14 @@ function visualsOf(note) {
       shapes.push(shape);
       const ink = [...(Array.isArray(scene.actors) ? scene.actors : []), ...(Array.isArray(scene.boxes) ? scene.boxes : [])];
       for (const actor of ink) {
-        const label = typeof actor?.label === "string" ? actor.label.trim() : "";
+        // The reader's actors name themselves with `tag` (or `id`); `label` is the older name.
+        const label = String(actor?.label ?? actor?.tag ?? actor?.id ?? "").trim();
         if (label) actors.add(label);
       }
     }
   }
   // The signature is what a reader sees at a glance: how many boxes, arrows and actors.
-  const signatures = shapes.map((shape) => `cajas ${shape.boxes} · flechas ${shape.arrows} · actores ${shape.actors} · piezas ${shape.props}`);
+  const signatures = shapes.map((shape) => `cajas ${shape.boxes} · flechas ${shape.arrows} · actores ${shape.actors} · piezas ${shape.props} · movimientos ${shape.moves}`);
   return { pieces, actors: [...actors], shapes, signatures };
 }
 
@@ -403,6 +466,8 @@ async function commandRun(args) {
   const { startStudio, readPlan, listTopics } = await loadRepo(repo);
 
   const stateFile = join(out, "results.json");
+  // The studio writes one timing report per generation beside opened.json: the bench reads them there.
+  const timingsDir = join(scratch, "state", "page-timings");
   const results = existsSync(stateFile) ? readJsonFile(stateFile, "resultados anteriores") : { topics: [] };
   results.repo = repo;
   results.scratch = scratch;
@@ -486,7 +551,7 @@ async function commandRun(args) {
         console.error(`bench: ${topic.id} ya está medido`);
         continue;
       }
-      const entry = { id: topic.id, request: topic.request, startedAt: new Date().toISOString(), turns: [], gateEvents: [], errors: [], parts: [] };
+      const entry = { id: topic.id, request: topic.request, startedAt: new Date().toISOString(), turns: [], gateEvents: [], errors: [], parts: [], head: { start: await headOf(repo), end: null } };
       results.topics = results.topics.filter((item) => item.id !== topic.id).concat(entry);
       logFile = join(out, `${topic.id}-studio.log`);
       writeFileSync(logFile, "");
@@ -565,6 +630,7 @@ async function commandRun(args) {
             tools: turnEvents.filter((item) => item.event === "tool" && item.data?.phase === "start").map((item) => String(item.data?.name ?? "")),
             assistant: turnEvents.filter((item) => item.event === "assistant_end").map((item) => String(item.data?.text ?? "")).join("\n").slice(-2000),
             gate: gate.at(-1) ?? null,
+            outcome: turnOutcome(turnEvents),
           };
           entry.turns.push(turn);
           for (const verdict of gate) entry.gateEvents.push(verdict);
@@ -615,7 +681,8 @@ async function commandRun(args) {
           }
           const hasQuiz = existsSync(join(root, topicId, "quiz.json"));
           const answered = existsSync(join(root, topicId, "quiz.answers.json"));
-          const stage = String(current.stage ?? current.nextStage ?? "");
+          // The page asks for the method when the next stage is method, so the bench answers it then.
+          const stage = String(current.nextStage || current.stage || "");
           if (hasQuiz && !answered) action = "diagnostico";
           else if (stage === "method" && !current.method) action = "metodo";
           else if (stage === "planning" || stage === "explanation" || stage === "") action = "parte1";
@@ -634,7 +701,8 @@ async function commandRun(args) {
         const written = parts.map((part) => ({ part, note: partNote(root, topicId, plan, part.id) })).filter((item) => item.note);
         for (const { part, note } of written) {
           const gates = await runGates(repo, note);
-          entry.parts.push({ id: part.id, title: part.title, note: note.slice(root.length + 1), gates, ...visualsOf(note) });
+          const register = await registerOf(repo, note);
+          entry.parts.push({ id: part.id, title: part.title, note: note.slice(root.length + 1), gates, register, ...visualsOf(note) });
           const failing = gates.failing.length ? ` (${gates.failing.join(", ")})` : "";
           console.error(`bench: ${topic.id} · ${part.id} gates ${gates.verdict}${failing}`);
         }
@@ -644,9 +712,13 @@ async function commandRun(args) {
         entry.copy = copy;
         entry.files = fileList(copy);
       }
-      // The log is the record: the gate frames it kept are the corrections the turn used.
-      entry.correctionRounds = correctionsInLog(logFile);
-      entry.correctionRoundsFromEvents = entry.gateEvents.filter((event) => event.passing === false).length;
+      // Corrections the turn sent, from the studio's timing reports: every correction is a model call
+      // of its own reason, part checks included. The log's failing gate frames are kept beside them:
+      // the last frame of a spent budget is not a correction, the stop it leads to is.
+      entry.timings = timingsOf(timingsDir, entry.startedAt, join(out, `${topic.id}-timings`));
+      entry.correctionRounds = entry.timings.corrections;
+      entry.gateFailures = correctionsInLog(logFile);
+      entry.head.end = await headOf(repo);
       entry.finishedAt = new Date().toISOString();
       writeFileSync(stateFile, `${JSON.stringify(results, null, 2)}\n`);
       writeFileSync(join(out, "report.md"), renderReport(results));
@@ -679,6 +751,7 @@ async function commandGates(args) {
       const note = join(topic.copy, relative);
       if (!existsSync(note)) continue;
       part.gates = await runGates(repo, note);
+      part.register = await registerOf(repo, note);
       Object.assign(part, visualsOf(note));
       console.error(`${topic.id} · ${part.id} ${part.gates.verdict}`);
     }
@@ -688,6 +761,24 @@ async function commandGates(args) {
 }
 
 // ---- shots ---------------------------------------------------------------
+
+/** One capture per piece the page draws (each lk-story, scene, quiz...), black × wide like the page. */
+async function capturePieces(page, dir, prefix) {
+  const captures = [];
+  const pieces = await page.$$(PIECES.join(", "));
+  for (const [index, piece] of pieces.entries()) {
+    const tag = await piece.evaluate((node) => node.tagName.toLowerCase());
+    const file = join(dir, `${prefix}-${tag}-${index + 1}-black-wide.png`);
+    try {
+      await piece.scrollIntoViewIfNeeded({ timeout: 5000 });
+      await piece.screenshot({ path: file, timeout: 15_000 });
+      captures.push({ tag, file });
+    } catch (error) {
+      captures.push({ tag, error: String(error.message ?? error).split("\n")[0] });
+    }
+  }
+  return captures;
+}
 
 /**
  * The reader, rendering the copies: the same bridge the studio serves, over a vault made
@@ -770,7 +861,9 @@ async function commandShots(args) {
           await page.screenshot({ path: file, fullPage: true });
           part.screenshot = file;
           part.shot = drawn;
-          console.error(`${topicId} · ${part.id} → ${file} · ${JSON.stringify(drawn)}`);
+          part.pieceShots = await capturePieces(page, shots, `${topicId}-${part.id}`);
+          const captured = part.pieceShots.filter((item) => item.file).length;
+          console.error(`${topicId} · ${part.id} → ${file} · ${captured}/${part.pieceShots.length} piezas · ${JSON.stringify(drawn)}`);
         } finally {
           await page.close();
         }
@@ -819,6 +912,16 @@ function renderReport(results) {
   }
   const repeated = everySignature.length > 1 && new Set(everySignature).size === 1;
   if (repeated) lines.push("", `**Todas las figuras comparten la misma forma**: ${everySignature[0]}.`);
+  // The register the studio's own measure tool gives each part (tools/register/measure.mjs).
+  const pct = (value) => (typeof value === "number" ? `${Math.round(value * 100)}%` : "-");
+  const num = (value, digits) => (typeof value === "number" ? value.toFixed(digits) : "-");
+  lines.push("", "## Registro (tools/register/measure.mjs)", "", "| Tema | Parte | palabras/frase | términos explicados (uso) | negritas/1000 | contrastes/1000 |", "| --- | --- | --- | --- | --- | --- |");
+  for (const topic of results.topics) {
+    for (const part of topic.parts) {
+      const register = part.register ?? {};
+      lines.push(`| ${topic.request} | ${part.id} | ${num(register.wordsPerSentence, 1)} | ${pct(register.explainedWeighted)} | ${num(register.boldTermsPer1000, 1)} | ${num(register.contrastPer1000, 2)} |`);
+    }
+  }
   lines.push("", "## Lo que dijo el motor en cada turno", "");
   for (const topic of results.topics) {
     lines.push(`### ${topic.request}`, "");
@@ -830,7 +933,7 @@ function renderReport(results) {
       }
       let gate = "sin gate";
       if (turn.gate) gate = turn.gate.passing ? "PASA" : `FALLA (${(turn.gate.fails ?? []).join(", ") || "-"})`;
-      lines.push(`- turno ${turn.n} (${turn.action}, ${turn.seconds}s): motor ${engine}; gate ${gate}; herramientas: ${[...new Set(turn.tools)].join(", ") || "-"}`);
+      lines.push(`- turno ${turn.n} (${turn.action}, ${turn.seconds}s): motor ${engine}; gate ${gate}; desenlace: ${turn.outcome ?? "-"}; herramientas: ${[...new Set(turn.tools)].join(", ") || "-"}`);
     }
     for (const error of topic.errors ?? []) lines.push(`- aviso/error: ${error}`);
     if (topic.stuck) lines.push(`- **atascado**: ${topic.stuck}`);
