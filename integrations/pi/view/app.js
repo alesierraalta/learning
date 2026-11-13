@@ -262,8 +262,8 @@
       const result = recorded.get(question.id);
       const readonly = Boolean(result) || (!diagnosis && Array.isArray(data.answered));
       const choices = [];
-      for (const letter of ["A", "B", "C", "D", "E"]) {
-        if (!(letter in question.options)) continue;
+      // The options come in the order the bridge served them: the learner's own order (#272).
+      for (const letter of Object.keys(question.options)) {
         const label = element("label", undefined, "option");
         const radio = element("input");
         radio.type = "radio";
