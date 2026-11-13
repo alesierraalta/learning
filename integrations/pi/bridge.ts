@@ -21,7 +21,7 @@ import { HttpError } from "./errors.ts";
 import { resolveContained, safeTopic } from "./paths.ts";
 import { recordQuizTelemetry } from "./telemetry.ts";
 import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio, type Transcriber } from "./transcribe.ts";
-import { CodeRunError, loadRunners, readExercise, publicExercise, forPage, runCode } from "./coderun.ts";
+import { CodeRunError, loadRunners, readExercise, publicExercise, forPage, runCode, type Runner } from "./coderun.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 
 const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
@@ -647,6 +647,53 @@ function quizMessage(header: string, saved: string, results: Graded[], reasoning
     }
   }
   return lines;
+}
+
+/** A code exercise a part owns: a `codigo/<id>/ejercicio.json` whose `parte` names the part. */
+interface PartExercise {
+  id: string;
+  titulo: string;
+  enunciado: string;
+}
+
+/** The part's exercises in the vault's listing order; the mini-quiz shows each statement above its own box. */
+function partExercises(dir: string, partId: string, runners: Record<string, Runner>): PartExercise[] {
+  return listExercises(dir, runners)
+    .filter((e) => e.parte === partId)
+    .map(({ id }) => {
+      const ex = readExercise(exerciseFile(dir, id), runners);
+      return { id, titulo: ex.titulo, enunciado: ex.enunciado };
+    });
+}
+
+/**
+ * Answers to the part's exercises, keyed by exercise id. A blank box is no answer; a name that is not
+ * one of the part's exercises, or a value that is not text, refuses the whole submission.
+ */
+function exerciseAnswers(raw: unknown, declared: PartExercise[]): Record<string, string> {
+  if (raw === undefined || raw === null) return {};
+  if (!isRecord(raw)) throw new HttpError(400, "exercises must be an object of answers by exercise id");
+  const known = new Set(declared.map((ex) => ex.id));
+  const answers: Record<string, string> = {};
+  for (const [id, text] of Object.entries(raw)) {
+    if (!known.has(id)) throw new HttpError(400, `unknown exercise id: ${id}`);
+    if (typeof text !== "string" || text.length > MAX_TEXT_CHARS) {
+      throw new HttpError(400, `exercise ${id} must be text of at most ${MAX_TEXT_CHARS} characters`);
+    }
+    if (text.trim()) answers[id] = text.trim();
+  }
+  return answers;
+}
+
+/** Each answered exercise is labelled with the number the reader shows, its title and its statement. */
+function exerciseMessage(declared: PartExercise[], answers: Record<string, string>): string[] {
+  const answered = declared.flatMap((ex, index) => (Object.hasOwn(answers, ex.id) ? [{ ex, number: index + 1 }] : []));
+  if (answered.length === 0) return [];
+  return [
+    "",
+    "Ejercicios:",
+    ...answered.flatMap(({ ex, number }) => [`${number}. ${ex.titulo} (${ex.id}): ${indented(ex.enunciado)}`, quote(answers[ex.id])]),
+  ];
 }
 
 /** Atomic write: a reader sees either no file or the whole file. */
@@ -1286,7 +1333,9 @@ ${scripts}
       topicTitle: plan.topic || topic,
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
       markdown: obsidianToMarkdown(readFileSync(note, "utf8"), dir),
-      quiz: questions ? { questions: questions.map(publicQuestion) } : null,
+      quiz: questions
+        ? { questions: questions.map(publicQuestion), exercises: partExercises(dir, partId, loadRunners(options.runnersFile)) }
+        : null,
       answered: questions ? gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))) : null,
       demos: partDemos(dir, partId),
       video: partVideoInfo(dir, plan, partId),
@@ -1305,6 +1354,7 @@ ${scripts}
     if (!questions) throw new HttpError(404, `part ${partId} has no mini-quiz`);
     sendJson(res, 200, {
       questions: questions.map(publicQuestion),
+      exercises: partExercises(dir, partId, loadRunners(options.runnersFile)),
       answered: gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`))),
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
     });
@@ -1607,7 +1657,8 @@ ${scripts}
       const answers = checkAnswers(payload.answers, questions, true);
       const reasoning = optionalReasoning(payload.reasoning, answers);
       const ownWords = optionalText(payload, "ownWords");
-      const exercises = optionalText(payload, "exercises");
+      const declared = partExercises(dir, partId, loadRunners(options.runnersFile));
+      const exercises = exerciseAnswers(payload.exercises, declared);
       const saved = `mini-quiz/${partId}.answers.json`;
       const file = join(dir, saved);
       // The answers are already stored: reloading shows them.
@@ -1617,7 +1668,7 @@ ${scripts}
       const results = questions.map((q) => grade(q, ordered[q.id]));
       const lines = quizMessage(`[Vista HTML · ${topic} · ${partId} · mini-quiz]`, saved, results, reasoning);
       if (ownWords.trim()) lines.push("", "Vuelco con mis palabras:", quote(ownWords));
-      if (exercises.trim()) lines.push("", "Ejercicios:", quote(exercises));
+      lines.push(...exerciseMessage(declared, exercises));
       await deliver(lines.join("\n"));
       sendJson(res, 200, { results, score: `${results.filter((r) => r.ok).length}/${results.length}`, saved });
       return;

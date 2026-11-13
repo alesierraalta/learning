@@ -1360,7 +1360,6 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
       q2: { razonamiento: "Pide qué error da Oracle. Pensé que C porque...\nlo vi en clase", confianza: "adivine" },
     },
     ownWords: "Una clave identifica una fila.",
-    exercises: "SELECT * FROM t;",
   });
   assert.equal(res.status, 200, res.body);
   const body = JSON.parse(res.body);
@@ -1384,7 +1383,97 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
   assert.match(text, /- q1: B ✔\n  Pensamiento: pienso q1\n  Confianza: seguro\n/);
   assert.match(text, /- q2: C ✘ \(correcta: B\)\n  Pensamiento: Pide qué error da Oracle\. Pensé que C porque\.\.\.\n    lo vi en clase\n  Confianza: adiviné/);
   assert.match(text, /Vuelco con mis palabras:\n"""\nUna clave identifica una fila\.\n"""/);
-  assert.match(text, /Ejercicios:\n"""\nSELECT \* FROM t;\n"""/);
+  await shutdown();
+});
+
+// A part's exercises are the codigo/ ones whose "parte" names it. The mini-quiz shows each
+// statement above its own answer box, and an answer reaches the tutor under its exercise (#253).
+const quizQuestion = (id) => ({ id, enunciado: `Pregunta ${id}`, options: { A: "a", B: "b", C: "c", D: "d", E: "No sé" }, answer: "B" });
+
+function linkedExercise(topic, id, { titulo, enunciado, parte }) {
+  const dir = join(topic, "codigo", id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "ejercicio.json"), JSON.stringify({ titulo, enunciado, lenguaje: "python", plantilla: "print(0)", parte, tests: [
+    { nombre: "visible", entrada: "1 2\n", salida: "3\n" },
+    { nombre: "secreto", entrada: "HIDDEN_SUM_41", salida: "HIDDEN_SUM_42", oculto: true },
+  ] }));
+}
+
+test("the mini-quiz lists the code exercises linked to its part, with their statements and no hidden data", async () => {
+  const { topic, view, shutdown } = await setup();
+  codeFixture(topic);
+  linkedExercise(topic, "suma", { titulo: "Suma", enunciado: "Suma dos enteros", parte: "p1" });
+  writeFileSync(join(topic, "mini-quiz", "p2.json"), JSON.stringify({ questions: [quizQuestion("q1")] }));
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const mine = await http(`${url}api/quiz?topic=${TOPIC}&part=p1`);
+  assert.deepEqual(JSON.parse(mine.body).exercises, [
+    { id: "eco", titulo: "Eco", enunciado: "Repite la entrada" },
+    { id: "suma", titulo: "Suma", enunciado: "Suma dos enteros" },
+  ]);
+  assert.doesNotMatch(mine.body, /HIDDEN_/);
+  // A part with no exercises of its own gets an empty list, never another part's exercises.
+  assert.deepEqual(JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=p2`)).body).exercises, []);
+  await shutdown();
+});
+
+test("mini-quiz exercise answers are refused unless they name an exercise of their own part", async () => {
+  const { topic, view, shutdown } = await setup();
+  codeFixture(topic);
+  writeFileSync(join(topic, "mini-quiz", "p2.json"), JSON.stringify({ questions: [quizQuestion("q1")] }));
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const answers = { q1: "B", q2: "C" };
+  for (const exercises of ["SELECT * FROM t;", { nope: "x" }, { eco: 7 }]) {
+    const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers, exercises });
+    assert.equal(res.status, 400, JSON.stringify(exercises));
+  }
+  assert.equal(existsSync(join(topic, "mini-quiz", "p1.answers.json")), false, "a refused submission records nothing");
+  // Part p2 has no exercise, so naming p1's exercise there is refused too.
+  const other = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p2", answers: { q1: "B" }, exercises: { eco: "x" } });
+  assert.equal(other.status, 400);
+  await shutdown();
+});
+
+test("mini-quiz exercise answers reach the tutor labelled by their exercise", async () => {
+  const { topic, view, host, shutdown } = await setup();
+  codeFixture(topic);
+  linkedExercise(topic, "suma", { titulo: "Suma", enunciado: "Suma dos enteros\nen una línea", parte: "p1" });
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "C" }, exercises: { suma: "print(1 + 2)", eco: "   " } });
+  assert.equal(res.status, 200, res.body);
+  assert.equal(host.sent.length, 1);
+  // Only the answered exercise is labelled: a blank box is not an answer.
+  assert.match(host.sent[0].content, /\nEjercicios:\n2\. Suma \(suma\): Suma dos enteros\n    en una línea\n"""\nprint\(1 \+ 2\)\n"""/);
+  assert.doesNotMatch(host.sent[0].content, /Repite la entrada/);
+  await shutdown();
+});
+
+test("the reader's mini-quiz draws each exercise statement above its own box, and sends each answer labelled", { skip: !playwright && 'playwright not installed' }, async (t) => {
+  const { topic, view, host, shutdown } = await setup();
+  codeFixture(topic);
+  linkedExercise(topic, "suma", { titulo: "Suma", enunciado: "Suma dos enteros", parte: "p1" });
+  writeFileSync(join(topic, "explicaciones", "Parte 2 - Joins.md"), "---\ntipo: explicacion\n---\n# Parte 2 — Joins\n\nUn join une dos tablas.\n");
+  writeFileSync(join(topic, "mini-quiz", "p2.json"), JSON.stringify({ questions: [quizQuestion("q1")] }));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
+  const boxes = page.locator("fieldset.exercise-box");
+  assert.deepEqual(await boxes.locator("legend").allTextContents(), ["1. Repite la entrada", "2. Suma dos enteros"]);
+  assert.equal(await boxes.locator("textarea").count(), 2);
+  await page.locator('input[name="question-0"][value="B"]').check();
+  await page.locator('input[name="question-1"][value="B"]').check();
+  await page.locator('input[name="confidence-0"][value="seguro"]').check();
+  await page.locator('input[name="confidence-1"][value="seguro"]').check();
+  await boxes.nth(1).locator("textarea").fill("print(1 + 2)");
+  const [response] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/submit")),
+    page.getByRole("button", { name: "Enviar al tutor" }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  assert.match(host.sent[0].content, /\nEjercicios:\n2\. Suma \(suma\): Suma dos enteros\n"""\nprint\(1 \+ 2\)\n"""/);
+  await page.goto((await view({ topic: TOPIC, part: "p2" })).structuredContent.url);
+  assert.equal(await page.locator("fieldset.exercise-box").count(), 0, "a part without exercises draws no box");
+  assert.equal(await page.getByText("Ejercicios (código o respuesta)").count(), 0);
   await shutdown();
 });
 

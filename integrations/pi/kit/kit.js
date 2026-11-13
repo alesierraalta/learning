@@ -273,9 +273,14 @@
       box.append(confidence); boxes.set(q.id, box); form.append(box);
     }
     const ownWords = textField('Vuelco con tus palabras (opcional)', 'ownWords');
-    const exercises = textField('Ejercicios (opcional)', 'exercises');
+    // Each of the part's own exercises gets a box under its statement; a part without exercises gets none.
+    const exercises = (data.exercises || []).map((ex, index) => {
+      const box = el('fieldset', undefined, { class: 'lk-question lk-exercise' });
+      box.append(el('legend', `${index + 1}. ${ex.enunciado}`), textField('Tu respuesta (opcional)', `exercise-${ex.id}`));
+      return { id: ex.id, box };
+    });
     const submit = el('button', 'Enviar al tutor', { type: 'submit' });
-    form.append(ownWords, exercises, submit, out); this.append(form);
+    form.append(ownWords, ...exercises.map(({ box }) => box), submit, out); this.append(form);
     function showResults(graded) {
       for (const r of graded.results || []) {
         const box = boxes.get(r.id); if (!box) continue;
@@ -300,7 +305,8 @@
         form.elements[`${q.id}-razonamiento`].value = thought;
         for (const input of boxes.get(q.id).querySelectorAll('input')) if (input.name === `${q.id}-confianza`) input.checked = input.value === reasoning.confianza;
       }
-      form.elements.ownWords.value = a.ownWords || ''; form.elements.exercises.value = a.exercises || '';
+      form.elements.ownWords.value = a.ownWords || '';
+      for (const { id, box } of exercises) box.querySelector('textarea').value = a.exercises?.[id] || '';
       showResults(a);
     }
     if (data.verdicts != null) {
@@ -324,7 +330,13 @@
       submit.disabled = true;
       try {
         const payload = { kind: 'mini-quiz', answers, reasoning };
-        for (const key of ['ownWords', 'exercises']) if (form.elements[key].value.trim()) payload[key] = form.elements[key].value.trim();
+        if (form.elements.ownWords.value.trim()) payload.ownWords = form.elements.ownWords.value.trim();
+        const exerciseAnswers = {};
+        for (const { id, box } of exercises) {
+          const text = box.querySelector('textarea').value.trim();
+          if (text) exerciseAnswers[id] = text;
+        }
+        if (Object.keys(exerciseAnswers).length) payload.exercises = exerciseAnswers;
         const graded = await post(payload);
         showResults(graded);
         notifyStudio(graded);
