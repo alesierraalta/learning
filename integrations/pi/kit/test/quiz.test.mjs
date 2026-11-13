@@ -141,3 +141,67 @@ test('a reload checks the letter the learner picked and grades it in that letter
   assert.equal(await page.locator('input[name="q1"][value="B"]').isDisabled(), true);
   assert.match(await page.locator('fieldset.lk-question').first().textContent(), /Elegiste B; correcta: C/);
 });
+
+// #276: an inline checkpoint carries no key. The element draws what the page serves and the bridge grades the pick.
+const CHECKPOINT = { id: 'qq-1', pregunta: '¿Qué identifica una clave?', opciones: { A: 'b', B: 'a', C: 'c', D: 'd', E: 'No sé' } };
+const GRADED_CHECKPOINT = { id: 'qq-1', chosen: 'B', correct: 'C', ok: false, explicacion: 'Apunta a la clave de otra tabla.' };
+
+// The page a served note gives the element: the JSON holds no key, and the bridge config names the route that grades.
+async function openCheckpoint(t, graded = GRADED_CHECKPOINT, status = 200) {
+  const browser = await PLAYWRIGHT.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const submitted = [];
+  await page.route(`${ORIGIN}**`, async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/submit') {
+      submitted.push(route.request().postDataJSON());
+      return route.fulfill({ status, json: graded });
+    }
+    if (path === '/kit.js') return route.fulfill({ contentType: 'text/javascript; charset=utf-8', body: readFileSync(join(KIT, 'kit.js'), 'utf8') });
+    if (path === '/dictate.js') return route.fulfill({ contentType: 'text/javascript; charset=utf-8', body: readFileSync(join(KIT, 'dictate.js'), 'utf8') });
+    return route.fulfill({
+      contentType: 'text/html; charset=utf-8',
+      body: '<!doctype html><html lang="es"><head><meta charset="utf-8"></head><body><main>'
+        + `<lk-quick-quiz point="1. Por qué existe" categoria="conceptual"><script type="application/json">${JSON.stringify(CHECKPOINT)}</script></lk-quick-quiz>`
+        + '</main>'
+        + '<script>window.LEARNING_BRIDGE={submitUrl:"/submit",topic:"sql-demo",part:"p1"}</script>'
+        + '<script src="/dictate.js"></script><script src="/kit.js"></script></body></html>',
+    });
+  });
+  await page.goto(ORIGIN);
+  await page.waitForSelector('lk-quick-quiz form');
+  return { page, submitted };
+}
+
+test('a quick checkpoint draws the options as served and sends its id and the letter picked (#276)', { skip: SKIP }, async (t) => {
+  const { page, submitted } = await openCheckpoint(t);
+  assert.deepEqual(await page.locator('label.lk-option').allTextContents(), ['A. b', 'B. a', 'C. c', 'D. d', 'E. No sé']);
+  await page.locator('input[value="B"]').check();
+  const [response] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/submit')),
+    page.getByRole('button', { name: 'Comprobar respuesta' }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  assert.deepEqual(submitted[0], { kind: 'quick-quiz', topic: 'sql-demo', part: 'p1', id: 'qq-1', chosen: 'B' });
+});
+
+test('a quick checkpoint shows the verdict and the explanation the bridge sends (#276)', { skip: SKIP }, async (t) => {
+  const { page } = await openCheckpoint(t);
+  await page.locator('input[value="B"]').check();
+  await page.getByRole('button', { name: 'Comprobar respuesta' }).click();
+  const result = page.locator('.lk-qq-result');
+  await result.filter({ hasText: 'Incorrecto' }).waitFor();
+  assert.match(await result.textContent(), /Elegiste B; la correcta es C\./);
+  assert.match(await result.textContent(), /Apunta a la clave de otra tabla\./);
+  assert.equal(await page.locator('input[value="B"]').isDisabled(), true, 'an answered checkpoint is not answered twice');
+});
+
+test('a checkpoint the bridge refuses says so and lets the learner try again (#276)', { skip: SKIP }, async (t) => {
+  const { page } = await openCheckpoint(t, { error: 'Ya respondiste este punto de la explicación.' }, 409);
+  await page.locator('input[value="B"]').check();
+  await page.getByRole('button', { name: 'Comprobar respuesta' }).click();
+  await page.locator('.lk-qq-result').filter({ hasText: 'Ya respondiste' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Comprobar respuesta' }).isDisabled(), false);
+  assert.equal(await page.locator('input[value="B"]').isEnabled(), true);
+});

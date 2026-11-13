@@ -30,7 +30,9 @@
   async function post(payload) {
     const b = config(), reason = unreachable();
     if (reason) throw new Error(reason);
-    const response = await fetch(b.submitUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ topic: b.topic, part: b.part, ...payload }) });
+    // A quick note names its own note; a part names itself: each route checks the page it answers for (#276).
+    const body = { topic: b.topic, ...(b.part ? { part: b.part } : {}), ...(b.note ? { note: b.note } : {}), ...payload };
+    const response = await fetch(b.submitUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
@@ -368,12 +370,14 @@
     legend.append(tagLabel, document.createElement('br'), document.createTextNode(spec.pregunta || spec.enunciado || ''));
     box.append(legend);
 
-    const qId = spec.id || `qq-${Math.random().toString(36).slice(2, 8)}`;
+    // #276: the options come in the learner's order and the key never comes at all, so the bridge grades the pick.
+    const qId = spec.id || '';
+    const name = qId || 'lk-quick-quiz';
     const options = spec.opciones || spec.options || {};
     for (const [letter, text] of Object.entries(options)) {
       const label = el('label', undefined, { class: 'lk-option' });
       label.append(
-        el('input', undefined, { type: 'radio', name: qId, value: letter, required: '' }),
+        el('input', undefined, { type: 'radio', name, value: letter, required: '' }),
         el('span', `${letter}. ${text}`)
       );
       box.append(label);
@@ -384,52 +388,56 @@
     form.append(box, submit, resultBox);
     this.append(form);
 
-    form.addEventListener('submit', async event => {
-      event.preventDefault();
-      const chosen = form.elements[qId]?.value;
-      if (!chosen) return;
-      submit.disabled = true;
-      form.querySelectorAll('input').forEach(i => { i.disabled = true; });
-
-      const correcta = spec.correcta || spec.correct || spec.answer || '';
-      const ok = chosen.toUpperCase() === correcta.toUpperCase();
-      const explicacion = spec.explicacion || spec.explanation || '';
-      const por_que = ok ? (explicacion ? `Acierto: ${explicacion}` : 'Respuesta correcta.') : `Fallo (eligió ${chosen}, correcta: ${correcta}): ${explicacion || 'No consolidó el concepto.'}`;
-
+    // The verdict, the right letter and the explanation are the bridge's reply, never the page's own data.
+    function show(graded) {
+      const ok = Boolean(graded.ok);
+      const said = graded.explicacion || '';
       resultBox.hidden = false;
       resultBox.className = `lk-qq-result ${ok ? 'lk-correct' : 'lk-error'}`;
       resultBox.textContent = ok
-        ? `✔ ¡Correcto! ${explicacion}`
-        : `✘ Incorrecto. Elegiste ${chosen}; la correcta es ${correcta}. ${explicacion}`;
+        ? `✔ ¡Correcto! ${said}`.trim()
+        : `✘ Incorrecto. Elegiste ${graded.chosen}; la correcta es ${graded.correct}. ${said}`.trim();
+      return ok;
+    }
 
-      const b = config();
-      const entry = {
-        id: qId,
-        punto: point || 'Punto explicable',
-        categoria: tag,
-        pregunta: spec.pregunta || spec.enunciado || '',
-        respuesta_alumno: chosen,
-        respuesta_correcta: correcta,
-        ok,
-        por_que,
-        timestamp: new Date().toISOString()
-      };
-
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({
-          type: 'learning:quick-quiz',
-          topic: b?.topic,
-          part: b?.part,
-          entry
-        }, '*');
-      }
-
-      if (b?.submitUrl) {
-        try {
-          await post({ kind: 'quick-quiz', entry });
-        } catch {
-          /* best effort delivery */
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const chosen = form.elements[name].value;
+      if (!chosen) return;
+      submit.disabled = true;
+      try {
+        const graded = await post({ kind: 'quick-quiz', id: qId, chosen });
+        const ok = show(graded);
+        form.querySelectorAll('input').forEach(i => { i.disabled = true; });
+        const b = config();
+        const por_que = ok
+          ? (graded.explicacion ? `Acierto: ${graded.explicacion}` : 'Acierto')
+          : `Fallo (eligió ${graded.chosen}, correcta: ${graded.correct}): ${graded.explicacion || 'No consolidó el concepto.'}`;
+        const entry = {
+          id: graded.id || qId,
+          punto: point || 'Punto explicable',
+          categoria: tag,
+          pregunta: spec.pregunta || spec.enunciado || '',
+          respuesta_alumno: graded.chosen,
+          respuesta_correcta: graded.correct,
+          ok,
+          por_que,
+          timestamp: new Date().toISOString()
+        };
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({
+            type: 'learning:quick-quiz',
+            topic: b?.topic,
+            part: b?.part,
+            entry
+          }, '*');
         }
+      } catch (e) {
+        // Refused or unreachable: the learner keeps the question and can try again.
+        resultBox.hidden = false;
+        resultBox.className = 'lk-qq-result lk-error';
+        resultBox.textContent = e.message;
+        submit.disabled = false;
       }
     });
   });

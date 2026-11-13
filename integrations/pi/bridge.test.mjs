@@ -1795,23 +1795,211 @@ test("a question to the tutor is sent with its context and writes no file", asyn
   await shutdown();
 });
 
-test("quick-quiz submit records telemetry and delivers notification to chat", async () => {
-  const { view, root, host, shutdown } = await setup();
-  const url = base(await view({}));
-  const res = await submit(url, {
-    kind: "quick-quiz",
-    topic: TOPIC,
-    part: "p1",
-    entry: {
-      punto: "1. Por qué existe",
-      pregunta: "¿Qué problema resuelve la PK?",
-      respuesta_alumno: "B",
-      respuesta_correcta: "B",
-      ok: true,
-      categoria: "conceptual",
-      por_que: "Acierto: identifica unicidad",
-    },
-  });
+// #276: an inline checkpoint's key stays with the bridge. The page draws its options in the learner's order with no
+// answer and no explanation; the answer is graded on the server, as the mini-quiz is (#272).
+const CHECKPOINTS = [
+  { pregunta: "¿Qué identifica una clave?", correcta: "B", explicacion: "La clave identifica cada fila." },
+  { pregunta: "¿Qué apunta una clave foránea?", correcta: "C", explicacion: "Apunta a la clave de otra tabla." },
+];
+const checkpointBlock = ({ pregunta, correcta, explicacion }) =>
+  `<lk-quick-quiz point="1. Por qué existe" tag="conceptual">\n<script type="application/json">\n${JSON.stringify({ pregunta, opciones: TUTOR, correcta, explicacion })}\n</script>\n</lk-quick-quiz>`;
+const CHECKPOINT_NOTE = `# Parte 1 — Claves\n\nUna **clave** identifica.\n\n${CHECKPOINTS.map(checkpointBlock).join("\n\n")}\n`;
+/** The checkpoints a page carries, each as its element serves its JSON. */
+const checkpointsOf = (text) =>
+  [...text.matchAll(/<lk-quick-quiz\b[^>]*>\s*<script type="application\/json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
+/** The Markdown a reader page carries, JSON-escaped in its view data. */
+const readerMarkdown = (html) => pageData(html).markdown;
+/** The letter a learner sees for one of the tutor's, in a served checkpoint. */
+const shownIn = (spec, tutorLetter) => shownLetter({ options: spec.opciones }, tutorLetter);
+
+test("a quick checkpoint's key never reaches the reader or the file route (#276)", async () => {
+  const { topic, view, shutdown } = await setup(LEARNER);
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.md"), CHECKPOINT_NOTE);
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const reader = await http(result.structuredContent.url);
+  assert.equal(reader.status, 200, reader.body);
+  const served = checkpointsOf(readerMarkdown(reader.body));
+  assert.equal(served.length, CHECKPOINTS.length, "every checkpoint is drawn");
+  for (const spec of served) assert.deepEqual(Object.keys(spec).sort(), ["id", "opciones", "pregunta"], "only the question reaches the page");
+  for (const text of ['"correcta"', '"explicacion"', "identifica cada fila", "Apunta a la clave"]) {
+    assert.equal(reader.body.includes(text), false, `the page carries «${text}»`);
+  }
+  const file = await http(`${base(result)}${TOPIC}/file/explicaciones/Parte%201%20-%20Claves.md`);
+  assert.equal(file.status, 404, "the note is not served raw: its key is in the file");
+  await shutdown();
+});
+
+test("a quick checkpoint's options come in the learner's order, «No sé» last, stable on reload and per learner (#276)", async () => {
+  const { root, topic, view, shutdown } = await setup(LEARNER);
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.md"), CHECKPOINT_NOTE);
+  const draw = async (bridge) => checkpointsOf(readerMarkdown((await http((await bridge.view({ topic: TOPIC, part: "p1" })).structuredContent.url)).body));
+  const first = await draw({ view });
+  assert.equal(first.length, CHECKPOINTS.length);
+  for (const spec of first) {
+    assert.deepEqual(Object.keys(spec.opciones), ["A", "B", "C", "D", "E"]);
+    assert.equal(spec.opciones.E, "No sé", "«No sé» stays last");
+    assert.deepEqual(Object.values(spec.opciones).sort(), Object.values(TUTOR).sort(), "the tutor's options, in another order");
+  }
+  assert.ok(first.some((spec) => Object.values(spec.opciones).join("|") !== Object.values(TUTOR).join("|")), "a checkpoint is drawn in another order");
+  assert.deepEqual(await draw({ view }), first, "a reload draws the same order");
+  const other = await openBridge(root, { tokenSeed: "cd".repeat(32) });
+  assert.notDeepEqual(await draw(other), first, "another learner draws another order");
+  await other.shutdown();
+  await shutdown();
+});
+
+test("a quick checkpoint grades a right and a wrong answer on the server, in the letters the learner sees (#276)", async () => {
+  const { root, topic, host, view, shutdown } = await setup(LEARNER);
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.md"), CHECKPOINT_NOTE);
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const url = base(result);
+  const [first, second] = checkpointsOf(readerMarkdown((await http(result.structuredContent.url)).body));
+  const answer = (id, spec, tutor) => submit(url, { kind: "quick-quiz", topic: TOPIC, part: "p1", id, chosen: shownIn(spec, tutor) });
+  const right = await answer("qq-1", first, "B");
+  assert.equal(right.status, 200, right.body);
+  const won = JSON.parse(right.body);
+  assert.equal(won.ok, true);
+  assert.equal(won.chosen, shownIn(first, "B"));
+  assert.equal(won.correct, shownIn(first, "B"), "the right letter is the one the learner sees");
+  assert.equal(won.explicacion, CHECKPOINTS[0].explicacion);
+  const lost = JSON.parse((await answer("qq-2", second, "A")).body);
+  assert.equal(lost.ok, false);
+  assert.equal(lost.chosen, shownIn(second, "A"));
+  assert.equal(lost.correct, shownIn(second, "C"));
+  assert.equal(lost.explicacion, CHECKPOINTS[1].explicacion);
+  assert.equal(host.sent.length, 2);
+  assert.ok(host.sent[0].content.includes(`Resultado: ✔ Correcto (Eligió: ${shownIn(first, "B")} «b», Correcta: ${shownIn(first, "B")} «b»)`), host.sent[0].content);
+  assert.ok(host.sent[1].content.includes(`Resultado: ✘ Incorrecto (Eligió: ${shownIn(second, "A")} «a», Correcta: ${shownIn(second, "C")} «c»)`), host.sent[1].content);
+  assert.deepEqual(JSON.parse(stored(root, `telemetria/${TOPIC}`)).quizzes.map((e) => [e.ok, e.respuesta_alumno, e.respuesta_correcta]), [
+    [true, shownIn(first, "B"), shownIn(first, "B")],
+    [false, shownIn(second, "A"), shownIn(second, "C")],
+  ], "the telemetry keeps the letters the learner saw");
+  // The client cannot send its own verdict; an unknown checkpoint or option is refused and records nothing.
+  const forged = await submit(url, { kind: "quick-quiz", topic: TOPIC, part: "p1", id: "qq-1", chosen: shownIn(first, "B"), ok: true });
+  assert.equal(forged.status, 400, forged.body);
+  assert.equal((await answer("qq-9", first, "B")).status, 404);
+  assert.equal((await submit(url, { kind: "quick-quiz", topic: TOPIC, part: "p1", id: "qq-1", chosen: "F" })).status, 400);
+  assert.equal(host.sent.length, 2, "refused answers send nothing to the chat");
+  assert.equal(JSON.parse(stored(root, `telemetria/${TOPIC}`)).quizzes.length, 2, "refused answers record nothing");
+  await shutdown();
+});
+
+test("a quick checkpoint in a quick note is served without its key and graded through its own note (#276)", async () => {
+  const { root, view, shutdown } = await setup(LEARNER);
+  mkdirSync(join(root, "rapidos"), { recursive: true });
+  writeFileSync(join(root, "rapidos", "lstm.md"), `# LSTM\n\nLa celda guarda estado.\n\n${checkpointBlock(CHECKPOINTS[0])}\n`);
+  const site = base(await view({}));
+  const page = await http(`${site}rapidos/lstm`);
+  assert.equal(page.status, 200, page.body);
+  const [spec] = checkpointsOf(readerMarkdown(page.body));
+  assert.deepEqual(Object.keys(spec).sort(), ["id", "opciones", "pregunta"]);
+  assert.equal(page.body.includes("identifica cada fila"), false, "the quick note carries no explanation");
+  const won = await submit(site, { kind: "quick-quiz", topic: "rapidos", note: "lstm", id: "qq-1", chosen: shownIn(spec, "B") });
+  assert.equal(won.status, 200, won.body);
+  assert.equal(JSON.parse(won.body).ok, true);
+  const unnamed = await submit(site, { kind: "quick-quiz", topic: "rapidos", id: "qq-1", chosen: "A" });
+  assert.equal(unnamed.status, 400, "a quick note's answer names its note");
+  await shutdown();
+});
+
+test("a quick checkpoint on a rich page keeps its element and loses its key (#276)", async () => {
+  const { topic, view, shutdown } = await setup(LEARNER);
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), QUALIFYING_PAGE.replace("</body>", `${checkpointBlock(CHECKPOINTS[0])}\n</body>`));
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const kitPage = await http(result.structuredContent.url);
+  assert.equal(kitPage.status, 200, kitPage.body);
+  assert.ok(kitPage.body.includes("window.LEARNING_BRIDGE"), "the rich page is the one served");
+  const [spec] = checkpointsOf(kitPage.body);
+  assert.deepEqual(Object.keys(spec).sort(), ["id", "opciones", "pregunta"]);
+  assert.deepEqual(Object.keys(spec.opciones), ["A", "B", "C", "D", "E"], "the options keep their letters");
+  assert.equal(spec.opciones.E, "No sé", "«No sé» stays last");
+  assert.equal(kitPage.body.includes("identifica cada fila"), false, "the kit page carries no explanation");
+  assert.equal(kitPage.body.includes('"correcta"'), false, "the kit page carries no key");
+  const won = await submit(base(result), { kind: "quick-quiz", topic: TOPIC, part: "p1", id: "qq-1", chosen: shownIn(spec, "B") });
+  assert.equal(JSON.parse(won.body).ok, true);
+  const lost = await submit(base(result), { kind: "quick-quiz", topic: TOPIC, part: "p1", id: "qq-1", chosen: shownIn(spec, "A") });
+  assert.equal(lost.status, 409, "a checkpoint answers once");
+  await shutdown();
+});
+
+test("the kit page answers a quick checkpoint through the bridge and shows its verdict (#276)", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup(LEARNER);
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), QUALIFYING_PAGE.replace("</body>", `${checkpointBlock(CHECKPOINTS[1])}\n</body>`));
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const page = await http(url);
+  const [spec] = checkpointsOf(page.body);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const kitPage = await browser.newPage();
+  await kitPage.goto(url);
+  const card = kitPage.locator("lk-quick-quiz").first();
+  await card.locator("form").waitFor();
+  assert.deepEqual(await card.locator("label.lk-option").allTextContents(), Object.entries(spec.opciones).map(([letter, text]) => `${letter}. ${text}`));
+  await card.locator(`input[value="${shownIn(spec, "A")}"]`).check();
+  const [response] = await Promise.all([
+    kitPage.waitForResponse((r) => r.url().endsWith("/submit")),
+    card.getByRole("button", { name: "Comprobar respuesta" }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  await card.locator(".lk-qq-result").filter({ hasText: "Incorrecto" }).waitFor();
+  const said = await card.locator(".lk-qq-result").textContent();
+  assert.ok(said.includes(CHECKPOINTS[1].explicacion), said);
+  assert.ok(said.includes(`la correcta es ${shownIn(spec, "C")}`), said);
+  await shutdown();
+});
+
+test("the reader answers a quick checkpoint in a quick note, which names its own note (#276)", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { root, view, shutdown } = await setup(LEARNER);
+  mkdirSync(join(root, "rapidos"), { recursive: true });
+  writeFileSync(join(root, "rapidos", "lstm.md"), `# LSTM\n\nLa celda guarda estado.\n\n${checkpointBlock(CHECKPOINTS[0])}\n`);
+  const url = `${base(await view({}))}rapidos/lstm`;
+  const [spec] = checkpointsOf(readerMarkdown((await http(url)).body));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const reader = await browser.newPage();
+  await reader.goto(url);
+  const card = reader.locator("lk-quick-quiz").first();
+  await card.locator("form").waitFor();
+  await card.locator(`input[value="${shownIn(spec, "B")}"]`).check();
+  const [response] = await Promise.all([
+    reader.waitForResponse((r) => r.url().endsWith("/submit")),
+    card.getByRole("button", { name: "Comprobar respuesta" }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  await card.locator(".lk-qq-result").filter({ hasText: "Correcto" }).waitFor();
+  assert.ok((await card.locator(".lk-qq-result").textContent()).includes(CHECKPOINTS[0].explicacion));
+  await shutdown();
+});
+
+test("the reader draws a quick checkpoint in the learner's order and shows the server's verdict (#276)", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup(LEARNER);
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.md"), CHECKPOINT_NOTE);
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const [spec] = checkpointsOf(readerMarkdown((await http(url)).body));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const reader = await browser.newPage();
+  await reader.goto(url);
+  const card = reader.locator("lk-quick-quiz").first();
+  await card.locator("form").waitFor();
+  assert.deepEqual(await card.locator("label.lk-option").allTextContents(), Object.entries(spec.opciones).map(([letter, text]) => `${letter}. ${text}`));
+  await card.locator(`input[value="${shownIn(spec, "C")}"]`).check();
+  const [response] = await Promise.all([
+    reader.waitForResponse((r) => r.url().endsWith("/submit")),
+    card.getByRole("button", { name: "Comprobar respuesta" }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  await card.locator(".lk-qq-result").filter({ hasText: "Incorrecto" }).waitFor();
+  assert.ok((await card.textContent()).includes(CHECKPOINTS[0].explicacion));
+  await shutdown();
+});
+
+test("a quick checkpoint answer is recorded as telemetry and delivered to the chat (#276)", async () => {
+  const { view, root, topic, host, shutdown } = await setup(LEARNER);
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.md"), CHECKPOINT_NOTE);
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const [spec] = checkpointsOf(readerMarkdown((await http(result.structuredContent.url)).body));
+  const res = await submit(base(result), { kind: "quick-quiz", topic: TOPIC, part: "p1", id: "qq-1", chosen: shownIn(spec, "B") });
   assert.equal(res.status, 200, res.body);
   assert.ok(host.sent[0].content.includes("[Vista HTML · sql-demo · p1 · quiz rápido · 1. Por qué existe]"));
   assert.ok(host.sent[0].content.includes("✔ Correcto"));

@@ -445,9 +445,16 @@ answers retain their old explanation when no `razonamiento` is present.
 
 `lk-quick-quiz` embeds an inline checkpoint within each section/point of the explanation.
 It takes attributes `point="<section title>"` and `categoria="<category>"` (or `tag="<category>"`, e.g. `matematicas`, `conceptual`, `terminologia`, `gramatica`, `fisiologia`, `finanzas`, `cronologia`, etc.) with an
-inner JSON script holding `{id, pregunta, opciones, correcta, explicacion}`. When answered, it grades
-instantly in-page and reports telemetry (verdict, correct/wrong, and the explanation why) to the parent
-studio and the bridge backend (`telemetria.json`), feeding the tutor's adaptive model across any discipline.
+inner JSON script holding `{id, pregunta, opciones, correcta, explicacion}`; `id` may be left out, because the
+bridge gives each checkpoint one when it serves the page. The key stays with the tutor: the page is served with
+`correcta` and `explicacion` removed and the options in the learner's own order — the mini-quiz's seeded scheme,
+«No sé» last, the same order on every reload (#272/#276). Answering posts `{kind:"quick-quiz", id, chosen}` to
+`submit` (a quick note also names its `note`), and the bridge grades it, replies with the verdict, the right letter
+and the explanation, records telemetry (`telemetria.json`) and delivers the result to the chat, feeding the tutor's
+adaptive model across any discipline. The element draws what it is served: it never grades on its own. A checkpoint
+is answered once; its answers file is `explicaciones/Parte N - <slug>.qq.answers.json` for a part and
+`rapidos/<nota>.answers.json` for a quick note. The file route serves neither a note nor a tutor page (demos excepted):
+both carry the key (#276).
 
 `lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
 the learner drains what they are thinking, typed or dictated with the microphone button — and
