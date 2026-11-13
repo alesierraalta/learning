@@ -18,6 +18,18 @@ Set `STUDIO_AGENT_DISABLED=1` to browse without starting Pi. Tutor requests,
 restarts and regeneration return 503. This option is not a security sandbox:
 use separate credentials, data and process isolation for untrusted previews.
 
+**A studio nobody has open closes itself.** One studio per worktree, each with its
+own `pi --mode rpc` child, used to live until someone killed it: a laptop with a
+dozen worktrees carried a dozen studios and their Pi processes (#183). Now, after
+`STUDIO_IDLE_MINUTES` (default **30**) with no page open — no `/events` client — the
+studio closes its Pi, saves the conversation and exits 0. It never closes while a
+turn is in flight or while `busy.json` names one: the tutor's work outlives a
+closed page. A connected page keeps the studio open, and the window starts over
+when the last page leaves. `STUDIO_IDLE_MINUTES=0` turns it off. A deployed studio
+(`STUDIO_PUBLIC_ORIGIN` set) is off unless `STUDIO_IDLE_MINUTES` is set, because a
+service has its own uptime rules; fractional values are minutes, so `0.5` is 30
+seconds.
+
 ## Configuración › Preferencias
 
 The header opens the preferences page, where each aspect has a menos, medio or más
@@ -381,6 +393,11 @@ token (`$XDG_STATE_HOME/learning-studio/`):
   (`{version, chat, messages, interrupted}`). Se escribe al aceptar el turno, cada vez que
   llega un mensaje del alumno o del tutor, y otra vez al cerrar el proceso (SIGTERM). Si el
   runtime pierde su sesión, el chat se abre con esta copia en vez de quedar vacío.
+
+El marcador también decide cuándo un estudio local puede irse. Sin ninguna pestaña abierta,
+un estudio se cierra solo pasado `STUDIO_IDLE_MINUTES` (30 por defecto; ver «Start»), pero
+nunca mientras `busy.json` nombre un turno vivo: el marcador es la misma señal que un
+despliegue lee antes de reiniciar, y una página abierta la mantiene despierta.
 
 Un turno que no llegó a terminar queda marcado (`interrupted: {topic, at}`) porque el
 proceso que lo sostenía desapareció. Al arrancar, el chat lo dice en español y ofrece el
