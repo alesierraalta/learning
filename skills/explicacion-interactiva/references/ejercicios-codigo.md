@@ -33,7 +33,7 @@ Para temas de programación (laboratorios, algoritmos, estructuras de datos, cua
 - `lenguaje`: una clave de `~/documents/learning/integrations/pi/runners.json` (hoy `python`, `c`, `cpp`, `java`, `javascript`). Java: la clase pública se llama `Main` (archivo `Main.java`).
 - Un lenguaje nuevo se agrega como una entrada en `runners.json` (`image`, `file`, `compile?`, `run`) + `learning code setup <lenguaje>`; no hace falta tocar código.
 - Las pruebas son de **entrada estándar → salida estándar**, como en los jueces en línea. Se ignoran los espacios al final de línea, las líneas vacías del final y CRLF; todo lo demás debe coincidir exacto, así que el enunciado fija el formato de salida con un ejemplo.
-- `parte` (opcional) enlaza el ejercicio a una parte del plan: aparece en la página de esa parte.
+- `parte` (opcional) enlaza el ejercicio a una parte del plan: aparece en la página de esa parte y en su mini-quiz, encima de una caja de respuesta numerada; un ejercicio de una parte siempre lleva su `enunciado`.
 
 ## Cómo diseñar las pruebas
 

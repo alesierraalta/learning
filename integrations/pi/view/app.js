@@ -316,7 +316,15 @@
     if (recorded.size) showScore(form, `${[...recorded.values()].filter((r) => r.ok).length}/${recorded.size}`);
     if (pending.length) {
       const ownWords = !diagnosis && textarea(form, "Vuelco con tus palabras");
-      const exercises = !diagnosis && textarea(form, "Ejercicios (código o respuesta)");
+      // Each of the part's own exercises gets a box under its statement; a part without exercises gets none.
+      const exercises = (data.quiz.exercises || []).map((exercise, index) => {
+        const box = element("fieldset", undefined, "quiz-question exercise-box");
+        const legend = element("legend");
+        legend.append(document.createTextNode(`${index + 1}. `), markdown(exercise.enunciado, true));
+        box.append(legend);
+        form.append(box);
+        return { id: exercise.id, input: textarea(box, "Tu respuesta (opcional)") };
+      });
       const button = element("button", "Enviar al tutor");
       button.type = "submit";
       const message = status();
@@ -351,7 +359,8 @@
         if (!diagnosis) {
           payload.part = data.part;
           if (ownWords.value.trim()) payload.ownWords = ownWords.value.trim();
-          if (exercises.value.trim()) payload.exercises = exercises.value.trim();
+          const exerciseAnswers = Object.fromEntries(exercises.filter(({ input }) => input.value.trim()).map(({ id, input }) => [id, input.value.trim()]));
+          if (Object.keys(exerciseAnswers).length) payload.exercises = exerciseAnswers;
         }
         button.disabled = true;
         message.textContent = "Enviando…";

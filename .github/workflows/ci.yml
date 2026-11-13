@@ -86,8 +86,10 @@ jobs:
 
       - name: Adapter, studio, video and audio suites
         run: |
-          node --test integrations/pi/*.test.mjs studio/*.test.mjs \
-            tools/video/test/*.test.mjs tools/visuals/test/*.test.mjs tools/audio/test/*.test.mjs \
+          node --test integrations/pi/*.test.mjs \
+            integrations/pi/kit/test/*.test.mjs studio/*.test.mjs \
+            tools/video/test/*.test.mjs tools/visuals/test/*.test.mjs \
+            tools/audio/test/*.test.mjs \
             tools/test/relink-index.test.mjs
 
   # A broken deploy script only shows up when it runs, which for update.sh is
