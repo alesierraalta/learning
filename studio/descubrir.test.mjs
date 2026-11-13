@@ -40,14 +40,14 @@ test("a category with three answers and two wrong becomes an aspect", () => {
 
   const preferences = descubrir(dir);
 
-  assert.equal(preferences.aspectos.length, 8);
+  assert.equal(preferences.aspectos.length, 10);
   const found = preferences.aspectos.at(-1);
   assert.equal(found.id, "derivadas");
   assert.equal(found.origen, "telemetria");
   assert.equal(found.nivel, "más");
   assert.deepEqual(found.evidencia, { respuestas: 3, aciertos: 1 });
-  // The seven shipped aspects are still there, untouched.
-  assert.equal(readPreferences(dir).aspectos.slice(0, 7).length, 7);
+  // The nine shipped aspects are still there, untouched.
+  assert.equal(readPreferences(dir).aspectos.slice(0, 9).length, 9);
 });
 
 test("two answers, or seven in ten right, discover nothing", () => {
@@ -58,19 +58,19 @@ test("two answers, or seven in ten right, discover nothing", () => {
   });
 
   assert.deepEqual(candidatos(readGlobalTelemetry(dir)), []);
-  assert.equal(descubrir(dir).aspectos.length, 7);
+  assert.equal(descubrir(dir).aspectos.length, 9);
 });
 
-test("discovering twice does not stack, and forgetting restores the seven", () => {
+test("discovering twice does not stack, and forgetting restores the nine", () => {
   const dir = root();
   telemetry(dir, { derivadas: { total: 4, aciertos: 1, fallos: 3 } });
 
   descubrir(dir);
   const twice = descubrir(dir);
-  assert.equal(twice.aspectos.length, 8);
+  assert.equal(twice.aspectos.length, 10);
 
   const back = olvidar(dir, "derivadas");
-  assert.equal(back.aspectos.length, 7);
+  assert.equal(back.aspectos.length, 9);
   assert.equal(back.aspectos.some((a) => a.id === "derivadas"), false);
   // The learner's own levels survived both moves.
   assert.equal(back.aspectos.find((a) => a.id === "texto").nivel, "menos");
@@ -83,8 +83,8 @@ test("a removed aspect does not come back while the counts still say so", () => 
   const removed = olvidar(dir, "derivadas");
   assert.deepEqual(removed.rechazados, ["derivadas"]);
   // The learner said no: the same evidence must not undo that on the next run.
-  assert.equal(descubrir(dir).aspectos.length, 7);
-  assert.equal(readPreferences(dir).aspectos.length, 7);
+  assert.equal(descubrir(dir).aspectos.length, 9);
+  assert.equal(readPreferences(dir).aspectos.length, 9);
 });
 
 test("a hand-edited refusal list that is not a list of ids is refused", () => {

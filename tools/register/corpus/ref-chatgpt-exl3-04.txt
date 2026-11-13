@@ -1,0 +1,33 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+La distribución publicada es: Hugging Face
+En porcentajes:
+Visualmente:
+Casi la mitad puede comprimirse agresivamente a K2.
+Solo aproximadamente **1 de cada 9 expertos** recibe el costoso K5.
+Ese es el truco económico de toda la mezcla.
+Ahora usamos simplemente una media ponderada.
+Cada grupo aporta:
+Dividimos por los 15.360 expertos:
+Así que el **payload Trellis puro** queda en aproximadamente:
+**2,758 bits/peso**
+No 2,77 todavía.
+Y aquí aparece un detalle interesante.
+EXL3 no almacena solamente los bits del camino Trellis.
+También necesita una pequeña cantidad de metadatos para reconstruir las matrices, principalmente los vectores relacionados con las transformaciones Hadamard/signos (`suh` y `svh`), además del identificador del codebook. El código oficial muestra explícitamente `trellis`, `suh`, `svh` y el marcador del codebook entre los componentes de una matriz EXL3. GitHub
+En este DeepSeek:
+Una proyección de experto contiene aproximadamente:
+Pero sus dos vectores Hadamard/signo tienen:
+Si están almacenados como FP16:
+Distribuidos sobre los 11.796.480 pesos:
+Por tanto:
+Redondeado:
+
+```cuenta
+hidden_size            = 5120
+moe_intermediate_size  = 2304
+118.784 / 11.796.480
+≈
+0,01007 bits adicionales/peso
+```
+

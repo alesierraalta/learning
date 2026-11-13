@@ -1,0 +1,45 @@
+# fuente: https://aprenderust.dev/variables-y-mutabilidad
+
+Una variable es una caja con nombre. let puntos = 10; guarda un 10 en la caja puntos.
+Por defecto es inmutable: la caja está cerrada con candado. puntos = 20; no compila.
+Con mut quitas el candado: let mut puntos = 10; permite cambiar el valor. Ahora puntos = 20; funciona.
+Shadowing: let x = x + 1; crea una caja nueva con el mismo nombre que tapa a la anterior.
+Una variable es un nombre que le das a un valor para poder usarlo después. En Rust se declaran con let y tienen una particularidad que sorprende al principio: por defecto no se pueden modificar.
+No es un capricho. Si un valor no cambia, es más fácil razonar sobre el código y el compilador puede garantizar que nadie lo modifica a tus espaldas. Cuando necesites que cambie, lo dirás de forma explícita.
+No hace falta indicar el tipo: Rust lo infiere a partir del valor. Si quieres, puedes escribirlo tú después del nombre, separado por dos puntos:
+Verás los tipos con detalle en la siguiente lección.
+Nombres: Las variables se escriben en snake_case: minúsculas y palabras separadas por guiones bajos, como puntos_totales. Si usas camelCase, el compilador te avisará.
+Intenta cambiar el valor de una variable normal y el compilador se negará. Pulsa Ejecutar para ver el error:
+Fíjate en el help: del final: el propio compilador te dice cómo arreglarlo.
+Añade mut delante del nombre y la variable podrá cambiar de valor:
+puntos += 5 es la forma corta de escribir puntos = puntos + 5. También existen -=, *=, /= y %=.
+Ten en cuenta dos cosas:
+mut permite cambiar el valor, pero no el tipo: si la variable guarda un número, siempre guardará un número.
+Si marcas una variable como mut y nunca la modificas, el compilador te avisa con un warning: variable does not need to be mutable. Usa mut solo cuando lo necesites.
+Para valores fijos que no cambian nunca, como un límite o un dato de configuración, usa const:
+Las constantes se diferencian de las variables en varias cosas:
+Siempre son inmutables: no admiten mut.
+El tipo es obligatorio: no se infiere.
+Se escriben en MAYÚSCULAS_CON_GUIONES_BAJOS.
+Pueden declararse fuera de cualquier función, a nivel global.
+Su valor tiene que poder calcularse al compilar, como 60 * 60.
+Legibilidad: Puedes usar _ para separar las cifras de un número largo: 1_000_000 es lo mismo que 1000000, pero se lee mucho mejor.
+Puedes declarar una variable nueva con el mismo nombre que otra anterior. La nueva oculta a la anterior (en inglés, shadowing):
+Cada let crea una variable nueva que se calcula a partir de la anterior. El resultado es 12 y x sigue siendo inmutable: nadie puede cambiarla por error más abajo.
+La gran ventaja del shadowing es que la variable nueva puede tener otro tipo. Es muy útil cuando transformas un valor y no quieres inventar nombres como espacios_texto y espacios_numero:
+.len() devuelve la longitud del texto, así que espacios pasa de ser un texto a ser un número. Reasignando una variable mut esto no se puede hacer, porque con = el tipo no puede cambiar:
+Resumiendo las tres formas de dar nombre a un valor:
+Una variable solo existe dentro del bloque { } en el que se declara, desde su let hasta la llave de cierre. Ese tramo es su ámbito (scope):
+Dentro del bloque, el shadowing crea una x que vale 50. Al cerrar la llave esa x desaparece y vuelve a verse la original, que vale 5.
+Lo mismo le pasa a y: al salir del bloque deja de existir. Si intentas usar una variable fuera de su ámbito, el código no compila:
+Consejo: Si declaras una variable y no la usas, el compilador te avisa. Si es a propósito, empieza su nombre por guion bajo, como _temporal, y el aviso desaparece.
+Hora de practicar
+0/4 resueltos
+1
+2
+3
+4
+Reto 1 de 4 Resuelto
+Al ejecutar, unos tests ocultos comprueban tus funciones.
+Solución · solo lectura
+Pulsa Ejecutar para compilar y ver aquí la salida de tu programa.

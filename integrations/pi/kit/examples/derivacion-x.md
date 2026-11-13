@@ -6,9 +6,16 @@
 2. El 2 que pasa al otro lado.
 3. La cuenta y la respuesta.
 
+Imagina la ecuación x + 2 = 3.
+
+**Despejar**
+Es dejar la x sola en un lado de la ecuación.
+
+Antes, la x estaba junto al 2. Después, queda sola.
+
 Un ejercicio se resuelve mostrando la ecuación en cada paso.
 
-El término que cambia de lado viaja con una flecha que dice qué hace.
+El término que cambia de lado viaja con una flecha. La flecha dice qué hace.
 
 El último paso enmarca la respuesta.
 
@@ -48,7 +55,9 @@ El último paso enmarca la respuesta.
 </lk-story>
 Cómo leerlo: el paso 1 muestra la ecuación entera.
 
-El paso 2 dibuja el «2» donde estaba, en gris, y donde queda, en ámbar. La flecha dice que pasa restando.
+El paso 2 dibuja el «2» donde estaba, en gris. Donde queda, lo dibuja en ámbar.
+
+La flecha dice que pasa restando.
 
 El paso 3 marca los términos que se combinan y enmarca la respuesta.
 

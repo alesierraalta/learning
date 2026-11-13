@@ -88,6 +88,8 @@ test("the studio preamble points at the story language, and names the classic wa
     assert.match(prompt, /<lk-walkthrough> clásico no cuentan/);
     assert.match(prompt, /el motor rechaza la parte que no trae historia ni pieza/);
     assert.match(prompt, /explicacion-interactiva/);
+    assert.match(prompt, /técnico en el contenido, sencillo en la forma/);
+    assert.match(prompt, /se explica en palabras llanas donde aparece/);
   } finally {
     delete process.env.FAKE_AGY_TURNS;
   }

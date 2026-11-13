@@ -543,12 +543,21 @@ lk-story:fullscreen .lk-story-piece, lk-story:-webkit-full-screen .lk-story-piec
    propias reglas (`table`, `th`, `td`): aquí se anulan dentro de la pieza. */
 .lk-tables { max-width:44em; }
 .lk-tview { display:flex; flex-direction:column; align-items:center; gap:1em; }
-.lk-tjoin { position:relative; display:flex; align-items:flex-start; justify-content:center; width:100%; }
-.lk-tgutter { flex:0 1 6em; min-width:2.6em; }
-.lk-ttable { display:flex; flex-direction:column; gap:.4em; align-items:stretch; }
+/* #252: las tablas se apilan cuando las dos ya no caben lado a lado (la tabla origen encima de la destino, y
+   `placeTables` traza de nuevo sus conectores); una tabla más ancha que la columna se encoge y después se
+   desplaza dentro de su propio marco. */
+.lk-tjoin { position:relative; display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:center; column-gap:3.6em; row-gap:2.4em; width:100%; }
+.lk-ttable { display:flex; flex-direction:column; gap:.4em; align-items:stretch; min-width:0; max-width:100%; }
+.lk-tscroll { position:relative; min-width:0; }
+.lk-tframe { overflow-x:auto; overscroll-behavior-x:contain; border-radius:.55em; scrollbar-width:thin; scrollbar-color:var(--pt-slate-line) transparent; }
+.lk-tframe:focus-visible { outline:2px solid var(--pt-blue); outline-offset:3px; }
+.lk-tscroll[data-more~="end"]::after, .lk-tscroll[data-more~="start"]::before { content:""; position:absolute; top:0; bottom:0; width:1.8em; pointer-events:none; }
+.lk-tscroll[data-more~="end"]::after { right:0; background:linear-gradient(to right, transparent, var(--paper)); }
+.lk-tscroll[data-more~="start"]::before { left:0; background:linear-gradient(to left, transparent, var(--paper)); }
 .lk-tname { font-family:var(--mono, "DejaVu Sans Mono", Consolas, monospace); font-weight:700; text-align:center; font-size:.95em; }
 .lk-p table.lk-tgrid { display:table; width:auto; margin:0; overflow:visible; border-collapse:separate; border-spacing:0; font-family:var(--mono, "DejaVu Sans Mono", Consolas, monospace); font-size:.92em; border:1px solid var(--hair); border-radius:.55em; overflow:hidden; background:var(--pt-card); }
 .lk-p .lk-tgrid th, .lk-p .lk-tgrid td { font:inherit; line-height:1.4; padding:.5em .85em; border:0; border-bottom:1px solid var(--hair); text-align:left; vertical-align:middle; white-space:nowrap; background:transparent; }
+.lk-p .lk-tgrid td { white-space:normal; }
 .lk-tgrid tr:last-child td { border-bottom:0; }
 .lk-tgrid thead th { background:var(--pt-slate-bg); color:var(--pt-slate); font-size:1em; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
 .lk-tgrid thead th[data-key] { color:var(--pt-blue); }
@@ -564,7 +573,6 @@ lk-story:fullscreen .lk-story-piece, lk-story:-webkit-full-screen .lk-story-piec
 @container (max-width:420px) {
   .lk-p table.lk-tgrid { font-size:.9em; }
   .lk-p .lk-tgrid th, .lk-p .lk-tgrid td { padding:.45em .35em; }
-  .lk-tgutter { flex-basis:2.4em; min-width:2em; }
 }
 /* GROUP BY: filas originales → grupos con sus fichas y el conteo */
 .lk-tgroup { display:grid; grid-template-columns:minmax(0,1fr); gap:1em; align-items:start; }

@@ -7,9 +7,23 @@
 3. La dueña vieja deja de valer.
 4. Al acabar el ámbito, el valor se libera.
 
-Una idea con estado se cuenta con actores: cada variable es un robot con su nombre.
+Imagina que s1 guarda un texto.
 
-El valor viaja en un cofre. El robot que ya no vale se apaga, y el que usa algo inválido se tacha.
+**Valor**
+Es el dato que una variable guarda.
+
+**Ámbito**
+Es la zona de código donde una variable existe: entre sus llaves.
+
+Antes, s1 era la dueña. Después de mover, s2 es la dueña.
+
+S1 deja de valer.
+
+Una idea con estado se cuenta con actores. Cada variable es un robot con su nombre.
+
+El valor viaja en un cofre.
+
+El robot que ya no vale se apaga. El que usa algo inválido se tacha.
 
 <lk-story>
 <script type="application/json">
@@ -50,11 +64,13 @@ El valor viaja en un cofre. El robot que ya no vale se apaga, y el que usa algo 
 </lk-story>
 Cómo leerlo: el paso 1 muestra a la dueña con su valor.
 
-El paso 2 mueve el cofre de «s1» a «s2» con una flecha que dice «se mueve».
+El paso 2 mueve el cofre de «s1» a «s2». La flecha dice «se mueve».
 
-El paso 3 apaga y tacha a «s1»: el ojo que intenta leerla termina en un ✗.
+El paso 3 apaga y tacha a «s1». El ojo que intenta leerla termina en un ✗.
 
-El paso 4 apaga a «s2» al cerrar la llave y deja a «s1» tachada. El cofre se deshace en trazos y su ✓ aprueba que el valor se libera una sola vez.
+El paso 4 apaga a «s2» al cerrar la llave. Deja a «s1» tachada.
+
+El cofre se deshace en trazos. Su ✓ aprueba que el valor se libera una sola vez.
 
 ## Mini-quiz
 

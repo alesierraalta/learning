@@ -1,0 +1,37 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+**Método tabular** = método que guarda lo aprendido explícitamente en una **tabla**.
+Imagina un robot que puede estar en tres lugares:
+- Cocina
+- Pasillo
+- Dormitorio
+Y puede hacer dos acciones:
+- Izquierda
+- Derecha
+Podríamos guardar cuánto conviene cada acción así:
+Esos números podrían representar **valores Q**: estimaciones de qué tan conveniente es realizar una acción desde un estado.
+La gran pregunta de esta unidad es:
+**¿Cómo aprendemos esos números?**
+DP, Monte Carlo y TD responden de forma diferente.
+Una idea extremadamente importante:
+**DP usa un modelo. MC y TD pueden aprender directamente de la experiencia.**
+Supón que conoces perfectamente un videojuego.
+Sabes:
+- qué estados existen;
+- qué acciones puedes realizar;
+- a qué estado puedes llegar;
+- con qué probabilidad;
+- qué recompensa obtienes.
+Por ejemplo:
+Entonces podrías calcular matemáticamente qué decisiones son mejores **sin tener que jugar miles de partidas**.
+Eso es lo que aprovecha **Dynamic Programming (DP)**.
+Un **modelo del entorno** = descripción de qué puede ocurrir después de realizar una acción.
+Normalmente incluye:
+No te preocupes todavía por la notación.
+Significa:
+Si estoy en el estado `s` y realizo la acción `a`, ¿qué probabilidad hay de llegar a `s'` y recibir recompensa `r`?
+
+```cuenta
+P(s',r|s,a)
+```
+

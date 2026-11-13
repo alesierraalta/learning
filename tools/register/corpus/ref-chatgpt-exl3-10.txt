@@ -1,0 +1,33 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Ahora ya conocemos aproximadamente los valores.
+Entonces preguntamos:
+¿Existe alguna acción mejor que la que actualmente recomienda mi política?
+Ejemplo:
+Nuestra política decía:
+Pero descubrimos que derecha lleva a mejores resultados.
+La cambiamos:
+Eso es **Policy Improvement**.
+Policy Iteration separaba:
+**Value Iteration** los mezcla.
+En lugar de evaluar completamente una política y después mejorarla, pregunta directamente:
+De todas las acciones disponibles, ¿cuál parece producir el mayor valor?
+Su actualización fundamental es:
+No necesitas memorizarla todavía.
+Mira su significado:
+El `max` significa:
+toma la mejor acción disponible.
+Esta distinción es importante.
+Una forma mental de recordarlo:
+Un entrenador analiza toda la temporada del jugador y después cambia la estrategia.
+El entrenador va corrigiendo la estrategia mientras analiza el rendimiento.
+Aquí aparece una idea todavía más general.
+**GPI = Generalized Policy Iteration**.
+No es simplemente otro algoritmo.
+Es un **principio**.
+Dice que en muchos métodos de RL están ocurriendo simultáneamente dos fuerzas:
+
+```cuenta
+V(s) \leftarrow \max_a \sum_{s',r} p(s',r|s,a) [R+\gamma V(s')]
+```
+

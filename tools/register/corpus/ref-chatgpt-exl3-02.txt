@@ -1,0 +1,16 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Supongamos estos pesos:
+Una cuantización escalar muy simple haría conceptualmente:
+Cada peso se decide casi aisladamente.
+Trellis piensa de otra manera:
+La decisión para representar una secuencia forma **un camino por un grafo**.
+QTIP explica esta propiedad como una cuantización **stateful**: si cada estado tiene `2ᴷ` caminos posibles de salida, solamente hacen falta `K` bits para indicar qué transición se tomó. Luego se busca, mediante un algoritmo tipo Viterbi, el camino cuya secuencia reconstruida se parece más a la original. Together AI
+Esta es la imagen mental importante:
+Eso permite utilizar muy pocos bits de forma bastante más inteligente.
+Hay otro problema.
+Las matrices de un LLM contienen valores atípicos y direcciones especialmente importantes. Una cuantización agresiva sufre mucho con ellos.
+QTIP y la familia QuIP utilizan transformaciones tipo **Hadamard aleatorizada** para distribuir esa información antes de cuantizar. El resultado se parece más a una distribución suave/Gaussiana y es más fácil de comprimir eficientemente. Together AI
+Mentalmente:
+No se pierde mágicamente el outlier. Su información queda **distribuida entre muchas coordenadas**.
+EXL3 conserva vectores asociados a estas transformaciones, `suh` y `svh`, además del stream `trellis`. El código oficial acepta esos vectores en FP16 y deriva directamente `K` del ancho del tensor Trellis. GitHub

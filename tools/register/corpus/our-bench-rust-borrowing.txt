@@ -1,0 +1,21 @@
+# fuente: /tmp/bench246/out/rust-borrowing/vault/rust-borrowing/explicaciones/Parte 1 - referencias-inmutables-y-prestamos.md
+
+1. Presentamos la variable dueña `libro` almacenada en memoria.
+2. Creamos referencias inmutables `&libro` para lectura compartida.
+3. Comprobamos cómo el compilador garantiza acceso concurrente sin mover ownership.
+Un préstamo inmutable permite acceder a un dato sin transferir su propiedad.
+El operador `&` crea una vista de solo lectura hacia el valor original.
+En nuestro ejemplo, la variable `libro` contiene el texto `"Rust"`.
+La memoria asigna los metadatos en el stack y los caracteres en el heap.
+**Pieza**
+Una referencia inmutable es un puntero seguro que solo permite operaciones de lectura.
+En nuestro ejemplo: pieza = `&libro`.
+Podría ser también:
+- `&cuenta` para consultar el saldo bancario sin alterarlo.
+- `&sensor` para leer la temperatura actual en un ciclo de control.
+- `&documento` para calcular la cantidad de palabras de un informe.
+- `&configuracion` para inspeccionar el puerto del servidor durante el arranque.
+Múltiples referencias inmutables pueden coexistir en el mismo alcance.
+Como ninguna referencia puede escribir, no existe riesgo de corrupción ni de carreras de datos.
+Observa cómo `ref1` y `ref2` leen simultáneamente los caracteres de `libro`.
+Ambas referencias apuntan a la misma dirección del heap sin duplicar el texto.

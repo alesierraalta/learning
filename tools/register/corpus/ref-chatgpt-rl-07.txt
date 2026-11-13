@@ -1,0 +1,51 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+No tiene un final natural.
+Por ejemplo, imaginemos que el robot trabaja permanentemente:
+No existe necesariamente:
+Otros ejemplos:
+- controlar la temperatura de un edificio;
+- administrar una red;
+- regular tráfico;
+- controlar un proceso industrial.
+Veamos primero números y después la fórmula.
+Supongamos que el robot recibe:
+Si simplemente sumamos:
+Entonces:
+La idea básica del retorno es:
+sumar las recompensas obtenidas en el futuro.
+¿Vale igual:
+que:
+Muchas aplicaciones quieren preferir una recompensa cercana.
+Para eso introducimos:
+llamado **factor de descuento**.
+Normalmente:
+Tenemos:
+La primera vale completa:
+La segunda se multiplica una vez por 0.9:
+La tercera está dos pasos en el futuro:
+Por tanto:
+Observa lo ocurrido:
+Las recompensas lejanas pesan progresivamente menos.
+El retorno desde el instante \(t\) se define habitualmente:
+Se puede escribir de manera compacta:
+Pero la fórmula no dice nada nuevo respecto al cálculo anterior. Solo lo comprime.
+
+```cuenta
+ahora             +10
+siguiente paso     -1
+dos pasos después +10
+\gamma
+0 \leq \gamma \leq 1
+primera recompensa    +10
+segunda recompensa     -1
+tercera recompensa    +10
+10
+0.9(-1)=-0.9
+0.9^2(10)=8.1
+G=10-0.9+8.1
+G=17.2
+G_t= R_{t+1} +\gamma R_{t+2} +\gamma^2R_{t+3} +\gamma^3R_{t+4} +\cdots
+G_t=\sum_{k=0}^{\infty}\gamma^k R_{t+k+1}
+```
+

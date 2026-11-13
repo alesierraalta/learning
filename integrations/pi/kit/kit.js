@@ -1576,7 +1576,19 @@
       tbody.append(tr);
     });
     grid.append(thead, tbody);
-    wrap.append(grid);
+    // #252: la tabla se desplaza dentro de su propio marco, nunca más allá de la columna. El marco es
+    // enfocable y marca hacia dónde hay más (`data-more`): el desvanecido del borde lo muestra.
+    const frame = el('div', undefined, { class: 'lk-tframe', tabindex: '0', role: 'region', 'aria-label': name || 'resultado' });
+    frame.append(grid);
+    const scroll = el('div', undefined, { class: 'lk-tscroll' });
+    scroll.append(frame);
+    // Al desplazarse, el marco vuelve a marcar sus bordes y los conectores de la unión se trazan de nuevo.
+    frame.addEventListener('scroll', () => {
+      markFrame(scroll);
+      const join = scroll.closest('.lk-tjoin');
+      if (join) placeTables(join);
+    }, { passive: true });
+    wrap.append(scroll);
     return wrap;
   }
   function joinView(spec, show) {
@@ -1598,13 +1610,14 @@
       view.colorOf = colorOf;
     }
     const wide = el('div', undefined, { class: 'lk-tjoin' });
-    tables.forEach((t, n) => {
+    // La tabla origen va primero: al apilarse, queda encima de la tabla destino.
+    const ordered = join && from.table !== to.table ? [from.table, to.table] : tables;
+    ordered.forEach((t) => {
       const isFrom = join && t === from.table, isTo = join && t === to.table;
       const tones = isFrom ? t.rows.map((r, i) => tonesOf(matches[i], r[from.col]))
         : isTo ? t.rows.map((r, k) => (matches.includes(k) ? tonesOf(k, r[to.col]) : ''))
           : [];
       wide.append(dataTable(t.id, t.name, t.columns || [], t.rows || [], { keyCol: isFrom ? from.col : isTo ? to.col : -1, tones, anchorKeys: Boolean(isFrom), anchorRows: Boolean(isTo) }));
-      if (join && n === 0) wide.append(el('div', undefined, { class: 'lk-tgutter' }));
     });
     if (join && show.has('links')) {
       const overlay = svgPart('svg', { class: 'lk-mover', 'aria-hidden': 'true' });
@@ -1697,27 +1710,86 @@
     root.append(spec.group ? groupView(spec.group, new Set(spec.show || ['rows', 'groups'])) : joinView(spec, new Set(spec.show || ['tables', 'links', 'on', 'result'])));
     return root;
   }
-  // El conector sale del borde derecho de la celda clave, a la altura de su centro,
-  // y llega al borde izquierdo de la fila que coincide: una curva horizontal en sus
-  // dos extremos, así los que van a la misma fila se juntan en un punto.
+  // #252: por debajo del ancho en que las dos tablas caben lado a lado, se apilan (la tabla origen
+  // encima de la destino) y cada conector se traza de nuevo por el espacio libre junto a ellas: sale de
+  // su celda clave hacia la derecha, baja por un canal, cruza el hueco y entra por la izquierda a su
+  // fila. El primero baja más y sale más lejos por la derecha; el siguiente queda más arriba y más cerca.
+  // Con las filas en el mismo orden en las dos tablas, ninguno cruza a otro; si el orden se invierte, sí.
+  // Lado a lado, un conector es una sola curva entre la celda clave y la fila que coincide. Un conector
+  // dibuja lo que su marco deja ver: si la celda clave queda fuera de su marco se oculta, y si la fila
+  // queda fuera termina en el borde visible.
+  const CHANNEL = 9;
+  function markFrame(scroll) {
+    const frame = scroll.firstElementChild;
+    const more = [];
+    if (frame.scrollLeft > 1) more.push('start');
+    if (frame.scrollLeft + frame.clientWidth < frame.scrollWidth - 1) more.push('end');
+    if (more.length) scroll.dataset.more = more.join(' ');
+    else delete scroll.dataset.more;
+  }
   function placeTables(join) {
     const svg = join.querySelector(':scope > .lk-mover');
     if (!svg) return;
+    const tables = [...join.querySelectorAll(':scope > .lk-ttable')];
+    const links = [...svg.querySelectorAll('path[data-from][data-to]')];
+    // El relleno de los canales va siempre, apiladas o no: así el ancho en que se apilan depende solo de la
+    // columna. Medir no toca el ancho ni la posición de un marco desplazado.
+    join.style.paddingInline = `${(links.length + 1) * CHANNEL}px`;
+    const stacked = tables.length === 2 && tables[1].getBoundingClientRect().top > tables[0].getBoundingClientRect().top + 2;
+    if (stacked) {
+      join.dataset.layout = 'stack';
+      join.style.rowGap = `${Math.max(36, (links.length + 1) * 10)}px`;
+    } else {
+      delete join.dataset.layout;
+      join.style.rowGap = '';
+    }
     const b = join.getBoundingClientRect();
     if (!b.width) return;
     svg.setAttribute('width', b.width.toFixed(1));
     svg.setAttribute('height', b.height.toFixed(1));
     svg.setAttribute('viewBox', `0 0 ${b.width.toFixed(1)} ${b.height.toFixed(1)}`);
     const f = (n) => n.toFixed(1);
-    const rect = (id) => {
-      const node = join.querySelector(`[data-anchor="${CSS.escape(id)}"]`);
-      if (!node) return null;
+    const box = (node) => {
       const r = node.getBoundingClientRect();
-      return { left: r.left - b.left, right: r.right - b.left, cy: (r.top + r.bottom) / 2 - b.top };
+      return { left: r.left - b.left, right: r.right - b.left, top: r.top - b.top, bottom: r.bottom - b.top, cy: (r.top + r.bottom) / 2 - b.top };
     };
-    for (const path of svg.querySelectorAll('path[data-from][data-to]')) {
-      const from = rect(path.dataset.from), to = rect(path.dataset.to);
-      if (!from || !to) continue;
+    const anchor = (id) => join.querySelector(`[data-anchor="${CSS.escape(id)}"]`);
+    // Lo que se ve de una tabla es lo que deja ver su marco de desplazamiento.
+    const seen = (node) => {
+      const frame = node.closest('.lk-tframe');
+      if (!frame) return null;
+      const r = frame.getBoundingClientRect();
+      return { left: r.left - b.left, right: r.right - b.left };
+    };
+    const ends = links.map((path) => {
+      const fromNode = anchor(path.dataset.from), toNode = anchor(path.dataset.to);
+      if (!fromNode || !toNode) return null;
+      const from = box(fromNode), to = box(toNode), fv = seen(fromNode), tv = seen(toNode);
+      // Una celda clave fuera de su marco no tiene de dónde salir: su conector se oculta hasta que vuelva a verse.
+      if (fv && (from.right < fv.left - 1 || from.right > fv.right + 1)) {
+        path.setAttribute('visibility', 'hidden');
+        return null;
+      }
+      path.removeAttribute('visibility');
+      // Una fila desplazada fuera de su marco termina en el borde visible de este.
+      if (tv) to.left = Math.max(to.left, tv.left);
+      return { path, from, to };
+    });
+    if (stacked) {
+      const [source, target] = tables.map((t) => box(t));
+      const right = Math.max(source.right, target.right), left = Math.min(source.left, target.left);
+      const step = (target.top - source.bottom) / (links.length + 1);
+      ends.forEach((end, j) => {
+        if (!end) return;
+        const { path, from, to } = end;
+        const x = right + CHANNEL * (links.length - j), y = source.bottom + step * (links.length - j), xl = left - CHANNEL * (j + 1);
+        path.setAttribute('d', `M ${f(from.right)} ${f(from.cy)} H ${f(x)} V ${f(y)} H ${f(xl)} V ${f(to.cy)} H ${f(to.left)}`);
+      });
+      return;
+    }
+    for (const end of ends) {
+      if (!end) continue;
+      const { path, from, to } = end;
       const dx = (to.left - from.right) / 2;
       path.setAttribute('d', `M ${f(from.right)} ${f(from.cy)} C ${f(from.right + dx)} ${f(from.cy)}, ${f(to.left - dx)} ${f(to.cy)}, ${f(to.left)} ${f(to.cy)}`);
     }
@@ -1823,7 +1895,10 @@
   // cambia el ancho y cuando el lector cambia de tema, como la de las escenas.
   function placePiece(piece) {
     if (piece.dataset.piece === 'memory') piece.querySelectorAll('.lk-mbody').forEach(placeMemory);
-    if (piece.dataset.piece === 'tables') piece.querySelectorAll('.lk-tjoin').forEach(placeTables);
+    if (piece.dataset.piece === 'tables') {
+      piece.querySelectorAll('.lk-tjoin').forEach(placeTables);
+      piece.querySelectorAll('.lk-tscroll').forEach(markFrame);
+    }
   }
   const piecesWatched = new WeakSet();
   function watchPiece(host) {

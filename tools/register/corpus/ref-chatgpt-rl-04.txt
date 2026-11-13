@@ -1,0 +1,51 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+La **política** es la estrategia utilizada por el agente para decidir qué hacer.
+Se suele representar:
+Por ejemplo:
+Eso sería una política bastante sencilla.
+Formalmente puede escribirse:
+Se lee:
+probabilidad de seleccionar la acción \(a\) cuando estoy en el estado \(s\).
+Por ejemplo:
+Una política también puede ser determinista:
+La recompensa responde:
+**¿Qué acaba de ocurrir?**
+Ejemplo:
+Es una señal inmediata.
+Pero esto genera un problema.
+Supongamos:
+Si solo miráramos la recompensa inmediata:
+Pero quizá después ocurra:
+Por eso necesitamos otro concepto.
+La **función de valor** intenta medir algo distinto:
+cuánto beneficio futuro podemos esperar desde una situación.
+Es decir:
+Supongamos:
+Visualmente parecen parecidos.
+Pero:
+Aunque todavía no hayamos recibido recompensa, el estado B puede ser mucho más valioso.
+Una forma común es:
+Significa:
+retorno futuro esperado empezando en el estado \(s\), siguiendo la política \(\pi\).
+
+```cuenta
+\pi
+\pi(a|s)
+estado = habitación sucia
+P(aspirar) = 0.90
+P(moverse) = 0.10
+batería = 4 %
+acción A → aspirar habitación
+recompensa inmediata = +10
+acción B → ir al cargador
+recompensa inmediata = 0
+Estado A:
+habitación sucia
+batería = 4 %
+Estado B:
+habitación sucia
+batería = 100 %
+V^\pi(s)
+```
+

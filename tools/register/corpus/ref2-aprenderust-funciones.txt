@@ -1,0 +1,40 @@
+# fuente: https://aprenderust.dev/funciones
+
+Una función es una máquina: recibe datos, hace su trabajo y devuelve un resultado. Se declara con fn.
+Los parámetros llevan tipo obligatorio: n: i32. Al llamar a doble(21), el 21 entra como n.
+-> i32 dice qué devuelve: la última expresión, n * 2, escrita sin punto y coma. ¡Sale un 42!
+Con n * 2; la línea pasa a ser una sentencia: la función devolvería () en vez de un i32 y no compila.
+Desde la primera lección has usado una función: main. Ahora vas a crear las tuyas, a pasarles datos y a devolver resultados.
+Por el camino descubrirás una de las ideas más importantes de Rust: la diferencia entre sentencias y expresiones. Cuando la entiendas, sabrás por qué a veces un simple punto y coma hace que tu código no compile.
+Las funciones se declaran con fn, un nombre, unos paréntesis y un cuerpo entre llaves. Para llamarlas, escribe su nombre seguido de paréntesis:
+El orden no importa: puedes declarar saludar antes o después de main.
+Los nombres de las funciones van en snake_case, igual que las variables: calcular_total, no calcularTotal.
+Los parámetros son los datos que recibe la función. En Rust el tipo de cada parámetro es obligatorio:
+Dentro de una función Rust infiere los tipos, pero en la firma (la primera línea) no lo hace, y es a propósito: la firma es un contrato. Quien la lee sabe qué recibe la función sin mirar el cuerpo, y el compilador puede darte errores más claros. Si olvidas un tipo, no compila:
+El tipo que devuelve la función se indica con una flecha -> después de los parámetros. El valor devuelto es la última expresión del cuerpo, escrita sin punto y coma:
+No hace falta escribir return: n * 2 es lo último que se evalúa y ese es el valor de la función. Para entender por qué funciona así, tienes que distinguir dos cosas.
+Una sentencia realiza una acción y no produce ningún valor. let x = 5; es una sentencia.
+Una expresión se evalúa a un valor. 5, x + 1, doble(3) o x > 0 son expresiones.
+Como let es una sentencia, no puedes escribir let a = (let b = 1);, algo que en otros lenguajes sí funciona.
+En Rust casi todo es una expresión, incluso un bloque entre llaves. Su valor es el de la última expresión que contiene:
+El bloque vale 4 porque x + 1 no lleva punto y coma. Si se lo pones, se convierte en una sentencia y el bloque deja de devolver ese valor:
+El cuerpo de una función también es un bloque. Por eso su última expresión es el valor que devuelve.
+¿Y qué vale un bloque que termina en una sentencia? Vale (), la tupla vacía, que se llama unit. Es la forma que tiene Rust de decir «aquí no hay nada que devolver».
+Las funciones sin -> devuelven () de forma implícita. Estas dos funciones son equivalentes:
+Ya puedes entender el error más típico al empezar con Rust. Pulsa Ejecutar:
+Con el ;, n * 2 pasa a ser una sentencia, el cuerpo termina sin expresión y la función devolvería () en lugar del i32 que promete. El compilador lo detecta y te señala exactamente qué punto y coma sobra.
+También existe return, que sale de la función en ese mismo momento con el valor que le indiques. Se usa sobre todo para salir antes de tiempo en un caso especial:
+Verás if a fondo en la siguiente lección, pero la idea se entiende: si b es cero, la función devuelve 0 sin llegar a dividir. En el resto de casos, devuelve la última expresión, a / b.
+Estilo: Lo idiomático en Rust es usar return solo para salidas tempranas. Al final de la función, deja la última expresión sin punto y coma.
+Una función devuelve un único valor, pero ese valor puede ser una tupla. Así devuelves varios datos a la vez:
+Fíjate en el cuerpo de rectangulo: dos sentencias let y, al final, una expresión sin punto y coma, la tupla, que es lo que devuelve.
+Hora de practicar
+0/4 resueltos
+1
+2
+3
+4
+Reto 1 de 4 Resuelto
+Al ejecutar, unos tests ocultos comprueban tus funciones.
+Solución · solo lectura
+Pulsa Ejecutar para compilar y ver aquí la salida de tu programa.

@@ -5,7 +5,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 import { findingsOf, runPartChecks } from "./checks.ts";
 
@@ -31,14 +33,16 @@ const BROKEN = `# Parte 1 — Capas
 ## Ruta
 
 1. Qué es una capa.
-2. Cómo se encapsula.
+2. Cómo esconde sus detalles.
 3. Por qué importa.
 
 ## 1. La capa
 
-Una capa hace una cosa y la esconde del resto.
+Imagina un robot que aspira la sala.
 
-El ejemplo sigue: el robot aspira la sala.
+**Capa**: es un grupo de funciones que hace una cosa y la esconde del resto.
+
+Antes, el robot tenía que saber cada detalle. Ahora solo usa la capa.
 
 <lk-scene>
 <script type="application/json">
@@ -118,6 +122,63 @@ test("a piece on the viewBox edge reaches the tutor as an al-borde finding", { s
   assert.equal(checked.first, gate.findings[0], "the learner hears the canvas finding first");
 });
 
+// A piece that runs off the canvas at phone width: scene-gate measures it at 390 px too, and the
+// studio must hand that line back to the tutor, not read the note as clean.
+const OFF_THE_CANVAS = `# Parte 1 — Conjuntos
+
+## Ruta
+
+1. Qué es una unión.
+
+## 1. Los conjuntos
+
+Dos conjuntos se cruzan.
+
+<lk-venn>
+<script type="application/json">
+${JSON.stringify({ title: "Un rótulo que no cabe", sets: [{ id: "a", label: "VIDEOJUEGOS_Y_DESARROLLADORES_CON_NOMBRE_MUY_LARGO", note: "games" }, { id: "b", label: "B" }], fill: ["a+b"], op: "INNER JOIN", says: "Solo coincidencias" })}
+</script>
+</lk-venn>
+
+Cómo leerlo: mira el rótulo.
+
+## Mini-quiz
+
+1. ¿Qué es un conjunto?
+`;
+
+test("a piece off the canvas at phone width reaches the tutor as scene-gate's own finding", { skip: needsBrowser }, async () => {
+  const checked = await runPartChecks([note("fuera-del-lienzo.md", OFF_THE_CANVAS)]);
+  assert.equal(checked.kind, "findings", JSON.stringify(checked));
+  const gate = checked.tools.find((found) => found.tool === "scene-gate.mjs");
+  assert.ok(gate, "scene-gate is what measured the piece");
+  assert.ok(gate.findings.some((line) => /^off-canvas: /.test(line)), gate.findings.join(" | "));
+  assert.match(gate.output, /390px/, "the phone width is named in the tool's own words");
+});
+
+test("scene-gate's off-canvas line is the finding the tutor hears, whatever the tool prints around it", async () => {
+  // A fake scene-gate with the line the real tool prints for a piece off the canvas: the studio
+  // keeps that line as its finding, in the tool's own words, and the summary travels with it.
+  const fake = mkdtempSync(join(tmpdir(), "offcanvas-tools-"));
+  const lines = [
+    "/tmp/parte.md: pieza s0 — Buffer de sesión frente a tablas en disco",
+    "  off-canvas: lk-p lk-tables (la pieza desborda en horizontal: 365 > 354 · 390px)",
+    "  off-canvas: buffer_sesion (RAM) (x 12–175 fuera de 18–372 · 390px)",
+    "2 problema(s) en 1 escena(s)",
+  ];
+  writeFileSync(join(fake, "scene-gate.mjs"), `console.log(${JSON.stringify(lines.join("\n"))});\nprocess.exit(1);\n`);
+  for (const tool of ["scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs"]) writeFileSync(join(fake, tool), "process.exit(0);\n");
+  const checked = await runPartChecks([note("fuera.md", CLEAN)], { toolsDir: fake });
+  assert.equal(checked.kind, "findings", JSON.stringify(checked));
+  const gate = checked.tools.find((found) => found.tool === "scene-gate.mjs");
+  assert.deepEqual(gate.findings, [
+    "off-canvas: lk-p lk-tables (la pieza desborda en horizontal: 365 > 354 · 390px)",
+    "off-canvas: buffer_sesion (RAM) (x 12–175 fuera de 18–372 · 390px)",
+  ]);
+  assert.equal(checked.first, gate.findings[0], "the learner hears the off-canvas line first");
+  assert.match(gate.output, /2 problema\(s\) en 1 escena\(s\)/, "the tool's summary travels with its findings");
+});
+
 test("a tool that cannot run is a check failure, not a finding for the tutor", async () => {
   // No tools at all: the studio's own Node cannot start them, which is nobody's part.
   const empty = mkdtempSync(join(tmpdir(), "no-tools-"));
@@ -166,4 +227,16 @@ test("a deck gate without a browser is a check failure, never a clean pass", asy
 test("the deck gate's own report is read as findings", () => {
   const output = `${JSON.stringify({ decks: 1, problems: 1, bad: [{ note: "x.md", deck: 1, step: 2, kind: "text-over-arrow", over: 0, text: "encima" }] }, null, 1)}\nGATE FAILED\n`;
   assert.deepEqual(findingsOf("deck-gate.mjs", output), ["text-over-arrow: encima"]);
+});
+
+// The clean part is the studio's own proof that a note passes the measure. Its prose must pass the
+// register rules too, and this one runs without a browser: the rules are plain text measures.
+test("the clean part's prose passes the register rules of explain-check", () => {
+  const file = note("limpia-registro.md", CLEAN);
+  const tool = join(dirname(fileURLToPath(import.meta.url)), "..", "tools", "explain-check.mjs");
+  const r = spawnSync(process.execPath, [tool, file, "--json"], { encoding: "utf8", env: { ...process.env, STUDIO_DB: "" } });
+  const rows = Object.fromEntries(JSON.parse(r.stdout).rows.map((row) => [row.rule, row]));
+  for (const rule of ["termino-sin-explicar", "frases-largas", "sin-negritas", "sin-escena-antes", "sin-contraste", "cuentas-sin-pasos"]) {
+    assert.equal(rows[rule].ok, true, `${rule}: ${rows[rule].detail}`);
+  }
 });

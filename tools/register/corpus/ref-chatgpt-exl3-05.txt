@@ -1,0 +1,14 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+**≈ 2,77 bits/peso**
+Esto encaja prácticamente exactamente con el valor publicado.
+**Importante:** la tarjeta del modelo publica directamente `2.77 bpw`, pero no desarrolla esta derivación. La separación `2,758 + ~0,010` es una inferencia a partir del layout EXL3 oficial y de las dimensiones de DeepSeek; no es una fórmula que el autor haya escrito explícitamente. Hugging Face
+Ahora abramos un poco más la caja.
+Supongamos un pequeño fragmento ya transformado:
+Para un Trellis K2, cada estado tiene conceptualmente:
+transiciones posibles.
+El cuantizador considera secuencias enteras:
+Busca el camino que produzca la reconstrucción con menor error.
+Eso es radicalmente diferente a decir:
+Con Trellis, **los pesos sucesivos están codificados por un camino compartido**.
+Ese contexto adicional es una de las razones por las que puede obtener mucha calidad con tan pocos bits. QTIP fue diseñado precisamente para conseguir cuantización de dimensión muy alta sin que el codebook crezca exponencialmente como en vector quantization convencional. Together AI

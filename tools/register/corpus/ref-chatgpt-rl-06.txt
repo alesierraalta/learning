@@ -1,0 +1,39 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Probar alternativas para obtener información.
+Puede salir:
+y fue una mala prueba.
+Pero también:
+y acabamos de descubrir algo mucho mejor.
+Si exploras demasiado:
+Si explotas demasiado:
+RL necesita equilibrar ambos.
+Un método sencillo es **ε-greedy**:
+si:
+Más adelante este problema se vuelve especialmente importante en los **multi-armed bandits**, UCB y métodos ε-greedy.
+Hasta ahora hablamos de recompensas individuales.
+Pero RL normalmente no quiere maximizar:
+la próxima recompensa.
+Quiere maximizar:
+**la suma de recompensas que conseguirá a lo largo del tiempo.**
+A eso lo llamamos **retorno**.
+Hay dos formas generales de organizar el tiempo.
+Tiene un comienzo y un final.
+Nuestro robot podría tener la misión:
+limpiar toda la casa.
+Todo esto forma un **episodio**.
+Después podría comenzar otro episodio.
+Ejemplos:
+- una partida de ajedrez;
+- una partida de videojuego;
+- completar un laberinto;
+- una conversación;
+- un robot realizando una misión.
+Existe un **estado terminal**.
+
+```cuenta
+90 % → usar mejor acción conocida
+10 % → explorar
+\varepsilon = 0.1
+```
+

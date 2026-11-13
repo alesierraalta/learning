@@ -1,0 +1,16 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+1. **Qué es EXL3 y qué significa “Trellis”.**
+2. **Qué significa realmente K2 / K3 / K5.**
+3. **Por qué mezclar esos tres niveles da ≈ 2,77 bits por peso.**
+4. **Qué gana el modelo al hacer esta mezcla y qué NO significa ese 2,77.**
+El caso concreto que describes coincide con el reciente **DeepSeek-V4.1-Flash-Spark**: sus 15.360 expertos enrutados se dividen en **7.279 K2, 6.299 K3 y 1.782 K5**, y el autor reporta **2,77 bpw** para esos expertos. Hugging Face
+Imagina un modelo con cientos de miles de millones de pesos.
+En BF16, cada peso ocupa:
+Si pudiéramos llevarlo a unos:
+los pesos ocuparían aproximadamente **5,8 veces menos** espacio bruto.
+El problema es que simplemente tomar cada número y redondearlo a uno de cuatro valores de 2 bits destruye demasiada información.
+EXL3 intenta resolver precisamente eso.
+**EXL3** es un formato de cuantización *weight-only* derivado de las ideas de QTIP. En lugar de tratar cada peso independientemente, usa **trellis coded quantization**: busca buenas representaciones de **secuencias completas de pesos**. El proyecto ExLlamaV3 describe EXL3 como una variante simplificada de QTIP, aunque cambia aspectos del regularizado y del empaquetado. GitHub
+La idea inicial es:
+Pero todavía falta entender qué hay dentro de esa caja.

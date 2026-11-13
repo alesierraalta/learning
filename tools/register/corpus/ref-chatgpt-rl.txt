@@ -1,0 +1,375 @@
+# fuente: /tmp/register-ref/chatgpt-rl-reference.md (explicación de RL pegada por el alumno)
+
+Vamos a construirlo en este orden:
+1. **Agente ↔ entorno:** qué ocurre en cada paso.
+2. **Qué aprende el agente:** política, recompensa, valor y modelo.
+3. **Por qué RL es distinto** del aprendizaje supervisado y no supervisado.
+4. **Exploración vs. explotación:** probar o aprovechar lo aprendido.
+5. **Retorno:** cómo se evalúa una secuencia completa de decisiones.
+6. **Factor de descuento γ:** cuánto importa el futuro.
+7. **Recompensas infinitas:** por qué aparece \(c/(1-\gamma)\).
+Hay problemas donde no basta con contestar correctamente **ahora**.
+Una acción puede parecer mala inmediatamente, pero ser necesaria para obtener algo mejor después.
+Por ejemplo, un robot aspirador podría alejarse temporalmente de una habitación sucia para ir a cargarse. En ese instante no limpia nada, pero gracias a esa decisión puede terminar toda la casa.
+El problema fundamental de RL es:
+**¿Qué acciones debo elegir a lo largo del tiempo para maximizar las recompensas que obtendré en el futuro?**
+Esto es diferente de simplemente predecir una etiqueta.
+Usaremos siempre el mismo ejemplo.
+Tenemos un robot aspirador en una casa.
+Abramos esa caja.
+**Agente**
+Es quien **toma decisiones**.
+En nuestro ejemplo:
+agente = robot aspirador.
+Podría ser también:
+- un personaje de videojuego;
+- un sistema de recomendaciones;
+- un algoritmo de trading;
+- un controlador de tráfico;
+- un modelo que aprende a resolver problemas.
+**Entorno**
+Es todo aquello con lo que interactúa el agente.
+Aquí:
+entorno = casa + habitaciones + suciedad + batería + obstáculos.
+El agente controla sus acciones, pero **no controla directamente las consecuencias**.
+**Estado**
+El **estado \(s_t\)** contiene la información relevante sobre cómo está el entorno en el instante \(t\).
+Ejemplo:
+Todo eso podría formar el estado actual \(s_t\).
+[SIMPLIFICADO: suponemos que el agente conoce completamente el estado del mundo. En problemas parcialmente observables puede conocer solo una observación.]
+**Acción**
+Una **acción \(a_t\)** es algo que el agente puede hacer.
+Por ejemplo:
+**Recompensa**
+La **recompensa \(r\)** es una señal numérica que indica qué tan deseable fue una consecuencia.
+Podemos diseñar:
+Importante:
+La recompensa evalúa una consecuencia inmediata, no necesariamente si la decisión fue buena a largo plazo.
+Esto será crucial cuando lleguemos a la **función de valor**.
+Supongamos:
+El robot selecciona:
+El entorno responde:
+Visualmente:
+Este ciclo se repite:
+Ese bucle es el corazón del RL.
+Aquí hay una diferencia fundamental.
+Al modelo se le muestran ejemplos donde ya conocemos la respuesta correcta.
+Por ejemplo:
+El modelo intenta aprender:
+Hay una especie de profesor que dice:
+Para esta entrada, la respuesta correcta era esta.
+Aquí no existen etiquetas correctas.
+Podríamos darle al modelo miles de imágenes de habitaciones.
+El algoritmo podría descubrir grupos:
+Nadie le dijo cuáles eran esos grupos.
+El algoritmo descubre **estructura en los datos**.
+Al robot normalmente nadie le proporciona:
+En lugar de eso recibe consecuencias:
+Tiene que descubrir qué comportamiento produce mejores resultados acumulados.
+La diferencia mental importante es:
+Ahora podemos separar cuatro conceptos que suelen confundirse.
+La **política** es la estrategia utilizada por el agente para decidir qué hacer.
+Se suele representar:
+Por ejemplo:
+Eso sería una política bastante sencilla.
+Formalmente puede escribirse:
+Se lee:
+probabilidad de seleccionar la acción \(a\) cuando estoy en el estado \(s\).
+Por ejemplo:
+Una política también puede ser determinista:
+La recompensa responde:
+**¿Qué acaba de ocurrir?**
+Ejemplo:
+Es una señal inmediata.
+Pero esto genera un problema.
+Supongamos:
+Si solo miráramos la recompensa inmediata:
+Pero quizá después ocurra:
+Por eso necesitamos otro concepto.
+La **función de valor** intenta medir algo distinto:
+cuánto beneficio futuro podemos esperar desde una situación.
+Es decir:
+Supongamos:
+Visualmente parecen parecidos.
+Pero:
+Aunque todavía no hayamos recibido recompensa, el estado B puede ser mucho más valioso.
+Una forma común es:
+Significa:
+retorno futuro esperado empezando en el estado \(s\), siguiendo la política \(\pi\).
+También podemos preguntar:
+Estoy en este estado. ¿Qué tan bueno sería ejecutar específicamente esta acción?
+Entonces usamos:
+Por ejemplo:
+Aunque:
+El futuro hace que la segunda opción pueda valer más.
+Un **modelo** intenta predecir qué ocurrirá si realizamos una acción.
+Conceptualmente:
+Ejemplo:
+El agente puede usar ese modelo para **planificar antes de actuar**.
+Pero no todos los algoritmos de RL necesitan un modelo.
+Por eso existen dos grandes familias:
+No todos los sistemas utilizan explícitamente los cuatro, pero son los conceptos clásicos del RL.
+Ahora aparece uno de los problemas centrales del RL.
+Supongamos que el robot conoce dos estrategias:
+¿Qué debe hacer?
+Usar lo que actualmente parece mejor.
+Ventaja:
+obtiene una recompensa conocida.
+Problema:
+podría existir una opción mucho mejor que nunca descubre.
+Probar alternativas para obtener información.
+Puede salir:
+y fue una mala prueba.
+Pero también:
+y acabamos de descubrir algo mucho mejor.
+Si exploras demasiado:
+Si explotas demasiado:
+RL necesita equilibrar ambos.
+Un método sencillo es **ε-greedy**:
+si:
+Más adelante este problema se vuelve especialmente importante en los **multi-armed bandits**, UCB y métodos ε-greedy.
+Hasta ahora hablamos de recompensas individuales.
+Pero RL normalmente no quiere maximizar:
+la próxima recompensa.
+Quiere maximizar:
+**la suma de recompensas que conseguirá a lo largo del tiempo.**
+A eso lo llamamos **retorno**.
+Hay dos formas generales de organizar el tiempo.
+Tiene un comienzo y un final.
+Nuestro robot podría tener la misión:
+limpiar toda la casa.
+Todo esto forma un **episodio**.
+Después podría comenzar otro episodio.
+Ejemplos:
+- una partida de ajedrez;
+- una partida de videojuego;
+- completar un laberinto;
+- una conversación;
+- un robot realizando una misión.
+Existe un **estado terminal**.
+No tiene un final natural.
+Por ejemplo, imaginemos que el robot trabaja permanentemente:
+No existe necesariamente:
+Otros ejemplos:
+- controlar la temperatura de un edificio;
+- administrar una red;
+- regular tráfico;
+- controlar un proceso industrial.
+Veamos primero números y después la fórmula.
+Supongamos que el robot recibe:
+Si simplemente sumamos:
+Entonces:
+La idea básica del retorno es:
+sumar las recompensas obtenidas en el futuro.
+¿Vale igual:
+que:
+Muchas aplicaciones quieren preferir una recompensa cercana.
+Para eso introducimos:
+llamado **factor de descuento**.
+Normalmente:
+Tenemos:
+La primera vale completa:
+La segunda se multiplica una vez por 0.9:
+La tercera está dos pasos en el futuro:
+Por tanto:
+Observa lo ocurrido:
+Las recompensas lejanas pesan progresivamente menos.
+El retorno desde el instante \(t\) se define habitualmente:
+Se puede escribir de manera compacta:
+Pero la fórmula no dice nada nuevo respecto al cálculo anterior. Solo lo comprime.
+Entonces:
+El agente solo se preocupa por la siguiente recompensa.
+Es extremadamente cortoplacista.
+El futuro importa, pero pierde peso rápidamente.
+El futuro importa bastante.
+Las recompensas lejanas conservan mucho peso.
+Por tanto:
+cuanto más cerca está γ de 1, más largo es el horizonte temporal considerado.
+[SIMPLIFICADO: a veces se usa \(1/(1-\gamma)\) como intuición del "horizonte efectivo", pero no es un punto exacto donde el agente deje de mirar.]
+Por ejemplo:
+Un agente racional en RL no busca necesariamente:
+Busca:
+Por eso:
+puede ser mejor que:
+si cargar permite conseguir:
+posteriormente.
+Esta es una de las ideas más importantes de todo RL.
+Esta parte parece rara hasta que ponemos números.
+Supongamos una tarea continua donde obtenemos:
+en cada paso para siempre.
+Entonces:
+Sin descuento, la suma nunca termina:
+Esto es problemático si queremos asignar un valor finito al estado.
+Ahora el retorno es:
+Cada recompensa futura vale menos.
+Aunque hay infinitos términos, la suma converge.
+El resultado es:
+Llamemos \(G\) a toda la suma:
+Multiplicamos todo por 0.9:
+Restamos:
+Si recibimos constantemente una recompensa \(c\):
+el retorno es:
+Sacamos \(c\):
+La serie geométrica da:
+si:
+En RL normalmente usamos:
+para este caso infinito descontado.
+Si:
+y:
+entonces:
+Tiene sentido:
+Entonces:
+y no obtenemos un número finito.
+Por eso la fórmula:
+con \(\gamma=1\) produciría:
+que no está definido.
+En tareas episódicas esto no necesariamente es un problema.
+Por ejemplo:
+Aunque:
+la suma es simplemente:
+porque el episodio termina.
+El problema aparece cuando tenemos simultáneamente:
+Es incorrecto.
+Una acción puede tener recompensa inmediata 0 y un enorme valor futuro.
+No.
+El objetivo habitual es maximizar el **retorno esperado**.
+Una pequeña pérdida ahora puede permitir una recompensa mucho mayor después.
+Es al revés.
+La recompensa inmediata no lleva descuento:
+El descuento empieza en el futuro:
+etc.
+No exactamente.
+El agente sigue considerando recompensas posteriores.
+Simplemente reciben cada vez menos peso.
+No.
+Existen métodos **model-based** y **model-free**.
+Antes simplificamos el concepto de estado.
+En un **MDP** clásico, el estado debe contener suficiente información relevante para predecir el futuro dado lo que hagamos.
+Pero un agente real podría no observar todo.
+Por ejemplo:
+Entonces tenemos una situación parcialmente observable. Más adelante esto lleva a conceptos como **POMDP**.
+También hemos utilizado el retorno descontado como formulación principal de tareas continuas. No es la única posibilidad. Otra formulación importante es el **average reward**, donde interesa la recompensa media conseguida por unidad de tiempo.
+Todo lo visto encaja así:
+Y sobre todo el sistema aparece permanentemente este conflicto:
+Profundiza en los conceptos clave
+- Comparar V(s) y Q(s,a)
+- Ver un ejemplo numérico de retorno
+
+```cuenta
+limpiar habitación        +10
+movimiento innecesario     -1
+quedarse sin batería       -5
+recompensa = +10
+nuevo estado:
+posición = sala
+sala = limpia
+batería = 68 %
+foto 1 → "habitación sucia"
+foto 2 → "habitación limpia"
+foto 3 → "habitación sucia"
+estado 1 → acción correcta = aspirar
+estado 2 → acción correcta = girar
+estado 3 → acción correcta = cargar
+hizo X → recompensa +10
+hizo Y → recompensa -5
+\pi
+\pi(a|s)
+estado = habitación sucia
+P(aspirar) = 0.90
+P(moverse) = 0.10
+batería = 4 %
+acción A → aspirar habitación
+recompensa inmediata = +10
+acción B → ir al cargador
+recompensa inmediata = 0
+Estado A:
+habitación sucia
+batería = 4 %
+Estado B:
+habitación sucia
+batería = 100 %
+V^\pi(s)
+Q^\pi(s,a)
+estado:
+posición = sala
+batería = 4 %
+acción:
+aspirar
+modelo predice:
+batería → 1 %
+sala → limpia
+recompensa → +10
+90 % → usar mejor acción conocida
+10 % → explorar
+\varepsilon = 0.1
+ahora             +10
+siguiente paso     -1
+dos pasos después +10
+\gamma
+0 \leq \gamma \leq 1
+primera recompensa    +10
+segunda recompensa     -1
+tercera recompensa    +10
+10
+0.9(-1)=-0.9
+0.9^2(10)=8.1
+G=10-0.9+8.1
+G=17.2
+G_t= R_{t+1} +\gamma R_{t+2} +\gamma^2R_{t+3} +\gamma^3R_{t+4} +\cdots
+G_t=\sum_{k=0}^{\infty}\gamma^k R_{t+k+1}
+G_t=R_{t+1}
+ahora       1.000
++1 paso     0.500
++2 pasos    0.250
++3 pasos    0.125
+ahora       1.000
++1 paso     0.900
++2 pasos    0.810
++3 pasos    0.729
+ahora       1.000
++1 paso     0.990
++10 pasos   ≈0.904
++100 pasos  ≈0.366
+γ = 0.90 → ≈ 10 pasos
+γ = 0.99 → ≈ 100 pasos
+γ = 0.999 → ≈ 1000 pasos
+\infty
+1
++ 0.9
++ 0.81
++ 0.729
++ 0.6561
++ ...
+10
+G=1+0.9+0.9^2+0.9^3+\cdots
+0.9G=0.9+0.9^2+0.9^3+\cdots
+G-0.9G=1
+0.1G=1
+G=10
+c,c,c,c,\ldots
+G=c+\gamma c+\gamma^2c+\gamma^3c+\cdots
+G=c(1+\gamma+\gamma^2+\gamma^3+\cdots)
+\boxed{G=\frac{c}{1-\gamma}}
+|\gamma|<1
+0\leq\gamma<1
+c=2
+\gamma=0.9
+G=\frac{2}{1-0.9}
+G=\frac{2}{0.1}
+\boxed{G=20}
+2
++1.8
++1.62
++1.458
++...
+=20
+G=1+1+1+1+\cdots
+\frac{c}{1-\gamma}
+\frac{c}{0}
+\gamma=1
+4
+R_{t+1}
+\gamma R_{t+2}
+\gamma^2R_{t+3}
+```
+
