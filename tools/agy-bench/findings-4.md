@@ -29,7 +29,7 @@ Vault real (`~/Learnings`): `git status --porcelain` antes y después, idéntico
 
 Notas de la tabla:
 
-- **Herramientas de 2fcd035 sobre R1–R3.** Se volvieron a puntuar las notas de la Parte 1 de las copias de cada corrida con las cuatro puertas de 2fcd035. El cambio viene de #265: `tools/explain-check.mjs` ahora rechaza una lista numerada bajo «Mini-quiz» (`FALLA mini-quiz · la lista numerada bajo «Mini-quiz» es el quiz sin controles`), que era el defecto 10 de la tabla de defectos. Por eso R3, que pasó 4/4 con las herramientas de su corrida, falla hoy.
+- **Herramientas de 2fcd035 sobre R1–R3.** Se volvieron a puntuar las notas de la Parte 1 de las copias de cada corrida con las cuatro puertas de 2fcd035. El cambio viene de #265: `tools/explain-check.mjs` ahora rechaza una lista numerada bajo «Mini-quiz» (`FALLA mini-quiz · la lista numerada bajo «Mini-quiz» es el quiz sin controles`), que era el defecto 10 de la tabla de defectos. Por eso R3, que pasó 4/4 con las herramientas de su corrida, falla hoy. En R1 y R2 la lista numerada también aparece (comprobado en cuatro notas), y fallan otras reglas además: R1 Rust falla también `escenario-de-cajas`, `historia-quieta`, `clave-muerta`, `termino-sin-explicar`, `frases-largas`, `sin-contraste` y `figuras`; R2 Rust, `marca-eco`.
 - **Correcciones.** En R3 y R4 son los informes de tiempo del estudio (`engine-correction` y `part-correction`). La de CSS es la única medida en R3 y R4. El informe la registra como `part-correction` (60 s, dentro del turno del método), y en el log no hay ninguna puerta fallida. La causa no está en el registro: queda abierta (N-A).
 - **Turnos de R4.** Tres en todos los temas (aprender, diagnóstico, método). La Parte 1 se escribe en el turno del método, como en R3.
 
