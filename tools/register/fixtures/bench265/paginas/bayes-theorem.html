@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parte 1 — Probabilidad condicional y el prior</title>
+<link rel="stylesheet" href="../kit/kit.css">
+<script src="../kit/scene.js" defer></script>
+<script src="../kit/kit.js" defer></script>
+</head>
+<body>
+<main class="page">
+
+<p class="kicker">Bayes' theorem · Parte 1</p>
+<h1>Parte 1 — Probabilidad condicional y el prior</h1>
+
+<p class="definition">La probabilidad previa o prior P(A) representa la creencia inicial sobre la ocurrencia de un evento antes de observar nueva información, mientras que la probabilidad condicional P(A|B) restringe el espacio muestral al subconjunto donde la evidencia B es cierta.</p>
+
+<p class="source">Fuente: Ensayo filosófico sobre doctrina de probabilidades por Bayes (1763), sección sobre probabilidad condicional.</p>
+
+<h2>El 20% que rinde el 80%</h2>
+
+<p>Imagina un colectivo de 10.000 pacientes evaluados en una clínica.</p>
+<p>En ese grupo hay 100 personas que padecen una patología concreta.</p>
+
+<p><strong>Espacio muestral</strong>: Es el conjunto total de casos posibles. En nuestro ejemplo, son los 10.000 pacientes.</p>
+<p><strong>Probabilidad previa</strong>: Es la proporción inicial de casos favorables. En nuestro ejemplo, el prior es 100 entre 10.000.</p>
+<p><strong>Condición</strong>: Es el subconjunto de casos donde ocurre la evidencia. En nuestro ejemplo, son los pacientes con síntomas.</p>
+<p><strong>Probabilidad condicional</strong>: Es la proporción calculada dentro del espacio reducido. En nuestro ejemplo, mide los enfermos dentro del grupo con síntomas.</p>
+
+<p>Antes, la probabilidad previa contaba todos los individuos por igual.</p>
+<p>En cambio, la condición descarta a quienes no presentan la evidencia.</p>
+<p>Sin embargo, reducir el espacio no altera la proporción interna de los casos.</p>
+
+<lk-cards>
+<script type="application/json">
+{"title":"Componentes del cálculo condicional","cards":[
+ {"id":"prior","verdict":"ok","pill":"CORRECTO","title":"Probabilidad previa","draw":{"refs":[{"text":"P(A)","icon":"read","tone":"green"}],"target":{"text":"frecuencia"}},"reason":"Lee la frecuencia inicial"},
+ {"id":"cond","verdict":"ok","pill":"CORRECTO","title":"Espacio reducido","draw":{"refs":[{"text":"P(B)","icon":"read","tone":"blue"}],"target":{"text":"universo"}},"reason":"Lee el nuevo denominador"},
+ {"id":"error","verdict":"no","pill":"RECHAZADO","title":"División por cero","draw":{"refs":[{"text":"0 casos","icon":"write","tone":"amber"}],"target":{"text":"invalido"}},"reason":"Escribe un denominador nulo prohibido"}
+]}
+</script>
+</lk-cards>
+<p>Cómo leerlo: las tarjetas comparan los tres componentes del cálculo condicional.</p>
+
+<h2>Mini-quiz</h2>
+<ol>
+<li>¿Qué representa la probabilidad previa P(A) en un modelo bayesiano?</li>
+<li>¿Qué ocurre con el espacio muestral al calcular la probabilidad condicional P(A|B)?</li>
+<li>¿Por qué no está definida la probabilidad condicional P(A|B) cuando P(B) es igual a cero?</li>
+</ol>
+
+</main>
+</body>
+</html>

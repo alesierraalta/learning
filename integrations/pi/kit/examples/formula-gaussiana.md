@@ -127,4 +127,4 @@ La fórmula evaluada, para leerla de una vez:
 
 ## Mini-quiz
 
-1. ¿Qué símbolo es el centro de la campana?
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

@@ -1,0 +1,61 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "central": true,
+      "subtema": "punteros-y-commits",
+      "nivel": "básico",
+      "conceptos": [
+        "punteros-y-commits",
+        "creacion-y-switch-ramas"
+      ],
+      "enunciado": "¿Qué información almacena exactamente el archivo de una rama dentro de .git/refs/heads/?",
+      "options": {
+        "A": "El hash SHA-1 de 40 caracteres hexadecimales del commit que se encuentra en la punta de esa rama.",
+        "B": "Una lista completa de los nombres de todos los colaboradores con permisos de escritura.",
+        "C": "El archivo comprimido en formato tarball con la copia íntegra de la base de datos.",
+        "D": "La marca temporal del último comando git checkout ejecutado en la terminal.",
+        "E": "No sé"
+      },
+      "answer": "A"
+    },
+    {
+      "id": "q2",
+      "central": true,
+      "subtema": "punteros-y-commits",
+      "nivel": "básico",
+      "conceptos": [
+        "punteros-y-commits",
+        "fusiones-fast-forward-y-tres-vias"
+      ],
+      "enunciado": "¿Hacia dónde apunta normalmente la referencia especial HEAD en un repositorio de Git?",
+      "options": {
+        "A": "Apunta directamente al commit inicial del proyecto para reiniciar el historial en caso de error.",
+        "B": "Apunta a la rama local actualmente activa para determinar sobre qué línea se trabaja.",
+        "C": "Apunta al servidor remoto origin para comprobar periódicamente si hay cambios nuevos.",
+        "D": "Apunta a la papelera de reciclaje temporal donde se almacenan ramas eliminadas.",
+        "E": "No sé"
+      },
+      "answer": "B"
+    },
+    {
+      "id": "q3",
+      "central": false,
+      "subtema": "punteros-y-commits",
+      "nivel": "medio",
+      "conceptos": [
+        "punteros-y-commits",
+        "creacion-y-switch-ramas"
+      ],
+      "enunciado": "¿Qué ocurre con el puntero de la rama activa al registrar un nuevo commit en el historial?",
+      "options": {
+        "A": "Permanece estático en el commit anterior para permitir deshacer cambios fácilmente.",
+        "B": "Se clona automáticamente creando una nueva rama auxiliar numerada correlativamente.",
+        "C": "Avanza de forma automática hacia adelante para apuntar al nuevo commit recién creado.",
+        "D": "Se bloquea en modo de solo lectura hasta recibir aprobación remota del repositorio central.",
+        "E": "No sé"
+      },
+      "answer": "C"
+    }
+  ]
+}

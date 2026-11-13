@@ -100,12 +100,4 @@ Cuatro sistemas y ocho pasos. Avanza con los controles: el mapa enfoca a los que
 
 ## Mini-quiz
 
-1. ¿Qué viaja en el paso 1 y qué vuelve en el paso 2?
-- a) Una página. No: llega en el paso 7.
-- b) Una pregunta por el nombre y la IP que vuelve. Sí.
-- c) Un saludo SYN. No: va en el paso 3.
-
-2. ¿Por qué el cliente envía SYN antes de pedir la página?
-- a) Para que el DNS dé la IP. No: responde en el paso 2.
-- b) Para abrir la conexión antes de mandar datos. Sí.
-- c) Para que el servidor cambie su IP. No: su IP no cambia.
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

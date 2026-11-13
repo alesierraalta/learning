@@ -95,6 +95,34 @@ test("the studio preamble points at the story language, and names the classic wa
   }
 });
 
+// La nota es lo que la persona lee (#265): el preámbulo de cada turno dice que no se escribe un .html
+// aparte para una parte, y la página rica de #261 ya no se pide.
+test("the studio preamble says the note is what the learner reads, with no separate page for a part", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agy-nota-"));
+  const log = join(dir, "turns.log");
+  process.env.FAKE_AGY_TURNS = log;
+  let settled = 0;
+  const agy = createAgy({
+    command: [process.execPath, FAKE_AGY],
+    cwd: dir,
+    config: { version: 1, agente: "agy", modelo: "", pensamiento: "" },
+    onRecord: (record) => {
+      if (record.type === "agent_settled") settled += 1;
+    },
+    onError: (message) => assert.fail(message),
+  });
+  try {
+    agy.prompt("escribe la parte 1");
+    await until(() => settled === 1);
+    const prompt = turns(log)[0].join(" ");
+    assert.match(prompt, /la nota[^.]*lo que la persona lee/i);
+    assert.match(prompt, /no escribas un \.html aparte para una parte/i);
+    assert.doesNotMatch(prompt, /página rica/i);
+  } finally {
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
 // El método es la pregunta de la página del tema y la parte se señala por su nombre en el estudio:
 // agy no tiene herramienta de preguntas en modo -p y no puede abrir un `file://` (#248). El
 // preámbulo es lo único que recibe en cada turno, así que las dos reglas viajan ahí.

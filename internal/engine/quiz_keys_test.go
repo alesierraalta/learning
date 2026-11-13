@@ -85,11 +85,83 @@ func TestMiniQuizAnswerKeysMustVary(t *testing.T) {
 		t.Fatalf("mini-quiz-questions = %q, want the letter and how many questions share it", reason)
 	}
 
-	varied := keysQuiz(3, "A", "B", "C")
+	// A, B, C in order is a fixed positional pattern (#265) and is refused below; a shuffled round passes.
+	varied := keysQuiz(3, "B", "A", "C")
 	f.writeConceptQuiz(t, varied)
 	f.writeConceptAnswers(t, varied, nil, "q1")
 	f.advanceOK(t, "quiz")
 }
+
+// The fixed positional pattern (#265): the first question's key is A, the second's B, the third's C, and
+// so on in every quiz of the bench. A learner who learns the order passes without reading, so the round is
+// refused like one fixed letter, with the pattern named and the fix stated.
+func TestMiniQuizAnswerKeysMayNotFollowThePosition(t *testing.T) {
+	f := keysFixture(t, productionRulesPath)
+	f.writeConceptQuiz(t, keysQuiz(3, "A", "B", "C"))
+	rep := f.advanceExpectBlocked(t, "quiz", "mini-quiz-questions", "fixed positional pattern")
+	if reason := failReason(rep, "mini-quiz-questions"); !strings.Contains(reason, "question 1 A, question 2 B, question 3 C") || !strings.Contains(reason, "vary the position of the correct option") {
+		t.Fatalf("mini-quiz-questions = %q, want the pattern named and the fix", reason)
+	}
+}
+
+// The rule is additive (#265): a run frozen before the positional key keeps the A, B, C keys it accepted.
+func TestFrozenRunKeepsAcceptingPositionalAnswerKeys(t *testing.T) {
+	f := keysFixture(t, frozenRulesWithoutPositionalKeys(t))
+	qs := keysQuiz(3, "A", "B", "C")
+	f.writeConceptQuiz(t, qs)
+	f.writeConceptAnswers(t, qs, nil, "q1")
+	rep, code := f.run(t, f.opts("validate", "quiz"))
+	if code != 0 {
+		t.Fatalf("validate quiz under the frozen rules = %d (%+v)", code, rep.Checks)
+	}
+	c, ok := hasCheck(rep, "mini-quiz-questions")
+	if !ok || c.Status != "PASS" {
+		t.Fatalf("mini-quiz-questions = %+v, want PASS under the frozen rules", c)
+	}
+}
+
+// The production rules declare the positional key on, so the refusal above is live.
+func TestProductionRulesDeclarePositionalAnswerKeys(t *testing.T) {
+	raw, err := os.ReadFile(productionRulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	options := doc["thresholds"].(map[string]any)["options"].(map[string]any)
+	if options["positionalKeys"] != true {
+		t.Fatalf("options.positionalKeys = %v, want true in the production rules", options["positionalKeys"])
+	}
+}
+
+// frozenRulesWithoutPositionalKeys copies the production rules without the positional key: what a run
+// enrolled before #265 keeps through its snapshot.
+func frozenRulesWithoutPositionalKeys(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(productionRulesPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", productionRulesPath, err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decode %s: %v", productionRulesPath, err)
+	}
+	options, _ := doc["thresholds"].(map[string]any)["options"].(map[string]any)
+	delete(options, "positionalKeys")
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatalf("encode frozen rules: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "frozen-positional.json")
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatalf("write frozen rules: %v", err)
+	}
+	return path
+}
+
+// A round of four or more questions may not put more than half of its keys in one letter (#246).
 
 // A round of four or more questions may not put more than half of its keys in
 // one letter, even when the other letters appear.

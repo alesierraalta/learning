@@ -306,6 +306,15 @@ type PartStandardThresholds struct {
 	// result, or a person for a server. False means the rule is not declared, so a
 	// frozen snapshot keeps accepting the parts it accepted.
 	CharacterSense bool `json:"characterSense,omitempty"`
+	// GlosarioEnBloque turns on the glossary-block rule (#265): three «Término: Es …» definitions in a row, with
+	// no sentence of the example between them, refuse the part. False means not declared.
+	GlosarioEnBloque bool `json:"glosarioEnBloque,omitempty"`
+	// InteractiveQuiz turns on the interactive-quiz rule (#265): the mini-quiz is the lk-quiz, never a numbered
+	// list; a page the tutor wrote must carry the lk-quiz itself. False means not declared.
+	InteractiveQuiz bool `json:"interactiveQuiz,omitempty"`
+	// RichPage turns on the page rule (#265): the page the turn wrote beside the note is measured with the same
+	// thresholds and must carry every figure of the note; otherwise the reader serves the note. False means not declared.
+	RichPage bool `json:"richPage,omitempty"`
 	// Register is the prose register the part must keep (the learner's two axes,
 	// sencillez and tecnicidad, at their default «más»). A nil block declares
 	// nothing, so a frozen snapshot keeps accepting the parts it accepted.
@@ -432,6 +441,9 @@ type OptionThresholds struct {
 	// without reading. False means the rule is not declared, so a frozen
 	// snapshot keeps accepting the keys it accepted.
 	VaryAnswerKeys bool `json:"varyAnswerKeys,omitempty"`
+	// PositionalKeys turns on the positional rule (#265): the correct options of a round may not follow the
+	// question's position (question 1 A, question 2 B, question 3 C, and so on). False means not declared.
+	PositionalKeys bool `json:"positionalKeys,omitempty"`
 }
 
 type Thresholds struct {

@@ -11,8 +11,12 @@ Imagina un libro con varios lectores a la vez.
 **Compilador**
 Es el programa que revisa el código antes de ejecutarlo.
 
+En nuestro ejemplo, revisa si el libro se presta a dos lectores a la vez.
+
 **Valor**
 Es el dato que guarda una variable.
+
+El libro es ese dato: vive en una sola variable.
 
 **Borrow checker**
 Es la parte del compilador que cuenta quién lee y quién escribe.
@@ -61,4 +65,4 @@ Las tres reglas, una junto a la otra.
 
 ## Mini-quiz
 
-1. ¿Por qué no compila una «&» junto con una «&mut» sobre el mismo valor?
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

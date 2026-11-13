@@ -14,7 +14,7 @@ const REAL_PLSQL = join(HERE, '..', '..', 'internal', 'engine', 'testdata', 'pls
 const porRegla = (text, umbrales = umbralesDe()) =>
   Object.fromEntries(hallazgosDeRegistro(text, umbrales).map((row) => [row.rule, row]));
 
-test('las seis reglas son las que separan la referencia, en ese orden', () => {
+test('las seis reglas que separan la referencia, y el glosario en bloque (#265), en ese orden', () => {
   assert.deepEqual(REGLAS_DE_REGISTRO, [
     'termino-sin-explicar',
     'frases-largas',
@@ -22,7 +22,38 @@ test('las seis reglas son las que separan la referencia, en ese orden', () => {
     'sin-escena-antes',
     'sin-contraste',
     'cuentas-sin-pasos',
+    'glosario-en-bloque',
   ]);
+});
+
+// El glosario en bloque (#265): tres o más definiciones «Término: Es …» seguidas, sin una frase del ejemplo
+// entre ellas. La referencia del alumno nunca pone dos seguidas: su explicación de RL reparte cada definición.
+const RL_REFERENCIA = join(HERE, 'corpus', 'ref-chatgpt-rl.txt');
+const BANCO_NOTA = join(HERE, 'fixtures', 'bench265', 'notas', 'tcp-handshake.md');
+const BANCO_LIMPIA = join(HERE, 'fixtures', 'bench265', 'clean', 'tcp-handshake.md');
+
+test('el glosario en bloque: la explicación de RL del alumno no pone definiciones seguidas y pasa', () => {
+  const row = porRegla(readFileSync(RL_REFERENCIA, 'utf8'))['glosario-en-bloque'];
+  assert.equal(row?.ok, true, `la referencia falla el glosario: ${row?.detail}`);
+});
+
+test('el glosario en bloque: los cinco términos del banco seguidos fallan, y se cita el primero', () => {
+  const row = porRegla(readFileSync(BANCO_NOTA, 'utf8'))['glosario-en-bloque'];
+  assert.equal(row?.ok, false, 'five definitions in a row pass');
+  assert.match(row.detail, /5 definiciones seguidas/);
+  assert.match(row.items[0].linea, /Cliente/);
+});
+
+test('el glosario en bloque: tres seguidas fallan, dos seguidas pasan (el umbral sale de la referencia)', () => {
+  const tres = ['**A**: Es uno.', '**B**: Es dos.', '**C**: Es tres.'].join('\n\n');
+  const dos = ['**A**: Es uno.', '**B**: Es dos.', 'Imagina un robot en la sala.', '**C**: Es tres.'].join('\n\n');
+  assert.equal(porRegla(tres)['glosario-en-bloque']?.ok, false, 'three in a row pass');
+  assert.equal(porRegla(dos)['glosario-en-bloque']?.ok, true, 'two with a scene between pass');
+});
+
+test('el glosario en bloque: la parte limpia del banco, con las definiciones repartidas, pasa', () => {
+  const row = porRegla(readFileSync(BANCO_LIMPIA, 'utf8'))['glosario-en-bloque'];
+  assert.equal(row?.ok, true, `la parte limpia falla el glosario: ${row?.detail}`);
 });
 
 test('los niveles por defecto son los valores de la referencia: «más» en los dos ejes', () => {

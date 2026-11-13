@@ -11,6 +11,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
+import { spawnSync } from "node:child_process";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -235,13 +236,51 @@ function gradeRecorded(questions: Question[], recorded: AnswerFile | undefined):
     .map((q) => ({ ...grade(q, recorded.answers[q.id]), ...recorded.razonamientos[q.id] }));
 }
 
-/** `explicaciones/Parte N - <slug>.html`: the part's rich page, when the builder wrote one. */
+/** `explicaciones/Parte N - <slug>.html`: the page the tutor wrote beside a part's note. It is served only when it measures as its note (#265). */
 function richPage(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string | undefined {
   const index = plan.parts.findIndex((p) => p.id === partId);
   if (index < 0) return undefined;
   const file = join(topicDir, "explicaciones", `Parte ${index + 1} - ${plan.parts[index].slug}.html`);
   return existsSync(file) ? file : undefined;
 }
+
+// The repository root: this file lives in integrations/pi, two levels below it.
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const FIGURA = /<(lk-[a-z][a-z-]*)\b[^>]*>[\s\S]*?<\/\1>/g;
+const GATE_CACHE = new Map<string, { version: string; passes: boolean }>();
+
+/** explain-check reads a page with the rules it reads a note with (#265). The answer is kept per file version. */
+function pagePassesGates(file: string): boolean {
+  const info = statSync(file);
+  const version = `${info.mtimeMs}:${info.size}`;
+  const cached = GATE_CACHE.get(file);
+  if (cached?.version === version) return cached.passes;
+  const run = spawnSync(process.execPath, [join(REPO_ROOT, "tools", "explain-check.mjs"), file, "--json"], { encoding: "utf8", timeout: 180_000 });
+  let passes = false;
+  try {
+    passes = (JSON.parse(run.stdout) as { ok?: unknown }).ok === true;
+  } catch {
+    passes = false;
+  }
+  GATE_CACHE.set(file, { version, passes });
+  return passes;
+}
+
+/**
+ * A page the tutor wrote can stand for its note only when it passes the same gates, carries every figure
+ * the note draws (the same block, whitespace aside) and, for a part with a mini-quiz, the interactive quiz.
+ */
+function richPageServes(rich: string, note: string, hasQuiz: boolean): boolean {
+  const page = readFileSync(rich, "utf8");
+  const squash = (value: string) => value.replace(/\s+/g, "");
+  const kept = squash(page);
+  if (![...readFileSync(note, "utf8").matchAll(FIGURA)].every((match) => kept.includes(squash(match[0])))) return false;
+  if (hasQuiz && !/<lk-quiz[\s>]/.test(page)) return false;
+  return pagePassesGates(rich);
+}
+
+/** The mini-quiz is drawn once, as the interactive quiz: the note's own numbered list is left out (#265). */
+const withoutMiniQuiz = (markdown: string) => markdown.replace(/^##\s*Mini-quiz\s*$[\s\S]*?(?=^##\s|(?![\s\S]))/gmi, "");
 
 const partVideo = (plan: { parts: PlanPart[] }, partId: string) => {
   const index = plan.parts.findIndex((p) => p.id === partId);
@@ -1303,8 +1342,11 @@ ${scripts}
   const partPage = (res: ServerResponse, topic: string, partId: string) => {
     const dir = topicDir(topic);
     const plan = readPlan(dir);
-    const rich = plan && richPage(dir, plan, partId);
-    if (plan && rich) {
+    // The note is what the learner reads (#265). The page the tutor wrote beside it is served only when it
+    // measures as its note; otherwise the learner gets the note, its story and its interactive quiz.
+    const note = plan && partNote(dir, plan, partId);
+    const rich = plan && note && richPage(dir, plan, partId);
+    if (plan && note && rich && richPageServes(rich, note, existsSync(join(dir, "mini-quiz", `${partId}.json`)))) {
       let html = ensureNodeMedia(injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan, dir)), token);
       // A hand-built part page carries its own design, so it gets only the
       // reading-mode assets: the book columns and the page-turn script. It runs
@@ -1320,7 +1362,6 @@ ${scripts}
       }
       return send(res, 200, "text/html; charset=utf-8", html, { "content-security-policy": richCsp });
     }
-    const note = plan && partNote(dir, plan, partId);
     if (!plan || !note) throw new HttpError(404, `part ${partId} is not written yet`);
     const part = plan.parts.find((p) => p.id === partId)!;
     const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
@@ -1332,7 +1373,7 @@ ${scripts}
       title: part.title,
       topicTitle: plan.topic || topic,
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
-      markdown: obsidianToMarkdown(readFileSync(note, "utf8"), dir),
+      markdown: questions ? withoutMiniQuiz(obsidianToMarkdown(readFileSync(note, "utf8"), dir)) : obsidianToMarkdown(readFileSync(note, "utf8"), dir),
       quiz: questions
         ? { questions: questions.map(publicQuestion), exercises: partExercises(dir, partId, loadRunners(options.runnersFile)) }
         : null,

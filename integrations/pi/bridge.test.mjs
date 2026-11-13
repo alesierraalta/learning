@@ -3,7 +3,7 @@
 import { after, test } from "node:test";
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request, createServer as httpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -16,6 +16,8 @@ import { loadRunners } from "./coderun.ts";
 import { measurePiece } from "./kit/piece-measure.mjs";
 
 const TOPIC = "sql-demo";
+// A page that passes the reader's gates and carries the note's figures: the bench's clean TCP page (#265).
+const QUALIFYING_PAGE = readFileSync(join(import.meta.dirname, "..", "..", "tools", "register", "fixtures", "bench265", "clean", "tcp-handshake.html"), "utf8");
 
 let playwright;
 for (const id of [process.env.PLAYWRIGHT_MODULE, 'playwright', '/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs'].filter(Boolean)) {
@@ -506,7 +508,7 @@ test('rich-page quiz: «No sé» hides confidence and a framed submit notifies t
   const { view, topic } = await setup();
   writeFileSync(
     join(topic, 'explicaciones', 'Parte 1 - Claves.html'),
-    '<!doctype html><html lang="es"><head><link rel="stylesheet" href="../kit/kit.css"><script src="../kit/kit.js" defer></script></head><body><main><h1>Rica</h1><lk-quiz></lk-quiz></main></body></html>',
+    QUALIFYING_PAGE,
   );
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
@@ -1072,7 +1074,7 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   writeFileSync(join(kitDir, "fonts", "atkinson-400.woff2"), "wOF2");
   writeFileSync(
     join(topic, "explicaciones", "Parte 1 - Claves.html"),
-    '<!doctype html><html lang="es"><head><link rel="stylesheet" href="../kit/kit.css"></head><body><h1>Rica</h1></body></html>',
+    QUALIFYING_PAGE,
   );
   const host = makeHost();
   registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"] });
@@ -1103,7 +1105,7 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
       styles: ["debate", "entrevista", "charla", "formal"].map(styleEntry),
     },
   });
-  assert.match(page.body, /<h1>Rica<\/h1>/);
+  assert.match(page.body, /<h1>Parte 1 — El saludo inicial/);
   assert.match(page.body, /<lk-video><\/lk-video>/, "a rich page without the video control gets one");
   assert.match(page.body, /kit\/kit\.js/, "the injected control ships the kit assets");
   const video = await http(new URL(config.video, url).href, { method: "HEAD" });
@@ -1141,7 +1143,7 @@ test("a video control or kit asset named only inside a comment is still missing"
   writeFileSync(join(kitDir, "kit.css"), "body{}");
   writeFileSync(
     join(topic, "explicaciones", "Parte 1 - Claves.html"),
-    '<!doctype html><html lang="es"><head><!-- <script src="../kit/kit.js"></script><link rel="stylesheet" href="../kit/kit.css"> --></head><body><h1>Rica</h1><!-- <lk-video></lk-video> --></body></html>',
+    QUALIFYING_PAGE.replace('<script src="../kit/kit.js" defer></script>', '<!-- <script src="../kit/kit.js"></script> -->').replace('</main>', '<!-- <lk-video></lk-video> --></main>'),
   );
   const host = makeHost();
   registerBridge(host.api, { root, kitDir });
@@ -1311,7 +1313,7 @@ test("a rich page that never heard of audio gets the control anyway", async () =
   const { topic, view, shutdown } = await setup();
   writeFileSync(
     join(topic, "explicaciones", "Parte 1 - Claves.html"),
-    '<!doctype html><html lang="es"><head><title>Rica</title></head><body><h1>Rica</h1></body></html>',
+    QUALIFYING_PAGE,
   );
   const page = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
   assert.equal(page.status, 200);
@@ -1985,11 +1987,11 @@ test('a hand-built part page offers the same wide reading toggle', { skip: !play
   const sections = Array.from(
     { length: 12 },
     (_, i) =>
-      `<section><h2>Sección ${i + 1}</h2><p>Un párrafo de prueba con suficiente texto como para que el reparto en dos columnas se observe en una pantalla ancha, sin depender de una figura.</p></section>`,
+      `<section><h3>Sección ${i + 1}</h3><p>Un párrafo corto.</p></section>`,
   ).join('');
   writeFileSync(
     join(topic, 'explicaciones', 'Parte 1 - Claves.html'),
-    `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>main { max-width: 648px; margin: 0 auto; padding: 0 24px; }</style></head><body><main>${sections}</main></body></html>`,
+    QUALIFYING_PAGE.replace('</main>', `${sections}</main>`),
   );
   const result = await view({ topic: TOPIC, part: 'p1' });
 
@@ -2038,11 +2040,11 @@ test('wide mode spreads a wrapped hand-built page across both columns', { skip: 
   const sections = Array.from(
     { length: 10 },
     (_, i) =>
-      `<section><h2>Sección ${i + 1}</h2><p>Un párrafo de prueba con suficiente texto como para que el reparto en dos columnas se observe en una pantalla ancha, sin depender de una figura.</p></section>`,
+      `<section><h3>Sección ${i + 1}</h3><p>Un párrafo corto.</p></section>`,
   ).join('');
   writeFileSync(
     join(topic, 'explicaciones', 'Parte 1 - Claves.html'),
-    `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>main { padding: 0 24px; } .wrap { max-width: 648px; margin: 0 auto; }</style></head><body><main><div class="wrap">${sections}</div></main></body></html>`,
+    QUALIFYING_PAGE.replace('<main class="page">', '<main class="page"><div class="wrap">').replace('</main>', `${sections}</div></main>`),
   );
   const result = await view({ topic: TOPIC, part: 'p1' });
 
@@ -2054,7 +2056,8 @@ test('wide mode spreads a wrapped hand-built page across both columns', { skip: 
       const main = document.querySelector('main');
       const box = main.getBoundingClientRect();
       const middle = box.left + box.width / 2;
-      const blocks = [...document.querySelectorAll('main .wrap > *')];
+      // The reader's index sits fixed beside the text from 1360 px (kit.css), so it is not one of the page's columns.
+      const blocks = [...document.querySelectorAll('main .wrap > *:not(.lk-toc)')];
       return {
         columns: getComputedStyle(main).columnCount,
         wrapper: Math.round(document.querySelector('.wrap').getBoundingClientRect().width),
@@ -2293,12 +2296,7 @@ test("a rich page keeps its media controls inside the article and one number per
   mkdirSync(join(topic, "explicaciones"), { recursive: true });
   writeFileSync(
     join(topic, "explicaciones", "Parte 1 - Claves.html"),
-    `<!doctype html><html lang="es"><head><title>Claves</title></head><body><main>
-      <h1>Parte 5 — Tareas episódicas y continuas</h1>
-      <h2>1. Por qué existe</h2><p>${"Texto de la explicación. ".repeat(20)}</p>
-      <h2>2. El almacén es episódico</h2><p>${"Texto. ".repeat(30)}</p>
-      <h2>3. La cámara que no se apaga</h2><p>${"Texto. ".repeat(30)}</p>
-    </main></body></html>`,
+    QUALIFYING_PAGE.replace('<h2>El 20% que rinde el 80%</h2>', '<h2>1. El 20% que rinde el 80%</h2>'),
   );
   const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
   const browser = await playwright.chromium.launch();
@@ -2338,7 +2336,7 @@ test("a rich page keeps its media controls inside the article and one number per
   }
 
   // The list numbers the entries; a heading that already says "1." would count twice.
-  assert.deepEqual(layout.entries, ["Por qué existe", "El almacén es episódico", "La cámara que no se apaga"]);
+  assert.deepEqual(layout.entries, ["Ruta", "El 20% que rinde el 80%", "Mini-quiz"]);
 
   // A 180 px column broke a title into a lone word on a desktop screen.
   assert.ok(layout.toc.width >= 220, `the index is too narrow: ${layout.toc.width}px`);
@@ -3108,6 +3106,67 @@ const EXPLORER_MATRIX = ["light", "dark", "black"].flatMap((theme) => [
   { theme, size: "phone", width: 390, wide: false },
 ]);
 const explorerSpec = (markdown) => JSON.parse(/<lk-explorer[\s\S]*?<script type="application\/json">([\s\S]*?)<\/script>/.exec(markdown)[1]);
+
+// The note is what the learner reads (#265). A page the tutor wrote beside it is served only when it passes
+// the same gates as the note and carries every figure the note has. The bench page of #264 does neither: it
+// drops the note's story and turns the mini-quiz into a numbered list, so the learner gets the note instead.
+const BENCH265 = join(import.meta.dirname, "..", "..", "tools", "register", "fixtures", "bench265");
+const TCP_PART = "Parte 1 - El saludo inicial y los números de secuencia";
+const viewData = (html) => {
+  const match = /<script type="application\/json" id="view-data">([\s\S]*?)<\/script>/.exec(html);
+  return match ? JSON.parse(match[1]) : undefined;
+};
+// The bench's TCP part as a vault folder; a test replaces the note or the page when it needs another one.
+function tcpTopic(root, { note, page } = {}) {
+  const topic = join(root, "tcp-handshake");
+  cpSync(join(BENCH265, "tcp-handshake"), topic, { recursive: true });
+  if (note !== undefined) writeFileSync(join(topic, "explicaciones", `${TCP_PART}.md`), note);
+  if (page !== undefined) writeFileSync(join(topic, "explicaciones", `${TCP_PART}.html`), page);
+  return topic;
+}
+const cleanNote = readFileSync(join(BENCH265, "clean", "tcp-handshake.md"), "utf8");
+const cleanPage = readFileSync(join(BENCH265, "clean", "tcp-handshake.html"), "utf8");
+
+test("the bench page that drops the note's story is refused: the learner gets the note and its interactive quiz", async () => {
+  const { root, view } = await setup();
+  tcpTopic(root);
+  const result = await view({ topic: "tcp-handshake", part: "p1" });
+  const data = viewData(await fetch(result.structuredContent.url).then((r) => r.text()));
+  assert.ok(data, "the bench page was served instead of the note");
+  assert.match(data.markdown, /<lk-story[\s>]/, "the note's story did not reach the reader");
+  assert.equal(data.quiz?.questions.length, 3, "the mini-quiz is not the interactive quiz");
+});
+
+test("a page that passes the gates and carries every figure of the note is served as the learner's page", async () => {
+  const { root, view } = await setup();
+  tcpTopic(root, { note: cleanNote, page: cleanPage });
+  const result = await view({ topic: "tcp-handshake", part: "p1" });
+  const served = await fetch(result.structuredContent.url).then((r) => r.text());
+  assert.equal(viewData(served), undefined, "a page that passes the gates was replaced by the note");
+  assert.match(served, /<lk-story[\s>]/);
+});
+
+test("a page that passes the gates but drops a figure of the note is refused", async () => {
+  const { root, view } = await setup();
+  tcpTopic(root, { note: cleanNote, page: cleanPage.replace(/<lk-cards>[\s\S]*?<\/lk-cards>/, "") });
+  const result = await view({ topic: "tcp-handshake", part: "p1" });
+  const data = viewData(await fetch(result.structuredContent.url).then((r) => r.text()));
+  assert.ok(data, "a page without the note's cards was served");
+});
+
+test("the note's mini-quiz is drawn once, as the interactive quiz", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { root, view } = await setup();
+  tcpTopic(root);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
+  const result = await view({ topic: "tcp-handshake", part: "p1" });
+  await page.goto(result.structuredContent.url);
+  await page.locator("fieldset.quiz-question").first().waitFor({ timeout: 5000 });
+  assert.equal(await page.locator("fieldset.quiz-question").count(), 3, "the interactive quiz does not carry the three questions");
+  assert.equal(await page.locator(".prose li", { hasText: "¿Por qué el cliente genera" }).count(), 0, "the note's numbered mini-quiz is drawn beside the interactive one");
+  assert.equal(await page.getByRole("heading", { name: "Mini-quiz" }).count(), 1, "the mini-quiz heading is doubled");
+});
 
 test("the scenario explorer follows its steps in every theme and width, in both views and full screen", { skip: !playwright && "playwright not installed" }, async (t) => {
   // La matriz cubre las tres tintas en los tres anchos: estrecho, ancho y teléfono.

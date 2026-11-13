@@ -110,8 +110,10 @@ test('un heading de mini-quiz no es una sección de contenido', () => {
   const f = join(dir, 'con-heading-quiz.md');
   writeFileSync(f, `${CUMPLE}\n## Mini-quiz\n\n1. ¿Qué es el estado?\n`);
   const r = run(f);
-  assert.equal(r.status, 0, r.stdout + r.stderr);
+  // El encabezado no cuenta como sección. Su lista numerada sí es un hallazgo del mini-quiz (#265): el quiz
+  // es el lk-quiz interactivo, no una lista.
   assert.match(r.stdout, /ok\s+secciones/);
+  assert.match(r.stdout, /FALLA mini-quiz\s+la lista numerada bajo «Mini-quiz»/);
 });
 
 test('rechaza una tercera sección de contenido', () => {
@@ -903,12 +905,54 @@ test('la skill y sus visuales piden contar antes de la fórmula, con el ejemplo 
   }
 });
 
-// La página rica es la explicación de cada parte: la skill dice cuándo es obligatoria, y que
-// el estudio avisa cuando la nota no tiene su .html junto a ella.
-test('la skill dice que la página rica es obligatoria y que el estudio avisa si falta', () => {
+// La nota es lo que la persona lee (#265): la página rica de #261 queda revertida. La skill y AGENTS.md
+// dicen que no se escribe un .html aparte para una parte, y que la página no es obligatoria.
+test('la skill y AGENTS.md dicen que la nota es lo que se lee, sin .html aparte: la página rica ya no es obligatoria', () => {
   const skill = readFileSync(join(TOOLS, '..', 'skills', 'explicacion-interactiva', 'SKILL.md'), 'utf8');
-  assert.match(skill, /página rica[^\n]*obligatoria|obligatoria[^\n]*página rica/i, 'SKILL.md no dice que la página rica es obligatoria');
-  assert.match(skill, /avisa[^\n]*\.html|\.html[^\n]*avisa/i, 'SKILL.md no dice que el estudio avisa si falta el .html');
+  const agents = readFileSync(join(TOOLS, '..', 'deploy', 'vps', 'learnings', 'AGENTS.md'), 'utf8');
+  for (const [name, text] of [['SKILL.md', skill], ['AGENTS.md', agents]]) {
+    assert.match(text, /nota[^\n]*lo que (se lee|lee la persona)|lo que lee la persona[^\n]*nota/i, `${name} no dice que la nota es lo que se lee`);
+    assert.match(text, /\.html aparte|aparte[^\n]*\.html/i, `${name} no dice que no se escribe un .html aparte para una parte`);
+    assert.doesNotMatch(text, /página rica[^\n]*obligatoria|obligatoria[^\n]*página rica/i, `${name} todavía pide la página rica`);
+    assert.doesNotMatch(text, /avisa[^\n]*\.html|\.html[^\n]*avisa/i, `${name} todavía dice que el estudio avisa si falta el .html`);
+  }
+});
+
+// Los hallazgos del banco #264 se miden con la misma puerta, en la nota y en la página (#265). Los cinco
+// términos de la parte TCP seguidos son un glosario en bloque, y su mini-quiz numerado no es el lk-quiz.
+const BENCH265 = join(TOOLS, 'register', 'fixtures', 'bench265');
+const rowsOf = (file) => {
+  const r = spawnSync(process.execPath, [join(TOOLS, 'explain-check.mjs'), file, '--json'], { encoding: 'utf8' });
+  return Object.fromEntries(JSON.parse(r.stdout).rows.map((row) => [row.rule, row]));
+};
+
+test('el glosario en bloque: cinco «Término: Es …» seguidos se refusan, y se cita el primero', () => {
+  const rows = rowsOf(join(BENCH265, 'notas', 'tcp-handshake.md'));
+  assert.equal(rows['glosario-en-bloque']?.ok, false, 'five definitions in a row pass the glossary rule');
+  assert.match(rows['glosario-en-bloque'].detail, /5 definiciones seguidas/);
+  assert.match(rows['glosario-en-bloque'].items[0].linea, /Cliente/, 'the first definition of the run is cited');
+});
+
+test('el mini-quiz numerado no es el lk-quiz: la lista bajo «Mini-quiz» falla, el encabezado solo pasa', () => {
+  const bench = rowsOf(join(BENCH265, 'notas', 'tcp-handshake.md'));
+  assert.equal(bench['mini-quiz']?.ok, false, `the numbered list passes: ${bench['mini-quiz']?.detail}`);
+  assert.match(bench['mini-quiz'].detail, /lk-quiz/);
+  assert.equal(rowsOf(join(BENCH265, 'clean', 'tcp-handshake.md'))['mini-quiz']?.ok, true);
+});
+
+test('la página que escribió el turno se mide como nota: la del banco no pasa y la limpia sí', () => {
+  const page = rowsOf(join(BENCH265, 'paginas', 'tcp-handshake.html'));
+  assert.equal(page['glosario-en-bloque']?.ok, false, 'the bench page passes the glossary rule');
+  assert.equal(page['mini-quiz']?.ok, false, 'the bench page keeps its numbered list as its quiz');
+  const clean = rowsOf(join(BENCH265, 'clean', 'tcp-handshake.html'));
+  const fallan = Object.values(clean).filter((row) => row.ok === false).map((row) => row.rule);
+  assert.deepEqual(fallan, [], 'the clean page fails a rule');
+});
+
+test('la parte limpia pasa todas las reglas, con las definiciones repartidas y el mini-quiz interactivo', () => {
+  const rows = rowsOf(join(BENCH265, 'clean', 'tcp-handshake.md'));
+  assert.equal(rows['glosario-en-bloque']?.ok, true, `the clean note: ${rows['glosario-en-bloque']?.detail}`);
+  assert.equal(rows['mini-quiz']?.ok, true);
 });
 
 // El árbol de frecuencias (#261) es una figura, como la escena y las demás piezas: una parte

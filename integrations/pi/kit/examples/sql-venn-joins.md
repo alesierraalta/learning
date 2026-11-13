@@ -11,8 +11,12 @@ Imagina dos conjuntos: los videojuegos y las desarrolladoras.
 **INNER JOIN**
 Es la unión que deja solo las filas que coinciden.
 
+En nuestro ejemplo, deja solo los juegos con desarrolladora.
+
 **LEFT JOIN**
 Es la unión que deja todas las filas de la izquierda.
+
+En nuestro ejemplo, deja también los juegos sin desarrolladora.
 
 **FULL JOIN**
 Es la unión que deja todas las filas de las dos tablas.
@@ -39,4 +43,4 @@ Cada conjunto es una tabla. La parte rellena es lo que el resultado conserva.
 
 ## Mini-quiz
 
-1. ¿Qué filas deja LEFT JOIN que INNER JOIN no deja?
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

@@ -73,7 +73,8 @@ func TestPartStandardRefusesAnAccessoryIconTheWordsDoNotName(t *testing.T) {
 // rules leave it alone, so the explanation standard still passes it. The frontier's
 // other checks (the reading guide under each visual) are not this test's concern.
 func TestPartStandardAcceptsTheBayesBenchOnTheNewRules(t *testing.T) {
-	f := standardFrontier(t)
+	// The #261 rules: the #265 keys refuse the bench's numbered mini-quiz, which the production rules test below.
+	f := standardFrontierOn(t, snapshotWithout265Keys(t))
 	f.writePartNote(t, bench261Part(t, "bayes-theorem.md"))
 	_, _, c := standardCheck(t, f)
 	if c.Status != "PASS" {
@@ -102,6 +103,8 @@ func snapshotWithoutBench261Keys(t *testing.T) string {
 	for _, key := range []string{"markEcho", "verdictError", "accessorySense"} {
 		delete(block, key)
 	}
+	// A run frozen before #261 declares none of the keys that came after it (#265).
+	removeBench265Keys(doc)
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		t.Fatal(err)

@@ -593,8 +593,4 @@ Cómo leerlo: el paso 1 deja las dos cuentas en reposo. Cada paso resalta su par
 
 ## Mini-quiz
 
-1. Declaramos «v_saldo cuentas.saldo%TYPE := 1000;». ¿Qué ventaja aporta el calificador %TYPE frente a NUMBER(10,2)?
-
-2. Fijamos `SAVEPOINT sp_debito;` tras debitar 200 a cuenta 10 y sumamos 500 a cuenta 20. Al ejecutar `ROLLBACK TO sp_debito;`, ¿qué saldo conserva cada cuenta?
-
-3. Tras ejecutar sentencias DML en PL/SQL, ¿qué efecto produce la sentencia COMMIT sobre datos y bloqueos?
+Las preguntas de esta parte viven en su `mini-quiz/<parte>.json`: el lector las dibuja como el lk-quiz interactivo.

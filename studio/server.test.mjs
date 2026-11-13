@@ -487,9 +487,9 @@ for (const runtime of ["pi", "agy"]) {
 // ---- #202: the studio measures the part a turn wrote, for both tutors -------------
 
 /** A part whose arrow runs over its own words: `scene-lint` reports `trazo-sobre-texto`. */
-// A part's rich page sits beside its note (#261): the studio asks the tutor for it when it is missing,
-// so the turns that write a part write its page too, the way a real part does.
-const PAGINA_RICA = { name: "Parte 1 - Capas.html", content: "<!doctype html><html lang=\"es\"><title>Capas</title></html>" };
+// A page the tutor writes beside its note is a file of its own, measured with the same tools (#265).
+// The clean page of the bench fixtures stands for it: it passes every rule, so a turn that writes it asks for nothing.
+const PAGINA_RICA = { name: "Parte 1 - Capas.html", content: readFileSync(new URL("../tools/register/fixtures/bench265/clean/tcp-handshake.html", import.meta.url), "utf8") };
 const BROKEN_PART = `# Parte 1 — Capas
 
 ## Ruta
@@ -529,8 +529,6 @@ Antes, el robot tenía que saber cada detalle. Ahora solo usa la capa.
 Cómo leerlo: avanza y mira la casilla que cambia.
 
 ## Mini-quiz
-
-1. ¿Qué hace una capa?
 `;
 /** The same part with its words beside the arrow: the studio's three tools pass it. */
 const CLEAN_PART = BROKEN_PART.replace(
@@ -608,8 +606,8 @@ for (const runtime of ["pi", "agy"]) {
       // The correction's own settle measures the part again: what matters is which note was measured.
       assert.deepEqual(
         [...new Set(measured)],
-        [join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md")],
-        "the studio measured the part the turn wrote",
+        [join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md"), join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.html")],
+        "the studio measured the note and the page the turn wrote, each as a file of its own",
       );
       assert.equal(tutor.turnsSoFar(), 2, "one correction for one measured part");
       assert.match(tutor.turnText(), /trazo-sobre-texto: encima/, "the tutor reads the finding in the tool's own words");
@@ -617,8 +615,8 @@ for (const runtime of ["pi", "agy"]) {
       await tutor.endTurn();
       await until(() => settleIdle(tutor.stream), 30000);
       assert.equal(tutor.turnsSoFar(), 2, "a part the tools pass asks for nothing else");
-      // Two settles, one measurement each: the part's .md and its .html are one measured note, never two.
-      assert.equal(measured.length, 2, "one measurement per settle, not one per file the turn wrote");
+      // Each settle measures the part's .md and its .html once each: two files, two settles.
+      assert.equal(measured.length, 4, "one measurement per file the turn wrote, per settle");
       assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "a part that passes says nothing to the learner");
     } finally { tutor.close(); }
   });
@@ -634,7 +632,7 @@ for (const runtime of ["pi", "agy"]) {
       await until(() => tutor.turnsSoFar() === 1);
       await tutor.endTurn();
       await until(() => settleIdle(tutor.stream), 30000);
-      assert.equal(measured.length, 1, "the part written as its .md and its .html is measured once, not skipped or doubled");
+      assert.equal(measured.length, 2, "the part's .md and its .html are each measured once, not skipped or doubled");
       assert.equal(tutor.turnsSoFar(), 1, "nothing to correct");
       assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0);
     } finally { tutor.close(); }
