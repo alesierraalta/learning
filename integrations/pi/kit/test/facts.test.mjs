@@ -76,12 +76,12 @@ const story = (extra = {}) => ({
 });
 
 // Abre la página con las hojas del lector. `wide` pone la clase del modo ancho del lector.
-async function open(spec, { tag = 'lk-walkthrough', width = 1000, height = 800, wide = false } = {}) {
+async function open(spec, { tag = 'lk-walkthrough', width = 1000, height = 800, wide = false, theme = '' } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'kit-facts-'));
   mkdirSync(join(dir, 'kit'), { recursive: true });
   for (const file of ['kit.css', 'kit.js', 'scene.js', 'dictate.js']) cpSync(join(KIT, file), join(dir, 'kit', file));
   for (const sheet of ['app.css', 'book.css']) cpSync(join(VIEW, sheet), join(dir, sheet));
-  writeFileSync(join(dir, 'p.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8">
+  writeFileSync(join(dir, 'p.html'), `<!doctype html><html lang="es"${theme ? ` data-theme="${theme}"` : ''}><head><meta charset="utf-8">
 <link rel="stylesheet" href="./kit/kit.css"><link rel="stylesheet" href="./app.css"><link rel="stylesheet" href="./book.css">
 <script src="./kit/scene.js" defer></script><script src="./kit/kit.js" defer></script>
 </head><body${wide ? ' class="wide"' : ''}><main id="app"><div class="prose"><${tag}><script type="application/json">${JSON.stringify(spec)}</script></${tag}></div></main></body></html>`);
@@ -93,6 +93,57 @@ async function open(spec, { tag = 'lk-walkthrough', width = 1000, height = 800, 
   await page.waitForTimeout(300);
   return page;
 }
+
+// Las tablas que el lector ve (#301) en los anchos y temas que el revisor miró: los datos junto al
+// texto, la tarjeta de cierre a 1500 px en modo ancho y en tema negro, y los datos apilados a 390 px.
+const STORY_SUMMARY = { title: 'Lo que pasó', text: 'El servidor respondió.', metrics: [['paquetes', '3'], ['puerto', '443']] };
+const WT_FACTS = '.lk-wt-facts table.lk-facts';
+const WT_CARD = '.lk-summary table.lk-facts';
+const STORY_FACTS = '.lk-story-facts table.lk-facts';
+const LAYOUTS = [
+  { name: 'datos junto al texto, 1000 px', tag: 'lk-walkthrough', spec: walk({ summary: SUMMARY }), opts: { width: 1000 }, selector: WT_FACTS },
+  { name: 'datos junto al texto, 1500 px en modo ancho', tag: 'lk-walkthrough', spec: walk({ summary: SUMMARY }), opts: { width: 1500, wide: true }, selector: WT_FACTS },
+  { name: 'datos apilados, 390 px, tema negro', tag: 'lk-walkthrough', spec: walk({ summary: SUMMARY }), opts: { width: 390, theme: 'black' }, selector: WT_FACTS },
+  { name: 'tarjeta de cierre, 1500 px en modo ancho, tema negro', tag: 'lk-walkthrough', spec: walk({ summary: SUMMARY }), opts: { width: 1500, wide: true, theme: 'black' }, last: 'walkthrough', selector: WT_CARD },
+  { name: 'tarjeta de cierre, 390 px, tema negro', tag: 'lk-walkthrough', spec: walk({ summary: SUMMARY }), opts: { width: 390, theme: 'black' }, last: 'walkthrough', selector: WT_CARD },
+  { name: 'historia, datos junto a la narración, 1000 px', tag: 'lk-story', spec: story(), opts: { width: 1000 }, selector: STORY_FACTS },
+  { name: 'historia, datos apilados, 390 px, tema negro', tag: 'lk-story', spec: story(), opts: { width: 390, theme: 'black' }, selector: STORY_FACTS },
+  { name: 'historia, tarjeta de cierre, 390 px, tema negro', tag: 'lk-story', spec: story({ summary: STORY_SUMMARY }), opts: { width: 390, theme: 'black' }, last: 'story', selector: WT_CARD },
+];
+// Deja a la vista lo que se mide: en el recorrido, la tarjeta llega con «Ir al final»; en la historia, con
+// sus tres pasos siguientes.
+async function openLayout({ tag, spec, opts, last }) {
+  const page = await open(spec, { tag, ...opts });
+  if (last === 'walkthrough') await page.getByRole('button', { name: 'Ir al final' }).click();
+  if (last === 'story') for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Paso siguiente' }).click();
+  return page;
+}
+// Medidas tomadas en la página. Cada función se pasa a `page.evaluate` tal cual: no usa nada de fuera.
+// La regla de una fila son sus celdas de lado a lado; la de arriba es el ancho de la tabla entera.
+const measureRules = (selector) => {
+  const table = document.querySelector(selector);
+  if (!table) return { display: 'none', top: 0, rows: [] };
+  const top = table.getBoundingClientRect().width;
+  const rows = [...table.querySelectorAll('tbody tr')].map((row) => {
+    const boxes = [...row.children].map((cell) => cell.getBoundingClientRect());
+    return Math.max(...boxes.map((box) => box.right)) - Math.min(...boxes.map((box) => box.left));
+  });
+  return { display: getComputedStyle(table).display, top, rows };
+};
+// La línea base de cada celda: el borde inferior de un hueco de altura cero puesto al principio de la
+// celda, para que caiga en su primera línea. Con el tamaño de letra que la celda usa.
+const measureCells = (selector) => {
+  const table = document.querySelector(selector);
+  if (!table) return [];
+  return [...table.querySelectorAll('tbody tr')].map((row) => [...row.children].map((cell) => {
+    const probe = document.createElement('span');
+    probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+    cell.prepend(probe);
+    const line = probe.getBoundingClientRect().bottom;
+    probe.remove();
+    return { line, size: getComputedStyle(cell).fontSize };
+  }));
+};
 
 test('un paso con facts dibuja una tabla clave-valor junto a su texto, con el valor en mono y en cifras tabulares', { skip }, async () => {
   const page = await open(walk({ summary: SUMMARY }));
@@ -418,4 +469,60 @@ test('una historia a pantalla completa y en tema oscuro deja sus datos y su tarj
   } finally {
     await page.close();
   }
+});
+
+// La regla de cada fila (sus celdas) tiene que medir lo mismo que la regla de arriba (la tabla). La
+// tabla junto al texto ya lo cumple; la tarjeta de cierre y los datos apilados no, y es lo que el revisor vio.
+test('la regla de cada fila mide lo mismo que la regla de arriba de la tabla (±1 px), en cada tabla de datos', { skip }, async () => {
+  const problems = [];
+  for (const layout of LAYOUTS) {
+    const page = await openLayout(layout);
+    try {
+      const { display, top, rows } = await page.evaluate(measureRules, layout.selector);
+      if (!(top > 0)) problems.push(`${layout.name}: no se ve la tabla (display ${display})`);
+      rows.forEach((width, i) => {
+        if (Math.abs(width - top) > 1) problems.push(`${layout.name}: la regla de la fila ${i + 1} mide ${width.toFixed(1)} px y la de arriba ${top.toFixed(1)} px (display ${display})`);
+      });
+      problems.push(...page.errors.map((error) => `${layout.name}: error de página: ${error}`));
+    } finally {
+      await page.close();
+    }
+  }
+  assert.equal(problems.length, 0, problems.join(' | '));
+});
+
+// La clave y el valor de una fila van sobre la misma línea base: a 2 px como mucho de diferencia.
+test('la clave y el valor de cada fila comparten línea base (±2 px), en cada tabla de datos', { skip }, async () => {
+  const problems = [];
+  for (const layout of LAYOUTS) {
+    const page = await openLayout(layout);
+    try {
+      const rows = await page.evaluate(measureCells, layout.selector);
+      if (!rows.length) problems.push(`${layout.name}: no hay filas`);
+      rows.forEach(([key, value], i) => {
+        if (Math.abs(key.line - value.line) > 2) problems.push(`${layout.name}: fila ${i + 1}: la clave va en ${key.line.toFixed(1)} px y el valor en ${value.line.toFixed(1)} px`);
+      });
+      problems.push(...page.errors.map((error) => `${layout.name}: error de página: ${error}`));
+    } finally {
+      await page.close();
+    }
+  }
+  assert.equal(problems.length, 0, problems.join(' | '));
+});
+
+// La clave y el valor usan el mismo tamaño de letra: la clave hereda la de la tabla y el valor, la suya.
+test('la clave y el valor de cada fila usan el mismo tamaño de letra', { skip }, async () => {
+  const problems = [];
+  for (const layout of LAYOUTS) {
+    const page = await openLayout(layout);
+    try {
+      const rows = await page.evaluate(measureCells, layout.selector);
+      rows.forEach(([key, value], i) => {
+        if (key.size !== value.size) problems.push(`${layout.name}: fila ${i + 1}: la clave mide ${key.size} y el valor ${value.size}`);
+      });
+    } finally {
+      await page.close();
+    }
+  }
+  assert.equal(problems.length, 0, problems.join(' | '));
 });

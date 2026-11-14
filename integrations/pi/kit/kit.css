@@ -120,16 +120,21 @@ legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; ma
 .lk-wt-facts { flex:0 1 auto; max-width:17rem; }
 .lk-wt-facts:empty { display:none; }
 .lk-wt-caption[hidden], .lk-story-band[hidden], .lk-summary[hidden] { display:none; }
-.lk-facts { margin:0; width:100%; border-collapse:collapse; border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); font-family:var(--sans); font-size:14px; line-height:1.45; color:var(--ink); text-align:start; }
-.lk-facts th, .lk-facts td { padding:6px 10px 6px 0; border-bottom:1px solid var(--hair); vertical-align:top; text-align:start; overflow-wrap:anywhere; background:transparent; }
-.lk-facts th { font-weight:600; color:var(--muted); }
-.lk-facts td.lk-fact-value { font-family:var(--mono); font-size:13px; font-variant-numeric:tabular-nums; color:var(--ink); }
+/* La tabla de datos (#301) ocupa su hueco entero: el `table` del kit y el del lector la hacen de bloque, y entonces
+   las reglas de las filas miden lo que mide su contenido, no la tabla. */
+.lk-facts { display:table; overflow:visible; margin:0; width:100%; border-collapse:collapse; border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); font-family:var(--sans); font-size:14px; line-height:1.45; color:var(--ink); text-align:start; }
+/* La clave y el valor comparten línea base y tamaño de letra: los dos heredan los de la tabla. */
+.lk-facts th, .lk-facts td { padding:6px 10px 6px 0; border-bottom:1px solid var(--hair); vertical-align:baseline; text-align:start; font-size:inherit; line-height:inherit; background:transparent; }
+.lk-facts td { overflow-wrap:anywhere; }
+/* La clave ocupa lo que mide y el valor el resto; en el teléfono la clave toma el 40 % y se parte. */
+.lk-facts th { width:1px; white-space:nowrap; font-weight:600; color:var(--muted); }
+.lk-facts td.lk-fact-value { font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--ink); }
+@media (max-width:640px) { .lk-facts th { width:40%; white-space:normal; overflow-wrap:anywhere; } }
 .lk-summary { margin:14px 0 0; padding:12px 14px; border:1px solid var(--hair); background:var(--paper); color:var(--ink); }
 .lk-summary-title { display:block; font-family:var(--serif); font-size:1.05rem; }
 .lk-summary-text { margin:6px 0 10px; font-size:.95rem; line-height:1.6; }
 .lk-summary-metrics { margin-top:6px; }
 .lk-walkthrough:fullscreen .lk-facts, .lk-walkthrough:-webkit-full-screen .lk-facts { font-size:1.1rem; }
-.lk-walkthrough:fullscreen .lk-facts td.lk-fact-value, .lk-walkthrough:-webkit-full-screen .lk-facts td.lk-fact-value { font-size:1rem; }
 .lk-walkthrough:fullscreen .lk-summary-title, .lk-walkthrough:-webkit-full-screen .lk-summary-title { font-size:1.5rem; }
 .lk-walkthrough:fullscreen .lk-summary-text, .lk-walkthrough:-webkit-full-screen .lk-summary-text { font-size:1.15rem; max-width:70ch; }
 @media (max-width:640px) { .lk-wt-caption { flex-direction:column; } .lk-wt-facts { max-width:none; width:100%; } }
