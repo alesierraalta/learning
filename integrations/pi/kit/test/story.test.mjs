@@ -916,3 +916,75 @@ test('una marca con nombre se pega a su dueño, no al hueco', { skip: SKIP }, as
     await browser.close();
   }
 });
+
+// Una parte escrita a mano (la página del tutor) carga `kit.css` y, por el lector,
+// `book.css`: no tiene `.prose`, así que el modo ancho parte su flujo en dos
+// columnas. Una figura que no cruza las columnas se rompe en dos: el escenario se
+// queda en una y su narrador y su reproductor en la otra —o el escenario se queda
+// vacío y el dibujo se va a la columna siguiente—, y los bloques que siguen se
+// pintan encima del recorrido (#296). Se mide en la página del lector, con sus dos
+// hojas y el modo ancho puesto.
+function partPage(block, { wide = true } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'kit-story-part-'));
+  mkdirSync(join(dir, 'kit'), { recursive: true });
+  for (const file of ['kit.css', 'kit.js', 'scene.js', 'dictate.js']) cpSync(join(KIT, file), join(dir, 'kit', file));
+  const view = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'view');
+  for (const sheet of ['app.css', 'book.css']) cpSync(join(view, sheet), join(dir, sheet));
+  writeFileSync(join(dir, 'p.html'), `<!doctype html><html lang="es" data-theme="black"><head><meta charset="utf-8">
+<link rel="stylesheet" href="kit/kit.css"><link rel="stylesheet" href="app.css"><link rel="stylesheet" href="book.css">
+<script src="kit/scene.js" defer></script><script src="kit/kit.js" defer></script>
+</head><body${wide ? ' class="wide"' : ''}><main class="page">${block}
+<p>Casi todos los cobros caen dentro de tres desviaciones típicas.</p>
+<table><thead><tr><th>Intervalo</th><th>Latencia</th><th>Cobros</th></tr></thead>
+<tbody><tr><td>[μ - σ, μ + σ]</td><td>[88, 152] ms</td><td>68,27 %</td></tr></tbody></table>
+</main></body></html>`);
+  return 'file://' + join(dir, 'p.html');
+}
+
+const NOTE_296 = join(KIT, 'test', 'fixtures', 'gauss-296.md');
+const noteStory = () => [...readFileSync(NOTE_296, 'utf8').matchAll(/<lk-story>[\s\S]*?<\/lk-story>/g)][0][0];
+
+test('el recorrido de la nota no se parte entre las dos columnas del modo ancho', { skip: SKIP }, async () => {
+  const browser = await PLAYWRIGHT.chromium.launch();
+  try {
+    for (const [width, height, wide] of [[1440, 1000, true], [390, 900, false]]) {
+      const view = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
+      const errors = [];
+      view.on('pageerror', (error) => errors.push(String(error.message)));
+      await view.goto(partPage(noteStory(), { wide }));
+      await view.waitForSelector('lk-story svg');
+      await view.evaluate(() => document.fonts.ready);
+      await view.waitForTimeout(250);
+      const seen = await view.evaluate(() => {
+        const r = (n) => n.getBoundingClientRect();
+        const inside = (a, b, slack = 1) => a.top >= b.top - slack && a.bottom <= b.bottom + slack && a.left >= b.left - slack && a.right <= b.right + slack;
+        const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        const story = document.querySelector('lk-story');
+        const card = r(story);
+        const stage = r(story.querySelector('.lk-story-stage'));
+        const svg = r(story.querySelector('.lk-story-stage > svg'));
+        const narrator = r(story.querySelector('.lk-story-narrator'));
+        const player = r(story.querySelector('.lk-story-player'));
+        const after = [...story.parentElement.children].filter((n) => n !== story && story.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING);
+        return {
+          fragments: story.getClientRects().length,
+          svgInStage: inside(svg, stage, 2),
+          narratorIn: inside(narrator, card),
+          playerIn: inside(player, card),
+          over: after.filter((n) => overlap(r(n), card)).map((n) => n.tagName.toLowerCase()),
+          card: [Math.round(card.width), Math.round(card.height)],
+          stage: [Math.round(stage.width), Math.round(stage.height)],
+        };
+      });
+      const at = `${width}px${wide ? ' en modo ancho' : ''}`;
+      assert.deepEqual(errors, [], `${at}: la página dio un error`);
+      assert.equal(seen.fragments, 1, `${at}: el recorrido se parte en ${seen.fragments} columnas (${seen.card.join('×')}): el escenario queda en una y su narrador y reproductor en la otra`);
+      assert.equal(seen.svgInStage, true, `${at}: el dibujo no cae dentro de su escenario (${seen.stage.join('×')})`);
+      assert.equal(seen.narratorIn, true, `${at}: el narrador no está dentro de la tarjeta`);
+      assert.equal(seen.playerIn, true, `${at}: el reproductor no está dentro de la tarjeta`);
+      assert.deepEqual(seen.over, [], `${at}: los bloques siguientes se pintan encima del recorrido (${seen.over.join(', ')})`);
+    }
+  } finally {
+    await browser.close();
+  }
+});

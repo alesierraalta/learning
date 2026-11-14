@@ -239,9 +239,11 @@ button.secondary { background: transparent; color: var(--ink); }
   body.wide .prose > *,
   body.wide .prose > section > * { break-inside: avoid; }
   /* Una figura no se lee a medias: cruza las dos columnas y se dibuja una sola vez,
-     en su lugar. Un deck es una figura con controles, y se trata igual. */
-  body.wide .prose > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, lk-story, .mermaid),
-  body.wide .prose > section > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, lk-story, .mermaid) { column-span: all; }
+     en su lugar. Un deck es una figura con controles, y se trata igual. Una pieza
+     (tarjetas, memoria, tablas, conjuntos, árbol) es una figura también: partida,
+     su dibujo quedaba en una columna y su pie en la otra (#287, #296). */
+  body.wide .prose > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, lk-story, lk-cards, lk-memory, lk-tables, lk-venn, lk-tree, .mermaid),
+  body.wide .prose > section > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, lk-story, lk-cards, lk-memory, lk-tables, lk-venn, lk-tree, .mermaid) { column-span: all; }
   body.wide .prose > h1 { max-width: 30em; }
   body.wide figure:has(svg), body.wide .mermaid { width: 100%; margin-left: 0; transform: none; }
   body.wide .note-pair { display: block; }

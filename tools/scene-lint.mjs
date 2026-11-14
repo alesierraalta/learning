@@ -112,6 +112,49 @@ const captionsApart = ({ gap }) => {
   return out;
 };
 
+// Una parte escrita a mano es la página que el alumno leyó: no tiene `.prose`, y en modo
+// ancho `book.css` parte su flujo en dos columnas. Una figura que no cruza las columnas se
+// rompe en dos —el escenario en una, el narrador y el reproductor en la otra, o el escenario
+// vacío y el dibujo en la columna siguiente— y los bloques que siguen se pintan encima del
+// recorrido (#296). Se mide con las dos hojas del lector y el modo ancho puesto.
+const figuresApart = () => {
+  const out = [];
+  const FIGURES = 'lk-story, lk-scene, lk-walkthrough, lk-figure, figure, lk-cards, lk-memory, lk-tables, lk-venn, lk-tree, lk-explorer';
+  const hosts = [...document.querySelectorAll(FIGURES)].filter((host) => !host.parentElement?.closest(FIGURES));
+  const r = (node) => node.getBoundingClientRect();
+  const inside = (a, b, slack = 2) => a.top >= b.top - slack && a.bottom <= b.bottom + slack && a.left >= b.left - slack && a.right <= b.right + slack;
+  const overlap = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+  for (const host of hosts) {
+    const title = (host.querySelector('svg')?.getAttribute('aria-label') || host.querySelector('.lk-title')?.textContent || host.tagName.toLowerCase()).replace(/\s+/g, ' ').trim().slice(0, 40);
+    const card = r(host);
+    if (!card.width || !card.height) continue;
+    const id = /^s(\d+)$/.exec(host.id);
+    const block = id ? Number(id[1]) + 1 : 0;
+    const add = (kind, text, detail) => out.push({ block, title, kind, text, detail });
+    const fragments = host.getClientRects().length;
+    if (fragments > 1) {
+      add('figura-partida', title, `la figura se parte en ${fragments} columnas (${Math.round(card.width)}×${Math.round(card.height)} px): su escenario, su narrador y su reproductor quedan en columnas distintas; haz que la figura cruce las dos columnas (column-span: all) y que no se parta (break-inside: avoid)`);
+      continue;
+    }
+    const stage = host.querySelector('.lk-story-stage, .lk-scene-stage, .lk-wt-stage, .lk-figure-stage');
+    if (stage) {
+      // La escena del escenario, no la de una pieza que vive dentro (tarjetas, memoria…).
+      const svg = [...stage.querySelectorAll('svg')].find((node) => !node.closest('.lk-p'));
+      if (svg && !inside(r(svg), r(stage))) add('escenario-sin-dibujo', title, 'el escenario no contiene su dibujo: el dibujo se fue a otra columna o fuera de la caja del escenario');
+    }
+    for (const part of host.querySelectorAll('.lk-story-narrator, .lk-story-player')) {
+      if (!inside(r(part), card)) add('fuera-de-la-figura', (part.className || '').includes('narrator') ? 'el narrador' : 'el reproductor', `${Math.round(r(part).top - card.bottom)} px fuera de la tarjeta: el bloque se lee fuera de su figura`);
+    }
+    for (let next = host.nextElementSibling; next; next = next.nextElementSibling) {
+      const b = r(next);
+      if (!b.width || !b.height) continue;
+      if (overlap(b, card)) add('bloques-encima', (next.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) || next.tagName.toLowerCase(), `el bloque siguiente se pinta encima de la figura (${Math.round(b.top)} px dentro de una tarjeta de ${Math.round(card.height)} px)`);
+      break;
+    }
+  }
+  return out;
+};
+
 async function loadPlaywright() {
   // El mismo orden que `scene-gate` y `deck-gate`: el módulo que indique el
   // entorno, el del proyecto y el global. En la máquina de pruebas el navegador
@@ -214,6 +257,17 @@ writeFileSync(join(dir, 'wide.html'), `<!doctype html><html lang="es"><head><met
 </head><body class="wide"><main id="app"><div class="prose">${identified.map((b, i) => (captions[i]
   ? `${b}\n<p>${captions[i].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`
   : b)).join('\n')}</div></main></body></html>`);
+
+// La página de una parte escrita a mano: `main.page`, sin `.prose`, con las dos hojas del lector.
+// Es la que el alumno leyó cuando el tutor escribió la parte como página propia.
+writeFileSync(join(dir, 'part.html'), `<!doctype html><html lang="es" data-theme="black"><head><meta charset="utf-8">
+<link rel="stylesheet" href="kit/kit.css">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="book.css">
+<script src="kit/scene.js" defer></script><script src="kit/kit.js" defer></script>
+</head><body class="wide"><main class="page">${identified.map((b, i) => (captions[i]
+  ? `${b}\n<p>${captions[i].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`
+  : b)).join('\n')}<p>El texto que sigue a la figura.</p></main></body></html>`);
 
 const pw = await loadPlaywright();
 const browser = await pw.chromium.launch();
@@ -934,6 +988,14 @@ try {
     await page.waitForTimeout(400);
     findings.push(...await page.evaluate(captionsApart, { gap: CAPTION_GAP }));
   }
+  // La figura entera en una parte escrita a mano: el modo ancho parte su flujo en dos
+  // columnas y la figura tiene que cruzarlas sin romperse (#296).
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(pathToFileURL(join(dir, 'part.html')).href);
+  await page.waitForSelector('lk-scene svg, lk-walkthrough svg, lk-story svg, .lk-p', { timeout: 15000 });
+  // La figura ya está dibujada: basta un cuadro para que el navegador reparta las columnas.
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  findings.push(...await page.evaluate(figuresApart));
 } finally {
   await browser.close();
   rmSync(dir, { recursive: true, force: true });

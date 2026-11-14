@@ -1457,3 +1457,16 @@ test('la nota del banco que escribe la forma canónica sigue pasando', { skip: S
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.doesNotMatch(r.stdout, /movimiento-no-dibujado/);
 });
+
+// ── La figura entera en una parte escrita a mano (#296) ─────────────────────
+// La parte del alumno era una página propia del tutor: en modo ancho el lector la
+// parte en dos columnas, y el recorrido de la fórmula —sin `column-span`— quedaba
+// partido: el escenario en una columna, su narrador y su reproductor en la otra, y
+// la tabla y el mini-quiz pintados encima de la tarjeta. La nota es la fixture tal
+// como la escribió el tutor, sin editar.
+const NOTE296 = join(TOOLS, '..', 'integrations', 'pi', 'kit', 'test', 'fixtures', 'gauss-296.md');
+test('el recorrido de la nota 296 cruza las dos columnas sin partirse', { skip: SKIP }, () => {
+  const r = lint(NOTE296);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /figura-partida|escenario-sin-dibujo|fuera-de-la-figura|bloques-encima/, r.stdout);
+});
