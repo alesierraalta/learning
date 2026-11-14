@@ -694,7 +694,11 @@ lk-story:fullscreen .lk-story-piece, lk-story:-webkit-full-screen .lk-story-piec
 .lk-xdetail { font-family:var(--mono, "DejaVu Sans Mono", Consolas, monospace); font-size:.88em; line-height:1.2; color:var(--pt-slate); overflow-wrap:anywhere; }
 .lk-xlinks { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
 .lk-xlink { stroke:var(--pt-slate-line); stroke-width:1.6; stroke-dasharray:5 4; }
-.lk-xflow { stroke:var(--c, var(--pt-blue)); stroke-width:2.2; stroke-dasharray:7 5; animation:lk-xflow 1.1s linear infinite; }
+/* El trazo que fluye: el del explorador (`lk-xflow`) y el de una flecha con `flow` (#300) comparten sus tokens y su reloj. */
+.lk-xflow, .lk-flow { stroke-dasharray:7 5; animation:lk-xflow 1.1s linear infinite; }
+.lk-xflow { stroke:var(--c, var(--pt-blue)); stroke-width:2.2; }
+/* Mientras una flecha nueva se dibuja (#300), su guion es 1 sobre la longitud 1: gana a la clase de flujo. */
+path.lk-draw { stroke-dasharray:1; }
 @keyframes lk-xflow { to { stroke-dashoffset:-12; } }
 .lk-xtravel { position:absolute; z-index:2; max-width:calc(100% - 6px); padding:.15em .55em; border:1px solid var(--line, var(--pt-blue-line)); border-radius:.45em; background:var(--paper); color:var(--c, var(--pt-blue)); font-family:var(--mono, "DejaVu Sans Mono", Consolas, monospace); font-size:.9em; font-weight:700; line-height:1.3; text-align:center; }
 .lk-xdetails { display:flex; flex-direction:column; gap:.4em; padding:.8em .9em; border:1px solid var(--hair); border-radius:.6em; background:var(--pt-card); }
@@ -760,7 +764,7 @@ lk-story:fullscreen .lk-story-piece, lk-story:-webkit-full-screen .lk-story-piec
 .lk-xseqmsg { position:absolute; padding:0 .3em; background:var(--paper); color:var(--c, var(--pt-slate)); font-family:var(--mono, "DejaVu Sans Mono", Consolas, monospace); font-size:.9em; font-weight:700; white-space:nowrap; }
 .lk-xseqmsg[data-state="next"] { opacity:.45; }
 @media (prefers-reduced-motion: reduce) {
-  .lk-xflow { animation:none; stroke-dasharray:none; }
+  .lk-xflow, .lk-flow { animation:none; stroke-dasharray:none; }
   .lk-xactor { transition:none; }
 }
 /* Pantalla completa: el escenario se queda con la pantalla y sus letras crecen. */

@@ -133,9 +133,12 @@
     return `<defs>${[...markers.values()].join("")}</defs>`;
   };
 
-  const curve = (x1, y1, x2, y2, { color = C.slate, dashedLine = false, arrow = true, bend = 0.35, width = 4 } = {}) => {
+  // Una flecha que fluye lleva la clase `lk-flow`: su trazo discontinuo y su reloj vienen de kit.css (#300).
+  const flowClass = (on) => (on ? ' class="lk-flow"' : '');
+
+  const curve = (x1, y1, x2, y2, { color = C.slate, dashedLine = false, arrow = true, bend = 0.35, width = 4, flow = false } = {}) => {
     const dx = (x2 - x1) * bend;
-    return `<path d="M ${x1} ${y1} C ${f(x1 + dx)} ${y1}, ${f(x2 - dx)} ${y2}, ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
+    return `<path d="M ${x1} ${y1} C ${f(x1 + dx)} ${y1}, ${f(x2 - dx)} ${y2}, ${x2} ${y2}" fill="none"${flowClass(flow)} stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
   };
 
   // Un trazo puede cerrar una región: `fill` pinta el interior (la banda ±σ bajo la
@@ -143,8 +146,8 @@
   const path = (d, { color = C.slate, dashedLine = false, arrow = true, width = 4, fill = "none" } = {}) =>
     `<path d="${d}" fill="${fill}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
 
-  const line = (x1, y1, x2, y2, { color = C.slate, arrow = true, width = 4, dashedLine = false } = {}) =>
-    `<path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
+  const line = (x1, y1, x2, y2, { color = C.slate, arrow = true, width = 4, dashedLine = false, flow = false } = {}) =>
+    `<path d="M ${x1} ${y1} L ${x2} ${y2}"${flowClass(flow)} stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
 
   // Una fórmula puesta en escena: cada símbolo es un átomo propio, así una llamada
   // puede señalar «esta V» o «esta s» sin adivinar coordenadas de la cadena entera.
@@ -351,6 +354,6 @@
 
   window.LKScene = {
     C, esc, f, txt, lbl, step, piece, gear, packet, dashed, sheet, box, node, badge, grid, icon, prop, bars, stat, formula, defs,
-    curve, path, line, svg, tag, elbow, mark, head, markerId,
+    curve, path, line, flowClass, svg, tag, elbow, mark, head, markerId,
   };
 })();

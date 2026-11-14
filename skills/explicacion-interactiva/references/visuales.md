@@ -112,6 +112,7 @@ Piezas disponibles en `scene.boxes`, `scene.arrows`, `scene.labels`, `scene.badg
 - `id` (opcional): identifica la pieza entre pasos. Sin `id`, la clave es su tipo y su rótulo (`box:Cliente`), así que una caja que cambia de rótulo entre dos pasos se toma por otra; con `id` sigue siendo la misma. Al cambiar de paso, la pieza que se queda se desliza desde donde estaba, la que entra sube 6 px con un fundido y la que sale se desvanece, en 320 ms; con movimiento reducido el cambio es de golpe.
 - `focus` (en el paso, no en la escena): el `id` de una pieza de ese mismo paso (caja, icono, rótulo, actor o prop). Un anillo pulsa alrededor de esa pieza hasta que cambia el paso, y un paso enfoca una sola. Si el `id` no nombra ninguna pieza del paso, `scene-lint` lo dice (`foco-sin-pieza`). En una historia, `focus` como lista sigue resaltando símbolos de la fórmula, y como texto rodea una pieza del escenario: un paso hace una cosa u otra. Con movimiento reducido el anillo es un contorno fijo.
 - Una pieza que se queda y cambia de texto, valor o tono respecto al paso anterior destella una vez (600 ms), sin que la escribas. Con movimiento reducido no destella.
+- `flow: true` (en `arrows` y en `moves`): el trazo es discontinuo y su guion viaja de la cola a la punta, con el reloj del explorador (`lk-xflow`). Úsalo cuando algo se mueve o se transfiere de una pieza a otra (un valor que pasa, una petición que llega a un servidor), no en cada flecha: una relación que no cambia no debe fluir. Una flecha nueva se dibuja sola en 400 ms y su punta aparece al final. Con movimiento reducido es sólida y quieta. `flow` es booleano: `scene-lint` marca `flujo-no-booleano` si no lo es.
 
 El componente ya resuelve lo mecánico: ajusta el tamaño del texto al ancho real de su caja,
 corta la flecha donde van sus palabras y mide antes de pintar. No hace falta calcular a mano
@@ -355,7 +356,7 @@ paso con la respuesta enmarcada y su ✓.
 | `kind` | `"derivation"` |
 | `steps[].equation` | la ecuación del paso, un átomo por término con `id` estable entre pasos |
 | `steps[].stage.scene.actors` | los términos dibujados: `id`, `x`, `y`, `w`, `h`, `label`, `tone`, `state` (`faded` = ya no vale; `invalid` = tachado con ✗), `tag` (el rótulo con punta). Con `icon` es un dibujo (el robot) en vez de una caja: ver 8d |
-| `steps[].stage.scene.moves` | `from` / `to` (ids de actor) y `verb`: la flecha se mide entre las dos cajas, nunca entre coordenadas |
+| `steps[].stage.scene.moves` | `from` / `to` (ids de actor) y `verb`: la flecha se mide entre las dos cajas, nunca entre coordenadas; con `flow: true` el trazo fluye (ver §4) |
 | `steps[].stage.scene.marks` | `combine` (marca los términos y, con `to`, los reemplaza por su resultado) y `ok` / `no` (✓ / ✗ y el marco de la respuesta) |
 
 Reglas:

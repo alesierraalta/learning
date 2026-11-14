@@ -232,26 +232,39 @@ matches.forEach((match, i) => {
   }
 });
 
+// Los pasos de los recorridos y las historias, con la escena que dibuja cada uno. Los chequeos que
+// leen el JSON (`focus` del paso, `flow` de una flecha o de un movimiento) miran lo que el kit dibuja.
+const stepScenes = matches.flatMap((match, i) => {
+  const tag = /^<lk-([a-z]+)/.exec(match[0])?.[1];
+  if (tag !== 'walkthrough' && tag !== 'story') return [];
+  const payload = /<script type="application\/json">([\s\S]*?)<\/script>/.exec(match[0]);
+  if (!payload) return [];
+  let spec;
+  try { spec = JSON.parse(payload[1]); } catch { return []; }
+  return (Array.isArray(spec?.steps) ? spec.steps : []).map((step, n) => ({
+    block: i + 1,
+    title: spec.title || '',
+    n,
+    step,
+    scene: (tag === 'story' ? step?.stage?.scene || step?.stage : step?.scene) || {},
+  }));
+});
+const asList = (value) => (Array.isArray(value) ? value : []);
+
 // Un `focus` nombra una pieza con id de su propio paso (#299): una caja, un icono, un rótulo, un actor
 // o una prop. Si no nombra ninguna, el anillo no tiene a qué rodear.
 const FOCUSABLE = ['boxes', 'icons', 'labels', 'actors', 'props'];
-const focusMisses = [];
-matches.forEach((match, i) => {
-  const tag = /^<lk-([a-z]+)/.exec(match[0])?.[1];
-  if (tag !== 'walkthrough' && tag !== 'story') return;
-  const payload = /<script type="application\/json">([\s\S]*?)<\/script>/.exec(match[0]);
-  if (!payload) return;
-  let spec;
-  try { spec = JSON.parse(payload[1]); } catch { return; }
-  (Array.isArray(spec?.steps) ? spec.steps : []).forEach((step, n) => {
-    if (typeof step?.focus !== 'string') return;
-    const scene = (tag === 'story' ? step.stage?.scene || step.stage : step.scene) || {};
-    const ids = FOCUSABLE.flatMap((kind) => (Array.isArray(scene[kind]) ? scene[kind] : []).map((piece) => piece?.id))
-      .filter((id) => id != null).map(String);
-    if (ids.includes(step.focus)) return;
-    focusMisses.push({ block: i + 1, title: spec.title || '', kind: 'foco-sin-pieza', text: step.focus, detail: `el paso ${n + 1} enfoca «${step.focus}», y ninguna pieza con ese id está en ese paso: ponle el id a la caja, el icono, el rótulo, el actor o la prop que quieres marcar, o quita el focus` });
-  });
+const focusMisses = stepScenes.flatMap(({ block, title, n, step, scene }) => {
+  if (typeof step?.focus !== 'string') return [];
+  const ids = FOCUSABLE.flatMap((kind) => asList(scene[kind]).map((piece) => piece?.id)).filter((id) => id != null).map(String);
+  if (ids.includes(step.focus)) return [];
+  return [{ block, title, kind: 'foco-sin-pieza', text: step.focus, detail: `el paso ${n + 1} enfoca «${step.focus}», y ninguna pieza con ese id está en ese paso: ponle el id a la caja, el icono, el rótulo, el actor o la prop que quieres marcar, o quita el focus` }];
 });
+
+// El `flow` de una flecha o de un movimiento (#300) es true o false: cualquier otro valor no dibuja el flujo.
+const flowMisses = stepScenes.flatMap(({ block, title, n, scene }) => [...asList(scene.arrows), ...asList(scene.moves)]
+  .filter((piece) => piece?.flow !== undefined && typeof piece.flow !== 'boolean')
+  .map((piece) => ({ block, title, kind: 'flujo-no-booleano', text: JSON.stringify(piece.flow), detail: `el paso ${n + 1} declara flow: ${JSON.stringify(piece.flow)}; flow es true o false, y solo true dibuja la flecha que fluye` })));
 const dir = mkdtempSync(join(tmpdir(), 'scene-lint-'));
 mkdirSync(join(dir, 'kit'), { recursive: true });
 cpSync(KIT, join(dir, 'kit'), { recursive: true });
@@ -298,7 +311,7 @@ const findings = lookalikes.map(({ block, title, one, two }) => ({
   text: `${one.tag || one.label} / ${two.tag || two.label}`,
   detail: `los dos se dibujan igual (${drawn(one).replace(' · ', ' y tono ')}) y sus fichas no comparten ninguna palabra: dale a cada uno su personaje (database, row, session, lock, user, server, process, file, packet, robot), su tono o su estado`,
 }));
-findings.push(...focusMisses);
+findings.push(...focusMisses, ...flowMisses);
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(pathToFileURL(join(dir, 'page.html')).href);

@@ -1545,6 +1545,8 @@
       // swallow a short arrow. The width travels with the arrow so a scene can
       // say how heavy it should be.
       const shaft = a.width || 4;
+      // Una flecha con `flow: true` fluye: su trazo viaja de la cola a la punta (#300).
+      const flow = a.flow === true;
       const dx = a.x2 - a.x1, dy = a.y2 - a.y1;
       const len = Math.hypot(dx, dy) || 1;
       const vertical = Math.abs(dy) > Math.abs(dx) * 1.5;
@@ -1579,15 +1581,15 @@
         const half = cut / 2;
         const midX = a.x1 + ux * len * at, midY = a.y1 + uy * len * at;
         const head = { x: midX + ux * half, y: midY + uy * half };
-        out += S.line(a.x1, a.y1, midX - ux * half, midY - uy * half, { color, dashedLine: !!a.dashed, arrow: false, width: shaft });
-        out += S.line(head.x, head.y, a.x2, a.y2, { color, dashedLine: !!a.dashed, width: shaft });
+        out += S.line(a.x1, a.y1, midX - ux * half, midY - uy * half, { color, dashedLine: !!a.dashed, arrow: false, width: shaft, flow });
+        out += S.line(head.x, head.y, a.x2, a.y2, { color, dashedLine: !!a.dashed, width: shaft, flow });
         out += S.lbl(midX + (vertical ? 0 : 0), midY + size * 0.36, a.label, {
           anchor: 'middle', color: tone(a.labelTone || a.tone).color, size, edge: true,
           fit: vertical ? Math.max(1, 2 * Math.min(midX - 4, stageWidth - midX - 4)) : Math.max(1, cut - 14),
         });
       } else {
-        if (a.bend !== undefined) out += S.curve(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, bend: a.bend, width: shaft });
-        else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, width: shaft });
+        if (a.bend !== undefined) out += S.curve(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, bend: a.bend, width: shaft, flow });
+        else out += S.line(a.x1, a.y1, a.x2, a.y2, { color, dashedLine: !!a.dashed, width: shaft, flow });
         if (a.label) {
           const midY = (a.y1 + a.y2) / 2 - (a.bend === undefined ? 0 : Math.abs(dy) * 0.18);
           const left = Math.min(a.x1, a.x2) - gap, right = Math.max(a.x1, a.x2) + gap;
@@ -1707,7 +1709,7 @@
       const point = mv.toX != null && mv.toY != null && Number.isFinite(Number(mv.toX)) && Number.isFinite(Number(mv.toY))
         ? ` data-move-to-point="${S.f(mv.toX)},${S.f(mv.toY)}"`
         : '';
-      out += `<g data-move="1" data-move-from="${S.esc(from)}" data-move-to="${S.esc(mv.to ?? '')}"${point} data-move-verb="${S.esc(mv.verb || '')}" data-move-tone="${S.esc(mv.tone || 'amber')}"><path fill="none" data-move-path="1"/><text data-move-label="1"></text></g>`;
+      out += `<g data-move="1" data-move-from="${S.esc(from)}" data-move-to="${S.esc(mv.to ?? '')}"${point} data-move-verb="${S.esc(mv.verb || '')}" data-move-tone="${S.esc(mv.tone || 'amber')}"><path fill="none"${S.flowClass(mv.flow === true)} data-move-path="1"/><text data-move-label="1"></text></g>`;
       keep(start, 'move', null, `${from}>${mv.to ?? ''}`);
     }
     for (const mk of scene.marks || []) {
@@ -1765,11 +1767,14 @@
   const STEP_MOTION = { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' };
   // El destello de un cambio de texto o de tono dura 600 ms y se apaga (#299).
   const FLASH_MOTION = { duration: 600, easing: 'ease-out' };
+  // Una flecha nueva se dibuja en 400 ms con la misma curva de la transición (#300).
+  const DRAW_MOTION = { duration: 400, easing: STEP_MOTION.easing };
   const stepRuns = new WeakMap();
   function settleSteps(stage) {
     const run = stepRuns.get(stage);
     if (run) {
       run.anims.forEach((anim) => anim.cancel());
+      run.undo.forEach((undo) => undo());
       run.hidden.forEach((node) => { node.style.visibility = ''; });
       run.flash.forEach((node) => node.remove());
       run.before.style.display = 'none';
@@ -1794,13 +1799,13 @@
     const svg = stage.querySelector('svg');
     // Seis píxeles de pantalla son unidades del lienzo a la escala que tiene ahora la figura.
     const rise = 6 / ((svg.getBoundingClientRect().width / svg.viewBox.baseVal.width) || 1);
-    const run = { before, anims: [], hidden: [], flash: [] };
+    const run = { before, anims: [], hidden: [], flash: [], undo: [] };
     // El anillo de foco de un paso que llega aparece cuando la pieza ya está en su sitio.
     for (const ring of after.querySelectorAll(':scope > [data-focus-ring]')) { ring.style.visibility = 'hidden'; run.hidden.push(ring); }
     for (const [key, now] of arriving) {
       const was = leaving.get(key);
       if (was) carryPiece(run, was, now);
-      else run.anims.push(now.animate([{ opacity: 0, transform: `translateY(${rise}px)` }, { opacity: 1, transform: 'translateY(0px)' }], STEP_MOTION));
+      else enterPiece(run, now, rise);
     }
     // Lo que sale se queda dibujado hasta desvanecerse; lo que sigue o no tiene clave se oculta
     // aquí, y el paso que llega ya está en su sitio.
@@ -1813,6 +1818,34 @@
     stepRuns.set(stage, run);
     if (run.anims.length) Promise.allSettled(run.anims.map((anim) => anim.finished)).then(() => { if (stepRuns.get(stage) === run) settleSteps(stage); });
     else settleSteps(stage);
+  }
+  // Lo que entra: una flecha se dibuja sola y cualquier otra pieza sube 6 px con un fundido.
+  function enterPiece(run, now, rise) {
+    if (arrowPaths(now).length) drawArrow(run, now);
+    else run.anims.push(now.animate([{ opacity: 0, transform: `translateY(${rise}px)` }, { opacity: 1, transform: 'translateY(0px)' }], STEP_MOTION));
+  }
+  // Una flecha nueva se dibuja sola: su trazo avanza de la cola a la punta y la punta aparece al
+  // llegar (#300). Lo dibujado se deshace al llegar, o al cortarse el paso: nunca queda a medias.
+  const arrowPaths = (node) => [...node.querySelectorAll('[data-arrow] > path, [data-move-path]')];
+  function drawArrow(run, now) {
+    for (const path of arrowPaths(now)) {
+      const head = path.getAttribute('marker-end'), cls = path.getAttribute('class');
+      // Los atributos vuelven tal cual estaban: un estilo en línea que se borra deja `style=""` en Chrome.
+      const finish = () => {
+        path.removeAttribute('pathLength');
+        if (cls === null) path.removeAttribute('class'); else path.setAttribute('class', cls);
+        if (head !== null) path.setAttribute('marker-end', head);
+      };
+      // Con pathLength 1 y el guion de `lk-draw`, el desfase de 1 a 0 descubre el trazo de la cola a la punta.
+      path.setAttribute('pathLength', '1');
+      path.classList.add('lk-draw');
+      path.removeAttribute('marker-end');
+      const draw = path.animate([{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], DRAW_MOTION);
+      draw.finished.then(finish, () => {});
+      run.anims.push(draw);
+      run.undo.push(finish);
+    }
+    for (const text of now.querySelectorAll('text')) run.anims.push(text.animate([{ opacity: 0 }, { opacity: 1 }], DRAW_MOTION));
   }
   // Lo que sigue se desliza desde donde estaba y cambia de tono, forma a forma.
   function carryPiece(run, was, now) {
