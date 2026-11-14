@@ -1117,6 +1117,48 @@ test('la parte real de PL/SQL no apoya su etiqueta en el borde del lienzo', { sk
   assert.doesNotMatch(g.stdout, /al-borde/);
 });
 
+// ── Una flecha en la franja de las fichas de nombre (#283) ──────────────────
+// El alumno vio el trazo salir de «Cuenta 10» y terminar en un muñón, con la punta
+// en el aire. El kit reenruta la flecha entera a la franja libre entre sus dos
+// actores; cuando no hay ninguna, sube las fichas y lo declara. Las dos cosas se
+// cuentan aquí: la escena apretada no se acepta en silencio.
+const crowdedStory = (actors, arrow) => `<lk-story>
+<script type="application/json">
+{"kind":"derivation","title":"Dos cuentas","viewBox":"0 0 360 260","steps":[
+ {"title":"Uno","narrator":"Una flecha entre dos cuentas.","equation":{"atoms":[{"t":"a","id":"a"}]},"stage":{"scene":{"actors":${JSON.stringify(actors)},"arrows":[${JSON.stringify(arrow)}]}}}
+]}
+</script>
+</lk-story>
+`;
+
+test('una flecha que no tiene franja libre entre sus actores es un hallazgo', { skip: SKIP }, () => {
+  // Dos actores tan cerca que la franja que comparten mide 21 unidades: no hay
+  // dónde poner el trazo, y el kit sube las fichas para dejarlo pasar.
+  const actors = [
+    { id: 'c10', kind: 'row', x: 90, y: 160, size: 64, tone: 'slate', tag: 'Cuenta 10' },
+    { id: 'c20', kind: 'row', x: 170, y: 160, size: 64, tone: 'slate', tag: 'Cuenta 20' },
+  ];
+  const file = join(dir, 'franja-apretada.md');
+  writeFileSync(file, `# Parte 1\n\n## 1. La franja\n\nSe dibuja la cosa misma.\n\n${crowdedStory(actors, { x1: 90, y1: 120, x2: 170, y2: 120, tone: 'slate', label: 'transferencia' })}\n`);
+  const r = lint(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /flecha-en-franja-de-etiquetas/);
+});
+
+test('una flecha entre dos actores con franja libre no es un hallazgo', { skip: SKIP }, () => {
+  // Los actores de la parte real: la franja entre sus figuras es ancha y la flecha
+  // se reenruta entera, con la punta sobre su actor y la etiqueta pegada al trazo.
+  const actors = [
+    { id: 'c10', kind: 'row', x: 90, y: 160, size: 64, tone: 'slate', tag: 'Cuenta 10' },
+    { id: 'c20', kind: 'row', x: 270, y: 160, size: 64, tone: 'slate', tag: 'Cuenta 20' },
+  ];
+  const file = join(dir, 'franja-libre.md');
+  writeFileSync(file, `# Parte 1\n\n## 1. La franja\n\nSe dibuja la cosa misma.\n\n${crowdedStory(actors, { x1: 90, y1: 88, x2: 270, y2: 88, tone: 'slate', label: 'transferencia' })}\n`);
+  const r = lint(file);
+  assert.doesNotMatch(r.stdout, /flecha-en-franja-de-etiquetas/, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /flecha-quebrada/, r.stdout + r.stderr);
+});
+
 // La cuarta puerta también mide la misma parte: `explain-check` corre el estándar
 // y llama a `scene-lint` con sus figuras. `deck-gate` la mide en su archivo.
 test('la parte real de PL/SQL pasa explain-check con sus figuras', { skip: SKIP }, () => {

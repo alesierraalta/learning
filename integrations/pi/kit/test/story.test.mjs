@@ -805,6 +805,89 @@ test('la historia de la parte real de PL/SQL: etiqueta a la letra de la figura y
   }
 });
 
+// ── Una flecha que cae en la franja de las fichas se reenruta entera (#283) ──
+// El alumno vio el trazo salir de «Cuenta 10» y terminar en un muñón: la punta
+// flotando 55 unidades sobre la caja de «Cuenta 20» y la etiqueta en una franja
+// vacía, lejos de su trazo. La flecha va ENTERA —trazo, punta y etiqueta— a la
+// primera franja horizontal libre entre los dos actores, con los dos extremos
+// sobre sus figuras. Nunca se recorta, nunca deja la punta en el aire y su
+// etiqueta nunca se despega del trazo.
+const arrowShot = (view) => view.evaluate(() => {
+  const svg = document.querySelector('lk-story svg');
+  const step = [...svg.querySelectorAll('[data-step]')].find((g) => g.style.display !== 'none');
+  const group = step.querySelector('[data-arrow]');
+  const box = (b) => ({ x: b.x, y: b.y, right: b.x + b.width, bottom: b.y + b.height, w: b.width, h: b.height, cx: b.x + b.width / 2, cy: b.y + b.height / 2 });
+  const gapTo = (pt, b) => Math.hypot(Math.max(b.x - pt.x, 0, pt.x - b.right), Math.max(b.y - pt.y, 0, pt.y - b.bottom));
+  const strokes = [...group.querySelectorAll('path')]
+    .filter((p) => p.getTotalLength && !p.closest('marker'))
+    .map((p) => {
+      const len = p.getTotalLength();
+      const pts = [];
+      for (let at = 0; at <= len; at += 1) pts.push(p.getPointAtLength(at));
+      return { len, pts, tip: p.getPointAtLength(len), head: p.hasAttribute('marker-end') };
+    });
+  const shaft = strokes.length ? Math.max(...strokes.map((s) => s.len)) : 0;
+  const headStroke = strokes.find((s) => s.head) || strokes[strokes.length - 1];
+  const tip = headStroke ? headStroke.tip : { x: NaN, y: NaN };
+  const figures = [...step.querySelectorAll('[data-actor]')]
+    .map((a) => ({ id: a.dataset.actor, ...box((a.querySelector('[data-figure]') || a).getBBox()) }));
+  const target = figures.map((f) => ({ id: f.id, gap: gapTo(tip, f) })).sort((a, b) => a.gap - b.gap)[0] || { id: '?', gap: Infinity };
+  const label = group.querySelector('text');
+  const lb = label && label.getBBox().width ? box(label.getBBox()) : null;
+  const ink = strokes.flatMap((s) => s.pts);
+  const labelGap = lb && ink.length ? Math.min(...ink.map((p) => Math.hypot(p.x - lb.cx, p.y - lb.cy))) : null;
+  return {
+    strokes: strokes.length,
+    shaft: +shaft.toFixed(1),
+    headGap: +target.gap.toFixed(1),
+    target: target.id,
+    tip: { x: +tip.x.toFixed(1), y: +tip.y.toFixed(1) },
+    label: lb && { x: +lb.x.toFixed(1), y: +lb.y.toFixed(1), cx: +lb.cx.toFixed(1), cy: +lb.cy.toFixed(1) },
+    labelGap: labelGap === null ? null : +labelGap.toFixed(1),
+    text: label ? label.textContent.trim() : null,
+    size: label ? Number(label.getAttribute('font-size')) : null,
+  };
+});
+
+test('la parte real de PL/SQL: la flecha va entera, con la punta en su actor y la etiqueta en su trazo', { skip: SKIP }, async () => {
+  const block = readFileSync(PARTE_PLSQL, 'utf8').match(/<lk-story[\s\S]*?<\/lk-story>/)[0];
+  const dir = mkdtempSync(join(tmpdir(), 'kit-story-route-'));
+  mkdirSync(join(dir, 'kit'), { recursive: true });
+  for (const file of ['kit.css', 'kit.js', 'scene.js', 'dictate.js']) cpSync(join(KIT, file), join(dir, 'kit', file));
+  writeFileSync(join(dir, 'p.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8">
+<link rel="stylesheet" href="kit/kit.css"><script src="kit/scene.js" defer></script><script src="kit/kit.js" defer></script>
+</head><body><main style="max-width:700px;margin:0 auto">${block}</main></body></html>`);
+  const browser = await PLAYWRIGHT.chromium.launch();
+  try {
+    const view = await browser.newPage({ viewport: { width: 1000, height: 1000 } });
+    const errors = [];
+    view.on('pageerror', (error) => errors.push(String(error.message)));
+    await view.goto('file://' + join(dir, 'p.html'));
+    await view.waitForSelector('lk-story svg');
+    await view.waitForTimeout(300);
+    const steps = await view.locator('.lk-story-seg').count();
+    assert.ok(steps >= 3, `la historia perdió sus pasos: ${steps}`);
+    const shots = [];
+    for (let s = 0; s < steps; s++) {
+      if (s > 0) await view.getByRole('button', { name: 'Paso siguiente' }).click();
+      await view.locator('.lk-story-count').filter({ hasText: `${s + 1} / ${steps}` }).waitFor();
+      shots.push(await arrowShot(view));
+    }
+    const table = shots.map((x, i) => `paso ${i + 1}: trazo ${x.shaft}u · punta a ${x.headGap}u de ${x.target} en (${x.tip.x}, ${x.tip.y}) · etiqueta «${x.text}» a ${x.labelGap}u de su trazo (${x.strokes} tramo(s))`).join('\n');
+    for (const [i, x] of shots.entries()) {
+      assert.equal(x.text, 'transferencia', `paso ${i + 1}: la flecha perdió su etiqueta`);
+      assert.equal(x.strokes, 1, `paso ${i + 1}: la flecha se dibuja en ${x.strokes} tramos — una flecha cortada se lee como un muñón\n${table}`);
+      assert.ok(x.shaft >= 40, `paso ${i + 1}: el trazo mide ${x.shaft}u (mínimo 40)\n${table}`);
+      assert.ok(x.headGap <= 4, `paso ${i + 1}: la punta queda a ${x.headGap}u de la caja de ${x.target} (máximo 4)\n${table}`);
+      assert.ok(x.labelGap !== null && x.labelGap <= 20, `paso ${i + 1}: la etiqueta queda a ${x.labelGap}u de su trazo (máximo 20)\n${table}`);
+    }
+    console.log(table);
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('una marca con nombre se pega a su dueño, no al hueco', { skip: SKIP }, async () => {
   // Las dos filas bloqueadas: los dos cofres caen a la misma altura y el hueco
   // entre ellos es el único sitio que le queda a una marca que se centre mal.

@@ -786,40 +786,10 @@
           c.cx = Math.min(Math.max(c.wanted, room.x + c.w / 2 + 12), room.x + room.width - c.w / 2 - 12);
           c.cy = c.fixedY ?? c.baseY - 8;
         }
-        // Una flecha que arranca o termina sobre la columna de una ficha y la roza
-        // —o la cruza— deja a la ficha sin aire: el lector ve el trazo metido en
-        // sus palabras o la flecha colgando sobre ellas (#280). La ficha sube por
-        // encima de la flecha, dentro del lienzo, y su puntero sigue llegando al
-        // actor; si arriba no cabe, baja a la flecha. Sube la fila entera: dos
-        // fichas de la misma fila a distinta altura se leen torcidas (#245).
-        const rowsOfChips = new Map();
-        for (const c of chips) {
-          if (!rowsOfChips.has(c.baseY)) rowsOfChips.set(c.baseY, []);
-          rowsOfChips.get(c.baseY).push(c);
-        }
-        for (const group of rowsOfChips.values()) {
-          const crowded = group.flatMap((c) => {
-            const at = c.fixedY ?? c.baseY - 8;
-            return [...step.querySelectorAll('[data-arrow]')]
-              .flatMap((g) => [
-                String(g.dataset.arrow || '').split(',').map(Number),
-                String(g.dataset.to || '').split(',').map(Number),
-              ])
-              .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
-              .filter(([x, y]) => Math.abs(x - c.cx) <= c.w / 2 + 4 && y < at && at - y <= 2 * c.h)
-              .map(([, y]) => y);
-          });
-          if (!crowded.length) continue;
-          // La tinta del trazo ocupa 2 unidades a cada lado; 4 más de aire y las
-          // palabras no lo tocan. Arriba manda el margen del lienzo.
-          const above = Math.min(...crowded) - 6;
-          const tallest = Math.max(...group.map((c) => c.h));
-          const lift = above - tallest >= room.y + STAGE_EDGE;
-          for (const c of group) {
-            if (c.fixedY !== null) continue;
-            c.cy = lift ? above : Math.max(...crowded) + 6 + c.h;
-          }
-        }
+        // Las fichas se quedan en su franja: una flecha que cae en ella se
+        // reenruta entera, no se sube la ficha (#283). La subida queda solo para
+        // cuando no hay ninguna franja libre —el lint lo cuenta entonces—, y la
+        // decide `rerouteArrows` sobre lo que el navegador dibujó.
       };
       // Dos fichas se tocan si sus cajas se pisan en vertical y quedan a menos de TAG_GAP en horizontal.
       const clashes = (a, b) => {
@@ -911,24 +881,25 @@
         placed.push(boxOf(prop));
       }
     };
+    // La ficha se escribe en coordenadas absolutas, no con un `transform`: las puertas miden
+    // `getBBox()`, que vive en el espacio local del nodo, y una ficha transformada se medía en el origen.
+    const drawChip = (c) => {
+      const { tag, cx, cy, w, h, lines, t, fig } = c;
+      const lineY = (i) => cy - h / 2 + TAG_SIZE * 0.36 + (i - (lines.length - 1) / 2) * (TAG_SIZE + 4);
+      tag.replaceChildren(
+        make("rect", { x: cx - w / 2, y: cy - h, width: w, height: h, rx: h / 2, fill: "#ffffff", stroke: t.stroke, "stroke-width": 1.5 }),
+        ...lines.map((line, i) => make("text", { x: cx, y: lineY(i), "font-size": TAG_SIZE, fill: t.color, "text-anchor": "middle", "font-weight": 700 }, line)),
+        make("path", { d: `M ${cx - 4} ${cy} L ${cx} ${cy + 6} L ${cx + 4} ${cy} Z`, fill: t.stroke }),
+      );
+      const tx = fig.x + fig.width / 2, ty = fig.y, my = (cy + ty) / 2;
+      const d = Math.abs(cx - tx) < 2 ? `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${tx.toFixed(1)} ${ty.toFixed(1)}` : `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${cx.toFixed(1)} ${my.toFixed(1)} L ${tx.toFixed(1)} ${my.toFixed(1)} L ${tx.toFixed(1)} ${ty.toFixed(1)}`;
+      tag.append(make("path", { d, fill: "none", stroke: t.stroke, "stroke-width": 1.5, "data-elbow": "1" }));
+    };
     for (const step of scopes) {
       const rows = rowFrames(step);
       const chips = layoutTags(step, rows);
       placeProps(step, rows, chips);
-      for (const c of chips) {
-        const { tag, cx, cy, w, h, lines, t, fig } = c;
-        // La ficha se escribe en coordenadas absolutas, no con un `transform`: las puertas miden
-        // `getBBox()`, que vive en el espacio local del nodo, y una ficha transformada se medía en el origen.
-        const lineY = (i) => cy - h / 2 + TAG_SIZE * 0.36 + (i - (lines.length - 1) / 2) * (TAG_SIZE + 4);
-        tag.replaceChildren(
-          make("rect", { x: cx - w / 2, y: cy - h, width: w, height: h, rx: h / 2, fill: "#ffffff", stroke: t.stroke, "stroke-width": 1.5 }),
-          ...lines.map((line, i) => make("text", { x: cx, y: lineY(i), "font-size": TAG_SIZE, fill: t.color, "text-anchor": "middle", "font-weight": 700 }, line)),
-          make("path", { d: `M ${cx - 4} ${cy} L ${cx} ${cy + 6} L ${cx + 4} ${cy} Z`, fill: t.stroke }),
-        );
-        const tx = fig.x + fig.width / 2, ty = fig.y, my = (cy + ty) / 2;
-        const d = Math.abs(cx - tx) < 2 ? `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${tx.toFixed(1)} ${ty.toFixed(1)}` : `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${cx.toFixed(1)} ${my.toFixed(1)} L ${tx.toFixed(1)} ${my.toFixed(1)} L ${tx.toFixed(1)} ${ty.toFixed(1)}`;
-        tag.append(make("path", { d, fill: "none", stroke: t.stroke, "stroke-width": 1.5, "data-elbow": "1" }));
-      }
+      for (const c of chips) drawChip(c);
       for (const move of step.querySelectorAll("[data-move-from]")) {
         const from = findIn(step, move.dataset.moveFrom), to = findIn(step, move.dataset.moveTo);
         if (!from || !to) continue;
@@ -1054,7 +1025,207 @@
         if (owned) { holder.replaceChildren(); continue; }
         glyphAt(holder, "no", boxOf(target), { corner: true, avoid: pieces().filter((b) => !(b.x === target.getBBox().x && b.y === target.getBBox().y)), size: Math.min(24, letterOf(step)) });
       }
+      rerouteArrows(step, chips, drawChip);
+      liftChipsOffArrows(step, chips, drawChip);
     }
+    // #283: una flecha entre dos actores va ENTRE los dos actores. El camino que
+    // dibujó `walkScene` sale de la coordenada que escribió el autor, y si sus dos
+    // extremos caen en la franja de las fichas de nombre —o por encima de las
+    // figuras, donde no hay aire para sus palabras— la flecha quedaba recortada en
+    // un muñón: un tramo corto con la punta en el aire y la etiqueta en una franja
+    // vacía. `#280` subió las fichas y el alumno siguió viendo el muñón, así que
+    // aquí se reenruta la flecha ENTERA —trazo, punta y etiqueta— a la primera
+    // franja horizontal libre que comparten los dos actores, con los dos extremos
+    // sobre sus figuras. Solo si no hay ninguna franja libre suben las fichas, y
+    // entonces el grupo queda marcado (`data-arrow-crowded`) para que el lint lo
+    // cuente: nunca se dibuja un muñón.
+    function rerouteArrows(step, chips, drawChip) {
+      const groups = [...step.querySelectorAll("[data-arrow]")];
+      if (!groups.length) return;
+      const figures = [...step.querySelectorAll("[data-actor]")].map((el) => {
+        const b = figureOf(el).getBBox();
+        return { el, x: b.x, y: b.y, right: b.x + b.width, bottom: b.y + b.height, w: b.width, h: b.height, cx: b.x + b.width / 2, cy: b.y + b.height / 2 };
+      });
+      if (figures.length < 2) return;
+      // La ficha es de su actor: solo una flecha que sale y llega a dos actores con
+      // ficha de nombre puede caer en la franja de las fichas.
+      const chipped = new Set(chips.map((c) => c.target));
+      const pill = (c) => ({ x: c.cx - c.w / 2, y: c.cy - c.h, width: c.w, height: c.h });
+      const hits = (a, b, pad = 0) => a.x < b.x + b.width + pad && b.x < a.x + a.width + pad && a.y < b.y + b.height + pad && b.y < a.y + a.height + pad;
+      // Lo que una flecha reenrutada no puede pisar: lo que el paso ya dibujó. Las
+      // figuras de sus dos actores quedan fuera: los extremos se apoyan en ellas.
+      const obstacles = (ends, self) => {
+        const out = chips.map(pill);
+        for (const f of figures) if (!ends.includes(f.el)) out.push({ x: f.x, y: f.y, width: f.w, height: f.h });
+        for (const el of step.querySelectorAll("[data-prop-id], [data-box], [data-icon], [data-label], [data-mark-kind], [data-move-from], [data-arrow]")) {
+          if (el === self) continue;
+          const b = el.getBBox();
+          if (b.width > 1 || b.height > 1) out.push({ x: b.x, y: b.y, width: b.width, height: b.height });
+        }
+        return out;
+      };
+      const actorNear = (x, y) => {
+        let best = null;
+        for (const f of figures) {
+          // El extremo se escribió en la columna de su actor: fuera de ella no es suyo.
+          if (Math.abs(x - f.cx) > f.w / 2 + 12) continue;
+          const d = Math.hypot(x - f.cx, y - f.cy);
+          if (d > Math.max(f.h, 24) * 3) continue;
+          if (!best || d < best.d) best = { f, d };
+        }
+        return best ? best.f : null;
+      };
+      // La etiqueta se apoya en el trazo, nunca en una franja vacía: su borde queda a
+      // 2 unidades de la tinta y su centro a menos de 20 del trazo. Se mide lo que el
+      // navegador dibujó y se corrige una vez, así acierta en cualquier tipografía.
+      const seat = (label, cx, line, ink, up) => {
+        label.setAttribute("x", S.f(cx));
+        label.setAttribute("text-anchor", "middle");
+        const edge = up ? line - ink - 2 : line + ink + 2;
+        label.setAttribute("y", S.f(edge));
+        const b = label.getBBox();
+        const shift = up ? edge - (b.y + b.height) : edge - b.y;
+        label.setAttribute("y", S.f(edge + shift));
+        delete label.dataset.edgeX;
+        delete label.dataset.edgeY;
+        delete label.dataset.edgeAnchor;
+      };
+      for (const group of groups) {
+        const declared = String(group.dataset.arrowDeclared || `${group.dataset.arrow},${group.dataset.to}`).split(",").map(Number);
+        if (declared.length !== 4 || !declared.every(Number.isFinite)) continue;
+        // Los extremos que escribió el autor se guardan: cada pasada parte de ellos,
+        // así el reenrutado no se corre al medirse dos veces (fuentes, ancho, tema).
+        if (group.dataset.arrowDeclared === undefined) group.dataset.arrowDeclared = declared.join(",");
+        const [x1, y1, x2, y2] = declared;
+        // Un trazo que baja no es una fila de actores: su franja libre se mide aparte.
+        if (Math.abs(y2 - y1) > Math.abs(x2 - x1) * 1.5) continue;
+        const A = actorNear(x1, y1), B = actorNear(x2, y2);
+        if (!A || !B || A === B) continue;
+        if (!chipped.has(A.el) || !chipped.has(B.el)) continue;
+        const [L, R] = A.cx <= B.cx ? [A, B] : [B, A];
+        const gap = R.x - L.right;
+        const top = Math.max(L.y, R.y), bottom = Math.min(L.bottom, R.bottom);
+        if (!(bottom - top > 0)) continue; // uno arriba del otro: no es una fila
+        const path = [...group.children].find((n) => n.tagName === "path" && n.hasAttribute("marker-end"));
+        if (!path) continue;
+        const shaft = Number(path.getAttribute("stroke-width")) || 4;
+        // La tinta del trazo y su punta: la etiqueta no se apoya en ninguna de las dos.
+        const ink = Math.max(shaft / 2, S.head(shaft) / 2) + 2;
+        // La etiqueta vuelve a la letra que dibujó `walkScene`: el corte anterior le
+        // dejó un hueco más chico que sus palabras y `fitSceneText` la comprimió.
+        const label = [...group.children].find((n) => n.tagName === "text");
+        const size = Number(group.dataset.labelSize) || Number(label?.getAttribute("font-size")) || 16;
+        let caption = null;
+        if (label) {
+          label.setAttribute("font-size", String(size));
+          label.removeAttribute("data-overflow");
+          const b = label.getBBox();
+          caption = { width: b.width, height: b.height };
+        }
+        const midX = (L.right + R.x) / 2, midY = (top + bottom) / 2;
+        const blocks = obstacles([L.el, R.el], group);
+        // Las franjas de la fila que comparten los dos actores, del medio hacia los
+        // bordes: en cualquiera de ellas los dos extremos caen sobre sus figuras.
+        const lanes = [];
+        for (let d = 0; d <= (bottom - top) / 2; d += 2) {
+          if (!d) lanes.push(midY);
+          else {
+            if (midY - d >= top + ink) lanes.push(midY - d);
+            if (midY + d <= bottom - ink) lanes.push(midY + d);
+          }
+        }
+        // La etiqueta cabe arriba o debajo del trazo, a menos de 20 unidades de él y
+        // dentro del lienzo; gana el primer sitio que no pisa nada dibujado.
+        const seatOf = (y, up) => ({
+          x: midX - (caption ? caption.width : 0) / 2,
+          y: up ? y - ink - 2 - (caption ? caption.height : 0) : y + ink + 2,
+          width: caption ? caption.width : 0,
+          height: caption ? caption.height : 0,
+        });
+        const freeSeat = (y, up) => {
+          const box = seatOf(y, up);
+          if (!caption) return true;
+          if (box.y < room.y + STAGE_EDGE || box.y + box.height > room.y + room.height - STAGE_EDGE) return false;
+          if (box.x < room.x + STAGE_EDGE || box.x + box.width > room.x + room.width - STAGE_EDGE) return false;
+          return !blocks.some((b) => hits(box, b, 2));
+        };
+        let lane = null;
+        if (gap >= 40) {
+          for (const y of lanes) {
+            if (blocks.some((b) => hits({ x: L.right - 2, y: y - ink, width: gap + 4, height: 2 * ink }, b))) continue;
+            const up = freeSeat(y, true) ? true : freeSeat(y, false) ? false : null;
+            if (up === null) continue;
+            lane = { y, up };
+            break;
+          }
+        }
+        if (lane) {
+          const up = lane.up;
+          // Un solo tramo: se descartan los trozos del corte y el muñón.
+          for (const n of [...group.children]) if (n.tagName === "path" && !n.hasAttribute("marker-end")) n.remove();
+          path.setAttribute("d", `M ${S.f(L.right)} ${S.f(lane.y)} L ${S.f(R.x)} ${S.f(lane.y)}`);
+          group.dataset.arrow = `${S.f(L.right)},${S.f(lane.y)}`;
+          group.dataset.to = `${S.f(R.x)},${S.f(lane.y)}`;
+          delete group.dataset.arrowCrowded;
+          if (label) {
+            const fit = Math.max(40, 2 * Math.min(midX - room.x - 4, room.x + room.width - midX - 4));
+            label.setAttribute("data-fit", S.f(fit));
+            seat(label, midX, lane.y, ink, up);
+          }
+          continue;
+        }
+        // Sin franja libre: las fichas suben por encima de la flecha (la conducta de
+        // #280) y el grupo se marca para que el lint lo cuente. La flecha se dibuja
+        // entera igual: nunca un muñón.
+        const band = { x: Math.min(x1, x2), y: Math.min(y1, y2) - ink, width: Math.abs(x2 - x1), height: Math.abs(y2 - y1) + 2 * ink };
+        const crowd = [L, R].map((f) => chips.find((c) => c.target === f.el)).filter((c) => c && hits(band, pill(c), 4));
+        if (!crowd.length) continue;
+        group.dataset.arrowCrowded = "1";
+        for (const n of [...group.children]) if (n.tagName === "path" && !n.hasAttribute("marker-end")) n.remove();
+        path.setAttribute("d", `M ${S.f(x1)} ${S.f(y1)} L ${S.f(x2)} ${S.f(y2)}`);
+        if (label) {
+          const fit = Math.max(40, 2 * Math.min((x1 + x2) / 2 - room.x - 4, room.x + room.width - (x1 + x2) / 2 - 4));
+          label.setAttribute("data-fit", S.f(fit));
+          const up = Math.min(y1, y2) - ink - 2 - label.getBBox().height >= room.y + STAGE_EDGE;
+          seat(label, (x1 + x2) / 2, Math.min(y1, y2), ink, up);
+        }
+      }
+    }
+
+    // #280 sigue valiendo para la flecha que no se puede reenrutar: una ficha que
+    // queda debajo de un extremo de flecha —el trazo le cruza las palabras— sube
+    // por encima de él, dentro del lienzo, y su puntero sigue llegando al actor. La
+    // flecha ya está reenrutada cuando se mide esto, así que una ficha solo sube
+    // por la flecha que de verdad la pisa. Sube la fila entera: dos fichas de la
+    // misma fila a distinta altura se leen torcidas (#245).
+    function liftChipsOffArrows(step, chips, drawChip) {
+      const groups = [...step.querySelectorAll("[data-arrow]")];
+      if (!groups.length || !chips.length) return;
+      const rows = new Map();
+      for (const c of chips) {
+        const at = c.fixedY ?? c.baseY - 8;
+        const crowded = groups
+          .flatMap((g) => [String(g.dataset.arrow || "").split(",").map(Number), String(g.dataset.to || "").split(",").map(Number)])
+          .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
+          .filter(([x, y]) => Math.abs(x - c.cx) <= c.w / 2 + 4 && y < at && at - y <= 2 * c.h)
+          .map(([, y]) => y);
+        if (!crowded.length) continue;
+        if (!rows.has(c.baseY)) rows.set(c.baseY, { list: [], ys: [] });
+        rows.get(c.baseY).list.push(c);
+        rows.get(c.baseY).ys.push(...crowded);
+      }
+      for (const { list, ys } of rows.values()) {
+        const above = Math.min(...ys) - 6;
+        const tallest = Math.max(...list.map((c) => c.h));
+        const up = above - tallest >= room.y + STAGE_EDGE;
+        for (const c of list) {
+          if (c.fixedY !== null) continue;
+          c.cy = up ? above : Math.max(...ys) + 6 + c.h;
+          drawChip(c);
+        }
+      }
+    }
+
     // La etiqueta de la flecha se coloca al final, cuando las fichas, los cofres y
     // las marcas ya están dibujados: su sitio depende de lo que el navegador midió.
     placeEdgeLabels(svg);
@@ -1376,7 +1547,7 @@
         }
       }
       out = out.slice(0, drawnFrom)
-        + `<g data-arrow="${a.x1},${a.y1}" data-to="${a.x2},${a.y2}">` + out.slice(drawnFrom) + '</g>';
+        + `<g data-arrow="${a.x1},${a.y1}" data-to="${a.x2},${a.y2}" data-label-size="${size}">` + out.slice(drawnFrom) + '</g>';
     }
     for (const b of scene.badges || []) out += S.badge(b.x, b.y, b.n);
     for (const d of scene.dashed || []) out += S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke, d.fill);
