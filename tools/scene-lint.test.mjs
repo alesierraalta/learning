@@ -1195,6 +1195,179 @@ test('frequency-tree branch labels that pile on each other are a finding', { ski
   assert.match(r.stdout, /text-over-text/);
 });
 
+// ── El pie de una figura se queda con su figura (#287) ──────────────────────
+// El alumno leyó «Cómo leerlo: las tarjetas comparan…» arriba de la columna de al lado, con las
+// tarjetas al pie de la anterior: el pie describía una figura que no estaba donde él miraba. La
+// medida se toma en la página del modo ancho, con la prosa del lector partida en dos columnas.
+// Las dos notas reales del quinto banco y la nota de abajo daban `leyenda-descolgada` antes de
+// que la pieza cruzara las columnas (kit.css): los casos de abajo son la garantía de que ya no.
+const BENCH287 = join(TOOLS, 'register', 'fixtures', 'bench265', 'notas');
+const cardsNote = (name, caption) => {
+  const spec = {
+    title: 'Orientaciones de los ejes',
+    ...(caption === null ? {} : { caption: 'El pie va con sus tarjetas.' }),
+    cards: [
+      { id: 'row', verdict: 'ok', pill: 'FILA', title: 'Dirección fila', draw: { refs: [{ text: 'row', icon: 'read', tone: 'green' }], target: { text: 'horizontal' } }, reason: 'Lee de izquierda a derecha' },
+      { id: 'col', verdict: 'no', pill: 'COLUMNA', title: 'Dirección columna', draw: { refs: [{ text: 'column', icon: 'write', tone: 'amber' }], target: { text: 'vertical' } }, reason: 'Lee de arriba hacia abajo' },
+    ],
+  };
+  const host = `<lk-cards>\n<script type="application/json">\n${JSON.stringify(spec)}\n</script>\n</lk-cards>`;
+  const file = join(dir, name);
+  // La prosa de antes llena la primera columna: es lo que deja al pie sin sitio junto a su figura.
+  const prose = Array.from({ length: 8 }, (_, i) => `Un párrafo de antes con suficiente texto como para ocupar el ancho de la columna de lectura y empujar la figura hacia el pie, número ${i + 1}.`).join('\n\n');
+  writeFileSync(file, `# Parte 1\n\n## 1. Los ejes\n\n${prose}\n\n${host}\n${caption === null ? '' : 'Cómo leerlo: las tarjetas comparan las dos orientaciones.'}\n\n## Mini-quiz\n\nQueda el mini-quiz.\n`);
+  return file;
+};
+
+test('un pie escrito fuera de su pieza se queda con sus tarjetas', { skip: SKIP }, () => {
+  const file = cardsNote('pie-suelto.md', 'suelto');
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /leyenda-descolgada/);
+});
+
+test('un pie declarado dentro de su pieza viaja con ella', { skip: SKIP }, () => {
+  const file = cardsNote('pie-dentro.md', null);
+  const r = lint(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /leyenda-descolgada/);
+});
+
+// Las dos notas reales del quinto banco: su pie quedó arriba de la otra columna en modo ancho.
+test('la nota real de Git deja el pie de sus tarjetas con ellas', { skip: SKIP }, () => {
+  const r = lint(join(BENCH287, 'git-branching.md'));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /leyenda-descolgada/);
+});
+
+test('la nota real de CSS deja el pie de sus tarjetas con ellas', { skip: SKIP }, () => {
+  const r = lint(join(BENCH287, 'css-flexbox.md'));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /leyenda-descolgada/);
+});
+
+// Los ejemplos aprobados ya escriben su «Cómo leerlo» debajo de la figura: ninguno lo deja lejos.
+test('los ejemplos del kit no dejan un pie descolgado', { skip: SKIP }, () => {
+  for (const name of ['curva-gaussiana.md', 'derivacion-x.md', 'formula-anotada.md', 'formula-gaussiana.md', 'plsql-transaccion.md', 'propiedad-rust.md']) {
+    const r = lint(join(EXAMPLES, name));
+    assert.doesNotMatch(r.stdout, /leyenda-descolgada/, `${name}: ${r.stdout}${r.stderr}`);
+  }
+});
+
+// ── Dos personajes iguales para cosas distintas (#287) ──────────────────────
+// El mismo robot para un commit y para una rama: el dibujo no dice cuál es cuál y el lector solo
+// tiene la ficha. Se mide desde la ficha del actor: dos actores del mismo paso dibujados con el
+// mismo personaje y el mismo tono, y con fichas que no comparten ni una palabra, son un hallazgo.
+const storyWith = (actors) => `{"kind":"derivation","title":"Dos cosas","viewBox":"0 0 360 240","steps":[
+ {"title":"Uno","narrator":"Las dos cosas aparecen.","equation":{"atoms":[{"t":"a","id":"a"}]},"stage":{"scene":{"actors":${JSON.stringify(actors)}}}},
+ {"title":"Dos","narrator":"Las dos cosas siguen.","equation":{"atoms":[{"t":"b","id":"b"}]},"stage":{"scene":{"actors":${JSON.stringify(actors)}}}}
+]}`;
+const storyNote = (name, actors) => {
+  const file = join(dir, name);
+  writeFileSync(file, `# Parte 1\n\n## 1. Dos cosas\n\nSe dibujan las dos.\n\n<lk-story>\n<script type="application/json">\n${storyWith(actors)}\n</script>\n</lk-story>\n`);
+  return file;
+};
+const ROBOTS = (timbre) => ([
+  { id: 'c', icon: 'robot', x: 90, y: 150, size: 56, tone: timbre, tag: 'commit' },
+  { id: 'm', icon: 'robot', x: 260, y: 150, size: 56, tone: timbre, tag: 'rama' },
+]);
+
+test('dos robots iguales para un commit y una rama son un hallazgo', { skip: SKIP }, () => {
+  const r = lint(storyNote('robots-iguales.md', ROBOTS('green')));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /personajes-iguales/);
+  assert.match(r.stdout, /commit \/ rama/);
+});
+
+// Dos referencias al mismo valor se dibujan igual porque son el mismo tipo de cosa: su ficha
+// comparte la palabra que nombra el valor («r1: &s» y «r2: &s» dicen «s»).
+test('dos referencias al mismo valor no son dos personajes iguales', { skip: SKIP }, () => {
+  const r = lint(join(TOOLS, 'register', 'fixtures', 'bench261', 'rust-borrowing.md'));
+  assert.doesNotMatch(r.stdout, /personajes-iguales/, r.stdout + r.stderr);
+});
+
+// Dos dueñas del mismo tipo —«s1» y «s2», dos robots iguales de la misma historia— no son dos
+// oficios: el número no hace distinto a un personaje. El ejemplo aprobado del kit las dibuja así.
+test('dos personajes que solo cambian de número no son un hallazgo', { skip: SKIP }, () => {
+  const r = lint(join(EXAMPLES, 'propiedad-rust.md'));
+  assert.doesNotMatch(r.stdout, /personajes-iguales/, r.stdout + r.stderr);
+});
+
+// Una caja lleva su nombre dentro del dibujo: el lector la distingue por lo que dice, así que dos
+// cajas del mismo tono no son el mismo dibujo (el recorrido de «Resolver x + 2 = 3»).
+test('dos cajas del mismo tono con nombres distintos no son un hallazgo', { skip: SKIP }, () => {
+  const r = lint(join(EXAMPLES, 'derivacion-x.md'));
+  assert.doesNotMatch(r.stdout, /personajes-iguales/, r.stdout + r.stderr);
+});
+
+// El tono es lo que distingue a los dos robots de las notas reales: la medida no las condena, y la
+// variación —el mismo personaje para un commit y una rama— queda escrita en la skill con ejemplos.
+test('dos robots del mismo personaje con tono distinto no son un hallazgo', { skip: SKIP }, () => {
+  const r = lint(storyNote('robots-con-tono.md', [
+    { id: 'c', icon: 'robot', x: 90, y: 150, size: 56, tone: 'blue', tag: 'commit' },
+    { id: 'm', icon: 'robot', x: 260, y: 150, size: 56, tone: 'slate', tag: 'rama' },
+  ]));
+  assert.doesNotMatch(r.stdout, /personajes-iguales/, r.stdout + r.stderr);
+});
+
+// Las notas reales del quinto banco dibujan cada pieza de referencia con su tono, así que la medida
+// las deja pasar: por eso la variación que el alumno vio vive en la skill, no en esta puerta.
+test('las notas reales del banco no traen dos personajes iguales', { skip: SKIP }, () => {
+  for (const name of ['git-branching.md', 'rust-borrowing.md', 'css-flexbox.md']) {
+    const r = lint(join(BENCH287, name));
+    assert.doesNotMatch(r.stdout, /personajes-iguales/, `${name}: ${r.stdout}${r.stderr}`);
+  }
+});
+
+// Lo que una puerta mide se escribe en la skill; la skill dice cómo se corrige (#287). La
+// repetición de píldoras y el mismo robot para dos cosas no son una puerta, y viven aquí: en las
+// referencias de la skill y en el estándar que lee la sesión de estudio.
+test('la skill y AGENTS.md nombran el pie descolgado, los personajes iguales y las píldoras del mazo', () => {
+  const visuales = readFileSync(join(TOOLS, '..', 'skills', 'explicacion-interactiva', 'references', 'visuales.md'), 'utf8');
+  const skill = readFileSync(join(TOOLS, '..', 'skills', 'explicacion-interactiva', 'SKILL.md'), 'utf8');
+  const agents = readFileSync(join(TOOLS, '..', 'deploy', 'vps', 'learnings', 'AGENTS.md'), 'utf8');
+  for (const [name, text] of [['SKILL.md', skill], ['AGENTS.md', agents]]) {
+    assert.match(text, /leyenda-descolgada/, `${name} no nombra la leyenda descolgada`);
+    assert.match(text, /personajes-iguales/, `${name} no nombra los personajes iguales`);
+  }
+  // La variación que la puerta no mide: el mismo robot para un commit y una rama, con ejemplos.
+  assert.match(visuales, /Dos cosas distintas no se dibujan con el mismo personaje/, 'visuales.md no trae la variación de los personajes');
+  assert.match(visuales, /commit y una rama/, 'visuales.md no da el ejemplo del commit y la rama');
+  // Las píldoras: un veredicto, un contraste, una secuencia, una lista de comprobación.
+  assert.match(visuales, /Las píldoras salen del contenido/, 'visuales.md no fija las píldoras del mazo');
+  for (const family of ['veredicto', 'contraste', 'secuencia', 'lista de comprobación']) {
+    assert.match(visuales, new RegExp(`\\*\\*${family}\\*\\*`), `visuales.md no nombra la píldora de ${family}`);
+  }
+  // El pie va dentro de la pieza, y la puerta lo mide en la página del modo ancho.
+  assert.match(visuales, /El pie va con su figura/, 'visuales.md no dice que el pie va con su figura');
+});
+
+// Las puertas de la figura siguen pasando en las cinco notas reales del quinto banco: la medida
+// nueva mide lo que faltaba —el pie y los personajes—, no cambia lo que ya estaba bien (#287).
+// `explain-check` no entra aquí: esas notas son el registro de los hallazgos de #265 (mini-quiz
+// numerado y glosario en bloque) y los falla por eso, no por su figura.
+test('las cinco notas reales del banco pasan scene-gate y scene-lint', { skip: SKIP }, () => {
+  for (const name of ['bayes-theorem.md', 'css-flexbox.md', 'git-branching.md', 'rust-borrowing.md', 'tcp-handshake.md']) {
+    const file = join(BENCH287, name);
+    for (const tool of ['scene-gate.mjs', 'scene-lint.mjs']) {
+      const r = spawnSync(process.execPath, [join(TOOLS, tool), file], { encoding: 'utf8' });
+      assert.equal(r.status, 0, `${name} · ${tool}: ${r.stdout}${r.stderr}`);
+    }
+  }
+});
+
+// La parte limpia del banco pasa las cuatro puertas, en la nota y en su página: es lo que la nota
+// real debe hacer, y su pie de tarjetas ya va pegado a ellas.
+test('la parte limpia del banco pasa las cuatro puertas', { skip: SKIP }, () => {
+  for (const name of ['tcp-handshake.md', 'tcp-handshake.html']) {
+    const file = join(TOOLS, 'register', 'fixtures', 'bench265', 'clean', name);
+    for (const tool of ['scene-gate.mjs', 'scene-lint.mjs', 'deck-gate.mjs', 'explain-check.mjs']) {
+      const r = spawnSync(process.execPath, [join(TOOLS, tool), file], { encoding: 'utf8' });
+      assert.equal(r.status, 0, `tcp-handshake limpia · ${name} · ${tool}: ${r.stdout}${r.stderr}`);
+    }
+  }
+});
+
 // ── Un movimiento declarado que no se dibuja (#286) ─────────────────────────
 // La quinta corrida del banco dejó cuatro de cinco partes escribiendo el
 // movimiento como «{"actor":"c10","toX":240,"toY":120}». El kit leía solo

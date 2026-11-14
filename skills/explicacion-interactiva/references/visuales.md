@@ -402,6 +402,15 @@ Reglas:
 
 - **Pocas palabras y una idea por paso**: el cofre dice el valor; el robot, su nombre; el
   narrador, qué pasó. Cuatro pasos como máximo para una idea.
+- **Dos cosas distintas no se dibujan con el mismo personaje (#287)**: un commit y una rama, un
+  valor y sus dos referencias, un contenedor y su ítem. Si el actor dice qué es —「commit」,
+  「rama」, 「valor」, 「referencia」, 「contenedor」, 「ítem」— el dibujo tiene que decirlo también: cada
+  uno con su `kind` (`database`, `row`, `session`, `lock`, `user`, `server`, `process`, `file`,
+  `packet`, `robot`), y el tono es un estado, no un oficio. `scene-lint` mide el caso extremo
+  (`personajes-iguales`: dos actores del mismo paso con el mismo personaje **y** el mismo tono
+  cuyas fichas no comparten ninguna palabra) y deja pasar el resto, porque el tono sí distingue a
+  dos robots; el caso real del quinto banco —«commit» y 「rama」 como dos robots de distinto
+  tono— lo corrige esta regla, no la puerta.
 - **El actor que ya no vale se apaga (`faded`); el que se usa sin valer se tacha (`invalid`)**.
   No se inventa otro color para «viejo».
 - **Las piezas se anclan por id** (`"on":"s1"`) y se colocan solas: junto al lado que pides y, si
@@ -452,8 +461,23 @@ estrecha, siguen los tres papeles (claro, oscuro, negro) y viven solas o como pa
 (compila / no compila, correcto / error); un tema sin código nunca las usa. Si lo que comparas
 no tiene veredicto, es una tabla o una escena.
 
+**Las píldoras salen del contenido, y no se repiten de una parte a otra (#287).** La píldora es
+la etiqueta corta que el lector ve primero, así que dice lo que este caso es, no el formato del
+mueble: un **veredicto** («COMPILA» / «NO COMPILA», «CORRECTO» / «RECHAZADO»), un **contraste**
+(«ANTES» / «DESPUÉS», «CON `&`» / «CON `&mut`»), una **secuencia** («1 PASO» / «2 PASO» /
+«3 PASO») o una **lista de comprobación** («SÍ» / «NO» / «FALTA»). Repetir en cinco partes las
+mismas tres píldoras —CORRECTO, CORRECTO, RECHAZADO— es un molde, no una explicación: si las
+tres tarjetas no son un veredicto, la pieza es una tabla o una escena. Esto se corrige aquí, en
+la skill, y no con una puerta: la repetición se ve en el banco, que registra las píldoras de cada
+mazo.
+
 Cada pieza admite `caption` (el pie que la guía; con él la parte no debe una línea «Cómo
-leerlo»). Dentro de un `<lk-story>` el paso nombra la pieza en su `stage` y hereda lo que el
+leerlo»). **El pie va con su figura (#287)**: o dentro de la pieza, en su `caption` —lo que lo
+ata a su marco—, o en la línea `Cómo leerlo:` escrita justo debajo de ella. Al final de la prosa,
+el pie de una pieza puede amanecer arriba de la otra columna del modo ancho, con su figura al pie
+de la anterior: el alumno leyó las tarjetas del quinto banco con su pie en la columna de al lado.
+`scene-lint` lo mide en la página del modo ancho (`leyenda-descolgada`), y la pieza cruza las dos
+columnas como una escena, así que su pie no se queda sin sitio. Dentro de un `<lk-story>` el paso nombra la pieza en su `stage` y hereda lo que el
 recorrido declara a su nivel (`"venn":{"sets":[…]}`, `"tables":{…}`, `"memory":{"columns":[…]}`),
 así un paso escribe solo lo que cambia. Un recorrido puede mezclar pasos de escena y de pieza.
 

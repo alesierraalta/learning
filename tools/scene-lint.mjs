@@ -36,6 +36,14 @@ const CROSS = 3.5;
 const LOOSE = 40;
 // Dos fichas de nombre de actores vecinos a menos de 6 píxeles se leen como una sola (#261).
 const TAG_MIN_PX = 6;
+// El pie de una figura va con su figura (#287): dentro de su marco o directamente debajo, en
+// su misma columna. En modo ancho el lector parte la prosa en dos columnas y una línea escrita
+// al final de una pieza cae arriba de la otra: el alumno leyó «Cómo leerlo» sobre una figura
+// que no era la suya. Más de 64 px de hueco ya no es «directamente debajo».
+const CAPTION_GAP = 64;
+// Los estados que el kit dibuja en gris: dos actores con el mismo personaje y el mismo tono se
+// dibujan igual salvo que uno esté en espera, atenuado o tachado (#287).
+const GREY_STATES = new Set(['invalid', 'faded', 'waiting']);
 // Un icono que pisa una palabra más de 3 unidades se lee encima de ella (#273).
 const ICON_TEXT_OVERLAP = 3;
 
@@ -69,6 +77,41 @@ const tagGapsPx = ({ minPx }) => {
   return out;
 };
 
+// El pie de una figura se queda con su figura (#287). Se mide en la página del modo ancho, con
+// el lector puesto: el párrafo «Cómo leerlo» que sigue a una figura tiene que compartir su franja
+// horizontal —su columna, o las dos si la figura las cruza— y quedar directamente debajo. Un pie
+// que arranca en la otra columna, o que se va 64 px más abajo, es una leyenda descolgada.
+const captionsApart = ({ gap }) => {
+  const out = [];
+  const hosts = [...document.querySelectorAll('lk-scene, lk-figure, lk-story, lk-walkthrough, lk-cards, lk-memory, lk-tables, lk-venn, lk-tree')];
+  for (const host of hosts) {
+    // El pie declarado dentro de la figura (`caption`) viaja con ella: no hay nada que medir.
+    const own = host.querySelector('.lk-piece-caption, .lk-scene-caption');
+    if (own && own.textContent.trim()) continue;
+    const next = host.nextElementSibling;
+    if (!next || next.tagName !== 'P' || !/^\s*c[oó]mo leerlo/i.test(next.textContent || '')) continue;
+    const figure = host.getBoundingClientRect();
+    const caption = next.getBoundingClientRect();
+    if (!figure.width || !caption.width) continue;
+    const shared = Math.min(figure.right, caption.right) - Math.max(figure.left, caption.left);
+    const below = caption.top - figure.bottom;
+    if (shared > 0 && below <= gap) continue;
+    const why = shared <= 0
+      ? `arranca en la columna de al lado (${Math.round(Math.min(Math.abs(caption.left - figure.right), Math.abs(figure.left - caption.right)))} px fuera de la franja de su figura)`
+      : `queda ${Math.round(below)} px por debajo de su figura (tope ${gap} px)`;
+    const id = /^s(\d+)$/.exec(host.id);
+    const numbered = id ? Number(id[1]) + 1 : 0;
+    out.push({
+      block: numbered,
+      title: (host.querySelector('svg')?.getAttribute('aria-label') || host.querySelector('.lk-title')?.textContent || '').trim(),
+      kind: 'leyenda-descolgada',
+      text: next.textContent.replace(/\s+/g, ' ').trim().slice(0, 40),
+      detail: `el pie «Cómo leerlo» ${why}: escríbelo dentro de la pieza (\`caption\`) o pégalo a su figura`,
+    });
+  }
+  return out;
+};
+
 async function loadPlaywright() {
   // El mismo orden que `scene-gate` y `deck-gate`: el módulo que indique el
   // entorno, el del proyecto y el global. En la máquina de pruebas el navegador
@@ -95,26 +138,92 @@ if (!note) {
 }
 
 const src = readFileSync(note, 'utf8');
-const blocks = [...src.matchAll(new RegExp(`<lk-(scene|walkthrough|story|${PIECE_TAGS.join('|')})[^>]*>[\\s\\S]*?<\\/lk-\\1>`, 'g'))].map((m) => m[0]);
+const matches = [...src.matchAll(new RegExp(`<lk-(scene|walkthrough|story|${PIECE_TAGS.join('|')})[^>]*>[\\s\\S]*?<\\/lk-\\1>`, 'g'))];
+const blocks = matches.map((m) => m[0]);
 if (!blocks.length) {
   console.log(`${note}: no tiene escenas`);
   process.exit(0);
 }
 
+// El pie que el autor escribe justo debajo de la figura: la línea «Cómo leerlo». Es lo que el
+// lector pinta como párrafo siguiente, y lo que tiene que quedarse con su figura (#287).
+const captionAfter = (end) => {
+  const line = /^[ \t]*(?:\n[ \t]*)*((?:\*\*)?C[oó]mo leerlo(?:\*\*)?[^\n]*)/i.exec(src.slice(end));
+  return line ? line[1].replace(/\*\*/g, '').trim() : '';
+};
+const captions = matches.map((m) => captionAfter(m.index + m[0].length));
+
+// Dos personajes iguales para cosas distintas (#287): en un mismo paso, dos actores dibujados
+// con el mismo personaje y el mismo tono son el mismo dibujo. Si además sus fichas no comparten
+// ni una palabra, el lector no tiene cómo distinguirlos: un commit y una rama, un valor y su
+// referencia, un contenedor y su ítem no se dibujan con el mismo robot. Una caja no cuenta —su
+// nombre va dentro del dibujo, así que el lector la distingue por lo que dice—, y un número
+// tampoco hace distintos a dos personajes: «s1» y «s2» son el mismo tipo de cosa, no dos oficios.
+const words = (tag) => String(tag || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[0-9]+/g, ' ').split(/[^a-z]+/).filter(Boolean);
+const drawn = (actor) => `${actor.kind || actor.icon} · ${GREY_STATES.has(actor.state) ? 'slate' : actor.tone || 'slate'}`;
+const named = (actor) => Boolean((actor.kind || actor.icon) && String(actor.tag || actor.label || '').trim());
+const scenesOf = (spec) => (Array.isArray(spec?.steps)
+  ? spec.steps.map((step) => step?.stage?.scene || step?.stage).filter(Boolean)
+  : spec?.scene ? [spec.scene] : []);
+const lookalikes = [];
+matches.forEach((match, i) => {
+  const tag = /^<lk-([a-z]+)/.exec(match[0])?.[1];
+  if (tag !== 'story' && tag !== 'scene') return;
+  const payload = /<script type="application\/json">([\s\S]*?)<\/script>/.exec(match[0]);
+  if (!payload) return;
+  let spec;
+  try { spec = JSON.parse(payload[1]); } catch { return; }
+  for (const scene of scenesOf(spec)) {
+    const actors = (scene.actors || []).filter(named);
+    for (let a = 0; a < actors.length; a++) {
+      for (let b = a + 1; b < actors.length; b++) {
+        const [one, two] = [actors[a], actors[b]];
+        if (drawn(one) !== drawn(two)) continue;
+        const first = words(one.tag || one.label);
+        const second = new Set(words(two.tag || two.label));
+        if (first.some((w) => second.has(w))) continue;
+        lookalikes.push({ block: i + 1, title: spec.title || '', one, two });
+      }
+    }
+  }
+});
+
 const dir = mkdtempSync(join(tmpdir(), 'scene-lint-'));
 mkdirSync(join(dir, 'kit'), { recursive: true });
 cpSync(KIT, join(dir, 'kit'), { recursive: true });
+const identified = blocks.map((b, i) => b.replace(/^<lk-([a-z]+)/, `<lk-$1 id="s${i}"`));
 writeFileSync(join(dir, 'page.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <link rel="stylesheet" href="kit/kit.css">
 <script src="kit/scene.js" defer></script><script src="kit/kit.js" defer></script>
 <style>/* La prosa del lector se justifica (view/app.css) y esa regla llega a lo que la nota
    escribe dentro de la prosa: el lint mide con ella puesta, como el lector. */
 .prose p { text-align: justify; hyphens: auto; }</style>
-</head><body><main style="max-width:720px;margin:0 auto"><div class="prose">${blocks.map((b, i) => b.replace(/^<lk-([a-z]+)/, `<lk-$1 id="s${i}"`)).join('\n')}</div></main></body></html>`);
+</head><body><main style="max-width:720px;margin:0 auto"><div class="prose">${identified.join('\n')}</div></main></body></html>`);
+
+// La página del modo ancho es la del lector: su prosa, sus dos columnas y la línea «Cómo leerlo»
+// donde el autor la escribió. El pie de una figura solo se descolgaba ahí, así que la medida se
+// toma con las mismas hojas que el alumno leyó (view/app.css y view/book.css).
+const VIEW = fileURLToPath(new URL('../integrations/pi/view', import.meta.url));
+for (const sheet of ['app.css', 'book.css']) cpSync(join(VIEW, sheet), join(dir, sheet));
+writeFileSync(join(dir, 'wide.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8">
+<link rel="stylesheet" href="kit/kit.css">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="book.css">
+<script src="kit/scene.js" defer></script><script src="kit/kit.js" defer></script>
+</head><body class="wide"><main id="app"><div class="prose">${identified.map((b, i) => (captions[i]
+  ? `${b}\n<p>${captions[i].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`
+  : b)).join('\n')}</div></main></body></html>`);
 
 const pw = await loadPlaywright();
 const browser = await pw.chromium.launch();
-const findings = [];
+const findings = lookalikes.map(({ block, title, one, two }) => ({
+  block,
+  title,
+  kind: 'personajes-iguales',
+  text: `${one.tag || one.label} / ${two.tag || two.label}`,
+  detail: `los dos se dibujan igual (${drawn(one).replace(' · ', ' y tono ')}) y sus fichas no comparten ninguna palabra: dale a cada uno su personaje (database, row, session, lock, user, server, process, file, packet, robot), su tono o su estado`,
+}));
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(pathToFileURL(join(dir, 'page.html')).href);
@@ -814,6 +923,16 @@ try {
   // monta sobre otra y un conector no atraviesa lo que no es suyo.
   for (const piece of await measurePieces(page, { scope: 'convivencia' })) {
     for (const p of piece.problems) findings.push({ block: Number(piece.id.slice(1)) + 1, title: piece.title, kind: p.kind, text: p.text, detail: p.detail });
+  }
+  // Y el pie de cada figura, en la página del modo ancho: es donde el lector parte la prosa en dos
+  // columnas y el «Cómo leerlo» de una pieza puede amanecer arriba de la columna de al lado (#287).
+  // Sin un pie escrito fuera de su figura no hay nada que medir, y la segunda página no se abre.
+  if (captions.some(Boolean)) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(pathToFileURL(join(dir, 'wide.html')).href);
+    await page.waitForSelector('lk-scene svg, lk-walkthrough svg, lk-story svg, .lk-p', { timeout: 15000 });
+    await page.waitForTimeout(400);
+    findings.push(...await page.evaluate(captionsApart, { gap: CAPTION_GAP }));
   }
 } finally {
   await browser.close();
