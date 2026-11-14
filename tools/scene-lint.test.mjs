@@ -1348,12 +1348,17 @@ test('la skill y AGENTS.md nombran el pie descolgado, los personajes iguales y l
 // nueva mide lo que faltaba —el pie y los personajes—, no cambia lo que ya estaba bien (#287).
 // `explain-check` no entra aquí: esas notas son el registro de los hallazgos de #265 (mini-quiz
 // numerado y glosario en bloque) y los falla por eso, no por su figura.
-test('las cinco notas reales del banco pasan scene-gate y scene-lint', { skip: SKIP }, () => {
+test('las cinco notas reales del banco no dejan pies descolgados ni personajes iguales', { skip: SKIP }, () => {
+  // Son lo que el tutor escribió, con sus otros defectos a propósito (la de Bayes trae un
+  // movimiento de longitud cero, #286): aquí solo se juzgan las reglas de #287, y que las
+  // herramientas lean la nota sin romperse.
   for (const name of ['bayes-theorem.md', 'css-flexbox.md', 'git-branching.md', 'rust-borrowing.md', 'tcp-handshake.md']) {
     const file = join(BENCH287, name);
     for (const tool of ['scene-gate.mjs', 'scene-lint.mjs']) {
       const r = spawnSync(process.execPath, [join(TOOLS, tool), file], { encoding: 'utf8' });
-      assert.equal(r.status, 0, `${name} · ${tool}: ${r.stdout}${r.stderr}`);
+      const said = `${name} · ${tool}: ${r.stdout}${r.stderr}`;
+      assert.ok(r.status === 0 || r.status === 1, said);
+      assert.doesNotMatch(r.stdout, /leyenda-descolgada|personajes-iguales/, said);
     }
   }
 });
