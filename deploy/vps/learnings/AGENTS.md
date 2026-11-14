@@ -46,6 +46,8 @@ Una fila de actores se tiende desde el marco más grande, estado incluido: el ma
 
 Dos medidas más, en `scene-lint`: una marca (el ✓/✗ y su `label`) nunca se dibuja más grande que los nombres de sus actores —sin nombres, el tope es el mínimo de lectura— (`etiqueta-desproporcionada`), y la cabecera de la historia se lee entera a cualquier ancho: se escala hasta el suelo de 14 px y, por debajo, se parte por tokens con el resaltado entero y visible, nunca cortada ni deslizada fuera de la vista (`cabecera-cortada`).
 
+El pie de una figura va con su figura (#287): el «Cómo leerlo» se escribe dentro de la pieza (su `caption`) o en la línea pegada debajo, y la pieza cruza las dos columnas del modo ancho como una escena, así que su pie no amanece arriba de la otra columna (`leyenda-descolgada`, medido en la página del modo ancho del lector). Y dos cosas distintas no se dibujan con el mismo robot: `personajes-iguales` mide el caso extremo —dos actores del mismo paso con el mismo personaje y el mismo tono cuyas fichas no comparten ninguna palabra—; cuando solo cambia el tono la puerta calla, y la regla de la skill («cada cosa con su personaje») es la que lo corrige. Las píldoras de un mazo salen de su contenido —un veredicto, un contraste, una secuencia, una lista de comprobación— y no se repiten de una parte a otra: eso vive en `references/visuales.md` §8e, no en una puerta.
+
 `preferencias.md` —junto al tema o en esta raíz— guarda las respuestas de la persona (ritmo, ejemplos, profundidad, orden). Se respeta dentro de ese tope y nunca cambia el formato medido de la parte ni los formatos de verificación.
 
 El estándar de video, cuando se pide un video, está en `references/video-distill.md` de la misma skill; este archivo no lo repite.
