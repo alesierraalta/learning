@@ -102,7 +102,7 @@ test("a part whose arrow crosses its own text is a finding, in the tool's words"
   );
 });
 
-test("a part that passes the four tools is clean", { skip: needsBrowser }, async () => {
+test("a part that passes the five tools is clean", { skip: needsBrowser }, async () => {
   const checked = await runPartChecks([note("limpia.md", CLEAN)]);
   assert.deepEqual(checked, { kind: "clean" }, "the canvas gate has nothing to say about a figure with air");
 });
@@ -165,7 +165,7 @@ test("scene-gate's off-canvas line is the finding the tutor hears, whatever the 
     "2 problema(s) en 1 escena(s)",
   ];
   writeFileSync(join(fake, "scene-gate.mjs"), `console.log(${JSON.stringify(lines.join("\n"))});\nprocess.exit(1);\n`);
-  for (const tool of ["scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs"]) writeFileSync(join(fake, tool), "process.exit(0);\n");
+  for (const tool of ["scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs", "page-gate.mjs"]) writeFileSync(join(fake, tool), "process.exit(0);\n");
   const checked = await runPartChecks([note("fuera.md", CLEAN)], { toolsDir: fake });
   assert.equal(checked.kind, "findings", JSON.stringify(checked));
   const gate = checked.tools.find((found) => found.tool === "scene-gate.mjs");
@@ -182,7 +182,7 @@ test("a tool that cannot run is a check failure, not a finding for the tutor", a
   const empty = mkdtempSync(join(tmpdir(), "no-tools-"));
   const checked = await runPartChecks([note("sin-herramientas.md", BROKEN)], { toolsDir: empty });
   assert.equal(checked.kind, "crashed", JSON.stringify(checked));
-  assert.equal(checked.failures.length, 4, "every tool reports its own failure");
+  assert.equal(checked.failures.length, 5, "every tool reports its own failure");
   assert.ok(
     checked.failures.some((failure) => /scene-lint\.mjs no pudo medir sin-herramientas\.md/.test(failure)),
     checked.failures.join(" | "),
@@ -198,6 +198,7 @@ test("a tool that fails without naming a finding is a failure, not an empty find
   writeFileSync(join(broken, "scene-lint.mjs"), "throw new Error('boom');\n");
   writeFileSync(join(broken, "deck-gate.mjs"), "process.exit(0);\n");
   writeFileSync(join(broken, "explain-check.mjs"), "process.exit(0);\n");
+  writeFileSync(join(broken, "page-gate.mjs"), "process.exit(0);\n");
   const checked = await runPartChecks([note("lanza.md", BROKEN)], { toolsDir: broken });
   assert.equal(checked.kind, "crashed", JSON.stringify(checked));
   assert.equal(checked.failures.length, 1);
@@ -216,6 +217,7 @@ test("a deck gate without a browser is a check failure, never a clean pass", asy
     "console.log('playwright is not installed: set PLAYWRIGHT_MODULE to its entry point, or install it globally (npm root -g)');\nprocess.exit(2);\n",
   );
   writeFileSync(join(noBrowser, "explain-check.mjs"), "process.exit(0);\n");
+  writeFileSync(join(noBrowser, "page-gate.mjs"), "process.exit(0);\n");
   const checked = await runPartChecks([note("sin-navegador.md", BROKEN)], { toolsDir: noBrowser });
   assert.equal(checked.kind, "crashed", JSON.stringify(checked));
   assert.equal(checked.failures.length, 1);
@@ -274,11 +276,23 @@ test("a note named twice is measured once by each tool", async () => {
   const log = join(folder, "calls.log");
   const fake = join(folder, "tools");
   mkdirSync(fake);
-  for (const tool of ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs"]) {
+  for (const tool of ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs", "page-gate.mjs"]) {
     writeFileSync(join(fake, tool), `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(log)}, ${JSON.stringify(tool)} + " " + process.argv[2] + "\\n");\n`);
   }
   const file = note("dos-veces.md", CLEAN);
   await runPartChecks([file, file], { toolsDir: fake });
   const lines = readFileSync(log, "utf8").trim().split("\n");
-  assert.equal(lines.length, 4, lines.join("\n"));
+  assert.equal(lines.length, 5, lines.join("\n"));
+});
+
+test("the page gate's own lines are read as findings, in the tool's own words", () => {
+  const output = [
+    "/tmp/parte.md: recorrido 1, paso 2 · claro/teléfono",
+    "  stage-empty: La densidad gaussiana (el escenario no tiene tinta visible en este paso)",
+    "1 problema(s) en 1 recorrido(s)",
+    "GATE FAILED",
+  ].join("\n");
+  assert.deepEqual(findingsOf("page-gate.mjs", output), [
+    "stage-empty: La densidad gaussiana (el escenario no tiene tinta visible en este paso)",
+  ]);
 });

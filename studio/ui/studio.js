@@ -308,7 +308,7 @@
         const result = await post(regenerate ? "api/regenerar" : "api/sugerencias", body);
         box.remove();
         if (regenerate) {
-          toast(result.trash ? `Regenerando «${title}»: la versión anterior queda en la papelera` : `Regenerando «${title}»`);
+          toast(result.trash ? `Regenerando «${title}»: la versión anterior se conserva y vuelve si la nueva no pasa` : `Regenerando «${title}»`);
           openDrawer();
         } else {
           toast("Sugerencia guardada: el tutor la tendrá en cuenta en la próxima explicación");
@@ -331,7 +331,7 @@
           "p",
           { class: "modal-note" },
           regenerate
-            ? "La versión anterior no se pierde: queda en la papelera del vault. El plan y el video se conservan."
+            ? "La versión anterior no se pierde: se conserva en la papelera y vuelve a servirse si la nueva no pasa las comprobaciones. El plan y el video se conservan."
             : "Se guarda para que el tutor lo tenga en cuenta cuando vuelva a escribir esta parte.",
         ),
         chips,

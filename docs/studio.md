@@ -142,7 +142,7 @@ runs and replaces the tutor: the way out of a turn that never settles.
 
 The engine reads a part's structure; it cannot see how its figure is drawn. Once the engine has
 cleared a turn, the studio measures the part notes that turn wrote or edited — the paths come from
-the turn's own `write`/`edit` events, never from the plan — with the four tools the tutor's skill
+the turn's own `write`/`edit` events, never from the plan — with the five tools the tutor's skill
 already names:
 
 | Tool | What it measures |
@@ -151,9 +151,13 @@ already names:
 | `tools/scene-lint.mjs` | how the pieces of a scene live together: a stroke over text, an arrow to nowhere, a buried or oversized head, two labels on top of each other |
 | `tools/deck-gate.mjs` | the ink: a word outside its box, a free label crossing a box, a label on an arrow |
 | `tools/explain-check.mjs` | the whole standard, rule by rule (it measures the figure again through `scene-lint`) |
+| `tools/page-gate.mjs` | the whole page in the real reader: black × wide and light × phone, every `<lk-story>` step drawn, with visible ink inside its stage, its narrator and player visible, no box over the next block, nothing off the page and no page error |
 
 `scene-gate` runs first: a figure drawn past the edge of its own canvas is clipped in the reader no
-matter how well its pieces live together, so the learner hears about that before the rest. They run
+matter how well its pieces live together, so the learner hears about that before the rest.
+`page-gate` runs last, after the four figure tools: it opens the part as the reader really serves
+it (the note and the hand-built page template, with the reader's own CSS and kit) and measures
+the story where the learner sees it. They run
 with **the studio's own Node** (`process.execPath`), never `node` from `PATH`: one of them imports a
 `.ts` module and the distro's Node 22 cannot load it, which already broke a deploy. A part's note (`explicaciones/Parte N - <slug>.md`) and the page the turn wrote beside it
 (`explicaciones/Parte N - <slug>.html`) are two files, each measured with these tools (#265): a page is
@@ -210,7 +214,7 @@ The phases are the ones the code really has, and nothing else is invented:
 | `contexto` | construir el prompt que el tutor lee: el nombre de la parte y las lecciones permanentes del alumno (`withLecciones`) |
 | `tutor` | las llamadas al modelo: una por prompt enviado, abierta al enviarlo y cerrada cuando el runtime hace su `settle` |
 | `motor` | la llamada al motor (`learning status`) en cada settle, que decide si el turno sigue |
-| `comprobaciones` | los cuatro `tools/` del estudio sobre la parte que el turno escribió |
+| `comprobaciones` | los cinco `tools/` del estudio sobre la parte que el turno escribió |
 
 `tutor` aparece cuando hubo al menos una llamada, y `times` es exactamente `modelCalls`. El motor se
 pregunta una vez por settle; las comprobaciones de la parte se corren una sola vez, en el settle que
@@ -601,7 +605,12 @@ chip or one sentence; the accept button stays disabled until then.
   and the mini-quiz move to `.papelera/<stamp>__regeneracion__<topic>-<part>/`, keeping
   their vault-relative paths (`redes/explicaciones/Parte 1 - Capas.html`), with a
   `papelera.json` manifest; the video, the demos, the attachments and `plan.json` stay
-  where they are, so regeneration replaces a part without deleting anything. When two
+  where they are, so regeneration replaces a part without deleting anything. The new
+  version replaces the previous one only when every gate passes: while the tutor corrects
+  it, and if the correction budget runs out, the previous version is copied back from
+  `.papelera`, stays served, and the chat says plainly that the new one did not pass and
+  why. The rejected version is kept in the same trash folder under `rechazada/`. A part
+  with no previous version leaves the studio's error card instead of a broken page. When two
   backups of one part land in the same millisecond, the second folder gets a `-2` suffix
   instead of overwriting the first: the trash never keeps one copy of two.
   Everything that can refuse the request — an unknown part, a malformed reason, a prompt

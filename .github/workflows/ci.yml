@@ -196,6 +196,7 @@ jobs:
       - name: Tools and register suites
         run: |
           node --test tools/test/relink-index.test.mjs \
+            tools/page-gate.test.mjs \
             tools/register/*.test.mjs tools/explain-check.test.mjs
 
   # A broken deploy script only shows up when it runs, which for update.sh is

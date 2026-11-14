@@ -1,11 +1,12 @@
 /**
  * The scene and explanation checks the studio runs itself, at the end of a turn that wrote a part.
  *
- * The engine reads the part's structure; it cannot see how the figure is drawn. These four tools
+ * The engine reads the part's structure; it cannot see how the figure is drawn. These five tools
  * can: `scene-gate` measures the canvas (type size, pieces on the edge, empty bands), `scene-lint`
  * measures how the pieces of a scene live together, `deck-gate` measures the ink inside a deck's
- * boxes, and `explain-check` measures the whole standard. A part the learner is about to read is
- * measured before the turn is offered as done.
+ * boxes, `explain-check` measures the whole standard, and `page-gate` opens the part in the real
+ * reader, in the learner's two conditions, and steps through every story. A part the learner is
+ * about to read is measured before the turn is offered as done.
  *
  * They run with the studio's own Node (`process.execPath`, never `node` from `PATH`): one of them
  * imports a `.ts` module, and the distro's Node 22 cannot load it. That difference already broke a
@@ -18,8 +19,8 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
 
-/** The four tools, in the order the tutor's own skill runs them. */
-export const PART_TOOLS = ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs"] as const;
+/** The five tools, in the order the tutor's own skill runs them. */
+export const PART_TOOLS = ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "explain-check.mjs", "page-gate.mjs"] as const;
 export type PartTool = (typeof PART_TOOLS)[number];
 
 /** What one tool said about one note: its own words, kept whole for the tutor's correction. */
@@ -103,7 +104,7 @@ export function findingsOf(tool: PartTool, output: string): string[] {
     return output.split("\n").filter((line) => /^ {2}\{/.test(line)).map((line) => line.trim());
   }
   const lines = output.split("\n");
-  if (tool === "scene-lint.mjs" || tool === "scene-gate.mjs") {
+  if (tool === "scene-lint.mjs" || tool === "scene-gate.mjs" || tool === "page-gate.mjs") {
     // `<nota>: bloque N — <título>` / `<nota>: escena N — <título>` then one
     // `  <kind>: <texto>` per finding: the two geometry tools speak the same way.
     return lines.filter((line) => /^ {2}[a-z][a-z-]*:/.test(line)).map((line) => line.trim());
