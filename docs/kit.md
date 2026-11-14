@@ -171,6 +171,8 @@ component reveals one scene per step, so earlier steps never leak into later one
 todo» shows the last scene. Reach it with «Siguiente», «Anterior», the dots
 or the arrow keys, and press «Pantalla completa» when you need the letters big.
 
+**Motion between steps.** A step change moves the figure instead of swapping it. Each piece keeps its identity across steps: its explicit `id`, else its kind and label (`box:Cliente`, `icon:database`). A piece that stays slides from where it was and takes its new tone; a new piece rises 6 px while it fades in; a removed piece fades out. All of it runs in 320 ms on `cubic-bezier(.2,.8,.2,1)`, and the settled frame is the static drawing. Give a piece an `id` when its label may change between steps and it must still count as the same piece. While a step is moving the stage carries `data-settled="false"`. `prefers-reduced-motion: reduce` swaps steps at once, and the gates and the reader's tests run that way so they measure the settled frame. A new step, an arrow key or full screen cancels the step in flight. The SVG steps of `lk-story` move the same way; its piece steps (cards, memory, tables, venn) are HTML and swap at once.
+
 Draw the example itself, not a description of it: a robot on a floor is tiles and the robot's
 tile, a network is nodes, and every step points at what changed with a labelled arrow. A table
 whose icons change while captions below tell the story is not a scene, and the engine rejects it.

@@ -24,6 +24,9 @@
 
   const step = (n, body) => `<g data-step="${n}">${body}</g>`;
 
+  // Una pieza se reconoce entre pasos por su clave: el movimiento de un paso al otro la sigue.
+  const piece = (key, body) => `<g data-piece-key="${esc(key)}">${body}</g>`;
+
   const gear = (cx, cy, r = 60, teeth = 10, color = C.blue) => {
     const pts = [];
     for (let i = 0; i < teeth * 2; i++) {
@@ -345,7 +348,7 @@
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${defs(markup)}${markup}</svg>`;
 
   window.LKScene = {
-    C, esc, f, txt, lbl, step, gear, packet, dashed, sheet, box, node, badge, grid, icon, prop, bars, stat, formula, defs,
+    C, esc, f, txt, lbl, step, piece, gear, packet, dashed, sheet, box, node, badge, grid, icon, prop, bars, stat, formula, defs,
     curve, path, line, svg, tag, elbow, mark, head, markerId,
   };
 })();

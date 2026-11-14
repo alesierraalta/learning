@@ -109,6 +109,7 @@ Piezas disponibles en `scene.boxes`, `scene.arrows`, `scene.labels`, `scene.badg
   escalonan (`0.36` y `0.64`) para que sus etiquetas no queden en la misma columna, que es
   lo que las hace parecer guiones sueltos.
 - `rx: 0` para el estilo de papel. Las esquinas redondeadas son del video.
+- `id` (opcional): identifica la pieza entre pasos. Sin `id`, la clave es su tipo y su rótulo (`box:Cliente`), así que una caja que cambia de rótulo entre dos pasos se toma por otra; con `id` sigue siendo la misma. Al cambiar de paso, la pieza que se queda se desliza desde donde estaba, la que entra sube 6 px con un fundido y la que sale se desvanece, en 320 ms; con movimiento reducido el cambio es de golpe.
 
 El componente ya resuelve lo mecánico: ajusta el tamaño del texto al ancho real de su caja,
 corta la flecha donde van sus palabras y mide antes de pintar. No hace falta calcular a mano

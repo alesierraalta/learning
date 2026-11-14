@@ -1382,24 +1382,34 @@
     ].filter((size) => size > 0);
     const labelCap = figureSizes.length ? Math.min(...figureSizes) : 22;
     let out = '';
+    // Una pieza se reconoce entre pasos por su id, o por su tipo y su rótulo; dos iguales en
+    // un mismo paso se numeran. Lo que se dibujó desde `from` es una sola pieza con esa clave.
+    const keys = new Map();
+    const keyOf = (kind, item, label = '') => {
+      const base = `${kind}:${item?.id ?? label}`;
+      const n = (keys.get(base) || 0) + 1;
+      keys.set(base, n);
+      return n > 1 ? `${base}#${n}` : base;
+    };
+    const keep = (from, kind, item, label) => { out = out.slice(0, from) + S.piece(keyOf(kind, item, label), out.slice(from)); };
     // Sheets and boxes first: a highlight drawn before them would disappear
     // under their white fill.
-    for (const s of scene.sheets || []) out += S.sheet(s.x, s.y, s.w, s.h, s.title || '', s.lines ?? 4, tone(s.tone).stroke);
-    for (const g of scene.grids || []) out += S.grid(g.x, g.y, g.cols, g.rows, g);
-    for (const g of scene.gears || []) out += S.gear(g.x, g.y, g.r || 60, g.teeth || 10, tone(g.tone).stroke);
+    for (const s of scene.sheets || []) out += S.piece(keyOf('sheet', s, s.title), S.sheet(s.x, s.y, s.w, s.h, s.title || '', s.lines ?? 4, tone(s.tone).stroke));
+    for (const g of scene.grids || []) out += S.piece(keyOf('grid', g), S.grid(g.x, g.y, g.cols, g.rows, g));
+    for (const g of scene.gears || []) out += S.piece(keyOf('gear', g), S.gear(g.x, g.y, g.r || 60, g.teeth || 10, tone(g.tone).stroke));
     // Una caja y una etiqueta se marcan: el lint mide si alguna flecha las alcanza
     // o si quedan lejos de todo lo dibujado, que es una palabra flotando.
     for (const b of scene.boxes || []) {
       const t = tone(b.tone);
-      out += `<g data-box="1"${b.id ? ` data-box-id="${S.esc(b.id)}"` : ''}>` + S.box(b.x, b.y, b.w, b.h, b.label || '', {
+      out += S.piece(keyOf('box', b, b.label), `<g data-box="1"${b.id ? ` data-box-id="${S.esc(b.id)}"` : ''}>` + S.box(b.x, b.y, b.w, b.h, b.label || '', {
         stroke: b.stroke || t.stroke, fill: b.fill || t.fill, color: b.color || t.color,
         size: b.size || 26, sub: b.sub || '', rx: b.rx ?? 10,
         subDy: b.subDy ?? 30, subSize: b.subSize ?? 22,
-      }) + '</g>';
+      }) + '</g>');
     }
     for (const n of scene.nodes || []) {
       const t = tone(n.tone);
-      out += S.node(n.x, n.y, n.label || '', { stroke: t.stroke, fill: t.fill, color: t.color, r: n.r || 30 });
+      out += S.piece(keyOf('node', n, n.label), S.node(n.x, n.y, n.label || '', { stroke: t.stroke, fill: t.fill, color: t.color, r: n.r || 30 }));
     }
     // Un icono se dibuja con el relleno suave de su tono, no con blanco: un
     // relleno blanco sobre el papel blanco dejaba solo un contorno de 2 unidades y
@@ -1418,13 +1428,14 @@
       // Su tinta va en un grupo propio para que esa pasada la desplace.
       const onBox = (scene.boxes || []).find((b) => ic.x >= b.x && ic.x <= b.x + b.w && ic.y >= b.y && ic.y <= b.y + b.h);
       const ink = S.icon(ic.kind || 'doc', cx, cy, size, { stroke: t.stroke, fill: ic.fill || t.fill });
-      out += `<g data-icon="${S.esc(ic.kind || 'doc')}"${ic.id ? ` data-icon-id="${S.esc(ic.id)}"` : ''}`
-        + (onBox ? ` data-icon-box="${onBox.x},${onBox.y},${onBox.w},${onBox.h}"><g data-icon-ink="1">${ink}</g>` : `>${ink}`) + '</g>';
+      out += S.piece(keyOf('icon', ic, ic.kind || 'doc'), `<g data-icon="${S.esc(ic.kind || 'doc')}"${ic.id ? ` data-icon-id="${S.esc(ic.id)}"` : ''}`
+        + (onBox ? ` data-icon-box="${onBox.x},${onBox.y},${onBox.w},${onBox.h}"><g data-icon-ink="1">${ink}</g>` : `>${ink}`) + '</g>');
     }
     // Un número pegado al dibujo: dice «mira acá» sin repetir el nombre de la pieza.
     const atoms = sceneAtoms(scene);
     for (const c of scene.callouts || []) {
       const t = tone(c.tone || 'blue');
+      const from = out.length;
       // El número y su guía van marcados: el lint mide si un callout se apoya en el
       // de al lado, y un círculo sobre la guía ajena deja de saberse de quién es.
       const at = calloutAtom(c, atoms);
@@ -1440,22 +1451,23 @@
         out += `<g data-callout-guide="${c.n}">` + S.line(c.x, c.y, c.to[0], c.to[1], { color: t.stroke, width: 2, arrow: false }) + `</g>`;
       }
       out += `<g data-callout="${c.n}">` + S.badge(c.x, c.y, c.n) + `</g>`;
+      keep(from, 'callout', c, c.n);
     }
     let atomBase = 0;
     for (const fm of scene.formulas || (scene.formula ? [scene.formula] : [])) {
-      out += S.formula(fm.x ?? 380, fm.y ?? 120, fm.atoms || [], {
+      out += S.piece(keyOf('formula', fm, (fm.atoms || []).map((a) => a.t ?? a).join('')), S.formula(fm.x ?? 380, fm.y ?? 120, fm.atoms || [], {
         size: fm.size ?? 64, color: tone(fm.tone || 'ink').stroke, offset: atomBase,
         focus: fm.focus ?? scene.focus ?? null, dim: fm.dim !== false,
-      });
+      }));
       atomBase += (fm.atoms || []).length;
     }
     for (const b of scene.bars || []) {
-      out += S.bars(b.x ?? 40, b.y ?? 60, (b.rows || []).map((r) => ({ ...r, color: tone(r.tone || 'blue').stroke })), {
+      out += S.piece(keyOf('bars', b, (b.rows || []).map((r) => r.label).join(' ')), S.bars(b.x ?? 40, b.y ?? 60, (b.rows || []).map((r) => ({ ...r, color: tone(r.tone || 'blue').stroke })), {
         width: b.width ?? 560, rowH: b.rowH ?? 56,
-      });
+      }));
     }
     for (const st of scene.stats || []) {
-      out += S.stat(st.x, st.y, st.value, st.label || '', { color: tone(st.tone || 'ink').stroke, size: st.size || 54 });
+      out += S.piece(keyOf('stat', st, st.label || String(st.value)), S.stat(st.x, st.y, st.value, st.label || '', { color: tone(st.tone || 'ink').stroke, size: st.size || 54 }));
     }
     // Una curva es una curva: el escenario del video ya la dibuja así
     // (`tools/video/src/page/stage.js`), y la lectura tiene que poder dibujar la
@@ -1467,15 +1479,15 @@
     // conector le exige que sus dos extremos lleguen a algo.
     for (const c of scene.curves || []) {
       const t = tone(c.tone);
-      out += '<g data-path="1">' + S.curve(c.x1, c.y1, c.x2, c.y2, {
+      out += S.piece(keyOf('curve', c), '<g data-path="1">' + S.curve(c.x1, c.y1, c.x2, c.y2, {
         color: t.stroke, dashedLine: !!c.dashed, bend: c.bend ?? 0.35, width: c.width ?? 4, arrow: c.arrow !== false, fill: c.fill || 'none',
-      }) + '</g>';
+      }) + '</g>');
     }
     for (const p of scene.paths || []) {
       const t = tone(p.tone);
-      out += '<g data-path="1">' + S.path(p.d, {
+      out += S.piece(keyOf('path', p), '<g data-path="1">' + S.path(p.d, {
         color: t.stroke, dashedLine: !!p.dashed, width: p.width ?? 4, arrow: p.arrow !== false, fill: p.fill || 'none',
-      }) + '</g>';
+      }) + '</g>');
     }
     // A policy field is one fixed arrow per cell, the drawing a sentence like
     // "la fila de arriba apunta a la derecha" promises. Drawn before the plain
@@ -1486,7 +1498,7 @@
       const pad = p.pad ?? 6;
       const x0 = p.x + pad;
       const y0 = p.y + p.h - pad;
-      out += S.line(x0, y0, x0 + ux * len, y0 + uy * len, { color: tone(p.tone || 'blue').stroke, width: p.width || 2 });
+      out += S.piece(keyOf('policy', p), S.line(x0, y0, x0 + ux * len, y0 + uy * len, { color: tone(p.tone || 'blue').stroke, width: p.width || 2 }));
     }
     for (const a of scene.arrows || []) {
       // La flecha se marca con los extremos que escribió el autor: una flecha con
@@ -1583,10 +1595,11 @@
       }
       out = out.slice(0, drawnFrom)
         + `<g data-arrow="${a.x1},${a.y1}" data-to="${a.x2},${a.y2}" data-label-size="${size}">` + out.slice(drawnFrom) + '</g>';
+      keep(drawnFrom, 'arrow', a, a.label || '');
     }
-    for (const b of scene.badges || []) out += S.badge(b.x, b.y, b.n);
-    for (const d of scene.dashed || []) out += S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke, d.fill);
-    for (const l of scene.labels || []) out += `<g data-label="1"${l.id ? ` data-label-id="${S.esc(l.id)}"` : ''}>` + S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 }) + '</g>';
+    for (const b of scene.badges || []) out += S.piece(keyOf('badge', b, String(b.n)), S.badge(b.x, b.y, b.n));
+    for (const d of scene.dashed || []) out += S.piece(keyOf('dashed', d, d.label), S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke, d.fill));
+    for (const l of scene.labels || []) out += S.piece(keyOf('label', l, l.text), `<g data-label="1"${l.id ? ` data-label-id="${S.esc(l.id)}"` : ''}>` + S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 }) + '</g>');
     // Actores, rótulos con punta, movimientos y marcas: la escena de un paso de
     // `lk-story`. Se dibujan como marcadores vacíos y `placeStory` los rellena con
     // las cajas que el navegador midió, nunca con coordenadas escritas a mano.
@@ -1633,24 +1646,27 @@
       const lock = state === 'locked'
         ? `<g data-lock="1"><circle cx="${S.f(frame.x + frame.w)}" cy="${S.f(frame.y)}" r="${S.f(Math.max(9, frame.w * 0.2))}" fill="#ffffff" stroke="${ink}" stroke-width="1.5"/>${S.icon('lock', frame.x + frame.w, frame.y, Math.max(14, frame.w * 0.3), { stroke: ink, fill: '#ffffff' })}</g>`
         : '';
-      out += `<g data-actor="${S.esc(a.id)}" data-state="${state}"${grey ? ' data-faded="1"' : ''}><g data-figure="1">${body}</g>${dashed}${strike}${lock}</g>`;
-      if (state === 'invalid') out += `<g data-state-mark="${S.esc(a.id)}"></g>`;
+      out += S.piece(keyOf('actor', a, a.label), `<g data-actor="${S.esc(a.id)}" data-state="${state}"${grey ? ' data-faded="1"' : ''}><g data-figure="1">${body}</g>${dashed}${strike}${lock}</g>`);
+      if (state === 'invalid') out += S.piece(keyOf('state', a), `<g data-state-mark="${S.esc(a.id)}"></g>`);
       // El nombre del actor va en una ficha con punta, arriba de su caja: el
       // rótulo dice quién es sin escribir una coordenada.
-      if (a.tag) out += `<g data-tag-to="${S.esc(a.id)}" data-tag-text="${S.esc(a.tag)}" data-tag-tone="${S.esc(grey ? 'slate' : a.tone || 'slate')}"></g>`;
+      if (a.tag) out += S.piece(keyOf('tag', null, a.id), `<g data-tag-to="${S.esc(a.id)}" data-tag-text="${S.esc(a.tag)}" data-tag-tone="${S.esc(grey ? 'slate' : a.tone || 'slate')}"></g>`);
     }
     // Una pieza con significado: un valor en su cofre, un ojo que lee, un lápiz que
     // escribe, o cualquiera de los iconos. Se ancla al actor por su id (`on`) y
     // `placeStory` la pone al lado que se pide, o donde quepa.
     for (const p of scene.props || []) {
+      const start = out.length;
       const at = Array.isArray(p.at) ? ` data-prop-at="${S.f(p.at[0])},${S.f(p.at[1])}"` : '';
       out += `<g data-prop-id="${S.esc(p.id)}" data-prop-kind="${S.esc(p.kind || 'value')}"${p.on ? ` data-prop-on="${S.esc(p.on)}"` : ''}${p.side ? ` data-prop-side="${S.esc(p.side)}"` : ''}`
         + `${p.label ? ` data-prop-label="${S.esc(p.label)}"` : ''} data-prop-tone="${S.esc(p.tone || 'slate')}"${p.size ? ` data-prop-size="${S.f(p.size)}"` : ''}${p.state === 'faded' || p.state === 'freed' ? ` data-prop-state="${p.state}"` : ''}${at}></g>`;
+      keep(start, 'prop', p, p.kind || 'value');
     }
     for (const tg of scene.tags || []) {
-      out += `<g data-tag-to="${S.esc(tg.to)}" data-tag-text="${S.esc(tg.text)}" data-tag-tone="${S.esc(tg.tone || 'slate')}"${Array.isArray(tg.at) ? ` data-tag-at="${S.f(tg.at[0])},${S.f(tg.at[1])}"` : ''}></g>`;
+      out += S.piece(keyOf('tag', null, tg.to), `<g data-tag-to="${S.esc(tg.to)}" data-tag-text="${S.esc(tg.text)}" data-tag-tone="${S.esc(tg.tone || 'slate')}"${Array.isArray(tg.at) ? ` data-tag-at="${S.f(tg.at[0])},${S.f(tg.at[1])}"` : ''}></g>`);
     }
     for (const mv of scene.moves || []) {
+      const start = out.length;
       // Dos formas del mismo movimiento, con el mismo significado: la canónica
       // nombra sus dos piezas (`from`/`to`) y la que escribe el tutor nombra un
       // actor y un punto (`actor`/`toX`/`toY`). `placeStory` dibuja las dos (#286).
@@ -1659,9 +1675,12 @@
         ? ` data-move-to-point="${S.f(mv.toX)},${S.f(mv.toY)}"`
         : '';
       out += `<g data-move="1" data-move-from="${S.esc(from)}" data-move-to="${S.esc(mv.to ?? '')}"${point} data-move-verb="${S.esc(mv.verb || '')}" data-move-tone="${S.esc(mv.tone || 'amber')}"><path fill="none" data-move-path="1"/><text data-move-label="1"></text></g>`;
+      keep(start, 'move', null, `${from}>${mv.to ?? ''}`);
     }
     for (const mk of scene.marks || []) {
+      const start = out.length;
       out += `<g data-mark-kind="${S.esc(mk.kind)}" data-mark-actors="${S.esc((mk.actors || [mk.actor]).filter(Boolean).join(','))}"${Array.isArray(mk.between) ? ` data-mark-between="${S.esc(mk.between.slice(0, 2).join(','))}"` : ''}${mk.to ? ` data-mark-to="${S.esc(mk.to)}"` : ''}${mk.label ? ` data-mark-label="${S.esc(mk.label)}"` : ''}></g>`;
+      keep(start, 'mark', null, [mk.kind, ...(mk.actors || [mk.actor])].filter(Boolean).join(' '));
     }
     return out;
   }
@@ -1706,6 +1725,72 @@
     }
     groups.forEach((g, i) => { g.style.display = shown[i]; });
   }
+  // Un cambio de paso se ve como movimiento: lo que sigue se desliza y cambia de tono desde donde
+  // estaba, lo que entra sube 6 px con un fundido y lo que sale se desvanece. Al asentarse el DOM
+  // es el del dibujo estático, y `data-settled` avisa cuándo. Con movimiento reducido el cambio
+  // es de golpe; cualquier cambio nuevo, una tecla o la pantalla completa asientan el que sigue.
+  const STEP_MOTION = { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' };
+  const stepRuns = new WeakMap();
+  function settleSteps(stage) {
+    const run = stepRuns.get(stage);
+    if (run) {
+      run.anims.forEach((anim) => anim.cancel());
+      run.hidden.forEach((node) => { node.style.visibility = ''; });
+      run.before.style.display = 'none';
+      stepRuns.delete(stage);
+    }
+    stage.dataset.settled = 'true';
+  }
+  function moveSteps(stage, from, to) {
+    settleSteps(stage);
+    const groups = [...stage.querySelectorAll('svg [data-step]')];
+    const group = (n) => (n < 0 ? null : stage.querySelector(`svg [data-step="${n + 1}"]`));
+    const before = group(from), after = group(to);
+    if (!before || !after || before === after || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      groups.forEach((g) => { g.style.display = g === after ? '' : 'none'; });
+      return;
+    }
+    const pieces = (g) => new Map([...g.children].filter((c) => c.dataset.pieceKey).map((c) => [c.dataset.pieceKey, c]));
+    const leaving = pieces(before);
+    after.style.display = '';
+    const arriving = pieces(after);
+    groups.forEach((g) => { if (g !== before && g !== after) g.style.display = 'none'; });
+    const svg = stage.querySelector('svg');
+    // Seis píxeles de pantalla son unidades del lienzo a la escala que tiene ahora la figura.
+    const rise = 6 / ((svg.getBoundingClientRect().width / svg.viewBox.baseVal.width) || 1);
+    const run = { before, anims: [], hidden: [] };
+    for (const [key, now] of arriving) {
+      const was = leaving.get(key);
+      if (was) carryPiece(run, was, now);
+      else run.anims.push(now.animate([{ opacity: 0, transform: `translateY(${rise}px)` }, { opacity: 1, transform: 'translateY(0px)' }], STEP_MOTION));
+    }
+    // Lo que sale se queda dibujado hasta desvanecerse; lo que sigue o no tiene clave se oculta
+    // aquí, y el paso que llega ya está en su sitio.
+    for (const node of [...before.children]) {
+      const key = node.dataset.pieceKey;
+      if (key && !arriving.has(key)) run.anims.push(node.animate([{ opacity: 1 }, { opacity: 0 }], STEP_MOTION));
+      else { node.style.visibility = 'hidden'; run.hidden.push(node); }
+    }
+    stage.dataset.settled = 'false';
+    stepRuns.set(stage, run);
+    if (run.anims.length) Promise.allSettled(run.anims.map((anim) => anim.finished)).then(() => { if (stepRuns.get(stage) === run) settleSteps(stage); });
+    else settleSteps(stage);
+  }
+  // Lo que sigue se desliza desde donde estaba y cambia de tono, forma a forma.
+  function carryPiece(run, was, now) {
+    const a = was.getBBox(), b = now.getBBox();
+    if ((a.width || a.height) && (b.width || b.height) && (a.x !== b.x || a.y !== b.y)) {
+      run.anims.push(now.animate([{ transform: `translate(${a.x - b.x}px, ${a.y - b.y}px)` }, { transform: 'translate(0px, 0px)' }], STEP_MOTION));
+    }
+    const old = [...was.querySelectorAll('[fill],[stroke]')];
+    [...now.querySelectorAll('[fill],[stroke]')].forEach((shape, i) => {
+      if (!old[i] || old[i].tagName !== shape.tagName) return;
+      for (const prop of ['fill', 'stroke']) {
+        const start = getComputedStyle(old[i])[prop], end = getComputedStyle(shape)[prop];
+        if (start !== end) run.anims.push(shape.animate([{ [prop]: start }, { [prop]: end }], STEP_MOTION));
+      }
+    });
+  }
   define('lk-walkthrough', function () {
     const S = window.LKScene;
     if (!S) throw new Error('Falta scene.js: no se puede dibujar el recorrido');
@@ -1730,7 +1815,7 @@
     const hint = el('p', 'Desliza el diagrama para verlo completo', { class: 'lk-wt-hint' });
     const count = el('span', undefined, { class: 'lk-wt-count' });
     const dots = el('div', undefined, { class: 'lk-wt-dots' });
-    let index = 0;
+    let index = 0, drawn = -1;
     const prev = button('◀ Anterior', () => go(index - 1));
     const next = button('Siguiente ▶', () => go(index + 1));
     const reveal = button('Ir al final', () => go(steps.length - 1));
@@ -1755,6 +1840,7 @@
     });
     full.className = 'lk-wt-full';
     const syncFull = () => {
+      settleSteps(stage);
       const on = document.fullscreenElement === this;
       full.textContent = on ? 'Salir' : 'Pantalla completa';
       full.setAttribute('aria-pressed', String(on));
@@ -1782,9 +1868,8 @@
       // Un escenario por paso: la figura muestra el estado que ese paso describe.
       // «Ir al final» salta al último paso en vez de fingir que muestra todos: las
       // escenas se redibujan, no se acumulan.
-      stage.querySelectorAll('[data-step]').forEach((g) => {
-        g.style.display = Number(g.dataset.step) === index + 1 ? '' : 'none';
-      });
+      moveSteps(stage, drawn, index);
+      drawn = index;
       const step = steps[index];
       captionTitle.textContent = step.title || '';
       captionText.textContent = step.text || '';
@@ -3061,7 +3146,7 @@
     const count = el('span', undefined, { class: 'lk-story-count' });
     const progress = el('div', undefined, { class: 'lk-story-progress', role: 'progressbar', 'aria-valuemin': '1', 'aria-valuemax': String(steps.length) });
     const segs = steps.map(() => { const s = el('span', undefined, { class: 'lk-story-seg' }); progress.append(s); return s; });
-    let index = 0, timer = null;
+    let index = 0, drawn = -1, timer = null;
     const prev = button('◀', () => go(index - 1));
     const next = button('▶', () => go(index + 1));
     const play = button('▶ Reproducir', () => toggle());
@@ -3138,7 +3223,8 @@
     }
     function go(to) { index = Math.max(0, Math.min(steps.length - 1, to)); draw(); }
     function draw() {
-      stage.querySelectorAll('svg [data-step]').forEach((g) => { g.style.display = Number(g.dataset.step) === index + 1 ? '' : 'none'; });
+      moveSteps(stage, drawn, index);
+      drawn = index;
       const sceneSvg = stage.querySelector(':scope > svg');
       if (sceneSvg) sceneSvg.style.display = panels[index] ? 'none' : '';
       panels.forEach((panel, i) => { if (panel) panel.hidden = i !== index; });
@@ -3164,6 +3250,7 @@
       if (event.key === 'ArrowRight') { event.preventDefault(); go(index + 1); }
       else if (event.key === 'ArrowLeft') { event.preventDefault(); go(index - 1); }
     });
+    document.addEventListener('fullscreenchange', () => settleSteps(stage));
     if (hasScene) {
       fitSceneText(stage, { minPx: 11 });
       placeStory(stage);

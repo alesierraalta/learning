@@ -1,0 +1,44 @@
+# Visual motion in stories and walkthroughs
+
+Milestone #8 «Visual language like the learner's references». Issues #298-#301. Branch `feat/298-step-motion` from origin/main 2b68a4f.
+Research basis: the learner's four reference sites (electronics-101, protocol-explorer, aprenderust, aprendesql). The figure is state, and every step is a visible transition of that state.
+Runner: `node --test` on the touched test files; `go test ./...` when the engine changes.
+
+## Specs
+
+- S1 (#298): User: "Vas a generar un trabajo de investigación en el cual vas a extraer todo lo que puedas sobre animaciones, dibujo, visualizaciones, animaciones de iconos, elementos, todo lo que sea visual para ver cómo podemos mejorar nosotros las visuales que estamos utilizando a la hora de generar una nota en la aplicación." Then "si, go" to implementing P1-P4 of the report. P1, step continuity, in `lk-walkthrough` and `lk-story`:
+  - Every scene piece has a stable key: an explicit `id`, else one derived from its kind and label.
+  - A kept piece animates from its previous position and tone to the new one, in at most 320 ms with `cubic-bezier(.2,.8,.2,1)`. A new piece fades in with a 6 px rise. A removed piece fades out.
+  - The settled frame equals today's static render, so the gates and the reader visual matrix measure the same geometry.
+  - `prefers-reduced-motion: reduce` swaps instantly.
+  - Fast navigation (buttons, dots, arrow keys, «Ver todo», fullscreen) cancels in-flight transitions and never leaves a half state.
+- S2 (#299), P2:
+  - A kept piece whose text, value or tone changed gets a one-shot highlight of about 600 ms, with no authoring.
+  - A step's optional `focus: "<piece id>"` gives that piece a pulsing ring until the step changes, at most one per step.
+  - scene-lint rejects a `focus` that names no piece of that step.
+  - Reduced motion shows no flash and a static outline.
+  - Works in the night themes, wide mode and fullscreen. Docs and the skill reference explain `focus`.
+- S3 (#300), P3:
+  - An arrow or move with `flow: true` is dashed, and its dash travels in the arrow's direction. It reuses the explorer's `lk-xflow` timing and tokens.
+  - An arrow new in a step draws itself in: `pathLength=1`, dashoffset 1→0 in 400 ms, and the head appears at the end.
+  - Label placement and the settled geometry are unchanged.
+  - Reduced motion shows a solid, static arrow. Docs and the skill reference explain `flow`.
+- S4 (#301), P4:
+  - A step accepts `facts: [[key, value], ...]`, at most 5 rows. It renders as a key-value table beside the step text, with mono, tabular values, and stacks under the text below 640 px.
+  - A deck or story accepts `summary: {title, text?, metrics: [[key, value], ...]}`, shown as a closing card after the last step and in «Ver todo».
+  - scene-lint reports a malformed `facts` or `summary`.
+  - Works in the night themes and fullscreen.
+  - Docs and the skill reference say when to use them: a symbol legend for a formula, and the result of a walkthrough.
+
+## Tasks
+
+- T1 S1 #298 step continuity — worker — done (motion.test 8/8, kit tests 120/120, bridge 133 pass; gates measure with reduced motion; key attr data-piece-key)
+- T2 S2 #299 change flash and focus ring — worker — pending (after T1)
+- T3 S3 #300 flowing and draw-on arrows — worker — pending (after T2, same files)
+- T4 S4 #301 facts table and closing summary — worker — pending (after T3, same files)
+
+## Log
+
+- L1 (2026-11-14, user, verbatim): "Vas a generar un trabajo de investigación en el cual vas a extraer todo lo que puedas sobre animaciones, dibujo, visualizaciones, animaciones de iconos, elementos, todo lo que sea visual para ver cómo podemos mejorar nosotros las visuales que estamos utilizando a la hora de generar una nota en la aplicación."
+- L2 (2026-11-14, user): "si, go". Accepts turning P1-P4 into issues and implementing them.
+- L3 (evidence): on origin/main, kit.css has `@keyframes pulse` and `lk-xflow` (scenario explorer only) and a global reduced-motion kill. Story and walkthrough steps swap scenes without interpolation.

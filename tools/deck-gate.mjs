@@ -104,7 +104,8 @@ let total = 0;
 for (const [index, target] of targets.entries()) {
   const id = `note${index}`;
   copyFileSync(target.note, join(root, 'rapidos', `${id}.md`));
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  // The gate reads settled frames: reduced motion swaps each step at once, so no piece is caught mid-slide.
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
   page.on('pageerror', e => errors.push(`${target.note}: ${e.message}`));
   await page.goto(`${base}rapidos/${id}`);
   const decks = page.locator('lk-walkthrough, lk-story');
