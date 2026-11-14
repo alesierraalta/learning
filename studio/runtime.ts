@@ -55,7 +55,7 @@ export function fuentesLine(sources: readonly UploadedSourcePrompt[]): string {
   const paths = sources.map(({ path, textPath }) =>
     `archivo ${JSON.stringify(path)}${textPath ? ` (texto extraído: ${JSON.stringify(textPath)})` : ""}`,
   );
-  return `[Fuentes subidas: ${paths.join("; ")}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos. Justo después de learning_stage init, copia los originales y los textos extraídos a <topic>/fuentes/.]`;
+  return `[Fuentes subidas: ${paths.join("; ")}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos. Pasa las rutas originales (no los .txt extraídos) a learning_stage init como sources; en modo examen, pasa también la ruta original del examen principal como examSource (una de sources). El adaptador las copia a <topic>/fuentes/. No copies los archivos tú.]`;
 }
 
 /**

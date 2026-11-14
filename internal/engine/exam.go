@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -47,6 +48,11 @@ func evalExamPlan(c *evalCtx, decl rules.CheckDecl) Check {
 			return failCheck(decl.ID, fmt.Sprintf("plan examen practica = %q, want %q", got, c.st.Exam.Practice))
 		}
 	}
+	if c.st.Exam.Source != "" {
+		if reason := examPlanSourceReason(c.plan.Exam, c.st.Exam.Source); reason != "" {
+			return failCheck(decl.ID, reason)
+		}
+	}
 	for _, part := range c.plan.Parts {
 		chars := utf8.RuneCountInString(strings.TrimSpace(part.Exam))
 		if chars < thresholds.MinPartChars {
@@ -54,7 +60,40 @@ func evalExamPlan(c *evalCtx, decl rules.CheckDecl) Check {
 				part.ID, thresholds.MinPartChars, chars))
 		}
 	}
-	return passCheck(decl.ID, fmt.Sprintf("plan matches the %s exam and every part states its contribution", c.st.Exam.Format))
+	reason := fmt.Sprintf("plan matches the %s exam and every part states its contribution", c.st.Exam.Format)
+	if c.st.Exam.Source != "" {
+		reason = fmt.Sprintf("plan matches the %s exam, its real source and question structure", c.st.Exam.Format)
+	}
+	return passCheck(decl.ID, reason)
+}
+
+func examPlanSourceReason(exam *planExamDoc, source string) string {
+	if exam == nil {
+		return "plan.json needs an examen object for this run"
+	}
+	if exam.Fuente != source {
+		if exam.Fuente == "" {
+			return fmt.Sprintf("plan examen fuente is missing, want %q", source)
+		}
+		return fmt.Sprintf("plan examen fuente = %q, want %q", exam.Fuente, source)
+	}
+	if len(exam.Estructura) == 0 {
+		return "plan examen estructura needs at least one item"
+	}
+	seen := map[string]bool{}
+	for i, item := range exam.Estructura {
+		if strings.TrimSpace(item.Tipo) == "" {
+			return fmt.Sprintf("plan examen estructura item #%d has an empty tipo", i+1)
+		}
+		if seen[item.Tipo] {
+			return fmt.Sprintf("plan examen estructura repeats tipo %q", item.Tipo)
+		}
+		seen[item.Tipo] = true
+		if item.Cantidad < 1 {
+			return fmt.Sprintf("plan examen estructura tipo %q cantidad must be at least 1 (got %d)", item.Tipo, item.Cantidad)
+		}
+	}
+	return ""
 }
 
 func evalExamPractice(c *evalCtx, decl rules.CheckDecl) Check {
@@ -252,6 +291,20 @@ func evalExamMock(c *evalCtx, decl rules.CheckDecl) Check {
 	if len(doc.Questions) == 0 {
 		return failCheck(decl.ID, decl.Path+" declares no questions")
 	}
+	if c.st.Exam.Source != "" {
+		if c.planErr != nil {
+			return failCheck(decl.ID, "plan.json cannot supply the source question structure: "+c.planErr.Error())
+		}
+		if c.plan == nil || c.plan.Exam == nil {
+			return failCheck(decl.ID, "plan.json needs an examen estructura for this source")
+		}
+		if reason := examPlanSourceReason(c.plan.Exam, c.st.Exam.Source); reason != "" {
+			return failCheck(decl.ID, reason)
+		}
+		if reason := examQuestionStructureDifference(doc.Questions, c.plan.Exam.Estructura); reason != "" {
+			return failCheck(decl.ID, reason)
+		}
+	}
 	switch c.st.Exam.Format {
 	case "oral":
 		choice, open := 0, 0
@@ -274,5 +327,41 @@ func evalExamMock(c *evalCtx, decl rules.CheckDecl) Check {
 		}
 		return failCheck(decl.ID, `practical exam needs at least one question with tipo "practica" and a non-empty entregable`)
 	}
+	if c.st.Exam.Source != "" {
+		return passCheck(decl.ID, fmt.Sprintf("%s matches the %s exam format and source question structure", decl.Path, c.st.Exam.Format))
+	}
 	return passCheck(decl.ID, fmt.Sprintf("%s matches the %s exam format", decl.Path, c.st.Exam.Format))
+}
+
+func examQuestionStructureDifference(questions []finalQuestion, structure []planExamStructureItem) string {
+	actual := map[string]int{}
+	for _, question := range questions {
+		actual[question.Tipo]++
+	}
+	expected := map[string]int{}
+	for _, item := range structure {
+		expected[item.Tipo] = item.Cantidad
+	}
+	all := make(map[string]bool, len(actual)+len(expected))
+	for tipo := range actual {
+		all[tipo] = true
+	}
+	for tipo := range expected {
+		all[tipo] = true
+	}
+	tipos := make([]string, 0, len(all))
+	for tipo := range all {
+		tipos = append(tipos, tipo)
+	}
+	sort.Strings(tipos)
+	var differences []string
+	for _, tipo := range tipos {
+		if actual[tipo] != expected[tipo] {
+			differences = append(differences, fmt.Sprintf("tipo %q has %d, want %d", tipo, actual[tipo], expected[tipo]))
+		}
+	}
+	if len(differences) == 0 {
+		return ""
+	}
+	return "cuestionario-final.json estructura differs from plan: " + strings.Join(differences, "; ")
 }

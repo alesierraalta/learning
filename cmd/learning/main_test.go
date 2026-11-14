@@ -169,7 +169,7 @@ func TestCLIHelpDocumentsCommandsAndExitsZero(t *testing.T) {
 			t.Fatalf("%s exit = %d", arg, code)
 		}
 		text := out.String()
-		for _, want := range []string{"init", "validate", "advance", "status", "review", "--rules", "--exam", "--practice", "plan.json", "--verdict", "pendingReviews"} {
+		for _, want := range []string{"init", "validate", "advance", "status", "review", "--rules", "--exam", "--practice", "--exam-source", "plan.json", "--verdict", "pendingReviews"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("help text missing %q:\n%s", want, text)
 			}
@@ -379,6 +379,108 @@ func TestCLIExamRejectsInvalidCombinationsWithoutCreatingState(t *testing.T) {
 				t.Fatalf("rejected options created state (stat err %v)", err)
 			}
 		})
+	}
+}
+
+func TestCLIExamSourceRecordsInitEvidenceAndStatus(t *testing.T) {
+	c := newCLIFixture(t)
+	source := "fuentes/parcial.pdf"
+	if err := os.MkdirAll(filepath.Join(c.ws, "fuentes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(c.ws, source), []byte("real exam"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if code := run(c.args("init", "--exam", "written", "--exam-source", source, "--json"), &out); code != 0 {
+		t.Fatalf("exam init exit = %d, want 0: %s", code, out.String())
+	}
+	initReport := parseOne(t, &out)
+	evidence, _ := initReport["evidence"].(map[string]any)
+	if !equalJSONMap(evidence["exam"], map[string]any{"format": "written", "source": source}) {
+		t.Fatalf("init evidence.exam = %v, want written with source", evidence["exam"])
+	}
+	var state map[string]any
+	raw, err := os.ReadFile(filepath.Join(c.ws, ".learning", "state.json"))
+	if err != nil || json.Unmarshal(raw, &state) != nil {
+		t.Fatalf("read exam state: %v", err)
+	}
+	if !equalJSONMap(state["exam"], map[string]any{"format": "written", "source": source}) {
+		t.Fatalf("state.exam = %v, want written with source", state["exam"])
+	}
+
+	out.Reset()
+	if code := run(c.args("status", "--json"), &out); code != 0 {
+		t.Fatalf("status exit = %d, want 0: %s", code, out.String())
+	}
+	status := parseOne(t, &out)
+	if !equalJSONMap(status["exam"], map[string]any{"format": "written", "source": source}) {
+		t.Fatalf("status exam = %v, want written with source", status["exam"])
+	}
+}
+
+func TestCLIExamSourceRejectsInvalidInputsWithoutWritingState(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{"requires exam", []string{"--exam-source", "fuentes/parcial.pdf"}, "--exam-source requires --exam"},
+		{"absolute path", []string{"--exam", "oral", "--exam-source", filepath.Join("/tmp", "parcial.pdf")}, "--exam-source must be a relative path under fuentes/ without .."},
+		{"parent traversal", []string{"--exam", "oral", "--exam-source", "fuentes/../parcial.pdf"}, "--exam-source must be a relative path under fuentes/ without .."},
+		{"outside fuentes", []string{"--exam", "oral", "--exam-source", "plan.json"}, "--exam-source must be a relative path under fuentes/ without .."},
+		{"missing file", []string{"--exam", "oral", "--exam-source", "fuentes/no-existe.pdf"}, "--exam-source file does not exist: fuentes/no-existe.pdf"},
+		{"blank path", []string{"--exam", "oral", "--exam-source", " \u2003 "}, "--exam-source requires a non-empty path"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newCLIFixture(t)
+			var out bytes.Buffer
+			args := append(c.args("init", tc.flags...), "--json")
+			if code := run(args, &out); code != 2 {
+				t.Fatalf("exit = %d, want 2: %s", code, out.String())
+			}
+			report := parseOne(t, &out)
+			if report["status"] != "error" || report["detail"] != tc.want {
+				t.Fatalf("report = %v, want exact error %q", report, tc.want)
+			}
+			for _, path := range []string{
+				filepath.Join(c.ws, ".learning", "state.json"),
+				filepath.Join(c.ws, ".learning", "rules.json"),
+				filepath.Join(c.ws, ".learning"),
+			} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("rejected source wrote %s (stat err %v)", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestCLIExamSourceIsInitOnlyAndDoesNotChangeExistingRun(t *testing.T) {
+	c := newCLIFixture(t)
+	var out bytes.Buffer
+	if code := run(c.args("init", "--json"), &out); code != 0 {
+		t.Fatalf("plain init exit = %d: %s", code, out.String())
+	}
+	statePath := filepath.Join(c.ws, ".learning", "state.json")
+	before, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if code := run(c.args("status", "--exam-source", "fuentes/parcial.pdf", "--json"), &out); code != 2 {
+		t.Fatalf("late source exit = %d, want 2: %s", code, out.String())
+	}
+	report := parseOne(t, &out)
+	if report["status"] != "error" || report["detail"] != "--exam-source is only accepted by the init command" {
+		t.Fatalf("late source report = %v, want init-only refusal", report)
+	}
+	after, err := os.ReadFile(statePath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("late source changed state: %v", err)
 	}
 }
 

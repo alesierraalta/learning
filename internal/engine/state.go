@@ -70,6 +70,7 @@ type Counters struct {
 type Exam struct {
 	Format   string `json:"format"`
 	Practice string `json:"practice,omitempty"`
+	Source   string `json:"source,omitempty"`
 }
 
 // State is the engine-owned .learning/state.json document.

@@ -6,6 +6,15 @@
 - La fuente puede ser un tema o un bloque largo pegado: temario, apuntes o texto extraído de diapositivas. No exijas que se reduzca a un título ni que se vuelva a resumir. Lee el material, identifica los conceptos y objetivos evaluables, y deriva de ahí el mapa y el plan. El motor recibe los campos de `init`, no el texto fuente.
 - Basa las afirmaciones sobre qué entra en el examen en el temario, indicaciones docentes y exámenes anteriores cuando existan. Si esos datos no demuestran que algo «siempre aparece», no lo afirmes como hecho: separa lo explícito de lo probable.
 
+## Examen real subido
+
+- Lee **todos** los archivos subidos antes de planificar. En un PDF, lee el `.txt` extraído; para cada imagen, usa la herramienta de lectura de archivos. No omitas una fuente por parecer secundaria.
+- Pasa las rutas absolutas originales a `learning_stage` `init` en `sources`. Si el run es de examen, elige el archivo que contiene el examen principal y pásalo también en `examSource`; debe ser una de las rutas de `sources`. El adaptador copia los archivos a `<topic>/fuentes/` antes de llamar al motor e incluye junto al PDF su `.txt`. **No copies los archivos tú.** El valor que el motor registra será `fuentes/<nombre>`.
+- Si el formato es `deducir`, infiere oral, escrito o práctico a partir de los tipos de preguntas reales; si es práctico, deduce también el tipo de práctica. Antes de `init`, explica en el chat qué rasgos observados sostienen cada deducción. Nunca elijas un formato ni una práctica por defecto; si la evidencia no permite decidir, pide aclaración antes de iniciar.
+- Deriva del examen el temario evaluable y el recorte Pareto: prioriza lo que aparece o se exige en las preguntas reales y conserva los conceptos que permiten resolver varias. Distingue en el chat lo que el examen muestra explícitamente de lo que infieres; no presentes una inferencia como requisito confirmado.
+- En `plan.json`, declara `examen.fuente` exactamente como `fuentes/<nombre>` y `examen.estructura` con un elemento por cada `tipo` distinto del examen real y su `cantidad` observada (sin tipos repetidos ni recuentos inventados). Conserva esos campos al reescribir el plan.
+- Construye `cuestionario-final.json` con los mismos `tipo` y cantidades. Imita el mismo tipo de enunciados y una dificultad comparable: igual número de pasos y datos, y redacción similar, sin copiar ciegamente una respuesta. Separa lo explícito de lo inferido también al explicar el simulacro.
+
 ## Preguntas de la FASE 0a
 
 Recoge en la misma llamada y el mismo lote:
