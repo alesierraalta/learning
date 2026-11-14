@@ -1235,15 +1235,17 @@ test('un pie declarado dentro de su pieza viaja con ella', { skip: SKIP }, () =>
 
 // Las dos notas reales del quinto banco: su pie quedó arriba de la otra columna en modo ancho.
 test('la nota real de Git deja el pie de sus tarjetas con ellas', { skip: SKIP }, () => {
+  // Estas notas del banco llevan otros defectos a propósito (un movimiento de
+  // longitud cero, #286): aquí solo se juzga el pie de figura.
   const r = lint(join(BENCH287, 'git-branching.md'));
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.doesNotMatch(r.stdout, /leyenda-descolgada/);
+  assert.doesNotMatch(r.stdout, /leyenda-descolgada/, r.stdout + r.stderr);
 });
 
 test('la nota real de CSS deja el pie de sus tarjetas con ellas', { skip: SKIP }, () => {
+  // Estas notas del banco llevan otros defectos a propósito (un movimiento de
+  // longitud cero, #286): aquí solo se juzga el pie de figura.
   const r = lint(join(BENCH287, 'css-flexbox.md'));
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.doesNotMatch(r.stdout, /leyenda-descolgada/);
+  assert.doesNotMatch(r.stdout, /leyenda-descolgada/, r.stdout + r.stderr);
 });
 
 // Los ejemplos aprobados ya escriben su «Cómo leerlo» debajo de la figura: ninguno lo deja lejos.
