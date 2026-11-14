@@ -753,6 +753,32 @@ try {
             ? 'la flecha no tiene franja libre entre sus actores: las fichas subieron para dejarla pasar · separa los actores o mueve la pieza que ocupa la franja'
             : 'el trazo de la flecha entra en la franja de las fichas de nombre: reenrútala a la franja libre entre sus actores');
         }
+
+        // 15. un movimiento declarado que no se dibuja (#286). El kit acepta dos
+        // formas del mismo movimiento —`from`/`to` y `actor`/`toX`/`toY`— y marca en
+        // el grupo el que no pudo dibujar (`data-move-undrawn`): una forma que no
+        // entiende, un origen o un destino que el paso no tiene, o un trazo de
+        // longitud cero. Antes lo descartaba en silencio y la historia se leía como
+        // una foto repetida con todas las puertas en verde.
+        const sinMovimiento = {
+          'sin-forma': 'el movimiento no nombra de dónde sale: escribe `{"from":"a","to":"b"}` o `{"actor":"a","toX":…,"toY":…}`',
+          'sin-destino': 'el movimiento no nombra a dónde llega: escribe `to` (una pieza) o `toX`/`toY` (un punto)',
+          cero: 'el destino cae donde el actor ya está: el trazo mide 0 unidades y no se dibuja · mueve el punto o el actor',
+        };
+        for (const move of svg.querySelectorAll('[data-move]')) {
+          const why = move.dataset.moveUndrawn;
+          if (!why) continue;
+          const from = move.dataset.moveFrom || '—';
+          const to = move.dataset.moveTo || move.dataset.moveToPoint || '—';
+          // El origen o el destino que el paso no tiene se nombra en el hallazgo: el
+          // tutor corrige la nota desde el mensaje, sin abrir el dibujo.
+          const detail = why === 'origen'
+            ? `el movimiento sale de «${from}», que el paso no tiene`
+            : why === 'destino'
+              ? `el movimiento llega a «${move.dataset.moveTo}», que el paso no tiene`
+              : sinMovimiento[why] || 'el movimiento no se pudo dibujar';
+          add('movimiento-no-dibujado', `${from} → ${to}`, `${detail} (paso ${stepOf(move)})`);
+        }
       });
       // 14. la cabecera de una historia se lee entera a cualquier ancho (#243): en
       // el teléfono el alumno veía «ntas SET saldo = saldo + 5…», sin principio ni

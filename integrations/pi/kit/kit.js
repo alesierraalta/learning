@@ -900,26 +900,62 @@
       const chips = layoutTags(step, rows);
       placeProps(step, rows, chips);
       for (const c of chips) drawChip(c);
-      for (const move of step.querySelectorAll("[data-move-from]")) {
-        const from = findIn(step, move.dataset.moveFrom), to = findIn(step, move.dataset.moveTo);
-        if (!from || !to) continue;
-        const a = from.getBBox(), b = to.getBBox();
-        const t = tone(move.dataset.moveTone);
-        // Dos piezas una al lado de la otra se unen con un trazo que sale y llega en
-        // horizontal, por la franja de altura que comparten; una arriba de la otra,
-        // con el codo vertical de siempre.
-        const sideBySide = Math.abs((a.x + a.width / 2) - (b.x + b.width / 2)) > Math.abs((a.y + a.height / 2) - (b.y + b.height / 2)) * 1.2;
-        const shared = (Math.max(a.y, b.y) + Math.min(a.y + a.height, b.y + b.height)) / 2;
-        const lane = Math.min(a.y + a.height, b.y + b.height) > Math.max(a.y, b.y);
-        const start = sideBySide && lane
-          ? { x: a.x + a.width / 2 < b.x + b.width / 2 ? a.x + a.width : a.x, y: shared }
-          : edgeOf(a, b.x + b.width / 2, b.y + b.height / 2);
-        const end = sideBySide && lane
-          ? { x: a.x + a.width / 2 < b.x + b.width / 2 ? b.x : b.x + b.width, y: shared }
-          : edgeOf(b, a.x + a.width / 2, a.y + a.height / 2);
-        const midY = (start.y + end.y) / 2;
+      for (const move of step.querySelectorAll("[data-move], [data-move-from]")) {
         const path = move.querySelector("[data-move-path]");
-        path.setAttribute("d", sideBySide && lane
+        const label = move.querySelector("[data-move-label]");
+        const t = tone(move.dataset.moveTone);
+        // Un movimiento que no se puede dibujar se declara en su grupo
+        // (`data-move-undrawn`), como una pieza que nombra un actor que no existe:
+        // `scene-lint` lo rechaza como `movimiento-no-dibujado` en vez de dibujar
+        // nada y callarse (#286).
+        const undrawn = (why) => {
+          move.dataset.moveUndrawn = why;
+          path.removeAttribute("d");
+          label.textContent = "";
+        };
+        delete move.dataset.moveUndrawn;
+        const fromId = move.dataset.moveFrom || "";
+        const toId = move.dataset.moveTo || "";
+        const [toX, toY] = String(move.dataset.moveToPoint || "").split(",").map(Number);
+        const hasPoint = move.dataset.moveToPoint ? Number.isFinite(toX) && Number.isFinite(toY) : false;
+        const from = fromId ? findIn(step, fromId) : null;
+        const to = toId ? findIn(step, toId) : null;
+        if (!from) { undrawn(fromId ? "origen" : "sin-forma"); continue; }
+        if (!to && !hasPoint) { undrawn(toId ? "destino" : "sin-destino"); continue; }
+        const a = from.getBBox();
+        // Dos formas del mismo movimiento: la canónica nombra las dos piezas y el
+        // trazo se apoya en el borde de cada una; la que escribe el tutor nombra un
+        // actor y un punto, y el trazo sale del centro dibujado del actor y termina
+        // en ese punto (#286).
+        let start, end, straight;
+        if (to) {
+          const b = to.getBBox();
+          // Dos piezas una al lado de la otra se unen con un trazo que sale y llega en
+          // horizontal, por la franja de altura que comparten; una arriba de la otra,
+          // con el codo vertical de siempre.
+          const sideBySide = Math.abs((a.x + a.width / 2) - (b.x + b.width / 2)) > Math.abs((a.y + a.height / 2) - (b.y + b.height / 2)) * 1.2;
+          const shared = (Math.max(a.y, b.y) + Math.min(a.y + a.height, b.y + b.height)) / 2;
+          const lane = Math.min(a.y + a.height, b.y + b.height) > Math.max(a.y, b.y);
+          straight = sideBySide && lane;
+          start = straight
+            ? { x: a.x + a.width / 2 < b.x + b.width / 2 ? a.x + a.width : a.x, y: shared }
+            : edgeOf(a, b.x + b.width / 2, b.y + b.height / 2);
+          end = straight
+            ? { x: a.x + a.width / 2 < b.x + b.width / 2 ? b.x : b.x + b.width, y: shared }
+            : edgeOf(b, a.x + a.width / 2, a.y + a.height / 2);
+        } else {
+          // La forma del tutor nombra un actor y un punto: el trazo se apoya en el
+          // borde de la figura del actor, hacia ese punto, como la forma canónica.
+          // Del centro hacia afuera el trazo cruzaría la tinta de su propio actor
+          // y `scene-lint` lo rechaza por `flecha-cruza-trazo`.
+          straight = false;
+          start = edgeOf(a, toX, toY);
+          end = { x: toX, y: toY };
+        }
+        // Un movimiento de longitud cero no mueve nada: se declara, no se dibuja.
+        if (Math.hypot(end.x - start.x, end.y - start.y) < 1) { undrawn("cero"); continue; }
+        const midY = (start.y + end.y) / 2;
+        path.setAttribute("d", straight
           ? `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} L ${end.x.toFixed(1)} ${end.y.toFixed(1)}`
           : `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} C ${start.x.toFixed(1)} ${midY.toFixed(1)}, ${end.x.toFixed(1)} ${midY.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`);
         path.setAttribute("stroke", t.stroke);
@@ -928,17 +964,16 @@
         path.setAttribute("stroke-width", "1.5");
         path.setAttribute("stroke-dasharray", "6 5");
         path.setAttribute("marker-end", marker(move.dataset.moveTone, 1.5));
-        const label = move.querySelector("[data-move-label]");
-        label.textContent = move.dataset.moveVerb || "";
         // En un trazo horizontal el verbo va centrado sobre el trazo, lejos de la punta;
         // en uno que baja, más a la derecha del arranque, como siempre.
-        label.setAttribute("x", (sideBySide && lane ? (start.x + end.x) / 2 : Math.max((start.x + end.x) / 2, start.x + 66)).toFixed(1));
+        label.setAttribute("x", (straight ? (start.x + end.x) / 2 : Math.max((start.x + end.x) / 2, start.x + 66)).toFixed(1));
         label.setAttribute("y", (Math.min(start.y, end.y) - 16).toFixed(1));
         label.setAttribute("text-anchor", "middle");
         label.setAttribute("font-size", "16");
         label.setAttribute("font-weight", "700");
         label.setAttribute("fill", t.color);
         label.setAttribute("data-fit", String(Math.max(40, Math.abs(end.x - start.x) + 60)));
+        label.textContent = move.dataset.moveVerb || "";
       }
       const pieces = () => [...step.querySelectorAll("[data-actor], [data-prop-id]")].map(boxOf);
       for (const mark of step.querySelectorAll("[data-mark-kind]")) {
@@ -1039,7 +1074,7 @@
     // sobre sus figuras. Solo si no hay ninguna franja libre suben las fichas, y
     // entonces el grupo queda marcado (`data-arrow-crowded`) para que el lint lo
     // cuente: nunca se dibuja un muñón.
-    function rerouteArrows(step, chips, drawChip) {
+    function rerouteArrows(step, chips, _drawChip) {
       const groups = [...step.querySelectorAll("[data-arrow]")];
       if (!groups.length) return;
       const figures = [...step.querySelectorAll("[data-actor]")].map((el) => {
@@ -1057,7 +1092,7 @@
       const obstacles = (ends, self) => {
         const out = chips.map(pill);
         for (const f of figures) if (!ends.includes(f.el)) out.push({ x: f.x, y: f.y, width: f.w, height: f.h });
-        for (const el of step.querySelectorAll("[data-prop-id], [data-box], [data-icon], [data-label], [data-mark-kind], [data-move-from], [data-arrow]")) {
+        for (const el of step.querySelectorAll("[data-prop-id], [data-box], [data-icon], [data-label], [data-mark-kind], [data-move], [data-arrow]")) {
           if (el === self) continue;
           const b = el.getBBox();
           if (b.width > 1 || b.height > 1) out.push({ x: b.x, y: b.y, width: b.width, height: b.height });
@@ -1616,7 +1651,14 @@
       out += `<g data-tag-to="${S.esc(tg.to)}" data-tag-text="${S.esc(tg.text)}" data-tag-tone="${S.esc(tg.tone || 'slate')}"${Array.isArray(tg.at) ? ` data-tag-at="${S.f(tg.at[0])},${S.f(tg.at[1])}"` : ''}></g>`;
     }
     for (const mv of scene.moves || []) {
-      out += `<g data-move-from="${S.esc(mv.from)}" data-move-to="${S.esc(mv.to)}" data-move-verb="${S.esc(mv.verb || '')}" data-move-tone="${S.esc(mv.tone || 'amber')}"><path fill="none" data-move-path="1"/><text data-move-label="1"></text></g>`;
+      // Dos formas del mismo movimiento, con el mismo significado: la canónica
+      // nombra sus dos piezas (`from`/`to`) y la que escribe el tutor nombra un
+      // actor y un punto (`actor`/`toX`/`toY`). `placeStory` dibuja las dos (#286).
+      const from = mv.from ?? mv.actor ?? '';
+      const point = mv.toX != null && mv.toY != null && Number.isFinite(Number(mv.toX)) && Number.isFinite(Number(mv.toY))
+        ? ` data-move-to-point="${S.f(mv.toX)},${S.f(mv.toY)}"`
+        : '';
+      out += `<g data-move="1" data-move-from="${S.esc(from)}" data-move-to="${S.esc(mv.to ?? '')}"${point} data-move-verb="${S.esc(mv.verb || '')}" data-move-tone="${S.esc(mv.tone || 'amber')}"><path fill="none" data-move-path="1"/><text data-move-label="1"></text></g>`;
     }
     for (const mk of scene.marks || []) {
       out += `<g data-mark-kind="${S.esc(mk.kind)}" data-mark-actors="${S.esc((mk.actors || [mk.actor]).filter(Boolean).join(','))}"${Array.isArray(mk.between) ? ` data-mark-between="${S.esc(mk.between.slice(0, 2).join(','))}"` : ''}${mk.to ? ` data-mark-to="${S.esc(mk.to)}"` : ''}${mk.label ? ` data-mark-label="${S.esc(mk.label)}"` : ''}></g>`;

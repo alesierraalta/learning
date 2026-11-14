@@ -1194,3 +1194,86 @@ test('frequency-tree branch labels that pile on each other are a finding', { ski
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /text-over-text/);
 });
+
+// ── Un movimiento declarado que no se dibuja (#286) ─────────────────────────
+// La quinta corrida del banco dejó cuatro de cinco partes escribiendo el
+// movimiento como «{"actor":"c10","toX":240,"toY":120}». El kit leía solo
+// `from`/`to`, el DOM tenía 0 de 4 trazos y ninguna puerta miraba los
+// movimientos: todas pasaban. El movimiento que no se puede dibujar —una forma
+// que el kit no entiende, un origen o un destino que el paso no tiene, un trazo
+// de longitud cero— ahora se declara en el dibujo y se rechaza aquí.
+const BENCH_286 = join(TOOLS, '..', 'integrations', 'pi', 'kit', 'test', 'fixtures', 'bench286');
+const banco286 = (nombre) => join(BENCH_286, nombre);
+
+const DOS_ACTORES = [
+  { id: 'cli', kind: 'robot', x: 80, y: 150, size: 56, tone: 'blue', tag: 'cliente' },
+  { id: 'srv', kind: 'server', x: 250, y: 150, size: 56, tone: 'slate', tag: 'servidor' },
+];
+
+const notaDeMovimiento = (nombre, scene) => {
+  const file = join(dir, nombre);
+  writeFileSync(file, `# Parte 1\n\n## 1. El movimiento\n\nEl saludo viaja de un actor al otro.\n\n<lk-scene>
+<script type="application/json">
+${JSON.stringify({ viewBox: '0 0 360 250', title: 'un movimiento', caption: 'El trazo sale del actor y llega al destino.', scene })}
+</script>
+</lk-scene>
+`);
+  return file;
+};
+
+test('un movimiento de longitud cero es un hallazgo', { skip: SKIP }, () => {
+  // La forma que escribió el tutor en cuatro de las cinco notas del banco: el
+  // destino copia la coordenada del propio actor, así que el trazo mide 0.
+  const r = lint(notaDeMovimiento('movimiento-cero.md', { actors: DOS_ACTORES, moves: [{ actor: 'cli', toX: 80, toY: 150, verb: 'sale' }] }));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /movimiento-no-dibujado/);
+  assert.match(r.stdout, /longitud cero|0 unidades/);
+});
+
+test('un movimiento sin destino es un hallazgo', { skip: SKIP }, () => {
+  const r = lint(notaDeMovimiento('movimiento-sin-destino.md', { actors: DOS_ACTORES, moves: [{ actor: 'cli', verb: 'sale' }] }));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /movimiento-no-dibujado/);
+  assert.match(r.stdout, /dónde llega|destino/);
+});
+
+test('un movimiento con una forma que el kit no entiende es un hallazgo', { skip: SKIP }, () => {
+  const r = lint(notaDeMovimiento('movimiento-sin-forma.md', { actors: DOS_ACTORES, moves: [{ verb: 'sale', tone: 'blue' }] }));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /movimiento-no-dibujado/);
+});
+
+test('un movimiento que sale de un actor que el paso no tiene es un hallazgo', { skip: SKIP }, () => {
+  const r = lint(notaDeMovimiento('movimiento-sin-origen.md', { actors: DOS_ACTORES, moves: [{ actor: 'nadie', toX: 222, toY: 150, verb: 'sale' }] }));
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /movimiento-no-dibujado/);
+  assert.match(r.stdout, /nadie/);
+});
+
+test('la forma {actor,toX,toY} con un destino real se dibuja y no es un hallazgo', { skip: SKIP }, () => {
+  // 222 es el borde izquierdo de la figura del servidor: el trazo llega desde
+  // afuera, como el de la forma canónica.
+  const r = lint(notaDeMovimiento('movimiento-punto.md', { actors: DOS_ACTORES, moves: [{ actor: 'cli', toX: 222, toY: 150, verb: 'sale' }] }));
+  assert.doesNotMatch(r.stdout, /movimiento-no-dibujado/, r.stdout + r.stderr);
+});
+
+test('la forma canónica {from,to} sigue sin ser un hallazgo', { skip: SKIP }, () => {
+  const r = lint(notaDeMovimiento('movimiento-canonico.md', { actors: DOS_ACTORES, moves: [{ from: 'cli', to: 'srv', verb: 'sale' }] }));
+  assert.doesNotMatch(r.stdout, /movimiento-no-dibujado/, r.stdout + r.stderr);
+});
+
+// El banco: las cuatro notas que escriben la forma del tutor declaran un
+// movimiento que no se dibuja y se rechazan. Bayes, que escribe la canónica,
+// dibuja 4 de 4 y pasa.
+test('las cuatro notas del banco con movimiento sin destino se rechazan', { skip: SKIP }, () => {
+  for (const nombre of ['git-branching.md', 'tcp-handshake.md', 'rust-borrowing.md', 'css-flexbox.md']) {
+    const r = lint(banco286(nombre));
+    assert.match(r.stdout, /movimiento-no-dibujado/, `${nombre}: ${r.stdout}${r.stderr}`);
+  }
+});
+
+test('la nota del banco que escribe la forma canónica sigue pasando', { skip: SKIP }, () => {
+  const r = lint(banco286('bayes-theorem.md'));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /movimiento-no-dibujado/);
+});

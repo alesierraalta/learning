@@ -140,6 +140,7 @@
       "actorCharacter": true,
       "sceneStage": true,
       "storyMotion": true,
+      "storyMoveDrawable": true,
       "arrowFlows": true,
       "deadKeys": true,
       "markEcho": true,

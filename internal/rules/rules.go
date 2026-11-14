@@ -274,6 +274,13 @@ type PartStandardThresholds struct {
 	// is not declared, so a frozen snapshot keeps accepting the parts it
 	// accepted.
 	StoryMotion bool `json:"storyMotion,omitempty"`
+	// StoryMoveDrawable turns on the drawn-move rule (#286): a move naming an
+	// actor and a target point (`actor`/`toX`/`toY`) is drawn like the canonical
+	// `from`/`to` shape, and a move the drawing cannot draw — no origin, an origin
+	// or a destination the step does not have, or a stroke of length zero — is
+	// refused instead of disappearing. False means the rule is not declared, so a
+	// frozen snapshot keeps accepting the parts it accepted.
+	StoryMoveDrawable bool `json:"storyMoveDrawable,omitempty"`
 	// ArrowFlows turns on the text-arrow rule (#246): a story header or a scene
 	// label written as a flow of dashes (`--->`, `---[`, `==>`) is geometry
 	// written, not drawn. The prose rule uses the same pattern. False means the

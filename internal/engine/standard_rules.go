@@ -12,7 +12,10 @@ type standardRule struct {
 }
 
 // standardRules is the table standardFindings runs, in the order its findings are
-// reported. Adding a rule is its file, one entry here and its test.
+// reported. Adding a rule is its file, one entry here and its test. The id of a
+// rule that also has a tool file under `tools/explain-check/rules/` is that file's
+// slug; `movimiento-no-dibujado` has none because the tool already measures the
+// drawing with `scene-lint` (its `figuras` rule).
 var standardRules = []standardRule{
 	{"tamano", tamanoFindings},
 	{"secciones", seccionesFindings},
@@ -26,6 +29,7 @@ var standardRules = []standardRule{
 	{"actor-sin-personaje", actorCharacterFindings},
 	{"escenario-de-cajas", sceneStageFindings},
 	{"historia-quieta", storyMotionFindings},
+	{"movimiento-no-dibujado", moveUndrawnFindings},
 	{"cabecera-con-flechas", arrowFlowFindings},
 	{"clave-muerta", deadKeyFindings},
 	{"marca-eco", markEchoFindings},

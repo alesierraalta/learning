@@ -315,6 +315,22 @@ A prop or a mark that names an id the step does not have is declared, not drawn 
 `integrations/pi/kit/examples/propiedad-rust.md` (a value changes owner, the old owner is struck
 through, the value is freed).
 
+**A move is one dashed arrow, whichever way it is written** (#286). The canonical shape names its
+two pieces — `{"from":"two-old","to":"two","verb":"pasa restando"}` — and is the one to write;
+the stroke leaves the border of the origin (an actor, a prop, a box) and lands on the border of the
+destination. The shape the tutor writes names an actor and a target point —
+`{"actor":"cli","toX":222,"toY":150,"verb":"SYN"}` — and is accepted with the same meaning: the
+same dashed stroke, arrowhead and verb, leaving the actor's drawn figure towards that point and
+ending on it. Point the target at free space or at the border of the piece it reaches: a point
+inside a figure buries the arrowhead (`punta-enterrada`). A move the drawing cannot draw — a shape
+the kit does not know, an origin or a destination the step does not have, or a target where the
+actor already is (a stroke of 0 units) — is never dropped in silence: the kit marks it on the
+drawing and `scene-lint` refuses the step as `movimiento-no-dibujado`, while the engine mirrors the
+structural half under the additive `storyMoveDrawable` key. The four notes of the fifth bench run
+that declared `{actor,toX,toY}` with the actor's own coordinates are
+`integrations/pi/kit/test/fixtures/bench286/` (Git, TCP, Rust and CSS), next to Bayes, which wrote
+the canonical shape and drew 4 of 4.
+
 **One row, one baseline** (#245). Actors that stand side by side are laid out from the
 largest frame in the row, the state frame included: a `locked` actor draws a dashed frame and a
 lock at its corner, and those pieces grow its measured box, so a row laid out from each actor's
