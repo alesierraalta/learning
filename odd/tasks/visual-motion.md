@@ -32,8 +32,8 @@ Runner: `node --test` on the touched test files; `go test ./...` when the engine
 
 ## Tasks
 
-- T1 S1 #298 step continuity — worker — done (motion.test 8/8, kit tests 120/120, bridge 133 pass; gates measure with reduced motion; key attr data-piece-key)
-- T2 S2 #299 change flash and focus ring — worker — pending (after T1)
+- T1 S1 #298 step continuity — worker — done, e6d017d (motion.test 8/8, kit tests 120/120, bridge 133 pass; gates measure with reduced motion; key attr data-piece-key)
+- T2 S2 #299 change flash and focus ring — worker — done (focus.test 11/11 and motion.test 8/8 on the final kit; scene-lint focus 2/2; scene-lint.test + deck-gate.test 114/114; kit dir + kit-pages + scene-gate.test 153/153; go ./internal/engine 488 pass; bridge 133 pass, 1 skip; gates skip data-focus-ring; step key data-focus-piece; settled == HEAD on 14 blocks)
 - T3 S3 #300 flowing and draw-on arrows — worker — pending (after T2, same files)
 - T4 S4 #301 facts table and closing summary — worker — pending (after T3, same files)
 

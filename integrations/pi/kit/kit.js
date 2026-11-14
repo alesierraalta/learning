@@ -562,7 +562,7 @@
   function watchCallouts(stage, refit) {
     if (watched.has(stage)) return;
     watched.add(stage);
-    const place = () => { refit?.(); placeCallouts(stage); placeStory(stage); };
+    const place = () => { refit?.(); placeCallouts(stage); placeStory(stage); placeFocus(stage); };
     document.fonts?.ready.then(place).catch(() => {});
     let frame = 0;
     addEventListener("resize", () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(place); }, { passive: true });
@@ -624,6 +624,36 @@
       };
       const spot = corners.find(free) ?? corners.find(fits) ?? corners[0];
       ink.setAttribute("transform", `translate(${(spot.x - at.x).toFixed(2)} ${(spot.y - at.y).toFixed(2)})`);
+    }
+    groups.forEach((g, i) => { g.style.display = shown[i]; });
+  }
+  // El anillo de foco rodea la pieza que el paso nombra (#299). Es un trazo del propio dibujo, así
+  // que escala con la figura en el modo ancho y en pantalla completa. Se mide con todos los pasos
+  // puestos, como las demás pasadas, y el nodo se reutiliza: el anillo de un paso que llega sigue
+  // oculto hasta asentarse.
+  function placeFocus(stage) {
+    const S = window.LKScene;
+    const svg = stage.querySelector('svg');
+    if (!svg) return;
+    const focused = [...svg.querySelectorAll('[data-focus-piece]')];
+    if (!focused.length) return;
+    const groups = [...svg.querySelectorAll('[data-step]')];
+    const shown = groups.map((g) => g.style.display);
+    groups.forEach((g) => { g.style.display = ''; });
+    const room = svg.viewBox.baseVal;
+    const pad = 7;
+    for (const step of focused) {
+      const piece = [...step.children].find((c) => c.dataset.pieceId === step.dataset.focusPiece);
+      let ring = [...step.children].find((c) => c.hasAttribute('data-focus-ring'));
+      const b = piece?.getBBox();
+      if (!b || (!b.width && !b.height)) { ring?.remove(); continue; }
+      const x = Math.max(room.x, b.x - pad), y = Math.max(room.y, b.y - pad);
+      const frame = { x, y, width: Math.min(room.x + room.width, b.x + b.width + pad) - x, height: Math.min(room.y + room.height, b.y + b.height + pad) - y, rx: 10 };
+      if (!ring) {
+        ring = svgPart('rect', { 'data-focus-ring': '1', fill: 'none', stroke: S.C.blue, 'stroke-width': 3 });
+        step.append(ring);
+      }
+      for (const [key, value] of Object.entries(frame)) ring.setAttribute(key, String(value));
     }
     groups.forEach((g, i) => { g.style.display = shown[i]; });
   }
@@ -1391,7 +1421,10 @@
       keys.set(base, n);
       return n > 1 ? `${base}#${n}` : base;
     };
-    const keep = (from, kind, item, label) => { out = out.slice(0, from) + S.piece(keyOf(kind, item, label), out.slice(from)); };
+    // Las piezas con id se pueden enfocar con `focus` (#299): una caja, un icono, un rótulo, un actor o una prop.
+    const FOCUSABLE = ['box', 'icon', 'label', 'actor', 'prop'];
+    const idOf = (kind, item) => (FOCUSABLE.includes(kind) && item?.id != null ? String(item.id) : undefined);
+    const keep = (from, kind, item, label) => { out = out.slice(0, from) + S.piece(keyOf(kind, item, label), out.slice(from), idOf(kind, item)); };
     // Sheets and boxes first: a highlight drawn before them would disappear
     // under their white fill.
     for (const s of scene.sheets || []) out += S.piece(keyOf('sheet', s, s.title), S.sheet(s.x, s.y, s.w, s.h, s.title || '', s.lines ?? 4, tone(s.tone).stroke));
@@ -1405,7 +1438,7 @@
         stroke: b.stroke || t.stroke, fill: b.fill || t.fill, color: b.color || t.color,
         size: b.size || 26, sub: b.sub || '', rx: b.rx ?? 10,
         subDy: b.subDy ?? 30, subSize: b.subSize ?? 22,
-      }) + '</g>');
+      }) + '</g>', idOf('box', b));
     }
     for (const n of scene.nodes || []) {
       const t = tone(n.tone);
@@ -1429,7 +1462,7 @@
       const onBox = (scene.boxes || []).find((b) => ic.x >= b.x && ic.x <= b.x + b.w && ic.y >= b.y && ic.y <= b.y + b.h);
       const ink = S.icon(ic.kind || 'doc', cx, cy, size, { stroke: t.stroke, fill: ic.fill || t.fill });
       out += S.piece(keyOf('icon', ic, ic.kind || 'doc'), `<g data-icon="${S.esc(ic.kind || 'doc')}"${ic.id ? ` data-icon-id="${S.esc(ic.id)}"` : ''}`
-        + (onBox ? ` data-icon-box="${onBox.x},${onBox.y},${onBox.w},${onBox.h}"><g data-icon-ink="1">${ink}</g>` : `>${ink}`) + '</g>');
+        + (onBox ? ` data-icon-box="${onBox.x},${onBox.y},${onBox.w},${onBox.h}"><g data-icon-ink="1">${ink}</g>` : `>${ink}`) + '</g>', idOf('icon', ic));
     }
     // Un número pegado al dibujo: dice «mira acá» sin repetir el nombre de la pieza.
     const atoms = sceneAtoms(scene);
@@ -1599,7 +1632,7 @@
     }
     for (const b of scene.badges || []) out += S.piece(keyOf('badge', b, String(b.n)), S.badge(b.x, b.y, b.n));
     for (const d of scene.dashed || []) out += S.piece(keyOf('dashed', d, d.label), S.dashed(d.x, d.y, d.w, d.h, d.label || '', tone(d.tone).stroke, d.fill));
-    for (const l of scene.labels || []) out += S.piece(keyOf('label', l, l.text), `<g data-label="1"${l.id ? ` data-label-id="${S.esc(l.id)}"` : ''}>` + S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 }) + '</g>');
+    for (const l of scene.labels || []) out += S.piece(keyOf('label', l, l.text), `<g data-label="1"${l.id ? ` data-label-id="${S.esc(l.id)}"` : ''}>` + S.lbl(l.x, l.y, l.text, { anchor: l.anchor || 'middle', color: tone(l.tone).color, size: l.size || 24 }) + '</g>', idOf('label', l));
     // Actores, rótulos con punta, movimientos y marcas: la escena de un paso de
     // `lk-story`. Se dibujan como marcadores vacíos y `placeStory` los rellena con
     // las cajas que el navegador midió, nunca con coordenadas escritas a mano.
@@ -1646,7 +1679,7 @@
       const lock = state === 'locked'
         ? `<g data-lock="1"><circle cx="${S.f(frame.x + frame.w)}" cy="${S.f(frame.y)}" r="${S.f(Math.max(9, frame.w * 0.2))}" fill="#ffffff" stroke="${ink}" stroke-width="1.5"/>${S.icon('lock', frame.x + frame.w, frame.y, Math.max(14, frame.w * 0.3), { stroke: ink, fill: '#ffffff' })}</g>`
         : '';
-      out += S.piece(keyOf('actor', a, a.label), `<g data-actor="${S.esc(a.id)}" data-state="${state}"${grey ? ' data-faded="1"' : ''}><g data-figure="1">${body}</g>${dashed}${strike}${lock}</g>`);
+      out += S.piece(keyOf('actor', a, a.label), `<g data-actor="${S.esc(a.id)}" data-state="${state}"${grey ? ' data-faded="1"' : ''}><g data-figure="1">${body}</g>${dashed}${strike}${lock}</g>`, idOf('actor', a));
       if (state === 'invalid') out += S.piece(keyOf('state', a), `<g data-state-mark="${S.esc(a.id)}"></g>`);
       // El nombre del actor va en una ficha con punta, arriba de su caja: el
       // rótulo dice quién es sin escribir una coordenada.
@@ -1730,12 +1763,15 @@
   // es el del dibujo estático, y `data-settled` avisa cuándo. Con movimiento reducido el cambio
   // es de golpe; cualquier cambio nuevo, una tecla o la pantalla completa asientan el que sigue.
   const STEP_MOTION = { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' };
+  // El destello de un cambio de texto o de tono dura 600 ms y se apaga (#299).
+  const FLASH_MOTION = { duration: 600, easing: 'ease-out' };
   const stepRuns = new WeakMap();
   function settleSteps(stage) {
     const run = stepRuns.get(stage);
     if (run) {
       run.anims.forEach((anim) => anim.cancel());
       run.hidden.forEach((node) => { node.style.visibility = ''; });
+      run.flash.forEach((node) => node.remove());
       run.before.style.display = 'none';
       stepRuns.delete(stage);
     }
@@ -1758,7 +1794,9 @@
     const svg = stage.querySelector('svg');
     // Seis píxeles de pantalla son unidades del lienzo a la escala que tiene ahora la figura.
     const rise = 6 / ((svg.getBoundingClientRect().width / svg.viewBox.baseVal.width) || 1);
-    const run = { before, anims: [], hidden: [] };
+    const run = { before, anims: [], hidden: [], flash: [] };
+    // El anillo de foco de un paso que llega aparece cuando la pieza ya está en su sitio.
+    for (const ring of after.querySelectorAll(':scope > [data-focus-ring]')) { ring.style.visibility = 'hidden'; run.hidden.push(ring); }
     for (const [key, now] of arriving) {
       const was = leaving.get(key);
       if (was) carryPiece(run, was, now);
@@ -1782,14 +1820,33 @@
     if ((a.width || a.height) && (b.width || b.height) && (a.x !== b.x || a.y !== b.y)) {
       run.anims.push(now.animate([{ transform: `translate(${a.x - b.x}px, ${a.y - b.y}px)` }, { transform: 'translate(0px, 0px)' }], STEP_MOTION));
     }
+    // Un texto o un tono que cambian destacan una vez, sin que el autor lo escriba (#299).
+    const toned = tonePiece(run, was, now);
+    if ((toned || was.textContent !== now.textContent) && (b.width || b.height)) flash(run, now, b);
+  }
+  // Cada forma de la pieza pasa de su tono al nuevo; devuelve si alguna cambió de tono.
+  function tonePiece(run, was, now) {
     const old = [...was.querySelectorAll('[fill],[stroke]')];
+    let toned = false;
     [...now.querySelectorAll('[fill],[stroke]')].forEach((shape, i) => {
       if (!old[i] || old[i].tagName !== shape.tagName) return;
       for (const prop of ['fill', 'stroke']) {
         const start = getComputedStyle(old[i])[prop], end = getComputedStyle(shape)[prop];
-        if (start !== end) run.anims.push(shape.animate([{ [prop]: start }, { [prop]: end }], STEP_MOTION));
+        if (start === end) continue;
+        toned = true;
+        run.anims.push(shape.animate([{ [prop]: start }, { [prop]: end }], STEP_MOTION));
       }
     });
+    return toned;
+  }
+  // El destello es un contorno fuera de la pieza que se apaga en 600 ms. Va dentro de la pieza, así
+  // que se mueve con ella, y se quita al asentarse.
+  function flash(run, now, b) {
+    const pad = 6;
+    const node = svgPart('rect', { 'data-flash': '1', x: b.x - pad, y: b.y - pad, width: b.width + 2 * pad, height: b.height + 2 * pad, rx: 10, fill: 'none', stroke: window.LKScene.C.amber, 'stroke-width': 3 });
+    now.append(node);
+    run.flash.push(node);
+    run.anims.push(node.animate([{ opacity: 1 }, { opacity: 0 }], FLASH_MOTION));
   }
   define('lk-walkthrough', function () {
     const S = window.LKScene;
@@ -1806,7 +1863,7 @@
     stage.style.setProperty('--lk-vb', `${stageWidth}px`);
     const stageTop = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[1]) || 0;
     const stageHeight = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[3]) || 640;
-    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth, stageTop, stageHeight))).join(''), spec.viewBox || '0 0 1200 640');
+    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth, stageTop, stageHeight), s.focus)).join(''), spec.viewBox || '0 0 1200 640');
     stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
     const captionTitle = el('strong');
     const captionText = el('p');
@@ -1855,6 +1912,7 @@
     fitSceneText(stage);
     placeCallouts(stage);
     placeStory(stage);
+    placeFocus(stage);
     watchCallouts(stage, () => fitSceneText(stage));
     steps.forEach((_, i) => {
       const dot = button(String(i + 1), () => go(i));
@@ -3131,7 +3189,7 @@
     const pieces = steps.map((s) => stagePiece(s, spec));
     const hasScene = pieces.some((p) => !p);
     if (hasScene) {
-      const markup = S.svg(steps.map((s, i) => pieces[i] ? '' : S.step(i + 1, walkScene(sceneOf(s), stageWidth, stageTop, stageHeight))).join(''), viewBox);
+      const markup = S.svg(steps.map((s, i) => pieces[i] ? '' : S.step(i + 1, walkScene(sceneOf(s), stageWidth, stageTop, stageHeight), s.focus)).join(''), viewBox);
       stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
     }
     const panels = pieces.map((p, i) => {
@@ -3160,7 +3218,8 @@
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
     this.append(head, stage, narrator, player);
     function tokens(atoms, focus) {
-      const on = new Set((focus || []).map(String));
+      // Un `focus` de texto nombra una pieza del escenario (#299): no es una lista de símbolos.
+      const on = new Set((Array.isArray(focus) ? focus : []).map(String));
       const wrap = el('div', undefined, { class: 'lk-story-formula' });
       atoms.forEach((a, i) => {
         const atom = typeof a === 'string' ? { t: a } : a;
@@ -3254,6 +3313,7 @@
     if (hasScene) {
       fitSceneText(stage, { minPx: 11 });
       placeStory(stage);
+      placeFocus(stage);
       watchCallouts(stage, () => fitSceneText(stage, { minPx: 11 }));
     }
     watchPiece(stage);

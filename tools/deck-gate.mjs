@@ -125,6 +125,8 @@ for (const [index, target] of targets.entries()) {
         await deck.locator('.lk-wt-count').filter({ hasText: `Paso ${s + 1} de` }).waitFor();
       }
       const found = await deck.evaluate(node => {
+        // El anillo de foco es un trazo del kit, no del autor: la medida se toma sin él.
+        node.querySelectorAll('[data-focus-ring]').forEach(ring => ring.remove());
         // Solo el lienzo de escena: las piezas de un paso (tarjetas, memoria, tablas,
         // conjuntos) llevan SVG propios y las miden `scene-gate` y `scene-lint`.
         const stage = node.querySelector('.lk-wt-stage > svg') || document.createElement('div');

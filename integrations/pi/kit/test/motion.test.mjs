@@ -123,8 +123,10 @@ test('lo que sigue se desliza desde donde estaba, en 320 ms como mucho, y cambia
       window.probe.dot(2).click();
       const kept = window.probe.piece(2, 'box:db');
       return {
-        start: window.probe.rect(kept),
-        running: document.getAnimations().filter((a) => window.probe.stage().contains(a.effect?.target)).map((a) => a.effect.getTiming()),
+        // El contenedor de la pieza crece con el destello (#299): se mide la caja dibujada.
+        start: window.probe.rect(kept.querySelector('[data-box]')),
+        // El destello de un cambio (#299) dura 600 ms y se mide aparte: aquí solo el deslizamiento.
+        running: document.getAnimations().filter((a) => window.probe.stage().contains(a.effect?.target) && !a.effect.target.hasAttribute('data-flash')).map((a) => a.effect.getTiming()),
         tone: [...kept.querySelectorAll('rect')].some((r) => r.getAnimations().some((a) => a.effect.getKeyframes().some((k) => 'stroke' in k))),
       };
     });

@@ -170,6 +170,8 @@ try {
       await page.waitForSelector('lk-scene svg, lk-story svg, .lk-p', { timeout: 15000 });
       await page.waitForTimeout(400);
       const report = await page.evaluate(({ minPx, minReadPx, share, stageMin, EDGE, BAND }) => [...document.querySelectorAll('lk-scene, lk-story')].map((host) => {
+        // El anillo de foco es un trazo del kit, no del autor: la medida se toma sin él.
+        host.querySelectorAll('[data-focus-ring]').forEach((ring) => ring.remove());
         // El lienzo de escena de un recorrido es el SVG que cuelga del escenario: las
         // piezas (tarjetas, memoria, tablas, conjuntos) llevan SVG propios y las mide
         // `measurePieces`.

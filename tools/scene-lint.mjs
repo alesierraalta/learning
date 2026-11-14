@@ -232,6 +232,26 @@ matches.forEach((match, i) => {
   }
 });
 
+// Un `focus` nombra una pieza con id de su propio paso (#299): una caja, un icono, un rótulo, un actor
+// o una prop. Si no nombra ninguna, el anillo no tiene a qué rodear.
+const FOCUSABLE = ['boxes', 'icons', 'labels', 'actors', 'props'];
+const focusMisses = [];
+matches.forEach((match, i) => {
+  const tag = /^<lk-([a-z]+)/.exec(match[0])?.[1];
+  if (tag !== 'walkthrough' && tag !== 'story') return;
+  const payload = /<script type="application\/json">([\s\S]*?)<\/script>/.exec(match[0]);
+  if (!payload) return;
+  let spec;
+  try { spec = JSON.parse(payload[1]); } catch { return; }
+  (Array.isArray(spec?.steps) ? spec.steps : []).forEach((step, n) => {
+    if (typeof step?.focus !== 'string') return;
+    const scene = (tag === 'story' ? step.stage?.scene || step.stage : step.scene) || {};
+    const ids = FOCUSABLE.flatMap((kind) => (Array.isArray(scene[kind]) ? scene[kind] : []).map((piece) => piece?.id))
+      .filter((id) => id != null).map(String);
+    if (ids.includes(step.focus)) return;
+    focusMisses.push({ block: i + 1, title: spec.title || '', kind: 'foco-sin-pieza', text: step.focus, detail: `el paso ${n + 1} enfoca «${step.focus}», y ninguna pieza con ese id está en ese paso: ponle el id a la caja, el icono, el rótulo, el actor o la prop que quieres marcar, o quita el focus` });
+  });
+});
 const dir = mkdtempSync(join(tmpdir(), 'scene-lint-'));
 mkdirSync(join(dir, 'kit'), { recursive: true });
 cpSync(KIT, join(dir, 'kit'), { recursive: true });
@@ -278,6 +298,7 @@ const findings = lookalikes.map(({ block, title, one, two }) => ({
   text: `${one.tag || one.label} / ${two.tag || two.label}`,
   detail: `los dos se dibujan igual (${drawn(one).replace(' · ', ' y tono ')}) y sus fichas no comparten ninguna palabra: dale a cada uno su personaje (database, row, session, lock, user, server, process, file, packet, robot), su tono o su estado`,
 }));
+findings.push(...focusMisses);
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(pathToFileURL(join(dir, 'page.html')).href);
@@ -285,6 +306,8 @@ try {
   await page.waitForTimeout(400);
   const report = await page.evaluate(({ minShaft, maxRatio, cross, loose, maxHead, maxHeadStrokes, iconText }) => {
     const out = [];
+    // El anillo de foco es un trazo del kit, no del autor: la medida se toma sin él.
+    document.querySelectorAll('[data-focus-ring]').forEach((ring) => ring.remove());
     // Un paso oculto mide cero: se mide con todos los pasos puestos.
     const hiddenSteps = [...document.querySelectorAll('[data-step]')];
     const wasShown = hiddenSteps.map((g) => g.style.display);

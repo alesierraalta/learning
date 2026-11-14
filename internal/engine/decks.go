@@ -509,10 +509,21 @@ func walkthroughProgressiveProblems(markup string) (int, []string) {
 type storyDeckStep struct {
 	Title    string            `json:"title"`
 	Narrator string            `json:"narrator"`
-	Focus    []string          `json:"focus"`
+	Focus    json.RawMessage   `json:"focus"`
 	Stage    *storyDeckStage   `json:"stage"`
 	Moves    []json.RawMessage `json:"moves"`
 	Marks    []json.RawMessage `json:"marks"`
+}
+
+// focusTokens returns the formula tokens a step highlights: `focus` as a list. A
+// string names one piece of the stage (#299); it is not a token, so the list is
+// empty and the formula rule counts the step as focusing no symbol.
+func (s storyDeckStep) focusTokens() []string {
+	var tokens []string
+	if json.Unmarshal(s.Focus, &tokens) != nil {
+		return nil
+	}
+	return tokens
 }
 
 // storyDeckStage is what a step puts on the stage: a scene, or a visual piece
@@ -624,7 +635,7 @@ func storyProgressiveProblems(markup string) (int, []string) {
 			if strings.TrimSpace(step.Narrator) == "" {
 				problems = append(problems, where+" has no narrator sentence")
 			}
-			if spec.Kind == "formula" && i > 0 && i < len(spec.Steps)-1 && len(step.Focus) == 0 {
+			if spec.Kind == "formula" && i > 0 && i < len(spec.Steps)-1 && len(step.focusTokens()) == 0 {
 				problems = append(problems, where+" focuses no symbol; each middle step highlights the atom it explains")
 			}
 			if step.Stage == nil {

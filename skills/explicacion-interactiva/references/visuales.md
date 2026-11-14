@@ -110,6 +110,8 @@ Piezas disponibles en `scene.boxes`, `scene.arrows`, `scene.labels`, `scene.badg
   lo que las hace parecer guiones sueltos.
 - `rx: 0` para el estilo de papel. Las esquinas redondeadas son del video.
 - `id` (opcional): identifica la pieza entre pasos. Sin `id`, la clave es su tipo y su rótulo (`box:Cliente`), así que una caja que cambia de rótulo entre dos pasos se toma por otra; con `id` sigue siendo la misma. Al cambiar de paso, la pieza que se queda se desliza desde donde estaba, la que entra sube 6 px con un fundido y la que sale se desvanece, en 320 ms; con movimiento reducido el cambio es de golpe.
+- `focus` (en el paso, no en la escena): el `id` de una pieza de ese mismo paso (caja, icono, rótulo, actor o prop). Un anillo pulsa alrededor de esa pieza hasta que cambia el paso, y un paso enfoca una sola. Si el `id` no nombra ninguna pieza del paso, `scene-lint` lo dice (`foco-sin-pieza`). En una historia, `focus` como lista sigue resaltando símbolos de la fórmula, y como texto rodea una pieza del escenario: un paso hace una cosa u otra. Con movimiento reducido el anillo es un contorno fijo.
+- Una pieza que se queda y cambia de texto, valor o tono respecto al paso anterior destella una vez (600 ms), sin que la escribas. Con movimiento reducido no destella.
 
 El componente ya resuelve lo mecánico: ajusta el tamaño del texto al ancho real de su caja,
 corta la flecha donde van sus palabras y mide antes de pintar. No hace falta calcular a mano
