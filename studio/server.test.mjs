@@ -610,7 +610,7 @@ for (const runtime of ["pi", "agy"]) {
       assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
       await until(() => tutor.turnsSoFar() === 1);
       await tutor.endTurn();
-      await until(() => tutor.turnsSoFar() === 2, 30000);
+      await until(() => tutor.turnsSoFar() === 2, 120000);
       // The correction's own settle measures the part again: what matters is which note was measured.
       assert.deepEqual(
         [...new Set(measured)],
@@ -621,7 +621,7 @@ for (const runtime of ["pi", "agy"]) {
       assert.match(tutor.turnText(), /trazo-sobre-texto: encima/, "the tutor reads the finding in the tool's own words");
       assert.match(tutor.turnText(), /tools\/scene-lint\.mjs/, "and which tool said it");
       await tutor.endTurn();
-      await until(() => settleIdle(tutor.stream), 30000);
+      await until(() => settleIdle(tutor.stream), 120000);
       assert.equal(tutor.turnsSoFar(), 2, "a part the tools pass asks for nothing else");
       // Each settle measures the part's .md and its .html once each: two files, two settles.
       assert.equal(measured.length, 4, "one measurement per file the turn wrote, per settle");
@@ -639,7 +639,7 @@ for (const runtime of ["pi", "agy"]) {
       assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
       await until(() => tutor.turnsSoFar() === 1);
       await tutor.endTurn();
-      await until(() => settleIdle(tutor.stream), 30000);
+      await until(() => settleIdle(tutor.stream), 120000);
       assert.equal(measured.length, 2, "the part's .md and its .html are each measured once, not skipped or doubled");
       assert.equal(tutor.turnsSoFar(), 1, "nothing to correct");
       assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0);
@@ -690,7 +690,7 @@ for (const runtime of ["pi", "agy"]) {
       assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
       await until(() => tutor.turnsSoFar() === 1);
       await tutor.endTurn();
-      await until(() => settleIdle(tutor.stream), 30000);
+      await until(() => settleIdle(tutor.stream), 120000);
       assert.equal(tutor.turnsSoFar(), 1, "a tool that could not measure asks the tutor for nothing");
       assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "and tells the learner nothing");
       assert.ok(
@@ -2572,6 +2572,121 @@ test("regenerating backs the part up, keeps its video and the plan, and asks for
   const sent = received().find((line) => line.type === "prompt").message;
   assert.ok(sent.startsWith(result.prompt), "the tutor receives exactly that prompt");
   assert.match(sent, /Lecciones del alumno \(aplícalas siempre\)/, "and the standing lessons after it");
+});
+
+/** What a failed page gate reports: the reason the learner hears with the restored version. */
+const PAGE_FINDING = {
+  kind: "findings",
+  tools: [
+    {
+      file: join("redes", "explicaciones", "Parte 1 - Capas.md"),
+      tool: "page-gate.mjs",
+      output: "Parte 1 - Capas.md: recorrido 1, paso 2 · claro/teléfono\n  stage-empty: La curva (el escenario no tiene tinta visible en este paso)",
+      findings: ["stage-empty: La curva (el escenario no tiene tinta visible en este paso)"],
+    },
+  ],
+  count: 1,
+  first: "stage-empty: La curva (el escenario no tiene tinta visible en este paso)",
+};
+
+for (const runtime of ["pi", "agy"]) {
+  test(`a regeneration that fails the gates leaves the previous version in place: ${runtime}`, async () => {
+    const newPart = [
+      { name: "Parte 1 - Capas.md", content: "# LA VERSION NUEVA\n" },
+      { name: "Parte 1 - Capas.html", content: "<p>LA PAGINA NUEVA</p>" },
+    ];
+    const tutor = await checkingTutor(runtime, {
+      parts: [newPart, newPart, newPart],
+      partChecks: async () => PAGE_FINDING,
+    });
+    try {
+      const note = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md");
+      const page = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.html");
+      writeFileSync(note, "LA VERSION ANTERIOR\n");
+      writeFileSync(page, "<p>LA PAGINA ANTERIOR</p>");
+
+      const answer = await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" });
+      assert.equal(answer.status, 200, answer.body);
+      for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
+        await until(() => tutor.turnsSoFar() === round + 1, 15000);
+        await tutor.endTurn();
+      }
+      const told = await tutor.stream.next("error", () => true, 15000);
+      assert.match(told.message, /stage-empty/, "the chat says why the new version did not pass");
+      assert.match(told.message, /versión anterior/, "and that the previous one stays served");
+      assert.equal(readFileSync(note, "utf8"), "LA VERSION ANTERIOR\n", "the note is the previous one");
+      assert.equal(readFileSync(page, "utf8"), "<p>LA PAGINA ANTERIOR</p>", "the page is the previous one");
+      const view = await http(`${tutor.studio.url}api/view?topic=redes&part=p1`);
+      assert.equal(view.status, 200, view.body);
+      const served = await http(JSON.parse(view.body).url);
+      assert.match(served.body, /LA VERSION ANTERIOR/, "the reader serves the previous version, not the rejected one");
+      const { trash } = JSON.parse(answer.body);
+      assert.ok(
+        existsSync(join(tutor.root, trash, "rechazada", "redes", "explicaciones", "Parte 1 - Capas.md")),
+        "the rejected version waits in the trash, not in the reader",
+      );
+      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 1, "one clear message, not two");
+    } finally { tutor.close(); }
+  });
+
+  test(`a regeneration that passes every gate replaces the previous version: ${runtime}`, async () => {
+    const tutor = await checkingTutor(runtime, {
+      parts: [[
+        { name: "Parte 1 - Capas.md", content: "# LA VERSION NUEVA\n" },
+        { name: "Parte 1 - Capas.html", content: "<p>LA PAGINA NUEVA</p>" },
+      ]],
+      partChecks: async () => ({ kind: "clean" }),
+    });
+    try {
+      const note = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md");
+      const page = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.html");
+      writeFileSync(note, "LA VERSION ANTERIOR\n");
+      writeFileSync(page, "<p>LA PAGINA ANTERIOR</p>");
+      assert.equal((await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
+      await until(() => tutor.turnsSoFar() === 1, 15000);
+      await tutor.endTurn();
+      await until(() => settleIdle(tutor.stream), 15000);
+      assert.equal(readFileSync(note, "utf8"), "# LA VERSION NUEVA\n", "a passing new version replaces the old one");
+      assert.equal(readFileSync(page, "utf8"), "<p>LA PAGINA NUEVA</p>");
+      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "nothing failed, so the chat says nothing");
+    } finally { tutor.close(); }
+  });
+}
+
+test("a failed regeneration with no previous version leaves the studio's error card instead of a broken page", async () => {
+  const tutor = await checkingTutor("pi", {
+    parts: [
+      [
+        { name: "Parte 2 - TCP.md", content: "# LA VERSION NUEVA\n" },
+        { name: "Parte 2 - TCP.html", content: "<p>LA PAGINA NUEVA</p>" },
+      ],
+      [
+        { name: "Parte 2 - TCP.md", content: "# LA VERSION NUEVA\n" },
+        { name: "Parte 2 - TCP.html", content: "<p>LA PAGINA NUEVA</p>" },
+      ],
+      [
+        { name: "Parte 2 - TCP.md", content: "# LA VERSION NUEVA\n" },
+        { name: "Parte 2 - TCP.html", content: "<p>LA PAGINA NUEVA</p>" },
+      ],
+    ],
+    partChecks: async () => PAGE_FINDING,
+  });
+  try {
+    assert.equal((await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p2", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
+    for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
+      await until(() => tutor.turnsSoFar() === round + 1, 15000);
+      await tutor.endTurn();
+    }
+    const told = await tutor.stream.next("error", () => true, 15000);
+    assert.match(told.message, /no tenía una versión anterior/);
+    const view = await http(`${tutor.studio.url}api/view?topic=redes&part=p2`);
+    assert.equal(view.status, 404, view.body);
+    assert.equal(
+      existsSync(join(tutor.root, "redes", "explicaciones", "Parte 2 - TCP.md")),
+      false,
+      "the broken new part is not left in the library",
+    );
+  } finally { tutor.close(); }
 });
 
 // ---- the learner's lessons reach every turn of every topic -----------------

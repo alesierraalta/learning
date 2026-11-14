@@ -12,7 +12,7 @@
  */
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -232,6 +232,18 @@ type Turn = {
   /** A new deep-mode request whose topic does not exist yet: the first topic folder it writes. */
   creation?: boolean;
   /**
+   * A regeneration's previous version, waiting in `.papelera`: the new one replaces it only after
+   * passing every gate. The same turn carries it through its corrections, so every exit knows what
+   * to put back.
+   */
+  regeneration?: {
+    trash: string;
+    moved: string[];
+    part?: string;
+    passed?: boolean;
+    reason?: string;
+  };
+  /**
    * The part files this turn wrote or edited, in order, each file once (a part's note and its page apart): what the
    * studio measures itself before the turn is offered as done. A turn that wrote no part owes no measurement.
    */
@@ -245,6 +257,52 @@ type Turn = {
 
 /** The learner reads this when the studio refuses a second turn: one turn at a time, studio-wide. */
 const TURN_ACTIVE = "El tutor está trabajando; espera a que termine.";
+
+/** A path that really lives inside the vault: no absolute path, no `..`, never the root itself. */
+const insideVault = (root: string, file: string): boolean => {
+  const rel = relative(root, file);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+};
+
+/**
+ * Moves what a failed regeneration wrote out of the library without deleting it: it waits in the
+ * trash beside the previous version, so a hand can still read what the tutor produced.
+ */
+function quarantineRegeneration(root: string, files: string[], folderRel: string): number {
+  const moved: string[] = [];
+  for (const file of files) {
+    if (!existsSync(file) || !insideVault(root, file)) continue;
+    const rel = relative(root, file);
+    const target = join(root, folderRel, rel);
+    mkdirSync(dirname(target), { recursive: true });
+    renameSync(file, target);
+    moved.push(rel);
+  }
+  if (moved.length) {
+    writeFileSync(
+      join(root, folderRel, "papelera.json"),
+      `${JSON.stringify({ kind: "regeneracion-fallida", at: new Date().toISOString(), moved }, null, 2)}\n`,
+    );
+  }
+  return moved.length;
+}
+
+/** Puts the previous version back from the trash. Returns false when there was none to restore. */
+function restoreRegeneration(root: string, regeneration: NonNullable<Turn["regeneration"]>): boolean {
+  if (!regeneration.trash) return false;
+  let restored = false;
+  for (const rel of regeneration.moved) {
+    if (!rel || rel.startsWith("..") || isAbsolute(rel)) continue;
+    const source = join(root, regeneration.trash, rel);
+    if (!existsSync(source)) continue;
+    const target = join(root, rel);
+    if (!insideVault(root, target)) continue;
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(source, target);
+    restored = true;
+  }
+  return restored;
+}
 
 /** A note the studio can open: a part, diagnosis, or quick note. */
 export type Note = { topic: string; index: number } | { topic: string; diagnosis: true } | { quick: string };
@@ -994,6 +1052,35 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     turn = null;
     interrupted = null;
     clearBusy(busyMarker);
+    // A regeneration only replaces the previous version once it has passed. Every exit goes through
+    // here, so an aborted, restarted or spent correction puts the reader back on the old part.
+    if (ended.regeneration && !ended.regeneration.passed) {
+      const regeneration = ended.regeneration;
+      const label = `${ended.topic ?? "tema"}-${regeneration.part ?? "parte"}`.replace(/[^\w.-]/g, "-");
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace(/Z$/, "");
+      const folder = regeneration.trash || join(".papelera", `${stamp}__regeneracion-fallida__${label}`);
+      const written = ended.parts.filter(
+        (file) => insideVault(root, file) && (ended.topic === null || relative(root, file).split(/[\\/]/)[0] === ended.topic),
+      );
+      try {
+        quarantineRegeneration(root, written, join(folder, "rechazada"));
+      } catch (error) {
+        process.stderr.write(`estudio: no se pudo apartar la versión rechazada · ${(error as Error).message}\n`);
+      }
+      let restored = false;
+      try {
+        restored = restoreRegeneration(root, regeneration);
+      } catch (error) {
+        process.stderr.write(`estudio: no se pudo restaurar la versión anterior · ${(error as Error).message}\n`);
+      }
+      const why = regeneration.reason?.trim();
+      const reason = why ? `: ${why}` : ".";
+      emit("error", {
+        message: restored
+          ? `La versión nueva no pasó${reason} Sigues leyendo la versión anterior.`
+          : `La versión nueva no pasó${reason} Esta parte no tenía una versión anterior: no hay nada que mostrar.`,
+      });
+    }
     // A turn that wrote a part generated a page: its timings are on disk before the page hears
     // the turn is over, so a reader can compare this generation with the next one.
     if (ended.parts.length > 0) savePageTiming(ended.timing, ended.parts);
@@ -1072,7 +1159,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * page, a regeneration. Every one names the topic it teaches, or says in code why it teaches none.
    * The turn is held until its settle is decided; only an accepted learner turn restores the budget.
    */
-  const startTurn = async (text: string, spec: { topic: string | null; correction?: boolean; creation?: boolean }) => {
+  const startTurn = async (text: string, spec: { topic: string | null; correction?: boolean; creation?: boolean; regeneration?: Turn["regeneration"] }) => {
     requireNoTurn();
     // A drifted skill or AGENTS.md link means nobody reviewed what the tutor would read.
     refuseDriftedContext();
@@ -1084,6 +1171,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       topic: spec.topic,
       correction: spec.correction === true,
       creation: spec.creation === true,
+      regeneration: spec.regeneration,
       parts: [],
       // The generation's clocks start when the studio accepts the turn, not when the tutor starts.
       timing: createPageTiming({ runtime: tutor.agente, model: tutor.modelo, topic: spec.topic }),
@@ -1125,6 +1213,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const checked = await (options.partChecks ?? runPartChecks)(files);
     if (checked.kind === "crashed") {
       for (const failure of checked.failures) process.stderr.write(`estudio: comprobación fallida · ${failure}\n`);
+      // A gate that could not measure did not pass: a regeneration keeps the previous version.
+      if (settled.regeneration) settled.regeneration.reason ??= "una comprobación no pudo medir la parte";
       return null;
     }
     return checked.kind === "findings" ? checked : null;
@@ -1156,6 +1246,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         return;
       }
       const decision = settleGate.decide(report);
+      if (decision.action === "stop" && settled.regeneration) settled.regeneration.reason = decision.text;
       if (decision.action === "ask") {
         // The correction is the same turn, one more prompt: it is not a new turn start.
         try {
@@ -1181,14 +1272,22 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
               await deliver(verdict.text, settled, "part-correction");
               corrected = true;
             } catch {
+              if (settled.regeneration) settled.regeneration.reason = "el tutor no pudo retomar la corrección";
               correctionRefused(topic);
             }
           } else if (verdict.action === "stop") {
-            emit("error", { message: verdict.text });
+            if (settled.regeneration) settled.regeneration.reason = verdict.text;
+            else emit("error", { message: verdict.text });
           }
+        } else if (settled.regeneration && !settled.regeneration.passed && !settled.regeneration.reason) {
+          // The engine cleared the turn and the tools found nothing: the new version is what the
+          // learner can read from now on. A regeneration that wrote no part never replaces one.
+          if (settled.parts.some((file) => existsSync(file))) settled.regeneration.passed = true;
+          else settled.regeneration.reason ??= "el tutor no escribió la parte";
         }
       }
     } catch (error) {
+      if (settled.regeneration) settled.regeneration.reason ??= "el turno no pudo comprobarse entero";
       correctionRefused(topic ?? "el tema");
       process.stderr.write(`estudio: el motor no pudo decidir el turno · ${(error as Error).message}\n`);
     } finally {
@@ -1510,7 +1609,11 @@ ${scripts}
         const saved = recordSugerencia(root, { ...input, origen: "regenerar" });
         const backup = backupPartForRegeneration(root, { topic: tema, part: parte }, new Date(), planned.trash || undefined);
         // A part lives in a deep topic: a regeneration the engine does not clear is not an end.
-        await startTurn(text, { topic: enrolled(root, tema) ? tema : null });
+        // The backup travels with the turn: the previous version goes back unless the new one passes.
+        await startTurn(text, {
+          topic: enrolled(root, tema) ? tema : null,
+          regeneration: { trash: backup.trash, moved: backup.moved, part: parte },
+        });
         return sendJson(res, 200, { ok: true, prompt: text, trash: backup.trash, entrada: saved.entrada });
       }
       case "api/telemetry": {
