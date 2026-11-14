@@ -397,7 +397,16 @@ try {
             const gap = inkOf(step).reduce((min, q) => Math.min(min, Math.hypot(q.x - end.x, q.y - end.y)), Infinity);
             add('flecha-al-aire', '', `extremo(s) fuera de toda pieza (${len.toFixed(0)}u); la punta queda a ${Number.isFinite(gap) ? gap.toFixed(0) : '∞'}u del trazo más cercano`);
           }
-          const buried = rects.some(({ el, b }) => stepOf(el) === step && end.x > b.x + 3 && end.x < b.x + b.width - 3 && end.y > b.y + 3 && end.y < b.y + b.height - 3);
+          // La caja de un actor es su figura, no el marco a trazos ni el candado de su
+          // estado: esas piezas se dibujan por fuera de la figura y una flecha que
+          // llega al borde de la cosa que señala (`#283` la apoya en él) quedaba
+          // enterrada en el marco, no en la caja.
+          const buried = rects.some(({ el, b }) => {
+            if (stepOf(el) !== step) return false;
+            const actor = el.closest('[data-actor]');
+            const box = actor ? (actor.querySelector('[data-figure]') || actor).getBBox() : b;
+            return end.x > box.x + 3 && end.x < box.x + box.width - 3 && end.y > box.y + 3 && end.y < box.y + box.height - 3;
+          });
           if (buried) add('punta-enterrada', '', 'la punta termina dentro de una caja');
           // 3b. la flecha llega a su destino sin atravesar la tinta de otra pieza.
           // El trazo de «el pico» entraba a la campana desde abajo y cortaba el
@@ -714,6 +723,35 @@ try {
           if (ends.some((e) => nearLabel(e.z)) && ends.some((e) => nearLabel(e.a))) {
             add('flecha-quebrada', label.textContent.trim().slice(0, 24), 'la etiqueta corta el trazo: la flecha va entera y las palabras al lado');
           }
+        }
+
+        // 9b. una flecha metida en la franja de las fichas de nombre (#283): el kit
+        // reenruta la flecha ENTERA —trazo, punta y etiqueta— a la primera franja
+        // libre entre sus dos actores; cuando no hay ninguna, sube las fichas y lo
+        // declara (`data-arrow-crowded`). Aquí se cuentan las dos cosas: la flecha
+        // que el lector ve metida en las palabras de una ficha y la escena tan
+        // apretada que hubo que mover las fichas para dejar pasar el trazo. En las
+        // dos, la corrección es separar los actores o mover lo que ocupa la franja,
+        // nunca recortar la flecha.
+        const chipPills = [...svg.querySelectorAll('[data-tag-to] rect')].map((r) => ({ step: stepOf(r), b: r.getBBox() }));
+        for (const group of svg.querySelectorAll('[data-arrow]')) {
+          const step = stepOf(group);
+          const crowded = group.dataset.arrowCrowded === '1';
+          const ink = [];
+          for (const p of group.querySelectorAll('path')) {
+            if (p.closest('marker') || !p.getTotalLength) continue;
+            const len = p.getTotalLength();
+            if (!len) continue;
+            const stride = Math.max(1, len / 200);
+            for (let at = 0; at <= len; at += stride) ink.push(p.getPointAtLength(at));
+          }
+          const inBand = chipPills.filter((c) => c.step === step)
+            .some(({ b }) => ink.some((p) => p.x > b.x - 2 && p.x < b.x + b.width + 2 && p.y > b.y - 2 && p.y < b.y + b.height + 2));
+          if (!crowded && !inBand) continue;
+          const label = group.querySelector('text');
+          add('flecha-en-franja-de-etiquetas', (label ? label.textContent.trim() : '').slice(0, 24) || 'una flecha', crowded
+            ? 'la flecha no tiene franja libre entre sus actores: las fichas subieron para dejarla pasar · separa los actores o mueve la pieza que ocupa la franja'
+            : 'el trazo de la flecha entra en la franja de las fichas de nombre: reenrútala a la franja libre entre sus actores');
         }
       });
       // 14. la cabecera de una historia se lee entera a cualquier ancho (#243): en
