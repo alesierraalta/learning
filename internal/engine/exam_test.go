@@ -152,6 +152,12 @@ func TestExamRulesRequireValidThresholds(t *testing.T) {
 		{"positive minimum", func(doc map[string]any) {
 			doc["thresholds"].(map[string]any)["exam"].(map[string]any)["minPartChars"] = float64(0)
 		}, "exam minPartChars must be positive"},
+		{"positive practice minimum", func(doc map[string]any) {
+			doc["thresholds"].(map[string]any)["exam"].(map[string]any)["minPracticePerPart"] = float64(0)
+		}, "exam minPracticePerPart must be positive"},
+		{"nonnegative practice minimum", func(doc map[string]any) {
+			doc["thresholds"].(map[string]any)["exam"].(map[string]any)["minPracticePerPart"] = float64(-1)
+		}, "exam minPracticePerPart must not be negative"},
 		{"nonempty formats", func(doc map[string]any) {
 			doc["thresholds"].(map[string]any)["exam"].(map[string]any)["formats"] = []any{}
 		}, "exam formats must not be empty"},
@@ -543,5 +549,150 @@ func TestExamMockSkipsForRunsWithoutExam(t *testing.T) {
 	rep := f.advanceOK(t, "final_quiz")
 	if check, ok := hasCheck(rep, "exam-mock"); !ok || check.Status != "SKIP" {
 		t.Fatalf("final exam-mock = %+v, want SKIP", check)
+	}
+}
+
+func examPracticeCheckForTest(t *testing.T, f *fixture, stage string, exam *Exam) (Check, bool) {
+	t.Helper()
+	r, err := rules.Load(productionRulesPath)
+	if err != nil {
+		t.Fatalf("load production rules: %v", err)
+	}
+	f.writePlan(t, partCfg{id: "p1", title: "Parte"})
+	st := &State{Scope: scopePareto, Exam: exam}
+	if exam == nil {
+		st.Scope = scopeComplete
+	}
+	result := evalStage(r, st, f.ws, stage, "p1")
+	return hasCheck(Report{Checks: result.checks}, "exam-practice")
+}
+
+func TestExamPracticeRunsAtEveryPartStage(t *testing.T) {
+	r, err := rules.Load(productionRulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range r.PartStages {
+		t.Run(stage, func(t *testing.T) {
+			f := newFixture(t)
+			f.writeJSON(t, "practica/p1.json", map[string]any{"exercises": []any{
+				map[string]any{"id": "app-1", "enunciado": "Construye una aplicación.", "entregable": "Aplicación ejecutable.", "solucion": "Implementa la entrada y salida."},
+				map[string]any{"id": "app-2", "enunciado": "Valida otra entrada.", "entregable": "Prueba automatizada.", "solucion": "Comprueba los casos límite."},
+			}})
+			check, ok := examPracticeCheckForTest(t, f, stage, &Exam{Format: "practical"})
+			if !ok || check.Status != "PASS" {
+				t.Fatalf("%s exam-practice = %+v, present=%t; want PASS", stage, check, ok)
+			}
+		})
+	}
+}
+
+func TestExamPracticeCountsCodeExercises(t *testing.T) {
+	f := newFixture(t)
+	f.writeJSON(t, "practica/p1.json", map[string]any{"exercises": []any{
+		map[string]any{"id": "app-1", "enunciado": "Construye una aplicación.", "entregable": "Aplicación ejecutable.", "solucion": "Implementa la entrada y salida."},
+	}})
+	f.writeJSON(t, "codigo/app-check/ejercicio.json", map[string]any{
+		"parte": "p1", "enunciado": "Implementa la validación de entrada.",
+	})
+	f.writeJSON(t, "codigo/other-part/ejercicio.json", map[string]any{
+		"parte": "p2", "enunciado": "Este ejercicio pertenece a otra parte.",
+	})
+	check, ok := examPracticeCheckForTest(t, f, "explanation", &Exam{Format: "practical"})
+	if !ok || check.Status != "PASS" {
+		t.Fatalf("exam-practice = %+v, present=%t; want PASS counting the matching code exercise", check, ok)
+	}
+}
+
+func TestExamPracticeRejectsInsufficientOrInvalidSources(t *testing.T) {
+	valid := `{"id":"app-1","enunciado":"Construye una aplicación.","entregable":"Aplicación ejecutable.","solucion":"Implementa la entrada y salida."}`
+	cases := []struct {
+		name string
+		file string
+		want string
+	}{
+		{"missing sources", "", "part p1 needs at least 2 practical exercises: practica/p1.json is missing and no matching codigo/<id>/ejercicio.json was found"},
+		{"too few exercises", `{"exercises":[` + valid + `]}`, "part p1 has 1 practical exercise in practica/p1.json and 0 matching codigo/<id>/ejercicio.json files; need at least 2"},
+		{"empty solution", `{"exercises":[{"id":"app-1","enunciado":"Construye una aplicación.","entregable":"Aplicación ejecutable.","solucion":"  "},{"id":"app-2","enunciado":"Valida otra entrada.","entregable":"Prueba automatizada.","solucion":"Comprueba los casos límite."}]}`, `part p1: practica/p1.json exercise "app-1" has an empty solucion`},
+		{"empty statement", `{"exercises":[{"id":"app-1","enunciado":"  ","entregable":"Aplicación ejecutable.","solucion":"Implementa la entrada y salida."},{"id":"app-2","enunciado":"Valida otra entrada.","entregable":"Prueba automatizada.","solucion":"Comprueba los casos límite."}]}`, `part p1: practica/p1.json exercise "app-1" has an empty enunciado`},
+		{"empty deliverable", `{"exercises":[{"id":"app-1","enunciado":"Construye una aplicación.","entregable":"  ","solucion":"Implementa la entrada y salida."},{"id":"app-2","enunciado":"Valida otra entrada.","entregable":"Prueba automatizada.","solucion":"Comprueba los casos límite."}]}`, `part p1: practica/p1.json exercise "app-1" has an empty entregable`},
+		{"duplicate id", `{"exercises":[` + valid + `,` + valid + `]}`, `part p1: practica/p1.json repeats exercise id "app-1"`},
+		{"unsafe id", `{"exercises":[{"id":"../outside","enunciado":"Construye una aplicación.","entregable":"Aplicación ejecutable.","solucion":"Implementa la entrada y salida."},{"id":"app-2","enunciado":"Valida otra entrada.","entregable":"Prueba automatizada.","solucion":"Comprueba los casos límite."}]}`, `part p1: practica/p1.json exercise 1 id "../outside" is not a safe ID`},
+		{"malformed JSON", `{"exercises":[`, "part p1: practica/p1.json is not valid JSON; repair the exercise JSON"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			if tc.file != "" {
+				f.write(t, "practica/p1.json", tc.file)
+			}
+			check, ok := examPracticeCheckForTest(t, f, "explanation", &Exam{Format: "practical"})
+			if !ok || check.Status != "FAIL" || check.Reason != tc.want {
+				t.Fatalf("exam-practice = %+v, present=%t; want FAIL with exact reason %q", check, ok, tc.want)
+			}
+		})
+	}
+}
+
+func TestExamPracticeOnlyCountsCodeExercisesForTheCurrentPart(t *testing.T) {
+	cases := []struct {
+		name      string
+		parte     string
+		enunciado string
+		want      string
+	}{
+		{"other part", "p2", "Este ejercicio pertenece a otra parte.", "part p1 needs at least 2 practical exercises: practica/p1.json is missing and no matching codigo/<id>/ejercicio.json was found"},
+		{"empty statement", "p1", "  ", "part p1 has no file practica/p1.json and 0 matching codigo/<id>/ejercicio.json files; codigo/app/ejercicio.json has an empty enunciado; need at least 2"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.writeJSON(t, "codigo/app/ejercicio.json", map[string]any{
+				"parte": tc.parte, "enunciado": tc.enunciado,
+			})
+			check, ok := examPracticeCheckForTest(t, f, "explanation", &Exam{Format: "practical"})
+			if !ok || check.Status != "FAIL" || check.Reason != tc.want {
+				t.Fatalf("exam-practice = %+v, present=%t; want FAIL with exact reason %q", check, ok, tc.want)
+			}
+		})
+	}
+}
+
+func TestExamPracticeSkipsOutsidePracticalExamRuns(t *testing.T) {
+	cases := []struct {
+		name string
+		exam *Exam
+		want string
+	}{
+		{"non-exam", nil, "run has no declared exam format"},
+		{"oral", &Exam{Format: "oral"}, `exam format "oral" does not require practical part exercises`},
+		{"written", &Exam{Format: "written"}, `exam format "written" does not require practical part exercises`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			check, ok := examPracticeCheckForTest(t, f, "explanation", tc.exam)
+			if !ok || check.Status != "SKIP" || check.Reason != tc.want {
+				t.Fatalf("exam-practice = %+v, present=%t; want SKIP with exact reason %q", check, ok, tc.want)
+			}
+			if tc.exam == nil {
+				r, err := rules.Load(productionRulesPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var decl rules.CheckDecl
+				for _, candidate := range r.Checks["explanation"] {
+					if candidate.ID == "exam-practice" {
+						decl = candidate
+						break
+					}
+				}
+				r.Checks = map[string][]rules.CheckDecl{"explanation": {decl}}
+				r.Conditions = nil
+				if _, err := buildReceipts(r, f.ws, "explanation", "p1"); err != nil {
+					t.Fatalf("non-exam stage receipt required the skipped practical artifact: %v", err)
+				}
+			}
+		})
 	}
 }

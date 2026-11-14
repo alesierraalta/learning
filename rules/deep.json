@@ -175,7 +175,8 @@
     },
     "exam": {
       "formats": ["oral", "written", "practical"],
-      "minPartChars": 24
+      "minPartChars": 24,
+      "minPracticePerPart": 2
     }
   },
   "checks": {
@@ -309,6 +310,12 @@
         "id": "demo-part",
         "kind": "demo_part",
         "path": "explicaciones/Parte {index} - {slug}.md"
+      },
+      {
+        "id": "exam-practice",
+        "kind": "exam_practice",
+        "path": "practica/{part}.json",
+        "receipt": false
       }
     ],
     "own_words": [
@@ -316,6 +323,12 @@
         "id": "own-words-area",
         "kind": "mis_palabras_area",
         "path": "mis-palabras.md"
+      },
+      {
+        "id": "exam-practice",
+        "kind": "exam_practice",
+        "path": "practica/{part}.json",
+        "receipt": false
       }
     ],
     "quiz": [
@@ -333,6 +346,12 @@
         "kind": "quiz_answers",
         "questions": "mini-quiz/{part}.json",
         "answers": "mini-quiz/{part}.answers.json"
+      },
+      {
+        "id": "exam-practice",
+        "kind": "exam_practice",
+        "path": "practica/{part}.json",
+        "receipt": false
       }
     ],
     "feedback": [
@@ -356,12 +375,24 @@
         "path": "feedback/{part}.json",
         "questions": "mini-quiz/{part}.json",
         "answers": "mini-quiz/{part}.answers.json"
+      },
+      {
+        "id": "exam-practice",
+        "kind": "exam_practice",
+        "path": "practica/{part}.json",
+        "receipt": false
       }
     ],
     "adaptation": [
       {
         "id": "feedback-condition",
         "kind": "feedback_condition"
+      },
+      {
+        "id": "exam-practice",
+        "kind": "exam_practice",
+        "path": "practica/{part}.json",
+        "receipt": false
       }
     ],
     "exercises": [
