@@ -34,9 +34,81 @@ func (s deckScene) figures() int {
 	return len(s.Boxes) + len(s.Grids) + len(s.Nodes) + len(s.Sheets) + len(s.Gears) + len(s.Dashed)
 }
 
+// deckStep is one step of a walkthrough or of a story. A walkthrough writes its
+// drawing, and the arrows of the drawing, under `scene`; a story writes them
+// under `stage.scene` (or names the piece its stage draws) and declares its
+// arrows as `moves`. Both are read: the reader draws both (#291).
 type deckStep struct {
-	Title string    `json:"title"`
-	Scene deckScene `json:"scene"`
+	Title string            `json:"title"`
+	Scene deckScene         `json:"scene"`
+	Stage *storyDeckStage   `json:"stage"`
+	Moves []json.RawMessage `json:"moves"`
+}
+
+// stepDrawing is what one step puts on the canvas and what it draws between what
+// it puts there: the figures of the scene the step draws (boxes, sheets, frames,
+// nodes, gears, and the actors, props and icons of a story stage, plus the piece
+// the stage names), and the arrows or moves that say what happens.
+type stepDrawing struct {
+	Figures int
+	Arrows  int
+	// Story marks a step that draws through a story stage: its arrows are the
+	// moves the kit draws, and its steps are one drawing, not a picture each.
+	Story bool
+}
+
+func (s deckStep) drawing() stepDrawing {
+	d := stepDrawing{Figures: s.Scene.figures(), Arrows: len(s.Scene.Arrows) + len(s.Moves)}
+	if s.Stage == nil {
+		return d
+	}
+	scene := s.Stage.Scene
+	if !s.Stage.Piece && !scene.draws() {
+		return d // the stage draws nothing: the step's own scene is its drawing
+	}
+	d.Story = true
+	d.Figures = scene.figures() + len(scene.Actors) + len(scene.Props) + len(scene.Icons) + len(scene.Paths)
+	if s.Stage.Piece {
+		d.Figures++
+	}
+	d.Arrows = len(scene.Arrows) + len(scene.Moves) + len(s.Moves)
+	return d
+}
+
+// guideArrowGaps names the decks that do not guide: a step that draws two or
+// more figures and no arrow is a static picture, and a deck that never draws an
+// arrow is a set of pictures. A story draws its arrows as moves, and it is one
+// drawing across its steps: a step that only places the actors is not a static
+// picture, but a story that never moves is.
+func guideArrowGaps(markup string) []string {
+	var gaps []string
+	for _, spec := range deckPayloads(markup) {
+		guided := 0
+		for i, step := range spec.Steps {
+			drawing := step.drawing()
+			if drawing.Arrows > 0 {
+				guided++
+			}
+			if drawing.Story || drawing.Figures < 2 || drawing.Arrows > 0 {
+				continue
+			}
+			where := "step " + itoa(i+1)
+			if title := strings.TrimSpace(step.Title); title != "" {
+				where += " (" + title + ")"
+			}
+			gaps = append(gaps, where)
+		}
+		// A deck that never draws an arrow is a set of pictures: the reader can
+		// step through it and still not be shown what happens.
+		if len(spec.Steps) > 0 && guided == 0 {
+			name := strings.TrimSpace(spec.Title)
+			if name == "" {
+				name = "the deck"
+			}
+			gaps = append(gaps, "«"+name+"» without a single arrow")
+		}
+	}
+	return gaps
 }
 
 type deckSpec struct {
@@ -70,38 +142,6 @@ func deckPayloads(markup string) []deckSpec {
 		}
 		decks = append(decks, spec)
 	}
-}
-
-// guideArrowGaps names the steps that draw two or more figures and no arrow.
-// A single figure stands on its own: there is nothing to guide the eye across.
-func guideArrowGaps(markup string) []string {
-	var gaps []string
-	for _, spec := range deckPayloads(markup) {
-		guided := 0
-		for i, step := range spec.Steps {
-			if len(step.Scene.Arrows) > 0 {
-				guided++
-			}
-			if step.Scene.figures() < 2 || len(step.Scene.Arrows) > 0 {
-				continue
-			}
-			where := "step " + itoa(i+1)
-			if title := strings.TrimSpace(step.Title); title != "" {
-				where += " (" + title + ")"
-			}
-			gaps = append(gaps, where)
-		}
-		// A deck that never draws an arrow is a set of pictures: the reader can
-		// step through it and still not be shown what happens.
-		if len(spec.Steps) > 0 && guided == 0 {
-			name := strings.TrimSpace(spec.Title)
-			if name == "" {
-				name = "the deck"
-			}
-			gaps = append(gaps, "«"+name+"» without a single arrow")
-		}
-	}
-	return gaps
 }
 
 // readArtifact returns the artifact text, or "" when it cannot be read: a
