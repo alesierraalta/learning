@@ -455,6 +455,15 @@ lk-audio { margin:28px 0; padding:20px 0; border-top:1px solid var(--hair); bord
    propios (`--pt-*`) que en los papeles de noche se aclaran: nunca una hoja blanca
    flotando. Todo se mide en `em` de la pieza (15 px; más grande en pantalla completa). */
 .lk-piece-host, lk-cards, lk-memory, lk-tables, lk-venn, lk-tree { display:block; container-type:inline-size; margin:30px 0; }
+/* Una pieza es una figura: ocupa el lugar de la escena, así que cruza las dos columnas del modo
+   ancho igual que ella y se dibuja una sola vez, en su lugar (#287). Sin esto la pieza cabía en
+   una columna y su línea «Cómo leerlo» —el párrafo que el autor escribe debajo— amanecía arriba
+   de la otra: el alumno leyó el pie de las tarjetas sobre una figura que no era la suya. Y
+   centrada, con el tope de su ancho, como una escena. */
+@media (min-width: 1080px) {
+  body.wide .prose > :is(lk-cards, lk-memory, lk-tables, lk-venn, lk-tree),
+  body.wide .prose > section > :is(lk-cards, lk-memory, lk-tables, lk-venn, lk-tree) { column-span: all; margin-inline: auto; }
+}
 .lk-piece-host > .lk-title { display:block; margin-bottom:12px; }
 .lk-story-piece { display:block; container-type:inline-size; padding:6px 4px; }
 .lk-p {

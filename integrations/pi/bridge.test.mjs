@@ -2946,6 +2946,50 @@ test("a walkthrough in wide mode renders its stage in place, once, with readable
   await page.screenshot({ path: join(SHOTS, "wide-deck.png"), fullPage: true });
 });
 
+// A piece is a figure: in wide mode it crosses both columns like a scene, so the
+// «Cómo leerlo» line the author writes under it stays under it (#287). Without the
+// span the deck fitted in one column and the line landed at the top of the other:
+// the learner read «Cómo leerlo: las tarjetas comparan…» above a figure that was
+// not the one it described.
+test("a piece crosses both columns and keeps its «Cómo leerlo» under it", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const cartas = `<lk-cards>
+<script type="application/json">
+{"title":"Orientaciones de los ejes","cards":[
+ {"id":"row","verdict":"ok","pill":"FILA","title":"Dirección fila","draw":{"refs":[{"text":"row","icon":"read","tone":"green"}],"target":{"text":"horizontal"}},"reason":"Lee de izquierda a derecha"},
+ {"id":"col","verdict":"no","pill":"COLUMNA","title":"Dirección columna","draw":{"refs":[{"text":"column","icon":"write","tone":"amber"}],"target":{"text":"vertical"}},"reason":"Lee de arriba hacia abajo"}
+]}
+</script>
+</lk-cards>`;
+  const prosa = (n) => `## ${n}. Una sección\n\n${"El texto de la sección explica una idea y la deja dicha en una línea.\n\n".repeat(10)}`;
+  const note = `# Parte 1 — Claves\n\n${prosa(1)}\n${cartas}\n\nCómo leerlo: las tarjetas comparan las dos orientaciones de los ejes.\n\n${prosa(2)}`;
+  const page = await readerPart(t, note, { width: 1920, height: 1080, wide: true });
+  const seen = await page.evaluate(() => {
+    const cards = document.querySelector("lk-cards");
+    const caption = cards.nextElementSibling;
+    const figure = cards.getBoundingClientRect();
+    const pie = caption.getBoundingClientRect();
+    const prose = document.querySelector(".prose");
+    const proseBox = prose.getBoundingClientRect();
+    return {
+      columns: getComputedStyle(prose).columnCount,
+      span: getComputedStyle(cards).columnSpan,
+      caption: (caption.textContent || "").trim().slice(0, 40),
+      shared: Math.round(Math.min(figure.right, pie.right) - Math.max(figure.left, pie.left)),
+      below: Math.round(pie.top - figure.bottom),
+      // Una columna de la prosa es su ancho menos el hueco entre las dos.
+      columnWidth: (proseBox.width - parseFloat(getComputedStyle(prose).columnGap || "0")) / 2,
+      figureWidth: Math.round(figure.width),
+    };
+  });
+  assert.equal(seen.columns, "2", "the wide reader is two columns");
+  assert.match(seen.caption, /^Cómo leerlo/, `the line under the deck is not its caption: ${seen.caption}`);
+  assert.equal(seen.span, "all", "la pieza no cruza las columnas: su pie deja de estar debajo de ella");
+  assert.ok(seen.shared > 0, `el pie quedó fuera de la franja de su figura: ${seen.shared}px`);
+  assert.ok(seen.below >= 0 && seen.below < 64, `el pie quedó a ${seen.below}px de su figura`);
+  assert.ok(seen.figureWidth >= seen.columnWidth * 1.2, `la pieza mide ${seen.figureWidth}px y una columna ${Math.round(seen.columnWidth)}px: no ocupa las dos`);
+  await page.screenshot({ path: join(SHOTS, "wide-piece-caption.png"), fullPage: true });
+});
+
 // Full screen is where the letters are meant to grow. From wide mode the deck
 // kept its 320 px column and the figure stayed a thumbnail on a 1920 px screen.
 test("full screen grows the figure from wide mode", { skip: !playwright && "playwright not installed" }, async (t) => {
