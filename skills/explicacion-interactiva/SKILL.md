@@ -4,7 +4,7 @@ description: "Trigger: explícame qué es X, qué significa el término X, cómo
 license: Apache-2.0
 metadata:
   author: "alesierraalta"
-  version: "1.47"
+  version: "1.48"
   scope: "global"
 ---
 
@@ -106,6 +106,17 @@ Activa ante cualquier petición de **entender un concepto, término o tema** («
 - **Video**: fuera de esta skill. El estándar audiovisual (Distill Paper White, sincronización por palabra, subtítulos, QA de frames) y el pipeline (`~/Developer/learnings-video`, `build.py`, guía `AUTHORING.md`) viven en `references/video-distill.md`, que se lee solo cuando se pida video. Lo único que se comparte con la explicación es la escena, y se dibuja con el mismo vocabulario de `references/visuales.md`.
 - **Language**: español neutro always — no voseo, no regional slang, no country references.
 - **It learns from you**: dumps, errors and corrections are evidence — log what worked, failed, and the fix; rewrite the causing rule or example in the references so next parts need fewer corrections.
+
+## Reparaciones frecuentes
+
+Las reglas están arriba; esta es la forma concreta que se copia. La primera columna es el hallazgo de la puerta; las otras dos, el antes y el después de las notas reales del banco.
+
+| Hallazgo | Lo que escribió | Lo que se escribe |
+|---|---|---|
+| `escenario-de-cajas` | `<lk-scene>` con tres `boxes` «commit c1… c3» y dos `arrows` «padre» («Cadena de commits en checkout-service») | `<lk-story>`: la rama es un actor `row`, cada commit un actor `file`, y cada paso lleva sus `moves` («padre», «avanza») con el `state` del que ya no vale |
+| `marca-eco` | `{"kind":"ok","actor":"main","label":"c4"}`, un ✓ sobre «c4» que repite la etiqueta «commit c4» ya dibujada | `{"kind":"ok","actor":"main","label":"main apunta a c4"}`: la marca nombra el resultado del paso |
+| `leyenda-descolgada` | el «Cómo leerlo: …» en tres párrafos sueltos detrás de la figura | el pie dentro de la pieza, en su `caption`, o en la línea `Cómo leerlo:` pegada a ella |
+| `personajes-iguales` | «commit» y «rama» con el mismo `kind` y el mismo `tono` | cada cosa con su personaje: `file` el commit, `row` la rama |
 
 ## Decision Gates
 
