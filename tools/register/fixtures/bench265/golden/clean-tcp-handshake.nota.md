@@ -62,8 +62,8 @@ Sin embargo, este paquete inicial todavía no lleva datos.
   "stage":{"scene":{
    "paths":[],
    "actors":[{"id":"cli","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","state":"active","tag":"cli"},{"id":"srv","icon":"robot","x":250,"y":150,"size":56,"tone":"slate","tag":"srv"}],
-   "moves":[{"actor":"cli","toX":80,"toY":150}],
-   "props":[{"id":"p1","kind":"packet","on":"cli","side":"left","tone":"amber"}],
+   "moves":[{"actor":"cli","toX":222,"toY":150}],
+   "props":[{"id":"p1","kind":"packet","on":"srv","side":"right","tone":"amber"}],
    "marks":[{"kind":"ok","actors":["cli"],"label":"enviado"}]}}},
  {"title":"Pasa a espera","equation":{"size":22,"atoms":[{"t":"estado: ","id":"e"},{"t":"SYN-SENT","id":"st"}]},"focus":["st"],
   "narrator":"El cliente pasa a estado SYN-SENT esperando la respuesta.",

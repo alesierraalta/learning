@@ -395,7 +395,7 @@ es una escena o una tabla.
 | `actors[].state` | `active` (por defecto, su tono) · `faded` (gris: ya no vale) · `invalid` (gris, tachado y con ✗) |
 | `props[]` | `id`, `kind`, `on` (el id del actor), `side` (`right`, `left`, `above`, `below`), `label`, `tone`, `state: "faded"` |
 | `props[].kind` | `value` (un cofre que carga un valor: su `label`) · `read` (un ojo) · `write` (un lápiz) · o cualquier icono |
-| `moves[]` | `from` / `to` pueden ser un actor **o una pieza**: la flecha sale del cofre, no del actor |
+| `moves[]` | `from` / `to` pueden ser un actor **o una pieza**: la flecha sale del cofre, no del actor. La forma `actor` + `toX`/`toY` (un actor y un punto) se dibuja igual: mismo trazo, misma punta, mismo verbo |
 | `marks[]` | `ok` / `no` sobre un actor (`actor`), sobre varios (`actors`) o en el hueco entre dos (`between`) |
 
 Reglas:
@@ -417,6 +417,13 @@ Reglas:
   ahí no cabe, donde sí. No se escriben coordenadas de piezas.
 - **Un `on`, un `between` o un `from` que nombra un id que el paso no tiene** se declara y
   `scene-lint` lo llama `pieza-sin-destino`; una pieza encima de una palabra, `pieza-sobre-texto`.
+- **Un movimiento se dibuja o se rechaza, nunca se descarta en silencio.** La forma canónica es
+  `{"from":"s1","to":"s2","verb":"se mueve"}`; `{"actor":"s1","toX":…,"toY":…}` significa lo
+  mismo y se dibuja igual —el trazo sale de la figura del actor y termina en el punto—, pero apunta
+  a un punto libre o al borde de la pieza, no a su centro: una punta dentro de una figura se llama
+  `punta-enterrada`. Un movimiento cuya forma no se entiende, que nombra una pieza que el paso no
+  tiene o que apunta a donde el actor ya está (trazo de 0 unidades) es `movimiento-no-dibujado` en
+  `scene-lint` (#286).
 - Los robots y los cofres son de la casa; no se copia el pixel art ni la mascota de otro sitio.
 
 ```json
