@@ -26,6 +26,31 @@
     const b = el('button', text, { type: 'button' });
     b.addEventListener('click', action); return b;
   };
+  // Los datos de un paso y la tarjeta de cierre (#301): un hecho es [clave, valor] con texto o número en
+  // los dos lados. Lo que no lo es no se dibuja; `scene-lint` dice qué le falta.
+  const isText = (value) => (typeof value === 'string' ? value.trim() !== '' : Number.isFinite(value));
+  const pairsOf = (rows) => (Array.isArray(rows) ? rows.filter((row) => Array.isArray(row) && row.length === 2 && isText(row[0]) && isText(row[1])) : []);
+  // Una tabla clave-valor: la clave a la izquierda, el valor en mono y en cifras tabulares.
+  function keyValues(rows, className = '') {
+    const table = el('table', undefined, { class: `lk-facts ${className}`.trim() });
+    const body = el('tbody');
+    for (const [key, value] of rows) {
+      const row = el('tr');
+      row.append(el('th', String(key), { scope: 'row' }), el('td', String(value), { class: 'lk-fact-value' }));
+      body.append(row);
+    }
+    table.append(body);
+    return table;
+  }
+  // La tarjeta de cierre de un recorrido: su título, un texto opcional y las métricas en tabla.
+  function closingCard(summary) {
+    const card = el('section', undefined, { class: 'lk-summary' });
+    card.append(el('strong', typeof summary.title === 'string' ? summary.title : '', { class: 'lk-summary-title' }));
+    if (typeof summary.text === 'string' && summary.text.trim()) card.append(el('p', summary.text, { class: 'lk-summary-text' }));
+    const metrics = pairsOf(summary.metrics);
+    if (metrics.length) card.append(keyValues(metrics, 'lk-summary-metrics'));
+    return card;
+  }
   const status = () => el('p', '', { role: 'status', 'aria-live': 'polite' });
   async function post(payload) {
     const b = config(), reason = unreachable();
@@ -1900,15 +1925,22 @@
     stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
     const captionTitle = el('strong');
     const captionText = el('p');
+    const captionWords = el('div', undefined, { class: 'lk-wt-words' });
+    captionWords.append(captionTitle, captionText);
+    // Los datos del paso van junto a su texto (#301); la tarjeta de cierre ocupa el lugar del texto al final.
+    const factsSlot = el('div', undefined, { class: 'lk-wt-facts' });
     const caption = el('div', undefined, { class: 'lk-wt-caption' });
-    caption.append(captionTitle, captionText);
+    caption.append(captionWords, factsSlot);
+    const facts = steps.map((s) => (pairsOf(s.facts).length ? keyValues(pairsOf(s.facts)) : null));
+    const card = spec.summary && typeof spec.summary === 'object' ? closingCard(spec.summary) : null;
+    const slots = steps.length + (card ? 1 : 0);
     const hint = el('p', 'Desliza el diagrama para verlo completo', { class: 'lk-wt-hint' });
     const count = el('span', undefined, { class: 'lk-wt-count' });
     const dots = el('div', undefined, { class: 'lk-wt-dots' });
     let index = 0, drawn = -1;
     const prev = button('◀ Anterior', () => go(index - 1));
     const next = button('Siguiente ▶', () => go(index + 1));
-    const reveal = button('Ir al final', () => go(steps.length - 1));
+    const reveal = button('Ir al final', () => go(slots - 1));
     // The figure is the lesson: letting it own the screen is what makes the
     // small labels readable on a laptop and in class.
     const full = button('Pantalla completa', () => {
@@ -1941,7 +1973,7 @@
     this.classList.add('lk-walkthrough');
     this.tabIndex = 0;
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
-    this.append(full, stage, hint, bar, caption);
+    this.append(full, stage, hint, bar, caption, ...(card ? [card] : []));
     fitSceneText(stage);
     placeCallouts(stage);
     placeStory(stage);
@@ -1953,20 +1985,34 @@
       dot.setAttribute('aria-label', `Paso ${i + 1}`);
       dots.append(dot);
     });
-    function go(to) { index = Math.max(0, Math.min(steps.length - 1, to)); draw(); }
+    // La tarjeta de cierre tiene su punto al final, con una marca en vez de un número (#301).
+    if (card) {
+      const dot = button('✓', () => go(steps.length));
+      dot.className = 'lk-wt-dot';
+      dot.dataset.summary = '1';
+      dot.setAttribute('aria-label', 'Resumen');
+      dots.append(dot);
+    }
+    function go(to) { index = Math.max(0, Math.min(slots - 1, to)); draw(); }
     function draw() {
       // One scene per step: the figure shows the state that step describes, and
       // Un escenario por paso: la figura muestra el estado que ese paso describe.
       // «Ir al final» salta al último paso en vez de fingir que muestra todos: las
       // escenas se redibujan, no se acumulan.
-      moveSteps(stage, drawn, index);
-      drawn = index;
-      const step = steps[index];
+      // La tarjeta de cierre no es un paso: la figura se queda en el último, y la tarjeta ocupa el lugar del texto.
+      const onCard = Boolean(card) && index === steps.length;
+      const at = Math.min(index, steps.length - 1);
+      moveSteps(stage, drawn, at);
+      drawn = at;
+      const step = steps[at];
       captionTitle.textContent = step.title || '';
       captionText.textContent = step.text || '';
-      count.textContent = `Paso ${index + 1} de ${steps.length}`;
+      factsSlot.replaceChildren(...(facts[at] ? [facts[at]] : []));
+      caption.hidden = onCard;
+      if (card) card.hidden = !onCard;
+      count.textContent = onCard ? 'Resumen' : `Paso ${index + 1} de ${steps.length}`;
       prev.disabled = index === 0;
-      next.disabled = index === steps.length - 1;
+      next.disabled = index === slots - 1;
       [...dots.children].forEach((dot, i) => dot.setAttribute('aria-current', String(i === index)));
     }
     this.addEventListener('keydown', (event) => {
@@ -3234,6 +3280,14 @@
     });
     const head = el('div', undefined, { class: 'lk-story-head' });
     const narrator = el('div', undefined, { class: 'lk-story-narrator' });
+    // Los datos del paso van junto a la narración (#301); la tarjeta de cierre ocupa su lugar al final.
+    const factsSlot = el('div', undefined, { class: 'lk-story-facts' });
+    const narratorBand = el('div', undefined, { class: 'lk-story-band' });
+    narratorBand.append(narrator, factsSlot);
+    const facts = steps.map((s) => (pairsOf(s.facts).length ? keyValues(pairsOf(s.facts)) : null));
+    const card = spec.summary && typeof spec.summary === 'object' ? closingCard(spec.summary) : null;
+    const slots = steps.length + (card ? 1 : 0);
+    const lastSlot = slots - 1;
     const count = el('span', undefined, { class: 'lk-story-count' });
     const progress = el('div', undefined, { class: 'lk-story-progress', role: 'progressbar', 'aria-valuemin': '1', 'aria-valuemax': String(steps.length) });
     const segs = steps.map(() => { const s = el('span', undefined, { class: 'lk-story-seg' }); progress.append(s); return s; });
@@ -3249,7 +3303,7 @@
     this.classList.add('lk-story', `lk-story-kind-${kind}`);
     this.tabIndex = 0;
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
-    this.append(head, stage, narrator, player);
+    this.append(head, stage, narratorBand, ...(card ? [card] : []), player);
     function tokens(atoms, focus) {
       // Un `focus` de texto nombra una pieza del escenario (#299): no es una lista de símbolos.
       const on = new Set((Array.isArray(focus) ? focus : []).map(String));
@@ -3306,22 +3360,25 @@
     function stop() { if (timer) { clearInterval(timer); timer = null; } }
     function toggle() {
       if (timer) { stop(); draw(); return; }
-      if (index === steps.length - 1) { index = 0; draw(); }
+      if (index === lastSlot) { index = 0; draw(); }
       timer = setInterval(() => {
-        if (index >= steps.length - 1) { stop(); draw(); return; }
+        if (index >= lastSlot) { stop(); draw(); return; }
         index += 1; draw();
       }, 4200);
       draw();
     }
-    function go(to) { index = Math.max(0, Math.min(steps.length - 1, to)); draw(); }
+    function go(to) { index = Math.max(0, Math.min(lastSlot, to)); draw(); }
     function draw() {
-      moveSteps(stage, drawn, index);
-      drawn = index;
+      // La tarjeta de cierre no es un paso: la historia se queda en el último, y la tarjeta ocupa el lugar de la narración.
+      const onCard = Boolean(card) && index === steps.length;
+      const at = Math.min(index, steps.length - 1);
+      moveSteps(stage, drawn, at);
+      drawn = at;
       const sceneSvg = stage.querySelector(':scope > svg');
-      if (sceneSvg) sceneSvg.style.display = panels[index] ? 'none' : '';
-      panels.forEach((panel, i) => { if (panel) panel.hidden = i !== index; });
-      panels[index]?.querySelectorAll('.lk-p').forEach(placePiece);
-      const step = steps[index];
+      if (sceneSvg) sceneSvg.style.display = panels[at] ? 'none' : '';
+      panels.forEach((panel, i) => { if (panel) panel.hidden = i !== at; });
+      panels[at]?.querySelectorAll('.lk-p').forEach(placePiece);
+      const step = steps[at];
       const atoms = kind === 'derivation' ? (step.equation?.atoms || []) : (spec.formula?.atoms || []);
       head.replaceChildren();
       if (atoms.length) {
@@ -3330,12 +3387,15 @@
         fitHeader(line);
       }
       narrate(step);
-      count.textContent = `${index + 1} / ${steps.length}`;
-      segs.forEach((seg, i) => { seg.dataset.filled = String(i <= index); seg.setAttribute('aria-current', String(i === index)); });
-      progress.setAttribute('aria-valuenow', String(index + 1));
+      factsSlot.replaceChildren(...(facts[at] ? [facts[at]] : []));
+      narratorBand.hidden = onCard;
+      if (card) card.hidden = !onCard;
+      count.textContent = onCard ? 'Resumen' : `${index + 1} / ${steps.length}`;
+      segs.forEach((seg, i) => { seg.dataset.filled = String(i <= at); seg.setAttribute('aria-current', String(!onCard && i === at)); });
+      progress.setAttribute('aria-valuenow', String(at + 1));
       prev.disabled = index === 0;
-      next.disabled = index === steps.length - 1;
-      play.textContent = timer ? '❚❚ Pausa' : index === steps.length - 1 ? '↺ Repetir' : '▶ Reproducir';
+      next.disabled = index === lastSlot;
+      play.textContent = timer ? '❚❚ Pausa' : index === lastSlot ? '↺ Repetir' : '▶ Reproducir';
       play.setAttribute('aria-pressed', String(Boolean(timer)));
     }
     this.addEventListener('keydown', (event) => {

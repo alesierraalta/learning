@@ -134,6 +134,19 @@ test("every walkthrough is a well-formed list of one-scene steps", () => {
   }
 });
 
+// Los datos de un paso (#301) son una leyenda de pares [clave, valor]: el ejemplo de SQL usa una, y
+// tiene que ser una lista corta con texto en los dos lados, como `scene-lint` la exige.
+test("the SQL page's key-value legend is a short list of pairs", () => {
+  const legends = walkthroughs(read("sql-parte-1.html")).flatMap((block) => JSON.parse(block[1]).steps.filter((step) => step.facts !== undefined));
+  assert.ok(legends.length > 0, "sql-parte-1.html no usa ninguna leyenda de datos (facts)");
+  for (const step of legends) {
+    assert.ok(Array.isArray(step.facts) && step.facts.length >= 1 && step.facts.length <= 5, `la leyenda de «${step.title}» no tiene de 1 a 5 filas`);
+    for (const row of step.facts) {
+      assert.ok(Array.isArray(row) && row.length === 2 && row.every((cell) => typeof cell === "string" && cell.trim() !== ""), `la leyenda de «${step.title}» tiene una fila que no es [clave, valor] con texto`);
+    }
+  }
+});
+
 // The user's rule: the reading is visual section by section, so a section without a figure is a
 // gap, not a style choice. The validation quiz is the only section allowed to have none.
 test("every reading section has its own figure", () => {

@@ -34,8 +34,8 @@ Runner: `node --test` on the touched test files; `go test ./...` when the engine
 
 - T1 S1 #298 step continuity — worker — done, e6d017d (motion.test 8/8, kit tests 120/120, bridge 133 pass; gates measure with reduced motion; key attr data-piece-key)
 - T2 S2 #299 change flash and focus ring — worker — done (focus.test 11/11 and motion.test 8/8 on the final kit; scene-lint focus 2/2; scene-lint.test + deck-gate.test 114/114; kit dir + kit-pages + scene-gate.test 153/153; go ./internal/engine 488 pass; bridge 133 pass, 1 skip; gates skip data-focus-ring; step key data-focus-piece; settled == HEAD on 14 blocks); committed 8fe9dbd
-- T3 S3 #300 flowing and draw-on arrows — worker — done (flow.test 9/9, with the draw and dash checks; kit dir 140/140; scene-lint-flow 3/3; deck-gate-flow 1/1; scene-lint, deck-gate, scene-gate, kit-pages 140/140; arch-gate 7/8 with the 3 pre-existing findings; bridge 133 pass, 1 skip; go unchanged; scene-lint rejects a non-boolean flow; reduced motion solid; no HEAD-vs-tree sweep of the examples)
-- T4 S4 #301 facts table and closing summary — worker — pending (after T3, same files)
+- T3 S3 #300 flowing and draw-on arrows — worker — done (flow.test 9/9, with the draw and dash checks; kit dir 140/140; scene-lint-flow 3/3; deck-gate-flow 1/1; scene-lint, deck-gate, scene-gate, kit-pages 140/140; arch-gate 7/8 with the 3 pre-existing findings; bridge 133 pass, 1 skip; go unchanged; scene-lint rejects a non-boolean flow; reduced motion solid; no HEAD-vs-tree sweep of the examples); committed 1528be5
+- T4 S4 #301 facts table and closing summary — worker — done (facts.test 14/14: RED 12 fail + 1 guard; scene-lint-facts 5/5: RED 4 fail + 1 guard; story_facts go 3/3: RED 1 fail + 2 guards, go ./internal/engine 491 pass; deck-gate-facts 2/2: overflow check RED with the check disabled, GREEN with it; kit-pages 14/14: RED no legend; kit dir 154/154; scene-lint, deck-gate, scene-gate, focus and flow sets 134/134; bridge 133 pass, 1 skip; arch-gate 7/8 with the 3 pre-existing findings; «Ver todo» not implemented, see the report)
 
 ## Log
 

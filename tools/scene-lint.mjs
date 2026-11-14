@@ -232,23 +232,26 @@ matches.forEach((match, i) => {
   }
 });
 
-// Los pasos de los recorridos y las historias, con la escena que dibuja cada uno. Los chequeos que
-// leen el JSON (`focus` del paso, `flow` de una flecha o de un movimiento) miran lo que el kit dibuja.
-const stepScenes = matches.flatMap((match, i) => {
+// Los recorridos y las historias de la nota, con su payload leído: sus pasos y su tarjeta de cierre (#301).
+const decks = matches.flatMap((match, i) => {
   const tag = /^<lk-([a-z]+)/.exec(match[0])?.[1];
   if (tag !== 'walkthrough' && tag !== 'story') return [];
   const payload = /<script type="application\/json">([\s\S]*?)<\/script>/.exec(match[0]);
   if (!payload) return [];
   let spec;
   try { spec = JSON.parse(payload[1]); } catch { return []; }
-  return (Array.isArray(spec?.steps) ? spec.steps : []).map((step, n) => ({
-    block: i + 1,
-    title: spec.title || '',
-    n,
-    step,
-    scene: (tag === 'story' ? step?.stage?.scene || step?.stage : step?.scene) || {},
-  }));
+  if (!spec || typeof spec !== 'object') return [];
+  return [{ block: i + 1, tag, title: spec.title || '', spec }];
 });
+// Los pasos de los recorridos y las historias, con la escena que dibuja cada uno. Los chequeos que
+// leen el JSON (`focus` del paso, `flow` de una flecha o de un movimiento, `facts`) miran lo que el kit dibuja.
+const stepScenes = decks.flatMap(({ block, title, tag, spec }) => (Array.isArray(spec.steps) ? spec.steps : []).map((step, n) => ({
+  block,
+  title,
+  n,
+  step,
+  scene: (tag === 'story' ? step?.stage?.scene || step?.stage : step?.scene) || {},
+})));
 const asList = (value) => (Array.isArray(value) ? value : []);
 
 // Un `focus` nombra una pieza con id de su propio paso (#299): una caja, un icono, un rótulo, un actor
@@ -265,6 +268,38 @@ const focusMisses = stepScenes.flatMap(({ block, title, n, step, scene }) => {
 const flowMisses = stepScenes.flatMap(({ block, title, n, scene }) => [...asList(scene.arrows), ...asList(scene.moves)]
   .filter((piece) => piece?.flow !== undefined && typeof piece.flow !== 'boolean')
   .map((piece) => ({ block, title, kind: 'flujo-no-booleano', text: JSON.stringify(piece.flow), detail: `el paso ${n + 1} declara flow: ${JSON.stringify(piece.flow)}; flow es true o false, y solo true dibuja la flecha que fluye` })));
+// Los datos de un paso (`facts`) y la tarjeta de cierre (`summary`) (#301) son pares [clave, valor]: como
+// mucho cinco filas, con texto o número en los dos lados. La tarjeta lleva un título y sus métricas, con esa forma.
+const FACTS = { malformed: 'hechos-mal-formados', many: 'hechos-demasiados', empty: 'hechos-vacios' };
+const METRICS = { malformed: 'resumen-mal-formado', many: 'resumen-demasiados', empty: 'resumen-vacio' };
+const PAIRS_MAX = 5;
+const isPair = (row) => Array.isArray(row) && row.length === 2 && row.every((v) => typeof v === 'string' || typeof v === 'number');
+const hasText = (v) => (typeof v === 'string' ? v.trim() !== '' : Number.isFinite(v));
+// Los hallazgos de una lista de pares. `label` nombra la lista en el detalle.
+const pairFindings = (rows, names, label) => {
+  if (!Array.isArray(rows)) return [{ kind: names.malformed, text: JSON.stringify(rows) ?? String(rows), detail: `${label} debe ser una lista de pares [clave, valor]` }];
+  const found = [];
+  const bad = rows.find((row) => !isPair(row));
+  if (bad !== undefined) found.push({ kind: names.malformed, text: JSON.stringify(bad).slice(0, 40), detail: `${label}: cada fila es [clave, valor], con texto o número en los dos lados` });
+  if (rows.length > PAIRS_MAX) found.push({ kind: names.many, text: `${rows.length} filas`, detail: `${label} admite como mucho ${PAIRS_MAX}: sobran ${rows.length - PAIRS_MAX}` });
+  const empty = rows.find((row) => isPair(row) && !(hasText(row[0]) && hasText(row[1])));
+  if (empty !== undefined) found.push({ kind: names.empty, text: JSON.stringify(empty).slice(0, 40), detail: `${label}: la clave y el valor no pueden estar vacíos` });
+  return found;
+};
+const factsMisses = stepScenes.flatMap(({ block, title, n, step }) => (step?.facts === undefined ? [] : pairFindings(step.facts, FACTS, `el paso ${n + 1}`)).map((f) => ({ block, title, ...f })));
+// La tarjeta de cierre: un objeto con título, texto opcional y métricas.
+const summaryMisses = decks.flatMap(({ block, title, spec }) => {
+  if (spec.summary === undefined) return [];
+  const card = spec.summary;
+  const at = (kind, text, detail) => ({ block, title, kind, text, detail });
+  if (!card || typeof card !== 'object' || Array.isArray(card)) return [at(METRICS.malformed, JSON.stringify(card) ?? String(card), 'summary debe ser un objeto con title, text opcional y metrics')];
+  const found = [];
+  if (typeof card.title !== 'string' || card.title.trim() === '') found.push(at(METRICS.malformed, 'title', 'la tarjeta de cierre necesita un título'));
+  if (card.text !== undefined && typeof card.text !== 'string') found.push(at(METRICS.malformed, 'text', 'el texto de la tarjeta de cierre es texto, o no va'));
+  if (card.metrics === undefined) found.push(at(METRICS.malformed, 'metrics', 'la tarjeta de cierre necesita sus métricas: [[clave, valor], ...]'));
+  else found.push(...pairFindings(card.metrics, METRICS, 'las métricas de la tarjeta').map((f) => ({ block, title, ...f })));
+  return found;
+});
 const dir = mkdtempSync(join(tmpdir(), 'scene-lint-'));
 mkdirSync(join(dir, 'kit'), { recursive: true });
 cpSync(KIT, join(dir, 'kit'), { recursive: true });
@@ -311,7 +346,7 @@ const findings = lookalikes.map(({ block, title, one, two }) => ({
   text: `${one.tag || one.label} / ${two.tag || two.label}`,
   detail: `los dos se dibujan igual (${drawn(one).replace(' · ', ' y tono ')}) y sus fichas no comparten ninguna palabra: dale a cada uno su personaje (database, row, session, lock, user, server, process, file, packet, robot), su tono o su estado`,
 }));
-findings.push(...focusMisses, ...flowMisses);
+findings.push(...focusMisses, ...flowMisses, ...factsMisses, ...summaryMisses);
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(pathToFileURL(join(dir, 'page.html')).href);
