@@ -40,15 +40,15 @@ Sin embargo, reducir el espacio no altera la proporción interna de los casos.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Probabilidad condicional: reducción del universo","viewBox":"0 60 360 190","steps":[
- {"title":"Espacio total y prior","equation":{"size":22,"atoms":[{"t":"P(A) = ","id":"p"},{"t":"100 / 10.000","id":"f"}]},"focus":["f"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Probabilidad condicional: reducción del universo","viewBox":"0 60 360 190","steps":[
+ {"title":"Espacio total y prior","facts":[["Espacio total y prior","El prior calcula la frecuencia inicial en toda la población."]],"equation":{"size":22,"atoms":[{"t":"P(A) = ","id":"p"},{"t":"100 / 10.000","id":"f"}]},"focus":["f"],
   "narrator":"El prior calcula la frecuencia inicial en toda la población.",
   "stage":{"scene":{
    "paths":[],
    "actors":[{"id":"pop","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","tag":"total"},{"id":"enf","icon":"robot","x":250,"y":150,"size":56,"tone":"slate","tag":"casos"}],
    "props":[{"id":"p1","kind":"packet","on":"pop","side":"left","tone":"blue"}],
    "marks":[{"kind":"ok","actors":["pop"],"label":"población"}]}}},
- {"title":"La evidencia restringe","equation":{"size":22,"atoms":[{"t":"condición: ","id":"c"},{"t":"síntoma B","id":"ev"}]},"focus":["ev"],
+ {"title":"La evidencia restringe","ring":"pop","equation":{"size":22,"atoms":[{"t":"condición: ","id":"c"},{"t":"síntoma B","id":"ev"}]},"focus":["ev"],
   "narrator":"La condición descarta los casos fuera del subconjunto B.",
   "stage":{"scene":{
    "paths":[],

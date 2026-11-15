@@ -48,15 +48,15 @@
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Apertura de conexión: envío del paquete SYN","viewBox":"0 60 360 190","steps":[
- {"title":"Elige el contador","equation":{"size":22,"atoms":[{"t":"seq = ","id":"s"},{"t":"1000","id":"n"}]},"focus":["n"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Apertura de conexión: envío del paquete SYN","viewBox":"0 60 360 190","steps":[
+ {"title":"Elige el contador","facts":[["Elige el contador","El cliente genera un número de secuencia inicial aleatorio."]],"equation":{"size":22,"atoms":[{"t":"seq = ","id":"s"},{"t":"1000","id":"n"}]},"focus":["n"],
   "narrator":"El cliente genera un número de secuencia inicial aleatorio.",
   "stage":{"scene":{
    "paths":[],
    "actors":[{"id":"cli","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","tag":"cli"},{"id":"srv","icon":"robot","x":250,"y":150,"size":56,"tone":"slate","tag":"srv"}],
    "props":[{"id":"p1","kind":"packet","on":"cli","side":"left","tone":"blue"}],
    "marks":[{"kind":"ok","actors":["cli"],"label":"listo"}]}}},
- {"title":"Envía el paquete","equation":{"size":22,"atoms":[{"t":"SYN: ","id":"f"},{"t":"seq 1000","id":"s"}]},"focus":["f","s"],
+ {"title":"Envía el paquete","ring":"cli","equation":{"size":22,"atoms":[{"t":"SYN: ","id":"f"},{"t":"seq 1000","id":"s"}]},"focus":["f","s"],
   "narrator":"El cliente envía el segmento SYN hacia el servidor remoto.",
   "stage":{"scene":{
    "paths":[],

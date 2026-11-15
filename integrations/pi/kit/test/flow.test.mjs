@@ -320,6 +320,76 @@ test('con movimiento reducido el movimiento de historia con flow es sólido y qu
   }
 });
 
+// Un movimiento de historia fluye por defecto (#305): el autor no escribe `flow` y el trazo viaja.
+// `flow: false` lo deja quieto, y una flecha de recorrido sigue siendo opt-in.
+test('un movimiento de historia sin flow fluye por defecto, con el reloj del flujo', { skip }, async () => {
+  const page = await open(story(), { tag: 'lk-story' });
+  try {
+    await page.evaluate(() => window.probe.next().click());
+    await settled(page);
+    const seen = await page.evaluate(() => {
+      const css = getComputedStyle(window.probe.arrow(2));
+      return { flowing: window.probe.arrow(2).classList.contains('lk-flow'), name: css.animationName, dash: css.strokeDasharray };
+    });
+    assert.equal(seen.flowing, true, 'el movimiento sin flow no lleva la clase del flujo');
+    assert.equal(seen.name, 'lk-xflow', 'el movimiento sin flow no usa el reloj del explorador');
+    assert.notEqual(seen.dash, 'none', 'el movimiento sin flow se dibuja sólido');
+    assert.deepEqual(page.errors, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test('un movimiento de historia con flow: false queda quieto', { skip }, async () => {
+  const page = await open(story(false), { tag: 'lk-story' });
+  try {
+    await page.evaluate(() => window.probe.next().click());
+    await settled(page);
+    const seen = await page.evaluate(() => {
+      const css = getComputedStyle(window.probe.arrow(2));
+      return { flowing: window.probe.arrow(2).classList.contains('lk-flow'), name: css.animationName, dash: css.strokeDasharray };
+    });
+    assert.deepEqual({ flowing: seen.flowing, name: seen.name }, { flowing: false, name: 'none' });
+    // Un movimiento quieto lleva su guion de siempre, no el del flujo (7 px y 5 px).
+    assert.notEqual(seen.dash, '7px, 5px', 'el movimiento con flow: false usa el guion del flujo');
+    assert.deepEqual(page.errors, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test('con movimiento reducido el movimiento de historia sin flow es sólido y quieto', { skip }, async () => {
+  const page = await open(story(), { tag: 'lk-story', reduced: true });
+  try {
+    await page.evaluate(() => window.probe.next().click());
+    await settled(page);
+    const seen = await page.evaluate(() => {
+      const css = getComputedStyle(window.probe.arrow(2));
+      return { dash: css.strokeDasharray, name: css.animationName };
+    });
+    assert.deepEqual(seen, { dash: 'none', name: 'none' });
+    assert.deepEqual(page.errors, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test('una flecha de recorrido sin flow sigue quieta: el flujo de las flechas es opt-in', { skip }, async () => {
+  const page = await open(STATIC);
+  try {
+    await page.evaluate(() => window.probe.dot(2).click());
+    await settled(page);
+    const seen = await page.evaluate(() => {
+      const css = getComputedStyle(window.probe.arrow(2));
+      return { flowing: window.probe.arrow(2).classList.contains('lk-flow'), name: css.animationName, dash: css.strokeDasharray };
+    });
+    assert.deepEqual(seen, { flowing: false, name: 'none', dash: 'none' });
+    assert.deepEqual(page.errors, []);
+  } finally {
+    await page.close();
+  }
+});
+
 test('el trazo que fluye reusa el único @keyframes lk-xflow del kit', () => {
   const css = readFileSync(join(KIT, 'kit.css'), 'utf8');
   assert.equal(css.match(/@keyframes\s+lk-xflow\b/g)?.length, 1, 'hay más de un @keyframes lk-xflow');

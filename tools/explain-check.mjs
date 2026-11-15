@@ -9,6 +9,10 @@
 // y pasa cada regla del registro (`explain-check/reglas.mjs`) por su archivo en
 // `explain-check/rules/`. Añadir una regla es un archivo y una línea en el registro.
 //
+// Una regla de autoría (`authoringOnly`, #305) mide lo que el tutor escribe: su falla impide dar
+// la parte por buena al escribirla, pero no impide servir una parte que ya se escribió. Por eso el
+// JSON trae `serves`: true cuando pasan todas las demás reglas.
+//
 // Uso: node tools/explain-check.mjs <nota.md> [--max 450] [--json]
 // Sale 1 si alguna regla falla.
 
@@ -40,12 +44,16 @@ const rows = [];
 for (const regla of REGLAS) {
   const salida = regla.check(nota, ctx);
   // Una regla devuelve su fila; el registro de medidas devuelve varias, cada una con su `rule`.
-  if (Array.isArray(salida)) rows.push(...salida);
-  else rows.push({ rule: regla.id, ok: salida.ok, detail: salida.detail });
+  // Las filas de una regla de autoría se marcan, y `serves` no las cuenta (#305).
+  const autoria = regla.authoringOnly === true;
+  if (Array.isArray(salida)) rows.push(...salida.map((r) => ({ ...r, authoringOnly: autoria })));
+  else rows.push({ rule: regla.id, ok: salida.ok, detail: salida.detail, ...(salida.items ? { items: salida.items } : {}), authoringOnly: autoria });
 }
 
 const fallan = rows.filter((r) => !r.ok);
-if (asJson) console.log(JSON.stringify({ file, rows, ok: fallan.length === 0 }, null, 1));
+// Lo que el lector necesita para ver la parte: todas las reglas menos las de autoría (#305).
+const serves = rows.every((r) => r.ok || r.authoringOnly);
+if (asJson) console.log(JSON.stringify({ file, rows, ok: fallan.length === 0, serves }, null, 1));
 else {
   for (const r of rows) {
     console.log(`${r.ok ? 'ok   ' : 'FALLA'} ${r.rule.padEnd(12)} ${r.detail}`);
@@ -54,4 +62,5 @@ else {
   }
   console.log(`\n${fallan.length ? `NO cumple: ${fallan.length} regla(s)` : 'cumple el estándar'} · ${file}`);
 }
-process.exit(fallan.length ? 1 : 0);
+// `exitCode`, not `exit()`: a large report is still being written to a pipe, and exit() would cut it short.
+process.exitCode = fallan.length ? 1 : 0;

@@ -104,7 +104,7 @@ Al confirmar, se liberan los bloqueos para las demás sesiones.
 
 <lk-story>
 <script type="application/json">
-{
+{"summary":{"title":"Saldos al confirmar","text":"ROLLBACK TO anula el crédito y COMMIT graba lo que queda.","metrics":[["Cuenta 10","800"],["Cuenta 20","1000"]]},
  "kind": "derivation",
  "title": "Ciclo transaccional con SAVEPOINT y ROLLBACK TO",
  "viewBox": "0 0 360 260",
@@ -182,7 +182,7 @@ Al confirmar, se liberan los bloqueos para las demás sesiones.
    }
   },
   {
-   "title": "Débito en la cuenta 10",
+   "title": "Débito en la cuenta 10","ring":"saldo10",
    "narrator": "UPDATE resta 200 en la cuenta 10; la fila queda modificada en el buffer.",
    "equation": {
     "size": 18,
@@ -264,7 +264,7 @@ Al confirmar, se liberan los bloqueos para las demás sesiones.
    }
   },
   {
-   "title": "Punto de control sp_debito",
+   "title": "Punto de control sp_debito","facts":[["sp_debito","el marcador del SAVEPOINT"],["ROLLBACK TO","vuelve a ese marcador"],["COMMIT","graba y libera los bloqueos"]],
    "narrator": "SAVEPOINT fija un marcador en el segmento de rollback.",
    "equation": {
     "size": 18,

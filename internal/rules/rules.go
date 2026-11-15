@@ -322,6 +322,15 @@ type PartStandardThresholds struct {
 	// RichPage turns on the page rule (#265): the page the turn wrote beside the note is measured with the same
 	// thresholds and must carry every figure of the note; otherwise the reader serves the note. False means not declared.
 	RichPage bool `json:"richPage,omitempty"`
+	// StorySummary turns on the closing-card rule (#305): a walkthrough or a story of three steps or more ends with a
+	// `summary` card. False means not declared, so a frozen snapshot keeps accepting the parts it accepted.
+	StorySummary bool `json:"storySummary,omitempty"`
+	// FormulaLegend turns on the formula-legend rule (#305): a formula or derivation story names its symbols in
+	// `facts` on at least one step. False means not declared.
+	FormulaLegend bool `json:"formulaLegend,omitempty"`
+	// StoryFocus turns on the ring rule (#305): a walkthrough or a story of three drawn steps names one piece with a
+	// `ring` on at least one step. False means not declared.
+	StoryFocus bool `json:"storyFocus,omitempty"`
 	// Register is the prose register the part must keep (the learner's two axes,
 	// sencillez and tecnicidad, at their default «más»). A nil block declares
 	// nothing, so a frozen snapshot keeps accepting the parts it accepted.

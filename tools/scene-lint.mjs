@@ -244,7 +244,7 @@ const decks = matches.flatMap((match, i) => {
   return [{ block: i + 1, tag, title: spec.title || '', spec }];
 });
 // Los pasos de los recorridos y las historias, con la escena que dibuja cada uno. Los chequeos que
-// leen el JSON (`focus` del paso, `flow` de una flecha o de un movimiento, `facts`) miran lo que el kit dibuja.
+// leen el JSON (`ring` del paso, `flow` de una flecha o de un movimiento, `facts`) miran lo que el kit dibuja.
 const stepScenes = decks.flatMap(({ block, title, tag, spec }) => (Array.isArray(spec.steps) ? spec.steps : []).map((step, n) => ({
   block,
   title,
@@ -254,14 +254,14 @@ const stepScenes = decks.flatMap(({ block, title, tag, spec }) => (Array.isArray
 })));
 const asList = (value) => (Array.isArray(value) ? value : []);
 
-// Un `focus` nombra una pieza con id de su propio paso (#299): una caja, un icono, un rótulo, un actor
+// Un `ring` nombra una pieza con id de su propio paso (#299; `ring` desde #305): una caja, un icono, un rótulo, un actor
 // o una prop. Si no nombra ninguna, el anillo no tiene a qué rodear.
 const FOCUSABLE = ['boxes', 'icons', 'labels', 'actors', 'props'];
 const focusMisses = stepScenes.flatMap(({ block, title, n, step, scene }) => {
-  if (typeof step?.focus !== 'string') return [];
+  if (typeof step?.ring !== 'string') return [];
   const ids = FOCUSABLE.flatMap((kind) => asList(scene[kind]).map((piece) => piece?.id)).filter((id) => id != null).map(String);
-  if (ids.includes(step.focus)) return [];
-  return [{ block, title, kind: 'foco-sin-pieza', text: step.focus, detail: `el paso ${n + 1} enfoca «${step.focus}», y ninguna pieza con ese id está en ese paso: ponle el id a la caja, el icono, el rótulo, el actor o la prop que quieres marcar, o quita el focus` }];
+  if (ids.includes(step.ring)) return [];
+  return [{ block, title, kind: 'foco-sin-pieza', text: step.ring, detail: `el paso ${n + 1} enfoca «${step.ring}», y ninguna pieza con ese id está en ese paso: ponle el id a la caja, el icono, el rótulo, el actor o la prop que quieres marcar, o quita el ring` }];
 });
 
 // El `flow` de una flecha o de un movimiento (#300) es true o false: cualquier otro valor no dibuja el flujo.

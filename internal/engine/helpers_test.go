@@ -580,9 +580,9 @@ func (f *fixture) canonicalPartFile(t *testing.T, part string) string {
 // fixtureWalkthrough is the progressive walkthrough every part owes: three
 // steps that draw the example and point at what changes.
 const fixtureWalkthrough = "<lk-walkthrough class=\"lk-wt-compact\">\n<script type=\"application/json\">\n" +
-	`{"title":"El robot sube","viewBox":"0 0 360 380","steps":[` +
+	`{"title":"El robot sube","viewBox":"0 0 360 380","summary":{"title":"Lo que queda","metrics":[["Pasos","3"],["Coste por paso","0,04"]]},"steps":[` +
 	`{"title":"La salida","text":"El robot empieza en (0,2).","scene":{"boxes":[{"x":40,"y":200,"w":120,"h":90,"label":"(0,2)"}],"nodes":[{"x":100,"y":245,"r":26,"label":"R"}],"arrows":[{"x1":250,"y1":245,"x2":170,"y2":245,"label":"aquí"}]}},` +
-	`{"title":"Sube","text":"Sube a (0,1).","scene":{"boxes":[{"x":40,"y":200,"w":120,"h":90,"label":"(0,2)"},{"x":40,"y":60,"w":120,"h":90,"label":"(0,1)"}],"nodes":[{"x":100,"y":105,"r":26,"label":"R"}],"arrows":[{"x1":100,"y1":200,"x2":100,"y2":155,"label":"sube"}]}},` +
+	`{"title":"Sube","ring":"caja-sube","text":"Sube a (0,1).","scene":{"boxes":[{"x":40,"y":200,"w":120,"h":90,"label":"(0,2)"},{"id":"caja-sube","x":40,"y":60,"w":120,"h":90,"label":"(0,1)"}],"nodes":[{"x":100,"y":105,"r":26,"label":"R"}],"arrows":[{"x1":100,"y1":200,"x2":100,"y2":155,"label":"sube"}]}},` +
 	`{"title":"Paga","text":"Cada paso cuesta −0,04.","scene":{"boxes":[{"x":40,"y":60,"w":120,"h":90,"label":"(0,1)"}],"nodes":[{"x":100,"y":105,"r":26,"label":"R"}],"arrows":[{"x1":250,"y1":105,"x2":170,"y2":105,"label":"−0,04"}]}}]}` +
 	"\n</script>\n</lk-walkthrough>\nCómo leerlo: avanza y mira la flecha."
 

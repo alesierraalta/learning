@@ -123,13 +123,13 @@ Desde ese momento, los saldos son públicos.
 
 <lk-story>
 <script type="application/json">
-{
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","6"]]},
  "kind": "derivation",
  "title": "Ciclo transaccional con SAVEPOINT y ROLLBACK TO",
  "viewBox": "0 0 360 250",
  "steps": [
   {
-   "title": "Estado inicial en reposo",
+   "title": "Estado inicial en reposo","facts":[["saldo10","1000"],["saldo20","1000"]],
    "narrator": "La cuenta 10 y la cuenta 20 inician con 1000 cada una.",
    "equation": {
     "size": 18,
@@ -155,7 +155,7 @@ Desde ese momento, los saldos son públicos.
    }
   },
   {
-   "title": "Débito en la cuenta 10",
+   "title": "Débito en la cuenta 10","ring":"c10",
    "narrator": "UPDATE resta 200 en cuenta 10: 1000 − 200 = 800.",
    "equation": {
     "size": 18,

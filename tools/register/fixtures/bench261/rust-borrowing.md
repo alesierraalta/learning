@@ -40,13 +40,13 @@ El préstamo solo permite leer.
 
 <lk-story>
 <script type="application/json">
-{
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},
   "kind": "derivation",
   "title": "Propiedad y préstamo inmutable",
   "viewBox": "0 60 360 190",
   "steps": [
     {
-      "title": "Una dueña",
+      "title": "Una dueña","facts":[["valor","\"calor\""]],
       "equation": {
         "size": 22,
         "atoms": [
@@ -75,7 +75,7 @@ El préstamo solo permite leer.
       }
     },
     {
-      "title": "Primer préstamo",
+      "title": "Primer préstamo","ring":"s1",
       "equation": {
         "size": 22,
         "atoms": [

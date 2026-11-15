@@ -1446,7 +1446,7 @@
       keys.set(base, n);
       return n > 1 ? `${base}#${n}` : base;
     };
-    // Las piezas con id se pueden enfocar con `focus` (#299): una caja, un icono, un rótulo, un actor o una prop.
+    // Las piezas con id se pueden enfocar con `ring` (#299; `ring` desde #305): una caja, un icono, un rótulo, un actor o una prop.
     const FOCUSABLE = ['box', 'icon', 'label', 'actor', 'prop'];
     const idOf = (kind, item) => (FOCUSABLE.includes(kind) && item?.id != null ? String(item.id) : undefined);
     const keep = (from, kind, item, label) => { out = out.slice(0, from) + S.piece(keyOf(kind, item, label), out.slice(from), idOf(kind, item)); };
@@ -1921,7 +1921,7 @@
     stage.style.setProperty('--lk-vb', `${stageWidth}px`);
     const stageTop = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[1]) || 0;
     const stageHeight = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[3]) || 640;
-    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth, stageTop, stageHeight), s.focus)).join(''), spec.viewBox || '0 0 1200 640');
+    const markup = S.svg(steps.map((s, i) => S.step(i + 1, walkScene(s.scene || {}, stageWidth, stageTop, stageHeight), s.ring)).join(''), spec.viewBox || '0 0 1200 640');
     stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
     const captionTitle = el('strong');
     const captionText = el('p');
@@ -3262,13 +3262,19 @@
     // La fórmula vive en la cabecera (HTML, con el token del paso resaltado); el
     // escenario dibuja la acción, no repite la fórmula. Duplicarla en el SVG la
     // dejaba como una pieza suelta al lado de la etiqueta del paso.
-    const sceneOf = (step) => ({ ...((step.stage && step.stage.scene) || step.stage || {}) });
+    // Un movimiento de historia fluye por defecto (#305): `flow: false` lo deja quieto. Un recorrido
+    // (`lk-walkthrough`) no cambia: sus flechas siguen siendo opt-in.
+    const sceneOf = (step) => {
+      const scene = { ...((step.stage && step.stage.scene) || step.stage || {}) };
+      if (Array.isArray(scene.moves)) scene.moves = scene.moves.map((mv) => (mv?.flow === false ? mv : { ...mv, flow: true }));
+      return scene;
+    };
     // Un paso dibuja una escena (el SVG de siempre) o una pieza (tarjetas, memoria,
     // tablas, conjuntos). El lienzo de escena solo existe si algún paso lo usa.
     const pieces = steps.map((s) => stagePiece(s, spec));
     const hasScene = pieces.some((p) => !p);
     if (hasScene) {
-      const markup = S.svg(steps.map((s, i) => pieces[i] ? '' : S.step(i + 1, walkScene(sceneOf(s), stageWidth, stageTop, stageHeight), s.focus)).join(''), viewBox);
+      const markup = S.svg(steps.map((s, i) => pieces[i] ? '' : S.step(i + 1, walkScene(sceneOf(s), stageWidth, stageTop, stageHeight), s.ring)).join(''), viewBox);
       stage.replaceChildren(document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true));
     }
     const panels = pieces.map((p, i) => {
@@ -3305,7 +3311,7 @@
     if (spec.title) this.append(el('strong', spec.title, { class: 'lk-title' }));
     this.append(head, stage, narratorBand, ...(card ? [card] : []), player);
     function tokens(atoms, focus) {
-      // Un `focus` de texto nombra una pieza del escenario (#299): no es una lista de símbolos.
+      // Solo cuenta la lista de símbolos: un `focus` de texto no nombra un anillo (el de una pieza es `ring`, #305).
       const on = new Set((Array.isArray(focus) ? focus : []).map(String));
       const wrap = el('div', undefined, { class: 'lk-story-formula' });
       atoms.forEach((a, i) => {

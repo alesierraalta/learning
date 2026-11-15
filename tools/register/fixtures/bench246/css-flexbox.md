@@ -55,8 +55,8 @@ Pasar de row a column rota el eje principal noventa grados hacia la vertical.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Orientación de los ejes en Flexbox","viewBox":"0 0 360 220","steps":[
- {"title":"Paso 1: Dirección por defecto (row)","equation":{"size":22,"atoms":[{"t":"display: flex;","id":"df"},{"t":" /* ","id":"c1"},{"t":"flex-direction: row","id":"fdr"},{"t":" */","id":"c2"}]},"focus":["df","fdr"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Orientación de los ejes en Flexbox","viewBox":"0 0 360 220","steps":[
+ {"title":"Paso 1: Dirección por defecto (row)","facts":[["p1","Fila X"]],"equation":{"size":22,"atoms":[{"t":"display: flex;","id":"df"},{"t":" /* ","id":"c1"},{"t":"flex-direction: row","id":"fdr"},{"t":" */","id":"c2"}]},"focus":["df","fdr"],
   "narrator":"El contenedor activa el eje principal horizontal de izquierda a derecha.",
   "scene":{"arrows":[{"x1":70,"y1":140,"x2":270,"y2":140}]},
   "stage":{"scene":{
@@ -66,7 +66,7 @@ Pasar de row a column rota el eje principal noventa grados hacia la vertical.
    ],
    "props":[{"id":"p1","kind":"value","on":"b1","side":"left","label":"Fila X","tone":"green"}]
   }}},
- {"title":"Paso 2: Disposición de los ítems en fila","equation":{"size":22,"atoms":[{"t":"[Inicio]","id":"i1"},{"t":" ---> ","id":"a1"},{"t":"[Cursos]","id":"i2"},{"t":" ---> ","id":"a2"},{"t":"[Perfil]","id":"i3"}]},"focus":["i1","i2","i3"],
+ {"title":"Paso 2: Disposición de los ítems en fila","ring":"c1","equation":{"size":22,"atoms":[{"t":"[Inicio]","id":"i1"},{"t":" ---> ","id":"a1"},{"t":"[Cursos]","id":"i2"},{"t":" ---> ","id":"a2"},{"t":"[Perfil]","id":"i3"}]},"focus":["i1","i2","i3"],
   "narrator":"Los tres botones se alinean en horizontal siguiendo la dirección del eje principal.",
   "scene":{"arrows":[{"x1":270,"y1":140,"x2":70,"y2":140}]},
   "stage":{"scene":{

@@ -21,8 +21,8 @@ El último paso enmarca la respuesta.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Resolver x + 2 = 3","viewBox":"0 0 360 250","steps":[
- {"title":"La ecuación","equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" + ","id":"plus"},{"t":"2","id":"two"},{"t":" = ","id":"eq"},{"t":"3","id":"three"}]},"focus":["two"],
+{"summary":{"title":"x = 1","text":"Pasar el 2 al otro lado cambia su signo.","metrics":[["Paso clave","el 2 pasa restando"],["Respuesta","x = 1"]]},"kind":"derivation","title":"Resolver x + 2 = 3","viewBox":"0 0 360 250","steps":[
+ {"title":"La ecuación","facts":[["x","lo que buscamos"],["2","lo que está sumando"],["3","el resultado de la suma"]],"equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" + ","id":"plus"},{"t":"2","id":"two"},{"t":" = ","id":"eq"},{"t":"3","id":"three"}]},"focus":["two"],
   "narrator":"Tengo «x + 2 = 3». Quiero dejar la «x» sola.",
   "stage":{"scene":{"actors":[
     {"id":"x","x":44,"y":150,"w":44,"h":40,"label":"x","tone":"blue","tag":"incógnita"},
@@ -40,7 +40,7 @@ El último paso enmarca la respuesta.
     {"id":"minus","x":214,"y":160,"w":30,"h":40,"label":"−","tone":"amber"},
     {"id":"two","x":254,"y":160,"w":44,"h":40,"label":"2","tone":"amber"}],
    "moves":[{"from":"two-old","to":"two","verb":"pasa restando","tone":"amber"}]}}},
- {"title":"La cuenta","equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" = ","id":"eq"},{"t":"1","id":"one"}]},"focus":["one"],
+ {"title":"La cuenta","ring":"one","equation":{"size":22,"atoms":[{"t":"x","id":"x"},{"t":" = ","id":"eq"},{"t":"1","id":"one"}]},"focus":["one"],
   "narrator":"«3 − 2 = 1». Entonces «x = 1»: la respuesta queda enmarcada.",
   "stage":{"scene":{"actors":[
     {"id":"three-old","x":100,"y":40,"w":44,"h":40,"label":"3","tone":"slate","state":"faded"},

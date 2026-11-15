@@ -75,8 +75,8 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Ciclo transaccional con SAVEPOINT y ROLLBACK TO","viewBox":"0 0 360 210","steps":[
-  {"title":"Estado inicial","narrator":"La tabla cuentas contiene dos registros con saldo 1000 en reposo.",
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","6"]]},"kind":"derivation","title":"Ciclo transaccional con SAVEPOINT y ROLLBACK TO","viewBox":"0 0 360 210","steps":[
+  {"title":"Estado inicial","facts":[["c10","Cuenta 10"],["c20","Cuenta 20"]],"narrator":"La tabla cuentas contiene dos registros con saldo 1000 en reposo.",
    "stage":{"scene":{
      "boxes":[
        {"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","sub":"saldo: 1000","tone":"slate"},
@@ -85,7 +85,7 @@ La sentencia COMMIT confirma todos los cambios pendientes en el registro Redo y 
      "labels":[{"x":180,"y":175,"text":"Sin transacción activa","anchor":"middle","size":13,"tone":"slate"}]
    }},
    "scene":{"arrows":[{"x1":97,"y1":20,"x2":262,"y2":20,"tone":"slate","label":"saldo base"}]}},
-  {"title":"Débito en cuenta 10","narrator":"UPDATE resta 200 en cuenta 10; la fila queda modificada en buffer con bloqueo.",
+  {"title":"Débito en cuenta 10","ring":"c10","narrator":"UPDATE resta 200 en cuenta 10; la fila queda modificada en buffer con bloqueo.",
    "stage":{"scene":{
      "boxes":[
        {"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","sub":"saldo: 800","tone":"blue"},

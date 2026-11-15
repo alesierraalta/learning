@@ -584,7 +584,8 @@ tutor correct the part before the learner reads it. The numbers live in
  "minScenes": 1, "maxSentencesPerParagraph": 2, "formulaElement": "lk-math",
  "formulaWalkthrough": true, "storyLanguage": true, "storyHeader": true,
  "storyStage": true, "actorCharacter": true, "sceneStage": true,
- "markEcho": true, "verdictError": true, "accessorySense": true, "characterSense": true}
+ "markEcho": true, "verdictError": true, "accessorySense": true, "characterSense": true,
+ "storySummary": true, "formulaLegend": true, "storyFocus": true}
 ```
 
 The block also turns on the standard's non-numeric rules, and the check is
@@ -708,6 +709,18 @@ checks). What it measures, and how:
   `accesorio-sin-sentido`. The three keys are additive: a snapshot without them
   keeps the parts it accepted.
 - **Character sense.** `characterSense` turns on the character-sense rule (#261): an actor's character contradicts its tag, a server, a file or a database for a person or a test result, or a person for a server. A frequency tree's groups are read the same way. Mirrored as `personaje-sin-sentido`; the key is additive, so a snapshot without it keeps the parts it accepted.
+- **Authoring cues (#305).** `storySummary`, `formulaLegend` and `storyFocus` turn on three rules that
+  measure what the tutor writes, not what the learner already reads. A walkthrough or a story of three
+  steps or more ends with a `summary` card (`falta-resumen`). A formula or derivation story names its
+  symbols in `facts` on at least one step (`falta-leyenda`). A walkthrough or a story of three drawn steps
+  names one piece with a `ring` on at least one step (`falta-foco`); a piece story (cards, memory, tables,
+  venn) draws no drawn step and asks for no ring. A rules snapshot without the keys keeps the parts it
+  accepted. The tool runs the same three rules (`tools/explain-check/rules/falta-*.mjs`, marked
+  `authoringOnly`), and a test cross-checks the verdicts on the shapes and on the kit's examples.
+- **Serving.** explain-check's JSON reports `serves`: true when every rule that is not authoring-only
+  passes. The bridge (`integrations/pi/bridge.ts`) serves a page the tutor wrote on `serves`, so a part
+  that lacks an authoring cue is still served. The turn-end checks and the engine still refuse a part
+  that is written now (`ok` and the exit code, which count every rule).
 - **Story language.** `storyLanguage` turns on the story-language rule: a part
   draws its step-by-step visual with `<lk-story>` (the deck of actors with
   state, moves and marks) or with a piece (`<lk-cards>`, `<lk-memory>`,
@@ -792,7 +805,8 @@ shared file except one registry line:
 - **Tool.** `tools/explain-check.mjs` is the runner. It reads the note once
   (`tools/explain-check/nota.mjs`) and runs the registry
   `tools/explain-check/reglas.mjs` in order. Each rule is
-  `tools/explain-check/rules/<id>.mjs`, exporting `{ id, check(note, ctx) }`.
+  `tools/explain-check/rules/<id>.mjs`, exporting `{ id, check(note, ctx) }`. A rule that measures what the tutor writes sets `authoringOnly: true`:
+  its failure blocks a new part, and `serves` leaves it out (see the cues above).
 
 `CONTRIBUTING.md` lists the steps to add a rule.
 

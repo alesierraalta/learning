@@ -40,15 +40,15 @@ Sin embargo, cambiar la dirección rota ambos ejes.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Contenedor y ejes: la geometría de Flexbox","viewBox":"0 60 360 190","steps":[
- {"title":"Activa el contenedor","equation":{"size":22,"atoms":[{"t":".barra { ","id":"b"},{"t":"display: flex;","id":"df"},{"t":" }","id":"cl"}]},"focus":["df"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Contenedor y ejes: la geometría de Flexbox","viewBox":"0 60 360 190","steps":[
+ {"title":"Activa el contenedor","facts":[["Activa el contenedor","La propiedad display flex activa el contexto en la barra."]],"equation":{"size":22,"atoms":[{"t":".barra { ","id":"b"},{"t":"display: flex;","id":"df"},{"t":" }","id":"cl"}]},"focus":["df"],
   "narrator":"La propiedad display flex activa el contexto en la barra.",
   "stage":{"scene":{
    "paths":[],
    "actors":[{"id":"nav","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","tag":"barra"},{"id":"b1","icon":"robot","x":250,"y":150,"size":56,"tone":"slate","tag":"hijos"}],
    "props":[{"id":"p1","kind":"packet","on":"nav","side":"left","tone":"blue"}],
    "marks":[{"kind":"ok","actors":["nav"],"label":"flex"}]}}},
- {"title":"Eje principal horizontal","equation":{"size":22,"atoms":[{"t":"flex-direction: ","id":"fd"},{"t":"row;","id":"rw"}]},"focus":["rw"],
+ {"title":"Eje principal horizontal","ring":"nav","equation":{"size":22,"atoms":[{"t":"flex-direction: ","id":"fd"},{"t":"row;","id":"rw"}]},"focus":["rw"],
   "narrator":"Los ítems fluyen en fila de izquierda a derecha.",
   "stage":{"scene":{
    "paths":[],

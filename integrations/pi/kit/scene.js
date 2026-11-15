@@ -22,11 +22,11 @@
 
   const lbl = (x, y, t, o = {}) => txt(x, y, t, { size: 26, color: C.slate, bold: false, italic: true, ...o });
 
-  // El `focus` de un paso nombra una pieza suya: el kit le dibuja un anillo alrededor (#299).
-  const step = (n, body, focus) => `<g data-step="${n}"${typeof focus === 'string' && focus ? ` data-focus-piece="${esc(focus)}"` : ''}>${body}</g>`;
+  // El `ring` de un paso nombra una pieza suya: el kit le dibuja un anillo alrededor (#299; `ring` desde #305).
+  const step = (n, body, ring) => `<g data-step="${n}"${typeof ring === 'string' && ring ? ` data-focus-piece="${esc(ring)}"` : ''}>${body}</g>`;
 
   // Una pieza se reconoce entre pasos por su clave: el movimiento de un paso al otro la sigue. Con
-  // id, es también el nombre que el `focus` de un paso usa.
+  // id, es también el nombre que el `ring` de un paso usa.
   const piece = (key, body, id) => `<g data-piece-key="${esc(key)}"${id === undefined ? '' : ` data-piece-id="${esc(id)}"`}>${body}</g>`;
 
   const gear = (cx, cy, r = 60, teeth = 10, color = C.blue) => {

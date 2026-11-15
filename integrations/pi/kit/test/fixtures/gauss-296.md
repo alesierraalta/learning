@@ -85,13 +85,13 @@ Es el porcentaje de datos contenido entre desviaciones fijas. En nuestro servido
 
 <lk-story>
 <script type="application/json">
-{"kind":"formula","title":"La densidad gaussiana, paso a paso","viewBox":"0 0 360 262",
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","8"]]},"kind":"formula","title":"La densidad gaussiana, paso a paso","viewBox":"0 0 360 262",
  "formula":{"size":18,"atoms":[
   {"t":"f","id":"f"},{"t":"(","id":"open"},{"t":"x","id":"x"},{"t":")","id":"close"},{"t":" = ","id":"eq"},
   {"t":"1","id":"one"},{"t":"/","id":"slash"},{"t":"(","id":"nopen"},{"t":"σ","id":"sigma"},{"t":"√","id":"sqrt"},{"t":"(","id":"sopen"},{"t":"2","id":"two"},{"t":"π","id":"pi"},{"t":")","id":"sclose"},{"t":")","id":"nclose"},
   {"t":" · ","id":"dot"},{"t":"exp","id":"exp"},{"t":"(","id":"eopen"},{"t":"−","id":"minus"},{"t":"(","id":"xopen"},{"t":"x","id":"x2"},{"t":"−","id":"minus2"},{"t":"μ","id":"mu"},{"t":")","id":"xclose"},{"t":"²","id":"sq"},{"t":"/","id":"dslash"},{"t":"(","id":"dopen"},{"t":"2","id":"two2"},{"t":"σ","id":"sigma2"},{"t":"²","id":"sq2"},{"t":")","id":"dclose"},{"t":")","id":"eclose"}]},
  "steps":[
-  {"title":"La fórmula entera","focus":[],
+  {"title":"La fórmula entera","facts":[["La fórmula entera","Esta es la densidad normal: la altura de la campana en un punto «x»."]],"focus":[],
    "narrator":"Esta es la densidad normal: la altura de la campana en un punto «x».",
    "stage":{"scene":{"paths":[
      {"d":"M 48 210 C 51.7 209.9 62.7 210.2 70 209.6 C 77.3 209.0 84.7 209.5 92 206.6 C 99.3 203.7 106.7 201.3 114 192.1 C 121.3 182.9 128.7 168.4 136 151.7 C 143.3 134.9 150.7 106.9 158 91.6 C 165.3 76.3 172.7 60.0 180 60 C 187.3 60.0 194.7 76.3 202 91.6 C 209.3 106.9 216.7 134.9 224 151.7 C 231.3 168.4 238.7 182.9 246 192.1 C 253.3 201.3 260.7 203.7 268 206.6 C 275.3 209.5 282.7 209.0 290 209.6 C 297.3 210.2 308.3 209.9 312 210","tone":"blue","width":4,"arrow":false},
@@ -101,7 +101,7 @@ Es el porcentaje de datos contenido entre desviaciones fijas. En nuestro servido
     "icons":[{"kind":"doc","id":"peticion","x":70,"y":72,"size":40,"tone":"blue"},{"kind":"gear","id":"servidor","x":290,"y":72,"size":40,"tone":"green"}],
     "tags":[{"text":"la petición","to":"peticion","tone":"blue"},{"text":"el servidor","to":"servidor","tone":"green"}],
     "labels":[{"x":20,"y":120,"text":"densidad","anchor":"start","size":16},{"x":344,"y":232,"text":"latencia (ms)","anchor":"end","size":16}]}}},
-  {"title":"f: la densidad","focus":["f"],
+  {"title":"f: la densidad","ring":"fx","focus":["f"],
    "say":{"what":"la función de densidad","use":"da la altura de la campana en un punto","value":"en el ejemplo, f(184 ms)"},
    "narrator":"«f» es la densidad: la altura de la curva en el punto que miras.",
    "stage":{"scene":{"paths":[

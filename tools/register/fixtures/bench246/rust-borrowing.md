@@ -55,8 +55,8 @@ Ambas referencias apuntan a la misma dirección del heap sin duplicar el texto.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Préstamos inmutables en memoria","viewBox":"0 60 360 190","steps":[
- {"title":"Variable dueña","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"libro","id":"libro"},{"t":" = ","id":"eq"},{"t":"String::from(\"Rust\");","id":"val"}]},"focus":["libro","val"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Préstamos inmutables en memoria","viewBox":"0 60 360 190","steps":[
+ {"title":"Variable dueña","facts":[["texto","\"Rust\""],["val","\"Rust\""]],"equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"libro","id":"libro"},{"t":" = ","id":"eq"},{"t":"String::from(\"Rust\");","id":"val"}]},"focus":["libro","val"],
   "narrator":"La variable «libro» es la dueña del texto en el heap.",
   "scene":{"arrows":[{"x1":80,"y1":140,"x2":220,"y2":140}]},
   "stage":{"scene":{
@@ -66,7 +66,7 @@ Ambas referencias apuntan a la misma dirección del heap sin duplicar el texto.
    ],
    "props":[{"id":"val","kind":"value","on":"libro","side":"right","label":"\"Rust\"","tone":"green"}]
   }}},
- {"title":"Primer préstamo","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"ref1","id":"ref1"},{"t":" = ","id":"eq"},{"t":"&libro;","id":"borrow"}]},"focus":["ref1","borrow"],
+ {"title":"Primer préstamo","ring":"libro","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"ref1","id":"ref1"},{"t":" = ","id":"eq"},{"t":"&libro;","id":"borrow"}]},"focus":["ref1","borrow"],
   "narrator":"«ref1» toma prestado a «libro»: solo lee, no mueve ownership.",
   "scene":{"arrows":[{"x1":80,"y1":140,"x2":220,"y2":140}]},
   "stage":{"scene":{

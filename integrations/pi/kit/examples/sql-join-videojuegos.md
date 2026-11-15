@@ -19,14 +19,14 @@ Mira qué fila encuentra cada videojuego.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"videogames JOIN developers","tables":{
+{"summary":{"title":"Cada videojuego con su desarrolladora","metrics":[["Unión","developer_id = id"],["Filas","las de videogames"]]},"kind":"derivation","title":"videogames JOIN developers","tables":{
  "tables":[
   {"id":"games","name":"videogames","columns":["title","developer_id"],"rows":[["Zelda","1"],["Mario","1"],["GTA V","5"],["Portal 2","7"],["RDR 2","5"]]},
   {"id":"devs","name":"developers","columns":["id","name"],"rows":[["1","Nintendo"],["5","Rockstar"],["7","Valve"]]}],
  "join":{"from":"games.developer_id","to":"devs.id","on":"developer_id = id","highlight":["5"]},
  "result":{"label":"RESULTADO","select":["games.title","devs.name"]}},
  "steps":[
- {"title":"Dos tablas","equation":{"size":22,"atoms":[{"t":"FROM ","id":"from"},{"t":"videogames","id":"games"},{"t":" JOIN ","id":"join"},{"t":"developers","id":"devs"}]},"focus":["games","devs"],
+ {"title":"Dos tablas","facts":[["developer_id","id de la desarrolladora"],["id","clave de la desarrolladora"]],"equation":{"size":22,"atoms":[{"t":"FROM ","id":"from"},{"t":"videogames","id":"games"},{"t":" JOIN ","id":"join"},{"t":"developers","id":"devs"}]},"focus":["games","devs"],
   "narrator":"«videogames» guarda el id de su desarrolladora en «developer_id».",
   "stage":{"tables":{"show":["tables"]}}},
  {"title":"Cada fila encuentra su pareja","equation":{"size":22,"atoms":[{"t":"JOIN developers ","id":"join"},{"t":"ON developer_id = id","id":"on"}]},"focus":["on"],

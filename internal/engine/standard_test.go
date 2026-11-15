@@ -67,9 +67,9 @@ const standardScene = `<lk-scene>
 // the classic `<lk-walkthrough>` is legacy for.
 const fixtureStory = `<lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
- {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"}]}}},
- {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
+{"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","summary":{"title":"Lo que queda","metrics":[["Pasos","3"],["Coste por paso","0,04"]]},"steps":[
+ {"title":"La salida","facts":[["r","el robot"],["casilla","la de abajo"]],"narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"}]}}},
+ {"title":"Sube","ring":"u","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
  {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
 ]}
 </script>
@@ -915,9 +915,10 @@ func snapshotWithoutFormulaWalkthrough(t *testing.T) string {
 const formulaStory = `<lk-story>
 <script type="application/json">
 {"kind":"formula","title":"La densidad","viewBox":"0 0 360 250","formula":{"size":18,"atoms":[{"t":"f","id":"f"},{"t":"(","id":"open"},{"t":"x","id":"x"},{"t":")","id":"close"}]},
+ "summary":{"title":"La densidad en el ejemplo","metrics":[["μ","120 ms"],["σ","32 ms"],["f(184)","0,000 65"]]},
  "steps":[
-  {"title":"La fórmula entera","focus":[],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la campana"}]}}},
-  {"title":"f: la densidad","focus":["f"],"narrator":"«f» es la densidad: la altura de la curva.","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la altura"}]}}},
+  {"title":"La fórmula entera","focus":[],"facts":[["f","la densidad: la altura de la curva"],["x","el punto que miras"]],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la campana"}]}}},
+  {"title":"f: la densidad","focus":["f"],"ring":"curva","narrator":"«f» es la densidad: la altura de la curva.","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la altura"}]}}},
   {"title":"x: el punto","focus":["x"],"narrator":"«x» es el punto que miras.","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la latencia"}]}}},
   {"title":"Con el ejemplo","focus":[],"narrator":"Con «x = 184», «f(184) = 0,000 65».","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(184)","tone":"green"}],"labels":[{"x":180,"y":170,"text":"el resultado"}]}}}
  ]}
@@ -1300,9 +1301,9 @@ func plsqlPartOne(t *testing.T) string {
 // actor, no prop, no move, no pointer, no connector and no piece.
 const boxesOnlyStory = `<lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Las dos cuentas","viewBox":"0 0 360 210","steps":[
- {"title":"Los saldos","narrator":"Las dos cuentas están en reposo.","stage":{"scene":{"boxes":[{"x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","sub":"saldo: 1000","tone":"slate"},{"x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","sub":"saldo: 1000","tone":"slate"}]}}},
- {"title":"El débito","narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"boxes":[{"x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","sub":"saldo: 800","tone":"blue"},{"x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","sub":"saldo: 1000","tone":"slate"}],"marks":[{"kind":"ok","actors":["c10"]}]}}},
+{"kind":"derivation","title":"Las dos cuentas","viewBox":"0 0 360 210","summary":{"title":"Lo que queda","metrics":[["Pasos","3"],["Saldo final","800"]]},"steps":[
+ {"title":"Los saldos","facts":[["Cuenta 10","saldo 1000"],["Cuenta 20","saldo 1000"]],"narrator":"Las dos cuentas están en reposo.","stage":{"scene":{"boxes":[{"x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","sub":"saldo: 1000","tone":"slate"},{"x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","sub":"saldo: 1000","tone":"slate"}]}}},
+ {"title":"El débito","ring":"c10","narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"boxes":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","sub":"saldo: 800","tone":"blue"},{"x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","sub":"saldo: 1000","tone":"slate"}],"marks":[{"kind":"ok","actors":["c10"]}]}}},
  {"title":"El commit","narrator":"El commit graba el saldo 800 en disco.","stage":{"scene":{"boxes":[{"x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","sub":"saldo: 800","tone":"green"},{"x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","sub":"saldo: 1000","tone":"green"}],"marks":[{"kind":"ok","actors":["c10"]}]}}}
 ]}
 </script>
@@ -1530,9 +1531,9 @@ const charactersStory = `<lk-story>
 // satisfied, and it is refused only by the character rule.
 const namedBoxesStory = `<lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Las dos cuentas","viewBox":"0 0 360 210","steps":[
- {"title":"Los saldos","equation":{"atoms":[{"t":"SELECT saldo FROM cuentas;","id":"q"}]},"focus":["q"],"narrator":"Las dos cuentas están en reposo.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"slate"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"slate"}],"props":[{"id":"saldo10","kind":"value","on":"c10","side":"below","label":"1000"}]}}},
- {"title":"El débito","equation":{"atoms":[{"t":"UPDATE cuentas SET saldo = saldo - 200;","id":"u"}]},"focus":["u"],"narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"blue"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"slate"}],"props":[{"id":"saldo10","kind":"value","on":"c10","side":"below","label":"800"}],"marks":[{"kind":"ok","actors":["c10"]}]}}},
+{"kind":"derivation","title":"Las dos cuentas","viewBox":"0 0 360 210","summary":{"title":"Lo que queda","metrics":[["Pasos","3"],["Saldo final","800"]]},"steps":[
+ {"title":"Los saldos","facts":[["c10","Cuenta 10"],["c20","Cuenta 20"]],"equation":{"atoms":[{"t":"SELECT saldo FROM cuentas;","id":"q"}]},"focus":["q"],"narrator":"Las dos cuentas están en reposo.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"slate"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"slate"}],"props":[{"id":"saldo10","kind":"value","on":"c10","side":"below","label":"1000"}]}}},
+ {"title":"El débito","ring":"c10","equation":{"atoms":[{"t":"UPDATE cuentas SET saldo = saldo - 200;","id":"u"}]},"focus":["u"],"narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"blue"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"slate"}],"props":[{"id":"saldo10","kind":"value","on":"c10","side":"below","label":"800"}],"marks":[{"kind":"ok","actors":["c10"]}]}}},
  {"title":"El commit","equation":{"atoms":[{"t":"COMMIT;","id":"c"}]},"focus":["c"],"narrator":"El commit graba el saldo 800 en disco.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"green"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"green"}],"props":[{"id":"saldo10","kind":"value","on":"c10","side":"below","label":"800"}],"marks":[{"kind":"ok","actors":["c10"]}]}}}
 ]}
 </script>
@@ -1917,9 +1918,9 @@ func TestDeadKeysRefusesAStepKeyTheSchemaNeverReads(t *testing.T) {
 // written as a text-arrow flow and a `scene` the schema never reads.
 const tcpStory = `<lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"El handshake","viewBox":"0 0 360 220","steps":[
- {"title":"SYN","equation":{"size":18,"atoms":[{"t":"Cliente","id":"c"},{"t":" ---[ SYN, Seq=1000 ]---> ","id":"syn"},{"t":"Servidor","id":"s"}]},"focus":["syn"],"narrator":"El cliente abre la conexión.","scene":{"arrows":[{"x1":70,"y1":140,"x2":270,"y2":140}]},"stage":{"scene":{"actors":[{"id":"cli","icon":"robot","x":70,"y":140,"size":56,"tone":"blue","tag":"Cliente"},{"id":"srv","icon":"robot","x":270,"y":140,"size":56,"tone":"green","tag":"Servidor"}],"props":[{"id":"p1","kind":"value","on":"cli","side":"right","label":"SYN","tone":"blue"}]}}},
- {"title":"SYN-ACK","equation":{"size":18,"atoms":[{"t":"Servidor","id":"s"},{"t":" <---[ SYN-ACK ]--- ","id":"synack"},{"t":"Cliente","id":"c"}]},"focus":["synack"],"narrator":"El servidor responde con su acuse.","scene":{"arrows":[{"x1":270,"y1":140,"x2":70,"y2":140}]},"stage":{"scene":{"actors":[{"id":"cli","icon":"robot","x":70,"y":140,"size":56,"tone":"blue","tag":"Cliente"},{"id":"srv","icon":"robot","x":270,"y":140,"size":56,"tone":"green","tag":"Servidor"}],"props":[{"id":"p2","kind":"value","on":"srv","side":"left","label":"SYN-ACK","tone":"green"}],"marks":[{"kind":"ok","actors":["srv"]}]}}},
+{"kind":"derivation","title":"El handshake","viewBox":"0 0 360 220","summary":{"title":"Lo que queda","metrics":[["Pasos","3"],["Mensajes","SYN, SYN-ACK, ACK"]]},"steps":[
+ {"title":"SYN","facts":[["cli","el cliente"],["srv","el servidor"]],"equation":{"size":18,"atoms":[{"t":"Cliente","id":"c"},{"t":" ---[ SYN, Seq=1000 ]---> ","id":"syn"},{"t":"Servidor","id":"s"}]},"focus":["syn"],"narrator":"El cliente abre la conexión.","scene":{"arrows":[{"x1":70,"y1":140,"x2":270,"y2":140}]},"stage":{"scene":{"actors":[{"id":"cli","icon":"robot","x":70,"y":140,"size":56,"tone":"blue","tag":"Cliente"},{"id":"srv","icon":"robot","x":270,"y":140,"size":56,"tone":"green","tag":"Servidor"}],"props":[{"id":"p1","kind":"value","on":"cli","side":"right","label":"SYN","tone":"blue"}]}}},
+ {"title":"SYN-ACK","ring":"srv","equation":{"size":18,"atoms":[{"t":"Servidor","id":"s"},{"t":" <---[ SYN-ACK ]--- ","id":"synack"},{"t":"Cliente","id":"c"}]},"focus":["synack"],"narrator":"El servidor responde con su acuse.","scene":{"arrows":[{"x1":270,"y1":140,"x2":70,"y2":140}]},"stage":{"scene":{"actors":[{"id":"cli","icon":"robot","x":70,"y":140,"size":56,"tone":"blue","tag":"Cliente"},{"id":"srv","icon":"robot","x":270,"y":140,"size":56,"tone":"green","tag":"Servidor"}],"props":[{"id":"p2","kind":"value","on":"srv","side":"left","label":"SYN-ACK","tone":"green"}],"marks":[{"kind":"ok","actors":["srv"]}]}}},
  {"title":"ACK","equation":{"size":18,"atoms":[{"t":"Cliente","id":"c"},{"t":" ---[ ACK ]---> ","id":"ack"},{"t":"Servidor","id":"s"}]},"focus":["ack"],"narrator":"El cliente confirma y el canal queda abierto.","scene":{"arrows":[{"x1":70,"y1":140,"x2":270,"y2":140}]},"stage":{"scene":{"actors":[{"id":"cli","icon":"robot","x":70,"y":140,"size":56,"tone":"blue","tag":"Cliente"},{"id":"srv","icon":"robot","x":270,"y":140,"size":56,"tone":"green","tag":"Servidor"}],"props":[{"id":"p3","kind":"value","on":"cli","side":"right","label":"ACK","tone":"green"}],"marks":[{"kind":"ok","actors":["cli"]}]}}}
 ]}
 </script>

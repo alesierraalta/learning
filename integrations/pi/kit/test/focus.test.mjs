@@ -1,7 +1,7 @@
-// El paso que cambia destaca lo que cambió, y su `focus` rodea una pieza con un anillo.
+// El paso que cambia destaca lo que cambió, y su `ring` rodea una pieza con un anillo.
 //
 // Un cambio de texto o de tono destella una vez, unos 600 ms, sin que el autor lo escriba. El
-// `focus` de un paso dibuja un anillo que pulsa alrededor de su pieza hasta que cambia el paso. Ni
+// `ring` de un paso dibuja un anillo que pulsa alrededor de su pieza hasta que cambia el paso. Ni
 // uno ni otro mueven lo asentado: el anillo se marca `data-focus-ring` y los gates lo quitan al
 // medir, y el destello se quita al asentarse. Con movimiento reducido no hay destello y el anillo
 // es un contorno fijo.
@@ -59,7 +59,7 @@ const WALK = {
     } },
   ],
 };
-const FOCUS = { ...WALK, steps: WALK.steps.map((s, i) => (i === 1 ? { ...s, focus: 'db' } : s)) };
+const FOCUS = { ...WALK, steps: WALK.steps.map((s, i) => (i === 1 ? { ...s, ring: 'db' } : s)) };
 
 // Un paso de historia: «Servidor» se enfoca por texto en el paso 2, y en el 3 la fórmula sigue
 // resaltando un token con la lista de siempre.
@@ -74,7 +74,7 @@ const STORY = {
   viewBox: '0 0 480 220',
   steps: [
     { title: 'Uno', narrator: 'El cliente abre.', equation: { atoms }, stage: { scene: { actors: actors('green'), moves: [{ from: 'cli', to: 'srv', verb: 'abre' }] } } },
-    { title: 'Dos', narrator: 'El servidor responde.', focus: 'srv', equation: { atoms }, stage: { scene: { actors: actors('amber'), moves: [{ from: 'srv', to: 'cli', verb: 'responde' }] } } },
+    { title: 'Dos', narrator: 'El servidor responde.', ring: 'srv', equation: { atoms }, stage: { scene: { actors: actors('amber'), moves: [{ from: 'srv', to: 'cli', verb: 'responde' }] } } },
     { title: 'Tres', narrator: 'Listo.', focus: ['s'], equation: { atoms }, stage: { scene: { actors: actors('green'), marks: [{ kind: 'ok', actors: ['cli'] }] } } },
   ],
 };
@@ -120,7 +120,7 @@ const settled = (page) => page.waitForFunction(() => window.probe.stage().datase
 const encloses = (outer, inner, margin) => outer.x <= inner.x - margin && outer.y <= inner.y - margin
   && outer.x + outer.w >= inner.x + inner.w + margin && outer.y + outer.h >= inner.y + inner.h + margin;
 
-test('un paso con focus tiene un anillo, y solo ese paso lo tiene', { skip }, async () => {
+test('un paso con ring tiene un anillo, y solo ese paso lo tiene', { skip }, async () => {
   const page = await open(FOCUS);
   try {
     const rings = await page.evaluate(() => [1, 2, 3].map((n) => window.probe.group(n).querySelectorAll(':scope > [data-focus-ring]').length));
@@ -190,8 +190,19 @@ test('el anillo pulsa; con movimiento reducido es un contorno fijo', { skip }, a
   }
 });
 
-test('un focus que no nombra ninguna pieza no dibuja anillo ni rompe el paso', { skip }, async () => {
-  const page = await open({ ...WALK, steps: WALK.steps.map((s, i) => (i === 1 ? { ...s, focus: 'nada' } : s)) });
+// El `focus` de un paso es la lista de símbolos de su fórmula: un texto en `focus` ya no dibuja anillo (#305).
+test('un focus de texto ya no dibuja anillo: el anillo es la clave ring', { skip }, async () => {
+  const page = await open({ ...WALK, steps: WALK.steps.map((s, i) => (i === 1 ? { ...s, focus: 'db' } : s)) });
+  try {
+    assert.equal(await page.evaluate(() => document.querySelectorAll('[data-focus-ring]').length), 0);
+    assert.deepEqual(page.errors, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test('un ring que no nombra ninguna pieza no dibuja anillo ni rompe el paso', { skip }, async () => {
+  const page = await open({ ...WALK, steps: WALK.steps.map((s, i) => (i === 1 ? { ...s, ring: 'nada' } : s)) });
   try {
     assert.equal(await page.evaluate(() => document.querySelectorAll('[data-focus-ring]').length), 0);
     await page.evaluate(() => window.probe.dot(3).click());

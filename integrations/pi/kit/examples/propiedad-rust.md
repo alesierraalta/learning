@@ -27,7 +27,7 @@ El robot que ya no vale se apaga. El que usa algo inválido se tacha.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","frame":"scope","title":"Mover un valor: la dueña cambia","viewBox":"0 60 360 190","steps":[
+{"summary":{"title":"Un valor, una dueña","text":"Mover cambia de manos el valor; la vieja dueña ya no vale.","metrics":[["Dueñas a la vez","una"],["Después de mover","s1 no es válida"]]},"kind":"derivation","frame":"scope","title":"Mover un valor: la dueña cambia","viewBox":"0 60 360 190","steps":[
  {"title":"Una dueña","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"s1","id":"s1"},{"t":" = ","id":"eq"},{"t":"String::from(","id":"from"},{"t":"\"hola\"","id":"value"},{"t":");","id":"end"}]},"focus":["s1","value"],
   "narrator":"«s1» es la *dueña* del texto «\"hola\"». Un valor tiene una sola dueña.",
   "stage":{"scene":{
@@ -35,7 +35,7 @@ El robot que ya no vale se apaga. El que usa algo inválido se tacha.
    "labels":[{"x":26,"y":176,"text":"{","size":34},{"x":334,"y":176,"text":"}","size":34}],
    "actors":[{"id":"s1","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","tag":"s1"}],
    "props":[{"id":"valor","kind":"value","on":"s1","side":"right","label":"\"hola\"","tone":"green"}]}}},
- {"title":"Mover","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"s2","id":"s2"},{"t":" = ","id":"eq"},{"t":"s1","id":"s1"},{"t":";","id":"end"}]},"focus":["s2","s1"],
+ {"title":"Mover","facts":[["s1","la dueña antes de mover"],["s2","la dueña después de mover"]],"equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"s2","id":"s2"},{"t":" = ","id":"eq"},{"t":"s1","id":"s1"},{"t":";","id":"end"}]},"focus":["s2","s1"],
   "narrator":"«let s2 = s1;» *mueve* el valor: el texto no se copia, cambia de manos. Ahora la dueña es «s2».",
   "stage":{"scene":{
    "paths":[{"d":"M 44 204 L 316 204","tone":"slate","width":2,"arrow":false}],
@@ -51,7 +51,7 @@ El robot que ya no vale se apaga. El que usa algo inválido se tacha.
    "actors":[{"id":"s1","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","state":"invalid","tag":"s1"},{"id":"s2","icon":"robot","x":280,"y":150,"size":56,"tone":"amber","tag":"s2"}],
    "props":[{"id":"leer","kind":"read","on":"s1","side":"right","tone":"blue"},{"id":"valor","kind":"value","on":"s2","side":"left","label":"\"hola\"","tone":"green"}],
    "marks":[{"kind":"no","actors":["s1","leer"],"label":"no compila"}]}}},
- {"title":"Se libera","equation":{"size":22,"atoms":[{"t":"}","id":"brace"},{"t":" // fin del ámbito","id":"scope"}]},"focus":["brace"],
+ {"title":"Se libera","ring":"valor","equation":{"size":22,"atoms":[{"t":"}","id":"brace"},{"t":" // fin del ámbito","id":"scope"}]},"focus":["brace"],
   "narrator":"Cuando la dueña sale de su ámbito, Rust *libera* el valor una sola vez.",
   "stage":{"scene":{
    "paths":[{"d":"M 44 204 L 316 204","tone":"slate","width":2,"arrow":false}],
