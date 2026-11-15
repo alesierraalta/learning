@@ -14,7 +14,7 @@ import type { TSchema } from "typebox";
 import { spawnSync } from "node:child_process";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -729,7 +729,8 @@ function regeneratable(root: string, target: { topic: string; part: string }) {
 
 /**
  * A regeneration rewrites the page, the note and the quiz, so those three go to the
- * trash before the tutor starts: the previous version can be read again by hand. The
+ * trash once the studio holds the turn, before the tutor is asked: the previous version
+ * can be read again by hand, and a move that fails part way puts back what it moved. The
  * video, the demos and the attachments are not rewritten and stay where they are, and
  * `plan.json` keeps its entry: the part is not deleted, it is replaced.
  */
@@ -753,15 +754,24 @@ export function backupPartForRegeneration(
   if (!insideTrash || isAbsolute(wanted) || guard.startsWith("..")) throw new HttpError(400, "invalid trash folder");
   const trashRel = relative(rootReal, trashPath);
   const moved: string[] = [];
+  const created = !existsSync(trashPath);
   mkdirSync(trashPath, { recursive: true });
   const manifest = () => `${JSON.stringify({ kind: "regeneracion", at: now.toISOString(), topic: target.topic, part: target.part, moved }, null, 2)}\n`;
   // The intent is on disk before the first move, exactly as a deletion does it.
   writeFileSync(join(trashPath, "papelera.json"), manifest());
-  for (const file of moving) {
-    const rel = relative(rootReal, file);
-    mkdirSync(dirname(join(trashPath, rel)), { recursive: true });
-    renameSync(file, join(trashPath, rel));
-    moved.push(rel);
+  try {
+    for (const file of moving) {
+      const rel = relative(rootReal, file);
+      mkdirSync(dirname(join(trashPath, rel)), { recursive: true });
+      renameSync(file, join(trashPath, rel));
+      moved.push(rel);
+    }
+  } catch (error) {
+    // All or nothing: what already moved goes back, and the folder this call made goes with it, so a failed
+    // backup leaves the part where it was and no backup behind (#316).
+    for (const rel of moved) renameSync(join(trashPath, rel), join(rootReal, rel));
+    if (created) rmSync(trashPath, { recursive: true, force: true });
+    throw error;
   }
   writeFileSync(join(trashPath, "papelera.json"), manifest());
   return { trash: trashRel, moved };

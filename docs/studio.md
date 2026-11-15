@@ -647,7 +647,7 @@ chip or one sentence; the accept button stays disabled until then.
 
 - **Sugerir** stores it and nothing else: the tutor reads it the next time it writes.
 - **Regenerar** stores it and asks the tutor for that part again — rich page, note and
-  mini-quiz — with the reason as the request. Before the tutor starts, the page, the note
+  mini-quiz — with the reason as the request. Once the studio holds the turn, before the tutor is asked, the page, the note
   and the mini-quiz move to `.papelera/<stamp>__regeneracion__<topic>-<part>/`, keeping
   their vault-relative paths (`redes/explicaciones/Parte 1 - Capas.html`), with a
   `papelera.json` manifest; the video, the demos, the attachments and `plan.json` stay
@@ -663,8 +663,12 @@ chip or one sentence; the accept button stays disabled until then.
   backups of one part land in the same millisecond, the second folder gets a `-2` suffix
   instead of overwriting the first: the trash never keeps one copy of two.
   Everything that can refuse the request — an unknown part, a malformed reason, a prompt
-  over the limit — is decided before the first write, so a refused regeneration leaves
-  the part exactly where it was.
+  over the limit, a turn that cannot start (another turn is held, the tutor's context has
+  drifted, the runtime has not opened its conversation) — is decided before anything moves:
+  a refused regeneration leaves the part exactly where it was, and the chat says why. The
+  suggestion itself is stored before the turn is checked, so a refused regeneration keeps the
+  learner's words. The move is all or nothing: if it fails part way, the files that already
+  moved go back and no folder is left behind.
 
 The `sugerencias` document of the learner database holds every entry (`{id, tema, parte, motivos, texto,
 origen: sugerencia|regenerar, timestamp}`, version 1). It is validated on read and

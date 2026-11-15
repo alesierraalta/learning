@@ -3060,6 +3060,113 @@ test("a regeneration that is refused never moves the part", async () => {
 });
 
 
+/** The three files a regeneration moves, written with bytes that a refusal must leave as they were. */
+function writePart(root) {
+  const topic = join(root, "redes");
+  const files = {
+    page: join(topic, "explicaciones", "Parte 1 - Capas.html"),
+    note: join(topic, "explicaciones", "Parte 1 - Capas.md"),
+    quiz: join(topic, "mini-quiz", "p1.json"),
+  };
+  mkdirSync(dirname(files.quiz), { recursive: true });
+  writeFileSync(files.page, "<html><body>la versión buena</body></html>");
+  writeFileSync(files.note, "# Parte 1 — Capas\n\nla nota buena\n");
+  writeFileSync(files.quiz, JSON.stringify({ questions: [] }));
+  return files;
+}
+/** What each of those files holds now; a file that is gone reads as null, so a move shows in the comparison. */
+const bytesOf = (files) =>
+  Object.fromEntries(Object.entries(files).map(([name, file]) => [name, existsSync(file) ? readFileSync(file, "utf8") : null]));
+/** What the trash holds: nothing at all when a refused regeneration never made a folder. */
+const trashed = (root) => (existsSync(join(root, ".papelera")) ? readdirSync(join(root, ".papelera")) : []);
+
+test("a regeneration refused by the tutor context leaves the part where it was and says why", async () => {
+  const { home, repo } = linkedHome();
+  const { studio, root, received } = await setup({ contextHome: home, skipContextCheck: false });
+  symlinkSync(join(repo, "deploy", "vps", "learnings", "AGENTS.md"), join(root, "AGENTS.md"));
+  const files = writePart(root);
+  const before = bytesOf(files);
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    drift(home, ".claude");
+    const refused = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto, por favor" });
+    assert.equal(refused.status, 409, refused.body);
+    assert.deepEqual(bytesOf(files), before, "the drifted context refused the turn, but the part was moved");
+    assert.deepEqual(trashed(root), [], "and a backup was left behind");
+    assert.equal(received().some((line) => line.type === "prompt"), false, "the refused turn reached the tutor");
+    assert.equal((await stream.next("error")).message, JSON.parse(refused.body).error, "the chat says why, the same way");
+  } finally { stream.close(); }
+});
+
+/** A runtime that answers its session one second late: the studio's boot waits on that answer. */
+const SLOW_RUNTIME = [
+  'import { createInterface } from "node:readline";',
+  'createInterface({ input: process.stdin }).on("line", (line) => {',
+  "  const command = JSON.parse(line);",
+  "  const answer = () => process.stdout.write(JSON.stringify({",
+  '    id: command.id, type: "response", command: command.type, success: true,',
+  '    data: command.type === "get_session_stats" ? { sessionFile: "/tmp/slow-session.jsonl", contextUsage: null } : { messages: [] },',
+  '  }) + "\\n");',
+  '  if (command.type === "get_session_stats") setTimeout(answer, 1000);',
+  "  else answer();",
+  "});",
+].join("\n");
+
+/**
+ * A studio whose runtime is not ready: its boot waits a second for the session, and the chats folder refuses
+ * writes from the moment the studio is up, so the boot fails while a regeneration is waiting on it.
+ */
+async function unreadyStudio() {
+  const { root, engine } = makeRoot();
+  const dir = mkdtempSync(join(tmpdir(), "unready-"));
+  const runtime = join(dir, "slow-runtime.mjs");
+  writeFileSync(runtime, SLOW_RUNTIME);
+  const chatsDir = join(dir, "chats");
+  mkdirSync(chatsDir);
+  const studio = await startStudio({ root, piCommand: [process.execPath, runtime], enginePath: engine, chatsFile: join(chatsDir, "chats.json") });
+  open.push(studio);
+  // The startup write is done; the boot's own write, after the session answers, is the one that must fail.
+  chmodSync(chatsDir, 0o500);
+  return { studio, root, unlock: () => chmodSync(chatsDir, 0o755) };
+}
+
+test("a regeneration whose runtime is not ready leaves the part where it was and says why", async () => {
+  const { studio, root, unlock } = await unreadyStudio();
+  const files = writePart(root);
+  const before = bytesOf(files);
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    const refused = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"] });
+    assert.deepEqual(bytesOf(files), before, "the runtime was not ready, but the part was moved");
+    assert.deepEqual(trashed(root), [], "and a backup was left behind");
+    assert.equal(refused.status, 503, refused.body);
+    assert.equal((await stream.next("error")).message, JSON.parse(refused.body).error, "the chat says why, the same way");
+  } finally {
+    stream.close();
+    unlock();
+  }
+});
+
+test("a regeneration whose backup fails part way puts every file it moved back", async () => {
+  const { studio, root } = await setup();
+  const files = writePart(root);
+  const before = bytesOf(files);
+  // The page and the note leave first; the quiz cannot leave its folder, so the backup fails after two moves.
+  const quizFolder = dirname(files.quiz);
+  chmodSync(quizFolder, 0o500);
+  try {
+    const answer = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"] });
+    assert.ok(answer.status >= 400, `the backup failed, yet the regeneration answered ${answer.status}`);
+    assert.deepEqual(bytesOf(files), before, "a backup that failed part way took the part out of the library");
+    assert.deepEqual(trashed(root), [], "and left its folder behind");
+  } finally {
+    chmodSync(quizFolder, 0o755);
+  }
+});
+
 test("disabled tutor cannot start or restart, while the reader remains available", async () => {
   const { studio, root, received } = await setup({ agentDisabled: true });
   const page = await http(`${studio.url}api/view?topic=redes&part=p1`);
