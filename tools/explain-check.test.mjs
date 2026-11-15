@@ -445,7 +445,8 @@ test('una historia por pasos pasa la historia', () => {
   const r = run(file);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok\s+historia/);
-  assert.match(r.stdout, /ok\s+recorrido\s+1 recorrido/);
+  // La historia de CUMPLE es de derivación: un cálculo, no un recorrido, y no gasta el tope (#324).
+  assert.match(r.stdout, /ok\s+recorrido\s+0 recorrido/);
 });
 
 // Las instrucciones que lee el modelo dicen lo mismo que la puerta: una parte

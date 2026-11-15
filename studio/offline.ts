@@ -62,6 +62,8 @@ const STYLE_ASSET_TYPE = /^(?:image\/|font\/woff2)/i;
 const BASE64_DATA = /data:[^,"'()\s]*;base64,([A-Za-z0-9+/=]+)/g;
 const NOTE_VIDEO = /<video\b[^>]*>[\s\S]*?<\/video>/gi;
 const VIDEO_NOTE = '<p class="offline-note">🎬 El video de esta parte necesita conexión.</p>';
+/** A script the browser runs once the page is parsed: `defer`, or a module, which is deferred by default. */
+const DEFERRED = /(?:^|\s)defer(?=\s|$)|\btype\s*=\s*["']?module\b/i;
 /** The reader's data: the note, its quiz and its demos, as JSON in a script element. */
 const VIEW_DATA = /(<script type="application\/json" id="view-data">)([\s\S]*?)(<\/script>)/;
 /** Where the reader's data waits while the markup around it is folded. */
@@ -107,6 +109,34 @@ type Page = {
   /** CDN libraries already inlined as a script tag: never shipped a second time. */
   inlined: Set<string>;
 };
+
+/**
+ * The scripts a browser runs once the page is parsed: `defer`, or a module, which is deferred by default. Inlined in the
+ * head, a classic script runs at once, before the figures it draws are parsed, and an inline script ignores `defer`, so
+ * a deferred script is written before </body>. A classic script stays where it stands.
+ */
+class DeferredScripts {
+  private readonly blocks: (string | undefined)[] = [];
+
+  /** The slot a script takes, or -1 for a classic script. Called in document order, before the script's first await. */
+  reserve(attrs: string): number {
+    return DEFERRED.test(attrs) ? this.blocks.push(undefined) - 1 : -1;
+  }
+
+  /** The block where it stands for a classic script; a deferred block waits in its slot and leaves nothing here. */
+  keep(place: number, block: string): string {
+    if (place < 0) return block;
+    this.blocks[place] = block;
+    return "";
+  }
+
+  /** The page with the waiting blocks written before its </body>, in document order. */
+  writeBefore(html: string): string {
+    const moved = this.blocks.filter((block): block is string => block !== undefined).join("\n");
+    if (!moved) return html;
+    return /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => `${moved}\n</body>`) : `${html}\n${moved}`;
+  }
+}
 
 class Snapshot {
   private readonly page: string;
@@ -209,17 +239,26 @@ class Snapshot {
       if (!src || src.startsWith("data:") || depth > 1) return tag;
       return tag.replace(src, await this.frame(resolve(src, base).href, depth));
     });
+    // A deferred script is written before </body>, not in its place (see DeferredScripts). Each one takes its slot here,
+    // before its first await, while the matches are still in document order.
+    const deferred = new DeferredScripts();
     html = await this.replaceAsync(html, /<script\b([^>]*)\bsrc\s*=\s*(["'])(.*?)\2([^>]*)><!--learning-offline:\d+--><\/script>/gi, async ([, before, , src, after]) => {
       const url = resolve(src, base).href;
+      const attrs = (before + after).replace(/\s+/g, " ").replace(/\s*$/, "");
+      const place = deferred.reserve(attrs);
+      let block: string;
       if (isCdn(url)) {
         if (!this.needed(url, page)) return "";
         page.inlined.add(url);
-        return `<script>${slot(inScript((await this.pinned(url)).bytes.toString("utf8")))}</script>`;
+        block = `<script>${slot(inScript((await this.pinned(url)).bytes.toString("utf8")))}</script>`;
+      } else {
+        const code = (await this.fetch(url)).bytes.toString("utf8");
+        await this.script(code, page);
+        block = `<script${attrs}>${slot(inScript(code))}</script>`;
       }
-      const code = (await this.fetch(url)).bytes.toString("utf8");
-      await this.script(code, page);
-      return `<script${(before + after).replace(/\s+/g, " ").replace(/\s*$/, "")}>${slot(inScript(code))}</script>`;
+      return deferred.keep(place, block);
     });
+    html = deferred.writeBefore(html);
     html = html.replace(/<!--learning-offline:(\d+)-->/g, (_, index: string) => bodies[Number(index)]);
     if (!data) return html;
     const folded = await this.viewData(data, base, depth);

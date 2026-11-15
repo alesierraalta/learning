@@ -60,7 +60,8 @@ var (
 	walkthroughOpen = regexp.MustCompile(`<lk-walkthrough[\s>]`)
 	// storyOpen is the formula/derivation walkthrough: the same step deck with a
 	// header, a stage and a narrator. It counts as a walkthrough for the part's
-	// one-deck rule, and its `kind` decides whether it teaches a formula.
+	// one-deck rule, unless it is a derivation (a worked calculation, #324); its
+	// `kind` decides whether it teaches a formula.
 	storyOpen = regexp.MustCompile(`<lk-story[\s>]`)
 	// sceneBlock is a closed scene: the standard asks whether its payload draws,
 	// so it reads the whole block and not only its opening tag.
@@ -163,7 +164,7 @@ func evalPartStandard(c *evalCtx, decl rules.CheckDecl) Check {
 	shape := fmt.Sprintf("%d prose words (limit %d), %d content section(s) (limit %d), %s, %d scene(s) (limit %d), %d walkthrough(s) (limit %d)",
 		proseWords(text), th.MaxProseWords, len(contentSections(text)), th.MaxContentSections,
 		route, len(sceneOpen.FindAllStringIndex(withoutCodeFences(text), -1))+pieceOpenCount(text), th.MaxScenes,
-		len(walkthroughOpen.FindAllStringIndex(withoutCodeFences(text), -1))+len(storyOpen.FindAllStringIndex(withoutCodeFences(text), -1)), th.MaxWalkthroughs)
+		deckCount(text), th.MaxWalkthroughs)
 	if th.MinScenes > 0 {
 		shape += fmt.Sprintf(", %d drawn scene(s) (at least %d)", drawnScenes(text), th.MinScenes)
 	}

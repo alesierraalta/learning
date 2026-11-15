@@ -11,3 +11,9 @@ export function lineasConFencesMarkdown(text) {
 export function sinCodigo(text, esPagina = false) {
   return (esPagina ? fueraDePre(text) : text).replace(MARKDOWN_FENCE, '\n\n');
 }
+
+// Las cercas de Markdown fuera, renglón por renglón: cada cerca queda como una marca que no es blanco (una frase o una
+// fórmula a cada lado quedan separadas) y sus renglones como blancos (cada número de línea sigue siendo el del archivo).
+export function sinCercasPorRenglon(text) {
+  return text.replace(MARKDOWN_FENCE, (cerca) => `\u0001${cerca.slice(1).replace(/[^\n]/g, ' ')}`);
+}

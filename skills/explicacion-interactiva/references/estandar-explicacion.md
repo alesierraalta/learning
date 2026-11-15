@@ -21,7 +21,7 @@ Presupuesto, medido, no estimado:
 | Secciones de contenido además de `## Ruta` y del heading del mini-quiz | 2 |
 | Líneas de `## Ruta` | 4 |
 | Escenas | 1 |
-| Recorridos (`lk-walkthrough` o `lk-story`) | 1 |
+| Recorridos (`lk-walkthrough` o `lk-story` de fórmula) | 1; una `lk-story` de derivación es un cálculo y no cuenta (#324) |
 | Preguntas del mini-quiz | 3 |
 
 La forma también se mide, y caber no es cumplir: una parte de 411 palabras con dos secciones
@@ -32,9 +32,9 @@ rechaza eso también, con el arreglo escrito en el mensaje.
 |---|---|
 | Escena dibujada | Al menos un `<lk-scene` cuyo payload dibuje algo (cajas, flechas, nodos, barras). El `<lk-walkthrough>` **no** la sustituye |
 | Ritmo de los párrafos | Dos frases por párrafo como máximo; una viñeta es su propia unidad |
-| Fórmula | Se dibuja como **fórmula anotada**: un callout numerado por símbolo, con su flecha y su nombre en la línea de `labels` («① μ: el centro»). `<lk-math>` queda para una cuenta, nunca para explicar una fórmula |
+| Fórmula | Se dibuja como **fórmula anotada**: un callout numerado por símbolo, con su flecha y su nombre en la línea de `labels` («① μ: el centro»). `<lk-math>` queda para una cuenta de una línea, nunca para explicar una fórmula; dos renglones o más de cuenta son una historia de derivación (`calculo-en-texto`, #324) |
 | Recorrido de fórmula | La **primera fórmula** de la parte se enseña con `<lk-story kind="formula">`: paso 1 la fórmula entera, un paso por símbolo con qué es, para qué se usa y cuánto vale en el ejemplo, y el último con los números sustituidos y su resultado. Un `<lk-math>` suelto o una escena quieta no lo sustituyen |
-| Recorrido de derivación | Todo **ejercicio resuelto** se enseña con `<lk-story kind="derivation">`: una ecuación por paso, el término que cambia de lado con su flecha medida y su verbo, los términos que se combinan marcados y reemplazados por su resultado, y la respuesta enmarcada en el último paso |
+| Recorrido de derivación | Todo **ejercicio resuelto** se enseña con `<lk-story kind="derivation">`: una ecuación por paso, el término que cambia de lado con su flecha medida y su verbo, los términos que se combinan marcados y reemplazados por su resultado, y la respuesta enmarcada en el último paso; una cuenta escrita como texto, o como fórmulas seguidas (de display o `<lk-math>` sueltos en su línea, dos o más que sustituyen números y operan; o dos renglones o más dentro de una fórmula), no se enseña así (`calculo-en-texto`, #324) |
 
 Los mensajes, literales, para reconocerlos y corregir sin adivinar:
 
@@ -245,7 +245,7 @@ la conclusión habla de esa batería, no de «el agente».
 La geometría no se escribe en el texto. Ni `──►`, ni cajas `┌─┐`, ni barras de `████`, ni
 diagramas en `plain text`. Esas ideas se dibujan con los componentes del kit, siguiendo
 `references/visuales.md`: escena para lo que se mira, `lk-walkthrough` para lo que se recorre
-paso a paso, `lk-math` para lo que se calcula, tabla para lo que se compara celda a celda.
+paso a paso, `lk-math` para una cuenta de una línea (dos renglones o más, historia de derivación), tabla para lo que se compara celda a celda.
 
 Un bloque de código solo se usa para lo que de verdad es código.
 

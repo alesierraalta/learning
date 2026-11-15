@@ -161,8 +161,9 @@ the story where the learner sees it. They run
 with **the studio's own Node** (`process.execPath`), never `node` from `PATH`: one of them imports a
 `.ts` module and the distro's Node 22 cannot load it, which already broke a deploy. A part's note (`explicaciones/Parte N - <slug>.md`) and the page the turn wrote beside it
 (`explicaciones/Parte N - <slug>.html`) are two files, each measured with these tools (#265): a page is
-read as its note, rule by rule. The reader serves the page only when it measures as its note and carries
-every figure of the note (and the interactive quiz); otherwise the learner gets the note. This applies to every topic, including one whose `.learning/rules.json` is frozen: the
+read as its note, rule by rule. The reader serves the page only when it measures as its note (`serves`: every rule
+that is not authoring-only passes, `codigo-pagina` among them, #328) and carries every figure of the note
+(and the interactive quiz); otherwise the learner gets the note. This applies to every topic, including one whose `.learning/rules.json` is frozen: the
 engine's exemptions are about shape, not about a figure drawn over its own text.
 
 Rich-page verdicts are atomically stored in the vault's hidden, gitignored
@@ -804,6 +805,9 @@ A part can be read with no connection, inside the studio itself.
 - **Saving.** Every part opened with a connection is saved on the device. The
   topic page saves all its written parts at once with **Guardar el tema sin
   conexión**, and each saved part says *Guardada en este dispositivo*. The reader also offers **Descargar para ver sin conexión**, changing to *Guardada en este dispositivo* when saved.
+  A saved copy follows the last version read online: opening a part that is already saved, with a connection,
+  saves it again in the background. The read never waits for that save, and a save that fails shows nothing; a
+  change reaches the copy the next time the part is opened with a connection.
 - **Reading.** With no connection the studio still opens at its usual address, with
   the library as it last saw it and a notice: *Sin conexión · estás viendo lo
   guardado en este dispositivo*. A saved part opens in the same reader; one never

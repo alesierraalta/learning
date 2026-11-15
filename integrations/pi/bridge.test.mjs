@@ -1550,6 +1550,25 @@ test("a part's page that lacks only the authoring cues is still served", async (
   await shutdown();
 });
 
+// #328: una página con una cerca de Markdown fuera de <pre> no se sirve: la regla `codigo-pagina` la rechaza
+// y el lector recibe la nota.
+test("a hand-built page with a raw Markdown fence is refused: the learner gets the note", async () => {
+  // The real explain-check: setup()'s fake gate always serves, so the verdict has to come from the rule.
+  const { topic, view, shutdown } = await setup({ gateToolPath: join(import.meta.dirname, "..", "..", "tools", "explain-check.mjs") });
+  const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
+  const fence = "<p>Para x = 184 ms, la distancia al centro:</p>\n\n```text\nz = (x - μ) / σ\nz = 2\n```\n";
+  writeFileSync(pagePath, QUALIFYING_PAGE.replace("</body>", `${fence}</body>`));
+  // The precondition: the code rule is what refuses the page. Otherwise this test proves nothing.
+  const rep = JSON.parse(spawnSync(process.execPath, [join(import.meta.dirname, "..", "..", "tools", "explain-check.mjs"), pagePath, "--json"], { encoding: "utf8" }).stdout);
+  assert.equal(rep.rows.find((r) => r.rule === "codigo-pagina")?.ok, false, "the fence passes the code rule: this test proves nothing");
+  const served = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
+  assert.equal(served.status, 200);
+  assert.doesNotMatch(served.headers["content-security-policy"], /script-src[^;]*'unsafe-inline'/, "the learner gets the note, not the tutor's page");
+  assert.doesNotMatch(served.body, /Para x = 184 ms/, "the raw fence must not reach the learner");
+  assert.match(served.body, /"kind":"part"/, "the note's reader answers");
+  await shutdown();
+});
+
 test("a rich page that never heard of audio gets the control anyway", async () => {
   const { topic, view, shutdown } = await setup();
   writeFileSync(

@@ -1912,8 +1912,12 @@
       if (saveButton) {
         await savedReady;
         if (seq !== readSeq || !saveButton.isConnected) return;
-        if (saved.has(savedKey(topicId, part))) setSaveState("Guardada en este dispositivo", true, "check", "Guardada");
-        else if (!saveButton.disabled) saveReaderPart(true);
+        if (saved.has(savedKey(topicId, part))) {
+          setSaveState("Guardada en este dispositivo", true, "check", "Guardada");
+          // A kept copy follows the last version read online, so it is saved again in the background. The read does not
+          // wait for that save, and a save that fails keeps the copy it had and shows nothing: savePart never rejects.
+          savePart(topicId, part);
+        } else if (!saveButton.disabled) saveReaderPart(true);
       }
     } catch (error) {
       if (seq !== readSeq) return;

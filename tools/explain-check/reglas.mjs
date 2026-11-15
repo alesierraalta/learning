@@ -17,6 +17,7 @@ import tamano from './rules/tamano.mjs';
 import leyenda from './rules/leyenda.mjs';
 import faltaLeyenda from './rules/falta-leyenda.mjs';
 import formulaWalkthrough from './rules/formula-walkthrough.mjs';
+import calculoEnTexto from './rules/calculo-en-texto.mjs';
 import historiaCabecera from './rules/historia-cabecera.mjs';
 import actorSinPersonaje from './rules/actor-sin-personaje.mjs';
 import escenarioDeCajas from './rules/escenario-de-cajas.mjs';
@@ -49,6 +50,7 @@ export const REGLAS = [
   leyenda,
   faltaLeyenda,
   formulaWalkthrough,
+  calculoEnTexto,
   historiaCabecera,
   actorSinPersonaje,
   escenarioDeCajas,

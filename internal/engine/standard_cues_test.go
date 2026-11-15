@@ -86,9 +86,16 @@ const cueBareStory = `<lk-story>
 </script>
 </lk-story>`
 
-// snapshotWithoutCues is the production rules with the three additive cue keys removed: a run frozen before
-// #305 declares none of them, and keeps the parts it accepted.
+// snapshotWithoutCues is the production rules with the three #305 cue keys removed: a run frozen before #305
+// declares none of them, and keeps the parts it accepted.
 func snapshotWithoutCues(t *testing.T) string {
+	t.Helper()
+	return snapshotWithout(t, "storySummary", "formulaLegend", "storyFocus")
+}
+
+// snapshotWithout is the production rules with the named keys removed from their partStandard block: a run frozen
+// before those keys existed declares none of them, and keeps the parts it accepted.
+func snapshotWithout(t *testing.T, keys ...string) string {
 	t.Helper()
 	raw, err := os.ReadFile(productionRulesPath)
 	if err != nil {
@@ -103,7 +110,7 @@ func snapshotWithoutCues(t *testing.T) string {
 	if !ok {
 		t.Fatal("the production rules declare no partStandard block")
 	}
-	for _, key := range []string{"storySummary", "formulaLegend", "storyFocus"} {
+	for _, key := range keys {
 		delete(block, key)
 	}
 	out, err := json.MarshalIndent(doc, "", "  ")
@@ -169,9 +176,10 @@ func explainCueRows(t *testing.T, node, toolPath, file string) map[string]bool {
 func checkCueAgreement(t *testing.T, node, toolPath string, th rules.PartStandardThresholds, name, text, file string) {
 	t.Helper()
 	engine := map[string]bool{
-		"falta-resumen": len(faltaResumenFindings(text, th)) == 0,
-		"falta-leyenda": len(faltaLeyendaFindings(text, th)) == 0,
-		"falta-foco":    len(faltaFocoFindings(text, th)) == 0,
+		"calculo-en-texto": len(calculoEnTextoFindings(text, th)) == 0,
+		"falta-resumen":    len(faltaResumenFindings(text, th)) == 0,
+		"falta-leyenda":    len(faltaLeyendaFindings(text, th)) == 0,
+		"falta-foco":       len(faltaFocoFindings(text, th)) == 0,
 	}
 	tool := explainCueRows(t, node, toolPath, file)
 	for rule, want := range engine {
@@ -205,6 +213,9 @@ func TestCueRulesAgreeWithExplainCheck(t *testing.T) {
 		"a formula story with legend, summary and ring":  cueStory("formula", cueSummary, `"ring":"r","facts":[["r","el robot"]],`, 3, false),
 		"a derivation of pieces without ring":            cueStory("derivation", cueSummary, "", 3, true),
 		"a derivation with a focus list":                 cueStory("derivation", cueSummary, `"focus":["r"],"facts":[["r","el robot"]],`, 3, false),
+		"a calculation written as text":                  "```text\nz = (184 - 120) / 32\nz = 64 / 32\nz = 2\n```",
+		"a single result line":                           "z = 2\n",
+		"a derivation of the calculation":                cueStory("derivation", cueSummary, "", 3, false),
 	}
 	for name, text := range notes {
 		file := filepath.Join(t.TempDir(), "nota.md")
@@ -213,8 +224,43 @@ func TestCueRulesAgreeWithExplainCheck(t *testing.T) {
 		}
 		checkCueAgreement(t, node, toolPath, th, name, text, file)
 	}
+	// Decision 4 (#324): two display formulas that substitute and operate are a calculation written as formulas; a single
+	// display formula with its values in one line, and a formula with a value line, are not.
+	displayNotes := map[string]string{
+		"a display run of two calculations": `\[ G=0+0.9(1)+0.9^2(10) \] \[ G=9 \]`,
+		"a single display formula":          `$$f(184) = \frac{1}{32\sqrt{2\pi}}\,e^{-\frac{(184-120)^2}{2\cdot 32^2}} \approx 0{,}00065$$`,
+		"a formula and its value line":      `$$f(x) = \frac{1}{\sigma\sqrt{2\pi}}\,e^{-\frac{(x-\mu)^2}{2\sigma^2}}$$ $$f(184) = \frac{1}{32\sqrt{2\pi}}\,e^{-\frac{(184-120)^2}{2\cdot 32^2}}$$`,
+	}
+	for name, text := range displayNotes {
+		file := filepath.Join(t.TempDir(), "nota.md")
+		if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		checkCueAgreement(t, node, toolPath, th, name, text, file)
+	}
+	// The lines of one display and the bare <lk-math> run (#324, items 1 and 2): the engine and the tool agree on those
+	// shapes, and on the entities an HTML page writes inside a formula.
+	lineNotes := []struct{ name, text string }{
+		{"an aligned display with three calculation lines", `\[
+\begin{aligned}
+V(0,2)&=-0{,}04+0{,}9\cdot0{,}6206\\
+&=-0{,}04+0{,}55854\\
+&=+0{,}51854\approx+0{,}5185
+\end{aligned}
+\]`},
+		{"two bare calculations on consecutive lines", "<lk-math>2 + 3 = 5</lk-math>\n<lk-math>5 + 5 = 10</lk-math>"},
+		{"two bare calculations inside a sentence", "Así, <lk-math>2 + 3 = 5</lk-math> y <lk-math>5 + 5 = 10</lk-math> dan 15."},
+		{"an aligned display written with entities", `<lk-math display>\begin{aligned}a&amp;=2+3\\&amp;=5\end{aligned}</lk-math>`},
+	}
+	for _, c := range lineNotes {
+		file := filepath.Join(t.TempDir(), "nota.md")
+		if err := os.WriteFile(file, []byte(c.text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		checkCueAgreement(t, node, toolPath, th, c.name, c.text, file)
+	}
 	var paths []string
-	for _, pattern := range []string{"../../integrations/pi/kit/examples/*.md", "../../integrations/pi/kit/examples/*.html", "../../skills/explicacion-interactiva/references/ejemplo-aprobado.md"} {
+	for _, pattern := range []string{"../../integrations/pi/kit/examples/*.md", "../../integrations/pi/kit/examples/*.html", "../../skills/explicacion-interactiva/references/ejemplo-aprobado.md", "../../skills/explicacion-interactiva/references/visuales.md"} {
 		found, err := filepath.Glob(pattern)
 		if err != nil {
 			t.Fatal(err)
@@ -229,7 +275,12 @@ func TestCueRulesAgreeWithExplainCheck(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		checkCueAgreement(t, node, toolPath, th, path, string(raw), path)
+		// A page is read as its note, as the engine reads it in production (richPageFindings), so both sides see the same text.
+		text := string(raw)
+		if strings.HasSuffix(path, ".html") {
+			text = notaDeHTML(text)
+		}
+		checkCueAgreement(t, node, toolPath, th, path, text, path)
 	}
 }
 

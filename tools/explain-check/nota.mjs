@@ -21,6 +21,29 @@ export const fichas = (t) => normaTexto(t).split(/[^a-z0-9]+/).filter(Boolean);
 // Un campo que dibuja algo: una lista con elementos, o cualquier valor verdadero.
 export const declara = (value) => Array.isArray(value) ? value.length > 0 : Boolean(value);
 
+// Una historia de derivación es un cálculo, no un recorrido: no cuenta para el tope de recorridos de la parte (#324).
+// Su JSON dice `kind: "derivation"`. Una historia cuyo JSON no se lee, o que no cierra, cuenta: no se sabe que sea de
+// derivación. El motor aplica la misma regla (`deckCount` en `internal/engine/standard_recorrido.go`).
+const esDerivacion = (bloque) => {
+  const payload = bloque.match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+  if (!payload) return false;
+  try { return JSON.parse(payload[1])?.kind === 'derivation'; } catch { return false; }
+};
+
+// Los recorridos que cuentan para el tope de la parte: cada `<lk-walkthrough>` y cada historia que no es de derivación.
+// Se miden sin código, como el motor: un ejemplo de marcado dentro de una cerca no es un recorrido.
+const recorridosDeTope = (src) => {
+  let n = 0;
+  for (const m of src.matchAll(/<lk-(walkthrough|story)[\s>]/g)) {
+    if (m[1] === 'walkthrough') n += 1;
+    else {
+      const cierre = src.indexOf('</lk-story>', m.index);
+      if (cierre < 0 || !esDerivacion(src.slice(m.index, cierre))) n += 1;
+    }
+  }
+  return n;
+};
+
 /** Lee la nota una vez. `src` ya es la nota: una página HTML llega traducida. */
 export function leerNota(src, esPagina, fuenteHtml = src) {
   const sinCodigo = esPagina
@@ -32,6 +55,8 @@ export function leerNota(src, esPagina, fuenteHtml = src) {
   const piezas = (src.match(new RegExp(`<lk-(?:${PIEZAS})[\\s>]`, 'g')) || []).length;
   const escenas = (src.match(/<lk-scene[\s>]/g) || []).length + piezas;
   const recorridos = (src.match(/<lk-(?:walkthrough|story)[\s>]/g) || []).length;
+  // El tope no cuenta la derivación (#324); `recorridos` sigue midiendo todas, que es lo que `figuras` necesita.
+  const recorridosTope = recorridosDeTope(sinCodigo);
 
   // Fórmulas: las del kit, las que se dibujan en una escena y el LaTeX plano.
   const formulas = [...src.matchAll(/<lk-math[^>]*>([\s\S]*?)<\/lk-math>/g)].map((m) => m[1]);
@@ -123,5 +148,5 @@ export function leerNota(src, esPagina, fuenteHtml = src) {
     bloquesDeRecorrido.push({ tag: m[1], spec, pasos, linea: `${m[1]} ${bloquesDeRecorrido.length + 1} (${pasos.length} pasos)` });
   }
 
-  return { src, esPagina, sinCodigo, lineasFencesMarkdown, escenas, recorridos, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
+  return { src, esPagina, sinCodigo, lineasFencesMarkdown, escenas, recorridos, recorridosTope, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
 }

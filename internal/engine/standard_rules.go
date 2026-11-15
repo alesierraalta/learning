@@ -23,6 +23,7 @@ var standardRules = []standardRule{
 	{"escena", sceneFindings},
 	{"recorrido", walkthroughFindings},
 	{"formula-walkthrough", formulaWalkthroughFindings},
+	{"calculo-en-texto", calculoEnTextoFindings},
 	{"historia", storyLanguageFindings},
 	{"historia-cabecera", storyHeaderFindings},
 	{"escenario-de-historia", storyStageFindings},
