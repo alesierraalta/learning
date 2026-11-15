@@ -8,7 +8,7 @@ import { preferenciasDe } from '../../register/preferencias.mjs';
 
 export default {
   id: 'registro',
-  check({ src }, { file }) {
-    return hallazgosDeRegistro(src, umbralesDe(preferenciasDe(file)));
+  check({ src, sinCodigo, esPagina }, { file }) {
+    return hallazgosDeRegistro(esPagina ? sinCodigo : src, umbralesDe(preferenciasDe(file)));
   },
 };

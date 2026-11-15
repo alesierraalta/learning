@@ -6,6 +6,10 @@ Modelo de referencia: `nosql-desde-cero.html` en el directorio de salida resuelt
 
 UN solo archivo `.html` autocontenido (CSS y JS inline, cero dependencias externas), creado en el directorio de salida resuelto en runtime (nunca una ruta de host fija). Lo escribe un subagente constructor acotado con este spec en el handoff; el tutor verifica con el protocolo de abajo y entrega, sin redactar en su propio contexto. El contenido sigue el método de `metodo-explicame.md` con textos más desarrollados (es material de estudio, no chat), sin perder la esencia cero-asunciones. Sin sección visible de referencias/bibliografía, pero toda cifra y respuesta clave se verifica igual antes de entregar (misma doble prueba).
 
+## Código dentro del HTML
+
+Escribe cada bloque de código como `<pre><code class="language-sql">…</code></pre>` con el lenguaje que corresponda. Escapa dentro del código `<` como `&lt;`, `>` como `&gt;` y `&` como `&amp;`. Nunca uses fences Markdown en una página HTML: `explain-check` los rechaza y señala la línea.
+
 ## Componentes v2 (aprobados por el usuario — usar SIEMPRE; obligatorios cuando el tema es código)
 
 Modelo de referencia v2: `plsql-desde-cero-v2.html` en el directorio de salida (leerlo si existe antes de construir uno nuevo; motor de stepper, quiz v2 y juegos listos para copiar).
