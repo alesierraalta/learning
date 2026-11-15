@@ -868,6 +868,13 @@ function makeHost() {
   return { api, handlers, tools, sent };
 }
 
+// The bridge's teardown: the session_shutdown handlers it registered on the host.
+function shutdownOf(host) {
+  return async () => {
+    for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
+  };
+}
+
 async function setup(options = {}) {
   const { root, topic } = makeRoot();
   const host = makeHost();
@@ -876,9 +883,7 @@ async function setup(options = {}) {
     const result = await host.tools.get("learning_view").execute("call", params, undefined, undefined, { cwd });
     return result;
   };
-  const shutdown = async () => {
-    for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
-  };
+  const shutdown = shutdownOf(host);
   openServers.push(shutdown);
   return { root, topic, host, view, shutdown };
 }
@@ -1340,10 +1345,14 @@ test("a part's page that lacks only the authoring cues is still served", async (
   assert.equal(measured.ok, false, "the page passes the authoring cues: this test proves nothing");
   const host = makeHost();
   registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"] });
+  // Closed like setup()'s bridge: here at the end, and through openServers if an assertion fails first.
+  const shutdown = shutdownOf(host);
+  openServers.push(shutdown);
   const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
   const page = await http(result.structuredContent.url);
   assert.equal(page.status, 200);
   assert.match(page.headers["content-security-policy"], /script-src 'self' https:\/\/cdn\.jsdelivr\.net 'unsafe-inline'/, "the learner gets the note instead of the page");
+  await shutdown();
 });
 
 test("a rich page that never heard of audio gets the control anyway", async () => {
