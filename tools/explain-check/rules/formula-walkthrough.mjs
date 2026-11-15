@@ -10,8 +10,7 @@ const nodeHasFormula = (node) => Boolean(node) && (
 const stepHasFormula = (step) => nodeHasFormula(step?.scene) || nodeHasFormula(step?.stage?.scene) ||
   (step?.equation?.atoms || []).length > 0 || (step?.header?.atoms || []).length > 0;
 
-const primeraFormula = (src) => {
-  const plain = src.replace(/```[\s\S]*?```/g, ' ');
+const primeraFormula = (plain) => {
   const spots = [];
   for (const m of plain.matchAll(/<lk-math[^>]*>[\s\S]*?<\/lk-math>/g)) spots.push(m.index);
   for (const m of plain.matchAll(/\$\$[\s\S]+?\$\$/g)) spots.push(m.index);
@@ -40,8 +39,8 @@ const primeraFormula = (src) => {
 
 export default {
   id: 'formula-walkthrough',
-  check({ src }) {
-    const primera = primeraFormula(src);
+  check({ sinCodigo }) {
+    const primera = primeraFormula(sinCodigo);
     return {
       ok: primera === null,
       detail: primera === null ? '' : 'la primera fórmula no tiene recorrido de fórmula · dibújala con <lk-story kind="formula">: paso 1 la fórmula entera, un paso por símbolo con qué es, para qué se usa y cuánto vale en el ejemplo, y el último con los números sustituidos y su resultado',

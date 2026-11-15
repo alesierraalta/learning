@@ -36,8 +36,9 @@ if (!file) {
 // Una página HTML que escribió un turno se mide con las mismas reglas que su nota (#265): se traduce a la
 // forma de nota, con sus figuras del kit intactas. La nota Markdown se lee tal cual.
 const esPagina = /\.html?$/i.test(file);
-const src = esPagina ? notaDeHtml(readFileSync(file, 'utf8')) : readFileSync(file, 'utf8');
-const nota = leerNota(src, esPagina);
+const original = readFileSync(file, 'utf8');
+const src = esPagina ? notaDeHtml(original) : original;
+const nota = leerNota(src, esPagina, original);
 const ctx = { file, maxWords, tools: TOOLS };
 
 const rows = [];

@@ -3,9 +3,8 @@ import { PIEZAS } from '../nota.mjs';
 
 export default {
   id: 'tamaño',
-  check({ src }, { maxWords }) {
-    const prosa = src
-      .replace(/```[\s\S]*?```/g, ' ')
+  check({ sinCodigo }, { maxWords }) {
+    const prosa = sinCodigo
       .replace(new RegExp(`<lk-(scene|walkthrough|story|${PIEZAS})[\\s\\S]*?<\\/lk-\\1>`, 'g'), ' ')
       .replace(/^\|.*\|$/gm, ' ')
       .replace(/^#{1,6}\s.*$/gm, ' ')
