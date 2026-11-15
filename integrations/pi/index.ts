@@ -11,8 +11,8 @@
 import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { execFile as execFileCb } from "node:child_process";
-import { constants as fsConstants, copyFileSync, existsSync, lstatSync, mkdirSync, rmdirSync, statSync, unlinkSync } from "node:fs";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -28,7 +28,6 @@ const REPO_ROOT = resolve(HERE, "..", "..");
 const ENTRY_TYPE = "gentle-learning/enrollment";
 const GATE_TYPE = "gentle-learning/settle-gate";
 const ENGINE_TIMEOUT_MS = 120_000;
-const MAX_UPLOADED_PDF_PAGE_IMAGES = 20;
 const CHECK_STATUSES = new Set(["PASS", "FAIL", "SKIP"]);
 /** Topic files only an enrolled run may hold: the plan and the diagnosis. */
 const ENROLLED_FILES = new Set(["plan.json", "quiz.json"]);
@@ -150,109 +149,6 @@ export function parseReport(stdout: string): ParsedReport {
   return { ok: true, report: report as EngineReport };
 }
 
-type SourceCopy = { from: string; name: string };
-type SourceValidation =
-  | { ok: true; copies: SourceCopy[]; examSource?: string }
-  | { ok: false; detail: string };
-
-function validateUploadedSources(root: string, rawSources: unknown, rawExamSource: unknown): SourceValidation {
-  if (rawExamSource !== undefined && (typeof rawExamSource !== "string" || rawExamSource.trim() === "")) {
-    return { ok: false, detail: "examSource must be a non-empty path" };
-  }
-  const sources = rawSources === undefined ? [] : rawSources;
-  if (!Array.isArray(sources) || sources.length < 1 || sources.length > 5) {
-    if (rawSources !== undefined) return { ok: false, detail: "sources must contain 1 to 5 absolute uploaded file paths" };
-    if (rawExamSource !== undefined) return { ok: false, detail: "examSource must be one of sources" };
-    return { ok: true, copies: [] };
-  }
-  if (rawExamSource !== undefined && !sources.includes(rawExamSource)) {
-    return { ok: false, detail: "examSource must be one of sources" };
-  }
-  if (sources.some((source) => typeof source !== "string" || !isAbsolute(source))) {
-    return { ok: false, detail: "sources entries must be absolute paths" };
-  }
-
-  const rootContained = resolveContained(root, root);
-  if (!rootContained.ok) return { ok: false, detail: rootContained.reason };
-  const uploadedPath = join(rootContained.rootReal, ".subidas");
-  const uploadedRoot = resolveContained(root, uploadedPath);
-  if (!uploadedRoot.ok || uploadedRoot.targetReal !== uploadedPath) {
-    return { ok: false, detail: `source is not an uploaded file under .subidas: ${String(sources[0])}` };
-  }
-  try {
-    if (!statSync(uploadedRoot.targetReal).isDirectory()) {
-      return { ok: false, detail: `source is not an uploaded file under .subidas: ${String(sources[0])}` };
-    }
-  } catch {
-    return { ok: false, detail: `source is not an uploaded file under .subidas: ${String(sources[0])}` };
-  }
-
-  const copies: SourceCopy[] = [];
-  const names = new Set<string>();
-  let examName: string | undefined;
-  const resolveUploadFile = (path: string): { from: string; name: string } | null => {
-    const contained = resolveContained(root, path);
-    if (!contained.ok) return null;
-    const rel = relative(uploadedRoot.targetReal, contained.targetReal);
-    if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
-    try {
-      if (!statSync(contained.targetReal).isFile()) return null;
-    } catch {
-      return null;
-    }
-    return { from: contained.targetReal, name: basename(path) };
-  };
-  const addCopy = (copy: SourceCopy): boolean => {
-    const key = copy.name.toLowerCase();
-    if (names.has(key)) return false;
-    names.add(key);
-    copies.push(copy);
-    return true;
-  };
-
-  for (const source of sources as string[]) {
-    const file = resolveUploadFile(source);
-    if (!file) return { ok: false, detail: `source is not an uploaded file under .subidas: ${source}` };
-    if (!addCopy(file)) return { ok: false, detail: `sources contain duplicate filenames: ${file.name}` };
-    if (source === rawExamSource) examName = file.name;
-    if (extname(file.name).toLowerCase() === ".pdf") {
-      const textPath = `${source}.txt`;
-      const textFile = resolveUploadFile(textPath);
-      if (!textFile) return { ok: false, detail: `PDF source is missing its extracted .txt sibling: ${source}` };
-      if (!addCopy(textFile)) return { ok: false, detail: `sources contain duplicate filenames: ${textFile.name}` };
-      const pageNumbers: number[] = [];
-      for (let page = 1; page <= MAX_UPLOADED_PDF_PAGE_IMAGES; page++) {
-        const pagePath = `${source}.p${page}.png`;
-        try {
-          lstatSync(pagePath);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-          return { ok: false, detail: `PDF source page image is unavailable: ${pagePath}` };
-        }
-        const pageFile = resolveUploadFile(pagePath);
-        if (!pageFile) return { ok: false, detail: `PDF source page image is not an uploaded file: ${pagePath}` };
-        if (!addCopy(pageFile)) return { ok: false, detail: `sources contain duplicate filenames: ${pageFile.name}` };
-        pageNumbers.push(page);
-      }
-      if (pageNumbers.some((page, index) => page !== index + 1)) {
-        return { ok: false, detail: `PDF source has non-contiguous page images: ${source}` };
-      }
-    }
-  }
-  return { ok: true, copies, ...(examName ? { examSource: `fuentes/${examName}` } : {}) };
-}
-
-function rollbackInitSources(workspace: string, fuentesPath: string, createdFuentes: boolean, createdTopic: boolean, copied: string[]): void {
-  for (const path of copied) {
-    try { unlinkSync(path); } catch { /* best-effort rollback of files copied by this init */ }
-  }
-  if (createdFuentes) {
-    try { rmdirSync(fuentesPath); } catch { /* preserve any unrelated files */ }
-  }
-  if (createdTopic) {
-    try { rmdirSync(workspace); } catch { /* preserve any engine or concurrent output */ }
-  }
-}
 
 export type EngineOutcome =
   | { ok: true; report: EngineReport; code: number }
@@ -267,6 +163,7 @@ export async function callEngine(
     scope?: string;
     exam?: string;
     practice?: string;
+    sources?: string[];
     examSource?: string;
     method?: string;
     stage?: string;
@@ -305,6 +202,9 @@ export async function callEngine(
   if (target.practice !== undefined) {
     argv.push("--practice", target.practice);
   }
+  for (const source of target.sources ?? []) {
+    argv.push("--source", source);
+  }
   if (target.examSource !== undefined) {
     argv.push("--exam-source", target.examSource);
   }
@@ -325,7 +225,7 @@ export async function callEngine(
   let outcome: { code: number; stdout: string; stderr: string };
   try {
     outcome = await deps.execFile(deps.enginePath, argv, {
-      cwd: target.workspace,
+      cwd: command === "init" ? target.root : target.workspace,
       timeoutMs: ENGINE_TIMEOUT_MS,
     });
   } catch (err) {
@@ -700,12 +600,12 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     label: "Learning engine stage",
     description:
       "Transport one stage operation (init, start, validate, advance, status, review, method) to the Go learning engine via its CLI and return the single-JSON report. " +
-      "init enrolls a new topic (creates its folder under the Learnings root and records a new run); start resumes an existing topic; both take topic = the folder name and activate the deep session, so the learner never types a command. init also records the teaching scope: complete (the whole topic) or pareto (only the vital slice that yields most of the results). For exam runs, init accepts exam format oral, written or practical (exam=oral|written|practical), implies Pareto scope, and accepts practice only with practical; exam and practice are init-only, and exam cannot be combined with scope=complete. For real-exam uploads, init accepts 1–5 absolute sources under .subidas and an examSource selected from them; the adapter stages the files under topic/fuentes before engine init. The other actions require an active deep session; they read the scope from state and reject a scope argument. validate lists pendingReviews (rules whose recorded review is missing or stale); the chat (possibly via subagents) evaluates the rubric on the artifact and context, then records the verdict with action review (stage, rule, verdict, reason, optional reviewer). advance needs an explicit stage and blocks while any required review is missing, stale or a gate verdict is FAIL. " +
+      "init enrolls a new topic (creates its folder under the Learnings root and records a new run); start resumes an existing topic; both take topic = the folder name and activate the deep session, so the learner never types a command. init also records the teaching scope: complete (the whole topic) or pareto (only the vital slice that yields most of the results). For exam runs, init accepts exam format oral, written or practical (exam=oral|written|practical), implies Pareto scope, and accepts practice only with practical; exam and practice are init-only, and exam cannot be combined with scope=complete. For uploaded sources, init forwards 1–5 absolute paths under .subidas and an optional examSource to the engine; the engine validates and stages them under topic/fuentes. The other actions require an active deep session; they read the scope from state and reject a scope argument. validate lists pendingReviews (rules whose recorded review is missing or stale); the chat (possibly via subagents) evaluates the rubric on the artifact and context, then records the verdict with action review (stage, rule, verdict, reason, optional reviewer). advance needs an explicit stage and blocks while any required review is missing, stale or a gate verdict is FAIL. " +
       "The engine report is the authority on completion; a FAIL check means the work is not finished.",
     promptSnippet: "Run a learning-engine stage operation and read its JSON verdict",
     promptGuidelines: [
       "Once the learner chooses the deep (university) or exam mode, enroll the topic yourself: init for a new topic, start to resume one; never ask the learner to type a command.",
-      "If the learner chose to learn with the Pareto rule, pass scope=pareto on init; otherwise omit it (complete). For exam mode, ask whether the format is oral, written or practical and pass it as exam on init; for practical, ask the kind of practice and pass it as practice. Exam implies Pareto: never combine exam with scope=complete. For uploaded documents, pass all original absolute paths in sources; for a real exam also pass its main file as examSource. The adapter stages them in topic/fuentes before engine init. Never change the scope of a running topic.",
+      "If the learner chose to learn with the Pareto rule, pass scope=pareto on init; otherwise omit it (complete). For exam mode, ask whether the format is oral, written or practical and pass it as exam on init; for practical, ask the kind of practice and pass it as practice. Exam implies Pareto: never combine exam with scope=complete. For uploaded documents, pass all original absolute paths in sources; for a real exam also pass its main file as examSource. The engine stages them in topic/fuentes; never copy the files by hand. Never change the scope of a running topic.",
       "After diagnosis, ask whether the learner wants pareto or preferencias and record their answer with action method before planning.",
       "Stage actions are only meaningful inside an active deep learning session; inactive sessions return an error.",
       "Never claim a stage or the topic is complete while the engine report shows FAIL, blocked or error.",
@@ -760,7 +660,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
           items: { type: "string" },
           minItems: 1,
           maxItems: 5,
-          description: "init only: 1–5 absolute uploaded file paths under <root>/.subidas; PDFs include their extracted .txt sibling when staged.",
+          description: "init only: 1–5 absolute uploaded file paths under <root>/.subidas; the engine stages PDFs with their extracted .txt and page-image companions.",
         },
         examSource: {
           type: "string",
@@ -810,11 +710,11 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
       if (practice !== undefined && (typeof practice !== "string" || practice.trim() === "")) {
         return adapterError("invalid-arguments", "--practice requires a non-empty kind");
       }
-      const sourceValidation = requested === "init"
-        ? validateUploadedSources(deps.root, sources, examSource)
-        : { ok: true as const, copies: [] as SourceCopy[] };
-      if (!sourceValidation.ok) {
-        return adapterError("invalid-arguments", sourceValidation.detail);
+      if (sources !== undefined && (!Array.isArray(sources) || sources.some((source) => typeof source !== "string"))) {
+        return adapterError("invalid-arguments", "sources must be an array of paths");
+      }
+      if (examSource !== undefined && typeof examSource !== "string") {
+        return adapterError("invalid-arguments", "examSource must be a path");
       }
       if (scope !== undefined) {
         if (requested !== "init") {
@@ -871,93 +771,20 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
         if (!session.ok) {
           return adapterError("out-of-scope", `session cwd is outside Learnings or unavailable — ${session.reason}`);
         }
-        const target = join(session.rootReal, topic);
-        const targetExisted = existsSync(target);
-        let workspace = target;
-        if (targetExisted) {
-          try {
-            const info = lstatSync(target);
-            if (!info.isDirectory() && !info.isSymbolicLink()) {
-              return adapterError("out-of-scope", `topic is not a directory: ${target}`);
-            }
-          } catch (error) {
-            return adapterError("operational", `cannot inspect topic ${topic}: ${(error as Error).message}`);
-          }
-          const contained = resolveContained(deps.root, target);
-          if (!contained.ok) return adapterError("out-of-scope", contained.reason);
-          if (!statSync(contained.targetReal).isDirectory()) {
-            return adapterError("out-of-scope", `topic is not a directory: ${target}`);
-          }
-          workspace = contained.targetReal;
-        }
-
-        let fuentesPath = join(workspace, "fuentes");
-        const fuentesExisted = sourceValidation.copies.length > 0 && existsSync(fuentesPath);
-        if (fuentesExisted) {
-          try {
-            const info = lstatSync(fuentesPath);
-            const contained = resolveContained(deps.root, fuentesPath);
-            if (info.isSymbolicLink() || !info.isDirectory() || !contained.ok || contained.targetReal !== fuentesPath) {
-              return adapterError("out-of-scope", `topic fuentes path is not a directory inside the topic: ${fuentesPath}`);
-            }
-          } catch (error) {
-            return adapterError("operational", `cannot inspect topic fuentes: ${(error as Error).message}`);
-          }
-        }
-        for (const copy of sourceValidation.copies) {
-          if (existsSync(join(fuentesPath, copy.name))) {
-            return adapterError("invalid-arguments", `topic fuentes already contains ${copy.name}`);
-          }
-        }
-
-        const copied: string[] = [];
-        let createdTopic = false;
-        let createdFuentes = false;
-        const rollback = () => rollbackInitSources(workspace, fuentesPath, createdFuentes, createdTopic, copied);
-        try {
-          if (!targetExisted) {
-            mkdirSync(target, { recursive: true });
-            createdTopic = true;
-            const contained = resolveContained(deps.root, target);
-            if (!contained.ok) throw new Error(contained.reason);
-            workspace = contained.targetReal;
-            fuentesPath = join(workspace, "fuentes");
-          }
-          if (sourceValidation.copies.length > 0) {
-            if (!fuentesExisted) {
-              mkdirSync(fuentesPath);
-              createdFuentes = true;
-            }
-            for (const copy of sourceValidation.copies) {
-              const destination = join(fuentesPath, copy.name);
-              copyFileSync(copy.from, destination, fsConstants.COPYFILE_EXCL);
-              copied.push(destination);
-            }
-          }
-        } catch (error) {
-          rollback();
-          return adapterError("operational", `could not stage uploaded sources: ${(error as Error).message}`);
-        }
-
+        const workspace = join(session.rootReal, topic);
         const outcome = await callEngine(deps, "init", {
           root: session.rootReal,
           workspace,
           ...(scope !== undefined ? { scope: scope as string } : {}),
           ...(exam !== undefined ? { exam: exam as string } : {}),
           ...(practice !== undefined ? { practice: practice as string } : {}),
-          ...(sourceValidation.examSource !== undefined ? { examSource: sourceValidation.examSource } : {}),
+          ...(Array.isArray(sources) ? { sources: sources as string[] } : {}),
+          ...(typeof examSource === "string" ? { examSource } : {}),
         });
-        if (!outcome.ok) {
-          rollback();
-          return adapterError(outcome.reason, outcome.detail);
-        }
-        if (outcome.code !== 0) rollback();
-        else {
+        if (!outcome.ok) return adapterError(outcome.reason, outcome.detail);
+        if (outcome.code === 0) {
           const enrolled = enrollWorkspace(workspace, ctx.cwd);
-          if (!enrolled.ok) {
-            rollback();
-            return adapterError("out-of-scope", enrolled.reason);
-          }
+          if (!enrolled.ok) return adapterError("out-of-scope", enrolled.reason);
         }
         return {
           content: [{ type: "text" as const, text: JSON.stringify(outcome.report, null, 2) }],

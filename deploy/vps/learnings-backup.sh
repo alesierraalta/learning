@@ -10,10 +10,19 @@ lint=${LEARNING_DECK_LINT:-$HOME/learning/tools/deck-lint.mjs}
 cd "$root"
 # The learner's data lives in SQLite; Git gets a consistent snapshot, never the live file.
 db=${STUDIO_DB:-$root/learning.db}
+ignored_files=(.learning-cache/)
 if [ -f "$db" ]; then
-  for ignored in learning.db learning.db-wal learning.db-shm; do
-    grep -qxF "$ignored" .gitignore 2>/dev/null || echo "$ignored" >> .gitignore
-  done
+  ignored_files+=(learning.db learning.db-wal learning.db-shm)
+fi
+for ignored in "${ignored_files[@]}"; do
+  if ! grep -qxF "$ignored" .gitignore 2>/dev/null; then
+    if [ -s .gitignore ] && [ -n "$(tail -c 1 .gitignore)" ]; then
+      printf '\n' >> .gitignore
+    fi
+    echo "$ignored" >> .gitignore
+  fi
+done
+if [ -f "$db" ]; then
   node_bin=$HOME/.local/node/bin/node
   [ -x "$node_bin" ] || node_bin=node
   snapshot="$root/learning.db.backup"

@@ -875,10 +875,36 @@ function shutdownOf(host) {
   };
 }
 
+function fakeGate(root, { delayMs = 0, serves = true, ok = serves, exitCode = 0 } = {}) {
+  const tool = join(root, "fake-explain-check.mjs");
+  const dependency = join(root, "fake-gate-result.mjs");
+  const runs = join(root, "gate-runs.log");
+  const started = join(root, "gate-started.log");
+  writeFileSync(dependency, `export const serves = ${serves};\n`);
+  writeFileSync(tool, [
+    'import { appendFileSync } from "node:fs";',
+    'import { serves } from "./fake-gate-result.mjs";',
+    `appendFileSync(${JSON.stringify(started)}, "start\\n");`,
+    ...(delayMs ? [`await new Promise(resolve => setTimeout(resolve, ${delayMs}));`] : []),
+    `appendFileSync(${JSON.stringify(runs)}, "run\\n");`,
+    `console.log(JSON.stringify({ ok: ${ok}, serves }));`,
+    `process.exitCode = ${exitCode};`,
+    "",
+  ].join("\n"));
+  return {
+    tool,
+    dependency,
+    runs,
+    started,
+    count: () => existsSync(runs) ? readFileSync(runs, "utf8").trim().split("\n").length : 0,
+  };
+}
+
 async function setup(options = {}) {
   const { root, topic } = makeRoot();
   const host = makeHost();
-  registerBridge(host.api, { root, ...options });
+  const gate = fakeGate(root);
+  registerBridge(host.api, { root, gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json"), ...options });
   const view = async (params, cwd = root) => {
     const result = await host.tools.get("learning_view").execute("call", params, undefined, undefined, { cwd });
     return result;
@@ -1084,6 +1110,175 @@ test("frameAncestors lets one loopback origin embed the pages; anything else is 
   }
 });
 
+test("a rich-page verdict survives a bridge restart and invalidates on page or gate changes", async () => {
+  const { root, topic } = makeRoot();
+  const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
+  writeFileSync(pagePath, `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
+  const gate = fakeGate(root);
+  const options = { gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json"), tokenSeed: "327-gate-cache" };
+  const first = await openBridge(root, options);
+  let result = await first.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 1);
+  await first.shutdown();
+
+  const restarted = await openBridge(root, options);
+  result = await restarted.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 1, "a new bridge process reuses the disk verdict");
+
+  writeFileSync(pagePath, `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL page edit -->`);
+  result = await restarted.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 2, "changed page bytes are rechecked");
+
+  writeFileSync(gate.dependency, "export const serves = true; // changed imported gate module\n");
+  result = await restarted.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 3, "a changed imported gate module is rechecked");
+
+  writeFileSync(gate.tool, `${readFileSync(gate.tool, "utf8")}\n// changed gate tool\n`);
+  result = await restarted.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 4, "changed gate-tool bytes are rechecked");
+  await restarted.shutdown();
+});
+
+test("a corrupt gate-verdict store is ignored and rewritten after a successful check", async () => {
+  const { root, topic } = makeRoot();
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
+  const gate = fakeGate(root);
+  const store = join(root, ".learning-cache", "gate-verdicts.json");
+  mkdirSync(join(root, ".learning-cache"), { recursive: true });
+  writeFileSync(store, "not json");
+  const bridge = await openBridge(root, { gateToolPath: gate.tool, gateVerdictsFile: store });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 1, "the corrupt store is not trusted");
+  assert.doesNotThrow(() => JSON.parse(readFileSync(store, "utf8")));
+  await bridge.shutdown();
+});
+
+test("a slow rich-page gate neither blocks another route nor runs twice for concurrent requests", async () => {
+  const { root, topic } = makeRoot();
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
+  const gate = fakeGate(root, { delayMs: 700 });
+  const bridge = await openBridge(root, { gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  const partRequests = [http(result.structuredContent.url), http(result.structuredContent.url)];
+  const deadline = Date.now() + 1000;
+  while (!existsSync(gate.started) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(existsSync(gate.started), "the injected slow gate began asynchronously");
+  const started = Date.now();
+  const topicPage = await http(`${result.structuredContent.base}${TOPIC}`);
+  assert.equal(topicPage.status, 200);
+  assert.ok(Date.now() - started < 300, "another bridge route answers while the gate is still running");
+  const pages = await Promise.all(partRequests);
+  assert.ok(pages.every(page => page.status === 200));
+  assert.equal(gate.count(), 1, "concurrent requests share one gate process");
+  await bridge.shutdown();
+});
+
+test("a rich page whose gate exits outside the documented contract is never served", async () => {
+  const { root, topic } = makeRoot();
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
+  const gate = fakeGate(root, { serves: true, exitCode: 2 });
+  const bridge = await openBridge(root, { gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  const page = await http(result.structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.doesNotMatch(page.body, /RICH_SENTINEL/, "an undocumented exit status cannot authorize a rich page");
+  await bridge.shutdown();
+});
+
+test("a rich page with a failing cached verdict is never served", async () => {
+  const { root, topic } = makeRoot();
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
+  const gate = fakeGate(root, { serves: false });
+  const bridge = await openBridge(root, { gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  const page = await http(result.structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.doesNotMatch(page.body, /RICH_SENTINEL/, "the learner gets the note fallback, never the failing rich page");
+  assert.equal(gate.count(), 1);
+  await bridge.shutdown();
+});
+
+test("startup gates a captured page snapshot and the bridge refuses a later broken page", async () => {
+  const { root, topic } = makeRoot();
+  const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
+  const original = `${QUALIFYING_PAGE}\n<!-- WARM_CHECKED_BYTES -->`;
+  const gateToolPath = join(root, "warm-race-gate.mjs");
+  const callCount = join(root, "warm-race-count.log");
+  const started = join(root, "warm-race-started.log");
+  const release = join(root, "warm-race-release.log");
+  const checked = join(root, "warm-race-checked.log");
+  writeFileSync(pagePath, original);
+  writeFileSync(gateToolPath, [
+    'import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";',
+    `let count = 0; try { count = Number(readFileSync(${JSON.stringify(callCount)}, "utf8")); } catch {}`,
+    "count += 1;",
+    `writeFileSync(${JSON.stringify(callCount)}, String(count));`,
+    `if (count === 1) { appendFileSync(${JSON.stringify(started)}, "start\\n"); while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 10)); }`,
+    "const page = readFileSync(process.argv[2], \"utf8\");",
+    `appendFileSync(${JSON.stringify(checked)}, page.includes("BROKEN_WARM_BYTES") ? "broken\\n" : "original\\n");`,
+    'console.log(JSON.stringify({ serves: count === 1 || !page.includes("BROKEN_WARM_BYTES") }));',
+    "",
+  ].join("\n"));
+  const store = join(root, ".learning-cache", "gate-verdicts.json");
+  const { warmGateVerdicts } = await import("./gate-verdicts.ts");
+  const options = { root, gateToolPath, gateVerdictsFile: store };
+  const warming = warmGateVerdicts(root, options);
+  const deadline = Date.now() + 1000;
+  while (!existsSync(started) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(existsSync(started), "the startup gate began after reading the page");
+  writeFileSync(pagePath, `${QUALIFYING_PAGE}\n<!-- BROKEN_WARM_BYTES -->`);
+  writeFileSync(release, "release");
+  await warming;
+  assert.equal(readFileSync(checked, "utf8"), "original\n", "the gate consumes the exact bytes whose hash warm-up stored");
+
+  const bridge = await openBridge(root, { gateToolPath, gateVerdictsFile: store });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  const page = await http(result.structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.doesNotMatch(page.body, /BROKEN_WARM_BYTES/, "the bridge does not serve the swapped page under the warm-up PASS");
+  assert.equal(readFileSync(checked, "utf8"), "original\nbroken\n", "the changed page is gated independently");
+  await bridge.shutdown();
+});
+
+test("a page edited during its gate is served only from the bytes checked", async () => {
+  const { root, topic } = makeRoot();
+  const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
+  const original = `${QUALIFYING_PAGE}\n<!-- CHECKED_BYTES -->`;
+  const started = join(root, "gate-started.log");
+  const release = join(root, "gate-release.log");
+  const checked = join(root, "gate-checked.log");
+  const gateToolPath = join(root, "blocking-explain-check.mjs");
+  writeFileSync(pagePath, original);
+  writeFileSync(gateToolPath, [
+    'import { appendFileSync, existsSync, readFileSync } from "node:fs";',
+    `appendFileSync(${JSON.stringify(started)}, "start\\n");`,
+    `while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 10));`,
+    `appendFileSync(${JSON.stringify(checked)}, readFileSync(process.argv[2], "utf8").includes("CHECKED_BYTES") ? "checked\\n" : "broken\\n");`,
+    'console.log(JSON.stringify({ serves: true }));',
+    "",
+  ].join("\n"));
+  const bridge = await openBridge(root, { gateToolPath, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  const response = http(result.structuredContent.url);
+  const deadline = Date.now() + 1000;
+  while (!existsSync(started) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(existsSync(started), "the gate reached the checked page snapshot");
+  writeFileSync(pagePath, "<html><body>BROKEN_BYTES</body></html>");
+  writeFileSync(release, "release");
+  const page = await response;
+  assert.equal(page.status, 200);
+  assert.match(page.body, /CHECKED_BYTES/, "the response uses the bytes captured before the async gate");
+  assert.doesNotMatch(page.body, /BROKEN_BYTES/);
+  assert.equal(readFileSync(checked, "utf8"), "checked\n", "the gate inspected the same snapshot that the response serves");
+  await bridge.shutdown();
+});
+
 test("a part's rich HTML page replaces the Markdown rendering, with the kit, the quiz API and the injected config", async () => {
   const { root, topic } = makeRoot();
   const kitDir = realpathSync(mkdtempSync(join(tmpdir(), "kit-")));
@@ -1096,7 +1291,8 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
     QUALIFYING_PAGE,
   );
   const host = makeHost();
-  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"] });
+  const gate = fakeGate(root);
+  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"], gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
   const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
   const url = result.structuredContent.url;
   const prefix = new URL(result.structuredContent.base).pathname;
@@ -1165,7 +1361,8 @@ test("a video control or kit asset named only inside a comment is still missing"
     QUALIFYING_PAGE.replace('<script src="../kit/kit.js" defer></script>', '<!-- <script src="../kit/kit.js"></script> -->').replace('</main>', '<!-- <lk-video></lk-video> --></main>'),
   );
   const host = makeHost();
-  registerBridge(host.api, { root, kitDir });
+  const gate = fakeGate(root);
+  registerBridge(host.api, { root, kitDir, gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
   const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
   const page = await http(result.structuredContent.url);
   assert.equal(page.status, 200);
@@ -1328,9 +1525,9 @@ test("every part page carries one audio entry per style and serves the file once
   await shutdown();
 });
 
-// #305 y #323: las reglas de autoría (summary, facts, ring) se miden al escribir una parte, y su falla impide
-// servir la página: el lector recibe la nota, que trae lo mismo. Servir lee todas las reglas (`ok`), como antes de #312.
-test("a part's page that lacks only the authoring cues is not served: the learner gets the note", async () => {
+// #305: las reglas de autoría (summary, facts, ring) se miden al escribir una parte. Una página que el lector
+// ya tenía sigue servida sin ellas: servir solo lee las reglas que no son de autoría.
+test("a part's page that lacks only the authoring cues is still served", async () => {
   const { root, topic } = makeRoot();
   const kitDir = realpathSync(mkdtempSync(join(tmpdir(), "kit-")));
   writeFileSync(join(kitDir, "kit.js"), "console.log('kit');");
@@ -1340,33 +1537,30 @@ test("a part's page that lacks only the authoring cues is not served: the learne
   const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
   // The page as #304 wrote it, before the cues: the clean fixture carries them now, so this copy keeps the old shape.
   writeFileSync(pagePath, readFileSync(join(import.meta.dirname, "..", "..", "tools", "register", "fixtures", "bench305", "tcp-handshake-sin-senales.html"), "utf8"));
-  // La precondición: la página no pasa las reglas de autoría. Si ya las pasara, la prueba no probaría nada.
-  const measured = JSON.parse(spawnSync(process.execPath, [join(import.meta.dirname, "..", "..", "tools", "explain-check.mjs"), pagePath, "--json"], { encoding: "utf8" }).stdout);
-  assert.equal(measured.ok, false, "the page passes the authoring cues: this test proves nothing");
   const host = makeHost();
-  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"] });
+  const gate = fakeGate(root, { ok: false, serves: true });
+  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"], gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
   // Closed like setup()'s bridge: here at the end, and through openServers if an assertion fails first.
   const shutdown = shutdownOf(host);
   openServers.push(shutdown);
   const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
   const page = await http(result.structuredContent.url);
   assert.equal(page.status, 200);
-  assert.doesNotMatch(page.headers["content-security-policy"], /script-src[^;]*'unsafe-inline'/, "the learner gets the note instead of the page");
-  assert.doesNotMatch(page.body, /El saludo inicial/, "the tutor's page must not reach the learner");
-  assert.match(page.body, /"kind":"part"/, "the note's reader answers");
+  assert.match(page.headers["content-security-policy"], /script-src 'self' https:\/\/cdn\.jsdelivr\.net 'unsafe-inline'/, "the learner gets the note instead of the page");
   await shutdown();
 });
 
-// #323: una página con una cerca de Markdown fuera de <pre> no se sirve: la regla `markdown-en-html` la rechaza
+// #328: una página con una cerca de Markdown fuera de <pre> no se sirve: la regla `codigo-pagina` la rechaza
 // y el lector recibe la nota.
 test("a hand-built page with a raw Markdown fence is refused: the learner gets the note", async () => {
-  const { topic, view, shutdown } = await setup();
+  // The real explain-check: setup()'s fake gate always serves, so the verdict has to come from the rule.
+  const { topic, view, shutdown } = await setup({ gateToolPath: join(import.meta.dirname, "..", "..", "tools", "explain-check.mjs") });
   const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
   const fence = "<p>Para x = 184 ms, la distancia al centro:</p>\n\n```text\nz = (x - μ) / σ\nz = 2\n```\n";
   writeFileSync(pagePath, QUALIFYING_PAGE.replace("</body>", `${fence}</body>`));
-  // La precondición: la regla de Markdown es la que rechaza la página. Si no, la prueba no demuestra nada.
+  // The precondition: the code rule is what refuses the page. Otherwise this test proves nothing.
   const rep = JSON.parse(spawnSync(process.execPath, [join(import.meta.dirname, "..", "..", "tools", "explain-check.mjs"), pagePath, "--json"], { encoding: "utf8" }).stdout);
-  assert.equal(rep.rows.find((r) => r.rule === "markdown-en-html")?.ok, false, "the fence passes the Markdown rule: this test proves nothing");
+  assert.equal(rep.rows.find((r) => r.rule === "codigo-pagina")?.ok, false, "the fence passes the code rule: this test proves nothing");
   const served = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
   assert.equal(served.status, 200);
   assert.doesNotMatch(served.headers["content-security-policy"], /script-src[^;]*'unsafe-inline'/, "the learner gets the note, not the tutor's page");

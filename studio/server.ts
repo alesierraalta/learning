@@ -73,6 +73,7 @@ import {
 import { parsePiModels } from "./pi-models.ts";
 import { enrolled } from "./gate.ts";
 import { runPartChecks, type PartChecks, type PartReport } from "./checks.ts";
+import { gateVerdictsFile, warmGateVerdicts } from "../integrations/pi/gate-verdicts.ts";
 import { PASS_STATUSES, gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
 import {
   STUDY_MODES,
@@ -265,6 +266,8 @@ export interface StudioOptions {
    * `scene-lint`, `deck-gate` and `explain-check`, run with the studio's Node.
    */
   partChecks?: (files: string[]) => Promise<PartChecks>;
+  /** Override explain-check for deterministic tests. */
+  gateToolPath?: string;
   /**
    * Minutes with nobody watching before the studio closes itself and its Pi child; `0`
    * turns it off. Default: `DEFAULT_IDLE_MINUTES` locally, off for a deploy (#183).
@@ -584,6 +587,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
   const token = options.token ?? randomBytes(32).toString("hex");
   const openedFile = options.openedFile ?? join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "learning-studio", "opened.json");
+  const gateStoreFile = gateVerdictsFile(root);
   const chatsFile = options.chatsFile ?? join(dirname(openedFile), "chats.json");
   /** The learner's conversations; the active one is the session the tutor talks in. */
   let chats: ChatDoc = readChats(chatsFile);
@@ -1340,7 +1344,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const checkParts = async (settled: Turn): Promise<PartReport | null> => {
     const files = partNotes(settled.parts);
     if (!files.length) return null;
-    const checked = await (options.partChecks ?? runPartChecks)(files);
+    const checkPartsWithVerdicts = options.partChecks ?? ((paths: string[]) => runPartChecks(paths, { gateVerdictsFile: gateStoreFile, gateToolPath: options.gateToolPath }));
+    const checked = await checkPartsWithVerdicts(files);
     if (checked.kind === "crashed") {
       for (const failure of checked.failures) process.stderr.write(`estudio: comprobación fallida · ${failure}\n`);
       // A gate that could not measure did not pass: a regeneration keeps the previous version.
@@ -2428,7 +2433,10 @@ ${scripts}
     publicOrigin: options.bridgePublicOrigin,
     publicEmbedder: options.publicOrigin,
     frameAncestors: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
+    gateVerdictsFile: gateStoreFile,
+    gateToolPath: options.gateToolPath,
   });
+  void warmGateVerdicts(root, { gateVerdictsFile: gateStoreFile, gateToolPath: options.gateToolPath });
   try {
     bridgeOrigin = new URL(String((await view()).base)).origin;
   } catch {

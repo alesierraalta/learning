@@ -120,6 +120,51 @@ function restarts(s) {
   return existsSync(s.calls) ? readFileSync(s.calls, "utf8").trim().split("\n").filter(Boolean) : [];
 }
 
+test("the vault backup appends the cache ignore after a newline exactly once on repeat runs", () => {
+  const vault = mkdtempSync(join(tmpdir(), "backup-gate-cache-"));
+  roots.push(vault);
+  const bin = join(vault, "bin");
+  mkdirSync(bin);
+  const gitLog = join(vault, "git.log");
+  writeFileSync(join(vault, ".gitignore"), "foo");
+  writeFileSync(join(bin, "git"), [
+    "#!/usr/bin/env bash",
+    'printf \'%s\\n\' "$*" >> "$GIT_LOG"',
+    'case "$*" in',
+    '  "add -A"|"diff --cached --quiet") exit 0 ;;',
+    '  "rev-list --count @{u}..HEAD") printf "0\\n" ;;',
+    "  *) exit 97 ;;",
+    "esac",
+    "",
+  ].join("\n"));
+  chmodSync(join(bin, "git"), 0o755);
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, GIT_LOG: gitLog, LEARNING_ROOT: vault, STUDIO_DB: join(vault, "missing.db") };
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const run = spawnSync("bash", [join(REPO, "deploy", "vps", "learnings-backup.sh")], { cwd: vault, encoding: "utf8", env });
+    assert.equal(run.status, 0, run.stderr);
+  }
+  assert.equal(readFileSync(join(vault, ".gitignore"), "utf8"), "foo\n.learning-cache/\n");
+});
+
+test("database ignores append after a unterminated vault line without rewriting it", () => {
+  const vault = mkdtempSync(join(tmpdir(), "backup-db-ignore-"));
+  roots.push(vault);
+  const bin = join(vault, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(vault, ".gitignore"), "foo");
+  writeFileSync(join(vault, "learning.db"), "scratch database");
+  writeFileSync(join(bin, "node"), "#!/bin/sh\nexit 91\n");
+  chmodSync(join(bin, "node"), 0o755);
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HOME: join(vault, "home"), LEARNING_ROOT: vault };
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const run = spawnSync("bash", [join(REPO, "deploy", "vps", "learnings-backup.sh")], { cwd: vault, encoding: "utf8", env });
+    assert.equal(run.status, 91, "the fake Node stops before the snapshot or any Git operation");
+  }
+  assert.equal(readFileSync(join(vault, ".gitignore"), "utf8"), "foo\n.learning-cache/\nlearning.db\nlearning.db-wal\nlearning.db-shm\n");
+});
+
 function markBusyFile(s, mark) {
   mkdirSync(s.stateDir, { recursive: true });
   writeFileSync(s.busy, JSON.stringify(mark));

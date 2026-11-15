@@ -2,9 +2,9 @@
 
 Go implementation of the deterministic deep-learning validation flow defined in
 [protocol.md](protocol.md). The engine owns rules, state, validation, judging and
-completion; the Pi adapter is transport only. It writes exactly one kind of file
-into the vault: its own `.learning/` state, and only when `init`/`advance` is
-explicitly invoked. It never creates or edits Obsidian notes.
+completion; the Pi adapter is transport only. It writes its own `.learning/`
+state and, during `init`, stages validated uploaded files under the topic's
+`fuentes/`. It never creates or edits Obsidian notes.
 
 Covered specs: S2 (objective checks are code, not model opinion), S3 (per-stage
 detection before completion), S4 (conditional proof that the plan really changed
@@ -25,16 +25,19 @@ rtk go build -o bin/learning ./cmd/learning
 ## CLI contract
 
 ```text
-learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--exam oral|written|practical] [--practice KIND] [--exam-source PATH] [--stage STAGE] [--json]
+learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--exam oral|written|practical] [--practice KIND] [--source PATH ...] [--exam-source PATH] [--stage STAGE] [--json]
 learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
 learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
 learning mcp
 learning help
 ```
 
-- `--root` and `--workspace` are canonical paths. Both are resolved with
-  `realpath` (`EvalSymlinks`) and the workspace must stay inside the root;
-  traversal and symlink escapes are rejected before any file is touched.
+- `--root` and `--workspace` are canonical paths. The root and existing
+  workspace are resolved with `realpath` (`EvalSymlinks`) and the workspace must
+  stay inside the root. `init` may receive a not-yet-created workspace directly
+  under an existing in-root parent; it creates that directory after validation
+  and removes it on failure if it created it. Traversal and symlink escapes are
+  rejected before any file is touched.
 - With `--json`, stdout is exactly one JSON report object, never mixed with logs.
   Errors are JSON too when `--json` is present.
 - Exit codes: `0` accepted/completed/waiting/skipped, `1` failed mandatory
@@ -49,9 +52,17 @@ learning help
   while the rules load) terminates the process with the default signal status;
   nothing has been written and no lock exists yet. Only `SIGKILL` or a crash
   leaves the lock, which is taken over after five minutes.
-- Unknown flags, duplicate flags, missing values, missing required flags, an
-  unknown command, an invalid mode, `advance` without `--stage`, and `--stage`
-  on `init`/`status` are strict operational errors (exit 2, `status:"error"`).
+- Unknown flags, duplicate flags (except repeatable `--source`), missing values,
+  missing required flags, an unknown command, an invalid mode, `advance` without
+  `--stage`, and `--stage` on `init`/`status` are strict operational errors
+  (exit 2, `status:"error"`).
+- `--source` is init-only and repeatable for 1–5 absolute regular files under
+  `<root>/.subidas/`. The engine resolves symlinks, validates the full source
+  set before writing, rejects duplicate target names, and copies each source to
+  `<workspace>/fuentes/`. A PDF includes its required `.txt` sibling and any
+  contiguous rendered page PNGs. `--exam-source` accepts one of those original
+  source paths (stored as `fuentes/<name>`) or an existing relative path under
+  `fuentes/`; it requires `--exam`.
 
 Report shape:
 
@@ -76,7 +87,7 @@ The adapter may only treat the first group as passing.
 
 | Command | Writes | Review activity | Notes |
 |---|---|---|---|
-| `init` | creates `.learning/state.json` | none | refuses to overwrite an existing run (exit 2) |
+| `init` | creates `.learning/state.json`; stages optional uploads under `fuentes/` | none | refuses to overwrite an existing run (exit 2); failure rolls back only files/directories it created |
 | `validate` | none | lists `pendingReviews` (missing/stale) | without `--stage` targets the current frontier |
 | `advance` | state (only on full success) | requires fresh recorded reviews after all deterministic checks | blocked while any review is missing, stale or a gate FAIL; rejected transitions write nothing |
 | `review` | `state.semantic[]` receipt | records one verdict | frontier stage only, objective checks must pass first |
@@ -136,10 +147,19 @@ exactly as before.
 It is init-only, implies `pareto` scope, and cannot be combined with explicit
 `--scope complete` (exit 2). `--practice "<kind>"` is also init-only and is
 accepted only with `--exam practical`; it is optional even for practical runs.
-`--exam-source PATH` is init-only, requires `--exam`, and must name an existing
-regular file at a topic-relative path under `fuentes/` without `..` (for
-example, `fuentes/examen.pdf`). It fixes which real source the run mirrors.
-Later commands read the exam contract from state rather than accepting new flags.
+`--exam-source PATH` is init-only and requires `--exam`. It may name one of the
+absolute `--source` paths, recorded as `fuentes/<name>`, or an existing
+regular topic-relative file under `fuentes/` without `..` (for example,
+`fuentes/examen.pdf`). It fixes which real source the run mirrors. Later
+commands read the exam contract from state rather than accepting new flags.
+
+`--source` is repeatable on init (1–5). Each absolute path must resolve to a
+regular file contained under `<root>/.subidas/`, including through symlinks.
+The engine validates every source and destination name before copying. For a
+PDF, the extracted `<pdf>.txt` sibling is required and copied; existing
+contiguous `<pdf>.p<N>.png` page images are copied too. Init never overwrites
+existing files. If it fails after staging, only its own copies and directories
+are removed; pre-existing files remain untouched.
 The studio's `deducir` choice is not an engine exam format: the tutor infers
 `oral`, `written` or `practical` from the source, then passes that format (and
 `--practice` only when practical) to `init`.
@@ -660,11 +680,14 @@ checks). What it measures, and how:
   `<lk-scene>`») and points at the scene vocabulary in
   `skills/explicacion-interactiva/references/visuales.md`.
 - **Prose rhythm.** `maxSentencesPerParagraph` sentences per paragraph at most.
-  The paragraphs are `tools/explain-check.mjs`'s: fenced code and the closed
-  `<lk-scene>`, `<lk-walkthrough>`, `<lk-quiz>` and `<lk-quick-quiz>` blocks are
-  removed, headings, table rows and tag lines are not paragraphs, each bullet
+  The paragraphs are `tools/explain-check.mjs`'s: Markdown fences in notes and
+  `<pre><code>` blocks in rich HTML pages, plus closed `<lk-scene>`,
+  `<lk-walkthrough>`, `<lk-quiz>` and `<lk-quick-quiz>` blocks, are removed;
+  headings, table rows and tag lines are not paragraphs, each bullet
   is its own unit (a list of short bullets is never a wall), and a sentence is
-  a `.`, `!` or `?` followed by a space or the end of the paragraph. The
+  a `.`, `!` or `?` followed by a space or the end of the paragraph. `explain-check`
+  also excludes rich-page `<pre><code>` contents from sentence, word-budget and
+  register checks; inline `<code>` remains part of its sentence. The
   refusal reports the count and quotes the first offending paragraph, so the
   tutor knows which one to split. The engine and the tool must agree — a test
   cross-checks both counts, like the prose budget.
@@ -768,11 +791,13 @@ checks). What it measures, and how:
   operation, a call to a function, the code of a programming language (its fence) and a kit figure are not
   calculations. Two or more consecutive display formulas (`$$…$$`, `\[…\]`, `<lk-math display>`) that substitute numbers and carry an operation are the same calculation written as formulas (decision 4); prose or a label between them makes them no series. Two or more calculation lines inside one display (`\\`, `aligned`, `align`, `array`, `gathered`) are a calculation, and two or more `<lk-math>` elements alone on their own lines (a list mark is allowed; a sentence or a full stop after one is not) that do the same are a series like the display formulas. Mirrored as `calculo-en-texto`; the key is additive, so a snapshot without it keeps the parts it
   accepted.
-- **Serving.** explain-check's JSON reports `ok`; the bridge serves a page only when `ok` is true. The
-  bridge (`integrations/pi/bridge.ts`) therefore serves a page the tutor wrote only when every rule passes,
-  authoring cues included, and a page that lacks one is not served: the learner gets the note, which carries
-  the same content (#323). The turn-end checks and the engine still refuse a part
-  that is written now (`ok` and the exit code, which count every rule).
+- **Serving.** explain-check's JSON reports `serves`: true when every rule that is not authoring-only
+  passes. The bridge (`integrations/pi/bridge.ts`) serves a page the tutor wrote on `serves`, so a part
+  that lacks an authoring cue is still served. A rich HTML page with a Markdown fence fails the
+  serving rule `codigo-pagina`, which cites the line and makes `serves` false; use
+  `<pre><code class="language-…">` for code. The turn-end checks
+  and the engine still refuse a part that is written now (`ok` and the exit code, which count every
+  rule).
 - **Story language.** `storyLanguage` turns on the story-language rule: a part
   draws its step-by-step visual with `<lk-story>` (the deck of actors with
   state, moves and marks) or with a piece (`<lk-cards>`, `<lk-memory>`,
@@ -858,7 +883,7 @@ shared file except one registry line:
   (`tools/explain-check/nota.mjs`) and runs the registry
   `tools/explain-check/reglas.mjs` in order. Each rule is
   `tools/explain-check/rules/<id>.mjs`, exporting `{ id, check(note, ctx) }`. A rule that measures what the tutor writes sets `authoringOnly: true`:
-  its failure blocks a new part, and `ok` keeps the bridge from serving its page (see the cues above).
+  its failure blocks a new part, and `serves` leaves it out (see the cues above).
 
 `CONTRIBUTING.md` lists the steps to add a rule.
 

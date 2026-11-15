@@ -10,7 +10,8 @@
 // `explain-check/rules/`. Añadir una regla es un archivo y una línea en el registro.
 //
 // Una regla de autoría (`authoringOnly`, #305) mide lo que el tutor escribe: su falla impide dar
-// la parte por buena al escribirla, y también impide servir su página: el lector recibe la nota (#323).
+// la parte por buena al escribirla, pero no impide servir una parte que ya se escribió. Por eso el
+// JSON trae `serves`: true cuando pasan todas las demás reglas.
 //
 // Uso: node tools/explain-check.mjs <nota.md> [--max 450] [--json]
 // Sale 1 si alguna regla falla.
@@ -33,26 +34,27 @@ if (!file) {
 }
 
 // Una página HTML que escribió un turno se mide con las mismas reglas que su nota (#265): se traduce a la
-// forma de nota, con sus figuras del kit intactas. La nota Markdown se lee tal cual; la página se lee también
-// tal como se escribió, para la regla de Markdown (#323).
+// forma de nota, con sus figuras del kit intactas. La nota Markdown se lee tal cual.
 const esPagina = /\.html?$/i.test(file);
-const crudo = readFileSync(file, 'utf8');
-const src = esPagina ? notaDeHtml(crudo) : crudo;
-const nota = leerNota(src, esPagina, crudo);
+const original = readFileSync(file, 'utf8');
+const src = esPagina ? notaDeHtml(original) : original;
+const nota = leerNota(src, esPagina, original);
 const ctx = { file, maxWords, tools: TOOLS };
 
 const rows = [];
 for (const regla of REGLAS) {
   const salida = regla.check(nota, ctx);
   // Una regla devuelve su fila; el registro de medidas devuelve varias, cada una con su `rule`.
-  // Las filas de una regla de autoría se marcan (#305): su falla también impide servir la página (#323).
+  // Las filas de una regla de autoría se marcan, y `serves` no las cuenta (#305).
   const autoria = regla.authoringOnly === true;
   if (Array.isArray(salida)) rows.push(...salida.map((r) => ({ ...r, authoringOnly: autoria })));
   else rows.push({ rule: regla.id, ok: salida.ok, detail: salida.detail, ...(salida.items ? { items: salida.items } : {}), authoringOnly: autoria });
 }
 
 const fallan = rows.filter((r) => !r.ok);
-if (asJson) console.log(JSON.stringify({ file, rows, ok: fallan.length === 0 }, null, 1));
+// Lo que el lector necesita para ver la parte: todas las reglas menos las de autoría (#305).
+const serves = rows.every((r) => r.ok || r.authoringOnly);
+if (asJson) console.log(JSON.stringify({ file, rows, ok: fallan.length === 0, serves }, null, 1));
 else {
   for (const r of rows) {
     console.log(`${r.ok ? 'ok   ' : 'FALLA'} ${r.rule.padEnd(12)} ${r.detail}`);

@@ -10,6 +10,7 @@
 // (`authoringOnly`). El motor aplica la misma regla (`calculoEnTextoFindings` en
 // `internal/engine/standard_calculo_en_texto.go`) y un test cruza los dos.
 import { isStepLine } from '../../register/measure.mjs';
+import { sinCercasPorRenglon } from '../../lib/explain-check-code.mjs';
 
 // Lo que es código o dibujo y no una cuenta: los lenguajes de programación que mide el registro (`CODE_LANGS` en
 // `tools/register/measure.mjs`) y los formatos visuales del kit.
@@ -200,10 +201,8 @@ const bloquesDeFormula = (texto) => {
   for (const m of texto.matchAll(FORMULA)) {
     const fin = m.index + m[0].length;
     let inicio = m.index;
-    let contenido;
-    if (m[1] !== undefined) contenido = m[1];
-    else if (m[2] !== undefined) contenido = m[2];
-    else {
+    let contenido = m[1] ?? m[2];
+    if (contenido === undefined) {
       if (!/\bdisplay\b/.test(m[3]) && !soloEnSuLinea(texto, m.index, fin)) continue;
       contenido = m[4];
       // Un suelto empieza al principio de su línea: su viñeta es de la línea, no del hueco entre dos fórmulas.
@@ -223,24 +222,9 @@ const hallazgoDeSerie = (serie) => {
   return { desde: conCalculo[0].desde, hasta: conCalculo.at(-1).hasta, n };
 };
 
-// El texto donde se leen las fórmulas: sin las cercas de código, sin las figuras del kit (salvo `<lk-math>`) y sin el
-// código de línea, que es texto citado. Cada bloque quitado deja sus saltos de línea y una marca que no es blanco, para
-// que una frase entre dos fórmulas las separe.
-const visible = (src) => {
-  const lineas = [];
-  let cerca = false;
-  for (const linea of src.split('\n')) {
-    const t = linea.trim();
-    if (!cerca && t.startsWith('```')) {
-      cerca = true;
-      lineas.push('\u0001');
-    } else if (cerca) {
-      if (t.startsWith('```')) cerca = false;
-      lineas.push('');
-    } else lineas.push(linea);
-  }
-  return blanqueaFiguras(lineas.join('\n'), true).replace(/`[^`\n]*`/g, '\u0001');
-};
+// El texto donde se leen las fórmulas: sin las cercas de código (`sinCercasPorRenglon`, de `tools/lib`), sin las figuras
+// del kit (salvo `<lk-math>`) y sin el código de línea, que es texto citado. Cada cerca deja su marca y sus saltos de línea.
+const visible = (src) => blanqueaFiguras(sinCercasPorRenglon(src), true).replace(/`[^`\n]*`/g, '\u0001');
 
 // Una serie de fórmulas: cada una sigue a la anterior con solo blancos entre las dos. Una frase, una etiqueta o una
 // figura entre ellas la corta.

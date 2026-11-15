@@ -2,6 +2,8 @@
 // historias, las escenas, las tarjetas, las fórmulas y los párrafos se derivan aquí,
 // y cada regla recibe la nota ya leída (#269). Lo que mide una sola regla vive en su
 // archivo de `rules/`.
+import { notaDeHtml } from '../register/nota-html.mjs';
+import { lineasConFencesMarkdown, sinCodigo as sinCodigoDeBloques } from '../lib/explain-check-code.mjs';
 
 // Las piezas visuales (tarjetas, memoria, tablas, conjuntos, el explorador de un
 // escenario y el árbol) son figuras como la escena: ocupan su lugar en la parte.
@@ -29,6 +31,7 @@ const esDerivacion = (bloque) => {
 };
 
 // Los recorridos que cuentan para el tope de la parte: cada `<lk-walkthrough>` y cada historia que no es de derivación.
+// Se miden sin código, como el motor: un ejemplo de marcado dentro de una cerca no es un recorrido.
 const recorridosDeTope = (src) => {
   let n = 0;
   for (const m of src.matchAll(/<lk-(walkthrough|story)[\s>]/g)) {
@@ -41,17 +44,19 @@ const recorridosDeTope = (src) => {
   return n;
 };
 
-/** Lee la nota una vez. `src` ya es la nota: una página HTML llega traducida, y `crudo` es la página tal como se escribió (#323). */
-export function leerNota(src, esPagina, crudo = src) {
-  // Sin código: un bloque cercado es un ejemplo de marcado, no un dibujo ni prosa.
-  const sinCodigo = src.replace(/```[\s\S]*?```/g, ' ');
+/** Lee la nota una vez. `src` ya es la nota: una página HTML llega traducida. */
+export function leerNota(src, esPagina, fuenteHtml = src) {
+  const sinCodigo = esPagina
+    ? notaDeHtml(sinCodigoDeBloques(fuenteHtml, true))
+    : sinCodigoDeBloques(src);
+  const lineasFencesMarkdown = esPagina ? lineasConFencesMarkdown(fuenteHtml) : [];
 
   // Escenas y recorridos (reglas 4 y 5): se cuentan en el texto entero.
   const piezas = (src.match(new RegExp(`<lk-(?:${PIEZAS})[\\s>]`, 'g')) || []).length;
   const escenas = (src.match(/<lk-scene[\s>]/g) || []).length + piezas;
   const recorridos = (src.match(/<lk-(?:walkthrough|story)[\s>]/g) || []).length;
   // El tope no cuenta la derivación (#324); `recorridos` sigue midiendo todas, que es lo que `figuras` necesita.
-  const recorridosTope = recorridosDeTope(src);
+  const recorridosTope = recorridosDeTope(sinCodigo);
 
   // Fórmulas: las del kit, las que se dibujan en una escena y el LaTeX plano.
   const formulas = [...src.matchAll(/<lk-math[^>]*>([\s\S]*?)<\/lk-math>/g)].map((m) => m[1]);
@@ -104,8 +109,7 @@ export function leerNota(src, esPagina, crudo = src) {
   }
 
   // El ritmo: los párrafos de prosa y sus frases. Las reglas `frases` y `parrafos` leen estas.
-  const lineasProsa = src
-    .replace(/```[\s\S]*?```/g, '\n\n')
+  const lineasProsa = sinCodigo
     .replace(new RegExp(`<lk-(scene|walkthrough|story|${PIEZAS}|quiz|quick-quiz)[\\s\\S]*?<\\/lk-\\1>`, 'g'), '\n\n')
     .split('\n')
     // Títulos, tablas y etiquetas no son prosa; las citas y las viñetas sí: una ficha
@@ -144,5 +148,5 @@ export function leerNota(src, esPagina, crudo = src) {
     bloquesDeRecorrido.push({ tag: m[1], spec, pasos, linea: `${m[1]} ${bloquesDeRecorrido.length + 1} (${pasos.length} pasos)` });
   }
 
-  return { src, crudo, esPagina, sinCodigo, escenas, recorridos, recorridosTope, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
+  return { src, esPagina, sinCodigo, lineasFencesMarkdown, escenas, recorridos, recorridosTope, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
 }

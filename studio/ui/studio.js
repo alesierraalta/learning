@@ -877,6 +877,7 @@
       updateSourceList();
       refresh();
       for (const file of accepted) {
+        let uploadSucceeded = false;
         try {
           const response = await fetch(`${base}api/subir`, {
             method: "POST",
@@ -886,11 +887,16 @@
           const uploaded = await response.json();
           if (!response.ok) throw new Error(uploaded.error || "No se pudo subir el archivo.");
           fuentes.push({ id: uploaded.id, nombre: uploaded.nombre, tipo: uploaded.tipo });
+          uploadSucceeded = true;
         } catch (error) {
           erroresFuente.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
         }
         subidasPendientes--;
         updateSourceList();
+        if (uploadSucceeded) {
+          if (!modo) pick("examen");
+          if (modo === "examen" && !formato) pickFormat("deducir");
+        }
         refresh();
       }
     };
@@ -952,7 +958,7 @@
       "section",
       { class: "new-learning", "aria-label": "Aprender algo nuevo" },
       form,
-      h("p", { class: "learn-hint" }, "Elige rápido, universitario o examen; para Examen, elige también el formato (y el tipo de práctica si corresponde)."),
+      h("p", { class: "learn-hint" }, "Al adjuntar, se selecciona Examen si no habías elegido modo y «Que lo deduzca el tutor» si el examen aún no tiene formato. Tus elecciones previas se conservan."),
       sourceHelp,
       h("div", { class: "learning-source-control" }, filePicker, sourceList, sourceErrors),
       h("div", { class: "mode-picks", role: "group", "aria-label": "Modo de estudio" }, picks),

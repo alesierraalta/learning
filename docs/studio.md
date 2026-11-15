@@ -161,10 +161,19 @@ the story where the learner sees it. They run
 with **the studio's own Node** (`process.execPath`), never `node` from `PATH`: one of them imports a
 `.ts` module and the distro's Node 22 cannot load it, which already broke a deploy. A part's note (`explicaciones/Parte N - <slug>.md`) and the page the turn wrote beside it
 (`explicaciones/Parte N - <slug>.html`) are two files, each measured with these tools (#265): a page is
-read as its note, rule by rule. The reader serves the page only when every rule passes (`ok`, the authoring cues included, #323),
-it carries no Markdown outside its code (`markdown-en-html`), and it carries every figure of the note
+read as its note, rule by rule. The reader serves the page only when it measures as its note (`serves`: every rule
+that is not authoring-only passes, `codigo-pagina` among them, #328) and carries every figure of the note
 (and the interactive quiz); otherwise the learner gets the note. This applies to every topic, including one whose `.learning/rules.json` is frozen: the
 engine's exemptions are about shape, not about a figure drawn over its own text.
+
+Rich-page verdicts are atomically stored in the vault's hidden, gitignored
+`.learning-cache/gate-verdicts.json`: keeping this per-vault cache beside its pages survives studio
+restarts without adding visible notes or committing generated state. Keys combine SHA-256 of the
+page bytes with SHA-256 of `explain-check.mjs` and its recursively imported local modules. The
+turn-end HTML check records that same `serves` verdict; a bridge cache miss runs asynchronously,
+concurrent opens share one run, and startup warms uncached rich pages serially in the background.
+Unreadable or corrupt cache data is ignored, and the reader still serves a rich page only when
+`serves` is exactly `true`.
 
 On findings the tutor gets **one correction turn on the same turn**, through the same gate path,
 carrying each tool's exact output and the fix, and spending the same `MAX_CORRECTIONS` budget the
@@ -259,8 +268,11 @@ son los mismos, y el markdown de la parte que el tutor escribió no se toca.
   a missing practical kind returns `400` with `Indica qué tipo de práctica requiere tu examen práctico.`;
   practice on a non-practical format returns `400` with `Solo puedes indicar una práctica para el formato práctico.`;
   and `examen` outside exam mode returns `400` with `Los datos del examen solo se aceptan en modo examen.`
-  The source text may be up to 200000 characters; a longer source returns `400` with
-  `El texto es demasiado largo: como mucho 200000 caracteres.` The home entry and tutorial show all
+  After a successful attachment, the home entry selects `examen` if no mode was chosen and selects
+  `deducir` if exam mode has no format; an existing mode or format choice is preserved. Removing
+  the last source clears `deducir` but leaves the selected mode. The source text may be up to
+  200000 characters; a longer source returns `400` with `El texto es demasiado largo: como mucho
+  200000 caracteres.` The home entry and tutorial show all
   three modes. When at least one source is attached, `text` may be empty; the prompt asks the tutor
   to take the topic from the uploaded exam/document. Without a source, blank text is still rejected
   with `escribe qué quieres aprender`.
@@ -289,10 +301,12 @@ son los mismos, y el markdown de la parte que el tutor escribió no se toca.
   `POST api/aprender` sends the uploaded IDs as `fuentes: [id, ...]` (1–5 valid uploads). The first
   turn names each original stored path and, for PDFs, its extracted-text path and page-image paths;
   it tells the tutor to read the page PNGs as images because they may contain questions that
-  `pdftotext` cannot see. It passes the original paths—not the `.txt` paths—to `learning_stage init`
-  as `sources`. For exam mode, the tutor also passes the selected original exam path as `examSource`,
-  one of those `sources`. The adapter stages the PDF, `.txt` and page PNGs into `<topic>/fuentes/`
-  before engine `init`; the tutor does not copy them.
+  `pdftotext` cannot see. In Pi, it passes the original paths—not the `.txt` paths—to
+  `learning_stage init` as `sources`; the adapter only forwards `sources` and `examSource` to the
+  engine. In CLI mode, the tutor uses `learning init --source <path> ... --exam-source <path>`
+  (repeat `--source` for every source and use `--exam-source` only in exam mode). The engine
+  validates and stages each original source, including the PDF `.txt` and page PNG companions, into
+  `<topic>/fuentes/`, and records the exam source as `fuentes/<name>`. The tutor does not copy them.
 
   Upload and source-related API refusals return JSON `{error: "…"}` with these exact messages:
 

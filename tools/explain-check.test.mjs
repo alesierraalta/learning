@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { leerNota } from './explain-check/nota.mjs';
+import { notaDeHtml } from './register/nota-html.mjs';
 
 const TOOLS = dirname(fileURLToPath(import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'explain-check-'));
@@ -957,10 +959,11 @@ test('la skill y AGENTS.md dicen que la nota es lo que se lee, sin .html aparte:
 // Los hallazgos del banco #264 se miden con la misma puerta, en la nota y en la página (#265). Los cinco
 // términos de la parte TCP seguidos son un glosario en bloque, y su mini-quiz numerado no es el lk-quiz.
 const BENCH265 = join(TOOLS, 'register', 'fixtures', 'bench265');
-const rowsOf = (file) => {
+const reportOf = (file) => {
   const r = spawnSync(process.execPath, [join(TOOLS, 'explain-check.mjs'), file, '--json'], { encoding: 'utf8' });
-  return Object.fromEntries(JSON.parse(r.stdout).rows.map((row) => [row.rule, row]));
+  return JSON.parse(r.stdout);
 };
+const rowsOf = (file) => Object.fromEntries(reportOf(file).rows.map((row) => [row.rule, row]));
 
 test('el glosario en bloque: cinco «Término: Es …» seguidos se refusan, y se cita el primero', () => {
   const rows = rowsOf(join(BENCH265, 'notas', 'tcp-handshake.md'));
@@ -989,6 +992,45 @@ test('la parte limpia pasa todas las reglas, con las definiciones repartidas y e
   const rows = rowsOf(join(BENCH265, 'clean', 'tcp-handshake.md'));
   assert.equal(rows['glosario-en-bloque']?.ok, true, `the clean note: ${rows['glosario-en-bloque']?.detail}`);
   assert.equal(rows['mini-quiz']?.ok, true);
+});
+
+test('una página HTML con un fence falla con la línea exacta y no se sirve', () => {
+  const file = join(dir, 'pagina-con-fence.html');
+  writeFileSync(file, '<html>\n<body>\n<p>Una explicación.</p>\n```sql\nSELECT saldo FROM cuentas;\n```\n</body>\n</html>\n');
+  const report = reportOf(file);
+  const row = report.rows.find((r) => r.rule === 'codigo-pagina');
+  assert.deepEqual(row, {
+    rule: 'codigo-pagina',
+    ok: false,
+    detail: 'línea 4, línea 6: usa <pre><code class="language-…"> en lugar de un fence Markdown',
+    authoringOnly: false,
+  });
+  assert.equal(report.serves, false);
+});
+
+test('los bloques HTML pre/code se excluyen de prosa y registro, pero el code inline sigue en su frase', () => {
+  const file = join(BENCH265, 'clean', 'tcp-handshake.html');
+  const html = readFileSync(file, 'utf8').replace(
+    '<h2>Mini-quiz</h2>',
+    `<pre><code class="language-sql">SELECT id, saldo, estado, fecha_actualizacion FROM cuentas WHERE id = 20 AND estado = 'activa' AND tipo_cuenta = 'corriente' AND moneda = 'EUR' AND saldo > 0;</code></pre>\n<pre><code class="language-sql">SELECT cuenta, saldo, estado, titular, moneda FROM cuentas WHERE id = 20 AND estado = 'activa' AND tipo_cuenta = 'corriente' AND saldo >= 0;</code></pre>\n<h2>Mini-quiz</h2>`,
+  );
+  const page = join(dir, 'pagina-con-pre-code.html');
+  writeFileSync(page, html);
+  const rows = rowsOf(page);
+  for (const rule of ['codigo-pagina', 'frases', 'parrafos', 'tamaño', 'frases-largas', 'termino-sin-explicar', 'sin-negritas', 'sin-escena-antes', 'sin-contraste', 'cuentas-sin-pasos', 'glosario-en-bloque']) {
+    assert.equal(rows[rule]?.ok, true, `${rule}: ${rows[rule]?.detail}`);
+  }
+
+  const inlineHtml = '<p>El término <code>saldo</code> sigue en esta frase.</p>';
+  const inline = leerNota(notaDeHtml(inlineHtml), true, inlineHtml);
+  assert.deepEqual(inline.frases, ['El término `saldo` sigue en esta frase.']);
+});
+
+test('leerNota conserva intactos los fences Markdown de una nota', () => {
+  const source = 'Una frase.\n\n```sql\nSELECT saldo FROM cuentas;\n```\n';
+  const note = leerNota(source, false);
+  assert.equal(note.src, source);
+  assert.doesNotMatch(note.sinCodigo, /SELECT saldo/);
 });
 
 // El árbol de frecuencias (#261) es una figura, como la escena y las demás piezas: una parte
@@ -1076,8 +1118,8 @@ test('la skill y los visuales nombran el árbol de frecuencias y la regla del pe
 // Las reglas de autoría del estándar (#305). Un recorrido o una historia de tres pasos o más cierra con su
 // `summary` (`falta-resumen`); una fórmula o una derivación trae sus `facts` en algún paso, como leyenda
 // (`falta-leyenda`); un recorrido o una historia de tres pasos gráficos tiene un `ring` de texto en algún paso
-// (`falta-foco`). Son de autoría: se miden al escribir una parte, y su falla impide servir la página
-// (#323: el lector recibe la nota, que trae lo mismo). Las historias de piezas (tarjetas, memoria, tablas,
+// (`falta-foco`). Son de autoría: se miden al escribir una parte, y una parte que ya se sirvió sigue servida
+// (`serves` en el JSON solo cuenta las demás reglas). Las historias de piezas (tarjetas, memoria, tablas,
 // conjuntos) no tienen pasos gráficos, así que no piden anillo.
 describe('las reglas de autoría del estándar (#305)', () => {
   const CUES = ['falta-resumen', 'falta-leyenda', 'falta-foco'];
@@ -1190,19 +1232,18 @@ describe('las reglas de autoría del estándar (#305)', () => {
     assert.notEqual(fila(rep, 'ascii').authoringOnly, true, 'ascii es de servir, no de autoría');
   });
 
-  test('una página que solo carece de reglas de autoría no se sirve: ok es false y el JSON no trae serves (#323)', () => {
+  test('una página que solo carece de reglas de autoría sirve: serves es true, aunque ok sea false', () => {
     // La página tal como la escribió #304, antes de las señales: la limpia de bench265 ya las trae.
     const rep = report(join(TOOLS, 'register', 'fixtures', 'bench305', 'tcp-handshake-sin-senales.html'));
-    assert.ok(rep.rows.some((r) => r.authoringOnly && !r.ok), 'la página sin señales ya pasa las reglas de autoría: la prueba no demuestra nada');
-    assert.equal(rep.ok, false, 'una regla de autoría impide servir la página: el lector recibe la nota');
-    assert.equal('serves' in rep, false, 'serves ya no existe: el puente sirve con ok');
+    assert.equal(rep.ok, false, 'la página sin señales ya pasa las reglas de autoría: la prueba no demuestra nada');
+    assert.equal(rep.serves, true, 'una regla de autoría impide servir la página');
   });
 
-  test('una falla que no es de autoría también impide servir la página, aunque pasen las de autoría', () => {
+  test('una falla que no es de autoría no se sirve: serves es false aunque pasen las reglas de autoría', () => {
     const rep = report(note(walkthrough({ viewBox: '0 0 900 320', summary: RESUMEN, steps: walkSteps(3, (i) => (i === 1 ? { ring: 'a' } : {})) }) + '\n\nLa flecha ---> va a la derecha.'));
     assert.deepEqual(CUES.filter((rule) => !fila(rep, rule).ok), [], 'las reglas de autoría no pasan: la prueba no mide lo que dice');
     assert.equal(fila(rep, 'ascii').ok, false, 'la flecha de texto no es una falla');
-    assert.equal(rep.ok, false, 'una falla que no es de autoría también impide servir la página');
+    assert.equal(rep.serves, false, 'una falla de servir no se perdona');
   });
 
   test('un paso con facts y ring no es clave muerta, y una clave que el esquema no lee sí lo es', () => {
@@ -1219,62 +1260,5 @@ describe('las reglas de autoría del estándar (#305)', () => {
       for (const rule of CUES) if (!fila(rep, rule).ok) fallan.push(`${relative(join(TOOLS, '..'), file)}: ${rule}`);
     }
     assert.deepEqual(fallan, []);
-  });
-});
-
-// La regla de Markdown en HTML (#323): una página que escribe el tutor se lee como HTML, así que la sintaxis de
-// Markdown que queda fuera de `<script>`, `<pre>` y `<code>` se imprime tal cual. Las cercas (```), los `$$` y los
-// títulos o viñetas que empiezan una línea se rechazan. Una nota de Markdown no se mide con esta regla.
-describe('markdown-en-html: una página no lleva Markdown fuera de código (#323)', () => {
-  let seq = 0;
-  const pagina = (body) => {
-    const file = join(dir, `markdown-${++seq}.html`);
-    writeFileSync(file, `<!doctype html>\n<html lang="es">\n<head><meta charset="utf-8"><title>Parte</title></head>\n<body>\n${body}\n</body>\n</html>\n`);
-    return file;
-  };
-  const fila = (file) => {
-    const rep = JSON.parse(spawnSync(process.execPath, [join(TOOLS, 'explain-check.mjs'), file, '--json'], { encoding: 'utf8' }).stdout);
-    const row = rep.rows.find((r) => r.rule === 'markdown-en-html');
-    assert.ok(row, 'no hay fila markdown-en-html');
-    return row;
-  };
-
-  test('una cerca de código fuera de <pre> se rechaza, con la línea de cada cerca', () => {
-    const row = fila(pagina('<p>Para x = 184 ms, la distancia al centro:</p>\n\n```text\nz = (x - μ) / σ\nz = 2\n```'));
-    assert.equal(row.ok, false, 'una cerca cruda pasa la regla');
-    assert.equal(row.items.length, 2, 'cada cerca es una línea que corregir');
-    assert.match(row.items[0].linea, /^línea \d+ · cerca de código/);
-  });
-
-  test('el código dentro de <pre>, <code> o <script> es HTML y no se mide', () => {
-    const row = fila(pagina('<pre><code>```text\nz = 2\n```</code></pre>\n<p>Usa <code>```</code> para abrir un bloque.</p>\n<script>const cerca = "```";</script>'));
-    assert.equal(row.ok, true, row.detail);
-  });
-
-  test('un $$ crudo en el texto se rechaza', () => {
-    assert.equal(fila(pagina('<p>$$f(x) = x^2$$</p>')).ok, false);
-  });
-
-  test('un título o una viñeta de Markdown al empezar una línea se rechaza', () => {
-    const row = fila(pagina('## Ruta\n- primera idea\n1. segunda idea'));
-    assert.equal(row.ok, false);
-    assert.equal(row.items.length, 3, 'un título y dos viñetas son tres líneas');
-  });
-
-  test('el texto que no empieza por una marca de Markdown no se rechaza', () => {
-    const row = fila(pagina('<p>#1 en la lista</p>\n<ul>\n<li>uno</li>\n</ul>\n<p>Precio: 3 - 2 = 1</p>'));
-    assert.equal(row.ok, true, row.detail);
-  });
-
-  test('un selector * de una hoja de estilo no es una viñeta', () => {
-    const row = fila(pagina('<style>\n* { box-sizing: border-box; }\n</style>\n<p>Texto.</p>'));
-    assert.equal(row.ok, true, row.detail);
-  });
-
-  test('una nota de Markdown no se mide con esta regla: sus cercas son código', () => {
-    const file = join(dir, `markdown-nota-${++seq}.md`);
-    writeFileSync(file, '# Parte\n\nTexto.\n\n```text\nz = 2\n```\n');
-    const row = fila(file);
-    assert.equal(row.ok, true, row.detail);
   });
 });

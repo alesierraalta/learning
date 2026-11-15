@@ -3,11 +3,10 @@
 The part's Markdown note is what the learner reads (#265): the reader renders it with the
 kit's pieces, the interactive mini-quiz and the video. A plain HTML page beside the note,
 with the same basename and an `.html` extension, is optional. The bridge serves it at
-`/<token>/<topic>/<part>` only when every rule passes (the same rules, read as a page, the authoring
-cues included, #323), when it has no Markdown outside its code, and when it carries every `<lk-…>` figure
-of the note and the interactive `<lk-quiz>`; otherwise the learner gets the note. Inside the page, code goes
-in `<pre><code>`, titles in `<h2>` and formulas in `<lk-math display>`: Markdown syntax outside them (a
-fence, `$$`, or a `#` or a list marker at the start of a line) refuses the page (`markdown-en-html`, #323).
+`/<token>/<topic>/<part>` only when it measures as its note (the same rules, read as a page, without the
+authoring cues, #305) and carries every `<lk-…>` figure of the note and the interactive `<lk-quiz>`; otherwise
+the learner gets the note. Inside the page, code goes in `<pre><code>`, titles in `<h2>` and formulas in
+`<lk-math display>`; a Markdown fence outside `<pre>` refuses the page (`codigo-pagina`, #328).
 No build or framework is required.
 
 ```html
