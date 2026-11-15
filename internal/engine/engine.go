@@ -1418,7 +1418,7 @@ func buildReceipts(r *rules.Rules, ws, stage, part string) (map[string]string, e
 			continue
 		}
 		for _, path := range cond.Require.Paths {
-			h, err := hashFile(absPath(ws, path))
+			h, err := receiptHash(r, ws, path, stage, part)
 			if err != nil {
 				return nil, fmt.Errorf("cannot hash conditional artifact %s: %w", path, err)
 			}

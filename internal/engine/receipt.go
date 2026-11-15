@@ -61,6 +61,22 @@ func receiptHash(r *rules.Rules, ws, rel, stage, part string) (string, error) {
 	return hashBytes([]byte(submission)), nil
 }
 
+// receiptMatches accepts the former raw-byte receipt for an unchanged strict-flow plan.
+func receiptMatches(r *rules.Rules, ws, rel, stage, part, want string) bool {
+	got, err := receiptHash(r, ws, rel, stage, part)
+	if err != nil {
+		return false
+	}
+	if got == want {
+		return true
+	}
+	if !r.Thresholds.StrictFlow || rel != declPathByKind(r, "preparation", "file_exists") {
+		return false
+	}
+	got, err = hashFile(absPath(ws, rel))
+	return err == nil && got == want
+}
+
 func ownWordsSubmission(r *rules.Rules, ws, part string) (string, error) {
 	raw, err := os.ReadFile(absPath(ws, "mis-palabras.md"))
 	if err != nil {
