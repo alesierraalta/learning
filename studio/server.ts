@@ -1243,20 +1243,29 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * The only way a tutor turn starts, whatever path asks for it: the composer, a submission from the
    * page, a regeneration. Every one names the topic it teaches, or says in code why it teaches none.
    * The turn is held until its settle is decided; only an accepted learner turn restores the budget.
+   * Every refusal comes before the hold, and a regeneration's backup comes after it: a turn that
+   * cannot start moves nothing (#316).
    */
-  const startTurn = async (text: string, spec: { topic: string | null; correction?: boolean; creation?: boolean; regeneration?: Turn["regeneration"] }) => {
+  const startTurn = async (text: string, spec: { topic: string | null; correction?: boolean; creation?: boolean; backup?: () => NonNullable<Turn["regeneration"]> }) => {
     requireNoTurn();
     // A drifted skill or AGENTS.md link means nobody reviewed what the tutor would read.
     refuseDriftedContext();
-    // Never route a turn before the studio knows which conversation it belongs to.
-    await ready;
+    // Never route a turn before the studio knows which conversation it belongs to. A runtime that
+    // could not open its conversation refuses the turn in the learner's words, as a drift does.
+    try {
+      await ready;
+    } catch (error) {
+      process.stderr.write(`estudio: el tutor no pudo abrir su conversación · ${(error as Error).message}\n`);
+      const message = "El tutor no empieza: no pudo abrir su conversación. Vuelve a intentarlo en un momento.";
+      emit("error", { message });
+      throw new HttpError(503, message);
+    }
     // `ready` can take a moment, and the studio must not hold two turns because of it.
     requireNoTurn();
     const started: Turn = {
       topic: spec.topic,
       correction: spec.correction === true,
       creation: spec.creation === true,
-      regeneration: spec.regeneration,
       parts: [],
       // What the engine had recorded before this turn: a method it already had is never blamed on the turn (#314).
       methodBefore: spec.topic === null ? null : methodOf(spec.topic),
@@ -1265,6 +1274,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     };
     holdTurn(started);
     try {
+      // A regeneration moves its previous version aside only now that the turn is held: from here on every
+      // exit releases the turn, and the release puts that version back.
+      if (spec.backup) started.regeneration = spec.backup();
       // Every turn of every topic carries the learner's standing lessons: the same place for both
       // runtimes, so neither can start a turn without them. Read per turn, so a lesson just
       // recorded already applies to the next one.
@@ -1797,21 +1809,21 @@ ${scripts}
         const tema = typeof body.tema === "string" ? body.tema : "";
         const parte = typeof body.parte === "string" ? body.parte : "";
         if (!/^[\w-]+$/.test(tema) || !/^p\d+$/.test(parte)) throw new HttpError(400, "Esa parte no se puede regenerar.");
-        // Everything that can refuse this request happens before the first write: a refused
+        // Everything that can refuse this request happens before anything moves: a refused
         // regeneration must leave the part in the library, not in the trash.
         const input = validateSugerencia({ tema, parte, motivos: body.motivos, texto: body.texto, origen: "regenerar" });
         const planned = regenerationTrash(root, { topic: tema, part: parte });
         const text = regenerationPrompt(tema, parte, input, planned.trash);
         if (text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "La regeneración pide demasiado texto de una vez.");
         const saved = recordSugerencia(root, { ...input, origen: "regenerar" });
-        const backup = backupPartForRegeneration(root, { topic: tema, part: parte }, new Date(), planned.trash || undefined);
         // A part lives in a deep topic: a regeneration the engine does not clear is not an end.
-        // The backup travels with the turn: the previous version goes back unless the new one passes.
+        // The previous version moves aside once the turn is held, and goes back unless the new one passes:
+        // a turn that cannot start (drift, a runtime not ready, another turn) moves nothing (#316).
         await startTurn(text, {
           topic: enrolled(root, tema) ? tema : null,
-          regeneration: { trash: backup.trash, moved: backup.moved, part: parte },
+          backup: () => ({ ...backupPartForRegeneration(root, { topic: tema, part: parte }, new Date(), planned.trash || undefined), part: parte }),
         });
-        return sendJson(res, 200, { ok: true, prompt: text, trash: backup.trash, entrada: saved.entrada });
+        return sendJson(res, 200, { ok: true, prompt: text, trash: planned.trash, entrada: saved.entrada });
       }
       case "api/telemetry": {
         if (isRecord(body) && body.entry) {
