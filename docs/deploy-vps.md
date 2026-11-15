@@ -104,6 +104,14 @@ bash ~/learning/deploy/vps/health.sh
 
 Update fast-forwards Git, rebuilds and verifies the engine, links the tutor's instructions and verifies the links, restarts the service, and checks health. A failed build stops before restart. Health requires an active service and HTTP 302 at loopback and HTTP 302 at the ZeroTier HTTPS entry verified against the Infra Root CA. It does not verify Pi authentication or vault sync. The same script runs automatically after every merge to `main`; see [Continuous integration and delivery](#continuous-integration-and-delivery).
 
+On an existing VPS, install `poppler-utils` once:
+
+```sh
+sudo apt-get install -y poppler-utils
+```
+
+Without it, PDF uploads fail with `No se pudo extraer el texto del PDF.`; image uploads still work.
+
 `update.sh` refuses to run when `~/learning` is on a branch other than `main` or has uncommitted changes, so a hand edit on the server is never pulled over or discarded.
 
 ### The restart waits for the tutor
