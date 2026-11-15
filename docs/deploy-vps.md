@@ -6,7 +6,7 @@ The systemd **user** service runs Node and Pi as `ale`, starts at boot without a
 
 ## First install (on the VPS)
 
-Run as `ale`, not root. Install Git, Go (the version required by `go.mod`), curl, Docker (with `ale` in the `docker` group), ZeroTier joined to the fleet network, the Infra Root CA service certificate at `/srv/certs/docker/infra.pem` + `infra-key.pem` (SAN `IP:10.154.59.151`; reissue with `/srv/certs/reissue-cert.sh`) and the official Node 24 at `~/.local/node` first (unpack the nodejs.org `linux-x64` tarball into `~/.local/node-<version>` and symlink `~/.local/node` to it): Ubuntu's `nodejs` package is built without TypeScript support and cannot run `studio/server.ts`.
+Run as `ale`, not root. The installer adds the `poppler-utils` package via apt if `pdftotext` is missing. Install Git, Go (the version required by `go.mod`), curl, Docker (with `ale` in the `docker` group), ZeroTier joined to the fleet network, the Infra Root CA service certificate at `/srv/certs/docker/infra.pem` + `infra-key.pem` (SAN `IP:10.154.59.151`; reissue with `/srv/certs/reissue-cert.sh`) and the official Node 24 at `~/.local/node` first (unpack the nodejs.org `linux-x64` tarball into `~/.local/node-<version>` and symlink `~/.local/node` to it): Ubuntu's `nodejs` package is built without TypeScript support and cannot run `studio/server.ts`.
 
 1. Clone the deploy branch:
    ```sh
