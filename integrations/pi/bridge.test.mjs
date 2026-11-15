@@ -7,7 +7,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync
 import { request, createServer as httpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { backupPartForRegeneration, countVisuals, obsidianToMarkdown, registerBridge, listTopics } from "./bridge.ts";
 import { stored } from "../../studio/testdata/stored.mjs";
@@ -1528,6 +1528,29 @@ test("the question banks and the answer files are never served, whatever the fil
   await shutdown();
 });
 
+test("a symlinked practical bank stays hidden through both its lexical and resolved paths", async () => {
+  const { topic, view, shutdown } = await setup();
+  const banks = join(topic, "banks");
+  mkdirSync(banks, { recursive: true });
+  writeFileSync(join(banks, "p1.json"), JSON.stringify({ exercises: [
+    { id: "modelo", enunciado: "Diseña un modelo", entregable: "Un diagrama", solucion: "BANK_SOLUTION_SECRET" },
+  ] }));
+  symlinkSync(banks, join(topic, "practica"), "dir");
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const quiz = await http(`${url}api/quiz?topic=${TOPIC}&part=p1`);
+  assert.equal(quiz.status, 500);
+  assert.doesNotMatch(quiz.body, /BANK_SOLUTION_SECRET/);
+  const lexical = await http(`${url}${TOPIC}/file/practica/p1.json`);
+  const resolvedPath = realpathSync(join(topic, "practica", "p1.json"));
+  const resolvedRelative = relative(topic, resolvedPath).split(/[\\/]/).map(encodeURIComponent).join("/");
+  const resolved = await http(`${url}${TOPIC}/file/${resolvedRelative}`);
+  for (const response of [lexical, resolved]) {
+    assert.equal(response.status, 404);
+    assert.doesNotMatch(response.body, /BANK_SOLUTION_SECRET/);
+  }
+  await shutdown();
+});
+
 test("the reader draws the mini-quiz in the served order and answers with the letter it shows (#272)", { skip: !playwright && "playwright not installed" }, async (t) => {
   const { view, topic, shutdown } = await setup(LEARNER);
   const result = await view({ topic: TOPIC, part: "p1" });
@@ -1565,6 +1588,78 @@ function linkedExercise(topic, id, { titulo, enunciado, parte }) {
     { nombre: "secreto", entrada: "HIDDEN_SUM_41", salida: "HIDDEN_SUM_42", oculto: true },
   ] }));
 }
+
+function practicalFixture(topic, part = "p1") {
+  mkdirSync(join(topic, "practica"), { recursive: true });
+  writeFileSync(join(topic, "practica", `${part}.json`), JSON.stringify({ exercises: [
+    { id: "modelo", enunciado: "Diseña un modelo relacional", entregable: "Un diagrama con sus claves", solucion: "SOLUTION_SECRET: cada tabla tiene una clave primaria" },
+  ] }));
+}
+
+test("practical exercises are accepted and kept; their solutions appear only after mini-quiz submission", async () => {
+  const { topic, view, host, shutdown } = await setup();
+  practicalFixture(topic);
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const exerciseId = "practica/modelo";
+  const before = await quizJson(`${url}api/quiz?topic=${TOPIC}&part=p1`);
+  assert.deepEqual(before.exercises.find(({ id }) => id === exerciseId), {
+    id: exerciseId,
+    titulo: "Ejercicio práctico modelo",
+    enunciado: "Diseña un modelo relacional",
+    entregable: "Un diagrama con sus claves",
+  });
+  assert.doesNotMatch(JSON.stringify(before), /SOLUTION_SECRET/);
+  const page = await http(`${url}${TOPIC}/p1`);
+  assert.doesNotMatch(page.body, /SOLUTION_SECRET/);
+  const source = await http(`${url}${TOPIC}/file/practica/p1.json`);
+  assert.equal(source.status, 404);
+  assert.doesNotMatch(source.body, /SOLUTION_SECRET/);
+
+  const unknown = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" }, exercises: { unknown: "respuesta" } });
+  assert.equal(unknown.status, 400);
+  assert.equal(existsSync(join(topic, "mini-quiz", "p1.answers.json")), false);
+  const accepted = await submit(url, {
+    kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" },
+    exercises: { [exerciseId]: "Uso una tabla por entidad" },
+  });
+  assert.equal(accepted.status, 200, accepted.body);
+  assert.equal(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")).exercises[exerciseId], "Uso una tabla por entidad");
+  assert.match(host.sent[0].content, /practica\/modelo/);
+  assert.match(host.sent[0].content, /Uso una tabla por entidad/);
+
+  const after = await quizJson(`${url}api/quiz?topic=${TOPIC}&part=p1`);
+  assert.equal(after.answeredExercises[exerciseId], "Uso una tabla por entidad");
+  assert.equal(after.exercises.find(({ id }) => id === exerciseId).solucion, "SOLUTION_SECRET: cada tabla tiene una clave primaria");
+  await shutdown();
+});
+
+test("the rich mini-quiz shows practical deliverables, keeps answers, and reveals solutions after submit and reload", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup();
+  practicalFixture(topic);
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), QUALIFYING_PAGE);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
+  const exercise = page.locator("fieldset.lk-exercise").first();
+  await exercise.waitFor();
+  assert.match(await exercise.locator("legend").textContent(), /Diseña un modelo relacional/);
+  assert.match(await exercise.textContent(), /Entregable: Un diagrama con sus claves/);
+  assert.doesNotMatch(await exercise.textContent(), /SOLUTION_SECRET/);
+  await exercise.locator("textarea").fill("Uso una tabla por entidad");
+  for (const question of ["q1", "q2"]) await page.locator(`input[name="${question}"][value="B"]`).check();
+  await page.getByRole("button", { name: "Enviar al tutor" }).click();
+  await exercise.locator(".lk-exercise-solution").waitFor();
+  assert.match(await exercise.textContent(), /SOLUTION_SECRET: cada tabla tiene una clave primaria/);
+  assert.equal(await exercise.locator("textarea").inputValue(), "Uso una tabla por entidad");
+
+  await page.reload();
+  const reloadedExercise = page.locator("fieldset.lk-exercise").first();
+  await reloadedExercise.locator(".lk-exercise-solution").waitFor();
+  assert.equal(await reloadedExercise.locator("textarea").inputValue(), "Uso una tabla por entidad");
+  assert.match(await reloadedExercise.textContent(), /SOLUTION_SECRET: cada tabla tiene una clave primaria/);
+  await shutdown();
+});
 
 test("the mini-quiz lists the code exercises linked to its part, with their statements and no hidden data", async () => {
   const { topic, view, shutdown } = await setup();
@@ -1641,6 +1736,38 @@ test("the reader's mini-quiz draws each exercise statement above its own box, an
   await page.goto((await view({ topic: TOPIC, part: "p2" })).structuredContent.url);
   assert.equal(await page.locator("fieldset.exercise-box").count(), 0, "a part without exercises draws no box");
   assert.equal(await page.getByText("Ejercicios (código o respuesta)").count(), 0);
+  await shutdown();
+});
+
+test("the Markdown part page shows practical deliverables, keeps answers, and reveals solutions after submit and reload", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup();
+  practicalFixture(topic);
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
+  const exercise = page.locator("fieldset.exercise-box").filter({ hasText: "Diseña un modelo relacional" });
+  await exercise.waitFor();
+  assert.match(await exercise.locator("legend").textContent(), /Diseña un modelo relacional/);
+  assert.match(await exercise.textContent(), /Entregable: Un diagrama con sus claves/);
+  assert.doesNotMatch(await exercise.textContent(), /SOLUTION_SECRET/);
+  await exercise.locator("textarea").fill("Uso una tabla por entidad");
+  for (const [index] of ["q1", "q2"].entries()) {
+    await page.locator(`input[name="question-${index}"][value="B"]`).check();
+    await page.locator(`input[name="confidence-${index}"][value="seguro"]`).check();
+  }
+  const response = page.waitForResponse((res) => res.url().endsWith("/submit"));
+  await page.getByRole("button", { name: "Enviar al tutor" }).click();
+  assert.equal((await response).status(), 200);
+  await exercise.locator(".exercise-solution").waitFor();
+  assert.match(await exercise.textContent(), /SOLUTION_SECRET: cada tabla tiene una clave primaria/);
+  assert.equal(await exercise.locator("textarea").inputValue(), "Uso una tabla por entidad");
+
+  await page.reload();
+  const reloadedExercise = page.locator("fieldset.exercise-box").filter({ hasText: "Diseña un modelo relacional" });
+  await reloadedExercise.locator(".exercise-solution").waitFor();
+  assert.equal(await reloadedExercise.locator("textarea").inputValue(), "Uso una tabla por entidad");
+  assert.match(await reloadedExercise.textContent(), /SOLUTION_SECRET: cada tabla tiene una clave primaria/);
   await shutdown();
 });
 

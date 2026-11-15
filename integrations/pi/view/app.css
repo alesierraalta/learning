@@ -162,6 +162,9 @@ body.diagnosis-page #app { max-width: 700px; padding: 64px 24px 90px; }
 
 /* Quiz: plain fieldsets, no cards. */
 .quiz-question { min-width: 0; margin: 32px 0; padding: 0; border: 0; }
+.exercise-deliverable { margin: 8px 0 14px; color: var(--muted); }
+.exercise-solution { margin-top: 18px; padding: 12px 16px; border-left: 2px solid var(--accent); }
+.exercise-solution p { margin: 8px 0 0; }
 legend { padding: 0; margin-bottom: 10px; font-size: 20px; font-weight: 700; max-width: 100%; }
 .option { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; cursor: pointer; }
 .option:hover { background: none; }

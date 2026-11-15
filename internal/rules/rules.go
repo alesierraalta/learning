@@ -46,6 +46,7 @@ var KnownCheckKinds = map[string]bool{
 	"pareto_part":               true,
 	"exam_plan":                 true,
 	"exam_mock":                 true,
+	"exam_practice":             true,
 	"demo_part":                 true,
 	"part_standard":             true,
 }
@@ -62,6 +63,7 @@ var partPathKinds = map[string]bool{
 	"quiz_questions":            true,
 	"quiz_answers":              true,
 	"pareto_part":               true,
+	"exam_practice":             true,
 	"demo_part":                 true,
 }
 
@@ -441,8 +443,9 @@ type ParetoThresholds struct {
 }
 
 type ExamThresholds struct {
-	Formats      []string `json:"formats"`
-	MinPartChars int      `json:"minPartChars"`
+	Formats            []string `json:"formats"`
+	MinPartChars       int      `json:"minPartChars"`
+	MinPracticePerPart int      `json:"minPracticePerPart"`
 }
 
 type OptionThresholds struct {
@@ -654,14 +657,17 @@ func (r *Rules) validatePareto() error {
 // ParetoMode reports whether these rules bound a pareto scope.
 func (t Thresholds) ParetoMode() bool { return t.Pareto != nil }
 
-// validateExam keeps exam checks fail-closed: they cannot be declared without
-// a bounded set of supported formats and a minimum part-purpose length.
+// validateExam keeps exam checks fail-closed: practical checks need a positive
+// per-part minimum as well as the bounded set of supported exam formats.
 func (r *Rules) validateExam() error {
 	usesExam := r.Thresholds.Exam != nil
 	for stage, decls := range r.Checks {
 		for _, d := range decls {
-			if (d.Kind == "exam_plan" || d.Kind == "exam_mock") && !usesExam {
+			if (d.Kind == "exam_plan" || d.Kind == "exam_mock" || d.Kind == "exam_practice") && !usesExam {
 				return fmt.Errorf("stage %q check %q needs the exam thresholds", stage, d.ID)
+			}
+			if d.Kind == "exam_practice" && r.Thresholds.Exam.MinPracticePerPart < 1 {
+				return fmt.Errorf("exam minPracticePerPart must be positive")
 			}
 		}
 	}
@@ -796,6 +802,9 @@ func (r *Rules) validateThresholds() error {
 	if p := r.Thresholds.Exam; p != nil {
 		if p.MinPartChars < 1 {
 			return fmt.Errorf("exam minPartChars must be positive")
+		}
+		if p.MinPracticePerPart < 0 {
+			return fmt.Errorf("exam minPracticePerPart must not be negative")
 		}
 		if len(p.Formats) == 0 {
 			return fmt.Errorf("exam formats must not be empty")
@@ -966,7 +975,7 @@ func validateDecl(d CheckDecl) error {
 		"changed_after_failed_quiz", "quiz_questions", "feedback_valid",
 		"planificador_sections", "index_note", "mis_palabras_structure",
 		"mis_palabras_area", "exercises_note", "mermaid_graph",
-		"pareto_plan", "pareto_part", "exam_plan", "exam_mock", "demo_part", "part_standard":
+		"pareto_plan", "pareto_part", "exam_plan", "exam_mock", "exam_practice", "demo_part", "part_standard":
 		err = need("path")
 	case "diagnostic_questions":
 		err = need("path", "note")

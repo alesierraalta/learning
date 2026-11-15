@@ -70,6 +70,7 @@ type Counters struct {
 type Exam struct {
 	Format   string `json:"format"`
 	Practice string `json:"practice,omitempty"`
+	Source   string `json:"source,omitempty"`
 }
 
 // State is the engine-owned .learning/state.json document.
@@ -305,8 +306,7 @@ func staleFiles(rec StageRecord, ws, stage, part string, r *rules.Rules, skip ma
 		if skip[rel] {
 			continue
 		}
-		got, err := receiptHash(r, ws, rel, stage, part)
-		if err != nil || got != want {
+		if !receiptMatches(r, ws, rel, stage, part, want) {
 			stale = append(stale, rel)
 		}
 	}

@@ -19,20 +19,21 @@ import (
 
 // Options is the complete engine input for one CLI invocation.
 type Options struct {
-	Command   string // init | validate | advance | status | review | method
-	Root      string
-	Workspace string
-	RulesPath string
-	Mode      string // deep (default) | conceptual
-	Scope     string // init only: complete (default) | pareto
-	Exam      string // init only: oral | written | practical; implies pareto scope
-	Practice  string // init only: practical exam's optional practice kind
-	Method    string // method only: pareto | preferencias
-	Stage     string // required for advance and review, optional for validate
-	Rule      string // review: rubric id receiving the verdict
-	Verdict   string // review: PASS or FAIL
-	Reason    string // review: reviewer rationale (required)
-	Reviewer  string // review: reviewer identity label (default "chat")
+	Command    string // init | validate | advance | status | review | method
+	Root       string
+	Workspace  string
+	RulesPath  string
+	Mode       string // deep (default) | conceptual
+	Scope      string // init only: complete (default) | pareto
+	Exam       string // init only: oral | written | practical; implies pareto scope
+	Practice   string // init only: practical exam's optional practice kind
+	ExamSource string // init only: topic-relative file under fuentes/ for a real exam
+	Method     string // method only: pareto | preferencias
+	Stage      string // required for advance and review, optional for validate
+	Rule       string // review: rubric id receiving the verdict
+	Verdict    string // review: PASS or FAIL
+	Reason     string // review: reviewer rationale (required)
+	Reviewer   string // review: reviewer identity label (default "chat")
 }
 
 // Check is one validated requirement with its verdict and reason.
@@ -106,6 +107,12 @@ func Run(opts Options) (Report, int) {
 	}
 	if opts.Practice != "" && opts.Command != "init" {
 		return errorReport("--practice is only accepted by the init command"), ExitOperational
+	}
+	if opts.ExamSource != "" && opts.Command != "init" {
+		return errorReport("--exam-source is only accepted by the init command"), ExitOperational
+	}
+	if opts.ExamSource != "" && opts.Exam == "" {
+		return errorReport("--exam-source requires --exam"), ExitOperational
 	}
 	if opts.Practice != "" {
 		opts.Practice = strings.TrimSpace(opts.Practice)
@@ -191,6 +198,11 @@ func Run(opts Options) (Report, int) {
 	if fi, err := os.Stat(wsReal); err != nil || !fi.IsDir() {
 		return errorReport("workspace is not a directory: " + wsReal), ExitOperational
 	}
+	if opts.ExamSource != "" {
+		if err := validateExamSource(wsReal, opts.ExamSource); err != nil {
+			return errorReport(err.Error()), ExitOperational
+		}
+	}
 
 	// A run keeps the rules it started with: once init has snapshotted them,
 	// later edits of the rules file apply to new runs only.
@@ -215,7 +227,7 @@ func Run(opts Options) (Report, int) {
 		if !containsStr(r.Thresholds.Exam.Formats, opts.Exam) {
 			return errorReport(fmt.Sprintf("exam format %q is not enabled by the rules", opts.Exam)), ExitOperational
 		}
-		exam = &Exam{Format: opts.Exam, Practice: opts.Practice}
+		exam = &Exam{Format: opts.Exam, Practice: opts.Practice, Source: opts.ExamSource}
 	}
 
 	switch opts.Command {
@@ -228,6 +240,55 @@ func Run(opts Options) (Report, int) {
 	default:
 		return runStage(opts, wsReal, r)
 	}
+}
+
+func validateExamSource(ws, source string) error {
+	invalidPath := func() error {
+		return fmt.Errorf("--exam-source must be a relative path under fuentes/ without ..")
+	}
+	missingFile := func() error {
+		return fmt.Errorf("--exam-source file does not exist: %s", source)
+	}
+	if strings.TrimSpace(source) == "" {
+		return fmt.Errorf("--exam-source requires a non-empty path")
+	}
+	if filepath.IsAbs(source) || strings.HasPrefix(source, "/") || strings.Contains(source, `\`) {
+		return invalidPath()
+	}
+	if len(source) >= 2 && source[1] == ':' && ((source[0] >= 'A' && source[0] <= 'Z') || (source[0] >= 'a' && source[0] <= 'z')) {
+		return invalidPath()
+	}
+	if !strings.HasPrefix(source, "fuentes/") {
+		return invalidPath()
+	}
+	for _, component := range strings.Split(source, "/") {
+		if component == ".." {
+			return invalidPath()
+		}
+	}
+
+	fuentesPath := filepath.Join(ws, "fuentes")
+	fuentesReal, err := filepath.EvalSymlinks(fuentesPath)
+	if err != nil {
+		return missingFile()
+	}
+	topicRel, err := filepath.Rel(ws, fuentesReal)
+	if err != nil || topicRel == ".." || strings.HasPrefix(topicRel, ".."+string(filepath.Separator)) || filepath.IsAbs(topicRel) {
+		return invalidPath()
+	}
+	sourceReal, err := filepath.EvalSymlinks(filepath.Join(ws, filepath.FromSlash(source)))
+	if err != nil {
+		return missingFile()
+	}
+	sourceRel, err := filepath.Rel(fuentesReal, sourceReal)
+	if err != nil || sourceRel == ".." || strings.HasPrefix(sourceRel, ".."+string(filepath.Separator)) || filepath.IsAbs(sourceRel) {
+		return invalidPath()
+	}
+	fi, err := os.Stat(sourceReal)
+	if err != nil || !fi.Mode().IsRegular() {
+		return missingFile()
+	}
+	return nil
 }
 
 // ErrorReport builds the single JSON error object used by the CLI for strict
@@ -1418,7 +1479,7 @@ func buildReceipts(r *rules.Rules, ws, stage, part string) (map[string]string, e
 			continue
 		}
 		for _, path := range cond.Require.Paths {
-			h, err := hashFile(absPath(ws, path))
+			h, err := receiptHash(r, ws, path, stage, part)
 			if err != nil {
 				return nil, fmt.Errorf("cannot hash conditional artifact %s: %w", path, err)
 			}

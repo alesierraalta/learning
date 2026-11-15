@@ -22,8 +22,12 @@ export const isStudioPrompt = (text: string): boolean => STUDIO_PREFIXES.some((p
 /** The study modes the page offers; the learner picks one before a new request is sent. */
 export const STUDY_MODES = ["rapido", "universitario", "examen"] as const;
 export type StudyMode = (typeof STUDY_MODES)[number];
-export type ExamFormat = "oral" | "written" | "practical";
+export type ExamFormat = "oral" | "written" | "practical" | "deducir";
 export type ExamChoice = { formato: ExamFormat; practica?: string };
+export interface UploadedSourcePrompt {
+  path: string;
+  textPath?: string;
+}
 
 /**
  * The line that carries the learner's mode inside the prompt of the turn, so neither tutor asks it
@@ -32,7 +36,10 @@ export type ExamChoice = { formato: ExamFormat; practica?: string };
 export function modeLine(mode: StudyMode, examen?: ExamChoice): string {
   if (mode === "examen") {
     if (!examen) throw new Error("exam mode needs a chosen format");
-    const labels: Record<ExamFormat, string> = { oral: "oral", written: "escrito", practical: "práctico" };
+    if (examen.formato === "deducir") {
+      return "[Modo de estudio: examen — ya decidido en el estudio, con formato por deducir a partir de las fuentes. Deduce el formato (y, si es práctico, el tipo de práctica) del examen/documento subido y pásalos a learning_stage init como exam y, solo si corresponde, practice. Nunca elijas un formato ni un tipo de práctica por defecto.]";
+    }
+    const labels: Record<Exclude<ExamFormat, "deducir">, string> = { oral: "oral", written: "escrito", practical: "práctico" };
     const practice = examen.formato === "practical"
       ? `, con tipo de práctica ${JSON.stringify(examen.practica)} (practice: ${JSON.stringify(examen.practica)})`
       : "";
@@ -41,6 +48,14 @@ export function modeLine(mode: StudyMode, examen?: ExamChoice): string {
   }
   const label = mode === "rapido" ? "rápido" : "universitario";
   return `[Modo de estudio: ${label} — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]`;
+}
+
+/** The first-turn instruction for source files stored by the studio, including extracted PDF text. */
+export function fuentesLine(sources: readonly UploadedSourcePrompt[]): string {
+  const paths = sources.map(({ path, textPath }) =>
+    `archivo ${JSON.stringify(path)}${textPath ? ` (texto extraído: ${JSON.stringify(textPath)})` : ""}`,
+  );
+  return `[Fuentes subidas: ${paths.join("; ")}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos. Pasa las rutas originales (no los .txt extraídos) a learning_stage init como sources; en modo examen, pasa también la ruta original del examen principal como examSource (una de sources). El adaptador las copia a <topic>/fuentes/. No copies los archivos tú.]`;
 }
 
 /**

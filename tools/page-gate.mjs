@@ -229,10 +229,13 @@ if (WITH_PAGES) {
 
 try {
   for (const condition of CONDITIONS) {
+    // The gate reads settled frames: reduced motion swaps each step at once, so no piece is caught
+    // mid-slide or under its change flash (#298, #299). The frame at rest is the static render.
     const context = await browser.newContext({
       viewport: { width: condition.width, height: condition.height },
       deviceScaleFactor: 2,
       colorScheme: condition.theme === 'black' ? 'dark' : 'light',
+      reducedMotion: 'reduce',
     });
     // The studio does not load the page wide: it loads the reader and then sends it the reading
     // mode, so the story is laid out narrow first. The gate must do the same, or it measures a
@@ -318,6 +321,8 @@ try {
                   const y = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
                   return { x, y, area: x > 1 && y > 1 ? x * y : 0 };
                 };
+                // The focus ring is the kit's stroke, not the author's: the figure is measured without it.
+                node.querySelectorAll('[data-focus-ring]').forEach((ring) => ring.remove());
                 const nodeRect = box(node);
                 const title = node.getAttribute('title') || node.querySelector('.lk-title')?.textContent?.trim() || `recorrido ${input.story}`;
                 const stage = node.querySelector('.lk-story-stage');

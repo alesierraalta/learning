@@ -52,8 +52,15 @@ type planDoc struct {
 }
 
 type planExamDoc struct {
-	Formato  string  `json:"formato"`
-	Practica *string `json:"practica,omitempty"`
+	Formato    string                  `json:"formato"`
+	Practica   *string                 `json:"practica,omitempty"`
+	Fuente     string                  `json:"fuente,omitempty"`
+	Estructura []planExamStructureItem `json:"estructura,omitempty"`
+}
+
+type planExamStructureItem struct {
+	Tipo     string `json:"tipo"`
+	Cantidad int    `json:"cantidad"`
 }
 
 // planParetoDoc is the declared trim of a pareto-scope run: the criterion that

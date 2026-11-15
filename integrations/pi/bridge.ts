@@ -155,6 +155,7 @@ interface Graded {
 interface AnswerFile {
   answers: Record<string, string>;
   razonamientos: Record<string, Reasoning>;
+  exercises?: Record<string, string>;
 }
 
 export { HttpError };
@@ -211,7 +212,10 @@ function readAnswers(file: string): AnswerFile | undefined {
   const razonamientos = isRecord(data.razonamientos)
     ? Object.fromEntries(Object.entries(data.razonamientos).filter((e): e is [string, Reasoning] => isReasoning(e[1])))
     : {};
-  return { answers, razonamientos };
+  const exercises = isRecord(data.exercises)
+    ? Object.fromEntries(Object.entries(data.exercises).filter((e): e is [string, string] => typeof e[1] === "string"))
+    : undefined;
+  return { answers, razonamientos, ...(exercises ? { exercises } : {}) };
 }
 
 /** Concept verdicts the tutor recorded (feedback/{part}.json or diagnostico-conceptos.json). */
@@ -853,21 +857,77 @@ function quizMessage(header: string, saved: string, results: ShownAnswer[], reas
   return lines;
 }
 
-/** A code exercise a part owns: a `codigo/<id>/ejercicio.json` whose `parte` names the part. */
+/** An exercise a part owns: either linked code, or a manual item from `practica/<part>.json`. */
 interface PartExercise {
   id: string;
   titulo: string;
   enunciado: string;
+  entregable?: string;
+  solucion?: string;
 }
 
-/** The part's exercises in the vault's listing order; the mini-quiz shows each statement above its own box. */
-function partExercises(dir: string, partId: string, runners: Record<string, Runner>): PartExercise[] {
-  return listExercises(dir, runners)
+function practicalExercises(dir: string, partId: string, revealSolutions: boolean): PartExercise[] {
+  const practicalDir = join(dir, "practica");
+  let directory;
+  try {
+    directory = lstatSync(practicalDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw new HttpError(500, `cannot inspect practical exercises: ${practicalDir}`);
+  }
+  if (!directory.isDirectory() || directory.isSymbolicLink()) {
+    throw new HttpError(500, `practical exercise directory must not be a symlink or non-directory: ${practicalDir}`);
+  }
+  const file = join(practicalDir, `${partId}.json`);
+  let bank;
+  try {
+    bank = lstatSync(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw new HttpError(500, `cannot inspect practical exercise file: ${file}`);
+  }
+  if (!bank.isFile() || bank.isSymbolicLink()) {
+    throw new HttpError(500, `practical exercise file must not be a symlink or non-file: ${file}`);
+  }
+  const practicalReal = realpathSync(practicalDir);
+  const fileReal = realpathSync(file);
+  const withinPractice = relative(practicalReal, fileReal);
+  if (withinPractice === ".." || withinPractice.startsWith(`..${sep}`) || isAbsolute(withinPractice)) {
+    throw new HttpError(500, `practical exercise file resolves outside practica/: ${file}`);
+  }
+  const doc = readRecord(fileReal);
+  if (!doc) return [];
+  if (!Array.isArray(doc.exercises)) throw new HttpError(500, `invalid practical exercise file: ${file}`);
+  const seen = new Set<string>();
+  return doc.exercises.map((value, index) => {
+    if (!isRecord(value) || !safeTopic(value.id)) throw new HttpError(500, `${file} exercise ${index + 1} has an unsafe id`);
+    if (seen.has(value.id)) throw new HttpError(500, `${file} repeats exercise id ${value.id}`);
+    seen.add(value.id);
+    const text = (key: "enunciado" | "entregable" | "solucion"): string => {
+      const result = value[key];
+      if (typeof result !== "string" || !result.trim()) throw new HttpError(500, `${file} exercise ${value.id} has an empty ${key}`);
+      return result;
+    };
+    const solucion = text("solucion");
+    return {
+      id: `practica/${value.id}`,
+      titulo: `Ejercicio práctico ${value.id}`,
+      enunciado: text("enunciado"),
+      entregable: text("entregable"),
+      ...(revealSolutions ? { solucion } : {}),
+    };
+  });
+}
+
+/** The part's code exercises, followed by its practical exercises, in the vault's declared order. */
+function partExercises(dir: string, partId: string, runners: Record<string, Runner>, revealSolutions = false): PartExercise[] {
+  const code = listExercises(dir, runners)
     .filter((e) => e.parte === partId)
     .map(({ id }) => {
       const ex = readExercise(exerciseFile(dir, id), runners);
       return { id, titulo: ex.titulo, enunciado: ex.enunciado };
     });
+  return [...code, ...practicalExercises(dir, partId, revealSolutions)];
 }
 
 /**
@@ -896,7 +956,11 @@ function exerciseMessage(declared: PartExercise[], answers: Record<string, strin
   return [
     "",
     "Ejercicios:",
-    ...answered.flatMap(({ ex, number }) => [`${number}. ${ex.titulo} (${ex.id}): ${indented(ex.enunciado)}`, quote(answers[ex.id])]),
+    ...answered.flatMap(({ ex, number }) => [
+      `${number}. ${ex.titulo} (${ex.id}): ${indented(ex.enunciado)}`,
+      ...(ex.entregable ? [`Entregable: ${indented(ex.entregable)}`] : []),
+      quote(answers[ex.id]),
+    ]),
   ];
 }
 
@@ -939,11 +1003,34 @@ const holdsQuickKeys = (dir: string, target: string): boolean => {
   return relative.endsWith(".html") && !relative.startsWith(demos);
 };
 
-/** The question banks hold the answer keys and the answer files hold the tutor's own letters: no route serves either (#272). */
-const holdsAnswers = (dir: string, target: string): boolean => {
-  const miniQuiz = join(dir, "mini-quiz").toLowerCase() + sep;
+/** Quiz/practical banks hold keys or solutions, and answer files hold recorded responses: no route serves these files (#272). */
+const holdsAnswers = (dir: string, target: string, requested = target): boolean => {
+  const targetLower = target.toLowerCase();
+  const requestedLower = requested.toLowerCase();
+  const miniQuiz = join(dir, "mini-quiz").toLowerCase();
+  const practicalDir = join(dir, "practica");
+  const practical = practicalDir.toLowerCase();
+  const inside = (root: string, path: string) => path === root || path.startsWith(root + sep);
   const files = [join(dir, "quiz.json"), join(dir, "quiz.answers.json")].map((file) => file.toLowerCase());
-  return files.includes(target) || (target.startsWith(miniQuiz) && target.endsWith(".json")) || holdsQuickKeys(dir, target);
+  if (files.includes(targetLower) || inside(miniQuiz, targetLower) && targetLower.endsWith(".json") ||
+      inside(practical, requestedLower) || inside(practical, targetLower) || holdsQuickKeys(dir, targetLower)) return true;
+
+  // A practica symlink can make the bank reachable under another topic-local name.
+  try {
+    const practicalReal = realpathSync(practicalDir).toLowerCase();
+    if (inside(practicalReal, targetLower)) return true;
+    for (const entry of readdirSync(practicalDir, { withFileTypes: true })) {
+      if (!entry.name.toLowerCase().endsWith(".json")) continue;
+      try {
+        if (realpathSync(join(practicalDir, entry.name)).toLowerCase() === targetLower) return true;
+      } catch {
+        /* a broken optional bank cannot identify a served target */
+      }
+    }
+  } catch {
+    /* an absent practica directory has no resolved banks */
+  }
+  return false;
 };
 
 function checkAnswers(raw: unknown, questions: Question[], exact: boolean, orderOf: (q: Question) => string[]): Record<string, string> {
@@ -1563,6 +1650,9 @@ ${scripts}
     if (!plan || !note) throw new HttpError(404, `part ${partId} is not written yet`);
     const part = plan.parts.find((p) => p.id === partId)!;
     const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
+    const answerFile = join(dir, "mini-quiz", `${partId}.answers.json`);
+    const recorded = readAnswers(answerFile);
+    const revealSolutions = existsSync(answerFile);
     const orderFor = orderOf(miniScope(topic, partId));
     const noteText = obsidianToMarkdown(readFileSync(note, "utf8"), dir);
     page(res, part.title, {
@@ -1575,9 +1665,10 @@ ${scripts}
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
       markdown: withoutQuickKeys(questions ? withoutMiniQuiz(noteText) : noteText, checkpoints),
       quiz: questions
-        ? { questions: questions.map((q) => publicQuestion(q, orderFor(q))), exercises: partExercises(dir, partId, loadRunners(options.runnersFile)) }
+        ? { questions: questions.map((q) => publicQuestion(q, orderFor(q))), exercises: partExercises(dir, partId, loadRunners(options.runnersFile), revealSolutions) }
         : null,
-      answered: questions ? gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`)), orderFor) : null,
+      answered: questions ? gradeRecorded(questions, recorded, orderFor) : null,
+      ...(recorded?.exercises ? { answeredExercises: recorded.exercises } : {}),
       demos: partDemos(dir, partId),
       video: partVideoInfo(dir, plan, partId),
       audio: partAudioInfo(dir, plan, partId),
@@ -1593,11 +1684,14 @@ ${scripts}
     if (!plan?.parts.some((p) => p.id === partId)) throw new HttpError(404, `part ${partId} is not in plan.json`);
     const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
     if (!questions) throw new HttpError(404, `part ${partId} has no mini-quiz`);
+    const answerFile = join(dir, "mini-quiz", `${partId}.answers.json`);
+    const recorded = readAnswers(answerFile);
     const orderFor = orderOf(miniScope(topic, partId));
     sendJson(res, 200, {
       questions: questions.map((q) => publicQuestion(q, orderFor(q))),
-      exercises: partExercises(dir, partId, loadRunners(options.runnersFile)),
-      answered: gradeRecorded(questions, readAnswers(join(dir, "mini-quiz", `${partId}.answers.json`)), orderFor),
+      exercises: partExercises(dir, partId, loadRunners(options.runnersFile), existsSync(answerFile)),
+      ...(recorded?.exercises ? { answeredExercises: recorded.exercises } : {}),
+      answered: gradeRecorded(questions, recorded, orderFor),
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
     });
   };
@@ -1682,10 +1776,11 @@ ${scripts}
     const codeDir = resolveContained(dir, join(dir, "codigo"));
     // Exercise files hold the hidden tests; the vault may sit on a case-insensitive drive.
     const target = contained.targetReal.toLowerCase();
+    const requested = join(dir, ...segments).toLowerCase();
     const codeRoot = codeDir.ok ? codeDir.targetReal.toLowerCase() : join(dir, "codigo").toLowerCase();
     if (target === codeRoot || target.startsWith(codeRoot + sep)) throw new HttpError(404, "not found");
     // No route serves the question banks or the answer files, whatever the file is named (#272).
-    if (holdsAnswers(dir, target)) throw new HttpError(404, "not found");
+    if (holdsAnswers(dir, target, requested)) throw new HttpError(404, "not found");
     const stat = statSync(contained.targetReal);
     if (!stat.isFile()) throw new HttpError(404, "not found");
     const headers: Record<string, string> = {
@@ -1954,21 +2049,33 @@ ${scripts}
       const answers = checkAnswers(payload.answers, questions, true, orderFor);
       const reasoning = optionalReasoning(payload.reasoning, answers);
       const ownWords = optionalText(payload, "ownWords");
-      const declared = partExercises(dir, partId, loadRunners(options.runnersFile));
+      const runners = loadRunners(options.runnersFile);
+      const declared = partExercises(dir, partId, runners);
       const exercises = exerciseAnswers(payload.exercises, declared);
       const saved = `mini-quiz/${partId}.answers.json`;
       const file = join(dir, saved);
       // The answers are already stored: reloading shows them.
       if (existsSync(file)) throw new HttpError(409, `Ya respondiste el mini-quiz de esta parte. ${SAVED_HINT}`);
       const ordered = Object.fromEntries(questions.map((q) => [q.id, answers[q.id]]));
-      writeAnswers(file, { answers: ordered, razonamientos: Object.fromEntries(questions.map((q) => [q.id, reasoning[q.id]])) });
+      writeAnswers(file, {
+        answers: ordered,
+        razonamientos: Object.fromEntries(questions.map((q) => [q.id, reasoning[q.id]])),
+        ...(Object.keys(exercises).length ? { exercises } : {}),
+      });
       const graded = questions.map((q) => grade(q, ordered[q.id]));
       const shown = questions.map((q, i) => shownAnswer(q, orderFor(q), graded[i]));
       const lines = quizMessage(`[Vista HTML · ${topic} · ${partId} · mini-quiz]`, saved, shown, reasoning);
       if (ownWords.trim()) lines.push("", "Vuelco con mis palabras:", quote(ownWords));
       lines.push(...exerciseMessage(declared, exercises));
       await deliver(lines.join("\n"));
-      sendJson(res, 200, { results: shown.map(({ id, chosen, correct, ok }) => ({ id, chosen, correct, ok })), score: `${graded.filter((r) => r.ok).length}/${graded.length}`, saved });
+      const exerciseSolutions = Object.fromEntries(partExercises(dir, partId, runners, true)
+        .flatMap((ex) => typeof ex.solucion === "string" ? [[ex.id, ex.solucion]] : []));
+      sendJson(res, 200, {
+        results: shown.map(({ id, chosen, correct, ok }) => ({ id, chosen, correct, ok })),
+        score: `${graded.filter((r) => r.ok).length}/${graded.length}`,
+        saved,
+        ...(Object.keys(exerciseSolutions).length ? { exerciseSolutions } : {}),
+      });
       return;
     }
 

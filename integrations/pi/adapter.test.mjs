@@ -3,7 +3,7 @@
 // correctness is owned by `go test ./...` in this repository.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -706,6 +706,179 @@ async function assertRejectedInitArguments(options, detail) {
   assert.equal(host.entries.length, 0);
 }
 
+function uploadSource(env, directory, name, content) {
+  const folder = join(env.root, ".subidas", directory);
+  mkdirSync(folder, { recursive: true });
+  const path = join(folder, name);
+  writeFileSync(path, content);
+  return path;
+}
+
+async function assertRejectedSourceArguments(options, detail, prepare = () => {}) {
+  const env = tempEnv();
+  prepare(env);
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+
+  const args = typeof options === "function" ? options(env) : options;
+  const expectedDetail = typeof detail === "function" ? detail(env) : detail;
+  const result = await executeTool(host, { action: "init", topic: "source-rejected", ...args });
+  const expected = { source: "adapter", status: "error", reason: "invalid-arguments", detail: expectedDetail };
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.structuredContent, expected);
+  assert.equal(result.content[0].text, JSON.stringify(expected, null, 2));
+  assert.equal(engine.calls.length, 0, "invalid sources never reach the engine");
+  assert.equal(existsSync(join(env.root, "source-rejected")), false, "invalid sources create no topic");
+  assert.equal(host.entries.length, 0, "invalid sources do not enroll the topic");
+  const stillInactive = await executeTool(host, { action: "status" });
+  assert.equal(stillInactive.structuredContent.reason, "inactive", "rejection leaves the session inactive");
+  assert.equal(engine.calls.length, 0);
+  assert.equal(host.entries.length, 0);
+}
+
+test("stage tool init stages every source and passes the selected exam source once", async () => {
+  const env = tempEnv();
+  const pdf = uploadSource(env, "upload-1", "parcial.pdf", "pdf bytes");
+  const pdfText = `${pdf}.txt`;
+  writeFileSync(pdfText, "texto extraído");
+  const image = uploadSource(env, "upload-2", "captura.png", "image bytes");
+  let stagedBeforeEngine = false;
+  const { host, engine } = installAtRoot(env, async () => {
+    const topic = join(env.root, "examen-real");
+    stagedBeforeEngine =
+      existsSync(join(topic, "fuentes", "parcial.pdf")) &&
+      existsSync(join(topic, "fuentes", "parcial.pdf.txt")) &&
+      existsSync(join(topic, "fuentes", "captura.png"));
+    return { code: 0, stdout: reportJson("accepted"), stderr: "" };
+  });
+  await enroll(host);
+
+  const result = await executeTool(host, {
+    action: "init",
+    topic: "examen-real",
+    exam: "written",
+    sources: [pdf, image],
+    examSource: pdf,
+  });
+
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent));
+  assert.equal(stagedBeforeEngine, true, "all originals and the PDF text sibling are copied before init");
+  assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "parcial.pdf"), "utf8"), "pdf bytes");
+  assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "parcial.pdf.txt"), "utf8"), "texto extraído");
+  assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "captura.png"), "utf8"), "image bytes");
+  const args = engine.calls[0].args;
+  assert.equal(args[args.indexOf("--exam-source") + 1], "fuentes/parcial.pdf");
+  assert.equal(args.filter((arg) => arg === "--exam-source").length, 1);
+  assert.equal(args.includes("--sources"), false, "only the selected main file is an engine flag");
+  assert.equal(args[args.indexOf("--exam") + 1], "written");
+});
+
+test("stage tool init accepts five documents-only sources without examSource", async () => {
+  const env = tempEnv();
+  const sources = Array.from({ length: 5 }, (_, index) =>
+    uploadSource(env, `upload-${index + 1}`, `apuntes-${index + 1}.png`, `image ${index + 1}`),
+  );
+  const { host, engine } = installAtRoot(env);
+  await enroll(host);
+
+  const result = await executeTool(host, { action: "init", topic: "documentos", sources });
+
+  assert.equal(result.isError, false, JSON.stringify(result.structuredContent));
+  assert.equal(engine.calls.length, 1);
+  assert.equal(engine.calls[0].args.includes("--exam-source"), false);
+  for (let index = 0; index < sources.length; index++) {
+    assert.equal(readFileSync(join(env.root, "documentos", "fuentes", `apuntes-${index + 1}.png`), "utf8"), `image ${index + 1}`);
+  }
+});
+
+test("stage tool refuses invalid sources before creating or enrolling a topic", async () => {
+  const valid = (env) => uploadSource(env, "upload-1", "parcial.png", "image bytes");
+  await assertRejectedSourceArguments({ exam: "oral", sources: [], examSource: "/unused" }, "sources must contain 1 to 5 absolute uploaded file paths");
+  await assertRejectedSourceArguments((env) => ({
+    sources: Array.from({ length: 6 }, (_, index) => uploadSource(env, `upload-${index + 1}`, `source-${index + 1}.png`, "image")),
+  }), "sources must contain 1 to 5 absolute uploaded file paths");
+  await assertRejectedSourceArguments({ exam: "oral", sources: ["relative/path.png"] }, "sources entries must be absolute paths", (env) => {
+    uploadSource(env, "upload-1", "path.png", "image bytes");
+  });
+  await assertRejectedSourceArguments({ exam: "oral", sources: ["/tmp/outside.png"] }, "source is not an uploaded file under .subidas: /tmp/outside.png");
+  await assertRejectedSourceArguments((env) => {
+    const outside = join(env.root, "not-uploaded.png");
+    writeFileSync(outside, "not uploaded");
+    return { exam: "oral", sources: [outside] };
+  }, (env) => `source is not an uploaded file under .subidas: ${join(env.root, "not-uploaded.png")}`);
+  await assertRejectedSourceArguments((env) => {
+    const outside = join(env.root, "not-uploaded.png");
+    writeFileSync(outside, "not uploaded");
+    const uploadDir = join(env.root, ".subidas", "upload-1");
+    mkdirSync(uploadDir, { recursive: true });
+    const link = join(uploadDir, "alias.png");
+    symlinkSync(outside, link, "file");
+    return { exam: "oral", sources: [link] };
+  }, (env) => `source is not an uploaded file under .subidas: ${join(env.root, ".subidas", "upload-1", "alias.png")}`);
+  await assertRejectedSourceArguments((env) => {
+    const validSource = valid(env);
+    const outside = join(env.root, "not-uploaded.png");
+    writeFileSync(outside, "not uploaded");
+    return { exam: "oral", sources: [validSource, outside] };
+  }, (env) => `source is not an uploaded file under .subidas: ${join(env.root, "not-uploaded.png")}`);
+  await assertRejectedSourceArguments({ exam: "oral", sources: ["/no/such/upload.png"] }, "source is not an uploaded file under .subidas: /no/such/upload.png");
+  await assertRejectedSourceArguments({ sources: ["/unused"], examSource: "/unused" }, "examSource requires exam");
+  await assertRejectedSourceArguments({ exam: "oral", examSource: "  " }, "examSource must be a non-empty path");
+  await assertRejectedSourceArguments((env) => {
+    const source = valid(env);
+    return { exam: "oral", sources: [source], examSource: "/other/source.png" };
+  }, "examSource must be one of sources");
+  await assertRejectedSourceArguments((env) => {
+    const source = uploadSource(env, "upload-1", "parcial.pdf", "pdf bytes");
+    return { sources: [source] };
+  }, (env) => `PDF source is missing its extracted .txt sibling: ${join(env.root, ".subidas", "upload-1", "parcial.pdf")}`);
+});
+
+test("stage tool rejects source arguments outside init without touching the engine", async () => {
+  const env = tempEnv();
+  const source = uploadSource(env, "upload-1", "parcial.png", "image bytes");
+  const { host, engine } = install(env, okEngine);
+  await enroll(host);
+  const entriesBefore = host.entries.length;
+
+  const result = await executeTool(host, { action: "status", sources: [source] });
+
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.structuredContent, {
+    source: "adapter",
+    status: "error",
+    reason: "invalid-arguments",
+    detail: "sources and examSource are only accepted by init",
+  });
+  assert.equal(engine.calls.length, 0);
+  assert.equal(host.entries.length, entriesBefore);
+  const status = await executeTool(host, { action: "status" });
+  assert.equal(status.isError, false, "the pre-existing active session remains usable");
+  assert.equal(engine.calls.length, 1);
+  assert.equal(engine.calls[0].args[0], "status");
+  assert.equal(host.entries.length, entriesBefore);
+});
+
+test("stage tool rolls back staged sources when engine init refuses", async () => {
+  const env = tempEnv();
+  const source = uploadSource(env, "upload-1", "parcial.png", "image bytes");
+  const { host, engine } = installAtRoot(env, async () => ({
+    code: 2,
+    stdout: JSON.stringify({ status: "error", checks: [], detail: "engine refused init" }),
+    stderr: "",
+  }));
+  await enroll(host);
+
+  const result = await executeTool(host, { action: "init", topic: "rechazado", exam: "oral", sources: [source], examSource: source });
+  const stillInactive = await executeTool(host, { action: "status" });
+
+  assert.equal(result.isError, true);
+  assert.equal(engine.calls.length, 1);
+  assert.equal(existsSync(join(env.root, "rechazado")), false, "new topic and staged fuentes are rolled back");
+  assert.equal(host.entries.length, 0, "refused init never enrolls the topic");
+  assert.equal(stillInactive.structuredContent.reason, "inactive");
+});
+
 test("stage tool init accepts each exam format and passes each flag once after scope", async () => {
   const env = tempEnv();
   const { host, engine } = installAtRoot(env);
@@ -877,6 +1050,9 @@ test("learning_stage declares exam format and practice parameters and instructio
 
   assert.deepEqual(tool.parameters.properties.exam.enum, ["oral", "written", "practical"]);
   assert.equal(tool.parameters.properties.practice.type, "string");
+  assert.equal(tool.parameters.properties.sources.type, "array");
+  assert.equal(tool.parameters.properties.sources.maxItems, 5);
+  assert.equal(tool.parameters.properties.examSource.type, "string");
   assert.match(tool.description, /exam format.*oral.*written.*practical/i);
   assert.ok(tool.promptGuidelines.some((guideline) => /exam/i.test(guideline)));
   assert.ok(tool.promptGuidelines.some((guideline) => /practice/i.test(guideline)));
