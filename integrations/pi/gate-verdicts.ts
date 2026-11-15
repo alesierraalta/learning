@@ -14,13 +14,12 @@ const EXTENSIONS = [".mjs", ".js", ".cjs", ".json", ".ts"];
 
 type Store = Map<string, boolean>;
 type StoreLocation = { root: string; file: string };
-type GateExecution = { serves: boolean; cacheable: boolean };
+export type GateCheckRun = { code: number; stdout: string; stderr: string; serves?: boolean; error?: string };
 export type GateVerdictOptions = {
   gateToolPath?: string;
   gateVerdictsFile?: string;
   gateNodePath?: string;
   gateTimeoutMs?: number;
-  pageBytes?: Buffer;
   root?: string;
 };
 
@@ -154,9 +153,9 @@ async function gateHash(entry: string): Promise<string> {
   return hash.digest("hex");
 }
 
-async function verdictKey(file: string, gateToolPath: string, pageBytes?: Buffer): Promise<string> {
-  const [page, gate] = await Promise.all([pageBytes ?? readFile(file), gateHash(gateToolPath)]);
-  return `${createHash("sha256").update(page).digest("hex")}:${gate}`;
+async function verdictKey(pageBytes: Buffer, gateToolPath: string): Promise<string> {
+  const gate = await gateHash(gateToolPath);
+  return `${createHash("sha256").update(pageBytes).digest("hex")}:${gate}`;
 }
 
 async function readStore(root: string, file: string): Promise<Store> {
@@ -204,77 +203,94 @@ function parseServes(output: string): boolean | undefined {
   }
 }
 
-async function runGate(file: string, gateToolPath: string, options: GateVerdictOptions): Promise<GateExecution> {
-  let snapshot: string | undefined;
+async function runGate(file: string, pageBytes: Buffer, gateToolPath: string, options: GateVerdictOptions): Promise<GateCheckRun> {
+  const snapshot = join(dirname(file), `.gate-${process.pid}-${randomUUID()}.${basename(file)}`);
   try {
-    let input = file;
-    if (options.pageBytes !== undefined) {
-      const extension = extname(file) || ".html";
-      snapshot = join(dirname(file), `.${basename(file, extension)}.${process.pid}.${randomUUID()}${extension}`);
-      await writeFile(snapshot, options.pageBytes, { flag: "wx" });
-      input = snapshot;
-    }
+    await writeFile(snapshot, pageBytes, { flag: "wx", mode: 0o600 });
     return await new Promise((resolveResult) => {
       try {
         execFile(
           options.gateNodePath ?? process.execPath,
-          [gateToolPath, input, "--json"],
+          [gateToolPath, snapshot, "--json"],
           { cwd: REPO_ROOT, timeout: options.gateTimeoutMs ?? 180_000, maxBuffer: 8 * 1024 * 1024, encoding: "utf8" },
-          (error, stdout) => {
+          (error, stdout, stderr) => {
             const failure = error as { code?: string | number; killed?: boolean; signal?: NodeJS.Signals | null } | null;
             const code = failure === null ? 0 : typeof failure.code === "number" ? failure.code : undefined;
             const validExit = failure === null || (!failure.killed && !failure.signal && code === 1);
             const serves = parseServes(String(stdout ?? ""));
-            resolveResult({ serves: validExit && serves === true, cacheable: validExit && serves !== undefined });
+            const output = { stdout: String(stdout ?? ""), stderr: String(stderr ?? "") };
+            if (!validExit || serves === undefined) {
+              const reason = failure?.killed
+                ? "agotó el tiempo"
+                : failure?.signal
+                  ? `señal ${failure.signal}`
+                  : code !== undefined
+                    ? `código ${code}`
+                    : typeof failure?.code === "string"
+                      ? failure.code
+                      : "el gate no devolvió JSON válido";
+              resolveResult({ code: -1, ...output, error: reason });
+              return;
+            }
+            resolveResult({ code: code!, ...output, serves });
           },
         );
-      } catch {
-        resolveResult({ serves: false, cacheable: false });
+      } catch (error) {
+        resolveResult({ code: -1, stdout: "", stderr: "", error: (error as Error).message });
       }
     });
-  } catch {
-    return { serves: false, cacheable: false };
+  } catch (error) {
+    return { code: -1, stdout: "", stderr: "", error: (error as Error).message };
   } finally {
-    if (snapshot) await unlink(snapshot).catch(() => {});
+    await unlink(snapshot).catch(() => {});
   }
 }
 
-export async function recordGateVerdict(file: string, output: string, options: GateVerdictOptions = {}): Promise<boolean | undefined> {
-  const serves = parseServes(output);
-  if (serves === undefined) return;
-  const location = storeLocation(options);
-  if (!location) return;
-  try {
-    const key = await verdictKey(file, options.gateToolPath ?? DEFAULT_GATE_TOOL);
-    await saveVerdict(location.root, location.file, key, serves);
-    return serves;
-  } catch {
-    return;
+async function runAndStore(
+  file: string,
+  pageBytes: Buffer,
+  options: GateVerdictOptions,
+  key: string,
+  tool: string,
+  location: StoreLocation | undefined,
+): Promise<GateCheckRun> {
+  const result = await runGate(file, pageBytes, tool, options);
+  if (result.code >= 0 && typeof result.serves === "boolean" && location) {
+    await saveVerdict(location.root, location.file, key, result.serves);
   }
+  return result;
 }
 
-export async function getGateVerdict(file: string, options: GateVerdictOptions = {}): Promise<boolean> {
-  const location = storeLocation(options);
+export async function runGateCheck(file: string, pageBytes: Buffer, options: GateVerdictOptions = {}): Promise<GateCheckRun> {
+  const snapshotBytes = Buffer.from(pageBytes);
   const tool = options.gateToolPath ?? DEFAULT_GATE_TOOL;
   let key: string;
   try {
-    key = await verdictKey(file, tool, options.pageBytes);
+    key = await verdictKey(snapshotBytes, tool);
+  } catch (error) {
+    return { code: -1, stdout: "", stderr: "", error: (error as Error).message };
+  }
+  return runAndStore(file, snapshotBytes, options, key, tool, storeLocation(options));
+}
+
+export async function getGateVerdict(file: string, pageBytes: Buffer, options: GateVerdictOptions = {}): Promise<boolean> {
+  const snapshotBytes = Buffer.from(pageBytes);
+  const tool = options.gateToolPath ?? DEFAULT_GATE_TOOL;
+  let key: string;
+  try {
+    key = await verdictKey(snapshotBytes, tool);
   } catch {
     return false;
   }
+  const location = storeLocation(options);
   if (location) {
     const verdicts = await readStore(location.root, location.file);
     if (verdicts.has(key)) return verdicts.get(key)!;
   }
-  const store = location?.file;
-  const runKey = `${store ?? ""}\0${options.gateNodePath ?? process.execPath}\0${key}`;
+  const runKey = `${location?.file ?? ""}\0${options.gateNodePath ?? process.execPath}\0${key}`;
   let pending = inFlight.get(runKey);
   if (!pending) {
-    pending = (async () => {
-      const result = await runGate(file, tool, options);
-      if (result.cacheable && location) await saveVerdict(location.root, location.file, key, result.serves);
-      return result.serves;
-    })();
+    pending = runAndStore(file, snapshotBytes, options, key, tool, location).then((result) => result.code >= 0 && result.serves === true);
     inFlight.set(runKey, pending);
     void pending.then(() => inFlight.delete(runKey), () => inFlight.delete(runKey));
   }
@@ -307,5 +323,13 @@ async function richPartPages(root: string): Promise<string[]> {
 
 export async function warmGateVerdicts(root: string, options: GateVerdictOptions = {}): Promise<void> {
   const pages = await richPartPages(root);
-  for (const page of pages) await getGateVerdict(page, { ...options, root });
+  for (const page of pages) {
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(page);
+    } catch {
+      continue;
+    }
+    await getGateVerdict(page, bytes, { ...options, root });
+  }
 }

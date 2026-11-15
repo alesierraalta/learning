@@ -13,10 +13,11 @@
  * deploy, so it is a rule here, not a preference.
  */
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { recordGateVerdict } from "../integrations/pi/gate-verdicts.ts";
+import { runGateCheck } from "../integrations/pi/gate-verdicts.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -90,6 +91,18 @@ const runTool = (tool: PartTool, file: string, options: PartCheckOptions): Promi
     );
   });
 
+const runHtmlGate = async (file: string, options: PartCheckOptions): Promise<Run> => {
+  try {
+    return await runGateCheck(file, await readFile(file), {
+      gateToolPath: options.gateToolPath ?? join(options.toolsDir ?? join(REPO, "tools"), "explain-check.mjs"),
+      gateVerdictsFile: options.gateVerdictsFile,
+      gateTimeoutMs: options.timeoutMs,
+    });
+  } catch (error) {
+    return { code: -1, stdout: "", stderr: "", error: (error as Error).message };
+  }
+};
+
 /**
  * The finding lines of one tool, read in the tool's own vocabulary. A tool that fails without
  * naming anything is not a finding: it is a check that could not run.
@@ -147,14 +160,10 @@ export async function runPartChecks(files: string[], options: PartCheckOptions =
   const notes = [...new Set(files)];
   for (const file of notes) {
     for (const tool of PART_TOOLS) {
-      const run = await runTool(tool, file, options);
-      if (tool === "explain-check.mjs" && options.gateVerdictsFile) {
-        await recordGateVerdict(file, run.stdout, {
-          gateToolPath: options.gateToolPath ?? join(options.toolsDir ?? join(REPO, "tools"), tool),
-          gateVerdictsFile: options.gateVerdictsFile,
-        });
-      }
-      const findings = run.code === 0 ? [] : findingsOf(tool, run.stdout);
+      const run = tool === "explain-check.mjs" && /\.html?$/i.test(file)
+        ? await runHtmlGate(file, options)
+        : await runTool(tool, file, options);
+      const findings = run.code === 0 || (tool === "explain-check.mjs" && run.code < 0) ? [] : findingsOf(tool, run.stdout);
       if (findings.length) {
         tools.push({ file, tool, output: run.stdout.trim(), findings });
         continue;

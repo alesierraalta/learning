@@ -20,6 +20,8 @@ function cacheOptions(root, gateToolPath, extra = {}) {
   return { root, gateToolPath, gateVerdictsFile: storeAt(root), ...extra };
 }
 
+const getVerdict = (getGateVerdict, file, options) => getGateVerdict(file, readFileSync(file), options);
+
 test("startup warming runs existing rich pages one at a time and leaves later warm-ups cached", async () => {
   const { warmGateVerdicts } = await import("./gate-verdicts.ts");
   const root = scratch("gate-warmup-");
@@ -91,7 +93,7 @@ test("gate execution accepts only documented exits and a boolean serving verdict
     const page = join(root, "part.html");
     writeFileSync(page, `<html>${scenario.name}</html>`);
     const gateToolPath = fakeGate(root, `${scenario.source}\n`);
-    const result = await getGateVerdict(page, cacheOptions(root, gateToolPath, { gateTimeoutMs: scenario.gateTimeoutMs }));
+    const result = await getVerdict(getGateVerdict, page, cacheOptions(root, gateToolPath, { gateTimeoutMs: scenario.gateTimeoutMs }));
     assert.equal(result, scenario.expected, scenario.name);
     if (!scenario.expected) {
       const store = storeAt(root);
@@ -104,7 +106,7 @@ test("gate execution accepts only documented exits and a boolean serving verdict
   const page = join(root, "part.html");
   writeFileSync(page, "<html>spawn error</html>");
   const gateToolPath = fakeGate(root, 'console.log(JSON.stringify({ serves: true }));');
-  assert.equal(await getGateVerdict(page, cacheOptions(root, gateToolPath, { gateNodePath: join(root, "missing-node") })), false);
+  assert.equal(await getVerdict(getGateVerdict, page, cacheOptions(root, gateToolPath, { gateNodePath: join(root, "missing-node") })), false);
   assert.equal(existsSync(storeAt(root)), false, "a spawn error never stores a pass");
 });
 
@@ -128,8 +130,8 @@ test("unsafe cache symlinks are ignored, logged once, and never read or written"
   process.stderr.write = (chunk) => { warnings += String(chunk); return true; };
   try {
     const options = cacheOptions(root, gateToolPath);
-    assert.equal(await getGateVerdict(page, options), true);
-    assert.equal(await getGateVerdict(page, options), true);
+    assert.equal(await getVerdict(getGateVerdict, page, options), true);
+    assert.equal(await getVerdict(getGateVerdict, page, options), true);
   } finally {
     process.stderr.write = originalWrite;
   }
@@ -145,16 +147,20 @@ test("unsafe cache symlinks are ignored, logged once, and never read or written"
   const bootstrapPage = join(bootstrap, "part.html");
   const rootedPage = join(rooted, "part.html");
   const sharedRuns = join(bootstrap, "runs.log");
+  const sharedCount = join(bootstrap, "runs.count");
   writeFileSync(bootstrapPage, sharedPage);
   writeFileSync(rootedPage, sharedPage);
   writeFileSync(sharedGate, [
-    'import { appendFileSync } from "node:fs";',
+    'import { appendFileSync, readFileSync, writeFileSync } from "node:fs";',
+    `let count = 0; try { count = Number(readFileSync(${JSON.stringify(sharedCount)}, "utf8")); } catch {}`,
+    "count += 1;",
+    `writeFileSync(${JSON.stringify(sharedCount)}, String(count));`,
     `appendFileSync(${JSON.stringify(sharedRuns)}, "run\\n");`,
-    `console.log(JSON.stringify({ serves: process.argv[2] === ${JSON.stringify(bootstrapPage)} }));`,
+    'console.log(JSON.stringify({ serves: count === 1 }));',
     "",
   ].join("\n"));
   const bootstrapOptions = cacheOptions(bootstrap, sharedGate);
-  assert.equal(await getGateVerdict(bootstrapPage, bootstrapOptions), true);
+  assert.equal(await getVerdict(getGateVerdict, bootstrapPage, bootstrapOptions), true);
   const externalStore = join(external, "foreign-store.json");
   const trustedBytes = readFileSync(storeAt(bootstrap));
   writeFileSync(externalStore, trustedBytes);
@@ -165,8 +171,8 @@ test("unsafe cache symlinks are ignored, logged once, and never read or written"
   let fileWarnings = "";
   process.stderr.write = (chunk) => { fileWarnings += String(chunk); return true; };
   try {
-    assert.equal(await getGateVerdict(rootedPage, rootedOptions), false, "a symlinked external PASS is not trusted");
-    assert.equal(await getGateVerdict(rootedPage, rootedOptions), false);
+    assert.equal(await getVerdict(getGateVerdict, rootedPage, rootedOptions), false, "a symlinked external PASS is not trusted");
+    assert.equal(await getVerdict(getGateVerdict, rootedPage, rootedOptions), false);
   } finally {
     process.stderr.write = fileWarningsOriginal;
   }
@@ -191,15 +197,15 @@ test("a malformed verdict entry is ignored without losing valid cache entries", 
   writeFileSync(firstPage, "<html>first</html>");
   writeFileSync(secondPage, "<html>second</html>");
   const options = cacheOptions(root, gateToolPath);
-  assert.equal(await getGateVerdict(firstPage, options), true);
-  assert.equal(await getGateVerdict(secondPage, options), true);
+  assert.equal(await getVerdict(getGateVerdict, firstPage, options), true);
+  assert.equal(await getVerdict(getGateVerdict, secondPage, options), true);
   const store = JSON.parse(readFileSync(storeAt(root), "utf8"));
   const [malformedKey, validKey] = Object.keys(store.verdicts);
   store.verdicts[malformedKey] = "not a boolean";
   assert.equal(typeof store.verdicts[validKey], "boolean");
   writeFileSync(storeAt(root), JSON.stringify(store));
 
-  assert.equal(await getGateVerdict(firstPage, options), true, "the malformed entry is recomputed");
-  assert.equal(await getGateVerdict(secondPage, options), true, "valid sibling entries remain hits");
+  assert.equal(await getVerdict(getGateVerdict, firstPage, options), true, "the malformed entry is recomputed");
+  assert.equal(await getVerdict(getGateVerdict, secondPage, options), true, "valid sibling entries remain hits");
   assert.equal(readFileSync(log, "utf8"), "run\nrun\nrun\n");
 });

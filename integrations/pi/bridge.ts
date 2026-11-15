@@ -421,7 +421,7 @@ async function richPageServes(rich: string, pageBytes: Buffer, note: string, has
   const kept = squash(page);
   if (![...readFileSync(note, "utf8").matchAll(FIGURA)].every((match) => kept.includes(squash(match[0])))) return false;
   if (hasQuiz && !/<lk-quiz[\s>]/.test(page)) return false;
-  return getGateVerdict(rich, { ...gateOptions, pageBytes });
+  return getGateVerdict(rich, pageBytes, gateOptions);
 }
 
 /** The mini-quiz is drawn once, as the interactive quiz: the note's own numbered list is left out (#265). */

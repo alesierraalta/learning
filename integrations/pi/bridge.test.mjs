@@ -1204,6 +1204,48 @@ test("a rich page with a failing cached verdict is never served", async () => {
   await bridge.shutdown();
 });
 
+test("startup gates a captured page snapshot and the bridge refuses a later broken page", async () => {
+  const { root, topic } = makeRoot();
+  const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
+  const original = `${QUALIFYING_PAGE}\n<!-- WARM_CHECKED_BYTES -->`;
+  const gateToolPath = join(root, "warm-race-gate.mjs");
+  const callCount = join(root, "warm-race-count.log");
+  const started = join(root, "warm-race-started.log");
+  const release = join(root, "warm-race-release.log");
+  const checked = join(root, "warm-race-checked.log");
+  writeFileSync(pagePath, original);
+  writeFileSync(gateToolPath, [
+    'import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";',
+    `let count = 0; try { count = Number(readFileSync(${JSON.stringify(callCount)}, "utf8")); } catch {}`,
+    "count += 1;",
+    `writeFileSync(${JSON.stringify(callCount)}, String(count));`,
+    `if (count === 1) { appendFileSync(${JSON.stringify(started)}, "start\\n"); while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 10)); }`,
+    "const page = readFileSync(process.argv[2], \"utf8\");",
+    `appendFileSync(${JSON.stringify(checked)}, page.includes("BROKEN_WARM_BYTES") ? "broken\\n" : "original\\n");`,
+    'console.log(JSON.stringify({ serves: count === 1 || !page.includes("BROKEN_WARM_BYTES") }));',
+    "",
+  ].join("\n"));
+  const store = join(root, ".learning-cache", "gate-verdicts.json");
+  const { warmGateVerdicts } = await import("./gate-verdicts.ts");
+  const options = { root, gateToolPath, gateVerdictsFile: store };
+  const warming = warmGateVerdicts(root, options);
+  const deadline = Date.now() + 1000;
+  while (!existsSync(started) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(existsSync(started), "the startup gate began after reading the page");
+  writeFileSync(pagePath, `${QUALIFYING_PAGE}\n<!-- BROKEN_WARM_BYTES -->`);
+  writeFileSync(release, "release");
+  await warming;
+  assert.equal(readFileSync(checked, "utf8"), "original\n", "the gate consumes the exact bytes whose hash warm-up stored");
+
+  const bridge = await openBridge(root, { gateToolPath, gateVerdictsFile: store });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  const page = await http(result.structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.doesNotMatch(page.body, /BROKEN_WARM_BYTES/, "the bridge does not serve the swapped page under the warm-up PASS");
+  assert.equal(readFileSync(checked, "utf8"), "original\nbroken\n", "the changed page is gated independently");
+  await bridge.shutdown();
+});
+
 test("a page edited during its gate is served only from the bytes checked", async () => {
   const { root, topic } = makeRoot();
   const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
