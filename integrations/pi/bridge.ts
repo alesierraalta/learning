@@ -23,7 +23,7 @@ import { recordQuizTelemetry } from "./telemetry.ts";
 import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio, type Transcriber } from "./transcribe.ts";
 import { CodeRunError, loadRunners, readExercise, publicExercise, forPage, runCode, type Runner } from "./coderun.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
-import { gateVerdictsFile as defaultGateVerdictsFile, getGateVerdict } from "./gate-verdicts.ts";
+import { gateVerdictsFile as defaultGateVerdictsFile, getGateVerdict, type GateVerdictOptions } from "./gate-verdicts.ts";
 
 const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
 const KIT_DIR = join(dirname(fileURLToPath(import.meta.url)), "kit");
@@ -415,13 +415,13 @@ const FIGURA = /<(lk-[a-z][a-z-]*)\b[^>]*>[\s\S]*?<\/\1>/g;
  * A page the tutor wrote can stand for its note only when it passes the same gates, carries every figure
  * the note draws (the same block, whitespace aside) and, for a part with a mini-quiz, the interactive quiz.
  */
-async function richPageServes(rich: string, note: string, hasQuiz: boolean, gateOptions: { gateToolPath?: string; gateVerdictsFile: string }): Promise<boolean> {
-  const page = readFileSync(rich, "utf8");
+async function richPageServes(rich: string, pageBytes: Buffer, note: string, hasQuiz: boolean, gateOptions: GateVerdictOptions): Promise<boolean> {
+  const page = pageBytes.toString("utf8");
   const squash = (value: string) => value.replace(/\s+/g, "");
   const kept = squash(page);
   if (![...readFileSync(note, "utf8").matchAll(FIGURA)].every((match) => kept.includes(squash(match[0])))) return false;
   if (hasQuiz && !/<lk-quiz[\s>]/.test(page)) return false;
-  return getGateVerdict(rich, gateOptions);
+  return getGateVerdict(rich, { ...gateOptions, pageBytes });
 }
 
 /** The mini-quiz is drawn once, as the interactive quiz: the note's own numbered list is left out (#265). */
@@ -1470,9 +1470,10 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   const richCsp = `${RICH_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
   const kitDir = options.kitDir ?? KIT_DIR;
   const visualsDir = options.visualsDir ?? VISUALS_DIR;
-  const gateOptions = {
+  const gateOptions: GateVerdictOptions = {
     gateToolPath: options.gateToolPath,
     gateVerdictsFile: options.gateVerdictsFile ?? defaultGateVerdictsFile(options.root),
+    root: options.root,
   };
   let server: Server | undefined;
   let starting: Promise<void> | undefined;
@@ -1622,10 +1623,11 @@ ${scripts}
     // measures as its note; otherwise the learner gets the note, its story and its interactive quiz.
     const note = plan && partNote(dir, plan, partId);
     const rich = plan && note && richPage(dir, plan, partId);
+    const richBytes = rich ? readFileSync(rich) : undefined;
     // #276: an inline checkpoint is served drawn for the learner, whether the page is the note or the tutor's own.
     const checkpoints = orderOf(checkpointScope(topic, partId));
-    if (plan && note && rich && await richPageServes(rich, note, existsSync(join(dir, "mini-quiz", `${partId}.json`)), gateOptions)) {
-      let html = ensureNodeMedia(injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan, dir)), token);
+    if (plan && note && rich && richBytes && await richPageServes(rich, richBytes, note, existsSync(join(dir, "mini-quiz", `${partId}.json`)), gateOptions)) {
+      let html = ensureNodeMedia(injectFirst(richBytes.toString("utf8"), config(topic, partId, plan, dir)), token);
       html = withoutQuickKeys(html, checkpoints);
       // A hand-built part page carries its own design, so it gets only the
       // reading-mode assets: the book columns and the page-turn script. It runs

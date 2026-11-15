@@ -15,7 +15,12 @@ if [ -f "$db" ]; then
   ignored_files+=(learning.db learning.db-wal learning.db-shm)
 fi
 for ignored in "${ignored_files[@]}"; do
-  grep -qxF "$ignored" .gitignore 2>/dev/null || echo "$ignored" >> .gitignore
+  if ! grep -qxF "$ignored" .gitignore 2>/dev/null; then
+    if [ -s .gitignore ] && [ -n "$(tail -c 1 .gitignore)" ]; then
+      printf '\n' >> .gitignore
+    fi
+    echo "$ignored" >> .gitignore
+  fi
 done
 if [ -f "$db" ]; then
   node_bin=$HOME/.local/node/bin/node

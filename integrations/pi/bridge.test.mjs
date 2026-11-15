@@ -875,7 +875,7 @@ function shutdownOf(host) {
   };
 }
 
-function fakeGate(root, { delayMs = 0, serves = true, ok = serves } = {}) {
+function fakeGate(root, { delayMs = 0, serves = true, ok = serves, exitCode = 0 } = {}) {
   const tool = join(root, "fake-explain-check.mjs");
   const dependency = join(root, "fake-gate-result.mjs");
   const runs = join(root, "gate-runs.log");
@@ -888,6 +888,7 @@ function fakeGate(root, { delayMs = 0, serves = true, ok = serves } = {}) {
     ...(delayMs ? [`await new Promise(resolve => setTimeout(resolve, ${delayMs}));`] : []),
     `appendFileSync(${JSON.stringify(runs)}, "run\\n");`,
     `console.log(JSON.stringify({ ok: ${ok}, serves }));`,
+    `process.exitCode = ${exitCode};`,
     "",
   ].join("\n"));
   return {
@@ -1178,6 +1179,18 @@ test("a slow rich-page gate neither blocks another route nor runs twice for conc
   await bridge.shutdown();
 });
 
+test("a rich page whose gate exits outside the documented contract is never served", async () => {
+  const { root, topic } = makeRoot();
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
+  const gate = fakeGate(root, { serves: true, exitCode: 2 });
+  const bridge = await openBridge(root, { gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  const page = await http(result.structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.doesNotMatch(page.body, /RICH_SENTINEL/, "an undocumented exit status cannot authorize a rich page");
+  await bridge.shutdown();
+});
+
 test("a rich page with a failing cached verdict is never served", async () => {
   const { root, topic } = makeRoot();
   writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
@@ -1188,6 +1201,39 @@ test("a rich page with a failing cached verdict is never served", async () => {
   assert.equal(page.status, 200);
   assert.doesNotMatch(page.body, /RICH_SENTINEL/, "the learner gets the note fallback, never the failing rich page");
   assert.equal(gate.count(), 1);
+  await bridge.shutdown();
+});
+
+test("a page edited during its gate is served only from the bytes checked", async () => {
+  const { root, topic } = makeRoot();
+  const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
+  const original = `${QUALIFYING_PAGE}\n<!-- CHECKED_BYTES -->`;
+  const started = join(root, "gate-started.log");
+  const release = join(root, "gate-release.log");
+  const checked = join(root, "gate-checked.log");
+  const gateToolPath = join(root, "blocking-explain-check.mjs");
+  writeFileSync(pagePath, original);
+  writeFileSync(gateToolPath, [
+    'import { appendFileSync, existsSync, readFileSync } from "node:fs";',
+    `appendFileSync(${JSON.stringify(started)}, "start\\n");`,
+    `while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 10));`,
+    `appendFileSync(${JSON.stringify(checked)}, readFileSync(process.argv[2], "utf8").includes("CHECKED_BYTES") ? "checked\\n" : "broken\\n");`,
+    'console.log(JSON.stringify({ serves: true }));',
+    "",
+  ].join("\n"));
+  const bridge = await openBridge(root, { gateToolPath, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  const response = http(result.structuredContent.url);
+  const deadline = Date.now() + 1000;
+  while (!existsSync(started) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(existsSync(started), "the gate reached the checked page snapshot");
+  writeFileSync(pagePath, "<html><body>BROKEN_BYTES</body></html>");
+  writeFileSync(release, "release");
+  const page = await response;
+  assert.equal(page.status, 200);
+  assert.match(page.body, /CHECKED_BYTES/, "the response uses the bytes captured before the async gate");
+  assert.doesNotMatch(page.body, /BROKEN_BYTES/);
+  assert.equal(readFileSync(checked, "utf8"), "checked\n", "the gate inspected the same snapshot that the response serves");
   await bridge.shutdown();
 });
 
