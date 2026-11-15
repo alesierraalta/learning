@@ -67,6 +67,30 @@ ${JSON.stringify({
 Cómo leerlo: avanza y mira la curva.
 `;
 
+// A line that runs past the stage's viewBox at rest: the settled-frame fix must still report it.
+const OUTSIDE = `# Parte 1 — Una línea que se sale
+
+## Ruta
+
+1. La línea.
+
+<lk-story>
+<script type="application/json">
+${JSON.stringify({
+  kind: 'formula',
+  title: 'La línea que se sale',
+  viewBox: '0 0 360 260',
+  formula: { size: 18, atoms: [{ t: 'f', id: 'f' }, { t: '(', id: 'open' }, { t: 'x', id: 'x' }, { t: ')', id: 'close' }] },
+  steps: [
+    { title: 'La línea', focus: [], narrator: 'La línea va más allá del escenario.', stage: { scene: { paths: [{ d: 'M 40 120 L 600 120', tone: 'blue', width: 4, arrow: false }] } } },
+  ],
+}, null, 2)}
+</script>
+</lk-story>
+
+Cómo leerlo: la línea sale del escenario.
+`;
+
 test('the Gaussian part from #296 renders its story where the learner reads it', {
   skip: browserAvailable() ? false : 'playwright is not installed',
 }, () => {
@@ -85,6 +109,14 @@ test('a story that draws, narrates and has its player passes in both learner con
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok: 2 recorrido\(s\) sin problemas/);
   assert.doesNotMatch(r.stdout, /GATE FAILED/);
+});
+
+test('ink that really leaves its stage at rest is still a finding, not hidden by the settled frame', {
+  skip: browserAvailable() ? false : 'playwright is not installed',
+}, () => {
+  const r = run([note('fuera.md', OUTSIDE)], { PAGE_GATE_TEMPLATES: 'note' });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /ink-outside-stage/);
 });
 
 test('a note with no story says it measured nothing instead of pretending it passed one', {

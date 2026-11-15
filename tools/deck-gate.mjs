@@ -79,6 +79,28 @@ const storyStructure = (text) => {
   return problems;
 };
 const countStories = (text) => [...text.matchAll(/<lk-story[\s>]/g)].length;
+// Los datos de un paso y la tarjeta de cierre (#301) se miden a 390 px, como el resto del recorrido: una tabla
+// o una tarjeta visibles que se salen de su caja o de la pantalla son un hallazgo. Lo oculto no mide nada.
+// Va serializada a la página: no puede usar nada de fuera de esta función.
+const factsFit = (node) => {
+  const view = document.documentElement.clientWidth;
+  const shown = (el) => el.getClientRects().length > 0;
+  const out = [];
+  const flag = (kind, box, frame, text) => {
+    const r = box.getBoundingClientRect(), f = frame.getBoundingClientRect();
+    const past = Math.max(r.right - Math.min(f.right, view), -r.left);
+    const spill = box.scrollWidth - box.clientWidth;
+    if (past > 1 || spill > 1) out.push({ kind, text: String(text).slice(0, 28), over: Math.round(Math.max(past, spill)) });
+  };
+  for (const table of node.querySelectorAll('table.lk-facts')) {
+    if (!shown(table)) continue;
+    const kind = table.closest('.lk-summary') ? 'resumen-desbordado' : 'hechos-desbordados';
+    flag(kind, table, table.closest('.lk-wt-caption, .lk-story-band, .lk-summary') || node, table.querySelector('th')?.textContent || 'tabla');
+  }
+  const card = node.querySelector(':scope > .lk-summary');
+  if (card && shown(card)) flag('resumen-desbordado', card, card.parentElement || node, card.querySelector('.lk-summary-title')?.textContent || 'tarjeta de cierre');
+  return out;
+};
 
 const targets = [];
 for (const note of notes) {
@@ -104,7 +126,8 @@ let total = 0;
 for (const [index, target] of targets.entries()) {
   const id = `note${index}`;
   copyFileSync(target.note, join(root, 'rapidos', `${id}.md`));
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  // The gate reads settled frames: reduced motion swaps each step at once, so no piece is caught mid-slide.
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
   page.on('pageerror', e => errors.push(`${target.note}: ${e.message}`));
   await page.goto(`${base}rapidos/${id}`);
   const decks = page.locator('lk-walkthrough, lk-story');
@@ -114,7 +137,8 @@ for (const [index, target] of targets.entries()) {
   for (let d = 0; d < count; d++) {
     const deck = decks.nth(d);
     const story = await deck.evaluate(node => node.tagName.toLowerCase() === 'lk-story');
-    const steps = story ? await deck.locator('.lk-story-seg').count() : await deck.locator('.lk-wt-dot').count();
+    // The closing card has a dot of its own (#301): the steps are the numbered dots, and the card is measured after them.
+    const steps = story ? await deck.locator('.lk-story-seg').count() : await deck.locator('.lk-wt-dot:not([data-summary])').count();
     for (let s = 0; s < steps; s++) {
       if (story) {
         if (s > 0) await deck.getByRole('button', { name: 'Paso siguiente' }).click();
@@ -124,6 +148,8 @@ for (const [index, target] of targets.entries()) {
         await deck.locator('.lk-wt-count').filter({ hasText: `Paso ${s + 1} de` }).waitFor();
       }
       const found = await deck.evaluate(node => {
+        // El anillo de foco es un trazo del kit, no del autor: la medida se toma sin él.
+        node.querySelectorAll('[data-focus-ring]').forEach(ring => ring.remove());
         // Solo el lienzo de escena: las piezas de un paso (tarjetas, memoria, tablas,
         // conjuntos) llevan SVG propios y las miden `scene-gate` y `scene-lint`.
         const stage = node.querySelector('.lk-wt-stage > svg') || document.createElement('div');
@@ -211,6 +237,14 @@ for (const [index, target] of targets.entries()) {
         return out;
       });
       for (const item of found) bad.push({ note: target.note, deck: d + 1, step: s + 1, ...item });
+      for (const item of await deck.evaluate(factsFit)) bad.push({ note: target.note, deck: d + 1, step: s + 1, ...item });
+    }
+    // La tarjeta de cierre (#301) va después del último paso: se llega con el siguiente o con su punto.
+    if (await deck.evaluate(node => Boolean(node.querySelector(':scope > .lk-summary')))) {
+      if (story) await deck.getByRole('button', { name: 'Paso siguiente' }).click();
+      else await deck.locator('.lk-wt-dot[data-summary]').click();
+      await deck.locator('.lk-story-count, .lk-wt-count').filter({ hasText: 'Resumen' }).waitFor();
+      for (const item of await deck.evaluate(factsFit)) bad.push({ note: target.note, deck: d + 1, step: 'resumen', ...item });
     }
   }
   await page.close();

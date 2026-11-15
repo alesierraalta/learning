@@ -32,7 +32,7 @@ test('mobile reader control does not cover walkthrough content', { skip: !playwr
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
   const url = base(await view({})) + 'rapidos/lstm';
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
   await page.goto(url);
   // Wide mode only applies from 1080 px: on a phone the toggle would do nothing.
   assert.equal(await page.locator('.reading-toggle').isVisible(), false, 'wide mode is offered on a phone');
@@ -64,7 +64,7 @@ test('a scene written in a note reaches the reader drawn', { skip: !playwright &
   writeFileSync(join(root, 'rapidos', 'escena.md'), `# Escena\n\n<lk-scene>\n<script type="application/json">${spec}</script>\n</lk-scene>\n`);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1200, height: 900 } });
   await page.goto(base(await view({})) + 'rapidos/escena');
   await page.locator('lk-scene svg').waitFor({ timeout: 5000 });
   const labels = await page.locator('lk-scene svg text').allTextContents();
@@ -80,7 +80,7 @@ test('compact LSTM walkthrough fits mobile without changing default decks', { sk
   writeFileSync(join(root, 'rapidos', 'compact.md'), `# Prueba\n\n${deck('class="lk-wt-compact"')}\n\n${deck('')}`);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
   await page.goto(base(await view({})) + 'rapidos/compact');
   const decks = page.locator('lk-walkthrough');
   await decks.first().locator('svg').waitFor();
@@ -102,7 +102,7 @@ test('an arrow carries its words beside it, never on the line', { skip: !playwri
   writeFileSync(join(root, 'rapidos', 'flecha.md'), `# Flecha\n\n<lk-walkthrough class="lk-wt-compact"><script type="application/json">${scene}</script></lk-walkthrough>\n`);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
   await page.goto(base(await view({})) + 'rapidos/flecha');
   const deck = page.locator('lk-walkthrough').first();
   await deck.locator('svg').waitFor();
@@ -137,7 +137,7 @@ test('short arrow captions clear the marker and stay inside the stage', { skip: 
   writeFileSync(join(root, 'rapidos', 'head-regression.md'), `# Prueba\n\n<lk-walkthrough class="lk-wt-compact"><script type="application/json">${scene}</script></lk-walkthrough>`);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
   await page.goto(base(await view({})) + 'rapidos/head-regression');
   const deck = page.locator('lk-walkthrough').first();
   await deck.locator('svg').waitFor();
@@ -176,7 +176,7 @@ test('deck titles leave room for the full-screen button', { skip: !playwright &&
   writeFileSync(join(root, 'rapidos', 'longtitle.md'), `# Prueba\n\n${deck('El plural que hay que recordar')}\n\n${deck('LSTM')}\n`);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
   await page.goto(base(await view({})) + 'rapidos/longtitle');
   const deckEl = page.locator('lk-walkthrough');
   await deckEl.first().locator('svg').waitFor();
@@ -209,7 +209,7 @@ test('a long word never leaves its walkthrough box', { skip: !playwright && 'pla
   writeFileSync(join(root, 'rapidos', 'fit.md'), `# Ajuste\n\n<lk-walkthrough class="lk-wt-compact" title="Ajuste"><script type="application/json">${scene}</script></lk-walkthrough>\n`);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 } });
   await page.goto(base(await view({})) + 'rapidos/fit');
   const deck = page.locator('lk-walkthrough');
   await deck.locator('svg').waitFor();
@@ -238,7 +238,7 @@ test('the reader draws SVG fences while preserving inline figures and code sampl
   ].join('\n'));
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const result = await view({ topic: TOPIC, part: 'p1' });
@@ -266,7 +266,7 @@ async function phonePart(t, markdown) {
   writeFileSync(join(topic, 'explicaciones', 'Parte 1 - Claves.md'), markdown);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 360, height: 760 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 360, height: 760 } });
   await page.goto((await view({ topic: TOPIC, part: 'p1' })).structuredContent.url);
   return page;
 }
@@ -380,7 +380,7 @@ test('plain part and diagnosis share optional dictable reasoning', { skip: !play
   const { view, topic } = await setup({ transcriber: { url: 'http://127.0.0.1:1', token: 'never-in-page' } });
   const browser = await playwright.chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   await page.route('**/api/transcribe', route => route.fulfill({ json: { text: 'Mi razonamiento dictado' } }));
   for (const part of ['p1', 'quiz']) {
     const result = await view({ topic: TOPIC, part });
@@ -426,7 +426,7 @@ test('diagnosis iframe presents the editorial layout and retains every question 
   const { view } = await setup();
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1000, height: 900 } });
   const result = await view({ topic: TOPIC, part: 'quiz' });
   await page.goto(base(result));
   await page.evaluate(url => {
@@ -466,7 +466,7 @@ test('«No sé» needs no confidence and a framed submit notifies the studio', {
   const { view } = await setup();
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   const result = await view({ topic: TOPIC, part: 'p1' });
   // The page allows 'self' as embedder: frame it from the bridge's own index, as the studio frames it.
   await page.goto(base(result));
@@ -517,7 +517,7 @@ test('rich-page quiz: «No sé» hides confidence and a framed submit notifies t
   );
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   const result = await view({ topic: TOPIC, part: 'p1' });
   // A hand-built page keeps its own design, so it gets the reading-mode assets
   // and nothing else. Without them the book mode cannot paginate a rich part.
@@ -1197,7 +1197,7 @@ test("the part video control swaps the player in once the file exists", { skip: 
   const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   await page.goto(url);
   await page.locator(".video-block button").click();
   writeFileSync(video, Buffer.from("0123456789"));
@@ -1218,7 +1218,7 @@ test("the part audio row swaps the player in once the file exists", { skip: !pla
   const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   await page.goto(url);
   const rows = page.locator(".audio-row");
   await rows.first().waitFor();
@@ -1536,7 +1536,7 @@ test("the reader draws the mini-quiz in the served order and answers with the le
   assert.notDeepEqual(picks, { q1: "B", q2: "C" }, "the learner sees other letters than the tutor's");
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   await page.goto(result.structuredContent.url);
   const fields = page.locator("fieldset.quiz-question");
   const options = (index) => page.locator(`input[type=radio][name="question-${index}"]`);
@@ -1694,7 +1694,7 @@ test("the reader's mini-quiz draws each exercise statement above its own box, an
   writeFileSync(join(topic, "mini-quiz", "p2.json"), JSON.stringify({ questions: [quizQuestion("q1")] }));
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   await page.goto((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
   const boxes = page.locator("fieldset.exercise-box");
   assert.deepEqual(await boxes.locator("legend").allTextContents(), ["1. Repite la entrada", "2. Suma dos enteros"]);
@@ -1832,7 +1832,7 @@ test('a refused submission shows the bridge message, with no reload advice', { s
   const { view } = await setup({ refuseTurn: () => 'El tutor está trabajando; espera a que termine.' });
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   const result = await view({ topic: TOPIC, part: 'p1' });
   await page.goto(base(result));
   await page.evaluate((url) => {
@@ -2064,7 +2064,7 @@ test("the kit page answers a quick checkpoint through the bridge and shows its v
   const [spec] = checkpointsOf(page.body);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const kitPage = await browser.newPage();
+  const kitPage = await browser.newPage({ reducedMotion: 'reduce' });
   await kitPage.goto(url);
   const card = kitPage.locator("lk-quick-quiz").first();
   await card.locator("form").waitFor();
@@ -2090,7 +2090,7 @@ test("the reader answers a quick checkpoint in a quick note, which names its own
   const [spec] = checkpointsOf(readerMarkdown((await http(url)).body));
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const reader = await browser.newPage();
+  const reader = await browser.newPage({ reducedMotion: 'reduce' });
   await reader.goto(url);
   const card = reader.locator("lk-quick-quiz").first();
   await card.locator("form").waitFor();
@@ -2112,7 +2112,7 @@ test("the reader draws a quick checkpoint in the learner's order and shows the s
   const [spec] = checkpointsOf(readerMarkdown((await http(url)).body));
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const reader = await browser.newPage();
+  const reader = await browser.newPage({ reducedMotion: 'reduce' });
   await reader.goto(url);
   const card = reader.locator("lk-quick-quiz").first();
   await card.locator("form").waitFor();
@@ -2294,7 +2294,7 @@ test("a note figure is drawn by the visual engine, in the reader's theme", { ski
   writeFileSync(join(root, 'rapidos', 'figura.md'), `# Figura\n\n<lk-figure>\n<script type="application/json">${scene}</script>\n</lk-figure>\n\nCómo leerlo: entra por la casilla del robot y mira la salida.\n`);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
   await page.goto(base(await view({})) + 'rapidos/figura');
   const figure = page.locator('lk-figure');
   await figure.locator('svg').waitFor();
@@ -2402,7 +2402,7 @@ test('wide reading mode is opt-in, spreads the prose and survives a reload', { s
 
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1500, height: 900 } });
   const measure = () =>
     page.evaluate(() => {
       const prose = document.querySelector('.prose');
@@ -2457,7 +2457,7 @@ test('a hand-built part page offers the same wide reading toggle', { skip: !play
 
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1500, height: 900 } });
   const measure = () =>
     page.evaluate(() => {
       const main = document.querySelector('main');
@@ -2510,7 +2510,7 @@ test('wide mode spreads a wrapped hand-built page across both columns', { skip: 
 
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1500, height: 900 } });
   const spread = () =>
     page.evaluate(() => {
       const main = document.querySelector('main');
@@ -2556,7 +2556,7 @@ test("the studio's Ancho mode turns on the document's wide reading", { skip: !pl
 
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1500, height: 900 } });
   const measure = () =>
     page.evaluate(() => ({
       wide: document.body.classList.contains('wide'),
@@ -2761,7 +2761,7 @@ test("a rich page keeps its media controls inside the article and one number per
   const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1440, height: 900 } });
   await page.goto(url);
   await page.waitForTimeout(800);
 
@@ -2834,7 +2834,7 @@ async function readerPart(t, markdown, { theme = "light", width = 900, height = 
   writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.md"), markdown);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width, height }, deviceScaleFactor: 2 });
   const result = await view({ topic: TOPIC, part: "p1" });
   await page.goto(`${result.structuredContent.url}?theme=${theme}`);
   await page.evaluate(() => document.fonts.ready);
@@ -3663,7 +3663,7 @@ test("the note's mini-quiz is drawn once, as the interactive quiz", { skip: !pla
   tcpTopic(root);
   const browser = await playwright.chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1000, height: 900 } });
   const result = await view({ topic: "tcp-handshake", part: "p1" });
   await page.goto(result.structuredContent.url);
   await page.locator("fieldset.quiz-question").first().waitFor({ timeout: 5000 });

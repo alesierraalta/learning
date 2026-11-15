@@ -22,7 +22,12 @@
 
   const lbl = (x, y, t, o = {}) => txt(x, y, t, { size: 26, color: C.slate, bold: false, italic: true, ...o });
 
-  const step = (n, body) => `<g data-step="${n}">${body}</g>`;
+  // El `focus` de un paso nombra una pieza suya: el kit le dibuja un anillo alrededor (#299).
+  const step = (n, body, focus) => `<g data-step="${n}"${typeof focus === 'string' && focus ? ` data-focus-piece="${esc(focus)}"` : ''}>${body}</g>`;
+
+  // Una pieza se reconoce entre pasos por su clave: el movimiento de un paso al otro la sigue. Con
+  // id, es también el nombre que el `focus` de un paso usa.
+  const piece = (key, body, id) => `<g data-piece-key="${esc(key)}"${id === undefined ? '' : ` data-piece-id="${esc(id)}"`}>${body}</g>`;
 
   const gear = (cx, cy, r = 60, teeth = 10, color = C.blue) => {
     const pts = [];
@@ -128,9 +133,12 @@
     return `<defs>${[...markers.values()].join("")}</defs>`;
   };
 
-  const curve = (x1, y1, x2, y2, { color = C.slate, dashedLine = false, arrow = true, bend = 0.35, width = 4 } = {}) => {
+  // Una flecha que fluye lleva la clase `lk-flow`: su trazo discontinuo y su reloj vienen de kit.css (#300).
+  const flowClass = (on) => (on ? ' class="lk-flow"' : '');
+
+  const curve = (x1, y1, x2, y2, { color = C.slate, dashedLine = false, arrow = true, bend = 0.35, width = 4, flow = false } = {}) => {
     const dx = (x2 - x1) * bend;
-    return `<path d="M ${x1} ${y1} C ${f(x1 + dx)} ${y1}, ${f(x2 - dx)} ${y2}, ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
+    return `<path d="M ${x1} ${y1} C ${f(x1 + dx)} ${y1}, ${f(x2 - dx)} ${y2}, ${x2} ${y2}" fill="none"${flowClass(flow)} stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
   };
 
   // Un trazo puede cerrar una región: `fill` pinta el interior (la banda ±σ bajo la
@@ -138,8 +146,8 @@
   const path = (d, { color = C.slate, dashedLine = false, arrow = true, width = 4, fill = "none" } = {}) =>
     `<path d="${d}" fill="${fill}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
 
-  const line = (x1, y1, x2, y2, { color = C.slate, arrow = true, width = 4, dashedLine = false } = {}) =>
-    `<path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
+  const line = (x1, y1, x2, y2, { color = C.slate, arrow = true, width = 4, dashedLine = false, flow = false } = {}) =>
+    `<path d="M ${x1} ${y1} L ${x2} ${y2}"${flowClass(flow)} stroke="${color}" stroke-width="${width}"${dashedLine ? ' stroke-dasharray="10 9"' : ""}${arrow ? ` marker-end="url(#${markerId(color, width)})"` : ""}/>`;
 
   // Una fórmula puesta en escena: cada símbolo es un átomo propio, así una llamada
   // puede señalar «esta V» o «esta s» sin adivinar coordenadas de la cadena entera.
@@ -345,7 +353,7 @@
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${defs(markup)}${markup}</svg>`;
 
   window.LKScene = {
-    C, esc, f, txt, lbl, step, gear, packet, dashed, sheet, box, node, badge, grid, icon, prop, bars, stat, formula, defs,
-    curve, path, line, svg, tag, elbow, mark, head, markerId,
+    C, esc, f, txt, lbl, step, piece, gear, packet, dashed, sheet, box, node, badge, grid, icon, prop, bars, stat, formula, defs,
+    curve, path, line, flowClass, svg, tag, elbow, mark, head, markerId,
   };
 })();

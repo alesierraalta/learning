@@ -117,7 +117,33 @@ legend { padding:0 8px; font-weight:700; font-size:1.12rem; line-height:1.45; ma
 .lk-wt-caption { margin-top:14px; padding-top:12px; border-top:1px solid var(--rule); }
 .lk-wt-caption strong { font-size:1.05rem; }
 .lk-wt-caption p { margin:6px 0 0; font-size:.95rem; line-height:1.6; text-align:start; }
+/* Los datos de un paso (#301) van junto a su texto; por debajo de 640 px se apilan bajo él. La tarjeta de cierre ocupa el lugar del texto al final. */
+.lk-wt-caption { display:flex; gap:12px 22px; align-items:flex-start; }
+.lk-wt-words { flex:1 1 auto; min-width:0; }
+.lk-wt-facts { flex:0 1 auto; max-width:17rem; }
+.lk-wt-facts:empty { display:none; }
+.lk-wt-caption[hidden], .lk-story-band[hidden], .lk-summary[hidden] { display:none; }
+/* La tabla de datos (#301) ocupa su hueco entero: el `table` del kit y el del lector la hacen de bloque, y entonces
+   las reglas de las filas miden lo que mide su contenido, no la tabla. */
+.lk-facts { display:table; overflow:visible; margin:0; width:100%; border-collapse:collapse; border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); font-family:var(--sans); font-size:14px; line-height:1.45; color:var(--ink); text-align:start; }
+/* La clave y el valor comparten línea base y tamaño de letra: los dos heredan los de la tabla. */
+.lk-facts th, .lk-facts td { padding:6px 10px 6px 0; border-bottom:1px solid var(--hair); vertical-align:baseline; text-align:start; font-size:inherit; line-height:inherit; background:transparent; }
+.lk-facts td { overflow-wrap:anywhere; }
+/* La clave ocupa lo que mide y el valor el resto; en el teléfono la clave toma el 40 % y se parte. */
+.lk-facts th { width:1px; white-space:nowrap; font-weight:600; color:var(--muted); }
+.lk-facts td.lk-fact-value { font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--ink); }
+@media (max-width:640px) { .lk-facts th { width:40%; white-space:normal; overflow-wrap:anywhere; } }
+.lk-summary { margin:14px 0 0; padding:12px 14px; border:1px solid var(--hair); background:var(--paper); color:var(--ink); }
+.lk-summary-title { display:block; font-family:var(--serif); font-size:1.05rem; }
+.lk-summary-text { margin:6px 0 10px; font-size:.95rem; line-height:1.6; }
+.lk-summary-metrics { margin-top:6px; }
+.lk-walkthrough:fullscreen .lk-facts, .lk-walkthrough:-webkit-full-screen .lk-facts { font-size:1.1rem; }
+.lk-walkthrough:fullscreen .lk-summary-title, .lk-walkthrough:-webkit-full-screen .lk-summary-title { font-size:1.5rem; }
+.lk-walkthrough:fullscreen .lk-summary-text, .lk-walkthrough:-webkit-full-screen .lk-summary-text { font-size:1.15rem; max-width:70ch; }
+@media (max-width:640px) { .lk-wt-caption { flex-direction:column; } .lk-wt-facts { max-width:none; width:100%; } }
 .lk-walkthrough:focus-visible { outline:3px solid var(--cobalt); outline-offset:4px; }
+/* El anillo de foco de un paso (#299) pulsa; con movimiento reducido la regla global lo deja fijo. */
+[data-focus-ring] { animation:pulse 1.6s ease-in-out infinite; }
 /* Una figura se dibuja a 1 unidad ≈ 1 píxel: su ancho es el del `viewBox` que el
 autor escribió (`--lk-vb`, que pone `kit.js`). En modo ancho la columna mide el
 doble y, sin este tope, la escena se estiraba a 1,7× y sus etiquetas crecían por
@@ -193,6 +219,14 @@ lk-story>.lk-title { display:block; padding:14px 18px 0; font-family:var(--sans)
 .lk-story-stage.lk-wt-stage { max-width:none; margin-inline:0; background:transparent; color:var(--ink); padding:12px 8px; border-bottom:1px solid var(--hair); }
 .lk-story-stage > svg { display:block; width:100%; max-width:calc(var(--lk-vb, 360px) * 1.6); height:auto; margin-inline:auto; }
 .lk-story-narrator { padding:16px 18px; font-family:var(--serif); font-size:18px; line-height:1.6; }
+/* Los datos de un paso de la historia (#301) van junto a su narración; en el teléfono, bajo ella. */
+.lk-story-band { display:flex; align-items:flex-start; }
+.lk-story-band > .lk-story-narrator { flex:1 1 auto; min-width:0; }
+.lk-story-facts { flex:0 1 auto; max-width:min(42%, 20rem); padding:16px 18px 16px 0; }
+.lk-story-facts:empty { display:none; }
+.lk-story > .lk-summary { margin:0; padding:16px 18px; border:0; border-top:1px solid var(--hair); background:transparent; }
+lk-story:fullscreen .lk-story-facts .lk-facts, lk-story:-webkit-full-screen .lk-story-facts .lk-facts { font-size:1.05rem; }
+@media (max-width:640px) { .lk-story-band { flex-direction:column; } .lk-story-facts { max-width:none; width:100%; padding:0 18px 16px; } }
 .lk-story-line { margin:0; text-align:left; }
 /* El narrador y su lista viven en la prosa del lector, que se justifica: el recorrido
    se alinea al inicio igual, con una regla que gana a `.prose p`. */
@@ -695,7 +729,11 @@ lk-story:fullscreen .lk-story-piece, lk-story:-webkit-full-screen .lk-story-piec
 .lk-xdetail { font-family:var(--mono, "DejaVu Sans Mono", Consolas, monospace); font-size:.88em; line-height:1.2; color:var(--pt-slate); overflow-wrap:anywhere; }
 .lk-xlinks { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
 .lk-xlink { stroke:var(--pt-slate-line); stroke-width:1.6; stroke-dasharray:5 4; }
-.lk-xflow { stroke:var(--c, var(--pt-blue)); stroke-width:2.2; stroke-dasharray:7 5; animation:lk-xflow 1.1s linear infinite; }
+/* El trazo que fluye: el del explorador (`lk-xflow`) y el de una flecha con `flow` (#300) comparten sus tokens y su reloj. */
+.lk-xflow, .lk-flow { stroke-dasharray:7 5; animation:lk-xflow 1.1s linear infinite; }
+.lk-xflow { stroke:var(--c, var(--pt-blue)); stroke-width:2.2; }
+/* Mientras una flecha nueva se dibuja (#300), su guion es 1 sobre la longitud 1: gana a la clase de flujo. */
+path.lk-draw { stroke-dasharray:1; }
 @keyframes lk-xflow { to { stroke-dashoffset:-12; } }
 .lk-xtravel { position:absolute; z-index:2; max-width:calc(100% - 6px); padding:.15em .55em; border:1px solid var(--line, var(--pt-blue-line)); border-radius:.45em; background:var(--paper); color:var(--c, var(--pt-blue)); font-family:var(--mono, "DejaVu Sans Mono", Consolas, monospace); font-size:.9em; font-weight:700; line-height:1.3; text-align:center; }
 .lk-xdetails { display:flex; flex-direction:column; gap:.4em; padding:.8em .9em; border:1px solid var(--hair); border-radius:.6em; background:var(--pt-card); }
@@ -761,7 +799,7 @@ lk-story:fullscreen .lk-story-piece, lk-story:-webkit-full-screen .lk-story-piec
 .lk-xseqmsg { position:absolute; padding:0 .3em; background:var(--paper); color:var(--c, var(--pt-slate)); font-family:var(--mono, "DejaVu Sans Mono", Consolas, monospace); font-size:.9em; font-weight:700; white-space:nowrap; }
 .lk-xseqmsg[data-state="next"] { opacity:.45; }
 @media (prefers-reduced-motion: reduce) {
-  .lk-xflow { animation:none; stroke-dasharray:none; }
+  .lk-xflow, .lk-flow { animation:none; stroke-dasharray:none; }
   .lk-xactor { transition:none; }
 }
 /* Pantalla completa: el escenario se queda con la pantalla y sus letras crecen. */

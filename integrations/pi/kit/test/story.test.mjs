@@ -49,7 +49,7 @@ function page(spec) {
 
 async function open(url) {
   const browser = await PLAYWRIGHT.chromium.launch();
-  const view = await browser.newPage({ viewport: { width: 1000, height: 1000 } });
+  const view = await browser.newPage({ viewport: { width: 1000, height: 1000 }, reducedMotion: 'reduce' });
   const errors = [];
   view.on('pageerror', (error) => errors.push(String(error.message)));
   await view.goto(url);
@@ -783,7 +783,7 @@ test('la historia de la parte real de PL/SQL: etiqueta a la letra de la figura y
 </head><body><main style="max-width:700px;margin:0 auto">${block}</main></body></html>`);
   const browser = await PLAYWRIGHT.chromium.launch();
   try {
-    const view = await browser.newPage({ viewport: { width: 1000, height: 1000 } });
+    const view = await browser.newPage({ viewport: { width: 1000, height: 1000 }, reducedMotion: 'reduce' });
     const errors = [];
     view.on('pageerror', (error) => errors.push(String(error.message)));
     await view.goto('file://' + join(dir, 'p.html'));
@@ -859,7 +859,7 @@ test('la parte real de PL/SQL: la flecha va entera, con la punta en su actor y l
 </head><body><main style="max-width:700px;margin:0 auto">${block}</main></body></html>`);
   const browser = await PLAYWRIGHT.chromium.launch();
   try {
-    const view = await browser.newPage({ viewport: { width: 1000, height: 1000 } });
+    const view = await browser.newPage({ viewport: { width: 1000, height: 1000 }, reducedMotion: 'reduce' });
     const errors = [];
     view.on('pageerror', (error) => errors.push(String(error.message)));
     await view.goto('file://' + join(dir, 'p.html'));

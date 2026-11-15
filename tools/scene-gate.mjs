@@ -163,12 +163,15 @@ try {
 <link rel="stylesheet" href="./kit/kit.css"><script src="./kit/scene.js" defer></script><script src="./kit/kit.js" defer></script>
 </head><body><main style="max-width:720px;margin:0 auto">${body}</main></body></html>`);
 
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    // The gate measures settled frames: reduced motion swaps each step at once, so no piece is caught mid-slide.
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
     try {
       await page.goto(pathToFileURL(join(dir, 'page.html')).href);
       await page.waitForSelector('lk-scene svg, lk-story svg, .lk-p', { timeout: 15000 });
       await page.waitForTimeout(400);
       const report = await page.evaluate(({ minPx, minReadPx, share, stageMin, EDGE, BAND }) => [...document.querySelectorAll('lk-scene, lk-story')].map((host) => {
+        // El anillo de foco es un trazo del kit, no del autor: la medida se toma sin él.
+        host.querySelectorAll('[data-focus-ring]').forEach((ring) => ring.remove());
         // El lienzo de escena de un recorrido es el SVG que cuelga del escenario: las
         // piezas (tarjetas, memoria, tablas, conjuntos) llevan SVG propios y las mide
         // `measurePieces`.
