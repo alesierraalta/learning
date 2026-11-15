@@ -6,7 +6,7 @@ The systemd **user** service runs Node and Pi as `ale`, starts at boot without a
 
 ## First install (on the VPS)
 
-Run as `ale`, not root. Install Git, Go (the version required by `go.mod`), curl, Docker (with `ale` in the `docker` group), ZeroTier joined to the fleet network, the Infra Root CA service certificate at `/srv/certs/docker/infra.pem` + `infra-key.pem` (SAN `IP:10.154.59.151`; reissue with `/srv/certs/reissue-cert.sh`) and the official Node 24 at `~/.local/node` first (unpack the nodejs.org `linux-x64` tarball into `~/.local/node-<version>` and symlink `~/.local/node` to it): Ubuntu's `nodejs` package is built without TypeScript support and cannot run `studio/server.ts`.
+Run as `ale`, not root. The installer adds the `poppler-utils` package via apt if `pdftotext` is missing. Install Git, Go (the version required by `go.mod`), curl, Docker (with `ale` in the `docker` group), ZeroTier joined to the fleet network, the Infra Root CA service certificate at `/srv/certs/docker/infra.pem` + `infra-key.pem` (SAN `IP:10.154.59.151`; reissue with `/srv/certs/reissue-cert.sh`) and the official Node 24 at `~/.local/node` first (unpack the nodejs.org `linux-x64` tarball into `~/.local/node-<version>` and symlink `~/.local/node` to it): Ubuntu's `nodejs` package is built without TypeScript support and cannot run `studio/server.ts`.
 
 1. Clone the deploy branch:
    ```sh
@@ -103,6 +103,14 @@ bash ~/learning/deploy/vps/health.sh
 ```
 
 Update fast-forwards Git, rebuilds and verifies the engine, links the tutor's instructions and verifies the links, restarts the service, and checks health. A failed build stops before restart. Health requires an active service and HTTP 302 at loopback and HTTP 302 at the ZeroTier HTTPS entry verified against the Infra Root CA. It does not verify Pi authentication or vault sync. The same script runs automatically after every merge to `main`; see [Continuous integration and delivery](#continuous-integration-and-delivery).
+
+On an existing VPS, install `poppler-utils` once:
+
+```sh
+sudo apt-get install -y poppler-utils
+```
+
+Without it, PDF uploads fail with `No se pudo extraer el texto del PDF.`; image uploads still work.
 
 `update.sh` refuses to run when `~/learning` is on a branch other than `main` or has uncommitted changes, so a hand edit on the server is never pulled over or discarded.
 

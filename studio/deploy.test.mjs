@@ -319,6 +319,44 @@ function installAutodeploy(s) {
   });
 }
 
+function installPoppler({ present }) {
+  const dir = mkdtempSync(join(tmpdir(), "deploy-poppler-"));
+  roots.push(dir);
+  const bin = join(dir, "bin");
+  const calls = join(dir, "calls.log");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "sudo"), '#!/bin/sh\nprintf \'sudo %s\\n\' "$*" >> "$CALL_LOG"\nexec "$@"\n');
+  writeFileSync(join(bin, "apt-get"), '#!/bin/sh\nprintf \'apt-get %s\\n\' "$*" >> "$CALL_LOG"\n');
+  chmodSync(join(bin, "sudo"), 0o755);
+  chmodSync(join(bin, "apt-get"), 0o755);
+  if (present) {
+    writeFileSync(join(bin, "pdftotext"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(bin, "pdftotext"), 0o755);
+  }
+  const run = spawnSync("/bin/bash", [join(REPO, "deploy", "vps", "install-poppler-utils.sh")], {
+    encoding: "utf8",
+    env: { PATH: bin, CALL_LOG: calls },
+  });
+  return { ...run, calls };
+}
+
+test("the installer adds poppler-utils when pdftotext is missing", () => {
+  const run = installPoppler({ present: false });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(readFileSync(run.calls, "utf8").trim().split("\n"), [
+    "sudo apt-get update -qq",
+    "apt-get update -qq",
+    "sudo apt-get install -y -qq poppler-utils",
+    "apt-get install -y -qq poppler-utils",
+  ]);
+});
+
+test("the installer leaves poppler-utils alone when pdftotext is present", () => {
+  const run = installPoppler({ present: true });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(existsSync(run.calls), false, "apt-get and sudo are not called");
+});
+
 // The rollback target must be the commit the studio runs: the installer takes it from the autodeploy's record only when the checkout is at that commit.
 test("the installer records the live commit as the rollback target when the checkout is at the deployed commit", () => {
   const s = sandbox();

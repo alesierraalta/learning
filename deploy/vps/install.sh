@@ -60,6 +60,8 @@ run() {
   if "$dry_run"; then printf 'DRY-RUN:'; printf ' %q' "$@"; printf '\n'; else "$@"; fi
 }
 if ! "$dry_run" && (( missing )); then exit 1; fi
+# PDF uploads use pdftotext; install its package only when the utility is absent.
+run bash "$assets/install-poppler-utils.sh"
 run mkdir -p "$HOME/.config/systemd/user"
 if [[ ! -e "$env_file" ]]; then
   if "$dry_run"; then
