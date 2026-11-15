@@ -60,7 +60,10 @@ Callouts use `> [!type] Title`: `note`, `info`, `video` use cobalt;
 color. Add `-` for collapsed details or `+` for initially expanded details.
 
 Use normal Markdown tables with a header row for decisions and comparisons.
-Use fenced code blocks with a language (e.g. `sql`); no screenshots of code.
+Markdown notes use fenced code blocks with a language (e.g. `sql`); no screenshots of code.
+In a rich HTML page, write code as `<pre><code class="language-sql">…</code></pre>`;
+escape `<`, `>` and `&` in the code as `&lt;`, `&gt;` and `&amp;`. Never put
+Markdown fences in HTML pages: `explain-check` rejects them and cites their line.
 Keep tables and code short; wide content scrolls rather than shrinking text.
 Markers are highlighted in prose, not inside literal code blocks.
 

@@ -679,11 +679,14 @@ checks). What it measures, and how:
   `<lk-scene>`») and points at the scene vocabulary in
   `skills/explicacion-interactiva/references/visuales.md`.
 - **Prose rhythm.** `maxSentencesPerParagraph` sentences per paragraph at most.
-  The paragraphs are `tools/explain-check.mjs`'s: fenced code and the closed
-  `<lk-scene>`, `<lk-walkthrough>`, `<lk-quiz>` and `<lk-quick-quiz>` blocks are
-  removed, headings, table rows and tag lines are not paragraphs, each bullet
+  The paragraphs are `tools/explain-check.mjs`'s: Markdown fences in notes and
+  `<pre><code>` blocks in rich HTML pages, plus closed `<lk-scene>`,
+  `<lk-walkthrough>`, `<lk-quiz>` and `<lk-quick-quiz>` blocks, are removed;
+  headings, table rows and tag lines are not paragraphs, each bullet
   is its own unit (a list of short bullets is never a wall), and a sentence is
-  a `.`, `!` or `?` followed by a space or the end of the paragraph. The
+  a `.`, `!` or `?` followed by a space or the end of the paragraph. `explain-check`
+  also excludes rich-page `<pre><code>` contents from sentence, word-budget and
+  register checks; inline `<code>` remains part of its sentence. The
   refusal reports the count and quotes the first offending paragraph, so the
   tutor knows which one to split. The engine and the tool must agree — a test
   cross-checks both counts, like the prose budget.
@@ -781,8 +784,11 @@ checks). What it measures, and how:
   `authoringOnly`), and a test cross-checks the verdicts on the shapes and on the kit's examples.
 - **Serving.** explain-check's JSON reports `serves`: true when every rule that is not authoring-only
   passes. The bridge (`integrations/pi/bridge.ts`) serves a page the tutor wrote on `serves`, so a part
-  that lacks an authoring cue is still served. The turn-end checks and the engine still refuse a part
-  that is written now (`ok` and the exit code, which count every rule).
+  that lacks an authoring cue is still served. A rich HTML page with a Markdown fence fails the
+  serving rule `codigo-pagina`, which cites the line and makes `serves` false; use
+  `<pre><code class="language-…">` for code. The turn-end checks
+  and the engine still refuse a part that is written now (`ok` and the exit code, which count every
+  rule).
 - **Story language.** `storyLanguage` turns on the story-language rule: a part
   draws its step-by-step visual with `<lk-story>` (the deck of actors with
   state, moves and marks) or with a piece (`<lk-cards>`, `<lk-memory>`,

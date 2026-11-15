@@ -2,6 +2,8 @@
 // historias, las escenas, las tarjetas, las fórmulas y los párrafos se derivan aquí,
 // y cada regla recibe la nota ya leída (#269). Lo que mide una sola regla vive en su
 // archivo de `rules/`.
+import { notaDeHtml } from '../register/nota-html.mjs';
+import { lineasConFencesMarkdown, sinCodigo as sinCodigoDeBloques } from '../lib/explain-check-code.mjs';
 
 // Las piezas visuales (tarjetas, memoria, tablas, conjuntos, el explorador de un
 // escenario y el árbol) son figuras como la escena: ocupan su lugar en la parte.
@@ -20,9 +22,11 @@ export const fichas = (t) => normaTexto(t).split(/[^a-z0-9]+/).filter(Boolean);
 export const declara = (value) => Array.isArray(value) ? value.length > 0 : Boolean(value);
 
 /** Lee la nota una vez. `src` ya es la nota: una página HTML llega traducida. */
-export function leerNota(src, esPagina) {
-  // Sin código: un bloque cercado es un ejemplo de marcado, no un dibujo ni prosa.
-  const sinCodigo = src.replace(/```[\s\S]*?```/g, ' ');
+export function leerNota(src, esPagina, fuenteHtml = src) {
+  const sinCodigo = esPagina
+    ? notaDeHtml(sinCodigoDeBloques(fuenteHtml, true))
+    : sinCodigoDeBloques(src);
+  const lineasFencesMarkdown = esPagina ? lineasConFencesMarkdown(fuenteHtml) : [];
 
   // Escenas y recorridos (reglas 4 y 5): se cuentan en el texto entero.
   const piezas = (src.match(new RegExp(`<lk-(?:${PIEZAS})[\\s>]`, 'g')) || []).length;
@@ -80,8 +84,7 @@ export function leerNota(src, esPagina) {
   }
 
   // El ritmo: los párrafos de prosa y sus frases. Las reglas `frases` y `parrafos` leen estas.
-  const lineasProsa = src
-    .replace(/```[\s\S]*?```/g, '\n\n')
+  const lineasProsa = sinCodigo
     .replace(new RegExp(`<lk-(scene|walkthrough|story|${PIEZAS}|quiz|quick-quiz)[\\s\\S]*?<\\/lk-\\1>`, 'g'), '\n\n')
     .split('\n')
     // Títulos, tablas y etiquetas no son prosa; las citas y las viñetas sí: una ficha
@@ -120,5 +123,5 @@ export function leerNota(src, esPagina) {
     bloquesDeRecorrido.push({ tag: m[1], spec, pasos, linea: `${m[1]} ${bloquesDeRecorrido.length + 1} (${pasos.length} pasos)` });
   }
 
-  return { src, esPagina, sinCodigo, escenas, recorridos, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
+  return { src, esPagina, sinCodigo, lineasFencesMarkdown, escenas, recorridos, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
 }

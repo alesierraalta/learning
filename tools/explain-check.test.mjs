@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { leerNota } from './explain-check/nota.mjs';
+import { notaDeHtml } from './register/nota-html.mjs';
 
 const TOOLS = dirname(fileURLToPath(import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'explain-check-'));
@@ -956,10 +958,11 @@ test('la skill y AGENTS.md dicen que la nota es lo que se lee, sin .html aparte:
 // Los hallazgos del banco #264 se miden con la misma puerta, en la nota y en la página (#265). Los cinco
 // términos de la parte TCP seguidos son un glosario en bloque, y su mini-quiz numerado no es el lk-quiz.
 const BENCH265 = join(TOOLS, 'register', 'fixtures', 'bench265');
-const rowsOf = (file) => {
+const reportOf = (file) => {
   const r = spawnSync(process.execPath, [join(TOOLS, 'explain-check.mjs'), file, '--json'], { encoding: 'utf8' });
-  return Object.fromEntries(JSON.parse(r.stdout).rows.map((row) => [row.rule, row]));
+  return JSON.parse(r.stdout);
 };
+const rowsOf = (file) => Object.fromEntries(reportOf(file).rows.map((row) => [row.rule, row]));
 
 test('el glosario en bloque: cinco «Término: Es …» seguidos se refusan, y se cita el primero', () => {
   const rows = rowsOf(join(BENCH265, 'notas', 'tcp-handshake.md'));
@@ -988,6 +991,45 @@ test('la parte limpia pasa todas las reglas, con las definiciones repartidas y e
   const rows = rowsOf(join(BENCH265, 'clean', 'tcp-handshake.md'));
   assert.equal(rows['glosario-en-bloque']?.ok, true, `the clean note: ${rows['glosario-en-bloque']?.detail}`);
   assert.equal(rows['mini-quiz']?.ok, true);
+});
+
+test('una página HTML con un fence falla con la línea exacta y no se sirve', () => {
+  const file = join(dir, 'pagina-con-fence.html');
+  writeFileSync(file, '<html>\n<body>\n<p>Una explicación.</p>\n```sql\nSELECT saldo FROM cuentas;\n```\n</body>\n</html>\n');
+  const report = reportOf(file);
+  const row = report.rows.find((r) => r.rule === 'codigo-pagina');
+  assert.deepEqual(row, {
+    rule: 'codigo-pagina',
+    ok: false,
+    detail: 'línea 4, línea 6: usa <pre><code class="language-…"> en lugar de un fence Markdown',
+    authoringOnly: false,
+  });
+  assert.equal(report.serves, false);
+});
+
+test('los bloques HTML pre/code se excluyen de prosa y registro, pero el code inline sigue en su frase', () => {
+  const file = join(BENCH265, 'clean', 'tcp-handshake.html');
+  const html = readFileSync(file, 'utf8').replace(
+    '<h2>Mini-quiz</h2>',
+    `<pre><code class="language-sql">SELECT id, saldo, estado, fecha_actualizacion FROM cuentas WHERE id = 20 AND estado = 'activa' AND tipo_cuenta = 'corriente' AND moneda = 'EUR' AND saldo > 0;</code></pre>\n<pre><code class="language-sql">SELECT cuenta, saldo, estado, titular, moneda FROM cuentas WHERE id = 20 AND estado = 'activa' AND tipo_cuenta = 'corriente' AND saldo >= 0;</code></pre>\n<h2>Mini-quiz</h2>`,
+  );
+  const page = join(dir, 'pagina-con-pre-code.html');
+  writeFileSync(page, html);
+  const rows = rowsOf(page);
+  for (const rule of ['codigo-pagina', 'frases', 'parrafos', 'tamaño', 'frases-largas', 'termino-sin-explicar', 'sin-negritas', 'sin-escena-antes', 'sin-contraste', 'cuentas-sin-pasos', 'glosario-en-bloque']) {
+    assert.equal(rows[rule]?.ok, true, `${rule}: ${rows[rule]?.detail}`);
+  }
+
+  const inlineHtml = '<p>El término <code>saldo</code> sigue en esta frase.</p>';
+  const inline = leerNota(notaDeHtml(inlineHtml), true, inlineHtml);
+  assert.deepEqual(inline.frases, ['El término `saldo` sigue en esta frase.']);
+});
+
+test('leerNota conserva intactos los fences Markdown de una nota', () => {
+  const source = 'Una frase.\n\n```sql\nSELECT saldo FROM cuentas;\n```\n';
+  const note = leerNota(source, false);
+  assert.equal(note.src, source);
+  assert.doesNotMatch(note.sinCodigo, /SELECT saldo/);
 });
 
 // El árbol de frecuencias (#261) es una figura, como la escena y las demás piezas: una parte

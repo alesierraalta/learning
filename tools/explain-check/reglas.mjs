@@ -2,6 +2,7 @@
 // vive en su archivo de `rules/`, con su `id` y su `check(nota, ctx)`. Añadir una regla es su
 // archivo y una línea aquí, en el lugar que le toca: el orden es el del informe.
 import ruta from './rules/ruta.mjs';
+import codigoPagina from './rules/codigo-pagina.mjs';
 import sinResumen from './rules/sin-resumen.mjs';
 import faltaResumen from './rules/falta-resumen.mjs';
 import secciones from './rules/secciones.mjs';
@@ -32,6 +33,7 @@ import registro from './rules/registro.mjs';
 import figuras from './rules/figuras.mjs';
 
 export const REGLAS = [
+  codigoPagina,
   ruta,
   sinResumen,
   faltaResumen,
