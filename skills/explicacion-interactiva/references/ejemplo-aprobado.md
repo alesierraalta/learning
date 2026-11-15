@@ -1809,13 +1809,14 @@ La tercera está dos pasos en el futuro:
 
 Por tanto:
 
-\[
-G=10-0.9+8.1
-\]
-
-\[
-G=17.2
-\]
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"G = 17.2","text":"Las tres recompensas, cada una con su peso.","metrics":[["Recompensas","10, −1, 10"],["γ","0.9"],["G","17.2"]]},"kind":"derivation","title":"El retorno con descuento: 10, −1, 10","viewBox":"0 0 360 230","steps":[
+ {"title":"Cada recompensa con su peso","facts":[["G","el retorno: lo que suman las recompensas con descuento"],["0.9","el descuento por cada paso"]],"equation":{"size":22,"atoms":[{"t":"G","id":"g"},{"t":" = ","id":"eq"},{"t":"10","id":"r0"},{"t":" − ","id":"m1"},{"t":"0.9","id":"r1"},{"t":" + ","id":"p2"},{"t":"8.1","id":"r2"}]},"focus":["r2"],"narrator":"La primera vale «10». La segunda se multiplica por *0.9*: «−0.9». La tercera está dos pasos en el futuro: «8.1».","stage":{"scene":{"actors":[{"id":"r0","x":50,"y":120,"w":70,"h":50,"label":"10","tone":"blue","tag":"primera"},{"id":"r1","x":150,"y":120,"w":70,"h":50,"label":"−0.9","tone":"amber","tag":"segunda"},{"id":"r2","x":250,"y":120,"w":84,"h":50,"label":"8.1","tone":"green","tag":"tercera"}]}}},
+ {"title":"La suma","equation":{"size":22,"atoms":[{"t":"G","id":"g"},{"t":" = ","id":"eq"},{"t":"17.2","id":"res"}]},"focus":["res"],"narrator":"«10 − 0.9 + 8.1 = 17.2»: ese es el retorno.","stage":{"scene":{"actors":[{"id":"r0","x":50,"y":120,"w":70,"h":50,"label":"10","tone":"slate","state":"faded","tag":"primera"},{"id":"r1","x":150,"y":120,"w":70,"h":50,"label":"−0.9","tone":"slate","state":"faded","tag":"segunda"},{"id":"r2","x":250,"y":120,"w":84,"h":50,"label":"8.1","tone":"slate","state":"faded","tag":"tercera"},{"id":"res","x":150,"y":40,"w":90,"h":50,"label":"17.2","tone":"green","tag":"retorno"}],"marks":[{"kind":"combine","actors":["r0","r1","r2"],"to":"res","label":"10 − 0.9 + 8.1"},{"kind":"ok","actor":"res"}]}}}
+]}
+</script>
+</lk-story>
 
 Observa lo ocurrido:
 
@@ -2147,17 +2148,15 @@ y:
 
 entonces:
 
-\[
-G=\frac{2}{1-0.9}
-\]
-
-\[
-G=\frac{2}{0.1}
-\]
-
-\[
-\boxed{G=20}
-\]
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"G = 20","text":"Con la misma recompensa en cada paso, la suma con descuento es finita.","metrics":[["Recompensa","2"],["γ","0.9"],["G","20"]]},"kind":"derivation","title":"Recompensas iguales: G = 2 / (1 − γ)","viewBox":"0 0 360 230","steps":[
+ {"title":"Sustituimos γ","facts":[["G","el retorno"],["2","la recompensa de cada paso"],["0.9","el descuento, γ"]],"equation":{"size":22,"atoms":[{"t":"G","id":"g"},{"t":" = ","id":"eq"},{"t":"2","id":"c"},{"t":" / ","id":"div"},{"t":"(1 − 0.9)","id":"den"}]},"focus":["den"],"narrator":"Con «γ = 0.9», el denominador es «1 − 0.9».","stage":{"scene":{"actors":[{"id":"c","x":60,"y":120,"w":60,"h":50,"label":"2","tone":"blue","tag":"recompensa"},{"id":"den","x":200,"y":120,"w":110,"h":50,"label":"1 − 0.9","tone":"amber","tag":"cuánto queda"}]}}},
+ {"title":"El denominador","equation":{"size":22,"atoms":[{"t":"G","id":"g"},{"t":" = ","id":"eq"},{"t":"2","id":"c"},{"t":" / ","id":"div"},{"t":"0.1","id":"den"}]},"focus":["den"],"ring":"den","narrator":"«1 − 0.9 = 0.1»: queda un décimo.","stage":{"scene":{"actors":[{"id":"c","x":60,"y":120,"w":60,"h":50,"label":"2","tone":"slate","state":"faded","tag":"recompensa"},{"id":"den","x":200,"y":120,"w":90,"h":50,"label":"0.1","tone":"amber","tag":"denominador"}]}}},
+ {"title":"El resultado","equation":{"size":22,"atoms":[{"t":"G","id":"g"},{"t":" = ","id":"eq"},{"t":"20","id":"res"}]},"focus":["res"],"narrator":"«2 / 0.1 = 20»: la suma con descuento vale 20.","stage":{"scene":{"actors":[{"id":"c","x":60,"y":120,"w":60,"h":50,"label":"2","tone":"slate","state":"faded","tag":"recompensa"},{"id":"den","x":150,"y":120,"w":90,"h":50,"label":"0.1","tone":"slate","state":"faded","tag":"denominador"},{"id":"res","x":270,"y":120,"w":70,"h":50,"label":"20","tone":"green","tag":"G"}],"marks":[{"kind":"combine","actors":["c","den"],"to":"res","label":"2 / 0.1"},{"kind":"ok","actor":"res"}]}}}
+]}
+</script>
+</lk-story>
 
 Tiene sentido:
 
@@ -2978,33 +2977,39 @@ Veamos por qué eso produce exactamente `K` bits/peso.
 
 ### K2
 
-```text
-16 × 2 = 32 palabras uint16
-
-32 × 16 bits = 512 bits
-
-512 bits / 256 pesos = 2 bits/peso
-```
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"K2: 2 bits por peso","text":"512 bits repartidos entre 256 pesos: 2 bits por peso.","metrics":[["Palabras del tile","32"],["Bits del tile","512"],["Bits por peso","2"]]},"kind":"derivation","title":"K2: cuántos bits por peso","viewBox":"0 0 360 220","steps":[
+ {"title":"Las palabras del tile","ring":"words","facts":[["16","constante del tile"],["K","el bitrate: bits por peso"],["32","palabras uint16 del tile"]],"equation":{"size":22,"atoms":[{"t":"16","id":"tile"},{"t":" × ","id":"times"},{"t":"2","id":"k"},{"t":" = ","id":"eq"},{"t":"32","id":"words"},{"t":" palabras","id":"unit"}]},"focus":["words"],"narrator":"El código define «16 × K» palabras *uint16* por cada tile de 256 pesos. Con «K = 2», son «32».","stage":{"scene":{"actors":[{"id":"tile","x":60,"y":120,"w":70,"h":50,"label":"16","tone":"slate","tag":"constante"},{"id":"k","x":160,"y":120,"w":70,"h":50,"label":"2","tone":"blue","tag":"K"},{"id":"words","x":260,"y":120,"w":84,"h":50,"label":"32","tone":"green","tag":"palabras"}],"moves":[{"from":"k","to":"words","verb":"multiplica","tone":"amber"}],"marks":[{"kind":"combine","actors":["tile","k"],"to":"words","label":"16 × 2 = 32"}]}}},
+ {"title":"Los bits del tile","equation":{"size":22,"atoms":[{"t":"32","id":"words"},{"t":" × ","id":"times"},{"t":"16","id":"width"},{"t":" bits = ","id":"eq"},{"t":"512","id":"bits"},{"t":" bits","id":"bitsunit"}]},"focus":["bits"],"narrator":"Cada palabra tiene «16 bits». Son «32» palabras: *512 bits* por tile.","stage":{"scene":{"actors":[{"id":"words","x":60,"y":120,"w":84,"h":50,"label":"32","tone":"slate","state":"faded","tag":"palabras"},{"id":"width","x":160,"y":120,"w":70,"h":50,"label":"16","tone":"blue","tag":"bits"},{"id":"bits","x":260,"y":120,"w":94,"h":50,"label":"512","tone":"green","tag":"bits del tile"}],"moves":[{"from":"width","to":"bits","verb":"se multiplica","tone":"amber"}],"marks":[{"kind":"combine","actors":["words","width"],"to":"bits","label":"32 × 16 = 512"}]}}},
+ {"title":"Bits por peso","equation":{"size":22,"atoms":[{"t":"512","id":"bits"},{"t":" / ","id":"div"},{"t":"256","id":"pesos"},{"t":" = ","id":"eq"},{"t":"2","id":"result"},{"t":" bits/peso","id":"unit"}]},"focus":["result"],"narrator":"Los «512 bits» se reparten entre los «256 pesos» del tile: *2 bits por peso*.","stage":{"scene":{"actors":[{"id":"bits","x":60,"y":120,"w":94,"h":50,"label":"512","tone":"slate","state":"faded","tag":"bits del tile"},{"id":"pesos","x":180,"y":120,"w":84,"h":50,"label":"256","tone":"blue","tag":"pesos"},{"id":"result","x":280,"y":120,"w":70,"h":50,"label":"2","tone":"green","tag":"bits/peso"}],"moves":[{"from":"bits","to":"result","verb":"se reparten","tone":"amber"}],"marks":[{"kind":"combine","actors":["bits","pesos"],"to":"result","label":"512 / 256 = 2"},{"kind":"ok","actor":"result"}]}}}
+]}
+</script>
+</lk-story>
 
 ### K3
 
-```text
-16 × 3 = 48 palabras uint16
-
-48 × 16 = 768 bits
-
-768 / 256 = 3 bits/peso
-```
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"K3: 3 bits por peso","text":"768 bits repartidos entre 256 pesos: 3 bits por peso.","metrics":[["Palabras del tile","48"],["Bits del tile","768"],["Bits por peso","3"]]},"kind":"derivation","title":"K3: cuántos bits por peso","viewBox":"0 0 360 220","steps":[
+ {"title":"Las palabras del tile","ring":"words","facts":[["16","constante del tile"],["K","el bitrate: bits por peso"],["48","palabras uint16 del tile"]],"equation":{"size":22,"atoms":[{"t":"16","id":"tile"},{"t":" × ","id":"times"},{"t":"3","id":"k"},{"t":" = ","id":"eq"},{"t":"48","id":"words"},{"t":" palabras","id":"unit"}]},"focus":["words"],"narrator":"El código define «16 × K» palabras *uint16* por cada tile de 256 pesos. Con «K = 3», son «48».","stage":{"scene":{"actors":[{"id":"tile","x":60,"y":120,"w":70,"h":50,"label":"16","tone":"slate","tag":"constante"},{"id":"k","x":160,"y":120,"w":70,"h":50,"label":"3","tone":"blue","tag":"K"},{"id":"words","x":260,"y":120,"w":84,"h":50,"label":"48","tone":"green","tag":"palabras"}],"moves":[{"from":"k","to":"words","verb":"multiplica","tone":"amber"}],"marks":[{"kind":"combine","actors":["tile","k"],"to":"words","label":"16 × 3 = 48"}]}}},
+ {"title":"Los bits del tile","equation":{"size":22,"atoms":[{"t":"48","id":"words"},{"t":" × ","id":"times"},{"t":"16","id":"width"},{"t":" bits = ","id":"eq"},{"t":"768","id":"bits"},{"t":" bits","id":"bitsunit"}]},"focus":["bits"],"narrator":"Cada palabra tiene «16 bits». Son «48» palabras: *768 bits* por tile.","stage":{"scene":{"actors":[{"id":"words","x":60,"y":120,"w":84,"h":50,"label":"48","tone":"slate","state":"faded","tag":"palabras"},{"id":"width","x":160,"y":120,"w":70,"h":50,"label":"16","tone":"blue","tag":"bits"},{"id":"bits","x":260,"y":120,"w":94,"h":50,"label":"768","tone":"green","tag":"bits del tile"}],"moves":[{"from":"width","to":"bits","verb":"se multiplica","tone":"amber"}],"marks":[{"kind":"combine","actors":["words","width"],"to":"bits","label":"48 × 16 = 768"}]}}},
+ {"title":"Bits por peso","equation":{"size":22,"atoms":[{"t":"768","id":"bits"},{"t":" / ","id":"div"},{"t":"256","id":"pesos"},{"t":" = ","id":"eq"},{"t":"3","id":"result"},{"t":" bits/peso","id":"unit"}]},"focus":["result"],"narrator":"Los «768 bits» se reparten entre los «256 pesos» del tile: *3 bits por peso*.","stage":{"scene":{"actors":[{"id":"bits","x":60,"y":120,"w":94,"h":50,"label":"768","tone":"slate","state":"faded","tag":"bits del tile"},{"id":"pesos","x":180,"y":120,"w":84,"h":50,"label":"256","tone":"blue","tag":"pesos"},{"id":"result","x":280,"y":120,"w":70,"h":50,"label":"3","tone":"green","tag":"bits/peso"}],"moves":[{"from":"bits","to":"result","verb":"se reparten","tone":"amber"}],"marks":[{"kind":"combine","actors":["bits","pesos"],"to":"result","label":"768 / 256 = 3"},{"kind":"ok","actor":"result"}]}}}
+]}
+</script>
+</lk-story>
 
 ### K5
 
-```text
-16 × 5 = 80 palabras uint16
-
-80 × 16 = 1280 bits
-
-1280 / 256 = 5 bits/peso
-```
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"K5: 5 bits por peso","text":"1280 bits repartidos entre 256 pesos: 5 bits por peso.","metrics":[["Palabras del tile","80"],["Bits del tile","1280"],["Bits por peso","5"]]},"kind":"derivation","title":"K5: cuántos bits por peso","viewBox":"0 0 360 220","steps":[
+ {"title":"Las palabras del tile","ring":"words","facts":[["16","constante del tile"],["K","el bitrate: bits por peso"],["80","palabras uint16 del tile"]],"equation":{"size":22,"atoms":[{"t":"16","id":"tile"},{"t":" × ","id":"times"},{"t":"5","id":"k"},{"t":" = ","id":"eq"},{"t":"80","id":"words"},{"t":" palabras","id":"unit"}]},"focus":["words"],"narrator":"El código define «16 × K» palabras *uint16* por cada tile de 256 pesos. Con «K = 5», son «80».","stage":{"scene":{"actors":[{"id":"tile","x":60,"y":120,"w":70,"h":50,"label":"16","tone":"slate","tag":"constante"},{"id":"k","x":160,"y":120,"w":70,"h":50,"label":"5","tone":"blue","tag":"K"},{"id":"words","x":260,"y":120,"w":84,"h":50,"label":"80","tone":"green","tag":"palabras"}],"moves":[{"from":"k","to":"words","verb":"multiplica","tone":"amber"}],"marks":[{"kind":"combine","actors":["tile","k"],"to":"words","label":"16 × 5 = 80"}]}}},
+ {"title":"Los bits del tile","equation":{"size":22,"atoms":[{"t":"80","id":"words"},{"t":" × ","id":"times"},{"t":"16","id":"width"},{"t":" bits = ","id":"eq"},{"t":"1280","id":"bits"},{"t":" bits","id":"bitsunit"}]},"focus":["bits"],"narrator":"Cada palabra tiene «16 bits». Son «80» palabras: *1280 bits* por tile.","stage":{"scene":{"actors":[{"id":"words","x":60,"y":120,"w":84,"h":50,"label":"80","tone":"slate","state":"faded","tag":"palabras"},{"id":"width","x":160,"y":120,"w":70,"h":50,"label":"16","tone":"blue","tag":"bits"},{"id":"bits","x":260,"y":120,"w":94,"h":50,"label":"1280","tone":"green","tag":"bits del tile"}],"moves":[{"from":"width","to":"bits","verb":"se multiplica","tone":"amber"}],"marks":[{"kind":"combine","actors":["words","width"],"to":"bits","label":"80 × 16 = 1280"}]}}},
+ {"title":"Bits por peso","equation":{"size":22,"atoms":[{"t":"1280","id":"bits"},{"t":" / ","id":"div"},{"t":"256","id":"pesos"},{"t":" = ","id":"eq"},{"t":"5","id":"result"},{"t":" bits/peso","id":"unit"}]},"focus":["result"],"narrator":"Los «1280 bits» se reparten entre los «256 pesos» del tile: *5 bits por peso*.","stage":{"scene":{"actors":[{"id":"bits","x":60,"y":120,"w":94,"h":50,"label":"1280","tone":"slate","state":"faded","tag":"bits del tile"},{"id":"pesos","x":180,"y":120,"w":84,"h":50,"label":"256","tone":"blue","tag":"pesos"},{"id":"result","x":280,"y":120,"w":70,"h":50,"label":"5","tone":"green","tag":"bits/peso"}],"moves":[{"from":"bits","to":"result","verb":"se reparten","tone":"amber"}],"marks":[{"kind":"combine","actors":["bits","pesos"],"to":"result","label":"1280 / 256 = 5"},{"kind":"ok","actor":"result"}]}}}
+]}
+</script>
+</lk-story>
 
 Por tanto:
 
@@ -3197,18 +3202,16 @@ Ahora usamos simplemente una media ponderada.
 
 Cada grupo aporta:
 
-```text
-K2:
-7.279 × 2 = 14.558
-
-K3:
-6.299 × 3 = 18.897
-
-K5:
-1.782 × 5 =  8.910
-                  ──────
-                 42.365
-```
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"2,758 bits por peso","text":"Cada grupo aporta sus bits; sumados y divididos entre los expertos, dan la media.","metrics":[["Bits totales","42.365"],["Expertos","15.360"],["Media","2,758"]]},"kind":"derivation","title":"La media ponderada del payload","viewBox":"0 0 360 220","steps":[
+ {"title":"El grupo K2","ring":"out","facts":[["7.279","pesos del grupo K2"],["2","bits por peso de K2"],["14.558","bits que aporta K2"]],"equation":{"size":22,"atoms":[{"t":"7.279","id":"pesos"},{"t":" × ","id":"times"},{"t":"2","id":"bits"},{"t":" = ","id":"eq"},{"t":"14.558","id":"out"}]},"focus":["out"],"narrator":"El grupo K2 tiene «7.279» pesos a «2» bits: *14.558* bits.","stage":{"scene":{"actors":[{"id":"pesos","x":60,"y":120,"w":84,"h":50,"label":"7.279","tone":"blue","tag":"pesos K2"},{"id":"bits","x":160,"y":120,"w":70,"h":50,"label":"2","tone":"slate","tag":"bits"},{"id":"out","x":260,"y":120,"w":94,"h":50,"label":"14.558","tone":"green","tag":"bits del grupo"}],"moves":[{"from":"pesos","to":"out","verb":"× 2","tone":"amber"}],"marks":[{"kind":"combine","actors":["pesos","bits"],"to":"out","label":"7.279 × 2 = 14.558"}]}}},
+ {"title":"El grupo K3","equation":{"size":22,"atoms":[{"t":"6.299","id":"pesos"},{"t":" × ","id":"times"},{"t":"3","id":"bits"},{"t":" = ","id":"eq"},{"t":"18.897","id":"out"}]},"focus":["out"],"narrator":"El grupo K3 tiene «6.299» pesos a «3» bits: *18.897* bits.","stage":{"scene":{"actors":[{"id":"pesos","x":60,"y":120,"w":84,"h":50,"label":"6.299","tone":"blue","tag":"pesos K3"},{"id":"bits","x":160,"y":120,"w":70,"h":50,"label":"3","tone":"slate","tag":"bits"},{"id":"out","x":260,"y":120,"w":94,"h":50,"label":"18.897","tone":"green","tag":"bits del grupo"}],"moves":[{"from":"pesos","to":"out","verb":"× 3","tone":"amber"}],"marks":[{"kind":"combine","actors":["pesos","bits"],"to":"out","label":"6.299 × 3 = 18.897"}]}}},
+ {"title":"El grupo K5","equation":{"size":22,"atoms":[{"t":"1.782","id":"pesos"},{"t":" × ","id":"times"},{"t":"5","id":"bits"},{"t":" = ","id":"eq"},{"t":"8.910","id":"out"}]},"focus":["out"],"narrator":"El grupo K5 tiene «1.782» pesos a «5» bits: *8.910* bits.","stage":{"scene":{"actors":[{"id":"pesos","x":60,"y":120,"w":84,"h":50,"label":"1.782","tone":"blue","tag":"pesos K5"},{"id":"bits","x":160,"y":120,"w":70,"h":50,"label":"5","tone":"slate","tag":"bits"},{"id":"out","x":260,"y":120,"w":94,"h":50,"label":"8.910","tone":"green","tag":"bits del grupo"}],"moves":[{"from":"pesos","to":"out","verb":"× 5","tone":"amber"}],"marks":[{"kind":"combine","actors":["pesos","bits"],"to":"out","label":"1.782 × 5 = 8.910"}]}}},
+ {"title":"La suma","equation":{"size":22,"atoms":[{"t":"14.558","id":"a"},{"t":" + ","id":"plus1"},{"t":"18.897","id":"b"},{"t":" + ","id":"plus2"},{"t":"8.910","id":"c"},{"t":" = ","id":"eq"},{"t":"42.365","id":"total"}]},"focus":["total"],"narrator":"Sumamos los bits de los tres grupos: *42.365* bits en total.","stage":{"scene":{"actors":[{"id":"a","x":40,"y":120,"w":80,"h":50,"label":"14.558","tone":"slate","tag":"K2"},{"id":"b","x":140,"y":120,"w":80,"h":50,"label":"18.897","tone":"slate","tag":"K3"},{"id":"c","x":240,"y":120,"w":80,"h":50,"label":"8.910","tone":"slate","tag":"K5"},{"id":"total","x":300,"y":40,"w":90,"h":50,"label":"42.365","tone":"green","tag":"total"}],"moves":[{"from":"a","to":"total","verb":"se suman","tone":"amber"}],"marks":[{"kind":"combine","actors":["a","b","c"],"to":"total","label":"14.558 + 18.897 + 8.910"},{"kind":"ok","actor":"total"}]}}}
+]}
+</script>
+</lk-story>
 
 Dividimos por los 15.360 expertos:
 
@@ -4103,6 +4106,7 @@ Ejemplo:
 
 ```text
 Cocina       V = 8
+```
 Pasillo <lk-scene>
 <script type="application/json">
 {
@@ -4832,13 +4836,14 @@ y recompensas:
 
 tendríamos:
 
-\[
-G=0+0.9(1)+0.9^2(10)
-\]
-
-\[
-G=9
-\]
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"G = 9","text":"Con γ = 0.9, la recompensa de dos pasos pesa 0.81.","metrics":[["Recompensas","0, 1, 10"],["γ","0.9"],["G","9"]]},"kind":"derivation","title":"Las recompensas, con descuento","viewBox":"0 0 360 230","steps":[
+ {"title":"Cada recompensa con su peso","facts":[["G","el retorno: lo que suman las recompensas"],["γ","el descuento: 0.9"]],"equation":{"size":22,"atoms":[{"t":"G","id":"g"},{"t":" = ","id":"eq"},{"t":"0","id":"r0"},{"t":" + ","id":"p1"},{"t":"0.9(1)","id":"r1"},{"t":" + ","id":"p2"},{"t":"0.9^2(10)","id":"r2"}]},"focus":["r2"],"narrator":"La primera vale «0». La segunda se multiplica una vez por *0.9*. La tercera, dos veces: «0.9²».","stage":{"scene":{"actors":[{"id":"r0","x":40,"y":120,"w":60,"h":50,"label":"0","tone":"slate","tag":"primera"},{"id":"r1","x":130,"y":120,"w":90,"h":50,"label":"0.9 · 1","tone":"amber","tag":"segunda"},{"id":"r2","x":250,"y":120,"w":100,"h":50,"label":"0.81 · 10","tone":"green","tag":"tercera"}]}}},
+ {"title":"El resultado","equation":{"size":22,"atoms":[{"t":"G","id":"g"},{"t":" = ","id":"eq"},{"t":"9","id":"res"}]},"focus":["res"],"narrator":"«0 + 0.9 + 8.1 = 9»: ese es el retorno.","stage":{"scene":{"actors":[{"id":"r0","x":40,"y":120,"w":60,"h":50,"label":"0","tone":"slate","state":"faded","tag":"primera"},{"id":"r1","x":130,"y":120,"w":90,"h":50,"label":"0.9","tone":"slate","state":"faded","tag":"segunda"},{"id":"r2","x":250,"y":120,"w":100,"h":50,"label":"8.1","tone":"slate","state":"faded","tag":"tercera"},{"id":"res","x":150,"y":40,"w":90,"h":50,"label":"9","tone":"green","tag":"retorno"}],"marks":[{"kind":"combine","actors":["r0","r1","r2"],"to":"res","label":"0 + 0.9 + 8.1"},{"kind":"ok","actor":"res"}]}}}
+]}
+</script>
+</lk-story>
 
 aproximadamente.
 
@@ -4863,15 +4868,14 @@ Los resultados observados fueron:
 
 Monte Carlo podría estimar:
 
-\[
-V(Pasillo)
-=
-\frac{10+4+7+11}{4}
-\]
-
-\[
-V(Pasillo)=8
-\]
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"V(Pasillo) = 8","text":"La media de los cuatro retornos del pasillo.","metrics":[["Retornos","10, 4, 7, 11"],["Episodios","4"],["V(Pasillo)","8"]]},"kind":"derivation","title":"Monte Carlo: el promedio de los retornos","viewBox":"0 0 360 230","steps":[
+ {"title":"La suma de los retornos","facts":[["V(Pasillo)","el valor estimado del pasillo"],["4","el número de episodios"]],"equation":{"size":22,"atoms":[{"t":"V(Pasillo)","id":"v"},{"t":" = ","id":"eq"},{"t":"(10 + 4 + 7 + 11)","id":"suma"},{"t":" / ","id":"div"},{"t":"4","id":"n"}]},"focus":["suma"],"narrator":"Sumamos los cuatro retornos: «10 + 4 + 7 + 11». Después, los dividimos entre los *cuatro episodios*.","stage":{"scene":{"actors":[{"id":"suma","x":60,"y":120,"w":150,"h":50,"label":"10 + 4 + 7 + 11","tone":"amber","tag":"retornos"},{"id":"n","x":250,"y":120,"w":60,"h":50,"label":"4","tone":"blue","tag":"episodios"}]}}},
+ {"title":"El promedio","equation":{"size":22,"atoms":[{"t":"V(Pasillo)","id":"v"},{"t":" = ","id":"eq"},{"t":"8","id":"res"}]},"focus":["res"],"narrator":"«32 / 4 = 8»: el valor estimado es 8.","stage":{"scene":{"actors":[{"id":"suma","x":60,"y":120,"w":150,"h":50,"label":"32","tone":"slate","state":"faded","tag":"retornos"},{"id":"n","x":250,"y":120,"w":60,"h":50,"label":"4","tone":"slate","state":"faded","tag":"episodios"},{"id":"res","x":150,"y":40,"w":90,"h":50,"label":"8","tone":"green","tag":"V(Pasillo)"}],"marks":[{"kind":"combine","actors":["suma","n"],"to":"res","label":"32 / 4"},{"kind":"ok","actor":"res"}]}}}
+]}
+</script>
+</lk-story>
 
 La filosofía es extremadamente sencilla:
 
@@ -5262,13 +5266,14 @@ Retorno nuevo = 10
 
 Entonces:
 
-\[
-V=6+0.1(10-6)
-\]
-
-\[
-V=6.4
-\]
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"V = 6.4","text":"El paso de aprendizaje mueve el valor hacia el retorno nuevo.","metrics":[["Valor actual","6"],["Retorno nuevo","10"],["α","0.1"],["V nuevo","6.4"]]},"kind":"derivation","title":"Un paso de aprendizaje","viewBox":"0 0 360 230","steps":[
+ {"title":"La corrección","facts":[["V","el valor actual de la estimación"],["α","el tamaño del paso: 0.1"]],"equation":{"size":22,"atoms":[{"t":"V","id":"v"},{"t":" = ","id":"eq"},{"t":"6","id":"viejo"},{"t":" + ","id":"plus"},{"t":"0.1(10 − 6)","id":"corr"}]},"focus":["corr"],"narrator":"La diferencia entre el retorno nuevo y el valor actual es «10 − 6 = 4». El paso «0.1» la recorre.","stage":{"scene":{"actors":[{"id":"viejo","x":50,"y":120,"w":60,"h":50,"label":"6","tone":"slate","tag":"valor actual"},{"id":"corr","x":170,"y":120,"w":130,"h":50,"label":"0.1 · 4","tone":"amber","tag":"corrección"}]}}},
+ {"title":"El valor nuevo","equation":{"size":22,"atoms":[{"t":"V","id":"v"},{"t":" = ","id":"eq"},{"t":"6.4","id":"res"}]},"focus":["res"],"narrator":"«6 + 0.4 = 6.4»: el valor se mueve hacia 10.","stage":{"scene":{"actors":[{"id":"viejo","x":50,"y":120,"w":60,"h":50,"label":"6","tone":"slate","state":"faded","tag":"valor actual"},{"id":"corr","x":170,"y":120,"w":90,"h":50,"label":"0.4","tone":"slate","state":"faded","tag":"corrección"},{"id":"res","x":280,"y":40,"w":70,"h":50,"label":"6.4","tone":"green","tag":"V nuevo"}],"marks":[{"kind":"combine","actors":["viejo","corr"],"to":"res","label":"6 + 0.4"},{"kind":"ok","actor":"res"}]}}}
+]}
+</script>
+</lk-story>
 
 Visualmente:
 
@@ -5552,7 +5557,6 @@ Resultado:
 }
 </script>
 </lk-scene>
-```
 
 ---
 

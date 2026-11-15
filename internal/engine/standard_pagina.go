@@ -23,6 +23,8 @@ func richPageFindings(c *evalCtx, rel, note string, th rules.PartStandardThresho
 	page := string(raw)
 	text := notaDeHTML(page)
 	var out []string
+	// The page is read as HTML, so Markdown syntax in its visible text is a finding of its own (#323).
+	out = append(out, markdownEnHTMLFindings(page)...)
 	out = append(out, standardFindings(text, th)...)
 	if th.Register != nil {
 		sencillez, tecnicidad := learnerLevels(absPath(c.ws, rel))

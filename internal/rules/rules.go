@@ -333,6 +333,11 @@ type PartStandardThresholds struct {
 	// StoryFocus turns on the ring rule (#305): a walkthrough or a story of three drawn steps names one piece with a
 	// `ring` on at least one step. False means not declared.
 	StoryFocus bool `json:"storyFocus,omitempty"`
+	// CalculoEnTexto turns on the text-calculation rule (#324): a calculation written as text (a fenced block, or
+	// consecutive lines, with two or more lines of `<expr> = <expr>` that substitute numbers and carry an operation) is
+	// refused; it must be a derivation story. False means not declared, so a frozen snapshot keeps accepting the parts
+	// it accepted.
+	CalculoEnTexto bool `json:"calculoEnTexto,omitempty"`
 	// Register is the prose register the part must keep (the learner's two axes,
 	// sencillez and tecnicidad, at their default «más»). A nil block declares
 	// nothing, so a frozen snapshot keeps accepting the parts it accepted.

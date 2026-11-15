@@ -94,21 +94,30 @@ func (f sceneFormulaAtoms) body() string {
 func sceneFormulaBodies(text string) []string {
 	var bodies []string
 	for _, block := range sceneFormulaBlocks(text) {
-		payload, ok := jsonPayload(block)
-		if !ok {
-			continue
-		}
-		var doc sceneFormulaDoc
-		if json.Unmarshal([]byte(payload), &doc) != nil {
-			continue
-		}
-		doc.Scene.collect(&bodies)
-		if doc.Formula != nil {
-			bodies = append(bodies, doc.Formula.body())
-		}
-		for _, step := range doc.Steps {
-			step.collectStep(&bodies)
-		}
+		bodies = append(bodies, blockFormulaBodies(block)...)
+	}
+	return bodies
+}
+
+// blockFormulaBodies returns the formulas one closed block draws: a scene, a walkthrough or a story. The text reader above
+// walks the scene and walkthrough blocks; a story is read here on its own block, so a formula story is a formula the part
+// teaches, as explain-check reads it (#324).
+func blockFormulaBodies(block string) []string {
+	payload, ok := jsonPayload(block)
+	if !ok {
+		return nil
+	}
+	var doc sceneFormulaDoc
+	if json.Unmarshal([]byte(payload), &doc) != nil {
+		return nil
+	}
+	var bodies []string
+	doc.Scene.collect(&bodies)
+	if doc.Formula != nil {
+		bodies = append(bodies, doc.Formula.body())
+	}
+	for _, step := range doc.Steps {
+		step.collectStep(&bodies)
 	}
 	return bodies
 }
@@ -152,7 +161,7 @@ func formulaWalkthroughFindings(text string, th rules.PartStandardThresholds) []
 			if json.Unmarshal([]byte(payload), &doc) != nil {
 				continue
 			}
-			if len(sceneFormulaBodies(block)) == 0 {
+			if len(blockFormulaBodies(block)) == 0 {
 				continue
 			}
 			spots = append(spots, spot{m[0]})

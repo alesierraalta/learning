@@ -1328,9 +1328,9 @@ test("every part page carries one audio entry per style and serves the file once
   await shutdown();
 });
 
-// #305: las reglas de autoría (summary, facts, ring) se miden al escribir una parte. Una página que el lector
-// ya tenía sigue servida sin ellas: servir solo lee las reglas que no son de autoría.
-test("a part's page that lacks only the authoring cues is still served", async () => {
+// #305 y #323: las reglas de autoría (summary, facts, ring) se miden al escribir una parte, y su falla impide
+// servir la página: el lector recibe la nota, que trae lo mismo. Servir lee todas las reglas (`ok`), como antes de #312.
+test("a part's page that lacks only the authoring cues is not served: the learner gets the note", async () => {
   const { root, topic } = makeRoot();
   const kitDir = realpathSync(mkdtempSync(join(tmpdir(), "kit-")));
   writeFileSync(join(kitDir, "kit.js"), "console.log('kit');");
@@ -1351,7 +1351,27 @@ test("a part's page that lacks only the authoring cues is still served", async (
   const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
   const page = await http(result.structuredContent.url);
   assert.equal(page.status, 200);
-  assert.match(page.headers["content-security-policy"], /script-src 'self' https:\/\/cdn\.jsdelivr\.net 'unsafe-inline'/, "the learner gets the note instead of the page");
+  assert.doesNotMatch(page.headers["content-security-policy"], /script-src[^;]*'unsafe-inline'/, "the learner gets the note instead of the page");
+  assert.doesNotMatch(page.body, /El saludo inicial/, "the tutor's page must not reach the learner");
+  assert.match(page.body, /"kind":"part"/, "the note's reader answers");
+  await shutdown();
+});
+
+// #323: una página con una cerca de Markdown fuera de <pre> no se sirve: la regla `markdown-en-html` la rechaza
+// y el lector recibe la nota.
+test("a hand-built page with a raw Markdown fence is refused: the learner gets the note", async () => {
+  const { topic, view, shutdown } = await setup();
+  const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
+  const fence = "<p>Para x = 184 ms, la distancia al centro:</p>\n\n```text\nz = (x - μ) / σ\nz = 2\n```\n";
+  writeFileSync(pagePath, QUALIFYING_PAGE.replace("</body>", `${fence}</body>`));
+  // La precondición: la regla de Markdown es la que rechaza la página. Si no, la prueba no demuestra nada.
+  const rep = JSON.parse(spawnSync(process.execPath, [join(import.meta.dirname, "..", "..", "tools", "explain-check.mjs"), pagePath, "--json"], { encoding: "utf8" }).stdout);
+  assert.equal(rep.rows.find((r) => r.rule === "markdown-en-html")?.ok, false, "the fence passes the Markdown rule: this test proves nothing");
+  const served = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
+  assert.equal(served.status, 200);
+  assert.doesNotMatch(served.headers["content-security-policy"], /script-src[^;]*'unsafe-inline'/, "the learner gets the note, not the tutor's page");
+  assert.doesNotMatch(served.body, /Para x = 184 ms/, "the raw fence must not reach the learner");
+  assert.match(served.body, /"kind":"part"/, "the note's reader answers");
   await shutdown();
 });
 

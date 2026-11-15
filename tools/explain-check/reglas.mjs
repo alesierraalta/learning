@@ -1,6 +1,7 @@
 // El registro de las reglas de una nota, en el orden en que se reportan (#269). Cada regla
 // vive en su archivo de `rules/`, con su `id` y su `check(nota, ctx)`. Añadir una regla es su
 // archivo y una línea aquí, en el lugar que le toca: el orden es el del informe.
+import markdownEnHtml from './rules/markdown-en-html.mjs';
 import ruta from './rules/ruta.mjs';
 import sinResumen from './rules/sin-resumen.mjs';
 import faltaResumen from './rules/falta-resumen.mjs';
@@ -16,6 +17,7 @@ import tamano from './rules/tamano.mjs';
 import leyenda from './rules/leyenda.mjs';
 import faltaLeyenda from './rules/falta-leyenda.mjs';
 import formulaWalkthrough from './rules/formula-walkthrough.mjs';
+import calculoEnTexto from './rules/calculo-en-texto.mjs';
 import historiaCabecera from './rules/historia-cabecera.mjs';
 import actorSinPersonaje from './rules/actor-sin-personaje.mjs';
 import escenarioDeCajas from './rules/escenario-de-cajas.mjs';
@@ -32,6 +34,7 @@ import registro from './rules/registro.mjs';
 import figuras from './rules/figuras.mjs';
 
 export const REGLAS = [
+  markdownEnHtml,
   ruta,
   sinResumen,
   faltaResumen,
@@ -47,6 +50,7 @@ export const REGLAS = [
   leyenda,
   faltaLeyenda,
   formulaWalkthrough,
+  calculoEnTexto,
   historiaCabecera,
   actorSinPersonaje,
   escenarioDeCajas,

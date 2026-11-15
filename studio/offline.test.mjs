@@ -6,9 +6,10 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 import { createServer } from "node:http";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { partLoader, snapshotPage } from "./offline.ts";
 
@@ -290,4 +291,110 @@ test("a carriage return ends a statement for the pins too", async () => {
   const { load, asked } = bridge({ [PAGE]: page, [`${BRIDGE}/${TOKEN}/kit/kit.js?v=1`]: code, [unpinned]: MARKED });
   await snapshotPage(PAGE, load);
   assert.equal(asked.includes(unpinned), false);
+});
+
+// #323: the rich page loads the kit with `defer` in its head. A browser runs a deferred script once the page is parsed,
+// when the figures it draws are there to read. An inline script ignores `defer` and runs at once, so the copy must put
+// the kit after the figures: the saved copy draws what the live page draws.
+const KIT = join(import.meta.dirname, "..", "integrations", "pi", "kit");
+const kitFile = (name) => readFileSync(join(KIT, name), "utf8");
+const PATH = { d: "M 16 210 L 344 210", tone: "slate", width: 2, arrow: false };
+const SCENE = { viewBox: "0 0 360 250", title: "Escena", scene: { paths: [PATH], labels: [{ x: 20, y: 120, text: "densidad", anchor: "start", size: 14 }] } };
+const STORY = {
+  kind: "formula",
+  title: "Una cuenta",
+  viewBox: "0 0 360 250",
+  formula: { size: 18, atoms: [{ t: "1", id: "one" }, { t: " + ", id: "plus" }, { t: "1", id: "one2" }] },
+  steps: [
+    { title: "La cuenta entera", focus: [], narrator: "Es la cuenta entera.", stage: { scene: { paths: [PATH] } } },
+    { title: "El resultado", focus: ["one"], narrator: "El resultado es uno.", stage: { scene: { paths: [PATH] } } },
+  ],
+};
+const FIGURES = [
+  '<!doctype html><html lang="es"><head><meta charset="utf-8">',
+  '<script src="../kit/scene.js" defer></script>',
+  '<script src="../kit/kit.js" defer></script>',
+  "</head><body><main>",
+  `<lk-scene><script type="application/json">${JSON.stringify(SCENE)}</script></lk-scene>`,
+  `<lk-story><script type="application/json">${JSON.stringify(STORY)}</script></lk-story>`,
+  "</main></body></html>",
+].join("\n");
+
+// The render test needs a browser: a machine without Playwright skips it, as the layout tests do.
+const CANDIDATES = [process.env.PLAYWRIGHT_MODULE, "playwright", "/home/alesierraalta/.npm-global/lib/node_modules/playwright/index.mjs"].filter(Boolean);
+async function importPlaywright() {
+  for (const id of CANDIDATES) {
+    try {
+      return await import(id.startsWith("/") ? pathToFileURL(id).href : id);
+    } catch {
+      // the next candidate
+    }
+  }
+  return null;
+}
+const playwright = await importPlaywright();
+
+/** Opens a file and reports each figure: the SVGs it drew, and every alert the kit wrote where it could not draw. */
+async function drawn(browser, file) {
+  const page = await browser.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(pathToFileURL(file).href);
+  // A figure settles once it is drawn or says why it cannot be.
+  await page.waitForFunction(
+    () => {
+      const figures = [...document.querySelectorAll("lk-scene, lk-story")];
+      return figures.length === 2 && figures.every((figure) => figure.querySelector("svg, [role=alert]"));
+    },
+    null,
+    { timeout: 10_000 },
+  );
+  const report = await page.evaluate(() => ({
+    svgs: [...document.querySelectorAll("lk-scene, lk-story")].map((figure) => figure.querySelectorAll("svg").length),
+    alerts: [...document.querySelectorAll("[role=alert]")].map((node) => node.textContent),
+  }));
+  await page.close();
+  return { ...report, errors };
+}
+
+test("a saved page draws its figures as its live page does (#323)", { skip: playwright ? false : "playwright not installed" }, async (t) => {
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  // The live page, with the kit beside it: both scripts deferred in the head, as the bridge serves a rich page.
+  const live = mkdtempSync(join(tmpdir(), "offline-live-"));
+  mkdirSync(join(live, "redes"));
+  mkdirSync(join(live, "kit"));
+  writeFileSync(join(live, "redes", "p1.html"), FIGURES);
+  writeFileSync(join(live, "kit", "scene.js"), kitFile("scene.js"));
+  writeFileSync(join(live, "kit", "kit.js"), kitFile("kit.js"));
+  // The kit loads its dictation helper beside it: a live page without it never defines a component.
+  writeFileSync(join(live, "kit", "dictate.js"), kitFile("dictate.js"));
+  // The same page as its saved copy.
+  const { load } = bridge({ [PAGE]: FIGURES, [`${BRIDGE}/${TOKEN}/kit/scene.js`]: kitFile("scene.js"), [`${BRIDGE}/${TOKEN}/kit/kit.js`]: kitFile("kit.js") });
+  const copy = mkdtempSync(join(tmpdir(), "offline-copy-"));
+  writeFileSync(join(copy, "p1.html"), await snapshotPage(PAGE, load));
+
+  const onLive = await drawn(browser, join(live, "redes", "p1.html"));
+  assert.deepEqual(onLive.alerts, [], "the live page draws its figures: the test page is valid");
+  assert.deepEqual(onLive.svgs, [1, 1]);
+  const onCopy = await drawn(browser, join(copy, "p1.html"));
+  assert.deepEqual(onCopy.alerts, [], "the saved copy writes no alert where a figure belongs");
+  assert.deepEqual(onCopy.svgs, [1, 1], "and draws both figures");
+  assert.deepEqual(onCopy.errors, []);
+});
+
+test("only a deferred script moves: a classic script keeps its place and the deferred ones follow the body (#323)", async () => {
+  const page = [
+    "<!doctype html><html><head>",
+    "<script>window.early = true;</script>",
+    '<script src="../kit/kit.js" defer></script>',
+    '<script type="module" src="../kit/module.js"></script>',
+    "</head><body><p>texto</p></body></html>",
+  ].join("\n");
+  const { load } = bridge({ [PAGE]: page, [`${BRIDGE}/${TOKEN}/kit/kit.js`]: "window.late = true;", [`${BRIDGE}/${TOKEN}/kit/module.js`]: "window.mod = true;" });
+  const html = await snapshotPage(PAGE, load);
+  assert.ok(html.indexOf("window.early") < html.indexOf("</head>"), "a classic script stays in the head");
+  assert.ok(html.indexOf("window.late") > html.indexOf("<p>texto</p>"), "a deferred script runs after the body is parsed");
+  assert.ok(html.indexOf("window.mod") > html.indexOf("<p>texto</p>"), "a module, deferred by default, does too");
+  assert.ok(html.indexOf("window.late") < html.indexOf("</body>"), "and it stays inside the body");
 });

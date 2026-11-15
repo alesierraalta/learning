@@ -3,9 +3,12 @@
 The part's Markdown note is what the learner reads (#265): the reader renders it with the
 kit's pieces, the interactive mini-quiz and the video. A plain HTML page beside the note,
 with the same basename and an `.html` extension, is optional. The bridge serves it at
-`/<token>/<topic>/<part>` only when it measures as its note (the same rules, read as a page)
-and carries every `<lk-…>` figure of the note and the interactive `<lk-quiz>`; otherwise the
-learner gets the note. No build or framework is required.
+`/<token>/<topic>/<part>` only when every rule passes (the same rules, read as a page, the authoring
+cues included, #323), when it has no Markdown outside its code, and when it carries every `<lk-…>` figure
+of the note and the interactive `<lk-quiz>`; otherwise the learner gets the note. Inside the page, code goes
+in `<pre><code>`, titles in `<h2>` and formulas in `<lk-math display>`: Markdown syntax outside them (a
+fence, `$$`, or a `#` or a list marker at the start of a line) refuses the page (`markdown-en-html`, #323).
+No build or framework is required.
 
 ```html
 <html lang="es">
@@ -85,7 +88,7 @@ use light DOM: normal page CSS and accessible native controls still work.
 <lk-ask></lk-ask>
 ```
 
-`lk-math` renders a clean equation and nothing else: it is for a **calculation**. A formula the
+`lk-math` renders a clean equation and nothing else: it is for a **calculation of one line**. A formula the
 part explains is drawn as an **annotated formula scene**, one callout per symbol — see
 [Annotated formulas](#annotated-formulas) below.
 
@@ -181,6 +184,10 @@ or the arrow keys, and press «Pantalla completa» when you need the letters big
 
 **The cues are measured, and story moves flow.** A walkthrough or a story of three steps or more ends with a `summary` card; a formula or derivation story names its symbols in `facts` on at least one step; and a walkthrough or story of three or more drawn steps names one piece with a `ring`. `explain-check` measures the three (`falta-resumen`, `falta-leyenda`, `falta-foco`). Piece stories (cards, memory, tables, venn) have no drawn steps and ask for no ring. A story's `moves` flow by default, as if they had `flow: true`; `flow: false` holds one still. Walkthrough arrows stay opt-in.
 
+**A calculation is a derivation story, not text (#324).** Two or more lines of `<expr> = <expr>` that substitute numbers, in a fenced block or in consecutive lines, are a calculation written as text; so are two or more consecutive display formulas (`$$…$$`, `\[…\]`, `<lk-math display>`) that do the same. Two or more calculation lines inside one display (`\\`, `aligned`, `align`, `array`, `gathered`) are a calculation too, and so are two or more `<lk-math>` elements alone on their own lines that do the same. `explain-check` refuses them as `calculo-en-texto`, and the engine refuses them under the same rule: draw each line or formula as a step of a `<lk-story kind="derivation">`, with the changed token in `focus` and a `summary` card with the result. A single result line (`z = 2`), a value inside a sentence, a formula with no numbers and one display formula with its values in one line are not calculations; the code of a programming language is code.
+
+A derivation story does not count toward the part's one walkthrough (`maxWalkthroughs`, #324): a part carries its formula story and one derivation per calculation.
+
 Draw the example itself, not a description of it: a robot on a floor is tiles and the robot's
 tile, a network is nodes, and every step points at what changed with a labelled arrow. A table
 whose icons change while captions below tell the story is not a scene, and the engine rejects it.
@@ -212,7 +219,7 @@ The engine requires at least one such deck of 3 to 6 steps in every part (see
 
 A formula the part explains is drawn symbol by symbol, with one numbered callout per symbol and
 one `labels` line per number saying what it is. `<lk-math>` renders a clean equation with no
-arrows, so it is for a calculation, never for explaining a formula.
+arrows, so it is for a calculation of one line, never for explaining a formula. Two or more lines of calculation are a derivation story (#324).
 
 ```json
 {"viewBox":"0 0 760 410","title":"La densidad gaussiana, símbolo por símbolo",

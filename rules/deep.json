@@ -153,6 +153,7 @@
       "storySummary": true,
       "formulaLegend": true,
       "storyFocus": true,
+      "calculoEnTexto": true,
       "register": {
         "levels": {
           "sencillez": {

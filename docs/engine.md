@@ -627,7 +627,7 @@ tutor correct the part before the learner reads it. The numbers live in
  "formulaWalkthrough": true, "storyLanguage": true, "storyHeader": true,
  "storyStage": true, "actorCharacter": true, "sceneStage": true,
  "markEcho": true, "verdictError": true, "accessorySense": true, "characterSense": true,
- "storySummary": true, "formulaLegend": true, "storyFocus": true}
+ "storySummary": true, "formulaLegend": true, "storyFocus": true, "calculoEnTexto": true}
 ```
 
 The block also turns on the standard's non-numeric rules, and the check is
@@ -648,7 +648,8 @@ checks). What it measures, and how:
   lines; a missing route and a five-line route both fail.
 - **One scene, one walkthrough.** More than `maxScenes` `<lk-scene>` or more
   than `maxWalkthroughs` walkthrough blocks (`<lk-walkthrough>` and the formula
-  or derivation `<lk-story>`) outside fenced code fails: a second change is a
+  `<lk-story>`; a derivation `<lk-story>` is a worked calculation, not a deck, and
+  does not count, #324) outside fenced code fails: a second change is a
   step of the same deck or belongs to another part.
 - **A drawn scene.** `minScenes` `<lk-scene>` blocks have to draw: the payload
   parses, carries a `scene` object and at least one entry the kit renders
@@ -759,9 +760,18 @@ checks). What it measures, and how:
   venn) draws no drawn step and asks for no ring. A rules snapshot without the keys keeps the parts it
   accepted. The tool runs the same three rules (`tools/explain-check/rules/falta-*.mjs`, marked
   `authoringOnly`), and a test cross-checks the verdicts on the shapes and on the kit's examples.
-- **Serving.** explain-check's JSON reports `serves`: true when every rule that is not authoring-only
-  passes. The bridge (`integrations/pi/bridge.ts`) serves a page the tutor wrote on `serves`, so a part
-  that lacks an authoring cue is still served. The turn-end checks and the engine still refuse a part
+- **Text calculation (#324).** `calculoEnTexto` turns on the text-calculation rule: a calculation written as
+  text — a fenced block, or consecutive lines, with two or more lines of `<expr> = <expr>` that substitute
+  numbers and carry an operation — is refused, because it must be a derivation story (`<lk-story
+  kind="derivation">`) with one step per line or per formula, the changed token in `focus` and a `summary` card with the
+  result. A single result line, a value inside a sentence, a formula with no numbers, one display formula or one `<lk-math>` with its values in one line, a list of data with no
+  operation, a call to a function, the code of a programming language (its fence) and a kit figure are not
+  calculations. Two or more consecutive display formulas (`$$…$$`, `\[…\]`, `<lk-math display>`) that substitute numbers and carry an operation are the same calculation written as formulas (decision 4); prose or a label between them makes them no series. Two or more calculation lines inside one display (`\\`, `aligned`, `align`, `array`, `gathered`) are a calculation, and two or more `<lk-math>` elements alone on their own lines (a list mark is allowed; a sentence or a full stop after one is not) that do the same are a series like the display formulas. Mirrored as `calculo-en-texto`; the key is additive, so a snapshot without it keeps the parts it
+  accepted.
+- **Serving.** explain-check's JSON reports `ok`; the bridge serves a page only when `ok` is true. The
+  bridge (`integrations/pi/bridge.ts`) therefore serves a page the tutor wrote only when every rule passes,
+  authoring cues included, and a page that lacks one is not served: the learner gets the note, which carries
+  the same content (#323). The turn-end checks and the engine still refuse a part
   that is written now (`ok` and the exit code, which count every rule).
 - **Story language.** `storyLanguage` turns on the story-language rule: a part
   draws its step-by-step visual with `<lk-story>` (the deck of actors with
@@ -848,7 +858,7 @@ shared file except one registry line:
   (`tools/explain-check/nota.mjs`) and runs the registry
   `tools/explain-check/reglas.mjs` in order. Each rule is
   `tools/explain-check/rules/<id>.mjs`, exporting `{ id, check(note, ctx) }`. A rule that measures what the tutor writes sets `authoringOnly: true`:
-  its failure blocks a new part, and `serves` leaves it out (see the cues above).
+  its failure blocks a new part, and `ok` keeps the bridge from serving its page (see the cues above).
 
 `CONTRIBUTING.md` lists the steps to add a rule.
 

@@ -415,9 +415,9 @@ const FIGURA = /<(lk-[a-z][a-z-]*)\b[^>]*>[\s\S]*?<\/\1>/g;
 const GATE_CACHE = new Map<string, { version: string; passes: boolean }>();
 
 /**
- * explain-check reads a page with the rules it reads a note with (#265). A page is served when every rule that is
- * not authoring-only passes (`serves`, #305): the authoring cues are measured when a part is written, never to take
- * away a part the learner already reads. The answer is kept per file version.
+ * explain-check reads a page with the rules it reads a note with (#265). A page is served only when every rule passes
+ * (`ok`, as before #312, authoring cues included, #323): a page that misses one is not served, and the learner gets
+ * the note, which carries the same content. The answer is kept per file version.
  */
 function pagePassesGates(file: string): boolean {
   const info = statSync(file);
@@ -427,7 +427,7 @@ function pagePassesGates(file: string): boolean {
   const run = spawnSync(process.execPath, [join(REPO_ROOT, "tools", "explain-check.mjs"), file, "--json"], { encoding: "utf8", timeout: 180_000 });
   let passes = false;
   try {
-    passes = (JSON.parse(run.stdout) as { serves?: unknown }).serves === true;
+    passes = (JSON.parse(run.stdout) as { ok?: unknown }).ok === true;
   } catch {
     passes = false;
   }
@@ -2001,7 +2001,7 @@ ${scripts}
         const rich = richPage(dir, plan, partId);
         const noteFile = partNote(dir, plan, partId);
         if (!rich && !noteFile) throw new HttpError(404, `part ${partId} has no page with checkpoints`);
-        // The learner's page is the tutor's page when that one serves and the note otherwise: both can carry checkpoints.
+        // The learner's page is the tutor's page when that one passes the gates and the note otherwise: both can carry checkpoints.
         found = new Map([
           ...(noteFile ? pageCheckpoints(readFileSync(noteFile, "utf8")) : []),
           ...(rich ? pageCheckpoints(readFileSync(rich, "utf8")) : []),

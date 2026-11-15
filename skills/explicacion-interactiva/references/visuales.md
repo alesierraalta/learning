@@ -31,7 +31,8 @@ quien lee no puede ver lo único que la parte venía a explicar.
 | Material viejo: un recorrido de cajas y flechas libres | `<lk-walkthrough>` — **legado**, no se usa en material nuevo |
 | Una fórmula que se explica, símbolo por símbolo | escena de **fórmula anotada** (§8) |
 | Una distribución o una función | su **curva**, con ejes y la región marcada (§9) |
-| Una cuenta | `<lk-math>` (KaTeX), nunca un bloque de código |
+| Una cuenta de una línea | `<lk-math>` (KaTeX), nunca un bloque de código |
+| Una cuenta de dos renglones o más | historia de derivación (§8c), nunca `<lk-math>` renglón a renglón |
 | Datos que se comparan celda a celda | tabla Markdown |
 | Un matiz, una advertencia, un límite | `<lk-callout>` |
 | Un objeto que se mueve o cambia de estado (robot, casa, documento, persona) | `scene.icons` |
@@ -169,7 +170,7 @@ El ejemplo aprobado abusaba de `plain text` con geometría. Cada familia tiene s
 | `10 × 0.9 × 0.81` en tabla | datos | tabla Markdown |
 | `K2 ████ K3 ████████ K5 ████████████` | proporción | escena **reparto** |
 | `γ = 0.5 → 1.000 / 0.500 / 0.250` | serie | tabla Markdown o `lk-math` |
-| `1 + 0.9 + 0.81 + …` | cuenta | `lk-math` con los renglones alineados |
+| `1 + 0.9 + 0.81 + …` | serie | tabla Markdown o `lk-math` |
 | `sala sucia / cocina limpia / batería 70 %` | un estado | `lk-callout` o prosa; no merece figura |
 | tres cajas en fila con flechas rotuladas y una de retorno | un ciclo de estados | escena **cadena** con la flecha de retorno debajo (§6b) |
 | `VERDE tiempo AMARILLO` en columnas sin alinear | una tabla de transición | tabla Markdown de tres columnas |
@@ -233,9 +234,9 @@ de un paso del `lk-walkthrough`, la fórmula se escribe símbolo por símbolo y 
 lleva un callout numerado con su flecha y su nombre corto**. La fórmula se lee en la figura, no
 en un párrafo aparte.
 
-`<lk-math>` es solo para una **cuenta**: cuando la parte opera con la fórmula y el lector tiene
+`<lk-math>` es solo para una **cuenta de una línea**: cuando la parte opera con la fórmula y el lector tiene
 que seguir los números. Una ecuación limpia sin flechas no explica qué es cada símbolo; es
-exactamente lo que el alumno rechazó.
+exactamente lo que el alumno rechazó. Una cuenta de dos renglones o más no es un `<lk-math>`: es una historia de derivación (§8c).
 
 La forma, pieza por pieza:
 
@@ -298,7 +299,7 @@ guía hasta el glifo que el lector tenga. Si cambia el texto de la fórmula, el 
 un símbolo que ya no está deja de llegar a un glifo y `scene-lint` lo llama `callout-desviado`:
 se corrige el nombre, no la coordenada.
 
-La misma fórmula, cuando la parte la opera, va con `<lk-math>` y su cuenta renglón a renglón. No
+La misma fórmula, cuando la parte la opera, va con `<lk-math>` si la cuenta es de una línea; si es renglón a renglón, es una historia de derivación (§8c). No
 se escribe dos veces la misma fórmula: se anota una vez y, si hay cuenta, se escribe la cuenta.
 
 ## 8b. Recorrido de fórmula (`<lk-story kind="formula">`)
@@ -391,6 +392,51 @@ Reglas:
 ```
 
 Ejemplo aprobado y completo, con los tres pasos y los textos: `integrations/pi/kit/examples/derivacion-x.md`.
+
+**El cálculo escrito como texto no se enseña así (#324).** Dos o más renglones `<expr> = <expr>` que
+sustituyen números, en un bloque cercado o seguidos en la prosa, son una cuenta escrita como texto; y dos o más fórmulas de display seguidas (`$$…$$`, `\[…\]`, `<lk-math display>`) que sustituyen números y operan son la misma cuenta escrita como fórmulas: el estándar la
+rechaza (`calculo-en-texto`) y el lector no ve moverse ningún número. Se enseña con un recorrido de derivación de
+**un paso por renglón**: la ecuación en la cabecera, con el término que cambia resaltado en `focus`; la leyenda de los
+símbolos en `facts`, en al menos un paso; y un `summary` con el resultado. Un renglón solo con el resultado
+(`z = 2`) o un valor dentro de una frase no son una cuenta. Una fórmula con símbolos y sin números tampoco: es una
+fórmula, y se dibuja como fórmula anotada o como recorrido de fórmula. El código de un lenguaje de programación
+(`python`, `sql`, `js`…) es código, no una cuenta. Una fórmula de display sola, aunque lleve sus valores en una línea (`f(184) = …`), es una fórmula y pasa: la cuenta es la serie. Dentro de una sola fórmula, dos o más renglones de cuenta (`\\`, `aligned`, `align`, `array`, `gathered`) son una cuenta, y un `<lk-math>` suelto en su línea se mide como una fórmula de display: dos seguidos que sustituyen y operan son una cuenta.
+
+**Ejemplo trabajado: el z-score.** La cuenta de la distancia al centro, renglón a renglón —la fórmula, la sustitución,
+la diferencia y el cociente—, es un recorrido de cuatro pasos. Cada paso es una línea de la cuenta. En el paso 2 los
+tres términos que cambian son los números que sustituyen a `x`, `μ` y `σ`; el resumen cierra con el resultado. Las dos cuentas son historias de derivación: no cuentan para el tope de un recorrido por parte (#324), así que la parte puede llevar además su historia de fórmula.
+
+```html
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"z = 2","text":"Dos desviaciones típicas por encima del centro.","metrics":[["Valor de x","184 ms"],["Centro μ","120 ms"],["Desviación σ","32 ms"],["Resultado","z = 2"]]},"kind":"derivation","title":"Para x = 184 ms, a cuántas desviaciones del centro","viewBox":"0 0 390 230","steps":[
+ {"title":"La fórmula entera","equation":{"size":22,"atoms":[{"t":"z","id":"z"},{"t":" = ","id":"eq"},{"t":"(","id":"lp"},{"t":"x","id":"x"},{"t":" − ","id":"minus"},{"t":"μ","id":"mu"},{"t":")","id":"rp"},{"t":" / ","id":"div"},{"t":"σ","id":"sigma"}]},"focus":["x"],"narrator":"La «z» dice a cuántas desviaciones de su centro está «x». Primero, la fórmula entera.","facts":[["z","la distancia al centro, en desviaciones"],["x","el valor que miras"],["μ","el centro: la media"],["σ","el ancho: la desviación típica"]],"ring":"x","stage":{"scene":{"actors":[{"id":"x","x":20,"y":120,"w":70,"h":50,"label":"x","tone":"blue","tag":"el valor"},{"id":"mu","x":160,"y":120,"w":70,"h":50,"label":"μ","tone":"slate","tag":"el centro"},{"id":"sigma","x":300,"y":120,"w":70,"h":50,"label":"σ","tone":"slate","tag":"el ancho"}]}}},
+ {"title":"Sustituimos los números","equation":{"size":22,"atoms":[{"t":"z","id":"z"},{"t":" = ","id":"eq"},{"t":"(","id":"lp"},{"t":"184","id":"v184"},{"t":" − ","id":"minus"},{"t":"120","id":"v120"},{"t":")","id":"rp"},{"t":" / ","id":"div"},{"t":"32","id":"v32"}]},"focus":["v184","v120","v32"],"narrator":"Ahora «x» es «184 ms», «μ» es «120 ms» y «σ» es «32 ms».","stage":{"scene":{"actors":[{"id":"x","x":20,"y":120,"w":70,"h":50,"label":"184 ms","tone":"blue","tag":"x"},{"id":"mu","x":160,"y":120,"w":70,"h":50,"label":"120 ms","tone":"slate","tag":"μ"},{"id":"sigma","x":300,"y":120,"w":70,"h":50,"label":"32 ms","tone":"slate","tag":"σ"}],"moves":[{"from":"x","to":"mu","verb":"menos","tone":"amber"}]}}},
+ {"title":"La distancia al centro","equation":{"size":22,"atoms":[{"t":"z","id":"z"},{"t":" = ","id":"eq"},{"t":"64","id":"diff"},{"t":" / ","id":"div"},{"t":"32","id":"v32"}]},"focus":["diff"],"narrator":"«184 − 120 = 64»: el valor está «64 ms» por encima del centro.","stage":{"scene":{"actors":[{"id":"diff","x":40,"y":120,"w":90,"h":50,"label":"64 ms","tone":"amber","tag":"distancia"},{"id":"sigma","x":230,"y":120,"w":70,"h":50,"label":"32 ms","tone":"slate","tag":"σ"}],"moves":[{"from":"diff","to":"sigma","verb":"entre","tone":"amber"}]}}},
+ {"title":"El resultado","equation":{"size":22,"atoms":[{"t":"z","id":"z"},{"t":" = ","id":"eq"},{"t":"2","id":"res"}]},"focus":["res"],"narrator":"«64 / 32 = 2»: el valor cae a «2» desviaciones por encima del centro.","stage":{"scene":{"actors":[{"id":"res","x":150,"y":120,"w":100,"h":50,"label":"z = 2","tone":"green","tag":"resultado"}],"marks":[{"kind":"ok","actor":"res"}]}}}
+]}
+</script>
+</lk-story>
+```
+
+**Ejercicio: `x = 248 ms`, ¿a cuántas desviaciones típicas está?** La solución es el mismo recorrido, de tres pasos:
+sustituir, restar y dividir. El enunciado va en prosa antes del recorrido, y la cabecera escribe la cuenta con los
+números, sin repetir la fórmula entera.
+
+```html
+<lk-story>
+<script type="application/json">
+{"summary":{"title":"z = 4","text":"A cuatro desviaciones típicas por encima del centro.","metrics":[["Valor de x","248 ms"],["Diferencia","128 ms"],["Resultado","z = 4"]]},"kind":"derivation","title":"Para x = 248 ms, ¿a cuántas desviaciones?","viewBox":"0 0 390 230","steps":[
+ {"title":"Sustituimos","equation":{"size":22,"atoms":[{"t":"z","id":"z"},{"t":" = ","id":"eq"},{"t":"(","id":"lp"},{"t":"248","id":"v248"},{"t":" − ","id":"minus"},{"t":"120","id":"v120"},{"t":")","id":"rp"},{"t":" / ","id":"div"},{"t":"32","id":"v32"}]},"focus":["v248","v120","v32"],"narrator":"Sustituimos «x» por «248 ms», «μ» por «120 ms» y «σ» por «32 ms».","facts":[["z","la distancia al centro, en desviaciones"],["248","el valor x del ejercicio"]],"ring":"x","stage":{"scene":{"actors":[{"id":"x","x":20,"y":120,"w":70,"h":50,"label":"248 ms","tone":"blue","tag":"x"},{"id":"mu","x":160,"y":120,"w":70,"h":50,"label":"120 ms","tone":"slate","tag":"μ"},{"id":"sigma","x":300,"y":120,"w":70,"h":50,"label":"32 ms","tone":"slate","tag":"σ"}],"moves":[{"from":"x","to":"mu","verb":"menos","tone":"amber"}]}}},
+ {"title":"La diferencia","equation":{"size":22,"atoms":[{"t":"z","id":"z"},{"t":" = ","id":"eq"},{"t":"128","id":"diff"},{"t":" / ","id":"div"},{"t":"32","id":"v32"}]},"focus":["diff"],"narrator":"«248 − 120 = 128»: el valor está «128 ms» por encima del centro.","stage":{"scene":{"actors":[{"id":"diff","x":40,"y":120,"w":90,"h":50,"label":"128 ms","tone":"amber","tag":"distancia"},{"id":"sigma","x":230,"y":120,"w":70,"h":50,"label":"32 ms","tone":"slate","tag":"σ"}],"moves":[{"from":"diff","to":"sigma","verb":"entre","tone":"amber"}]}}},
+ {"title":"El resultado","equation":{"size":22,"atoms":[{"t":"z","id":"z"},{"t":" = ","id":"eq"},{"t":"4","id":"res"}]},"focus":["res"],"narrator":"«128 / 32 = 4»: el valor está a «4» desviaciones por encima del centro.","stage":{"scene":{"actors":[{"id":"res","x":150,"y":120,"w":100,"h":50,"label":"z = 4","tone":"green","tag":"resultado"}],"marks":[{"kind":"ok","actor":"res"}]}}}
+]}
+</script>
+</lk-story>
+```
+
+Cuando una cuenta de estas llega en prosa o en una cerca `text`, el motor y `explain-check` la rechazan: el mensaje
+nombra las líneas de cada cuenta y el arreglo, que es el recorrido de derivación de arriba.
 
 ## 8d. Actores con estado y piezas (`actors` + `props`)
 
@@ -687,7 +733,8 @@ dice «curva gaussiana» no es una curva.
 | Una función que crece o decrece | la curva con sus dos ejes y el punto que la parte discute |
 | Un objeto que actúa o cambia de estado | `scene.icons` (robot, casa, documento, persona, moneda, engranaje) |
 | Un valor que se compara con otro | `scene.bars`, con su etiqueta y su cifra |
-| Una cuenta | `<lk-math>`, con sus renglones alineados |
+| Una cuenta de una línea | `<lk-math>` |
+| Una cuenta de dos renglones o más | historia de derivación (§8c) |
 
 Un recorrido de una distribución enseña **la misma curva cambiando**: primero la campana sola
 con su eje, después la media marcada donde cae el pico, después la banda ±σ sombreada, después
