@@ -317,10 +317,50 @@ test("the learning entry submits an attachment without learner text", { skip: br
   const fileInput = entry.getByLabel("Adjuntar examen o documento");
   await fileInput.setInputFiles({ name: "examen.png", mimeType: "image/png", buffer: Buffer.from("imagen") });
   await entry.locator(".learning-source-item").waitFor();
-  const sourceId = await entry.locator(".learning-source-item").getAttribute("data-id");
-  await entry.locator('.mode-pick[data-modo="universitario"]').click();
   const submit = entry.locator('button[type="submit"]');
-  assert.equal(await submit.isDisabled(), false, "a source and a mode are sufficient without typed text");
+  const exam = entry.locator('.mode-pick[data-modo="examen"]');
+  const formatRow = entry.locator('[aria-label="Formato del examen"]');
+  assert.equal(await exam.getAttribute("aria-pressed"), "true");
+  assert.equal(await formatRow.getByRole("button", { name: "Que lo deduzca el tutor" }).getAttribute("aria-pressed"), "true");
+  assert.equal(await submit.isDisabled(), false, "an attachment alone enables starting an exam");
+
+  await entry.locator(".learning-source-item").getByRole("button", { name: /Quitar/ }).click();
+  assert.equal(await exam.getAttribute("aria-pressed"), "true", "removing the last file keeps the selected mode");
+  assert.equal(await formatRow.locator('button[aria-pressed="true"]').count(), 0, "removing the last file clears the inferred format");
+  assert.equal(await submit.isDisabled(), true);
+  await fileInput.setInputFiles({ name: "examen-segundo.png", mimeType: "image/png", buffer: Buffer.from("imagen") });
+  await entry.locator(".learning-source-item").waitFor();
+  const sourceId = await entry.locator(".learning-source-item").getAttribute("data-id");
+
+  const requestPromise = page.waitForRequest((request) => request.url().endsWith("/api/aprender"));
+  const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/aprender"));
+  await submit.click();
+  const request = await requestPromise;
+  assert.deepEqual(request.postDataJSON(), { text: "", modo: "examen", examen: { formato: "deducir" }, fuentes: [sourceId] });
+  const response = await responsePromise;
+  assert.equal(response.status(), 200, await response.text());
+  await page.waitForFunction(() => document.querySelectorAll(".learning-source-item").length === 0);
+});
+
+test("an attachment keeps a mode chosen beforehand", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+
+  const entry = page.locator(".home-page .new-learning");
+  await entry.locator('.mode-pick[data-modo="universitario"]').click();
+  await entry.getByLabel("Adjuntar examen o documento").setInputFiles({ name: "examen.png", mimeType: "image/png", buffer: Buffer.from("imagen") });
+  await entry.locator(".learning-source-item").waitFor();
+  assert.equal(await entry.locator('.mode-pick[data-modo="universitario"]').getAttribute("aria-pressed"), "true");
+  assert.equal(await entry.locator('.mode-pick[data-modo="examen"]').getAttribute("aria-pressed"), "false");
+  const sourceId = await entry.locator(".learning-source-item").getAttribute("data-id");
+  const submit = entry.locator('button[type="submit"]');
+  assert.equal(await submit.isDisabled(), false);
 
   const requestPromise = page.waitForRequest((request) => request.url().endsWith("/api/aprender"));
   const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/aprender"));
@@ -329,7 +369,37 @@ test("the learning entry submits an attachment without learner text", { skip: br
   assert.deepEqual(request.postDataJSON(), { text: "", modo: "universitario", fuentes: [sourceId] });
   const response = await responsePromise;
   assert.equal(response.status(), 200, await response.text());
-  await page.waitForFunction(() => document.querySelectorAll(".learning-source-item").length === 0);
+});
+
+test("an attachment keeps a format chosen beforehand", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+
+  const entry = page.locator(".home-page .new-learning");
+  await entry.locator('.mode-pick[data-modo="examen"]').click();
+  const formatRow = entry.locator('[aria-label="Formato del examen"]');
+  await formatRow.getByRole("button", { name: "Escrito" }).click();
+  await entry.getByLabel("Adjuntar examen o documento").setInputFiles({ name: "examen.png", mimeType: "image/png", buffer: Buffer.from("imagen") });
+  await entry.locator(".learning-source-item").waitFor();
+  assert.equal(await entry.locator('.mode-pick[data-modo="examen"]').getAttribute("aria-pressed"), "true");
+  assert.equal(await formatRow.getByRole("button", { name: "Escrito" }).getAttribute("aria-pressed"), "true");
+  const sourceId = await entry.locator(".learning-source-item").getAttribute("data-id");
+  const submit = entry.locator('button[type="submit"]');
+  assert.equal(await submit.isDisabled(), false);
+
+  const requestPromise = page.waitForRequest((request) => request.url().endsWith("/api/aprender"));
+  const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/aprender"));
+  await submit.click();
+  const request = await requestPromise;
+  assert.deepEqual(request.postDataJSON(), { text: "", modo: "examen", examen: { formato: "written" }, fuentes: [sourceId] });
+  const response = await responsePromise;
+  assert.equal(response.status(), 200, await response.text());
 });
 
 test("the learning entry preserves pasted lines, grows, and sends with Enter", { skip: browser ? false : "playwright not installed" }, async (t) => {
