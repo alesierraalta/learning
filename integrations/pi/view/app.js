@@ -321,18 +321,33 @@
       }
       container.append(field);
     }
+    const submitted = !diagnosis && Array.isArray(data.answered);
+    const exercises = (data.quiz.exercises || []).map((exercise, index) => {
+      const box = element("fieldset", undefined, "quiz-question exercise-box");
+      const legend = element("legend");
+      legend.append(document.createTextNode(`${index + 1}. `), markdown(exercise.enunciado, true));
+      box.append(legend);
+      if (exercise.entregable) box.append(element("p", `Entregable: ${exercise.entregable}`, "exercise-deliverable"));
+      const input = textarea(box, "Tu respuesta (opcional)");
+      input.value = data.answeredExercises?.[exercise.id] || "";
+      input.disabled = submitted;
+      form.append(box);
+      return { id: exercise.id, box, input };
+    });
+    const revealExerciseSolutions = (solutions) => {
+      for (const exercise of exercises) {
+        const solution = solutions?.[exercise.id];
+        if (typeof solution !== "string") continue;
+        const panel = element("div", undefined, "exercise-solution");
+        panel.append(element("strong", "Solución"), markdown(solution));
+        exercise.box.append(panel);
+      }
+    };
+    revealExerciseSolutions(Object.fromEntries((data.quiz.exercises || []).flatMap((exercise) =>
+      typeof exercise.solucion === "string" ? [[exercise.id, exercise.solucion]] : [])));
     if (recorded.size) showScore(form, `${[...recorded.values()].filter((r) => r.ok).length}/${recorded.size}`);
     if (pending.length) {
       const ownWords = !diagnosis && textarea(form, "Vuelco con tus palabras");
-      // Each of the part's own exercises gets a box under its statement; a part without exercises gets none.
-      const exercises = (data.quiz.exercises || []).map((exercise, index) => {
-        const box = element("fieldset", undefined, "quiz-question exercise-box");
-        const legend = element("legend");
-        legend.append(document.createTextNode(`${index + 1}. `), markdown(exercise.enunciado, true));
-        box.append(legend);
-        form.append(box);
-        return { id: exercise.id, input: textarea(box, "Tu respuesta (opcional)") };
-      });
       const button = element("button", "Enviar al tutor");
       button.type = "submit";
       const message = status();
@@ -380,6 +395,7 @@
           });
           showScore(section, response.score, response.saved);
           form.querySelectorAll("input, textarea, button").forEach((input) => { input.disabled = true; });
+          revealExerciseSolutions(response.exerciseSolutions || {});
           message.textContent = "";
           notifyStudio(payload, response, (id) => data.quiz.questions.find((question) => question.id === id));
         } catch (error) {

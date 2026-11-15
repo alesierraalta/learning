@@ -159,6 +159,18 @@ h3 { font-weight: 700; }
 .learning-source-help[hidden], .learning-source-help [hidden] { display: none; }
 .learning-source-count, .learning-source-error { display: block; }
 .learning-source-error { color: var(--red); font-weight: 600; }
+.learning-source-control { display: grid; justify-items: start; gap: 6px; margin: 10px 0; }
+.learning-source-picker { position: relative; display: inline-flex; align-items: center; min-height: 44px; padding: 7px 12px; border: 1px solid var(--line); background: var(--paper); color: var(--blue); font: 600 14px/1.4 var(--sans); cursor: pointer; }
+.learning-source-picker:hover { border-color: var(--blue); background: var(--blue-s); }
+.learning-source-picker:focus-within { outline: 3px solid var(--blue); outline-offset: 2px; }
+.learning-source-picker input { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.learning-source-picker:has(input:disabled) { opacity: .55; cursor: wait; }
+.learning-source-list { display: grid; gap: 4px; width: min(100%, 38rem); margin: 0; padding: 0; list-style: none; }
+.learning-source-list:empty { display: none; }
+.learning-source-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 2px 0; border-bottom: 1px solid var(--line); font: 14px/1.4 var(--sans); }
+.learning-source-item > span { min-width: 0; overflow-wrap: anywhere; }
+.learning-source-errors { margin: 0; color: var(--red); font: 600 13px/1.45 var(--sans); white-space: pre-wrap; }
+.learning-source-errors[hidden], .mode-pick[hidden] { display: none; }
 .mode-picks { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .exam-choice-group { margin-top: 12px; }
 .exam-choice-group[hidden], .exam-practice-other[hidden] { display: none; }

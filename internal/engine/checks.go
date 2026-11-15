@@ -184,6 +184,9 @@ func evalCheck(c *evalCtx, decl rules.CheckDecl) Check {
 	case "exam_mock":
 		return evalExamMock(c, decl)
 
+	case "exam_practice":
+		return evalExamPractice(c, decl)
+
 	case "demo_part":
 		return evalDemoPart(c, decl)
 

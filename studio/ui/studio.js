@@ -751,6 +751,9 @@
     let modo = "";
     let formato = "";
     let practica = "";
+    const fuentes = [];
+    const erroresFuente = [];
+    let subidasPendientes = 0;
     const picks = [
       ["universitario", "Universitario", "plan, diagnóstico y partes con quiz"],
       ["rapido", "Rápido", "una nota breve para entenderlo hoy"],
@@ -773,12 +776,25 @@
     ].map(([id, title]) =>
       h("button", { type: "button", class: "mode-pick", "data-practica": id, "aria-pressed": "false", onclick: () => pickPractice(id) }, h("b", {}, title)),
     );
+    const deducirPick = h("button", { type: "button", class: "mode-pick", "data-formato": "deducir", "aria-pressed": "false", onclick: () => pickFormat("deducir") }, h("b", {}, "Que lo deduzca el tutor"));
+    let formatButtons = formatPicks;
+    const formatPicksContainer = h("div", { class: "mode-picks" }, formatPicks);
     const practiceInput = h("input", { type: "text", class: "exam-practice-other", maxlength: "120", "aria-label": "Describe el tipo de práctica", placeholder: "¿Qué práctica harás?", autocomplete: "off", hidden: true });
+    const fileInput = h("input", {
+      type: "file",
+      accept: ".pdf,image/png,image/jpeg,image/webp",
+      multiple: true,
+      "aria-label": "Adjuntar examen o documento",
+      onchange: () => { void uploadSources(); },
+    });
+    const filePicker = h("label", { class: "learning-source-picker" }, h("span", {}, "Adjuntar examen o documento"), fileInput);
+    const sourceList = h("ul", { class: "learning-source-list", "aria-label": "Archivos adjuntos" });
+    const sourceErrors = h("p", { class: "learning-source-errors", role: "status", "aria-live": "polite", hidden: true });
     const formatGroup = h(
       "div",
       { class: "exam-choice-group", role: "group", "aria-label": "Formato del examen", hidden: true },
       h("p", { class: "exam-choice-question" }, "¿Cómo será tu examen?"),
-      h("div", { class: "mode-picks" }, formatPicks),
+      formatPicksContainer,
     );
     const practiceGroup = h(
       "div",
@@ -795,15 +811,16 @@
     };
     const resetExam = () => {
       formato = "";
-      for (const b of formatPicks) b.setAttribute("aria-pressed", "false");
+      for (const b of formatButtons) b.setAttribute("aria-pressed", "false");
       resetPractice();
     };
     const canSubmit = () => {
       const text = input.value.trim();
       const examReady = modo !== "examen" || (
-        formato !== "" && (formato !== "practical" || (practica !== "" && (practica !== "otro" || practiceInput.value.trim() !== "")))
+        formato !== "" && (formato !== "deducir" || fuentes.length > 0) &&
+        (formato !== "practical" || (practica !== "" && (practica !== "otro" || practiceInput.value.trim() !== "")))
       );
-      return Boolean(modo && text && input.value.length <= MAX_LEARNING_SOURCE_CHARS && examReady);
+      return Boolean(modo && text && input.value.length <= MAX_LEARNING_SOURCE_CHARS && examReady && subidasPendientes === 0);
     };
     const resizeInput = () => {
       input.style.height = "auto";
@@ -814,6 +831,8 @@
     const refresh = () => {
       const text = input.value;
       const tooLong = text.length > MAX_LEARNING_SOURCE_CHARS;
+      if (!fuentes.length && formato === "deducir") resetExam();
+      fileInput.disabled = subidasPendientes > 0;
       formatGroup.hidden = modo !== "examen";
       practiceGroup.hidden = modo !== "examen" || formato !== "practical";
       practiceInput.hidden = practica !== "otro" || practiceGroup.hidden;
@@ -826,6 +845,55 @@
       submit.title = tooLong ? LEARNING_SOURCE_TOO_LONG : "";
       resizeInput();
     };
+    const updateSourceList = () => {
+      if (fuentes.length) {
+        if (!formatPicksContainer.contains(deducirPick)) formatPicksContainer.append(deducirPick);
+        formatButtons = [...formatPicks, deducirPick];
+      } else {
+        deducirPick.remove();
+        formatButtons = formatPicks;
+      }
+      sourceList.replaceChildren(...fuentes.map((source, index) => {
+        const remove = btn("Quitar", () => {
+          fuentes.splice(index, 1);
+          updateSourceList();
+          refresh();
+        }, "btn ghost small");
+        remove.setAttribute("aria-label", `Quitar ${source.nombre}`);
+        return h("li", { class: "learning-source-item", "data-id": source.id }, h("span", {}, source.nombre), remove);
+      }));
+      sourceErrors.hidden = erroresFuente.length === 0;
+      sourceErrors.textContent = erroresFuente.join("\n");
+    };
+    const uploadSources = async () => {
+      const selected = Array.from(fileInput.files || []);
+      fileInput.value = "";
+      if (!selected.length) return;
+      erroresFuente.length = 0;
+      const remaining = Math.max(0, 5 - fuentes.length);
+      const accepted = selected.slice(0, remaining);
+      if (accepted.length < selected.length) erroresFuente.push("Puedes adjuntar un máximo de 5 archivos por tema.");
+      subidasPendientes = accepted.length;
+      updateSourceList();
+      refresh();
+      for (const file of accepted) {
+        try {
+          const response = await fetch(`${base}api/subir`, {
+            method: "POST",
+            headers: { "content-type": file.type, "x-file-name": encodeURIComponent(file.name) },
+            body: file,
+          });
+          const uploaded = await response.json();
+          if (!response.ok) throw new Error(uploaded.error || "No se pudo subir el archivo.");
+          fuentes.push({ id: uploaded.id, nombre: uploaded.nombre, tipo: uploaded.tipo });
+        } catch (error) {
+          erroresFuente.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        subidasPendientes--;
+        updateSourceList();
+        refresh();
+      }
+    };
     const pick = (id) => {
       modo = id;
       for (const b of picks) b.setAttribute("aria-pressed", String(b.dataset.modo === id));
@@ -834,7 +902,7 @@
     };
     const pickFormat = (id) => {
       formato = id;
-      for (const b of formatPicks) b.setAttribute("aria-pressed", String(b.dataset.formato === id));
+      for (const b of formatButtons) b.setAttribute("aria-pressed", String(b.dataset.formato === id));
       if (id !== "practical") resetPractice();
       refresh();
     };
@@ -855,6 +923,7 @@
           ...(formato === "practical" ? { practica: practica === "otro" ? practiceInput.value.trim() : practica } : {}),
         };
       }
+      if (fuentes.length) body.fuentes = fuentes.map((source) => source.id);
       openDrawer();
       try {
         await post("api/aprender", body);
@@ -865,6 +934,9 @@
       input.value = "";
       modo = "";
       resetExam();
+      fuentes.length = 0;
+      erroresFuente.length = 0;
+      updateSourceList();
       for (const b of picks) b.setAttribute("aria-pressed", "false");
       refresh();
     };
@@ -882,6 +954,7 @@
       form,
       h("p", { class: "learn-hint" }, "Elige rápido, universitario o examen; para Examen, elige también el formato (y el tipo de práctica si corresponde)."),
       sourceHelp,
+      h("div", { class: "learning-source-control" }, filePicker, sourceList, sourceErrors),
       h("div", { class: "mode-picks", role: "group", "aria-label": "Modo de estudio" }, picks),
       formatGroup,
       practiceGroup,

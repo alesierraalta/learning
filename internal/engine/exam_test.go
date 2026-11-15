@@ -108,6 +108,34 @@ func patchPlanExam(t *testing.T, f *fixture, format, practice string, parts map[
 	f.writeJSON(t, "plan.json", doc)
 }
 
+func setExamSource(t *testing.T, f *fixture, source string) {
+	t.Helper()
+	state := f.state(t)
+	exam := state["exam"].(map[string]any)
+	exam["source"] = source
+	f.writeJSON(t, ".learning/state.json", state)
+}
+
+func patchPlanSourceStructure(t *testing.T, f *fixture, source string, structure []map[string]any) {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(f.read(t, "plan.json"), &doc); err != nil {
+		t.Fatalf("decode plan.json: %v", err)
+	}
+	exam := doc["examen"].(map[string]any)
+	if source == "" {
+		delete(exam, "fuente")
+	} else {
+		exam["fuente"] = source
+	}
+	if structure == nil {
+		delete(exam, "estructura")
+	} else {
+		exam["estructura"] = structure
+	}
+	f.writeJSON(t, "plan.json", doc)
+}
+
 func writeExamPlan(t *testing.T, f *fixture, format, practice, purpose string) {
 	t.Helper()
 	f.writePlan(t, defaultParts()...)
@@ -152,6 +180,12 @@ func TestExamRulesRequireValidThresholds(t *testing.T) {
 		{"positive minimum", func(doc map[string]any) {
 			doc["thresholds"].(map[string]any)["exam"].(map[string]any)["minPartChars"] = float64(0)
 		}, "exam minPartChars must be positive"},
+		{"positive practice minimum", func(doc map[string]any) {
+			doc["thresholds"].(map[string]any)["exam"].(map[string]any)["minPracticePerPart"] = float64(0)
+		}, "exam minPracticePerPart must be positive"},
+		{"nonnegative practice minimum", func(doc map[string]any) {
+			doc["thresholds"].(map[string]any)["exam"].(map[string]any)["minPracticePerPart"] = float64(-1)
+		}, "exam minPracticePerPart must not be negative"},
 		{"nonempty formats", func(doc map[string]any) {
 			doc["thresholds"].(map[string]any)["exam"].(map[string]any)["formats"] = []any{}
 		}, "exam formats must not be empty"},
@@ -333,6 +367,10 @@ func writeExamMock(t *testing.T, f *fixture, format string, questions []map[stri
 }
 
 func examClosingFixture(t *testing.T, format, practice, artifactFormat string, questions []map[string]any, answers map[string]string) *fixture {
+	return examClosingFixtureWithSource(t, format, practice, artifactFormat, "", nil, questions, answers)
+}
+
+func examClosingFixtureWithSource(t *testing.T, format, practice, artifactFormat, source string, structure []map[string]any, questions []map[string]any, answers map[string]string) *fixture {
 	t.Helper()
 	f := examRulesFixture(t)
 	opts := f.opts("init", "")
@@ -340,11 +378,17 @@ func examClosingFixture(t *testing.T, format, practice, artifactFormat string, q
 	if rep, code := f.run(t, opts); code != 0 || rep.Status != "accepted" {
 		t.Fatalf("init exam run: status=%q exit=%d detail=%s", rep.Status, code, rep.Detail)
 	}
+	if source != "" {
+		setExamSource(t, f, source)
+	}
 	p1 := partCfg{id: "p1", ex: true, vis: true, title: "Parte"}
 	f.writePlan(t, p1)
 	f.patchPlanPareto(t, paretoBlock(), "la capacidad que rinde el 80%")
 	purpose := "Esta parte prepara cómo responder el examen con sus conceptos principales."
 	patchPlanExam(t, f, format, practice, map[string]string{"p1": purpose})
+	if source != "" || structure != nil {
+		patchPlanSourceStructure(t, f, source, structure)
+	}
 	f.advanceOK(t, "preparation")
 	f.writeDiagQuestions(t, buildDiagQuestions(6, 6, p1))
 	f.writeDiagAnswersFor(t, []partCfg{p1}, 2, 6)
@@ -352,6 +396,9 @@ func examClosingFixture(t *testing.T, format, practice, artifactFormat string, q
 	f.writePlanWith(t, "Dificultades detectadas en consenso.", []string{"d3"}, p1)
 	f.patchPlanPareto(t, paretoBlock(), "la capacidad que rinde el 80%")
 	patchPlanExam(t, f, format, practice, map[string]string{"p1": purpose})
+	if source != "" || structure != nil {
+		patchPlanSourceStructure(t, f, source, structure)
+	}
 	f.advanceOK(t, "planning")
 	f.writeVitalExplanation(t, "p1", true, "v1")
 	f.advanceOK(t, "explanation")
@@ -365,6 +412,9 @@ func examClosingFixture(t *testing.T, format, practice, artifactFormat string, q
 	f.writePlanWith(t, "Actualizada tras el feedback.", []string{"d3"}, p1)
 	f.patchPlanPareto(t, paretoBlock(), "la capacidad que rinde el 80%")
 	patchPlanExam(t, f, format, practice, map[string]string{"p1": purpose})
+	if source != "" || structure != nil {
+		patchPlanSourceStructure(t, f, source, structure)
+	}
 	f.advanceOK(t, "planning")
 	f.advanceOK(t, "adaptation")
 	f.advanceOK(t, "exercises")
@@ -543,5 +593,267 @@ func TestExamMockSkipsForRunsWithoutExam(t *testing.T) {
 	rep := f.advanceOK(t, "final_quiz")
 	if check, ok := hasCheck(rep, "exam-mock"); !ok || check.Status != "SKIP" {
 		t.Fatalf("final exam-mock = %+v, want SKIP", check)
+	}
+}
+
+func examPracticeCheckForTest(t *testing.T, f *fixture, stage string, exam *Exam) (Check, bool) {
+	t.Helper()
+	r, err := rules.Load(productionRulesPath)
+	if err != nil {
+		t.Fatalf("load production rules: %v", err)
+	}
+	f.writePlan(t, partCfg{id: "p1", title: "Parte"})
+	st := &State{Scope: scopePareto, Exam: exam}
+	if exam == nil {
+		st.Scope = scopeComplete
+	}
+	result := evalStage(r, st, f.ws, stage, "p1")
+	return hasCheck(Report{Checks: result.checks}, "exam-practice")
+}
+
+func TestExamPracticeRunsAtEveryPartStage(t *testing.T) {
+	r, err := rules.Load(productionRulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range r.PartStages {
+		t.Run(stage, func(t *testing.T) {
+			f := newFixture(t)
+			f.writeJSON(t, "practica/p1.json", map[string]any{"exercises": []any{
+				map[string]any{"id": "app-1", "enunciado": "Construye una aplicación.", "entregable": "Aplicación ejecutable.", "solucion": "Implementa la entrada y salida."},
+				map[string]any{"id": "app-2", "enunciado": "Valida otra entrada.", "entregable": "Prueba automatizada.", "solucion": "Comprueba los casos límite."},
+			}})
+			check, ok := examPracticeCheckForTest(t, f, stage, &Exam{Format: "practical"})
+			if !ok || check.Status != "PASS" {
+				t.Fatalf("%s exam-practice = %+v, present=%t; want PASS", stage, check, ok)
+			}
+		})
+	}
+}
+
+func TestExamPracticeCountsCodeExercises(t *testing.T) {
+	f := newFixture(t)
+	f.writeJSON(t, "practica/p1.json", map[string]any{"exercises": []any{
+		map[string]any{"id": "app-1", "enunciado": "Construye una aplicación.", "entregable": "Aplicación ejecutable.", "solucion": "Implementa la entrada y salida."},
+	}})
+	f.writeJSON(t, "codigo/app-check/ejercicio.json", map[string]any{
+		"parte": "p1", "enunciado": "Implementa la validación de entrada.",
+	})
+	f.writeJSON(t, "codigo/other-part/ejercicio.json", map[string]any{
+		"parte": "p2", "enunciado": "Este ejercicio pertenece a otra parte.",
+	})
+	check, ok := examPracticeCheckForTest(t, f, "explanation", &Exam{Format: "practical"})
+	if !ok || check.Status != "PASS" {
+		t.Fatalf("exam-practice = %+v, present=%t; want PASS counting the matching code exercise", check, ok)
+	}
+}
+
+func TestExamPracticeRejectsInsufficientOrInvalidSources(t *testing.T) {
+	valid := `{"id":"app-1","enunciado":"Construye una aplicación.","entregable":"Aplicación ejecutable.","solucion":"Implementa la entrada y salida."}`
+	cases := []struct {
+		name string
+		file string
+		want string
+	}{
+		{"missing sources", "", "part p1 needs at least 2 practical exercises: practica/p1.json is missing and no matching codigo/<id>/ejercicio.json was found"},
+		{"too few exercises", `{"exercises":[` + valid + `]}`, "part p1 has 1 practical exercise in practica/p1.json and 0 matching codigo/<id>/ejercicio.json files; need at least 2"},
+		{"empty solution", `{"exercises":[{"id":"app-1","enunciado":"Construye una aplicación.","entregable":"Aplicación ejecutable.","solucion":"  "},{"id":"app-2","enunciado":"Valida otra entrada.","entregable":"Prueba automatizada.","solucion":"Comprueba los casos límite."}]}`, `part p1: practica/p1.json exercise "app-1" has an empty solucion`},
+		{"empty statement", `{"exercises":[{"id":"app-1","enunciado":"  ","entregable":"Aplicación ejecutable.","solucion":"Implementa la entrada y salida."},{"id":"app-2","enunciado":"Valida otra entrada.","entregable":"Prueba automatizada.","solucion":"Comprueba los casos límite."}]}`, `part p1: practica/p1.json exercise "app-1" has an empty enunciado`},
+		{"empty deliverable", `{"exercises":[{"id":"app-1","enunciado":"Construye una aplicación.","entregable":"  ","solucion":"Implementa la entrada y salida."},{"id":"app-2","enunciado":"Valida otra entrada.","entregable":"Prueba automatizada.","solucion":"Comprueba los casos límite."}]}`, `part p1: practica/p1.json exercise "app-1" has an empty entregable`},
+		{"duplicate id", `{"exercises":[` + valid + `,` + valid + `]}`, `part p1: practica/p1.json repeats exercise id "app-1"`},
+		{"unsafe id", `{"exercises":[{"id":"../outside","enunciado":"Construye una aplicación.","entregable":"Aplicación ejecutable.","solucion":"Implementa la entrada y salida."},{"id":"app-2","enunciado":"Valida otra entrada.","entregable":"Prueba automatizada.","solucion":"Comprueba los casos límite."}]}`, `part p1: practica/p1.json exercise 1 id "../outside" is not a safe ID`},
+		{"malformed JSON", `{"exercises":[`, "part p1: practica/p1.json is not valid JSON; repair the exercise JSON"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			if tc.file != "" {
+				f.write(t, "practica/p1.json", tc.file)
+			}
+			check, ok := examPracticeCheckForTest(t, f, "explanation", &Exam{Format: "practical"})
+			if !ok || check.Status != "FAIL" || check.Reason != tc.want {
+				t.Fatalf("exam-practice = %+v, present=%t; want FAIL with exact reason %q", check, ok, tc.want)
+			}
+		})
+	}
+}
+
+func TestExamPracticeOnlyCountsCodeExercisesForTheCurrentPart(t *testing.T) {
+	cases := []struct {
+		name      string
+		parte     string
+		enunciado string
+		want      string
+	}{
+		{"other part", "p2", "Este ejercicio pertenece a otra parte.", "part p1 needs at least 2 practical exercises: practica/p1.json is missing and no matching codigo/<id>/ejercicio.json was found"},
+		{"empty statement", "p1", "  ", "part p1 has no file practica/p1.json and 0 matching codigo/<id>/ejercicio.json files; codigo/app/ejercicio.json has an empty enunciado; need at least 2"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.writeJSON(t, "codigo/app/ejercicio.json", map[string]any{
+				"parte": tc.parte, "enunciado": tc.enunciado,
+			})
+			check, ok := examPracticeCheckForTest(t, f, "explanation", &Exam{Format: "practical"})
+			if !ok || check.Status != "FAIL" || check.Reason != tc.want {
+				t.Fatalf("exam-practice = %+v, present=%t; want FAIL with exact reason %q", check, ok, tc.want)
+			}
+		})
+	}
+}
+
+func TestExamPlanRequiresSourceAndStructureDeclarations(t *testing.T) {
+	validStructure := []map[string]any{{"tipo": "abierta", "cantidad": float64(2)}}
+	cases := []struct {
+		name       string
+		fuente     string
+		estructura []map[string]any
+		want       string
+	}{
+		{"missing fuente", "", validStructure, `plan examen fuente is missing, want "fuentes/parcial.pdf"`},
+		{"mismatched fuente", "fuentes/otro.pdf", validStructure, `plan examen fuente = "fuentes/otro.pdf", want "fuentes/parcial.pdf"`},
+		{"missing estructura", "fuentes/parcial.pdf", nil, "plan examen estructura needs at least one item"},
+		{"bad cantidad", "fuentes/parcial.pdf", []map[string]any{{"tipo": "abierta", "cantidad": float64(0)}}, `plan examen estructura tipo "abierta" cantidad must be at least 1 (got 0)`},
+		{"duplicate tipo", "fuentes/parcial.pdf", []map[string]any{{"tipo": "abierta", "cantidad": float64(1)}, {"tipo": "abierta", "cantidad": float64(2)}}, `plan examen estructura repeats tipo "abierta"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newExamFixture(t)
+			setExamState(t, f, "oral", "")
+			setExamSource(t, f, "fuentes/parcial.pdf")
+			writeExamPlan(t, f, "oral", "", strings.Repeat("oral-purpose-", 3))
+			patchPlanSourceStructure(t, f, tc.fuente, tc.estructura)
+			before := f.tryReadState(t)
+
+			rep, code := f.run(t, f.opts("advance", "preparation"))
+			check, ok := hasCheck(rep, "exam-plan")
+			if code != 1 || rep.Status != "blocked" || !ok || check.Status != "FAIL" || check.Reason != tc.want {
+				t.Fatalf("exam-plan = %+v, status %q exit %d; want exact reason %q", check, rep.Status, code, tc.want)
+			}
+			if !bytes.Equal(before, f.tryReadState(t)) {
+				t.Fatal("rejected source plan changed state")
+			}
+		})
+	}
+}
+
+func TestExamPlanWithoutSourceAllowsOptionalStructure(t *testing.T) {
+	f := newExamFixture(t)
+	setExamState(t, f, "oral", "")
+	writeExamPlan(t, f, "oral", "", strings.Repeat("oral-purpose-", 3))
+	patchPlanSourceStructure(t, f, "", []map[string]any{{"tipo": "abierta", "cantidad": float64(2)}})
+
+	rep, code := f.run(t, f.opts("advance", "preparation"))
+	check, ok := hasCheck(rep, "exam-plan")
+	if code != 0 || rep.Status != "accepted" || !ok || check.Status != "PASS" {
+		t.Fatalf("exam-plan = %+v, status %q exit %d; optional structure without source must not change behavior", check, rep.Status, code)
+	}
+}
+
+func TestExamMockMatchesTheRealQuestionStructure(t *testing.T) {
+	questions := []map[string]any{
+		examQuestion("f1", "mcq", "¿Qué opción describe el resultado?", "B", "seleccion", ""),
+		examQuestion("f2", "abierta", "Explica por qué funciona.", "", "desarrollo", ""),
+		examQuestion("f3", "abierta", "Analiza el caso límite.", "", "otro", ""),
+	}
+	answers := map[string]string{"f1": "B", "f2": "Respuesta abierta válida.", "f3": "Respuesta aplicada válida."}
+	cases := []struct {
+		name       string
+		estructura []map[string]any
+		want       string
+	}{
+		{
+			name: "matching type counts",
+			estructura: []map[string]any{
+				{"tipo": "seleccion", "cantidad": float64(1)},
+				{"tipo": "desarrollo", "cantidad": float64(1)},
+				{"tipo": "otro", "cantidad": float64(1)},
+			},
+		},
+		{
+			name: "all missing, short and unexpected kinds are listed",
+			estructura: []map[string]any{
+				{"tipo": "seleccion", "cantidad": float64(1)},
+				{"tipo": "desarrollo", "cantidad": float64(2)},
+				{"tipo": "esperada", "cantidad": float64(1)},
+			},
+			want: `cuestionario-final.json estructura differs from plan: tipo "desarrollo" has 1, want 2; tipo "esperada" has 0, want 1; tipo "otro" has 1, want 0`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := examClosingFixtureWithSource(t, "written", "", "written", "fuentes/parcial.pdf", tc.estructura, questions, answers)
+			before := f.tryReadState(t)
+
+			rep, code := f.run(t, f.opts("advance", "final_quiz"))
+			check, ok := hasCheck(rep, "exam-mock")
+			if tc.want == "" {
+				if code != 0 || rep.Status != "accepted" || !ok || check.Status != "PASS" {
+					t.Fatalf("exam-mock = %+v, status %q exit %d; want PASS", check, rep.Status, code)
+				}
+				return
+			}
+			if code != 1 || rep.Status != "blocked" || !ok || check.Status != "FAIL" || check.Reason != tc.want {
+				t.Fatalf("exam-mock = %+v, status %q exit %d; want exact reason %q", check, rep.Status, code, tc.want)
+			}
+			if !bytes.Equal(before, f.tryReadState(t)) {
+				t.Fatal("rejected source mock changed state")
+			}
+		})
+	}
+}
+
+func TestExamMockWithoutSourceIgnoresOptionalStructure(t *testing.T) {
+	questions := []map[string]any{
+		examQuestion("f1", "mcq", "¿Qué opción describe el resultado?", "B", "seleccion", ""),
+		examQuestion("f2", "abierta", "Explica por qué funciona.", "", "desarrollo", ""),
+	}
+	answers := map[string]string{"f1": "B", "f2": "Respuesta abierta válida."}
+	structure := []map[string]any{{"tipo": "no-presente", "cantidad": float64(3)}}
+	f := examClosingFixtureWithSource(t, "written", "", "written", "", structure, questions, answers)
+
+	rep, code := f.run(t, f.opts("advance", "final_quiz"))
+	check, ok := hasCheck(rep, "exam-mock")
+	if code != 0 || rep.Status != "accepted" || !ok || check.Status != "PASS" {
+		t.Fatalf("exam-mock = %+v, status %q exit %d; no-source behavior must ignore optional structure", check, rep.Status, code)
+	}
+}
+
+func TestExamPracticeSkipsOutsidePracticalExamRuns(t *testing.T) {
+	cases := []struct {
+		name string
+		exam *Exam
+		want string
+	}{
+		{"non-exam", nil, "run has no declared exam format"},
+		{"oral", &Exam{Format: "oral"}, `exam format "oral" does not require practical part exercises`},
+		{"written", &Exam{Format: "written"}, `exam format "written" does not require practical part exercises`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			check, ok := examPracticeCheckForTest(t, f, "explanation", tc.exam)
+			if !ok || check.Status != "SKIP" || check.Reason != tc.want {
+				t.Fatalf("exam-practice = %+v, present=%t; want SKIP with exact reason %q", check, ok, tc.want)
+			}
+			if tc.exam == nil {
+				r, err := rules.Load(productionRulesPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var decl rules.CheckDecl
+				for _, candidate := range r.Checks["explanation"] {
+					if candidate.ID == "exam-practice" {
+						decl = candidate
+						break
+					}
+				}
+				r.Checks = map[string][]rules.CheckDecl{"explanation": {decl}}
+				r.Conditions = nil
+				if _, err := buildReceipts(r, f.ws, "explanation", "p1"); err != nil {
+					t.Fatalf("non-exam stage receipt required the skipped practical artifact: %v", err)
+				}
+			}
+		})
 	}
 }
