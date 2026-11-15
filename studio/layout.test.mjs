@@ -303,6 +303,35 @@ test("the learning entry uploads up to five sources, reports failures inline, an
   assert.equal(await entry.locator(".learning-source-item").count(), 0, "a sent request clears its attached files");
 });
 
+test("the learning entry submits an attachment without learner text", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+
+  const entry = page.locator(".home-page .new-learning");
+  const fileInput = entry.getByLabel("Adjuntar examen o documento");
+  await fileInput.setInputFiles({ name: "examen.png", mimeType: "image/png", buffer: Buffer.from("imagen") });
+  await entry.locator(".learning-source-item").waitFor();
+  const sourceId = await entry.locator(".learning-source-item").getAttribute("data-id");
+  await entry.locator('.mode-pick[data-modo="universitario"]').click();
+  const submit = entry.locator('button[type="submit"]');
+  assert.equal(await submit.isDisabled(), false, "a source and a mode are sufficient without typed text");
+
+  const requestPromise = page.waitForRequest((request) => request.url().endsWith("/api/aprender"));
+  const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/aprender"));
+  await submit.click();
+  const request = await requestPromise;
+  assert.deepEqual(request.postDataJSON(), { text: "", modo: "universitario", fuentes: [sourceId] });
+  const response = await responsePromise;
+  assert.equal(response.status(), 200, await response.text());
+  await page.waitForFunction(() => document.querySelectorAll(".learning-source-item").length === 0);
+});
+
 test("the learning entry preserves pasted lines, grows, and sends with Enter", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;

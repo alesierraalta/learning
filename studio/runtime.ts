@@ -27,6 +27,8 @@ export type ExamChoice = { formato: ExamFormat; practica?: string };
 export interface UploadedSourcePrompt {
   path: string;
   textPath?: string;
+  pagePaths?: readonly string[];
+  pagesTruncated?: boolean;
 }
 
 /**
@@ -52,10 +54,21 @@ export function modeLine(mode: StudyMode, examen?: ExamChoice): string {
 
 /** The first-turn instruction for source files stored by the studio, including extracted PDF text. */
 export function fuentesLine(sources: readonly UploadedSourcePrompt[]): string {
-  const paths = sources.map(({ path, textPath }) =>
-    `archivo ${JSON.stringify(path)}${textPath ? ` (texto extraído: ${JSON.stringify(textPath)})` : ""}`,
-  );
-  return `[Fuentes subidas: ${paths.join("; ")}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos. Pasa las rutas originales (no los .txt extraídos) a learning_stage init como sources; en modo examen, pasa también la ruta original del examen principal como examSource (una de sources). El adaptador las copia a <topic>/fuentes/. No copies los archivos tú.]`;
+  const paths = sources.map(({ path, textPath, pagePaths }) => {
+    const details = [
+      ...(textPath ? [`texto extraído: ${JSON.stringify(textPath)}`] : []),
+      ...(pagePaths?.length ? [`páginas como imágenes: ${pagePaths.map((pagePath) => JSON.stringify(pagePath)).join(", ")}`] : []),
+    ];
+    return `archivo ${JSON.stringify(path)}${details.length ? ` (${details.join("; ")})` : ""}`;
+  });
+  const pageImages = sources.some((source) => source.pagePaths?.length);
+  const pageInstructions = pageImages
+    ? " Lee las imágenes de las páginas como imágenes: contienen preguntas y contenido visual que pdftotext no puede extraer."
+    : "";
+  const truncation = sources.some((source) => source.pagesTruncated)
+    ? " El PDF continúa después de la página 20: solo se renderizaron sus primeras 20 páginas."
+    : "";
+  return `[Fuentes subidas: ${paths.join("; ")}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos.${pageInstructions}${truncation} Pasa las rutas originales (no los .txt extraídos) a learning_stage init como sources; en modo examen, pasa también la ruta original del examen principal como examSource (una de sources). El adaptador las copia a <topic>/fuentes/. No copies los archivos tú.]`;
 }
 
 /**

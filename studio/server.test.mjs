@@ -9,7 +9,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { request, createServer } from "node:http";
-import { dirname, join, sep } from "node:path";
+import { delimiter, dirname, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { entryUrl, idleMinutesFor, DEFAULT_IDLE_MINUTES, noteFromMessages, noteFromPath, startStudio as startStudioChecked, studioLinks, topicFromPath } from "./server.ts";
@@ -59,16 +59,25 @@ const UPLOAD_ERRORS = {
   tooLarge: "El archivo supera el límite de 20 MB.",
   unsupported: "Tipo de archivo no permitido. Sube PDF, PNG, JPEG o WebP.",
   pdfText: "No se pudo extraer el texto del PDF.",
+  pdfPages: "No se pudieron generar las imágenes de las páginas del PDF.",
   fuentes: "Las fuentes deben ser entre 1 y 5 archivos subidos válidos.",
   deducir: "El formato «deducir» requiere al menos una fuente.",
 };
 const pdftotextAvailable = spawnSync("pdftotext", ["-v"], { stdio: "ignore" }).error?.code !== "ENOENT";
-const tinyPdf = () => {
+const pdftoppmAvailable = spawnSync("pdftoppm", ["-v"], { stdio: "ignore" }).error?.code !== "ENOENT";
+const pdfinfoAvailable = spawnSync("pdfinfo", ["-v"], { stdio: "ignore" }).error?.code !== "ENOENT";
+const pdfToolsAvailable = pdftotextAvailable && pdftoppmAvailable && pdfinfoAvailable;
+const executablePath = (name) => process.env.PATH.split(delimiter).map((directory) => join(directory, name)).find(existsSync);
+const tinyPdf = (pageCount = 1) => {
   const stream = "BT /F1 12 Tf 20 100 Td (Examen real de redes.) Tj ET";
+  const firstFontId = pageCount + 3;
+  const streamId = firstFontId + 1;
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    `<< /Type /Pages /Kids [${Array.from({ length: pageCount }, (_, index) => `${index + 3} 0 R`).join(" ")}] /Count ${pageCount} >>`,
+    ...Array.from({ length: pageCount }, () =>
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Resources << /Font << /F1 ${firstFontId} 0 R >> >> /Contents ${streamId} 0 R >>`,
+    ),
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     `<< /Length ${Buffer.byteLength(stream, "ascii")} >>\nstream\n${stream}\nendstream`,
   ];
@@ -1191,9 +1200,9 @@ test("quick mode refuses exam fields before starting a turn", async () => {
   await assertExamRefusal({ text: "redes neuronales", modo: "rapido", examen: { formato: "written" } }, /solo.*modo examen/i);
 });
 
-test("PDF uploads store the original and pdftotext extraction", { skip: pdftotextAvailable ? false : "pdftotext is not installed; PDF extraction cannot be verified" }, async () => {
+test("PDF uploads render at most 20 pages to 150-dpi PNGs with byte-bounded names", { skip: pdfToolsAvailable ? false : "pdftotext, pdftoppm and pdfinfo are required for PDF upload" }, async () => {
   const { studio, root } = await setup();
-  const bytes = tinyPdf();
+  const bytes = tinyPdf(21);
   const response = await uploadFile(studio, `${"漢".repeat(120)}.pdf`, "application/pdf", bytes);
   assert.equal(response.status, 200, response.body);
   const uploaded = JSON.parse(response.body);
@@ -1206,6 +1215,44 @@ test("PDF uploads store the original and pdftotext extraction", { skip: pdftotex
   const directory = join(root, ".subidas", uploaded.id);
   assert.deepEqual(readFileSync(join(directory, uploaded.nombre)), bytes);
   assert.match(readFileSync(join(directory, `${uploaded.nombre}.txt`), "utf8"), /Examen real de redes/);
+  const images = Array.from({ length: 20 }, (_, index) => join(directory, `${uploaded.nombre}.p${index + 1}.png`));
+  assert.equal(readdirSync(directory).filter((name) => name.endsWith(".png")).length, 20, "the upload stores no more than the 20-page cap");
+  for (const image of images) {
+    assert.ok(Buffer.byteLength(image.split(sep).at(-1), "utf8") <= 255, "each generated page name fits NAME_MAX");
+    const png = readFileSync(image);
+    assert.deepEqual(png.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), `${image} is a PNG`);
+    assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [625, 300], "the known 300×144pt page was rendered at 150 dpi");
+  }
+});
+
+test("the first-turn prompt names the 20-page cap when a PDF continues", { skip: pdfToolsAvailable ? false : "PDF utilities are not installed; PDF sources cannot be created" }, async () => {
+  const { studio, root, received } = await setup();
+  const uploaded = JSON.parse((await uploadFile(studio, "largo.pdf", "application/pdf", tinyPdf(21))).body);
+  const response = await post(studio, "api/aprender", { text: "redes", modo: "examen", examen: { formato: "deducir" }, fuentes: [uploaded.id] });
+  assert.equal(response.status, 200, response.body);
+  await until(() => received().some((entry) => entry.type === "prompt"));
+  const prompt = received().find((entry) => entry.type === "prompt").message;
+  assert.ok(prompt.includes(join(root, ".subidas", uploaded.id, `${uploaded.nombre}.p20.png`)), "the prompt names the last rendered page");
+  assert.match(prompt, /PDF continúa después de la página 20.*primeras 20 páginas/i, "the prompt discloses that later pages were not rendered");
+});
+
+test("a PDF upload fails cleanly with the exact error when pdftoppm is missing", { skip: pdftotextAvailable ? false : "pdftotext is not installed; the missing renderer cannot be isolated" }, async () => {
+  const { studio, root } = await setup();
+  const bin = mkdtempSync(join(tmpdir(), "missing-pdftoppm-"));
+  const pdftotext = executablePath("pdftotext");
+  assert.ok(pdftotext, "pdftotext exists for the missing-pdftoppm fixture");
+  symlinkSync(pdftotext, join(bin, "pdftotext"));
+  const originalPath = process.env.PATH;
+  process.env.PATH = bin;
+  try {
+    const response = await uploadFile(studio, "roto-render.pdf", "application/pdf", tinyPdf());
+    assert.equal(response.status, 500, response.body);
+    assert.equal(JSON.parse(response.body).error, UPLOAD_ERRORS.pdfPages);
+    const uploadRoot = join(root, ".subidas");
+    for (const id of readdirSync(uploadRoot)) assert.deepEqual(readdirSync(join(uploadRoot, id)), [], "a failed page render removes the PDF and extracted text");
+  } finally {
+    process.env.PATH = originalPath;
+  }
 });
 
 test("failed PDF extraction returns its exact error and leaves no stored file", { skip: pdftotextAvailable ? false : "pdftotext is not installed; PDF extraction cannot be verified" }, async () => {
@@ -1318,7 +1365,18 @@ test("exam format deducir without fuentes is refused with the exact Spanish erro
   assert.equal(received().filter((entry) => entry.type === "prompt").length, 0);
 });
 
-test("the first-turn prompt names uploaded PDF and image paths and asks for deduced exam init", { skip: pdftotextAvailable ? false : "pdftotext is not installed; PDF prompt paths cannot be created" }, async () => {
+test("an empty request with an attached PDF asks the tutor to take the topic from the exam", { skip: pdfToolsAvailable ? false : "PDF utilities are not installed; PDF sources cannot be created" }, async () => {
+  const { studio, root, received } = await setup();
+  const uploaded = JSON.parse((await uploadFile(studio, "examen.pdf", "application/pdf", tinyPdf())).body);
+  const response = await post(studio, "api/aprender", { text: "", modo: "examen", examen: { formato: "deducir" }, fuentes: [uploaded.id] });
+  assert.equal(response.status, 200, response.body);
+  await until(() => received().some((entry) => entry.type === "prompt"));
+  const message = received().find((entry) => entry.type === "prompt").message;
+  assert.match(message, /^Quiero aprender el tema que aparece en el examen o documento adjunto\./);
+  assert.ok(message.includes(join(root, ".subidas", uploaded.id, `${uploaded.nombre}.p1.png`)), "the request names the attached PDF page image");
+});
+
+test("the first-turn prompt names the PDF page images and tells the tutor to read them", { skip: pdfToolsAvailable ? false : "PDF utilities are not installed; PDF prompt paths cannot be created" }, async () => {
   const { studio, root, received } = await setup();
   const pdf = JSON.parse((await uploadFile(studio, "parcial.pdf", "application/pdf", tinyPdf())).body);
   const image = JSON.parse((await uploadFile(studio, "captura.png", "image/png", tinyImage)).body);
@@ -1333,8 +1391,9 @@ test("the first-turn prompt names uploaded PDF and image paths and asks for dedu
   const prompt = received().find((entry) => entry.type === "prompt").message;
   const pdfPath = join(root, ".subidas", pdf.id, pdf.nombre);
   const pdfTextPath = `${pdfPath}.txt`;
+  const pdfPagePath = `${pdfPath}.p1.png`;
   const imagePath = join(root, ".subidas", image.id, image.nombre);
-  const expectedSources = `[Fuentes subidas: archivo ${JSON.stringify(pdfPath)} (texto extraído: ${JSON.stringify(pdfTextPath)}); archivo ${JSON.stringify(imagePath)}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos. Pasa las rutas originales (no los .txt extraídos) a learning_stage init como sources; en modo examen, pasa también la ruta original del examen principal como examSource (una de sources). El adaptador las copia a <topic>/fuentes/. No copies los archivos tú.]`;
+  const expectedSources = `[Fuentes subidas: archivo ${JSON.stringify(pdfPath)} (texto extraído: ${JSON.stringify(pdfTextPath)}; páginas como imágenes: ${JSON.stringify(pdfPagePath)}); archivo ${JSON.stringify(imagePath)}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos. Lee las imágenes de las páginas como imágenes: contienen preguntas y contenido visual que pdftotext no puede extraer. Pasa las rutas originales (no los .txt extraídos) a learning_stage init como sources; en modo examen, pasa también la ruta original del examen principal como examSource (una de sources). El adaptador las copia a <topic>/fuentes/. No copies los archivos tú.]`;
   const expectedDeducir = "[Modo de estudio: examen — ya decidido en el estudio, con formato por deducir a partir de las fuentes. Deduce el formato (y, si es práctico, el tipo de práctica) del examen/documento subido y pásalos a learning_stage init como exam y, solo si corresponde, practice. Nunca elijas un formato ni un tipo de práctica por defecto.]";
   assert.ok(prompt.includes(expectedDeducir), `deduced format is passed to init: ${prompt}`);
   const sourceLine = prompt.split("\n").find((line) => line.startsWith("[Fuentes subidas:"));
@@ -1365,7 +1424,7 @@ test("a request from «Aprender algo nuevo» carries the mode to each tutor", as
   }
 });
 
-test("«Aprender algo nuevo» refuses a request with no mode and sends nothing", async () => {
+test("«Aprender algo nuevo» keeps refusing blank text without an attachment with the exact message", async () => {
   const { studio, prompts, stream } = await piStudio();
   try {
     for (const body of [{ text: "algo" }, { text: "algo", modo: "" }, { text: "algo", modo: "medio" }, { text: "algo", modo: "Universitario" }, { text: "  ", modo: "rapido" }]) {

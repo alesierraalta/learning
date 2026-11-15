@@ -820,7 +820,7 @@
         formato !== "" && (formato !== "deducir" || fuentes.length > 0) &&
         (formato !== "practical" || (practica !== "" && (practica !== "otro" || practiceInput.value.trim() !== "")))
       );
-      return Boolean(modo && text && input.value.length <= MAX_LEARNING_SOURCE_CHARS && examReady && subidasPendientes === 0);
+      return Boolean(modo && (text || fuentes.length > 0) && input.value.length <= MAX_LEARNING_SOURCE_CHARS && examReady && subidasPendientes === 0);
     };
     const resizeInput = () => {
       input.style.height = "auto";
