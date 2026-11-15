@@ -11,7 +11,6 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
-import { spawnSync } from "node:child_process";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -24,6 +23,7 @@ import { recordQuizTelemetry } from "./telemetry.ts";
 import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio, type Transcriber } from "./transcribe.ts";
 import { CodeRunError, loadRunners, readExercise, publicExercise, forPage, runCode, type Runner } from "./coderun.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
+import { gateVerdictsFile as defaultGateVerdictsFile, getGateVerdict, type GateVerdictOptions } from "./gate-verdicts.ts";
 
 const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
 const KIT_DIR = join(dirname(fileURLToPath(import.meta.url)), "kit");
@@ -409,43 +409,19 @@ function richPage(topicDir: string, plan: { parts: PlanPart[] }, partId: string)
   return existsSync(file) ? file : undefined;
 }
 
-// The repository root: this file lives in integrations/pi, two levels below it.
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FIGURA = /<(lk-[a-z][a-z-]*)\b[^>]*>[\s\S]*?<\/\1>/g;
-const GATE_CACHE = new Map<string, { version: string; passes: boolean }>();
-
-/**
- * explain-check reads a page with the rules it reads a note with (#265). A page is served when every rule that is
- * not authoring-only passes (`serves`, #305): the authoring cues are measured when a part is written, never to take
- * away a part the learner already reads. The answer is kept per file version.
- */
-function pagePassesGates(file: string): boolean {
-  const info = statSync(file);
-  const version = `${info.mtimeMs}:${info.size}`;
-  const cached = GATE_CACHE.get(file);
-  if (cached?.version === version) return cached.passes;
-  const run = spawnSync(process.execPath, [join(REPO_ROOT, "tools", "explain-check.mjs"), file, "--json"], { encoding: "utf8", timeout: 180_000 });
-  let passes = false;
-  try {
-    passes = (JSON.parse(run.stdout) as { serves?: unknown }).serves === true;
-  } catch {
-    passes = false;
-  }
-  GATE_CACHE.set(file, { version, passes });
-  return passes;
-}
 
 /**
  * A page the tutor wrote can stand for its note only when it passes the same gates, carries every figure
  * the note draws (the same block, whitespace aside) and, for a part with a mini-quiz, the interactive quiz.
  */
-function richPageServes(rich: string, note: string, hasQuiz: boolean): boolean {
-  const page = readFileSync(rich, "utf8");
+async function richPageServes(rich: string, pageBytes: Buffer, note: string, hasQuiz: boolean, gateOptions: GateVerdictOptions): Promise<boolean> {
+  const page = pageBytes.toString("utf8");
   const squash = (value: string) => value.replace(/\s+/g, "");
   const kept = squash(page);
   if (![...readFileSync(note, "utf8").matchAll(FIGURA)].every((match) => kept.includes(squash(match[0])))) return false;
   if (hasQuiz && !/<lk-quiz[\s>]/.test(page)) return false;
-  return pagePassesGates(rich);
+  return getGateVerdict(rich, pageBytes, gateOptions);
 }
 
 /** The mini-quiz is drawn once, as the interactive quiz: the note's own numbered list is left out (#265). */
@@ -1448,6 +1424,10 @@ export interface BridgeOptions {
   kitDir?: string;
   /** Directory of the visual engine's draw.js (tests). */
   visualsDir?: string;
+  /** The shared verdict store lives in the vault's hidden cache directory by default. */
+  gateVerdictsFile?: string;
+  /** Override explain-check for deterministic tests. */
+  gateToolPath?: string;
   /**
    * A secret the URL token is derived from, so a restart keeps the token and open pages keep
    * working; the token is a keyed hash, never the secret itself. Random per start when absent.
@@ -1490,6 +1470,11 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   const richCsp = `${RICH_CSP}; frame-ancestors ${["'self'", ...embedders].join(" ")}`;
   const kitDir = options.kitDir ?? KIT_DIR;
   const visualsDir = options.visualsDir ?? VISUALS_DIR;
+  const gateOptions: GateVerdictOptions = {
+    gateToolPath: options.gateToolPath,
+    gateVerdictsFile: options.gateVerdictsFile ?? defaultGateVerdictsFile(options.root),
+    root: options.root,
+  };
   let server: Server | undefined;
   let starting: Promise<void> | undefined;
   let port = 0;
@@ -1631,17 +1616,18 @@ ${scripts}
     return `<script src="/${token}/kit/theme.js"></script><script>window.LEARNING_BRIDGE = ${json};</script><script src="/${token}/kit/dictate.js"></script>`;
   };
 
-  const partPage = (res: ServerResponse, topic: string, partId: string) => {
+  const partPage = async (res: ServerResponse, topic: string, partId: string) => {
     const dir = topicDir(topic);
     const plan = readPlan(dir);
     // The note is what the learner reads (#265). The page the tutor wrote beside it is served only when it
     // measures as its note; otherwise the learner gets the note, its story and its interactive quiz.
     const note = plan && partNote(dir, plan, partId);
     const rich = plan && note && richPage(dir, plan, partId);
+    const richBytes = rich ? readFileSync(rich) : undefined;
     // #276: an inline checkpoint is served drawn for the learner, whether the page is the note or the tutor's own.
     const checkpoints = orderOf(checkpointScope(topic, partId));
-    if (plan && note && rich && richPageServes(rich, note, existsSync(join(dir, "mini-quiz", `${partId}.json`)))) {
-      let html = ensureNodeMedia(injectFirst(readFileSync(rich, "utf8"), config(topic, partId, plan, dir)), token);
+    if (plan && note && rich && richBytes && await richPageServes(rich, richBytes, note, existsSync(join(dir, "mini-quiz", `${partId}.json`)), gateOptions)) {
+      let html = ensureNodeMedia(injectFirst(richBytes.toString("utf8"), config(topic, partId, plan, dir)), token);
       html = withoutQuickKeys(html, checkpoints);
       // A hand-built part page carries its own design, so it gets only the
       // reading-mode assets: the book columns and the page-turn script. It runs

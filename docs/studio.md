@@ -165,6 +165,15 @@ read as its note, rule by rule. The reader serves the page only when it measures
 every figure of the note (and the interactive quiz); otherwise the learner gets the note. This applies to every topic, including one whose `.learning/rules.json` is frozen: the
 engine's exemptions are about shape, not about a figure drawn over its own text.
 
+Rich-page verdicts are atomically stored in the vault's hidden, gitignored
+`.learning-cache/gate-verdicts.json`: keeping this per-vault cache beside its pages survives studio
+restarts without adding visible notes or committing generated state. Keys combine SHA-256 of the
+page bytes with SHA-256 of `explain-check.mjs` and its recursively imported local modules. The
+turn-end HTML check records that same `serves` verdict; a bridge cache miss runs asynchronously,
+concurrent opens share one run, and startup warms uncached rich pages serially in the background.
+Unreadable or corrupt cache data is ignored, and the reader still serves a rich page only when
+`serves` is exactly `true`.
+
 On findings the tutor gets **one correction turn on the same turn**, through the same gate path,
 carrying each tool's exact output and the fix, and spending the same `MAX_CORRECTIONS` budget the
 engine's corrections spend. When the budget is gone the learner reads, in the chat,

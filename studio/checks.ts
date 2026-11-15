@@ -13,8 +13,11 @@
  * deploy, so it is a rule here, not a preference.
  */
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { runGateCheck } from "../integrations/pi/gate-verdicts.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -56,6 +59,10 @@ export type PartChecks =
 export interface PartCheckOptions {
   /** Where the tools live; the repo's `tools/` unless a test says otherwise. */
   toolsDir?: string;
+  /** The shared rich-page verdict store. */
+  gateVerdictsFile?: string;
+  /** Override explain-check for deterministic tests. */
+  gateToolPath?: string;
   /** How long one tool may take before it counts as a crash. A browser launch is not instant. */
   timeoutMs?: number;
 }
@@ -66,9 +73,11 @@ type Run = { code: number; stdout: string; stderr: string; error?: string };
 const runTool = (tool: PartTool, file: string, options: PartCheckOptions): Promise<Run> =>
   new Promise((resolve) => {
     const toolsDir = options.toolsDir ?? join(REPO, "tools");
+    const toolPath = tool === "explain-check.mjs" ? options.gateToolPath ?? join(toolsDir, tool) : join(toolsDir, tool);
+    const args = [toolPath, file, ...(tool === "explain-check.mjs" && /\.html?$/i.test(file) ? ["--json"] : [])];
     execFile(
       process.execPath,
-      [join(toolsDir, tool), file],
+      args,
       { cwd: REPO, timeout: options.timeoutMs ?? 180_000, maxBuffer: 8 * 1024 * 1024, encoding: "utf8" },
       (error, stdout, stderr) => {
         const failure = error as (NodeJS.ErrnoException & { code?: number | string; killed?: boolean }) | null;
@@ -81,6 +90,18 @@ const runTool = (tool: PartTool, file: string, options: PartCheckOptions): Promi
       },
     );
   });
+
+const runHtmlGate = async (file: string, options: PartCheckOptions): Promise<Run> => {
+  try {
+    return await runGateCheck(file, await readFile(file), {
+      gateToolPath: options.gateToolPath ?? join(options.toolsDir ?? join(REPO, "tools"), "explain-check.mjs"),
+      gateVerdictsFile: options.gateVerdictsFile,
+      gateTimeoutMs: options.timeoutMs,
+    });
+  } catch (error) {
+    return { code: -1, stdout: "", stderr: "", error: (error as Error).message };
+  }
+};
 
 /**
  * The finding lines of one tool, read in the tool's own vocabulary. A tool that fails without
@@ -104,6 +125,14 @@ export function findingsOf(tool: PartTool, output: string): string[] {
     return output.split("\n").filter((line) => /^ {2}\{/.test(line)).map((line) => line.trim());
   }
   const lines = output.split("\n");
+  if (tool === "explain-check.mjs") {
+    try {
+      const rows = (JSON.parse(output) as { rows?: Array<{ ok?: unknown; rule?: unknown; detail?: unknown }> }).rows;
+      if (Array.isArray(rows)) return rows.filter((row) => row.ok === false).map((row) => `FALLA ${String(row.rule ?? "")} ${String(row.detail ?? "")}`.trim());
+    } catch {
+      // Markdown checks retain the tool's line-oriented output.
+    }
+  }
   if (tool === "scene-lint.mjs" || tool === "scene-gate.mjs" || tool === "page-gate.mjs") {
     // `<nota>: bloque N — <título>` / `<nota>: escena N — <título>` then one
     // `  <kind>: <texto>` per finding: the two geometry tools speak the same way.
@@ -131,8 +160,10 @@ export async function runPartChecks(files: string[], options: PartCheckOptions =
   const notes = [...new Set(files)];
   for (const file of notes) {
     for (const tool of PART_TOOLS) {
-      const run = await runTool(tool, file, options);
-      const findings = run.code === 0 ? [] : findingsOf(tool, run.stdout);
+      const run = tool === "explain-check.mjs" && /\.html?$/i.test(file)
+        ? await runHtmlGate(file, options)
+        : await runTool(tool, file, options);
+      const findings = run.code === 0 || (tool === "explain-check.mjs" && run.code < 0) ? [] : findingsOf(tool, run.stdout);
       if (findings.length) {
         tools.push({ file, tool, output: run.stdout.trim(), findings });
         continue;

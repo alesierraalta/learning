@@ -3,7 +3,7 @@
 // learner's part was measured — a fake measurement would prove nothing.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -289,6 +289,69 @@ test("a note named twice is measured once by each tool", async () => {
   await runPartChecks([file, file], { toolsDir: fake });
   const lines = readFileSync(log, "utf8").trim().split("\n");
   assert.equal(lines.length, 5, lines.join("\n"));
+});
+
+test("the turn-end explain-check result is the bridge's cached verdict", async () => {
+  const { getGateVerdict } = await import("../integrations/pi/gate-verdicts.ts");
+  const folder = mkdtempSync(join(tmpdir(), "shared-gate-verdict-"));
+  const tools = join(folder, "tools");
+  mkdirSync(tools);
+  const file = join(folder, "Parte 1 - Capas.html");
+  const log = join(folder, "gate-runs.log");
+  writeFileSync(file, "<html><body>Una página</body></html>");
+  for (const tool of ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "page-gate.mjs"]) writeFileSync(join(tools, tool), "process.exit(0);\n");
+  writeFileSync(join(tools, "explain-check.mjs"), [
+    'import { appendFileSync } from "node:fs";',
+    `appendFileSync(${JSON.stringify(log)}, "run\\n");`,
+    'console.log(JSON.stringify({ serves: true }));',
+    "",
+  ].join("\n"));
+  const store = join(folder, ".learning-cache", "gate-verdicts.json");
+
+  const checked = await runPartChecks([file], { toolsDir: tools, gateVerdictsFile: store });
+  assert.deepEqual(checked, { kind: "clean" });
+  assert.equal(await getGateVerdict(file, readFileSync(file), { root: folder, gateToolPath: join(tools, "explain-check.mjs"), gateVerdictsFile: store }), true);
+  assert.equal(readFileSync(log, "utf8"), "run\n", "the bridge reuses the turn-end check instead of spawning explain-check again");
+});
+
+test("the turn-end page gate snapshots the bytes it measures before a concurrent edit", async () => {
+  const { getGateVerdict } = await import("../integrations/pi/gate-verdicts.ts");
+  const folder = mkdtempSync(join(tmpdir(), "turn-end-page-snapshot-"));
+  const tools = join(folder, "tools");
+  mkdirSync(tools);
+  const file = join(folder, "Parte 1 - Capas.html");
+  const store = join(folder, ".learning-cache", "gate-verdicts.json");
+  const gateToolPath = join(tools, "explain-check.mjs");
+  const count = join(folder, "gate-count.log");
+  const started = join(folder, "gate-started.log");
+  const release = join(folder, "gate-release.log");
+  const checked = join(folder, "gate-checked.log");
+  writeFileSync(file, "<html>ORIGINAL_BYTES</html>");
+  for (const tool of ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "page-gate.mjs"]) writeFileSync(join(tools, tool), "process.exit(0);\n");
+  writeFileSync(gateToolPath, [
+    'import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";',
+    `let n = 0; try { n = Number(readFileSync(${JSON.stringify(count)}, "utf8")); } catch {}`,
+    "n += 1;",
+    `writeFileSync(${JSON.stringify(count)}, String(n));`,
+    `if (n === 1) { appendFileSync(${JSON.stringify(started)}, "start\\n"); while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 10)); }`,
+    'const page = readFileSync(process.argv[2], "utf8");',
+    `appendFileSync(${JSON.stringify(checked)}, page.includes("BROKEN_BYTES") ? "broken\\n" : "original\\n");`,
+    'const serves = n === 1 || !page.includes("BROKEN_BYTES");',
+    'console.log(JSON.stringify({ serves, rows: [] }));',
+    "process.exitCode = serves ? 0 : 1;",
+    "",
+  ].join("\n"));
+
+  const pending = runPartChecks([file], { toolsDir: tools, gateToolPath, gateVerdictsFile: store });
+  const deadline = Date.now() + 1000;
+  while (!existsSync(started) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(existsSync(started), "the turn-end gate started with a page snapshot");
+  writeFileSync(file, "<html>BROKEN_BYTES</html>");
+  writeFileSync(release, "release");
+  assert.deepEqual(await pending, { kind: "clean" });
+  assert.equal(await getGateVerdict(file, readFileSync(file), { root: folder, gateToolPath, gateVerdictsFile: store }), false,
+    "a PASS from the pre-edit page is not cached under the changed page bytes");
+  assert.equal(readFileSync(checked, "utf8"), "original\nbroken\n");
 });
 
 test("the page gate's own lines are read as findings, in the tool's own words", () => {

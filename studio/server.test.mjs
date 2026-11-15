@@ -21,6 +21,33 @@ import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
 import { stored, writeDoc } from "./testdata/stored.mjs";
 
+test("studio startup warms existing rich pages serially in the background", async () => {
+  const { root, engine } = makeRoot();
+  const explanations = join(root, "redes", "explicaciones");
+  writeFileSync(join(explanations, "Parte 1 - Capas.html"), "<html><body>primera</body></html>");
+  writeFileSync(join(explanations, "Parte 2 - TCP.html"), "<html><body>segunda</body></html>");
+  const log = join(root, "warmup.log");
+  const gateToolPath = join(root, "fake-explain-check.mjs");
+  writeFileSync(gateToolPath, [
+    'import { appendFileSync } from "node:fs";',
+    `appendFileSync(${JSON.stringify(log)}, "start\\n");`,
+    "await new Promise(resolve => setTimeout(resolve, 80));",
+    `appendFileSync(${JSON.stringify(log)}, "end\\n");`,
+    'console.log(JSON.stringify({ serves: true }));',
+    "",
+  ].join("\n"));
+  const openedFile = join(root, "studio-state", "opened.json");
+  mkdirSync(join(root, "studio-state"), { recursive: true });
+  const studio = await startStudioChecked({ root, openedFile, enginePath: engine, agentDisabled: true, gateToolPath, skipContextCheck: true });
+  open.push(studio);
+
+  const deadline = Date.now() + 5000;
+  while ((!existsSync(log) || readFileSync(log, "utf8").trim().split("\n").length < 4) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.deepEqual(readFileSync(log, "utf8"), "start\nend\nstart\nend\n", "the studio warms each existing page one at a time");
+});
+
 test('configured studio bridge reaches the transcriber from its framed origin', async t => {
   let uploads = 0;
   const fake = createServer(async (req, res) => {
