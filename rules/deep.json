@@ -150,6 +150,9 @@
       "glosarioEnBloque": true,
       "interactiveQuiz": true,
       "richPage": true,
+      "storySummary": true,
+      "formulaLegend": true,
+      "storyFocus": true,
       "register": {
         "levels": {
           "sencillez": {

@@ -248,7 +248,7 @@ td.null { color:#b45309; font-style:italic; }
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Padre, hija y clave foránea","metrics":[["Padre","guarda la clave primaria"],["Hija","repite un valor de esa clave"]]},
  "title": "Padre, hija y clave foránea",
  "viewBox": "36 72 960.8 446",
  "steps": [
@@ -354,7 +354,7 @@ td.null { color:#b45309; font-style:italic; }
    }
   },
   {
-   "title": "La clave foránea",
+   "title": "La clave foránea","ring":"fk",
    "text": "department_id en la hija repite un valor que existe en la PK del padre.",
    "scene": {
     "grids": [
@@ -425,7 +425,7 @@ td.null { color:#b45309; font-style:italic; }
       "size": 26,
       "anchor": "middle"
      },
-     {
+     {"id":"fk",
       "x": 900,
       "y": 366,
       "text": "FK → PK",
@@ -518,7 +518,7 @@ WHERE department_id = 10;</code></pre>
 <p>El motor rechaza la eliminación: <code>ORA-02292: integrity constraint violated - child record found</code>.</p>
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Qué revisa el motor","metrics":[["Hijo con padre","entra"],["Huérfano (99)","ORA-02291, no entra"]]},
  "title": "Qué revisa el motor antes de dejar pasar una fila",
  "viewBox": "-100 0 1420 660",
  "steps": [
@@ -601,11 +601,11 @@ WHERE department_id = 10;</code></pre>
    }
   },
   {
-   "title": "Insertar un huérfano",
+   "title": "Insertar un huérfano","ring":"huerfano",
    "text": "El 99 no existe: ORA-02291. La fila no entra, así que nunca hay hijos sin padre.",
    "scene": {
     "boxes": [
-     {
+     {"id":"huerfano",
       "x": 400,
       "y": 250,
       "w": 760,
@@ -682,12 +682,12 @@ WHERE department_id = 10;</code></pre>
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Qué pasa al borrar el padre","metrics":[["RESTRICT","ORA-02292: bloquea"],["CASCADE","borra los hijos"],["SET NULL","deja la FK vacía"]]},
  "title": "Qué pasa al borrar el padre",
  "viewBox": "36 62 1121.6 302",
  "steps": [
   {
-   "title": "RESTRICT",
+   "title": "RESTRICT","ring":"bloqueo",
    "text": "Con hijos apuntando al padre, el borrado se bloquea.",
    "scene": {
     "grids": [
@@ -732,7 +732,7 @@ WHERE department_id = 10;</code></pre>
      }
     ],
     "labels": [
-     {
+     {"id":"bloqueo",
       "x": 780,
       "y": 330,
       "text": "ORA-02292 · child record found",
@@ -992,7 +992,7 @@ WHERE department_id = 10;</code></pre>
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"El archivador, con datos","metrics":[["Ficha sin carpeta","no entra"],["Quién comprueba","el motor, antes de escribir"]]},
  "title": "El archivador, con datos",
  "viewBox": "-98.40000000000003 62 1222.4 532",
  "steps": [
@@ -1127,7 +1127,7 @@ WHERE department_id = 10;</code></pre>
    }
   },
   {
-   "title": "El motor sí comprueba",
+   "title": "El motor sí comprueba","ring":"rechazo",
    "text": "Antes de escribir la ficha, consulta la carpeta: si no existe, la fila no entra.",
    "scene": {
     "grids": [
@@ -1175,7 +1175,7 @@ WHERE department_id = 10;</code></pre>
      }
     ],
     "boxes": [
-     {
+     {"id":"rechazo",
       "x": 640,
       "y": 300,
       "w": 460,
@@ -1220,7 +1220,7 @@ WHERE department_id = 10;</code></pre>
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"El árbol de decisión","metrics":[["Pregunta","¿existe el padre?"],["Salida","solo si existe"]]},
  "title": "El árbol de decisión del motor",
  "viewBox": "406 42 640 350",
  "steps": [
@@ -1243,7 +1243,7 @@ WHERE department_id = 10;</code></pre>
    }
   },
   {
-   "title": "¿Existe el padre?",
+   "title": "¿Existe el padre?","ring":"padre",
    "text": "El motor consulta la PK del padre.",
    "scene": {
     "boxes": [
@@ -1257,7 +1257,7 @@ WHERE department_id = 10;</code></pre>
       "tone": "slate",
       "size": 22
      },
-     {
+     {"id":"padre",
       "x": 430,
       "y": 180,
       "w": 420,
@@ -1391,7 +1391,7 @@ WHERE department_id = 10;</code></pre>
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Entrada, proceso y salida","metrics":[["Entrada","INSERT con su FK"],["Salida","fila o código ORA"]]},
  "title": "Entrada, proceso y salida",
  "viewBox": "46 102 1108 300",
  "steps": [
@@ -1414,7 +1414,7 @@ WHERE department_id = 10;</code></pre>
    }
   },
   {
-   "title": "Proceso",
+   "title": "Proceso","ring":"proceso",
    "text": "El motor comprueba que el padre exista.",
    "scene": {
     "boxes": [
@@ -1428,7 +1428,7 @@ WHERE department_id = 10;</code></pre>
       "tone": "blue",
       "size": 24
      },
-     {
+     {"id":"proceso",
       "x": 435,
       "y": 120,
       "w": 330,

@@ -47,7 +47,7 @@
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Lo que la tabla hace distinto","metrics":[["Clave repetida","ORA-00001"],["Consultar","no cambia lo guardado"]]},
  "title": "Un archivo frente a una tabla",
  "viewBox": "4.800000000000011 72 1179.2 316",
  "steps": [
@@ -98,7 +98,7 @@
    }
   },
   {
-   "title": "El esquema la rechaza",
+   "title": "El esquema la rechaza","ring":"rechazo",
    "text": "Sobre una clave primaria la segunda fila no entra: ORA-00001.",
    "scene": {
     "grids": [
@@ -141,7 +141,7 @@
      }
     ],
     "boxes": [
-     {
+     {"id":"rechazo",
       "x": 700,
       "y": 300,
       "w": 460,
@@ -261,7 +261,7 @@
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Las cuatro piezas","metrics":[["Relación","la tabla"],["Tupla","una fila"],["Atributo","una columna"],["Dominio","los valores admitidos"]]},
  "title": "Las piezas de una relación",
  "viewBox": "36 62 1148 326",
  "steps": [
@@ -433,7 +433,7 @@
    }
   },
   {
-   "title": "Dominio: qué valores admite",
+   "title": "Dominio: qué valores admite","ring":"dominio",
    "text": "El dominio fija qué valores acepta la columna: 99 no está en DEPT_ID y «mucho» no es un salario.",
    "scene": {
     "grids": [
@@ -485,7 +485,7 @@
      }
     ],
     "boxes": [
-     {
+     {"id":"dominio",
       "x": 740,
       "y": 300,
       "w": 420,
@@ -569,7 +569,7 @@
 <tr><td><strong>Tupla 2</strong> (King)</td><td><strong>7839</strong></td><td>KING</td><td>10</td><td>5000,00</td></tr>
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Grado y cardinalidad","metrics":[["Grado","4 atributos"],["Cardinalidad","3 tuplas"]]},
  "title": "Cómo se lee una relación",
  "viewBox": "-30 0 1261 660",
  "steps": [
@@ -660,7 +660,7 @@
    }
   },
   {
-   "title": "La clave primaria",
+   "title": "La clave primaria","ring":"clave",
    "text": "employee_id es UNIQUE + NOT NULL: ninguna fila se confunde con otra ni queda indocumentada.",
    "scene": {
     "dashed": [
@@ -685,7 +685,7 @@
      }
     ],
     "labels": [
-     {
+     {"id":"clave",
       "x": 980,
       "y": 290,
       "text": "clave primaria:",
@@ -764,7 +764,7 @@
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Lo que el índice rechaza","metrics":[["Clave repetida","ORA-00001"],["Clave nula","ORA-01400"]]},
  "title": "El índice B-tree y la clave primaria",
  "viewBox": "2.799999999999997 62 1201.2 342",
  "steps": [
@@ -983,7 +983,7 @@
    }
   },
   {
-   "title": "Clave duplicada",
+   "title": "Clave duplicada","ring":"duplicado",
    "text": "7782 ya ocupa una hoja: el motor aborta antes de tocar la tabla.",
    "scene": {
     "gears": [
@@ -1023,7 +1023,7 @@
       "tone": "slate",
       "size": 22
      },
-     {
+     {"id":"duplicado",
       "x": 300,
       "y": 276,
       "w": 160,
@@ -1276,12 +1276,12 @@
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"PK, UNIQUE y el orden","metrics":[["PRIMARY KEY","UNIQUE + NOT NULL"],["Orden de salida","solo con ORDER BY"]]},
  "title": "PK, UNIQUE y el orden de las filas",
  "viewBox": "56 62 908 372",
  "steps": [
   {
-   "title": "PRIMARY KEY",
+   "title": "PRIMARY KEY","ring":"identidad",
    "text": "Las dos mitades a la vez: no admite NULL ni duplicados.",
    "scene": {
     "grids": [
@@ -1309,7 +1309,7 @@
      }
     ],
     "labels": [
-     {
+     {"id":"identidad",
       "x": 420,
       "y": 210,
       "text": "identifica cada fila, siempre",
@@ -1486,7 +1486,7 @@
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"El DNI como clave","metrics":[["Filas en la tabla","2, no 3"],["Fila sin DNI","ORA-01400, no entra"]]},
  "title": "El DNI, con datos",
  "viewBox": "36 72 1284.0 300",
  "steps": [
@@ -1533,7 +1533,7 @@
    }
   },
   {
-   "title": "Sin DNI no hay fila",
+   "title": "Sin DNI no hay fila","ring":"rechazo",
    "text": "Un registro sin clave es como un ciudadano sin documento: el motor no lo guarda.",
    "scene": {
     "grids": [
@@ -1566,7 +1566,7 @@
      }
     ],
     "boxes": [
-     {
+     {"id":"rechazo",
       "x": 660,
       "y": 90,
       "w": 440,
@@ -1681,7 +1681,7 @@
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"El árbol de decisión","metrics":[["Preguntas","2"],["Salida","solo si las dos pasan"]]},
  "title": "El árbol de decisión del motor",
  "viewBox": "406 42 640 470",
  "steps": [
@@ -1742,7 +1742,7 @@
    }
   },
   {
-   "title": "¿Ya existe en el índice?",
+   "title": "¿Ya existe en el índice?","ring":"existe",
    "text": "Después la duplicidad: el B-tree responde en microsegundos.",
    "scene": {
     "boxes": [
@@ -1766,7 +1766,7 @@
       "tone": "blue",
       "size": 28
      },
-     {
+     {"id":"existe",
       "x": 430,
       "y": 300,
       "w": 420,
@@ -1899,7 +1899,7 @@
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Entrada, proceso y salida","metrics":[["Entrada","la sentencia"],["Salida","fila o código ORA"]]},
  "title": "Entrada, proceso y salida",
  "viewBox": "46 102 1108 300",
  "steps": [
@@ -1922,7 +1922,7 @@
    }
   },
   {
-   "title": "Proceso",
+   "title": "Proceso","ring":"proceso",
    "text": "El motor verifica dominio, NOT NULL e índice, en ese orden.",
    "scene": {
     "boxes": [
@@ -1936,7 +1936,7 @@
       "tone": "blue",
       "size": 28
      },
-     {
+     {"id":"proceso",
       "x": 435,
       "y": 120,
       "w": 330,
@@ -2037,7 +2037,7 @@
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Lo que te llevas","metrics":[["Identidad","PRIMARY KEY = UNIQUE + NOT NULL"],["Errores","ORA-00001 y ORA-01400"]]},
  "title": "Lo que te llevas de esta parte",
  "viewBox": "336 82 640 380",
  "steps": [
@@ -2060,7 +2060,7 @@
    }
   },
   {
-   "title": "La identidad",
+   "title": "La identidad","ring":"clave",
    "text": "La clave primaria es UNIQUE + NOT NULL; una sola mitad no basta.",
    "scene": {
     "boxes": [
@@ -2074,7 +2074,7 @@
       "tone": "slate",
       "size": 28
      },
-     {
+     {"id":"clave",
       "x": 360,
       "y": 230,
       "w": 480,

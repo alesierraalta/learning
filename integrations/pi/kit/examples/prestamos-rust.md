@@ -25,15 +25,15 @@ Antes, cualquiera podía tocar el dato. Después, una referencia lo presta: lo m
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Prestar un valor: quién lee y quién escribe","viewBox":"0 60 360 190","steps":[
- {"title":"Muchas lecturas","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"r1","id":"r1"},{"t":" = &s;","id":"a"},{"t":" let ","id":"let2"},{"t":"r2","id":"r2"},{"t":" = &s;","id":"b"}]},"focus":["r1","r2"],
+{"summary":{"title":"Muchas lecturas o una escritura","metrics":[["Referencias &","todas las que quieras"],["Referencia &mut","una sola, sin mezclar con &"]]},"kind":"derivation","title":"Prestar un valor: quién lee y quién escribe","viewBox":"0 60 360 190","steps":[
+ {"title":"Muchas lecturas","facts":[["&","solo lee"],["&mut","puede escribir"]],"equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"r1","id":"r1"},{"t":" = &s;","id":"a"},{"t":" let ","id":"let2"},{"t":"r2","id":"r2"},{"t":" = &s;","id":"b"}]},"focus":["r1","r2"],
   "narrator":"Las referencias «&» son de *solo lectura*: puede haber todas las que quieras a la vez.",
   "stage":{"scene":{
    "paths":[],
    "actors":[{"id":"s","icon":"robot","x":60,"y":150,"size":56,"tone":"blue","tag":"s"},{"id":"r1","icon":"robot","x":170,"y":150,"size":56,"tone":"green","tag":"r1: &s"},{"id":"r2","icon":"robot","x":280,"y":150,"size":56,"tone":"green","tag":"r2: &s"}],
    "props":[{"id":"ojo1","kind":"read","on":"r1","side":"left","tone":"green"},{"id":"ojo2","kind":"read","on":"r2","side":"left","tone":"green"}],
    "marks":[{"kind":"ok","actors":["r1","r2"],"label":"compila"}]}}},
- {"title":"Una escritura","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"r","id":"r"},{"t":" = &mut s;","id":"a"}]},"focus":["r"],
+ {"title":"Una escritura","ring":"r","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"r","id":"r"},{"t":" = &mut s;","id":"a"}]},"focus":["r"],
   "narrator":"Una referencia «&mut» puede *escribir*, pero solo puede haber una.",
   "stage":{"scene":{
    "paths":[],

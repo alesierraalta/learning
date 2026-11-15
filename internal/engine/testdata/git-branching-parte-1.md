@@ -79,13 +79,13 @@ HEAD sigue apuntando a `main`. En cambio, como `main` avanzó, HEAD ve la nueva 
 
 <lk-story>
 <script type="application/json">
-{
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},
   "kind": "derivation",
   "title": "Avance de punteros en Git",
   "viewBox": "0 0 360 230",
   "steps": [
     {
-      "title": "Foto inicial",
+      "title": "Foto inicial","facts":[["main","main"],["head","HEAD"]],
       "equation": {
         "size": 18,
         "atoms": [
@@ -107,7 +107,7 @@ HEAD sigue apuntando a `main`. En cambio, como `main` avanzó, HEAD ve la nueva 
       }
     },
     {
-      "title": "Nuevo commit",
+      "title": "Nuevo commit","ring":"c1",
       "equation": {
         "size": 18,
         "atoms": [

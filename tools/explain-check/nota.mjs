@@ -107,5 +107,18 @@ export function leerNota(src, esPagina) {
     .map((f) => f.trim())
     .filter((f) => f.length > 1);
 
-  return { src, esPagina, sinCodigo, escenas, recorridos, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases };
+  // Los recorridos y las historias de la nota, en orden, con su etiqueta, su JSON y sus pasos: las reglas de
+  // autoría (#305) los miden. Sin código, como las historias.
+  const bloquesDeRecorrido = [];
+  for (const m of sinCodigo.matchAll(/<(lk-walkthrough|lk-story)[^>]*>([\s\S]*?)<\/\1>/g)) {
+    const payload = m[2].match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+    if (!payload) continue;
+    let spec;
+    try { spec = JSON.parse(payload[1]); } catch { continue; }
+    if (!spec || typeof spec !== 'object') continue;
+    const pasos = Array.isArray(spec.steps) ? spec.steps : [];
+    bloquesDeRecorrido.push({ tag: m[1], spec, pasos, linea: `${m[1]} ${bloquesDeRecorrido.length + 1} (${pasos.length} pasos)` });
+  }
+
+  return { src, esPagina, sinCodigo, escenas, recorridos, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
 }

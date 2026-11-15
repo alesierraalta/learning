@@ -55,8 +55,8 @@ El producto de 0.02 y 0.90 confirma una probabilidad conjunta de 0.018.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Derivación de la regla del producto","viewBox":"0 0 360 220","steps":[
- {"title":"Paso 1: Probabilidad de la condición","equation":{"size":22,"atoms":[{"t":"P(B)","id":"pb"},{"t":" = ","id":"eq1"},{"t":"20 / 1000","id":"frac1"},{"t":" = ","id":"eq2"},{"t":"0.02","id":"v1"}]},"focus":["pb","v1"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Derivación de la regla del producto","viewBox":"0 0 360 220","steps":[
+ {"title":"Paso 1: Probabilidad de la condición","facts":[["p1","P(B)=0.02"]],"equation":{"size":22,"atoms":[{"t":"P(B)","id":"pb"},{"t":" = ","id":"eq1"},{"t":"20 / 1000","id":"frac1"},{"t":" = ","id":"eq2"},{"t":"0.02","id":"v1"}]},"focus":["pb","v1"],
   "narrator":"Calculamos primero la probabilidad marginal del evento que actúa como condición.",
   "scene":{"arrows":[{"x1":70,"y1":140,"x2":270,"y2":140}]},
   "stage":{"scene":{
@@ -66,7 +66,7 @@ El producto de 0.02 y 0.90 confirma una probabilidad conjunta de 0.018.
    ],
    "props":[{"id":"p1","kind":"value","on":"cond","side":"left","label":"P(B)=0.02","tone":"green"}]
   }}},
- {"title":"Paso 2: Probabilidad condicional","equation":{"size":22,"atoms":[{"t":"P(A|B)","id":"pab"},{"t":" = ","id":"eq3"},{"t":"18 / 20","id":"frac2"},{"t":" = ","id":"eq4"},{"t":"0.90","id":"v2"}]},"focus":["pab","v2"],
+ {"title":"Paso 2: Probabilidad condicional","ring":"omega","equation":{"size":22,"atoms":[{"t":"P(A|B)","id":"pab"},{"t":" = ","id":"eq3"},{"t":"18 / 20","id":"frac2"},{"t":" = ","id":"eq4"},{"t":"0.90","id":"v2"}]},"focus":["pab","v2"],
   "narrator":"Dentro de las muestras con condición, determinamos la fracción que da positivo.",
   "scene":{"arrows":[{"x1":270,"y1":140,"x2":70,"y2":140}]},
   "stage":{"scene":{

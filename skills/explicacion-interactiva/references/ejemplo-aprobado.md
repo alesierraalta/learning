@@ -1256,13 +1256,13 @@ Un episodio es la partida completa, del estado inicial al terminal:
 | fin | CASA LIMPIA | estado terminal: el retorno queda completo |
 
 <lk-story><script type="application/json">
-{
+{"summary":{"title":"Tres habitaciones limpias","metrics":[["Habitaciones limpias","3 de 3"],["Al cerrar","el episodio termina y suma la recompensa"]]},
   "kind": "derivation",
   "title": "Un episodio, habitación por habitación",
   "viewBox": "0 0 760 390",
   "steps": [
     {
-      "title": "El estado inicial",
+      "title": "El estado inicial","facts":[["robot","el que aspira la casa"],["batería","70 % al empezar"]],
       "narrator": "Las tres habitaciones están sucias y el robot espera en la sala. La batería está al 70 %.",
       "stage": {
         "scene": {
@@ -1337,7 +1337,7 @@ Un episodio es la partida completa, del estado inicial al terminal:
       }
     },
     {
-      "title": "Aspira la sala",
+      "title": "Aspira la sala","ring":"robot",
       "narrator": "La acción es aspirar: la sala queda limpia. El robot no se movió y la batería baja al 62 %.",
       "stage": {
         "scene": {
@@ -2971,7 +2971,7 @@ Y el propio código define para un bitrate `K`:
 
 ```text
 16 × K palabras uint16 por cada tile de 256 pesos
-``` :chatgpt-content-reference{index="5"}
+```
 
 
 Veamos por qué eso produce exactamente `K` bits/peso.
@@ -3239,7 +3239,7 @@ En este DeepSeek:
 ```text
 hidden_size            = 5120
 moe_intermediate_size  = 2304
-``` :chatgpt-content-reference{index="10"}
+```
 
 
 Una proyección de experto contiene aproximadamente:
@@ -5552,13 +5552,14 @@ Resultado:
 }
 </script>
 </lk-scene>
+```
 
 ---
 
 # 21. ¿Qué significa Bootstrap?
 
 <lk-story><script type="application/json">
-{
+{"summary":{"title":"Del 5 al 6,22","text":"Un paso de aprendizaje mueve el valor un poco hacia lo que acaba de pasar.","metrics":[["V(s) antes","5"],["V(s) después","6,22"]]},
   "kind": "formula",
   "title": "La actualización, número por número",
   "viewBox": "0 0 760 430",
@@ -5641,7 +5642,7 @@ Resultado:
   },
   "steps": [
     {
-      "title": "La regla, con sus cuatro piezas",
+      "title": "La regla, con sus cuatro piezas","facts":[["V(s)","el valor del estado que miras"],["r","la recompensa que acaba de llegar"],["V(s′)","lo que promete el estado siguiente"],["α","cuánto se aprende en cada paso (0,1)"]],
       "narrator": "Cada símbolo tiene su papel: aprender es mover el valor un poco hacia lo que acaba de pasar.",
       "focus": [],
       "stage": {
@@ -5857,7 +5858,7 @@ Resultado:
       }
     },
     {
-      "title": "Los números",
+      "title": "Los números","ring":"valores",
       "narrator": "El estado vale 5, la recompensa fue 10, el siguiente estado promete 8 y el paso es 0,1.",
       "focus": [
         "a6",
@@ -5879,7 +5880,7 @@ Resultado:
             ]
           },
           "labels": [
-            {
+            {"id":"valores",
               "x": 380,
               "y": 200,
               "text": "V(s) = 5 · r = 10 · V(s′) = 8 · γ = 0,9 · α = 0,1"

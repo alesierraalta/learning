@@ -55,15 +55,15 @@ Cómo leerlo: las tarjetas comparan los efectos de activar flex frente al compor
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Apertura del contenedor flex","viewBox":"0 60 360 190","steps":[
- {"title":"Bloques en columna","equation":{"size":22,"atoms":[{"t":"display: ","id":"p"},{"t":"block;","id":"v"}]},"focus":["v"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Apertura del contenedor flex","viewBox":"0 60 360 190","steps":[
+ {"title":"Bloques en columna","facts":[["caja","bloque"]],"equation":{"size":22,"atoms":[{"t":"display: ","id":"p"},{"t":"block;","id":"v"}]},"focus":["v"],
   "narrator":"Antes de flex, cada elemento ocupa una fila propia hacia abajo.",
   "stage":{"scene":{
    "paths":[],
    "actors":[{"id":"nav","icon":"robot","x":80,"y":150,"size":56,"tone":"slate","tag":"nav"},{"id":"item","icon":"robot","x":250,"y":150,"size":56,"tone":"blue","tag":"item"}],
    "props":[{"id":"caja","kind":"packet","on":"nav","side":"left","label":"bloque","tone":"slate"}],
    "marks":[{"kind":"no","actors":["nav"],"label":"apilado"}]}}},
- {"title":"Activar flex","equation":{"size":22,"atoms":[{"t":"display: ","id":"p"},{"t":"flex;","id":"v"}]},"focus":["v"],
+ {"title":"Activar flex","ring":"nav","equation":{"size":22,"atoms":[{"t":"display: ","id":"p"},{"t":"flex;","id":"v"}]},"focus":["v"],
   "narrator":"Al declarar display: flex, los elementos forman una fila horizontal.",
   "stage":{"scene":{
    "paths":[],

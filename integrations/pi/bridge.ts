@@ -414,7 +414,11 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FIGURA = /<(lk-[a-z][a-z-]*)\b[^>]*>[\s\S]*?<\/\1>/g;
 const GATE_CACHE = new Map<string, { version: string; passes: boolean }>();
 
-/** explain-check reads a page with the rules it reads a note with (#265). The answer is kept per file version. */
+/**
+ * explain-check reads a page with the rules it reads a note with (#265). A page is served when every rule that is
+ * not authoring-only passes (`serves`, #305): the authoring cues are measured when a part is written, never to take
+ * away a part the learner already reads. The answer is kept per file version.
+ */
 function pagePassesGates(file: string): boolean {
   const info = statSync(file);
   const version = `${info.mtimeMs}:${info.size}`;
@@ -423,7 +427,7 @@ function pagePassesGates(file: string): boolean {
   const run = spawnSync(process.execPath, [join(REPO_ROOT, "tools", "explain-check.mjs"), file, "--json"], { encoding: "utf8", timeout: 180_000 });
   let passes = false;
   try {
-    passes = (JSON.parse(run.stdout) as { ok?: unknown }).ok === true;
+    passes = (JSON.parse(run.stdout) as { serves?: unknown }).serves === true;
   } catch {
     passes = false;
   }

@@ -43,13 +43,13 @@ Una rama en Git pesa solo cuarenta bytes.
 
 <lk-story>
 <script type="application/json">
-{
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},
   "kind": "derivation",
   "title": "Avance de punteros en Git",
   "viewBox": "0 60 360 190",
   "steps": [
     {
-      "title": "Paso 1: Commit inicial",
+      "title": "Paso 1: Commit inicial","facts":[["Paso 1: Commit inicial","El puntero main y HEAD señalan al commit inicial C1."]],
       "equation": {
         "size": 22,
         "atoms": [
@@ -79,7 +79,7 @@ Una rama en Git pesa solo cuarenta bytes.
       }
     },
     {
-      "title": "Paso 2: Nuevo commit",
+      "title": "Paso 2: Nuevo commit","ring":"c1",
       "equation": {
         "size": 22,
         "atoms": [

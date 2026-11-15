@@ -43,13 +43,13 @@ El nuevo dato reduce el espacio.
 
 <lk-story>
 <script type="application/json">
-{
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},
   "kind": "derivation",
   "title": "Reducción del espacio muestral",
   "viewBox": "0 60 360 190",
   "steps": [
     {
-      "title": "Paso 1: Definición",
+      "title": "Paso 1: Definición","facts":[["Paso 1: Definición","La probabilidad de A dado B divide la intersección entre el total de B."]],
       "equation": {
         "size": 22,
         "atoms": [
@@ -78,7 +78,7 @@ El nuevo dato reduce el espacio.
       }
     },
     {
-      "title": "Paso 2: Sustitución",
+      "title": "Paso 2: Sustitución","ring":"u1",
       "equation": {
         "size": 22,
         "atoms": [

@@ -33,13 +33,13 @@ Después, un símbolo por paso. Al final, con los números del ejemplo.
 
 <lk-story>
 <script type="application/json">
-{"kind":"formula","title":"La densidad gaussiana, paso a paso","viewBox":"0 0 360 262",
+{"summary":{"title":"La densidad en el ejemplo","metrics":[["μ","120 ms"],["σ","32 ms"],["x","184 ms"],["f(x)","0,000 65"]]},"kind":"formula","title":"La densidad gaussiana, paso a paso","viewBox":"0 0 360 262",
  "formula":{"size":18,"atoms":[
   {"t":"f","id":"f"},{"t":"(","id":"open"},{"t":"x","id":"x"},{"t":")","id":"close"},{"t":" = ","id":"eq"},
   {"t":"1","id":"one"},{"t":"/","id":"slash"},{"t":"(","id":"nopen"},{"t":"σ","id":"sigma"},{"t":"√","id":"sqrt"},{"t":"(","id":"sopen"},{"t":"2","id":"two"},{"t":"π","id":"pi"},{"t":")","id":"sclose"},{"t":")","id":"nclose"},
   {"t":" · ","id":"dot"},{"t":"exp","id":"exp"},{"t":"(","id":"eopen"},{"t":"−","id":"minus"},{"t":"(","id":"xopen"},{"t":"x","id":"x2"},{"t":"−","id":"minus2"},{"t":"μ","id":"mu"},{"t":")","id":"xclose"},{"t":"²","id":"sq"},{"t":"/","id":"dslash"},{"t":"(","id":"dopen"},{"t":"2","id":"two2"},{"t":"σ","id":"sigma2"},{"t":"²","id":"sq2"},{"t":")","id":"dclose"},{"t":")","id":"eclose"}]},
  "steps":[
- {"title":"La fórmula entera","focus":[],
+ {"title":"La fórmula entera","facts":[["f","la densidad: la altura de la curva"],["x","el punto que miras"],["μ","el centro de la campana"],["σ","el ancho de la campana"]],"focus":[],
   "narrator":"Esta es la densidad normal: la altura de la campana en un punto «x».",
   "stage":{"scene":{"paths":[
     {"d":"M 48 210 C 51.7 209.9 62.7 210.2 70 209.6 C 77.3 209.0 84.7 209.5 92 206.6 C 99.3 203.7 106.7 201.3 114 192.1 C 121.3 182.9 128.7 168.4 136 151.7 C 143.3 134.9 150.7 106.9 158 91.6 C 165.3 76.3 172.7 60.0 180 60 C 187.3 60.0 194.7 76.3 202 91.6 C 209.3 106.9 216.7 134.9 224 151.7 C 231.3 168.4 238.7 182.9 246 192.1 C 253.3 201.3 260.7 203.7 268 206.6 C 275.3 209.5 282.7 209.0 290 209.6 C 297.3 210.2 308.3 209.9 312 210","tone":"blue","width":4,"arrow":false},
@@ -104,7 +104,7 @@ Después, un símbolo por paso. Al final, con los números del ejemplo.
    "arrows":[{"x1":186,"y1":200,"x2":238,"y2":200,"tone":"amber","labelSize":14,"width":2}],
    "actors":[{"id":"expv","x":214,"y":50,"w":132,"h":30,"label":"x − μ = 2σ","size":16,"tone":"amber","tag":"la distancia"}],
    "labels":[{"x":212,"y":176,"text":"64 ms","size":16},{"x":344,"y":232,"text":"latencia (ms)","anchor":"end","size":16}]}}},
- {"title":"Con los números del ejemplo","focus":[],
+ {"title":"Con los números del ejemplo","ring":"value","focus":[],
   "narrator":"Con «μ = 120 ms», «σ = 32 ms» y «x = 184 ms», la densidad vale «0,000 65».",
   "stage":{"scene":{"paths":[
     {"d":"M 48 210 C 51.7 209.9 62.7 210.2 70 209.6 C 77.3 209.0 84.7 209.5 92 206.6 C 99.3 203.7 106.7 201.3 114 192.1 C 121.3 182.9 128.7 168.4 136 151.7 C 143.3 134.9 150.7 106.9 158 91.6 C 165.3 76.3 172.7 60.0 180 60 C 187.3 60.0 194.7 76.3 202 91.6 C 209.3 106.9 216.7 134.9 224 151.7 C 231.3 168.4 238.7 182.9 246 192.1 C 253.3 201.3 260.7 203.7 268 206.6 C 275.3 209.5 282.7 209.0 290 209.6 C 297.3 210.2 308.3 209.9 312 210","tone":"blue","width":4,"arrow":false},

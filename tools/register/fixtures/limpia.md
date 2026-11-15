@@ -28,9 +28,9 @@ Antes de aspirar, la batería está al 70 %. Después de aspirar, baja al 68 %.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
- {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}]}}},
- {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
+ {"title":"La salida","facts":[["La salida","El robot empieza en la casilla de abajo."]],"narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}]}}},
+ {"title":"Sube","ring":"r","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
  {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"},{"id":"h","kind":"file","x":260,"y":80,"size":56,"tone":"amber","tag":"archivo"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
 ]}
 </script>

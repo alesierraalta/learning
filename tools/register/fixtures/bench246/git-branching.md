@@ -55,8 +55,8 @@ La rama `main` avanza al nuevo commit `c3` y HEAD continúa señalando a `main`.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Avance de punteros de rama y HEAD","viewBox":"0 0 360 220","steps":[
- {"title":"Paso 1: Estado inicial en c2","equation":{"size":22,"atoms":[{"t":"HEAD","id":"h"},{"t":" ---> ","id":"arr1"},{"t":"main","id":"m"},{"t":" ---> ","id":"arr2"},{"t":"Commit c2","id":"c2"}]},"focus":["h","m"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Avance de punteros de rama y HEAD","viewBox":"0 0 360 220","steps":[
+ {"title":"Paso 1: Estado inicial en c2","facts":[["p1","ref: c2"]],"equation":{"size":22,"atoms":[{"t":"HEAD","id":"h"},{"t":" ---> ","id":"arr1"},{"t":"main","id":"m"},{"t":" ---> ","id":"arr2"},{"t":"Commit c2","id":"c2"}]},"focus":["h","m"],
   "narrator":"El puntero HEAD señala a la rama main, que a su vez referencia al commit c2.",
   "scene":{"arrows":[{"x1":70,"y1":140,"x2":270,"y2":140}]},
   "stage":{"scene":{
@@ -66,7 +66,7 @@ La rama `main` avanza al nuevo commit `c3` y HEAD continúa señalando a `main`.
    ],
    "props":[{"id":"p1","kind":"value","on":"main","side":"left","label":"ref: c2","tone":"green"}]
   }}},
- {"title":"Paso 2: Registro del nuevo commit c3","equation":{"size":22,"atoms":[{"t":"git commit -m \"agrega pagos\"","id":"cmd"},{"t":" ===> ","id":"eq"},{"t":"Nuevo commit c3","id":"c3"}]},"focus":["cmd","c3"],
+ {"title":"Paso 2: Registro del nuevo commit c3","ring":"head","equation":{"size":22,"atoms":[{"t":"git commit -m \"agrega pagos\"","id":"cmd"},{"t":" ===> ","id":"eq"},{"t":"Nuevo commit c3","id":"c3"}]},"focus":["cmd","c3"],
   "narrator":"Git crea el commit c3 enlazando su ancestro hacia el commit previo c2.",
   "scene":{"arrows":[{"x1":270,"y1":140,"x2":70,"y2":140}]},
   "stage":{"scene":{

@@ -1,10 +1,10 @@
 // La puerta que revisa una explicación también se prueba: una que acepta todo no
 // sirve de nada.
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
@@ -14,9 +14,9 @@ const dir = mkdtempSync(join(tmpdir(), 'explain-check-'));
 // una fórmula es el recorrido, así la regla nueva no se mezcla con la leyenda.
 const STORY_SIMPLE = `<lk-story>
 <script type="application/json">
-{"kind":"formula","title":"Una cuenta","viewBox":"0 0 360 250","formula":{"size":18,"atoms":[{"t":"1","id":"one"},{"t":" + ","id":"plus"},{"t":"1","id":"one2"},{"t":" = ","id":"eq"},{"t":"2","id":"two"}]},"steps":[
- {"title":"La cuenta","focus":[],"narrator":"Es la cuenta entera.","stage":{"scene":{"actors":[{"id":"n","x":140,"y":90,"w":80,"h":40,"label":"1 + 1","tone":"blue"}],"labels":[{"x":180,"y":160,"text":"la cuenta"}]}}},
- {"title":"El resultado","focus":["two"],"narrator":"El resultado es «2».","stage":{"scene":{"actors":[{"id":"n","x":140,"y":90,"w":80,"h":40,"label":"2","tone":"green"}],"labels":[{"x":180,"y":160,"text":"el resultado"}]}}},
+{"kind":"formula","title":"Una cuenta","viewBox":"0 0 360 250","formula":{"size":18,"atoms":[{"t":"1","id":"one"},{"t":" + ","id":"plus"},{"t":"1","id":"one2"},{"t":" = ","id":"eq"},{"t":"2","id":"two"}]},"summary":{"title":"Lo que queda","metrics":[["Pasos","3"],["Resultado","2"]]},"steps":[
+ {"title":"La cuenta","facts":[["1 + 1","la cuenta entera"],["2","el resultado"]],"focus":[],"narrator":"Es la cuenta entera.","stage":{"scene":{"actors":[{"id":"n","x":140,"y":90,"w":80,"h":40,"label":"1 + 1","tone":"blue"}],"labels":[{"x":180,"y":160,"text":"la cuenta"}]}}},
+ {"title":"El resultado","ring":"n","focus":["two"],"narrator":"El resultado es «2».","stage":{"scene":{"actors":[{"id":"n","x":140,"y":90,"w":80,"h":40,"label":"2","tone":"green"}],"labels":[{"x":180,"y":160,"text":"el resultado"}]}}},
  {"title":"Otra vez","focus":[],"narrator":"La cuenta se lee igual.","stage":{"scene":{"actors":[{"id":"n","x":140,"y":90,"w":80,"h":40,"label":"1 + 1","tone":"blue"}],"labels":[{"x":180,"y":160,"text":"la cuenta"}]}}}
 ]}
 </script>
@@ -32,9 +32,9 @@ const run = (file) => spawnSync(process.execPath, [join(TOOLS, 'explain-check.mj
 // `kind:"robot"`, no como una caja que dice «robot».
 const HISTORIA = `<lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
- {"title":"La salida","narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"}]}}},
- {"title":"Sube","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
+{"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","summary":{"title":"Lo que queda","metrics":[["Pasos","3"],["Coste por paso","0,04"]]},"steps":[
+ {"title":"La salida","facts":[["r","el robot"],["casilla","la de abajo"]],"narrator":"El robot empieza en la casilla de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","tag":"robot"}]}}},
+ {"title":"Sube","ring":"u","narrator":"El robot sube una casilla y deja la de abajo.","stage":{"scene":{"actors":[{"id":"r","kind":"robot","x":110,"y":210,"size":56,"tone":"slate","state":"faded"},{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}},
  {"title":"Paga","narrator":"Cada paso cuesta menos cero coma cero cuatro.","stage":{"scene":{"actors":[{"id":"u","kind":"robot","x":110,"y":80,"size":56,"tone":"blue","tag":"arriba"}],"marks":[{"kind":"ok","actors":["u"]}]}}}
 ]}
 </script>
@@ -349,9 +349,10 @@ test('una fórmula plana con su leyenda pasa', () => {
 const FORMULA_STORY = `<lk-story>
 <script type="application/json">
 {"kind":"formula","title":"La densidad","viewBox":"0 0 360 250","formula":{"size":18,"atoms":[{"t":"f","id":"f"},{"t":"(","id":"open"},{"t":"x","id":"x"},{"t":")","id":"close"}]},
+ "summary":{"title":"La densidad en el ejemplo","metrics":[["μ","120 ms"],["σ","32 ms"],["f(184)","0,000 65"]]},
  "steps":[
-  {"title":"La fórmula entera","focus":[],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la campana"}]}}},
-  {"title":"f: la densidad","focus":["f"],"narrator":"«f» es la densidad: la altura de la curva.","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la altura"}]}}},
+  {"title":"La fórmula entera","focus":[],"facts":[["f","la densidad: la altura de la curva"],["x","el punto que miras"]],"narrator":"Es la densidad «f» en el punto «x».","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la campana"}]}}},
+  {"title":"f: la densidad","focus":["f"],"ring":"curva","narrator":"«f» es la densidad: la altura de la curva.","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la altura"}]}}},
   {"title":"x: el punto","focus":["x"],"narrator":"«x» es el punto que miras.","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(x)","tone":"blue"}],"labels":[{"x":180,"y":170,"text":"la latencia"}]}}},
   {"title":"Con el ejemplo","focus":[],"narrator":"Con «x = 184», «f(184) = 0,000 65».","stage":{"scene":{"actors":[{"id":"curva","x":120,"y":80,"w":120,"h":40,"label":"f(184)","tone":"green"}],"labels":[{"x":180,"y":170,"text":"el resultado"}]}}}
  ]}
@@ -495,7 +496,7 @@ const PARTE_PLSQL = join(TOOLS, '..', 'internal', 'engine', 'testdata', 'plsql-p
 const HISTORIA_CON_CABECERA = `<lk-story>
 <script type="application/json">
 {"kind":"derivation","title":"El débito","viewBox":"0 0 360 210","steps":[
- {"title":"Débito","equation":{"size":18,"atoms":[{"t":"UPDATE ","id":"u"},{"t":"cuentas","id":"t"},{"t":" SET saldo = saldo - 200","id":"set"}]},"focus":["set"],
+ {"title":"Débito","facts":[["u","el UPDATE del débito"],["set","el saldo que resta"]],"equation":{"size":18,"atoms":[{"t":"UPDATE ","id":"u"},{"t":"cuentas","id":"t"},{"t":" SET saldo = saldo - 200","id":"set"}]},"focus":["set"],
   "narrator":"El débito resta 200 en la cuenta 10.","stage":{"scene":{"actors":[{"id":"c10","kind":"row","x":90,"y":110,"size":64,"tone":"blue","tag":"Cuenta 10"}],"marks":[{"kind":"ok","actors":["c10"]}]}}}
 ]}
 </script>
@@ -540,7 +541,7 @@ test('una historia que dibuja una pieza en su escenario pasa el escenario', () =
   writeFileSync(file, CUMPLE.replace(HISTORIA, `<lk-story>
 <script type="application/json">
 {"kind":"derivation","title":"El robot sube","viewBox":"0 0 360 300","steps":[
- {"title":"Las tarjetas","narrator":"Cada paso cuesta menos.","stage":{"cards":{"cards":[{"verdict":"ok","title":"compila"}]}}}
+ {"title":"Las tarjetas","facts":[["compila","el veredicto del caso"]],"narrator":"Cada paso cuesta menos.","stage":{"cards":{"cards":[{"verdict":"ok","title":"compila"}]}}}
 ]}
 </script>
 </lk-story>`));
@@ -596,7 +597,7 @@ const PARTE_ACTORES = join(TOOLS, '..', 'internal', 'engine', 'testdata', 'plsql
 const HISTORIA_DE_CAJAS = `<lk-story>
 <script type="application/json">
 {"kind":"derivation","title":"Las dos cuentas","viewBox":"0 0 360 210","steps":[
- {"title":"Los saldos","equation":{"atoms":[{"t":"SELECT saldo FROM cuentas;","id":"q"}]},"focus":["q"],"narrator":"Las dos cuentas están en reposo.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"slate"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"slate"}]}}}
+ {"title":"Los saldos","facts":[["c10","Cuenta 10"],["c20","Cuenta 20"]],"equation":{"atoms":[{"t":"SELECT saldo FROM cuentas;","id":"q"}]},"focus":["q"],"narrator":"Las dos cuentas están en reposo.","stage":{"scene":{"actors":[{"id":"c10","x":30,"y":40,"w":135,"h":85,"label":"Cuenta 10","tone":"slate"},{"id":"c20","x":195,"y":40,"w":135,"h":85,"label":"Cuenta 20","tone":"slate"}]}}}
 ]}
 </script>
 </lk-story>`;
@@ -1008,7 +1009,7 @@ test('a frequency tree is the part\'s figure: with a scene beside it the part ha
 
 // El personaje contradice su etiqueta (#261): un servidor, un documento o una base que es una persona o
 // un resultado de la prueba, o una persona que es un servidor. Un léxico corto, medido en la etiqueta.
-const HISTORIA_CON_PERSONAJE = (kind, tag) => `<lk-story>\n<script type="application/json">\n{"kind":"derivation","title":"Un grupo","viewBox":"0 0 360 300","steps":[\n {"title":"Uno","narrator":"El grupo aparece.","stage":{"scene":{"actors":[{"id":"g","kind":"${kind}","x":110,"y":150,"size":56,"tone":"blue","tag":"${tag}"}]}}},\n {"title":"Dos","narrator":"El grupo cambia.","stage":{"scene":{"actors":[{"id":"g","kind":"${kind}","x":110,"y":150,"size":56,"tone":"blue","tag":"${tag}","state":"faded"}]}}}\n]}\n</script>\n</lk-story>`;
+const HISTORIA_CON_PERSONAJE = (kind, tag) => `<lk-story>\n<script type="application/json">\n{"kind":"derivation","title":"Un grupo","viewBox":"0 0 360 300","steps":[\n {"title":"Uno","facts":[["g","el grupo"]],"narrator":"El grupo aparece.","stage":{"scene":{"actors":[{"id":"g","kind":"${kind}","x":110,"y":150,"size":56,"tone":"blue","tag":"${tag}"}]}}},\n {"title":"Dos","narrator":"El grupo cambia.","stage":{"scene":{"actors":[{"id":"g","kind":"${kind}","x":110,"y":150,"size":56,"tone":"blue","tag":"${tag}","state":"faded"}]}}}\n]}\n</script>\n</lk-story>`;
 
 test('a server drawn for a group of people is a finding: the character contradicts its tag', () => {
   const file = join(dir, 'personaje-servidor.md');
@@ -1069,4 +1070,152 @@ test('la skill y los visuales nombran el árbol de frecuencias y la regla del pe
   assert.match(skill, /<lk-tree>/, 'SKILL.md no nombra <lk-tree>');
   assert.match(visuales, /<lk-tree>/, 'visuales.md no nombra <lk-tree>');
   assert.match(visuales, /personaje-sin-sentido/, 'visuales.md no nombra la regla del personaje');
+});
+
+// Las reglas de autoría del estándar (#305). Un recorrido o una historia de tres pasos o más cierra con su
+// `summary` (`falta-resumen`); una fórmula o una derivación trae sus `facts` en algún paso, como leyenda
+// (`falta-leyenda`); un recorrido o una historia de tres pasos gráficos tiene un `ring` de texto en algún paso
+// (`falta-foco`). Son de autoría: se miden al escribir una parte, y una parte que ya se sirvió sigue servida
+// (`serves` en el JSON solo cuenta las demás reglas). Las historias de piezas (tarjetas, memoria, tablas,
+// conjuntos) no tienen pasos gráficos, así que no piden anillo.
+describe('las reglas de autoría del estándar (#305)', () => {
+  const CUES = ['falta-resumen', 'falta-leyenda', 'falta-foco'];
+  const SKILL = join(TOOLS, '..', 'skills', 'explicacion-interactiva');
+  const cueDir = mkdtempSync(join(tmpdir(), 'explain-cues-'));
+  let seq = 0;
+  const SCENE = { boxes: [{ id: 'a', x: 60, y: 120, w: 200, h: 110, label: 'Cuenta 10' }] };
+  const RESUMEN = { title: 'Lo que queda', metrics: [['Pasos', '3']] };
+  const note = (block) => {
+    const file = join(cueDir, `parte-${++seq}.md`);
+    writeFileSync(file, `# Una parte\n\nLa cuenta se explica paso a paso.\n\n${block}\n`);
+    return file;
+  };
+  const report = (file) => JSON.parse(spawnSync(process.execPath, [join(TOOLS, 'explain-check.mjs'), file, '--json'], { encoding: 'utf8' }).stdout);
+  const fila = (rep, rule) => {
+    const row = rep.rows.find((r) => r.rule === rule);
+    assert.ok(row, `no hay fila ${rule}`);
+    return row;
+  };
+  const walkthrough = (spec) => `<lk-walkthrough>\n<script type="application/json">\n${JSON.stringify(spec)}\n</script>\n</lk-walkthrough>`;
+  const story = (spec) => `<lk-story>\n<script type="application/json">\n${JSON.stringify(spec)}\n</script>\n</lk-story>`;
+  const walkSteps = (n, extra = () => ({})) => Array.from({ length: n }, (_, i) => ({ title: `Paso ${i + 1}`, narrator: `Paso ${i + 1}.`, scene: SCENE, ...extra(i) }));
+  const storySteps = (n, extra = () => ({})) => Array.from({ length: n }, (_, i) => ({ title: `Paso ${i + 1}`, narrator: `Paso ${i + 1}.`, stage: { scene: SCENE }, ...extra(i) }));
+  const formula = (over = {}) => ({ kind: 'formula', title: 'La cuenta', viewBox: '0 0 360 250', summary: RESUMEN, steps: storySteps(3), ...over });
+  const pieces = (n) => Array.from({ length: n }, (_, i) => ({ title: `Paso ${i + 1}`, narrator: `Paso ${i + 1}.`, stage: { cards: { cards: [{ verdict: 'ok', label: 'ok' }, { verdict: 'no', label: 'no' }] } } }));
+  const cueFiles = (dir) => readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    return statSync(path).isDirectory() ? cueFiles(path) : /\.(md|html?)$/.test(name) ? [path] : [];
+  });
+
+  test('un recorrido de tres pasos sin resumen es falta-resumen, en el paso a paso y en la historia', () => {
+    const walk = report(note(walkthrough({ viewBox: '0 0 900 320', steps: walkSteps(3) })));
+    assert.equal(fila(walk, 'falta-resumen').ok, false, 'el paso a paso de tres pasos sin resumen pasa');
+    assert.match(fila(walk, 'falta-resumen').detail, /resumen/);
+    const hist = report(note(story({ kind: 'derivation', title: 'Una cuenta', viewBox: '0 0 360 250', steps: storySteps(3) })));
+    assert.equal(fila(hist, 'falta-resumen').ok, false, 'la historia de tres pasos sin resumen pasa');
+  });
+
+  test('con su resumen el recorrido de tres pasos pasa falta-resumen', () => {
+    const walk = report(note(walkthrough({ viewBox: '0 0 900 320', summary: RESUMEN, steps: walkSteps(3) })));
+    assert.equal(fila(walk, 'falta-resumen').ok, true, fila(walk, 'falta-resumen').detail);
+    const hist = report(note(story({ kind: 'derivation', title: 'Una cuenta', summary: RESUMEN, viewBox: '0 0 360 250', steps: storySteps(3) })));
+    assert.equal(fila(hist, 'falta-resumen').ok, true, fila(hist, 'falta-resumen').detail);
+  });
+
+  test('un recorrido de dos pasos no necesita resumen', () => {
+    const walk = report(note(walkthrough({ viewBox: '0 0 900 320', steps: walkSteps(2) })));
+    assert.equal(fila(walk, 'falta-resumen').ok, true, fila(walk, 'falta-resumen').detail);
+  });
+
+  test('un resumen que no es un objeto no cuenta como resumen', () => {
+    const walk = report(note(walkthrough({ viewBox: '0 0 900 320', summary: ['Lo que queda'], steps: walkSteps(3) })));
+    assert.equal(fila(walk, 'falta-resumen').ok, false);
+  });
+
+  test('una fórmula sin ningún paso con facts es falta-leyenda, y con facts en un paso pasa', () => {
+    const sin = report(note(story(formula())));
+    assert.equal(fila(sin, 'falta-leyenda').ok, false, 'la fórmula sin leyenda pasa');
+    assert.match(fila(sin, 'falta-leyenda').detail, /facts/);
+    const con = report(note(story(formula({ steps: storySteps(3, (i) => (i === 1 ? { facts: [['x', 'el punto'], ['f', 'la densidad']] } : {})) }))));
+    assert.equal(fila(con, 'falta-leyenda').ok, true, fila(con, 'falta-leyenda').detail);
+  });
+
+  test('una derivación sin facts también es falta-leyenda, y un facts vacío no cuenta', () => {
+    const deriv = report(note(story(formula({ kind: 'derivation' }))));
+    assert.equal(fila(deriv, 'falta-leyenda').ok, false, 'la derivación sin leyenda pasa');
+    const vacio = report(note(story(formula({ steps: storySteps(3, () => ({ facts: [] })) }))));
+    assert.equal(fila(vacio, 'falta-leyenda').ok, false, 'un facts vacío cuenta como leyenda');
+  });
+
+  test('una historia sin kind de fórmula ni derivación no pide leyenda', () => {
+    const plain = report(note(story(formula({ kind: undefined }))));
+    assert.equal(fila(plain, 'falta-leyenda').ok, true, fila(plain, 'falta-leyenda').detail);
+  });
+
+  test('un recorrido de tres pasos gráficos sin ring es falta-foco, en el recorrido y en la historia', () => {
+    const walk = report(note(walkthrough({ viewBox: '0 0 900 320', summary: RESUMEN, steps: walkSteps(3) })));
+    assert.equal(fila(walk, 'falta-foco').ok, false, 'el recorrido gráfico sin ring pasa');
+    const hist = report(note(story(formula({ steps: storySteps(3) }))));
+    assert.equal(fila(hist, 'falta-foco').ok, false, 'la historia gráfica sin ring pasa');
+  });
+
+  test('un ring de texto en un paso cumple falta-foco', () => {
+    const hist = report(note(story(formula({ steps: storySteps(3, (i) => (i === 1 ? { ring: 'a' } : {})) }))));
+    assert.equal(fila(hist, 'falta-foco').ok, true, fila(hist, 'falta-foco').detail);
+    const walk = report(note(walkthrough({ viewBox: '0 0 900 320', summary: RESUMEN, steps: walkSteps(3, (i) => (i === 2 ? { ring: 'a' } : {})) })));
+    assert.equal(fila(walk, 'falta-foco').ok, true, fila(walk, 'falta-foco').detail);
+  });
+
+  test('un focus no es un anillo: ni un texto ni una lista de símbolos cumplen falta-foco', () => {
+    const texto = report(note(walkthrough({ viewBox: '0 0 900 320', summary: RESUMEN, steps: walkSteps(3, (i) => (i === 1 ? { focus: 'a' } : {})) })));
+    assert.equal(fila(texto, 'falta-foco').ok, false, 'un focus de texto cumple falta-foco');
+    const lista = report(note(story(formula({ steps: storySteps(3, (i) => (i === 1 ? { focus: ['a'] } : {})) }))));
+    assert.equal(fila(lista, 'falta-foco').ok, false, 'una lista de símbolos cumple falta-foco');
+  });
+
+  test('una historia de piezas (tarjetas, memoria, tablas, conjuntos) no pide anillo', () => {
+    const cartas = report(note(story({ kind: 'derivation', title: 'Veredictos', summary: RESUMEN, viewBox: '0 0 360 250', steps: pieces(3) })));
+    assert.equal(fila(cartas, 'falta-foco').ok, true, fila(cartas, 'falta-foco').detail);
+  });
+
+  test('un recorrido de dos pasos gráficos no pide anillo', () => {
+    const hist = report(note(story(formula({ steps: storySteps(2) }))));
+    assert.equal(fila(hist, 'falta-foco').ok, true, fila(hist, 'falta-foco').detail);
+  });
+
+  test('las filas de autoría se marcan como tales, y las demás no', () => {
+    const rep = report(note(story(formula({ steps: storySteps(3) }))));
+    assert.equal(fila(rep, 'falta-leyenda').authoringOnly, true, 'falta-leyenda no se marca como de autoría');
+    assert.notEqual(fila(rep, 'ascii').authoringOnly, true, 'ascii es de servir, no de autoría');
+  });
+
+  test('una página que solo carece de reglas de autoría sirve: serves es true, aunque ok sea false', () => {
+    // La página tal como la escribió #304, antes de las señales: la limpia de bench265 ya las trae.
+    const rep = report(join(TOOLS, 'register', 'fixtures', 'bench305', 'tcp-handshake-sin-senales.html'));
+    assert.equal(rep.ok, false, 'la página sin señales ya pasa las reglas de autoría: la prueba no demuestra nada');
+    assert.equal(rep.serves, true, 'una regla de autoría impide servir la página');
+  });
+
+  test('una falla que no es de autoría no se sirve: serves es false aunque pasen las reglas de autoría', () => {
+    const rep = report(note(walkthrough({ viewBox: '0 0 900 320', summary: RESUMEN, steps: walkSteps(3, (i) => (i === 1 ? { ring: 'a' } : {})) }) + '\n\nLa flecha ---> va a la derecha.'));
+    assert.deepEqual(CUES.filter((rule) => !fila(rep, rule).ok), [], 'las reglas de autoría no pasan: la prueba no mide lo que dice');
+    assert.equal(fila(rep, 'ascii').ok, false, 'la flecha de texto no es una falla');
+    assert.equal(rep.serves, false, 'una falla de servir no se perdona');
+  });
+
+  test('un paso con facts y ring no es clave muerta, y una clave que el esquema no lee sí lo es', () => {
+    const bien = report(note(story(formula({ steps: storySteps(3, (i) => (i === 1 ? { facts: [['x', 'el punto']], ring: 'a' } : {})) }))));
+    assert.equal(fila(bien, 'clave-muerta').ok, true, fila(bien, 'clave-muerta').detail);
+    const muerta = report(note(story(formula({ steps: storySteps(3, (i) => (i === 1 ? { leyenda: 'x' } : {})) }))));
+    assert.equal(fila(muerta, 'clave-muerta').ok, false, 'una clave que el esquema no lee pasa');
+  });
+
+  test('los ejemplos del kit y del skill cumplen las tres reglas', () => {
+    const fallan = [];
+    for (const file of [...cueFiles(KIT_EXAMPLES), ...cueFiles(SKILL)]) {
+      const rep = report(file);
+      for (const rule of CUES) if (!fila(rep, rule).ok) fallan.push(`${relative(join(TOOLS, '..'), file)}: ${rule}`);
+    }
+    assert.deepEqual(fallan, []);
+  });
 });

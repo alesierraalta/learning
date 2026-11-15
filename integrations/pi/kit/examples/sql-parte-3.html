@@ -175,7 +175,7 @@
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Tabla, condición y resultado","metrics":[["Entrada","todas las filas"],["Salida","solo las que dan TRUE"]]},
  "title": "Tabla, condición y resultado",
  "viewBox": "36 72 908 310",
  "steps": [
@@ -209,7 +209,7 @@
    }
   },
   {
-   "title": "La condición",
+   "title": "La condición","ring":"condicion",
    "text": "La expresión booleana que se evalúa fila por fila.",
    "scene": {
     "grids": [
@@ -236,7 +236,7 @@
      }
     ],
     "boxes": [
-     {
+     {"id":"condicion",
       "x": 500,
       "y": 110,
       "w": 420,
@@ -416,7 +416,7 @@ WHERE department_id = NULL;</code></pre>
 <p>La misma consulta de arriba, dibujada: avanza paso a paso y mira qué agrega cada cláusula. Se lee en este orden aunque se escriba al revés.</p>
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"El recorrido de una consulta","metrics":[["WHERE","filtra: solo TRUE"],["ORDER BY","ordena, no quita filas"]]},
   "title": "El recorrido de una consulta",
   "viewBox": "-214 0 1444 660",
   "steps": [
@@ -466,7 +466,7 @@ WHERE department_id = NULL;</code></pre>
       }
     },
     {
-      "title": "Qué filas sobreviven",
+      "title": "Qué filas sobreviven","ring":"filtro",
       "text": "WHERE evalúa el predicado fila por fila. Solo pasan las que dan TRUE: FALSE se va, y UNKNOWN —comparar con NULL, por ejemplo— también se va.",
       "scene": {
         "sheets": [
@@ -535,7 +535,7 @@ WHERE department_id = NULL;</code></pre>
             "sub": "de dónde salen las filas",
             "tone": "slate"
           },
-          {
+          {"id":"filtro",
             "x": 390,
             "y": 235,
             "w": 330,
@@ -1022,7 +1022,7 @@ WHERE department_id = NULL;</code></pre>
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"AND, OR y NOT","metrics":[["AND","las dos TRUE"],["OR","una TRUE basta"],["NOT","UNKNOWN sigue UNKNOWN"]]},
  "title": "AND, OR y NOT en una tabla",
  "viewBox": "36 72 1008 446",
  "steps": [
@@ -1069,9 +1069,9 @@ WHERE department_id = NULL;</code></pre>
    }
   },
   {
-   "title": "OR",
+   "title": "OR","ring":"or",
    "text": "Basta con que una sea TRUE.",
-   "scene": {
+   "scene": {"labels":[{"id":"or","x":290,"y":330,"text":"OR: basta con una TRUE","tone":"blue","size":24,"anchor":"middle"}],
     "grids": [
      {
       "x": 60,
@@ -1611,7 +1611,7 @@ WHERE department_id = NULL;</code></pre>
 <!-- fig:auto -->
 <lk-walkthrough>
 <script type="application/json">
-{
+{"summary":{"title":"Entrada, proceso y salida","metrics":[["Entrada","la tabla y la condición"],["Salida","el subconjunto TRUE"]]},
  "title": "Entrada, proceso y salida",
  "viewBox": "46 102 1108 300",
  "steps": [
@@ -1634,7 +1634,7 @@ WHERE department_id = NULL;</code></pre>
    }
   },
   {
-   "title": "Proceso",
+   "title": "Proceso","ring":"proceso",
    "text": "Se evalúa el predicado fila por fila.",
    "scene": {
     "boxes": [
@@ -1648,7 +1648,7 @@ WHERE department_id = NULL;</code></pre>
       "tone": "blue",
       "size": 24
      },
-     {
+     {"id":"proceso",
       "x": 435,
       "y": 120,
       "w": 330,

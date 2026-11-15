@@ -41,15 +41,15 @@ Sin embargo, ningún observador puede escribir.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Prestar un valor: quién lee y quién escribe","viewBox":"0 50 380 210","steps":[
- {"title":"Lectura compartida","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"r1","id":"r1"},{"t":" = &dron;","id":"a"},{"t":" let ","id":"let2"},{"t":"r2","id":"r2"},{"t":" = &dron;","id":"b"}]},"focus":["r1","r2"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Prestar un valor: quién lee y quién escribe","viewBox":"0 50 380 210","steps":[
+ {"title":"Lectura compartida","facts":[["Lectura compartida","Dos referencias inmutables leen la altitud de 120 m sin duplicar el dato."]],"equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"r1","id":"r1"},{"t":" = &dron;","id":"a"},{"t":" let ","id":"let2"},{"t":"r2","id":"r2"},{"t":" = &dron;","id":"b"}]},"focus":["r1","r2"],
   "narrator":"Dos referencias inmutables leen la altitud de 120 m sin duplicar el dato.",
   "stage":{"scene":{
    "paths":[],
    "actors":[{"id":"dron","icon":"robot","x":50,"y":150,"size":56,"tone":"blue","tag":"dron"},{"id":"r1","icon":"robot","x":155,"y":150,"size":56,"tone":"green","tag":"r1: &dron"},{"id":"r2","icon":"robot","x":260,"y":150,"size":56,"tone":"green","tag":"r2: &dron"}],
    "props":[{"id":"ojo1","kind":"read","on":"r1","side":"left","tone":"green"},{"id":"ojo2","kind":"read","on":"r2","side":"left","tone":"green"}],
    "arrows":[{"x1":155,"y1":130,"x2":85,"y2":145,"tone":"green","label":"lee"}],"marks":[{"kind":"ok","actors":["r1","r2"],"label":"compila"}]}}},
- {"title":"Intento de escritura","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"w","id":"w"},{"t":" = &mut dron;","id":"m"}]},"focus":["w"],
+ {"title":"Intento de escritura","ring":"dron","equation":{"size":22,"atoms":[{"t":"let ","id":"let"},{"t":"w","id":"w"},{"t":" = &mut dron;","id":"m"}]},"focus":["w"],
   "narrator":"Intentar modificar la altitud a 150 m con una referencia mutable requiere permiso exclusivo.",
   "stage":{"scene":{
    "paths":[],

@@ -128,13 +128,13 @@ Es la orden que graba en disco. En nuestro ejemplo, libera candados y confirma l
 
 <lk-story>
 <script type="application/json">
-{
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","6"]]},
  "kind": "derivation",
  "title": "Ciclo transaccional con SAVEPOINT y ROLLBACK TO",
  "viewBox": "0 0 360 260",
  "steps": [
   {
-   "title": "Estado inicial",
+   "title": "Estado inicial","facts":[["c10","Cuenta 10"],["c20","Cuenta 20"],["saldo10","1000"]],
    "narrator": "La tabla cuentas tiene dos registros con saldo 1000 en reposo.",
    "equation": {
     "size": 18,
@@ -163,7 +163,7 @@ Es la orden que graba en disco. En nuestro ejemplo, libera candados y confirma l
    }
   },
   {
-   "title": "Débito en la cuenta 10",
+   "title": "Débito en la cuenta 10","ring":"c10",
    "narrator": "UPDATE resta 200 en la cuenta 10; la fila queda modificada en el buffer.",
    "equation": {
     "size": 18,

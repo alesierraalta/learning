@@ -1,4 +1,4 @@
-// El `focus` de un paso (#299) nombra una pieza con id de ese mismo paso. Si no nombra ninguna,
+// El `ring` de un paso (#299; clave `ring` desde #305) nombra una pieza con id de ese mismo paso. Si no nombra ninguna,
 // scene-lint lo dice (`foco-sin-pieza`); y el anillo que dibuja el kit no es un dibujo del autor:
 // con o sin anillo, el lint encuentra lo mismo.
 //
@@ -35,13 +35,13 @@ const skip = (await loadPlaywright()) ? false : 'playwright is not installed';
 
 // Dos bloques: un recorrido cuyo paso 2 enfoca «nada», que no es ninguna pieza, y una historia
 // cuyo paso 2 enfoca «srv», que sí es un actor de ese paso. `storyFocus` la deja sin foco si se pide.
-const note = (storyFocus) => {
+const note = (storyRing) => {
   const walk = {
     title: 'Recorrido',
     viewBox: '0 0 900 300',
     steps: [
       { title: 'Uno', text: 'Dos cajas.', scene: { boxes: [{ id: 'db', x: 60, y: 80, w: 220, h: 110, label: 'Base' }, { x: 420, y: 80, w: 220, h: 110, label: 'Cliente' }] } },
-      { title: 'Dos', text: 'Se enfoca una pieza que no existe.', focus: 'nada', scene: { boxes: [{ id: 'db', x: 60, y: 80, w: 220, h: 110, label: 'Base de datos' }, { x: 420, y: 80, w: 220, h: 110, label: 'Cliente' }] } },
+      { title: 'Dos', text: 'Se enfoca una pieza que no existe.', ring: 'nada', scene: { boxes: [{ id: 'db', x: 60, y: 80, w: 220, h: 110, label: 'Base de datos' }, { x: 420, y: 80, w: 220, h: 110, label: 'Cliente' }] } },
     ],
   };
   const actors = (tone) => [
@@ -54,7 +54,7 @@ const note = (storyFocus) => {
     viewBox: '0 0 480 220',
     steps: [
       { title: 'Uno', narrator: 'El cliente abre.', stage: { scene: { actors: actors('green'), moves: [{ from: 'cli', to: 'srv', verb: 'abre' }] } } },
-      { title: 'Dos', narrator: 'El servidor responde.', ...(storyFocus ? { focus: storyFocus } : {}), stage: { scene: { actors: actors('amber'), moves: [{ from: 'srv', to: 'cli', verb: 'responde' }] } } },
+      { title: 'Dos', narrator: 'El servidor responde.', ...(storyRing ? { ring: storyRing } : {}), stage: { scene: { actors: actors('amber'), moves: [{ from: 'srv', to: 'cli', verb: 'responde' }] } } },
       { title: 'Tres', narrator: 'Listo.', stage: { scene: { actors: actors('green'), marks: [{ kind: 'ok', actors: ['cli'] }] } } },
     ],
   };
@@ -85,4 +85,12 @@ test('el anillo que dibuja el kit no cambia lo que scene-lint encuentra', { skip
   const plain = lint('plain', note(undefined));
   const ringed = lint('focus', note('srv'));
   assert.deepEqual(ringed, plain);
+});
+
+// Un `focus` de texto ya no es un anillo (#305): scene-lint mira `ring`; el `focus` de un paso es la
+// lista de símbolos de su fórmula, y un texto ahí no se mide como pieza.
+test('scene-lint no mira un focus de texto: el anillo es ring', { skip }, () => {
+  const legacy = note(undefined).replace('"ring":"nada"', '"focus":"nada"');
+  assert.notEqual(legacy, note(undefined), 'el texto de la prueba no cambió');
+  assert.deepEqual(lint('legacy', legacy).filter((f) => f.kind === 'foco-sin-pieza'), []);
 });

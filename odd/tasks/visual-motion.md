@@ -29,6 +29,13 @@ Runner: `node --test` on the touched test files; `go test ./...` when the engine
   - scene-lint reports a malformed `facts` or `summary`.
   - Works in the night themes and fullscreen.
   - Docs and the skill reference say when to use them: a symbol legend for a formula, and the result of a walkthrough.
+- S5 (#305): User: "hazlo", in reply to the proposal «el tutor todavía no está obligado a usar focus, flow, facts y summary … el siguiente paso es convertirlo en regla del estándar». The parent's chosen rules:
+  - Every `lk-walkthrough` or `lk-story` with 3 or more steps ends with a `summary` card. Finding: `falta-resumen`.
+  - Every formula or derivation `lk-story` has `facts` on at least one step, as its symbol legend. Finding: `falta-leyenda`.
+  - Every `lk-walkthrough` or `lk-story` with 3 or more SVG steps has a string `focus` on at least one step. Finding: `falta-foco`.
+  - Story `moves` flow by default, and `flow: false` opts out. Walkthrough arrows stay opt-in.
+  - The Go engine (`explanation-standard`) and explain-check enforce the rules in agreement. The rule keys are additive, so frozen topics keep their old rules.
+  - The kit examples and the skill's worked examples pass the rules. The skill states each rule with an example.
 
 ## Tasks
 
@@ -36,6 +43,7 @@ Runner: `node --test` on the touched test files; `go test ./...` when the engine
 - T2 S2 #299 change flash and focus ring — worker — done (focus.test 11/11 and motion.test 8/8 on the final kit; scene-lint focus 2/2; scene-lint.test + deck-gate.test 114/114; kit dir + kit-pages + scene-gate.test 153/153; go ./internal/engine 488 pass; bridge 133 pass, 1 skip; gates skip data-focus-ring; step key data-focus-piece; settled == HEAD on 14 blocks); committed c39562b
 - T3 S3 #300 flowing and draw-on arrows — worker — done (flow.test 9/9, with the draw and dash checks; kit dir 140/140; scene-lint-flow 3/3; deck-gate-flow 1/1; scene-lint, deck-gate, scene-gate, kit-pages 140/140; arch-gate 7/8 with the 3 pre-existing findings; bridge 133 pass, 1 skip; go unchanged; scene-lint rejects a non-boolean flow; reduced motion solid; no HEAD-vs-tree sweep of the examples); committed 83af1d1
 - T4 S4 #301 facts table and closing summary — worker — done (facts.test 14/14: RED 12 fail + 1 guard; scene-lint-facts 5/5: RED 4 fail + 1 guard; story_facts go 3/3: RED 1 fail + 2 guards, go ./internal/engine 491 pass; deck-gate-facts 2/2: overflow check RED with the check disabled, GREEN with it; kit-pages 14/14: RED no legend; kit dir 154/154; scene-lint, deck-gate, scene-gate, focus and flow sets 134/134; bridge 133 pass, 1 skip; arch-gate 7/8 with the 3 pre-existing findings; «Ver todo» not implemented, see the report); committed d2a8b46 (rebased as 2117ae8)
+- T5 S5 #305 require the cues (engine + explain-check + moves flow by default + skill and examples) — worker — done, with decisions to confirm (see the report). Evidence, observed RED then GREEN: story focus is `ring` now (focus.test 12/12, RED 10 of 12; scene-lint-focus 3/3, RED 2 of 3); explain-check cues, serves, clave-muerta and examples in tools/explain-check.test.mjs 99/99 (RED: the new subtests failed); engine cues, frozen snapshot and explain-check cross-check (RED: the production rules accepted the cue-less story and the cross-check disagreed on 8 notes; GREEN: go test ./internal/engine ok, go test ./... ok, 3 packages); bridge serving test 1/1 (RED: the learner got the note instead of the page); bridge.test 134 pass, 1 skip; kit tests 163/163; kit-pages 14/14; studio/*.test 382/382; tools/test 31/32 (arch-gate: the three known findings). Branch feat/305-require-cues, stacked on feat/298-step-motion (PR #304).
 
 ## Log
 
@@ -43,3 +51,4 @@ Runner: `node --test` on the touched test files; `go test ./...` when the engine
 - L2 (2026-11-14, user): "si, go". Accepts turning P1-P4 into issues and implementing them.
 - L3 (evidence): on origin/main, kit.css has `@keyframes pulse` and `lk-xflow` (scenario explorer only) and a global reduced-motion kill. Story and walkthrough steps swap scenes without interpolation.
 - L4 (2026-11-14, evidence): verifier passed S1-S4 after rebase; screenshots showed facts row rules shorter than the table rules and a raised mono value; «Ver todo» does not exist on decks/stories, S4 now names «Ir al final».
+- L5 (2026-11-14, user): "hazlo". Accepts the proposal to make the cues a standard rule. PR #304 is open and not merged, so #305 is stacked on it.

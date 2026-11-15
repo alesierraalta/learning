@@ -11,7 +11,7 @@ import (
 // The keys the story schema reads, at each level. A key outside them is a
 // drawing nobody draws (#246).
 var (
-	storyStepKeys  = map[string]bool{"title": true, "narrator": true, "equation": true, "focus": true, "stage": true, "say": true, "header": true, "facts": true}
+	storyStepKeys  = map[string]bool{"title": true, "narrator": true, "equation": true, "focus": true, "stage": true, "say": true, "header": true, "facts": true, "ring": true}
 	storyStageKeys = map[string]bool{"scene": true, "cards": true, "memory": true, "tables": true, "venn": true, "tree": true, "caption": true}
 	storySceneKeys = map[string]bool{
 		"actors": true, "props": true, "moves": true, "tags": true, "marks": true, "icons": true,
@@ -60,7 +60,7 @@ func deadKeyFindings(text string, th rules.PartStandardThresholds) []string {
 				continue
 			}
 			return []string{fmt.Sprintf(
-				"el paso %d lleva `%s`, que el esquema no lee — el escenario vive en `stage` y su dibujo en `stage.scene`; las claves del paso son title, narrator, equation, focus, stage, say, header, facts",
+				"el paso %d lleva `%s`, que el esquema no lee — el escenario vive en `stage` y su dibujo en `stage.scene`; las claves del paso son title, narrator, equation, focus, stage, say, header, facts, ring",
 				i+1, path)}
 		}
 	}

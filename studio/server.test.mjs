@@ -571,10 +571,16 @@ Cómo leerlo: avanza y mira la casilla que cambia.
 
 ## Mini-quiz
 `;
-/** The same part with its words beside the arrow: the studio's three tools pass it. */
+/** The same part with its words beside the arrow, and the cues of #305 its story needs (summary, facts, focus): the studio's three tools pass it. */
 const CLEAN_PART = BROKEN_PART.replace(
   '"arrows":[{"x1":208,"y1":119,"x2":552,"y2":119,"tone":"blue","width":3}],\n"labels":[{"x":380,"y":128,"text":"encima","size":26}]',
   '"arrows":[{"x1":208,"y1":119,"x2":552,"y2":119,"label":"acción","tone":"blue","width":3,"labelAt":0.5}]',
+).replace(
+  '"viewBox":"0 0 360 300","steps":[',
+  '"viewBox":"0 0 360 300","summary":{"title":"Lo que queda","metrics":[["Pasos","3"],["Coste por paso","0,04"]]},"steps":[',
+).replace(
+  ' {"title":"La salida",',
+  ' {"title":"La salida","ring":"r","facts":[["robot","el que sube"],["casilla","la de abajo"]],',
 );
 
 /**

@@ -48,15 +48,15 @@ Sin embargo, mover la rama no altera el commit.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Ramas y punteros: la cadena de commits y HEAD","viewBox":"0 60 360 190","steps":[
- {"title":"Commit inicial y rama","equation":{"size":22,"atoms":[{"t":"main -> ","id":"m"},{"t":"C1 (a1b2c)","id":"c"}]},"focus":["c"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Ramas y punteros: la cadena de commits y HEAD","viewBox":"0 60 360 190","steps":[
+ {"title":"Commit inicial y rama","facts":[["Commit inicial y rama","La rama main apunta al commit inicial del proyecto."]],"equation":{"size":22,"atoms":[{"t":"main -> ","id":"m"},{"t":"C1 (a1b2c)","id":"c"}]},"focus":["c"],
   "narrator":"La rama main apunta al commit inicial del proyecto.",
   "stage":{"scene":{
    "paths":[],
    "actors":[{"id":"c1","icon":"robot","x":80,"y":150,"size":56,"tone":"blue","tag":"C1"},{"id":"main","icon":"robot","x":250,"y":150,"size":56,"tone":"slate","tag":"main"}],
    "props":[{"id":"p1","kind":"packet","on":"c1","side":"left","tone":"blue"}],
    "marks":[{"kind":"ok","actors":["c1"],"label":"commit"}]}}},
- {"title":"Nuevo commit y avance","equation":{"size":22,"atoms":[{"t":"git commit: ","id":"gc"},{"t":"C2 (d3e4f)","id":"c2"}]},"focus":["c2"],
+ {"title":"Nuevo commit y avance","ring":"c1","equation":{"size":22,"atoms":[{"t":"git commit: ","id":"gc"},{"t":"C2 (d3e4f)","id":"c2"}]},"focus":["c2"],
   "narrator":"El nuevo commit C2 enlaza a su padre C1 y main avanza.",
   "stage":{"scene":{
    "paths":[],

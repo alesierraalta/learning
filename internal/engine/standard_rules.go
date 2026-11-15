@@ -40,6 +40,9 @@ var standardRules = []standardRule{
 	{"ascii", asciiFindings},
 	{"leyenda", legendFindings},
 	{"sin-resumen", sinResumenFindings},
+	{"falta-resumen", faltaResumenFindings},
+	{"falta-leyenda", faltaLeyendaFindings},
+	{"falta-foco", faltaFocoFindings},
 }
 
 // standardFindings returns one finding per rule the part misses, each naming the

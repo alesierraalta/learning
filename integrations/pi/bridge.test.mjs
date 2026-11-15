@@ -868,6 +868,13 @@ function makeHost() {
   return { api, handlers, tools, sent };
 }
 
+// The bridge's teardown: the session_shutdown handlers it registered on the host.
+function shutdownOf(host) {
+  return async () => {
+    for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
+  };
+}
+
 async function setup(options = {}) {
   const { root, topic } = makeRoot();
   const host = makeHost();
@@ -876,9 +883,7 @@ async function setup(options = {}) {
     const result = await host.tools.get("learning_view").execute("call", params, undefined, undefined, { cwd });
     return result;
   };
-  const shutdown = async () => {
-    for (const handler of host.handlers.get("session_shutdown") ?? []) await handler({}, {});
-  };
+  const shutdown = shutdownOf(host);
   openServers.push(shutdown);
   return { root, topic, host, view, shutdown };
 }
@@ -1320,6 +1325,33 @@ test("every part page carries one audio entry per style and serves the file once
   const ownSrt = await http(`${pageDir}${after.audio.base}${encodeURIComponent(after.audio.styles[0].srt)}`);
   assert.equal(ownSrt.status, 200);
   assert.match(ownSrt.headers["content-type"], /^text\/plain/);
+  await shutdown();
+});
+
+// #305: las reglas de autoría (summary, facts, ring) se miden al escribir una parte. Una página que el lector
+// ya tenía sigue servida sin ellas: servir solo lee las reglas que no son de autoría.
+test("a part's page that lacks only the authoring cues is still served", async () => {
+  const { root, topic } = makeRoot();
+  const kitDir = realpathSync(mkdtempSync(join(tmpdir(), "kit-")));
+  writeFileSync(join(kitDir, "kit.js"), "console.log('kit');");
+  writeFileSync(join(kitDir, "kit.css"), "body{}");
+  mkdirSync(join(kitDir, "fonts"));
+  writeFileSync(join(kitDir, "fonts", "atkinson-400.woff2"), "wOF2");
+  const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
+  // The page as #304 wrote it, before the cues: the clean fixture carries them now, so this copy keeps the old shape.
+  writeFileSync(pagePath, readFileSync(join(import.meta.dirname, "..", "..", "tools", "register", "fixtures", "bench305", "tcp-handshake-sin-senales.html"), "utf8"));
+  // La precondición: la página no pasa las reglas de autoría. Si ya las pasara, la prueba no probaría nada.
+  const measured = JSON.parse(spawnSync(process.execPath, [join(import.meta.dirname, "..", "..", "tools", "explain-check.mjs"), pagePath, "--json"], { encoding: "utf8" }).stdout);
+  assert.equal(measured.ok, false, "the page passes the authoring cues: this test proves nothing");
+  const host = makeHost();
+  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"] });
+  // Closed like setup()'s bridge: here at the end, and through openServers if an assertion fails first.
+  const shutdown = shutdownOf(host);
+  openServers.push(shutdown);
+  const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
+  const page = await http(result.structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.match(page.headers["content-security-policy"], /script-src 'self' https:\/\/cdn\.jsdelivr\.net 'unsafe-inline'/, "the learner gets the note instead of the page");
   await shutdown();
 });
 

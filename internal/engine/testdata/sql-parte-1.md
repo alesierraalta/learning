@@ -37,7 +37,7 @@ En nuestro ejemplo, modelamos una sucursal con dos tablas: `DEPARTMENT` (departa
 Si insertamos un empleado con un departamento inexistente, el motor bloquea la fila huérfana. De igual modo, no permi...
 <lk-walkthrough class="lk-wt-compact" title="Validación de integridad referencial en cuatro pasos">
 <script type="application/json">
-{
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","4"]]},
   "title": "Validación de integridad referencial",
   "viewBox": "0 0 360 240",
   "steps": [
@@ -59,11 +59,11 @@ Si insertamos un empleado con un departamento inexistente, el motor bloquea la f
       }
     },
     {
-      "title": "Inserción válida del empleado",
+      "title": "Inserción válida del empleado","ring":"pieza-2",
       "text": "Se inserta el empleado 101 con clave foránea 10. La referencia existe y la inserción se confirma.",
       "scene": {
         "boxes": [
-          {"x": 20, "y": 80, "w": 120, "h": 50, "label": "EMP 101", "size": 14, "tone": "green", "rx": 6},
+          {"id":"pieza-2","x": 20, "y": 80, "w": 120, "h": 50, "label": "EMP 101", "size": 14, "tone": "green", "rx": 6},
           {"x": 220, "y": 80, "w": 120, "h": 50, "label": "DEP 10", "size": 14, "tone": "blue", "rx": 6}
         ],
         "arrows": [

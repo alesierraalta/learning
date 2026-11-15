@@ -27,8 +27,8 @@ Cada conjunto es una tabla. La parte rellena es lo que el resultado conserva.
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Tres JOIN, tres regiones","venn":{"sets":[{"id":"a","label":"A","note":"videogames"},{"id":"b","label":"B","note":"developers"}]},"steps":[
- {"title":"INNER JOIN","equation":{"size":22,"atoms":[{"t":"FROM videogames ","id":"from"},{"t":"INNER JOIN","id":"join"},{"t":" developers","id":"devs"}]},"focus":["join"],
+{"summary":{"title":"Tres JOIN, tres regiones","metrics":[["INNER","solo coincidencias"],["LEFT","todas las de A"],["FULL","todas las filas"]]},"kind":"derivation","title":"Tres JOIN, tres regiones","venn":{"sets":[{"id":"a","label":"A","note":"videogames"},{"id":"b","label":"B","note":"developers"}]},"steps":[
+ {"title":"INNER JOIN","facts":[["A","videogames, a la izquierda"],["B","developers, a la derecha"]],"equation":{"size":22,"atoms":[{"t":"FROM videogames ","id":"from"},{"t":"INNER JOIN","id":"join"},{"t":" developers","id":"devs"}]},"focus":["join"],
   "narrator":"«INNER JOIN» deja *solo las coincidencias*: las filas que están en las dos tablas.",
   "stage":{"venn":{"fill":["a+b"],"op":"INNER JOIN","says":"Solo coincidencias"}}},
  {"title":"LEFT JOIN","equation":{"size":22,"atoms":[{"t":"FROM videogames ","id":"from"},{"t":"LEFT JOIN","id":"join"},{"t":" developers","id":"devs"}]},"focus":["join"],

@@ -47,13 +47,13 @@ El acuerdo establece el canal fiable.
 
 <lk-story>
 <script type="application/json">
-{
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},
   "kind": "derivation",
   "title": "Saludo de tres vías",
   "viewBox": "0 60 360 190",
   "steps": [
     {
-      "title": "Paso 1: SYN",
+      "title": "Paso 1: SYN","facts":[["Paso 1: SYN","El cliente envía un paquete SYN con su secuencia inicial 1000."]],
       "equation": {
         "size": 22,
         "atoms": [
@@ -82,7 +82,7 @@ El acuerdo establece el canal fiable.
       }
     },
     {
-      "title": "Paso 2: SYN-ACK",
+      "title": "Paso 2: SYN-ACK","ring":"c1",
       "equation": {
         "size": 22,
         "atoms": [

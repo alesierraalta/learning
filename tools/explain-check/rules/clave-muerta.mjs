@@ -1,7 +1,8 @@
 // 7h (c). Las claves que el esquema no lee: un paso con `scene` al lado de `stage`
 // declara un dibujo que nadie dibuja. El escenario vive en `stage` y su dibujo en
 // `stage.scene`; lo demás es dato muerto que enseña mal el esquema al tutor.
-const CLAVES_DEL_PASO = new Set(['title', 'narrator', 'equation', 'focus', 'stage', 'say', 'header']);
+// `facts` (la leyenda) y `ring` (el anillo de una pieza) son claves del esquema desde #301 y #305.
+const CLAVES_DEL_PASO = new Set(['title', 'narrator', 'equation', 'focus', 'stage', 'say', 'header', 'facts', 'ring']);
 const CLAVES_DEL_ESCENARIO = new Set(['scene', 'cards', 'memory', 'tables', 'venn', 'tree', 'caption']);
 const CLAVES_DE_LA_ESCENA = new Set(['actors', 'props', 'moves', 'tags', 'marks', 'icons', 'callouts',
   'curves', 'paths', 'formulas', 'formula', 'grids', 'sheets', 'gears', 'boxes', 'arrows', 'nodes',

@@ -55,8 +55,8 @@ Cada paquete confirma el avance del interlocutor sumando una unidad a su secuenc
 
 <lk-story>
 <script type="application/json">
-{"kind":"derivation","title":"Establecimiento del handshake TCP","viewBox":"0 0 360 220","steps":[
- {"title":"Paso 1: Cliente envía SYN","equation":{"size":22,"atoms":[{"t":"Cliente","id":"c"},{"t":" ---[ SYN, Seq=1000 ]---> ","id":"syn"},{"t":"Servidor","id":"s"}]},"focus":["syn"],
+{"summary":{"title":"Lo que queda","metrics":[["Pasos","3"]]},"kind":"derivation","title":"Establecimiento del handshake TCP","viewBox":"0 0 360 220","steps":[
+ {"title":"Paso 1: Cliente envía SYN","facts":[["p1","SYN"]],"equation":{"size":22,"atoms":[{"t":"Cliente","id":"c"},{"t":" ---[ SYN, Seq=1000 ]---> ","id":"syn"},{"t":"Servidor","id":"s"}]},"focus":["syn"],
   "narrator":"El cliente inicia la conexión enviando su flag SYN y su número de secuencia inicial.",
   "scene":{"arrows":[{"x1":70,"y1":140,"x2":270,"y2":140}]},
   "stage":{"scene":{
@@ -66,7 +66,7 @@ Cada paquete confirma el avance del interlocutor sumando una unidad a su secuenc
    ],
    "props":[{"id":"p1","kind":"value","on":"cli","side":"right","label":"SYN","tone":"blue"}]
   }}},
- {"title":"Paso 2: Servidor responde SYN-ACK","equation":{"size":22,"atoms":[{"t":"Servidor","id":"s"},{"t":" <---[ SYN-ACK, Ack=1001 ]--- ","id":"synack"},{"t":"Cliente","id":"c"}]},"focus":["synack"],
+ {"title":"Paso 2: Servidor responde SYN-ACK","ring":"cli","equation":{"size":22,"atoms":[{"t":"Servidor","id":"s"},{"t":" <---[ SYN-ACK, Ack=1001 ]--- ","id":"synack"},{"t":"Cliente","id":"c"}]},"focus":["synack"],
   "narrator":"El servidor confirma el SYN recibido con Ack=1001 y envía su propio número de secuencia.",
   "scene":{"arrows":[{"x1":270,"y1":140,"x2":70,"y2":140}]},
   "stage":{"scene":{
