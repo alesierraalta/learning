@@ -12,7 +12,7 @@ S5 — The closing mock mirrors the real exam's structure and difficulty. Contra
 
 ## Tasks
 T1 — S1,S2 — engine check `exam-practice` + rules + tests — #306 — gentle-ai-worker — done: 1314287
-T2 — S2 — view: practical exercises in part page and mini-quiz (bridge + kit) — #307 — gentle-ai-worker — done (see commit below)
+T2 — S2 — view: practical exercises in part page and mini-quiz (bridge + kit) — #307 — gentle-ai-worker — done: f44bacb
 T3 — S3,S4 — studio upload + form + prompt line — #308 — gentle-ai-worker — done: bf33c2d
 T4 — S4,S5 — engine `--exam-source`, plan structure, mock mirror + adapter + skill references/examen.md — #309 — gentle-ai-worker — done: c986ec1
 T5 — all — docs + real run — #310 — gentle-ai-worker — in_progress
@@ -21,4 +21,7 @@ T5 — all — docs + real run — #310 — gentle-ai-worker — in_progress
 L1 — "en la seccion de examenes, si se elige algo practico, el tutor debe generar ejercicios practicos, y debe existir la opcion de que si yo subo un examen o documento, el tutor arme la ruta para prepararme para ese examen, como el modo examen pero partiendo de un examen real"
 L2 — User answers: practical exercises "En cada parte + simulacro (Recomendado)"; uploads "PDF, Fotos / capturas"; from a real exam take "Todo (Recomendado)" (format, evaluable syllabus, question types, mock with the same structure and difficulty).
 D1 — Agent decision (T4 found S3 said copy after init while S5 needs the file at init): the adapter stages uploads into `<topic>/fuentes/` before the engine init; studio `fuentesLine` changes to tell the tutor to pass `sources`/`examSource`.
+V1 — Independent verify (static, then probed): a symlinked `practica/` dir or bank file let the direct-file route serve `solucion` before submission. Fixed test-first in eec0d1f; re-verified PASS (page, quiz API, lexical and resolved file routes, symlinked dir and file).
+V2 — Independent verify (runtime probe): a 120 × "漢" image name (360 bytes) returned 500, and failed uploads (also invalid PDF, missing pdftotext) left an empty `.subidas/<id>/`. Fixed test-first in 4f51727 (byte-bounded names keeping the extension and the PDF `.txt` budget; failed uploads remove their dir); re-verified PASS.
+V3 — Verify PASS: adapter refusals (duplicates, outside source, escaping symlink) make no engine call and create no topic; rollback preserves pre-existing files; old exam states without `source` load unchanged; no-exam runs SKIP the new checks.
 L3 — Exploration on origin/main: exam checks in internal/engine/exam.go (evalExamPlan, evalExamMock); part exercises today are only code exercises (`codigo/<id>/ejercicio.json` with `parte`, listed by integrations/pi/bridge.ts listExercises, shown by kit.js mini-quiz boxes); the studio already reads raw audio bodies (MAX_AUDIO_BYTES) and JSON bodies up to 64 KB; the skill ships from the repo at skills/explicacion-interactiva.

@@ -25,9 +25,10 @@ rtk go build -o bin/learning ./cmd/learning
 ## CLI contract
 
 ```text
-learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--exam oral|written|practical] [--practice KIND] [--stage STAGE] [--json]
+learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--exam oral|written|practical] [--practice KIND] [--exam-source PATH] [--stage STAGE] [--json]
 learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
 learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
+learning mcp
 learning help
 ```
 
@@ -135,12 +136,20 @@ exactly as before.
 It is init-only, implies `pareto` scope, and cannot be combined with explicit
 `--scope complete` (exit 2). `--practice "<kind>"` is also init-only and is
 accepted only with `--exam practical`; it is optional even for practical runs.
+`--exam-source PATH` is init-only, requires `--exam`, and must name an existing
+regular file at a topic-relative path under `fuentes/` without `..` (for
+example, `fuentes/examen.pdf`). It fixes which real source the run mirrors.
 Later commands read the exam contract from state rather than accepting new flags.
+The studio's `deducir` choice is not an engine exam format: the tutor infers
+`oral`, `written` or `practical` from the source, then passes that format (and
+`--practice` only when practical) to `init`.
 
 An exam run stores `state.exam` as `{"format":"practical","practice":"build an app"}`
-(the `practice` key is omitted when no kind was supplied). The init report
-returns it in `evidence.exam` alongside `evidence.scope: "pareto"`; `status`
-reports `exam` when present. Older states without `exam` still load unchanged,
+(the `practice` key is omitted when no kind was supplied). With `--exam-source`,
+`state.exam.source` is also recorded, for example
+`{"format":"practical","practice":"build an app","source":"fuentes/examen.pdf"}`.
+The init report returns it in `evidence.exam` alongside `evidence.scope: "pareto"`;
+`status` reports `exam` when present. Older states without `exam` still load unchanged,
 and runs without an exam retain their existing behavior.
 
 The plan binds itself and each part to that fixed contract. In `plan.json`, add
@@ -158,12 +167,41 @@ to this exam:
    "examen":"This part prepares you to design and build the requested application."}]}
 ```
 
+When `--exam-source` is set, `plan.json`'s `examen` block must also set
+`"fuente"` to exactly `state.exam.source` and a nonempty `"estructura"` list.
+Each structure item is `{"tipo":"<question kind>","cantidad":<n>}`; `tipo`
+must be nonblank and unique, and `cantidad` must be at least 1. For example:
+
+```json
+{"examen":{"formato":"practical","practica":"build an app","fuente":"fuentes/examen.pdf","estructura":[{"tipo":"opción múltiple","cantidad":2},{"tipo":"caso práctico","cantidad":1}]}}
+```
+
+Without a real source, these two fields are not required and the existing exam
+contract is unchanged.
+
 The `exam-plan` check runs at `preparation` and again at `planning` (where the
 plan may have been rewritten). It fails for a missing/mismatched exam block,
-practice kind, or part-purpose line. Its bounds come from
-`thresholds.exam: {"formats":["oral","written","practical"],"minPartChars":24}`.
-A rules file that declares `exam_plan` or `exam_mock` without `thresholds.exam`
-fails to load; the check also fails closed if the run format is not enabled.
+practice kind, part-purpose line, or (for a sourced exam) source/structure. Its
+bounds come from `thresholds.exam: {"formats":["oral","written","practical"],"minPartChars":24,"minPracticePerPart":2}`.
+A rules file that declares `exam_plan`, `exam_mock` or `exam_practice` without
+`thresholds.exam` fails to load; `minPracticePerPart` must be positive, and the
+checks fail closed if the run format is not enabled.
+
+For a practical exam, `exam-practice` runs at every part stage. At least
+`thresholds.exam.minPracticePerPart` practical exercises are required per part
+(2 in `rules/deep.json`). Manual exercises live in
+`practica/<partId>.json`:
+
+```json
+{"exercises":[{"id":"p1-e1","enunciado":"...","entregable":"...","solucion":"..."}]}
+```
+
+Each manual exercise needs a safe, unique `id` and nonempty `enunciado`,
+`entregable` and `solucion`. A matching `codigo/<id>/ejercicio.json` also
+counts when its `parte` equals the part id and its `enunciado` is nonempty; its
+tests are its solution. These exercises are rendered on the part page and
+mini-quiz with an answer box; the solution is revealed only after submission.
+`exam-practice` reports `SKIP` outside practical exam runs.
 
 `cuestionario-final.json` adds a top-level `formato` equal to the run's exam
 format. The `exam-mock` check at `final_quiz` requires a nonempty question list
@@ -174,10 +212,14 @@ and enforces the format-specific contract:
 - `practical`: at least one question has `"tipo":"practica"` and a nonempty
   `"entregable"`.
 
-The existing `final-quiz-note` check still owns plan coverage, recorded answers,
-scoring and its choice/open mix for every format; `exam-mock` checks shape, not
-subject-matter quality. In a non-exam run, `exam-plan` and `exam-mock` report
-`SKIP` because no exam format was declared.
+When the run has `state.exam.source`, `exam-mock` also counts each
+`questions[].tipo` in `cuestionario-final.json` and requires exactly the
+`cantidad` declared for that `tipo` in `plan.json`'s `examen.estructura`; an
+undeclared or missing type therefore differs too. The existing `final-quiz-note`
+check still owns plan coverage, recorded answers, scoring and its choice/open
+mix for every format; `exam-mock` checks shape, not subject-matter quality. In a
+non-exam run, `exam-plan` and `exam-mock` report `SKIP` because no exam format
+was declared.
 
 ## Explanation method (strict flow)
 
