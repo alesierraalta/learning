@@ -588,7 +588,7 @@ const CLEAN_PART = BROKEN_PART.replace(
  * to measure. `parts` is one script per turn: a correction writes what the previous turn was told
  * to fix. `partChecks` replaces the studio's measurement when a test needs the verdict, not the tools.
  */
-async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE }, partChecks } = {}) {
+async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE }, partChecks, state = {} } = {}) {
   const { root, engine: enginePath, log } = makeRoot(engine);
   process.env.FAKE_PI_LOG = log;
   const turns = join(root, "agy-turns.log");
@@ -606,7 +606,8 @@ async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE 
     ...(partChecks ? { partChecks } : {}),
   });
   open.push(studio);
-  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  // The engine's own state: a method in it was recorded before any turn of the test.
+  writeFileSync(join(root, "redes", ".learning", "state.json"), `${JSON.stringify(state)}\n`);
   const stream = sse(`${studio.url}events`);
   await stream.next("history");
   await stream.next("state");
@@ -2826,6 +2827,8 @@ for (const runtime of ["pi", "agy"]) {
         existsSync(join(tutor.root, trash, "rechazada", "redes", "explicaciones", "Parte 1 - Capas.md")),
         "the rejected version waits in the trash, not in the reader",
       );
+      const rejected = JSON.parse(readFileSync(join(tutor.root, trash, "rechazada", "papelera.json"), "utf8"));
+      assert.match(rejected.reason, /stage-empty/, "the reason waits beside the rejected version, where the parent can read it");
       assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 1, "one clear message, not two");
     } finally { tutor.close(); }
   });
@@ -3556,6 +3559,127 @@ test("the method the page recorded is the learner's, so the same report is not r
     await until(() => settleIdle(stream));
     assert.equal(stream.events.some((event) => event.name === "error" && /método/.test(event.data.message)), false);
   } finally { stream.close(); }
+});
+
+// #314: the guard blames a method only on the turn that changed it. A method the engine recorded before
+// the turn is the learner's even when metodos.json never saw it, so its topic's turns are checked like any
+// other, and a rejected regeneration keeps its reason beside its quarantine.
+const ENGINE_METHOD = { ...CLEARED_STAGE, method: "pareto" };
+const NEW_PART = [
+  { name: "Parte 1 - Capas.md", content: "# LA VERSION NUEVA\n" },
+  { name: "Parte 1 - Capas.html", content: "<p>LA PAGINA NUEVA</p>" },
+];
+const CORRECTED_PART = [
+  { name: "Parte 1 - Capas.md", content: "# LA VERSION CORREGIDA\n" },
+  { name: "Parte 1 - Capas.html", content: "<p>LA PAGINA CORREGIDA</p>" },
+];
+/** What the part checks find when a route has no summary (#305): the tool's own words. */
+const FALTA_RESUMEN = {
+  kind: "findings",
+  tools: [
+    {
+      file: join("redes", "explicaciones", "Parte 1 - Capas.md"),
+      tool: "explain-check.mjs",
+      output: "Parte 1 - Capas.md\n  falta-resumen: 1 recorrido de tres o más pasos sin resumen",
+      findings: ["falta-resumen: 1 recorrido de tres o más pasos sin resumen"],
+    },
+  ],
+  count: 1,
+  first: "falta-resumen: 1 recorrido de tres o más pasos sin resumen",
+};
+
+for (const runtime of ["pi", "agy"]) {
+  test(`a regeneration of a topic whose method the engine already had reaches the part checks: ${runtime}`, async () => {
+    const measured = [];
+    const tutor = await checkingTutor(runtime, {
+      parts: [NEW_PART],
+      engine: { status: ENGINE_METHOD },
+      state: { method: "pareto" },
+      partChecks: async (files) => {
+        measured.push(...files);
+        return { kind: "clean" };
+      },
+    });
+    try {
+      const note = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md");
+      const page = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.html");
+      writeFileSync(note, "LA VERSION ANTERIOR\n");
+      writeFileSync(page, "<p>LA PAGINA ANTERIOR</p>");
+      const answer = await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" });
+      assert.equal(answer.status, 200, answer.body);
+      await until(() => tutor.turnsSoFar() === 1, 15000);
+      await tutor.endTurn();
+      await until(() => settleIdle(tutor.stream), 15000);
+      assert.deepEqual(measured, [note, page], "the turn reached the part checks, which measured the note and the page it wrote");
+      assert.equal(readFileSync(note, "utf8"), "# LA VERSION NUEVA\n", "a clean new version replaces the previous one");
+      assert.equal(readFileSync(page, "utf8"), "<p>LA PAGINA NUEVA</p>");
+      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "the method the engine already had is not blamed on the turn");
+    } finally { tutor.close(); }
+  });
+
+  test(`a regeneration whose part checks find a missing summary asks the tutor for a part-correction: ${runtime}`, async () => {
+    let checks = 0;
+    const tutor = await checkingTutor(runtime, {
+      parts: [NEW_PART, CORRECTED_PART],
+      engine: { status: ENGINE_METHOD },
+      state: { method: "pareto" },
+      // The first version has no summary; the corrected one passes the tools.
+      partChecks: async () => (checks++ === 0 ? FALTA_RESUMEN : { kind: "clean" }),
+    });
+    try {
+      const note = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md");
+      writeFileSync(note, "LA VERSION ANTERIOR\n");
+      const answer = await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" });
+      assert.equal(answer.status, 200, answer.body);
+      await until(() => tutor.turnsSoFar() === 1, 15000);
+      await tutor.endTurn();
+      await until(() => tutor.turnsSoFar() === 2, 15000);
+      assert.match(tutor.turnText(), /falta-resumen: 1 recorrido/, "the correction carries the tool's own finding");
+      await tutor.endTurn();
+      await until(() => settleIdle(tutor.stream), 15000);
+      assert.equal(tutor.turnsSoFar(), 2, "one correction for one finding");
+      assert.equal(readFileSync(note, "utf8"), "# LA VERSION CORREGIDA\n", "the corrected version passes and replaces the previous one");
+      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "a part that passes says nothing to the learner");
+    } finally { tutor.close(); }
+  });
+
+  test(`a regeneration the method guard refuses keeps its reason beside the quarantine: ${runtime}`, async () => {
+    // Nothing recorded a method before this turn: the turn is the one that chose it.
+    const tutor = await checkingTutor(runtime, {
+      parts: [NEW_PART],
+      engine: { status: ENGINE_METHOD },
+      partChecks: async () => ({ kind: "clean" }),
+    });
+    try {
+      const note = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md");
+      writeFileSync(note, "LA VERSION ANTERIOR\n");
+      const answer = await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" });
+      assert.equal(answer.status, 200, answer.body);
+      await until(() => tutor.turnsSoFar() === 1, 15000);
+      await tutor.endTurn();
+      await until(() => settleIdle(tutor.stream), 15000);
+      const { trash } = JSON.parse(answer.body);
+      const rejected = JSON.parse(readFileSync(join(tutor.root, trash, "rechazada", "papelera.json"), "utf8"));
+      assert.equal(rejected.kind, "regeneracion-fallida");
+      assert.match(rejected.reason, /eligió el método por ti \(pareto\)/, "the reason waits beside the rejected version");
+      assert.equal(readFileSync(note, "utf8"), "LA VERSION ANTERIOR\n", "the previous version is back in the library");
+    } finally { tutor.close(); }
+  });
+}
+
+test("a turn that changes the method the engine had is still refused", async () => {
+  // The engine had pareto before the turn; this turn leaves preferencias, which the page never chose (#248).
+  const { studio, root, stream } = await agyStudio({ root: { status: { ...TUTOR_CHOSE_METHOD, method: "preferencias" } } });
+  try {
+    writeFileSync(join(root, "redes", ".learning", "state.json"), `${JSON.stringify({ method: "pareto" })}\n`);
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    const error = await stream.next("error", (data) => /método/.test(data.message));
+    assert.match(error.message, /\(preferencias\)/, "the learner is told the method the turn changed to");
+    await until(() => settleIdle(stream));
+  } finally {
+    stream.close();
+    delete process.env.FAKE_AGY_TURNS;
+  }
 });
 
 test("a file:// link in a reply becomes the studio's own part route, and any other one loses the URL", async () => {

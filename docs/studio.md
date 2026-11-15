@@ -325,6 +325,13 @@ son los mismos, y el markdown de la parte que el tutor escribió no se toca.
   (`learning method --root … --workspace … --rules … --method pareto|preferencias --json`) and
   starts exactly one deep turn so the tutor plans with it. Inside the studio the Pi adapter no
   longer pushes the method question; a standalone Pi session still does.
+  The studio keeps the page's own choices in `metodos.json`, beside `opened.json`. A turn that
+  **changes** the engine's method to one the page never chose is refused: the learner reads
+  `El tutor eligió el método por ti (…)` and the turn is not accepted. The method the engine had before
+  the turn is read from the topic's `.learning/state.json` when the turn starts (a turn that creates a topic
+  reads it when the turn first writes into that topic's folder). A method the engine already had, recorded by
+  the page or by an earlier turn, is never blamed on the turn, and an unreadable state file blames no turn
+  (#248, #314).
 
 ### The next step at the end of a turn
 
@@ -648,7 +655,10 @@ chip or one sentence; the accept button stays disabled until then.
   version replaces the previous one only when every gate passes: while the tutor corrects
   it, and if the correction budget runs out, the previous version is copied back from
   `.papelera`, stays served, and the chat says plainly that the new one did not pass and
-  why. The rejected version is kept in the same trash folder under `rechazada/`. A part
+  why. The rejected version is kept in the same trash folder under `rechazada/`, beside a `papelera.json`
+  whose `reason` is the same text the learner read in the chat (a failing engine stage, a part check, a
+  refused method, or a turn that ended before its part was checked). The manifest is written even when the
+  tutor wrote no file. A part
   with no previous version leaves the studio's error card instead of a broken page. When two
   backups of one part land in the same millisecond, the second folder gets a `-2` suffix
   instead of overwriting the first: the trash never keeps one copy of two.
