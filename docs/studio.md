@@ -258,8 +258,11 @@ son los mismos, y el markdown de la parte que el tutor escribió no se toca.
   a missing practical kind returns `400` with `Indica qué tipo de práctica requiere tu examen práctico.`;
   practice on a non-practical format returns `400` with `Solo puedes indicar una práctica para el formato práctico.`;
   and `examen` outside exam mode returns `400` with `Los datos del examen solo se aceptan en modo examen.`
-  The source text may be up to 200000 characters; a longer source returns `400` with
-  `El texto es demasiado largo: como mucho 200000 caracteres.` The home entry and tutorial show all
+  After a successful attachment, the home entry selects `examen` if no mode was chosen and selects
+  `deducir` if exam mode has no format; an existing mode or format choice is preserved. Removing
+  the last source clears `deducir` but leaves the selected mode. The source text may be up to
+  200000 characters; a longer source returns `400` with `El texto es demasiado largo: como mucho
+  200000 caracteres.` The home entry and tutorial show all
   three modes. When at least one source is attached, `text` may be empty; the prompt asks the tutor
   to take the topic from the uploaded exam/document. Without a source, blank text is still rejected
   with `escribe qué quieres aprender`.
