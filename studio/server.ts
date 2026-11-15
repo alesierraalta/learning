@@ -96,6 +96,9 @@ const REPO = join(HERE, "..");
 const UI_DIR = join(HERE, "ui");
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const MAX_PDF_PAGES = 20;
+const PDF_PAGE_DPI = 150;
+const PDF_PAGE_INFO_FILE = "pages.json";
 const UPLOAD_TYPES = {
   "application/pdf": ".pdf",
   "image/png": ".png",
@@ -110,6 +113,7 @@ const UPLOAD_ERRORS = {
   tooLarge: "El archivo supera el límite de 20 MB.",
   unsupported: "Tipo de archivo no permitido. Sube PDF, PNG, JPEG o WebP.",
   pdfText: "No se pudo extraer el texto del PDF.",
+  pdfPages: "No se pudieron generar las imágenes de las páginas del PDF.",
   storage: "No se pudo guardar el archivo en el vault.",
   filename: "Incluye un nombre de archivo válido en X-File-Name.",
   empty: "El archivo está vacío.",
@@ -123,7 +127,7 @@ const MAX_LEARNING_SOURCE_BODY_BYTES = MAX_LEARNING_SOURCE_CHARS * 6 + 1024;
 function safeUploadName(raw: string, type: UploadType): string {
   const leaf = basename(raw.replace(/\\/g, "/"));
   const extension = UPLOAD_TYPES[type];
-  const suffix = `${extension}${type === "application/pdf" ? ".txt" : ""}`;
+  const suffix = type === "application/pdf" ? `${extension}.p${MAX_PDF_PAGES}.png` : extension;
   const stemLimit = 255 - Buffer.byteLength(suffix, "utf8");
   const cleanedStem = (extname(leaf) ? leaf.slice(0, -extname(leaf).length) : leaf)
     .normalize("NFKC")
@@ -143,7 +147,7 @@ function safeUploadName(raw: string, type: UploadType): string {
   return `${safeStem || "documento"}${extension}`;
 }
 
-function uploadedSources(root: string, raw: unknown): Array<{ path: string; textPath?: string }> {
+function uploadedSources(root: string, raw: unknown): Array<{ path: string; textPath?: string; pagePaths?: string[]; pagesTruncated?: boolean }> {
   const invalid = () => new HttpError(400, UPLOAD_ERRORS.fuentes);
   if (raw === undefined) return [];
   if (!Array.isArray(raw) || raw.length < 1 || raw.length > 5) throw invalid();
@@ -153,8 +157,14 @@ function uploadedSources(root: string, raw: unknown): Array<{ path: string; text
     const containedDirectory = resolveContained(root, directory);
     if (!containedDirectory.ok || containedDirectory.targetReal !== directory) throw invalid();
     try {
-      const files = readdirSync(directory, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && UPLOAD_TYPE_BY_EXTENSION.has(extname(entry.name).toLowerCase()));
+      const entries = readdirSync(directory, { withFileTypes: true });
+      const pdfFiles = entries.filter((entry) => entry.isFile() && extname(entry.name).toLowerCase() === ".pdf");
+      const generatedPageNames = new Set(pdfFiles.length === 1
+        ? Array.from({ length: MAX_PDF_PAGES }, (_, index) => `${pdfFiles[0].name}.p${index + 1}.png`)
+        : []);
+      const files = entries.filter((entry) =>
+        entry.isFile() && UPLOAD_TYPE_BY_EXTENSION.has(extname(entry.name).toLowerCase()) && !generatedPageNames.has(entry.name),
+      );
       if (files.length !== 1) throw invalid();
       const path = join(directory, files[0].name);
       const containedFile = resolveContained(root, path);
@@ -163,7 +173,28 @@ function uploadedSources(root: string, raw: unknown): Array<{ path: string; text
       const textPath = `${path}.txt`;
       const containedText = resolveContained(root, textPath);
       if (!containedText.ok || containedText.targetReal !== textPath || !statSync(textPath).isFile()) throw invalid();
-      return { path, textPath };
+      const pageNumbers = entries
+        .filter((entry) => entry.isFile() && generatedPageNames.has(entry.name))
+        .map((entry) => Number(entry.name.slice(`${basename(path)}.p`.length, -".png".length)))
+        .sort((left, right) => left - right);
+      if (!pageNumbers.length || pageNumbers.some((page, index) => page !== index + 1)) throw invalid();
+      const pagePaths = pageNumbers.map((page) => {
+        const pagePath = `${path}.p${page}.png`;
+        const containedPage = resolveContained(root, pagePath);
+        if (!containedPage.ok || containedPage.targetReal !== pagePath || !statSync(pagePath).isFile()) throw invalid();
+        return pagePath;
+      });
+      const pageInfoPath = join(directory, PDF_PAGE_INFO_FILE);
+      const containedPageInfo = resolveContained(root, pageInfoPath);
+      if (!containedPageInfo.ok || containedPageInfo.targetReal !== pageInfoPath || !statSync(pageInfoPath).isFile()) throw invalid();
+      const pageInfo = JSON.parse(readFileSync(pageInfoPath, "utf8")) as Record<string, unknown>;
+      if (
+        pageInfo.pdf !== basename(path) ||
+        !Number.isSafeInteger(pageInfo.totalPages) || (pageInfo.totalPages as number) < pagePaths.length ||
+        pageInfo.renderedPages !== pagePaths.length || pageInfo.renderedPages !== Math.min(pageInfo.totalPages as number, MAX_PDF_PAGES) ||
+        pageInfo.truncated !== ((pageInfo.totalPages as number) > MAX_PDF_PAGES)
+      ) throw invalid();
+      return { path, textPath, pagePaths, pagesTruncated: pageInfo.truncated as boolean };
     } catch (error) {
       if (error instanceof HttpError) throw error;
       throw invalid();
@@ -1772,6 +1803,54 @@ ${scripts}
         if (!containedText.ok || containedText.targetReal !== textPath || !statSync(textPath).isFile()) {
           throw new HttpError(500, UPLOAD_ERRORS.pdfText);
         }
+        const renderPrefix = join(directory, "render");
+        const renderFailure = await new Promise<Error | null>((resolveFailure) => {
+          execFile(
+            "pdftoppm",
+            ["-f", "1", "-l", String(MAX_PDF_PAGES), "-r", String(PDF_PAGE_DPI), "-png", "-forcenum", filePath, renderPrefix],
+            { timeout: 30_000 },
+            (error) => resolveFailure(error),
+          );
+        });
+        if (renderFailure) throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
+        const pageInfo = await new Promise<{ error: Error | null; stdout: string }>((resolveInfo) => {
+          execFile("pdfinfo", [filePath], { timeout: 30_000 }, (error, stdout) => resolveInfo({ error, stdout }));
+        });
+        const pageCount = /^Pages:\s+(\d+)\s*$/m.exec(pageInfo.stdout)?.[1];
+        if (pageInfo.error || !pageCount || Number(pageCount) < 1 || !Number.isSafeInteger(Number(pageCount))) {
+          throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
+        }
+        const totalPages = Number(pageCount);
+        const renderedPages = Math.min(totalPages, MAX_PDF_PAGES);
+        const renderedByPage = new Map<number, string>();
+        for (const name of readdirSync(directory)) {
+          const match = /^render-0*([1-9]\d*)\.png$/.exec(name);
+          if (!match) continue;
+          const page = Number(match[1]);
+          if (page > renderedPages || renderedByPage.has(page)) throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
+          renderedByPage.set(page, join(directory, name));
+        }
+        if (renderedByPage.size !== renderedPages) throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
+        for (let page = 1; page <= renderedPages; page++) {
+          const renderedPath = renderedByPage.get(page);
+          if (!renderedPath) throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
+          const containedRendered = resolveContained(root, renderedPath);
+          if (!containedRendered.ok || containedRendered.targetReal !== renderedPath || !statSync(renderedPath).isFile()) {
+            throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
+          }
+          const pagePath = `${filePath}.p${page}.png`;
+          renameSync(renderedPath, pagePath);
+          const containedPage = resolveContained(root, pagePath);
+          if (!containedPage.ok || containedPage.targetReal !== pagePath || !statSync(pagePath).isFile()) {
+            throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
+          }
+        }
+        writeFileSync(join(directory, PDF_PAGE_INFO_FILE), JSON.stringify({
+          pdf: nombre,
+          totalPages,
+          renderedPages,
+          truncated: totalPages > MAX_PDF_PAGES,
+        }), { flag: "wx" });
       }
       return sendJson(res, 200, { id, nombre, tipo: uploadType });
     } catch (error) {
@@ -1847,7 +1926,8 @@ ${scripts}
       case "api/aprender": {
         // One of the learner's questions, asked by the page: the mode is decided before the turn.
         const text = typeof body.text === "string" ? body.text.trim() : "";
-        if (!text) throw new HttpError(400, "escribe qué quieres aprender");
+        const hasSources = Array.isArray(body.fuentes) && body.fuentes.length > 0;
+        if (!text && !hasSources) throw new HttpError(400, "escribe qué quieres aprender");
         if (text.length > MAX_LEARNING_SOURCE_CHARS) {
           throw new HttpError(400, `El texto es demasiado largo: como mucho ${MAX_LEARNING_SOURCE_CHARS} caracteres.`);
         }
@@ -1880,7 +1960,8 @@ ${scripts}
         // A deep-mode request's topic does not exist yet: its first write under a topic folder
         // binds it, and the gate asks the engine about that folder when it settles.
         const fuentesPrompt = fuentes.length ? `\n${fuentesLine(fuentes)}` : "";
-        await startTurn(`Quiero aprender ${text}.\n\n${modeLine(modo, examen)}${fuentesPrompt}`, { topic: null, creation: modo !== "rapido" });
+        const learningTarget = text || "el tema que aparece en el examen o documento adjunto";
+        await startTurn(`Quiero aprender ${learningTarget}.\n\n${modeLine(modo, examen)}${fuentesPrompt}`, { topic: null, creation: modo !== "rapido" });
         return sendJson(res, 200, { ok: true, modo });
       }
       case "api/metodo": {

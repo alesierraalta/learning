@@ -28,6 +28,7 @@ const REPO_ROOT = resolve(HERE, "..", "..");
 const ENTRY_TYPE = "gentle-learning/enrollment";
 const GATE_TYPE = "gentle-learning/settle-gate";
 const ENGINE_TIMEOUT_MS = 120_000;
+const MAX_UPLOADED_PDF_PAGE_IMAGES = 20;
 const CHECK_STATUSES = new Set(["PASS", "FAIL", "SKIP"]);
 /** Topic files only an enrolled run may hold: the plan and the diagnosis. */
 const ENROLLED_FILES = new Set(["plan.json", "quiz.json"]);
@@ -219,6 +220,23 @@ function validateUploadedSources(root: string, rawSources: unknown, rawExamSourc
       const textFile = resolveUploadFile(textPath);
       if (!textFile) return { ok: false, detail: `PDF source is missing its extracted .txt sibling: ${source}` };
       if (!addCopy(textFile)) return { ok: false, detail: `sources contain duplicate filenames: ${textFile.name}` };
+      const pageNumbers: number[] = [];
+      for (let page = 1; page <= MAX_UPLOADED_PDF_PAGE_IMAGES; page++) {
+        const pagePath = `${source}.p${page}.png`;
+        try {
+          lstatSync(pagePath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+          return { ok: false, detail: `PDF source page image is unavailable: ${pagePath}` };
+        }
+        const pageFile = resolveUploadFile(pagePath);
+        if (!pageFile) return { ok: false, detail: `PDF source page image is not an uploaded file: ${pagePath}` };
+        if (!addCopy(pageFile)) return { ok: false, detail: `sources contain duplicate filenames: ${pageFile.name}` };
+        pageNumbers.push(page);
+      }
+      if (pageNumbers.some((page, index) => page !== index + 1)) {
+        return { ok: false, detail: `PDF source has non-contiguous page images: ${source}` };
+      }
     }
   }
   return { ok: true, copies, ...(examName ? { examSource: `fuentes/${examName}` } : {}) };

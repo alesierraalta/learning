@@ -741,6 +741,10 @@ test("stage tool init stages every source and passes the selected exam source on
   const pdf = uploadSource(env, "upload-1", "parcial.pdf", "pdf bytes");
   const pdfText = `${pdf}.txt`;
   writeFileSync(pdfText, "texto extraído");
+  const pdfPageOne = `${pdf}.p1.png`;
+  const pdfPageTwo = `${pdf}.p2.png`;
+  writeFileSync(pdfPageOne, "page one image");
+  writeFileSync(pdfPageTwo, "page two image");
   const image = uploadSource(env, "upload-2", "captura.png", "image bytes");
   let stagedBeforeEngine = false;
   const { host, engine } = installAtRoot(env, async () => {
@@ -748,6 +752,8 @@ test("stage tool init stages every source and passes the selected exam source on
     stagedBeforeEngine =
       existsSync(join(topic, "fuentes", "parcial.pdf")) &&
       existsSync(join(topic, "fuentes", "parcial.pdf.txt")) &&
+      existsSync(join(topic, "fuentes", "parcial.pdf.p1.png")) &&
+      existsSync(join(topic, "fuentes", "parcial.pdf.p2.png")) &&
       existsSync(join(topic, "fuentes", "captura.png"));
     return { code: 0, stdout: reportJson("accepted"), stderr: "" };
   });
@@ -765,6 +771,8 @@ test("stage tool init stages every source and passes the selected exam source on
   assert.equal(stagedBeforeEngine, true, "all originals and the PDF text sibling are copied before init");
   assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "parcial.pdf"), "utf8"), "pdf bytes");
   assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "parcial.pdf.txt"), "utf8"), "texto extraído");
+  assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "parcial.pdf.p1.png"), "utf8"), "page one image");
+  assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "parcial.pdf.p2.png"), "utf8"), "page two image");
   assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "captura.png"), "utf8"), "image bytes");
   const args = engine.calls[0].args;
   assert.equal(args[args.indexOf("--exam-source") + 1], "fuentes/parcial.pdf");

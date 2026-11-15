@@ -260,7 +260,9 @@ son los mismos, y el markdown de la parte que el tutor escribió no se toca.
   and `examen` outside exam mode returns `400` with `Los datos del examen solo se aceptan en modo examen.`
   The source text may be up to 200000 characters; a longer source returns `400` with
   `El texto es demasiado largo: como mucho 200000 caracteres.` The home entry and tutorial show all
-  three modes.
+  three modes. When at least one source is attached, `text` may be empty; the prompt asks the tutor
+  to take the topic from the uploaded exam/document. Without a source, blank text is still rejected
+  with `escribe qué quieres aprender`.
   The mode travels in the turn's prompt as one explicit line (`[Modo de estudio: …]`, built by
   `modeLine` in `studio/runtime.ts`), and the studio tells each tutor never to ask or choose the
   mode. For an explicit exam choice, that line carries the engine format (`exam: "oral"|"written"|"practical"`)
@@ -277,15 +279,19 @@ son los mismos, y el markdown de la parte que el tutor escribió no se toca.
   «Puedes adjuntar un máximo de 5 archivos por tema.» when a selection exceeds that limit. A
   successful response is `{"id":"<id>","nombre":"<safe-name>","tipo":"application/pdf|image/png|image/jpeg|image/webp"}`; the original is stored at
   `<LEARNING_ROOT>/.subidas/<id>/<safe-name>`. A PDF also gets a sibling `<safe-name>.txt`, extracted
-  with `pdftotext`; extraction failure rejects the upload instead of silently keeping a PDF without
-  text.
+  with `pdftotext`, and page images named `<safe-name>.p<N>.png`, rendered by `pdftoppm` at 150 dpi.
+  At most the first 20 pages are rendered; for longer PDFs the remaining pages are omitted and the
+  first-turn prompt explicitly tells the tutor that the PDF continues after page 20. Page names,
+  including the longest `.p20.png` suffix, remain within the 255-byte filename limit. Text extraction
+  or page rendering failure rejects the upload and removes its stored files.
 
   `POST api/aprender` sends the uploaded IDs as `fuentes: [id, ...]` (1–5 valid uploads). The first
-  turn names each original stored path and, for PDFs, its extracted-text path; it tells the tutor to
-  read them and pass the original paths—not the `.txt` paths—to `learning_stage init` as `sources`.
-  For exam mode, the tutor also passes the selected original exam path as `examSource`, one of those
-  `sources`. The adapter stages the files into `<topic>/fuentes/` before engine `init`; the tutor
-  does not copy them.
+  turn names each original stored path and, for PDFs, its extracted-text path and page-image paths;
+  it tells the tutor to read the page PNGs as images because they may contain questions that
+  `pdftotext` cannot see. It passes the original paths—not the `.txt` paths—to `learning_stage init`
+  as `sources`. For exam mode, the tutor also passes the selected original exam path as `examSource`,
+  one of those `sources`. The adapter stages the PDF, `.txt` and page PNGs into `<topic>/fuentes/`
+  before engine `init`; the tutor does not copy them.
 
   Upload and source-related API refusals return JSON `{error: "…"}` with these exact messages:
 
@@ -296,6 +302,7 @@ son los mismos, y el markdown de la parte que el tutor escribió no se toca.
   | 400 | Empty upload body | `El archivo está vacío.` |
   | 413 | File exceeds 20 MiB | `El archivo supera el límite de 20 MB.` |
   | 500 | PDF text extraction fails (including missing `pdftotext`) | `No se pudo extraer el texto del PDF.` |
+  | 500 | PDF page rendering or page count fails (including missing `pdftoppm` or `pdfinfo`) | `No se pudieron generar las imágenes de las páginas del PDF.` |
   | 500 | File storage fails | `No se pudo guardar el archivo en el vault.` |
   | 400 | `api/aprender.fuentes` is not 1–5 valid uploaded IDs | `Las fuentes deben ser entre 1 y 5 archivos subidos válidos.` |
   | 400 | `deducir` without a source | `El formato «deducir» requiere al menos una fuente.` |
