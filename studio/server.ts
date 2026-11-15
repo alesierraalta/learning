@@ -322,6 +322,11 @@ type Turn = {
    */
   parts: string[];
   /**
+   * The method the engine had recorded for the topic when the turn started, read from its state file; `null`
+   * when that could not be read. The guard blames this turn only for a method the turn itself changed (#314).
+   */
+  methodBefore: string | null;
+  /**
    * What each phase of this turn cost and how many times the tutor was called: the data of the
    * report the studio writes when the turn ends. It only reads the turn; it never changes it.
    */
@@ -339,9 +344,10 @@ const insideVault = (root: string, file: string): boolean => {
 
 /**
  * Moves what a failed regeneration wrote out of the library without deleting it: it waits in the
- * trash beside the previous version, so a hand can still read what the tutor produced.
+ * trash beside the previous version, so a hand can still read what the tutor produced. The reason it
+ * did not pass is written beside the moved files, even when the tutor wrote none (#314).
  */
-function quarantineRegeneration(root: string, files: string[], folderRel: string): number {
+function quarantineRegeneration(root: string, files: string[], folderRel: string, reason: string): number {
   const moved: string[] = [];
   for (const file of files) {
     if (!existsSync(file) || !insideVault(root, file)) continue;
@@ -351,12 +357,11 @@ function quarantineRegeneration(root: string, files: string[], folderRel: string
     renameSync(file, target);
     moved.push(rel);
   }
-  if (moved.length) {
-    writeFileSync(
-      join(root, folderRel, "papelera.json"),
-      `${JSON.stringify({ kind: "regeneracion-fallida", at: new Date().toISOString(), moved }, null, 2)}\n`,
-    );
-  }
+  mkdirSync(join(root, folderRel), { recursive: true });
+  writeFileSync(
+    join(root, folderRel, "papelera.json"),
+    `${JSON.stringify({ kind: "regeneracion-fallida", at: new Date().toISOString(), moved, reason }, null, 2)}\n`,
+  );
   return moved.length;
 }
 
@@ -690,6 +695,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           // A Universitario request whose tutor wrote no topic folder has nothing to gate; the
           // learner is told instead of being left with a silent stop.
           if (settled.creation) emit("notice", { level: "warning", message: "El tutor no creó ningún tema todavía." });
+          // A regeneration of a topic the engine does not track has nothing to check the part against.
+          if (settled.regeneration) settled.regeneration.reason ??= "el tema no está inscrito en el motor de aprendizaje";
           releaseTurn(settled);
           return;
         }
@@ -766,6 +773,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         // writes into becomes the held turn's topic, so the gate can ask the engine about it.
         if (turn?.creation && turn.topic === null && !record.isError && topic !== null) {
           turn.topic = topic;
+          // The topic was not there when the turn started: the method the engine has for it is read when the
+          // turn names it, before anything the turn wrote can have recorded one (#314).
+          turn.methodBefore = methodOf(topic);
           tema = topic;
           gateBlocked = false;
           // The deploy's message names the topic the turn is really teaching.
@@ -1135,8 +1145,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       const written = ended.parts.filter(
         (file) => insideVault(root, file) && (ended.topic === null || relative(root, file).split(/[\\/]/)[0] === ended.topic),
       );
+      // Every rejection says why: the reason is kept beside the rejected files and the learner reads the same
+      // words. An exit that named no reason (an abort, a restart, a dead runtime) says the turn ended early (#314).
+      const why = regeneration.reason?.trim() || "el turno terminó antes de comprobar la parte";
       try {
-        quarantineRegeneration(root, written, join(folder, "rechazada"));
+        quarantineRegeneration(root, written, join(folder, "rechazada"), why);
       } catch (error) {
         process.stderr.write(`estudio: no se pudo apartar la versión rechazada · ${(error as Error).message}\n`);
       }
@@ -1146,12 +1159,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       } catch (error) {
         process.stderr.write(`estudio: no se pudo restaurar la versión anterior · ${(error as Error).message}\n`);
       }
-      const why = regeneration.reason?.trim();
-      const reason = why ? `: ${why}` : ".";
+      const sentence = /[.!?]$/.test(why) ? why : `${why}.`;
       emit("error", {
         message: restored
-          ? `La versión nueva no pasó${reason} Sigues leyendo la versión anterior.`
-          : `La versión nueva no pasó${reason} Esta parte no tenía una versión anterior: no hay nada que mostrar.`,
+          ? `La versión nueva no pasó: ${sentence} Sigues leyendo la versión anterior.`
+          : `La versión nueva no pasó: ${sentence} Esta parte no tenía una versión anterior: no hay nada que mostrar.`,
       });
     }
     // A turn that wrote a part generated a page: its timings are on disk before the page hears
@@ -1246,6 +1258,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       creation: spec.creation === true,
       regeneration: spec.regeneration,
       parts: [],
+      // What the engine had recorded before this turn: a method it already had is never blamed on the turn (#314).
+      methodBefore: spec.topic === null ? null : methodOf(spec.topic),
       // The generation's clocks start when the studio accepts the turn, not when the tutor starts.
       timing: createPageTiming({ runtime: tutor.agente, model: tutor.modelo, topic: spec.topic }),
     };
@@ -1311,11 +1325,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       // The method is the learner's choice on the topic page. A turn that recorded one itself took
       // that choice away, and the studio does not accept it: the learner hears it instead of being
       // taught a route they never picked (#248).
-      const chose = tutorChoseMethod(topic, report);
+      const chose = tutorChoseMethod(topic, report, settled.methodBefore);
       if (chose) {
-        emit("error", {
-          message: `El tutor eligió el método por ti (${chose}): el método se elige en la página del tema, no en el chat. El turno no se da por bueno.`,
-        });
+        const message = `El tutor eligió el método por ti (${chose}): el método se elige en la página del tema, no en el chat. El turno no se da por bueno.`;
+        // A regeneration says why through its quarantine: the learner reads that reason once, with the previous version.
+        if (settled.regeneration) settled.regeneration.reason = message;
+        else emit("error", { message });
         return;
       }
       const decision = settleGate.decide(report);
@@ -1326,6 +1341,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           await deliver(decision.text, settled, "engine-correction");
           corrected = true;
         } catch {
+          if (settled.regeneration) settled.regeneration.reason ??= "el tutor no pudo retomar la corrección";
           correctionRefused(topic);
         }
       } else if (decision.action === "stop") {
@@ -1492,10 +1508,36 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     writeFileSync(temporary, JSON.stringify(pageMethods));
     renameSync(temporary, methodsFile);
   };
-  /** The method the engine reports but the page never recorded: the tutor chose for the learner. */
-  const tutorChoseMethod = (topic: string, report: Json): string => {
+  /**
+   * The engine's method for a topic as its state file holds it, read when a turn starts. `runStatus`
+   * reports that same field on every status, so the turn's "before" and the settle's "after" name one
+   * value. No state file means the engine recorded nothing (""); a state that cannot be read is unknown
+   * (null), and an unknown method blames no turn (#314).
+   */
+  const methodOf = (topic: string): string | null => {
+    let raw: string;
+    try {
+      raw = readFileSync(join(root, topic, ".learning", "state.json"), "utf8");
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : null;
+    }
+    try {
+      const state: unknown = JSON.parse(raw);
+      if (!isRecord(state)) return null;
+      return typeof state.method === "string" ? state.method : "";
+    } catch {
+      return null;
+    }
+  };
+  /**
+   * The method this turn chose: the engine reports one that differs from the one it had when the turn
+   * started, and the page never recorded it (#248). A method the engine already had is the learner's or
+   * an earlier turn's, so no turn is blamed for it (#314).
+   */
+  const tutorChoseMethod = (topic: string, report: Json, before: string | null): string => {
     const method = typeof report.method === "string" ? report.method : "";
-    return method !== "" && pageMethods[methodKey(topic)] !== method ? method : "";
+    if (before === null || method === "" || method === before) return "";
+    return pageMethods[methodKey(topic)] === method ? "" : method;
   };
 
   const library = async () => {
