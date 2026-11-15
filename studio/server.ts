@@ -122,16 +122,25 @@ const MAX_LEARNING_SOURCE_BODY_BYTES = MAX_LEARNING_SOURCE_CHARS * 6 + 1024;
 
 function safeUploadName(raw: string, type: UploadType): string {
   const leaf = basename(raw.replace(/\\/g, "/"));
-  const extension = extname(leaf);
-  const stem = extension ? leaf.slice(0, -extension.length) : leaf;
-  const safeStem = Array.from(
-    stem.normalize("NFKC")
-      .replace(/[\\/]/g, "")
-      .replace(/\.{2,}/g, ".")
-      .replace(/[^\p{L}\p{N} _.-]/gu, "")
-      .replace(/^[.\s]+|[.\s]+$/g, ""),
-  ).slice(0, 120).join("");
-  return `${safeStem || "documento"}${UPLOAD_TYPES[type]}`;
+  const extension = UPLOAD_TYPES[type];
+  const suffix = `${extension}${type === "application/pdf" ? ".txt" : ""}`;
+  const stemLimit = 255 - Buffer.byteLength(suffix, "utf8");
+  const cleanedStem = (extname(leaf) ? leaf.slice(0, -extname(leaf).length) : leaf)
+    .normalize("NFKC")
+    .replace(/[\\/]/g, "")
+    .replace(/\.{2,}/g, ".")
+    .replace(/[^\p{L}\p{N} _.-]/gu, "")
+    .replace(/^[.\s]+|[.\s]+$/g, "");
+  let safeStem = "";
+  let safeStemBytes = 0;
+  for (const character of cleanedStem) {
+    const characterBytes = Buffer.byteLength(character, "utf8");
+    if (safeStemBytes + characterBytes > stemLimit) break;
+    safeStem += character;
+    safeStemBytes += characterBytes;
+  }
+  safeStem = safeStem.replace(/[.\\s]+$/g, "");
+  return `${safeStem || "documento"}${extension}`;
 }
 
 function uploadedSources(root: string, raw: unknown): Array<{ path: string; textPath?: string }> {
@@ -1689,17 +1698,14 @@ ${scripts}
       }
     }
     if (!id || !directory) throw new HttpError(500, UPLOAD_ERRORS.storage);
-    const containedDirectory = resolveContained(root, directory);
-    if (!containedDirectory.ok || containedDirectory.targetReal !== directory) throw new HttpError(500, UPLOAD_ERRORS.storage);
-    const filePath = join(directory, nombre);
-    const textPath = uploadType === "application/pdf" ? `${filePath}.txt` : undefined;
     const cleanup = () => {
-      for (const path of [textPath, filePath]) {
-        if (!path) continue;
-        try { rmSync(path, { force: true }); } catch { /* best-effort cleanup after a failed upload */ }
-      }
+      try { rmSync(directory, { recursive: true, force: true }); } catch { /* best-effort cleanup after a failed upload */ }
     };
     try {
+      const containedDirectory = resolveContained(root, directory);
+      if (!containedDirectory.ok || containedDirectory.targetReal !== directory) throw new HttpError(500, UPLOAD_ERRORS.storage);
+      const filePath = join(directory, nombre);
+      const textPath = uploadType === "application/pdf" ? `${filePath}.txt` : undefined;
       writeFileSync(filePath, content, { flag: "wx" });
       const containedFile = resolveContained(root, filePath);
       if (!containedFile.ok || containedFile.targetReal !== filePath) throw new HttpError(500, UPLOAD_ERRORS.storage);

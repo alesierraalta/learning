@@ -3,11 +3,13 @@
 import { after, afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import fs from "node:fs";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { request, createServer } from "node:http";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { entryUrl, idleMinutesFor, DEFAULT_IDLE_MINUTES, noteFromMessages, noteFromPath, startStudio as startStudioChecked, studioLinks, topicFromPath } from "./server.ts";
@@ -1185,10 +1187,14 @@ test("quick mode refuses exam fields before starting a turn", async () => {
 test("PDF uploads store the original and pdftotext extraction", { skip: pdftotextAvailable ? false : "pdftotext is not installed; PDF extraction cannot be verified" }, async () => {
   const { studio, root } = await setup();
   const bytes = tinyPdf();
-  const response = await uploadFile(studio, "parcial.pdf", "application/pdf", bytes);
+  const response = await uploadFile(studio, `${"漢".repeat(120)}.pdf`, "application/pdf", bytes);
   assert.equal(response.status, 200, response.body);
   const uploaded = JSON.parse(response.body);
-  assert.deepEqual(uploaded, { id: uploaded.id, nombre: "parcial.pdf", tipo: "application/pdf" });
+  assert.deepEqual(Object.keys(uploaded).sort(), ["id", "nombre", "tipo"]);
+  assert.equal(uploaded.tipo, "application/pdf");
+  assert.ok(uploaded.nombre.endsWith(".pdf"), "the sanitized name keeps the PDF extension");
+  assert.ok(Buffer.byteLength(uploaded.nombre, "utf8") <= 255);
+  assert.ok(Buffer.byteLength(`${uploaded.nombre}.txt`, "utf8") <= 255, "the extracted-text sibling also fits NAME_MAX");
   assert.match(uploaded.id, /^[a-f0-9]{32}$/);
   const directory = join(root, ".subidas", uploaded.id);
   assert.deepEqual(readFileSync(join(directory, uploaded.nombre)), bytes);
@@ -1220,6 +1226,42 @@ test("image uploads preserve bytes and sanitize names to each matching MIME exte
     assert.doesNotMatch(uploaded.nombre, /[\\/]|\.\./);
     if (type === "image/png") assert.equal(uploaded.nombre, "archivo.malicioso.png");
     assert.deepEqual(readFileSync(join(root, ".subidas", uploaded.id, uploaded.nombre)), tinyImage);
+  }
+});
+
+test("long image filenames are byte-bounded without losing their extension or safe dot boundaries", async () => {
+  const { studio, root } = await setup();
+  const response = await uploadFile(studio, `${"漢".repeat(120)}.png`, "image/png", tinyImage);
+  assert.equal(response.status, 200, response.body);
+  const uploaded = JSON.parse(response.body);
+  assert.ok(uploaded.nombre.endsWith(".png"), "the sanitized name keeps its image extension");
+  assert.ok(Buffer.byteLength(uploaded.nombre, "utf8") <= 255, "the filename component fits NAME_MAX in UTF-8 bytes");
+  assert.deepEqual(readFileSync(join(root, ".subidas", uploaded.id, uploaded.nombre)), tinyImage);
+
+  const edge = await uploadFile(studio, `${"a".repeat(250)}.${"漢".repeat(20)}.png`, "image/png", tinyImage);
+  assert.equal(edge.status, 200, edge.body);
+  const edgeName = JSON.parse(edge.body).nombre;
+  assert.ok(edgeName.endsWith(".png"));
+  assert.ok(Buffer.byteLength(edgeName, "utf8") <= 255);
+  assert.doesNotMatch(edgeName, /[\\/]|\.\./, "truncation does not create a path separator or dot-dot");
+});
+
+test("a failed upload write removes its id directory", async () => {
+  const { studio, root } = await setup();
+  const originalWriteFileSync = fs.writeFileSync;
+  fs.writeFileSync = (path, ...args) => {
+    if (String(path).split(sep).includes(".subidas")) throw Object.assign(new Error("simulated storage failure"), { code: "EIO" });
+    return originalWriteFileSync(path, ...args);
+  };
+  syncBuiltinESMExports();
+  try {
+    const response = await uploadFile(studio, "fallo.png", "image/png", tinyImage);
+    assert.equal(response.status, 500, response.body);
+    assert.equal(JSON.parse(response.body).error, "No se pudo guardar el archivo en el vault.");
+    assert.deepEqual(readdirSync(join(root, ".subidas")), [], "a failed write leaves no upload id directory");
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
+    syncBuiltinESMExports();
   }
 });
 
