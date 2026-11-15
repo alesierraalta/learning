@@ -7,7 +7,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync
 import { request, createServer as httpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { backupPartForRegeneration, countVisuals, obsidianToMarkdown, registerBridge, listTopics } from "./bridge.ts";
 import { stored } from "../../studio/testdata/stored.mjs";
@@ -1501,6 +1501,29 @@ test("the question banks and the answer files are never served, whatever the fil
   assert.equal((await http(`${url}${TOPIC}/file/plan.json`)).status, 200, "the file route still serves topic files");
   for (const file of ["quiz.json", "mini-quiz/p1.json", "quiz.answers.json", "mini-quiz/p1.answers.json"]) {
     assert.equal((await http(`${url}${TOPIC}/file/${file}`)).status, 404, `${file} holds the keys or the tutor's own letters`);
+  }
+  await shutdown();
+});
+
+test("a symlinked practical bank stays hidden through both its lexical and resolved paths", async () => {
+  const { topic, view, shutdown } = await setup();
+  const banks = join(topic, "banks");
+  mkdirSync(banks, { recursive: true });
+  writeFileSync(join(banks, "p1.json"), JSON.stringify({ exercises: [
+    { id: "modelo", enunciado: "Diseña un modelo", entregable: "Un diagrama", solucion: "BANK_SOLUTION_SECRET" },
+  ] }));
+  symlinkSync(banks, join(topic, "practica"), "dir");
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const quiz = await http(`${url}api/quiz?topic=${TOPIC}&part=p1`);
+  assert.equal(quiz.status, 500);
+  assert.doesNotMatch(quiz.body, /BANK_SOLUTION_SECRET/);
+  const lexical = await http(`${url}${TOPIC}/file/practica/p1.json`);
+  const resolvedPath = realpathSync(join(topic, "practica", "p1.json"));
+  const resolvedRelative = relative(topic, resolvedPath).split(/[\\/]/).map(encodeURIComponent).join("/");
+  const resolved = await http(`${url}${TOPIC}/file/${resolvedRelative}`);
+  for (const response of [lexical, resolved]) {
+    assert.equal(response.status, 404);
+    assert.doesNotMatch(response.body, /BANK_SOLUTION_SECRET/);
   }
   await shutdown();
 });

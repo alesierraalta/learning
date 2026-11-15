@@ -863,8 +863,35 @@ interface PartExercise {
 }
 
 function practicalExercises(dir: string, partId: string, revealSolutions: boolean): PartExercise[] {
-  const file = join(dir, "practica", `${partId}.json`);
-  const doc = readRecord(file);
+  const practicalDir = join(dir, "practica");
+  let directory;
+  try {
+    directory = lstatSync(practicalDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw new HttpError(500, `cannot inspect practical exercises: ${practicalDir}`);
+  }
+  if (!directory.isDirectory() || directory.isSymbolicLink()) {
+    throw new HttpError(500, `practical exercise directory must not be a symlink or non-directory: ${practicalDir}`);
+  }
+  const file = join(practicalDir, `${partId}.json`);
+  let bank;
+  try {
+    bank = lstatSync(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw new HttpError(500, `cannot inspect practical exercise file: ${file}`);
+  }
+  if (!bank.isFile() || bank.isSymbolicLink()) {
+    throw new HttpError(500, `practical exercise file must not be a symlink or non-file: ${file}`);
+  }
+  const practicalReal = realpathSync(practicalDir);
+  const fileReal = realpathSync(file);
+  const withinPractice = relative(practicalReal, fileReal);
+  if (withinPractice === ".." || withinPractice.startsWith(`..${sep}`) || isAbsolute(withinPractice)) {
+    throw new HttpError(500, `practical exercise file resolves outside practica/: ${file}`);
+  }
+  const doc = readRecord(fileReal);
   if (!doc) return [];
   if (!Array.isArray(doc.exercises)) throw new HttpError(500, `invalid practical exercise file: ${file}`);
   const seen = new Set<string>();
@@ -973,12 +1000,33 @@ const holdsQuickKeys = (dir: string, target: string): boolean => {
 };
 
 /** Quiz/practical banks hold keys or solutions, and answer files hold recorded responses: no route serves these files (#272). */
-const holdsAnswers = (dir: string, target: string): boolean => {
-  const miniQuiz = join(dir, "mini-quiz").toLowerCase() + sep;
-  const practical = join(dir, "practica").toLowerCase() + sep;
+const holdsAnswers = (dir: string, target: string, requested = target): boolean => {
+  const targetLower = target.toLowerCase();
+  const requestedLower = requested.toLowerCase();
+  const miniQuiz = join(dir, "mini-quiz").toLowerCase();
+  const practicalDir = join(dir, "practica");
+  const practical = practicalDir.toLowerCase();
+  const inside = (root: string, path: string) => path === root || path.startsWith(root + sep);
   const files = [join(dir, "quiz.json"), join(dir, "quiz.answers.json")].map((file) => file.toLowerCase());
-  return files.includes(target) || (target.startsWith(miniQuiz) && target.endsWith(".json")) ||
-    (target.startsWith(practical) && target.endsWith(".json")) || holdsQuickKeys(dir, target);
+  if (files.includes(targetLower) || inside(miniQuiz, targetLower) && targetLower.endsWith(".json") ||
+      inside(practical, requestedLower) || inside(practical, targetLower) || holdsQuickKeys(dir, targetLower)) return true;
+
+  // A practica symlink can make the bank reachable under another topic-local name.
+  try {
+    const practicalReal = realpathSync(practicalDir).toLowerCase();
+    if (inside(practicalReal, targetLower)) return true;
+    for (const entry of readdirSync(practicalDir, { withFileTypes: true })) {
+      if (!entry.name.toLowerCase().endsWith(".json")) continue;
+      try {
+        if (realpathSync(join(practicalDir, entry.name)).toLowerCase() === targetLower) return true;
+      } catch {
+        /* a broken optional bank cannot identify a served target */
+      }
+    }
+  } catch {
+    /* an absent practica directory has no resolved banks */
+  }
+  return false;
 };
 
 function checkAnswers(raw: unknown, questions: Question[], exact: boolean, orderOf: (q: Question) => string[]): Record<string, string> {
@@ -1724,10 +1772,11 @@ ${scripts}
     const codeDir = resolveContained(dir, join(dir, "codigo"));
     // Exercise files hold the hidden tests; the vault may sit on a case-insensitive drive.
     const target = contained.targetReal.toLowerCase();
+    const requested = join(dir, ...segments).toLowerCase();
     const codeRoot = codeDir.ok ? codeDir.targetReal.toLowerCase() : join(dir, "codigo").toLowerCase();
     if (target === codeRoot || target.startsWith(codeRoot + sep)) throw new HttpError(404, "not found");
     // No route serves the question banks or the answer files, whatever the file is named (#272).
-    if (holdsAnswers(dir, target)) throw new HttpError(404, "not found");
+    if (holdsAnswers(dir, target, requested)) throw new HttpError(404, "not found");
     const stat = statSync(contained.targetReal);
     if (!stat.isFile()) throw new HttpError(404, "not found");
     const headers: Record<string, string> = {
