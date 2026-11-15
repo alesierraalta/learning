@@ -247,20 +247,59 @@ son los mismos, y el markdown de la parte que el tutor escribió no se toca.
 - **The study mode.** `POST api/aprender {text, modo}` — the «Aprender algo nuevo» entry on the
   home and in the tutor panel — takes `rapido`, `universitario` or `examen`; without one it is `400`
   and nothing reaches the tutor. An `examen` request must also include
-  `examen: {formato: "oral"|"written"|"practical", practica?: string}`. The page asks «¿Cómo será tu
-  examen?» and offers Oral, Escrito or Práctico; a practical exam additionally requires a nonblank
-  practice kind, chosen from Laboratorios, Construir una aplicación, Ejercicios or Otro (which opens
-  a short text field). The API rejects a missing or invalid format, missing/blank practice for a
-  practical exam, practice on an oral or written exam, and any `examen` field on another mode with
-  `400` before a tutor turn starts. The source text may be up to 200000 characters; a longer source
-  is refused with `400` and its character limit. The home entry and tutorial show all three modes.
+  `examen: {formato: "oral"|"written"|"practical"|"deducir", practica?: string}`. The page asks «¿Cómo será tu
+  examen?» and offers Oral, Escrito or Práctico; with uploaded sources it also offers **Que lo
+  deduzca el tutor** (`formato: "deducir"`). That choice requires a source; the tutor infers the
+  engine format (`oral`, `written` or `practical`) and, if practical, the practice kind, then passes
+  those inferred values to `learning_stage init`—never `exam: "deducir"`. A practical exam
+  additionally requires a nonblank practice kind, chosen from Laboratorios, Construir una
+  aplicación, Ejercicios or Otro (which opens a short text field). Invalid or missing exam format
+  returns `400` with `Elige un formato válido para tu examen: oral, escrito, práctico o deducir.`;
+  a missing practical kind returns `400` with `Indica qué tipo de práctica requiere tu examen práctico.`;
+  practice on a non-practical format returns `400` with `Solo puedes indicar una práctica para el formato práctico.`;
+  and `examen` outside exam mode returns `400` with `Los datos del examen solo se aceptan en modo examen.`
+  The source text may be up to 200000 characters; a longer source returns `400` with
+  `El texto es demasiado largo: como mucho 200000 caracteres.` The home entry and tutorial show all
+  three modes.
   The mode travels in the turn's prompt as one explicit line (`[Modo de estudio: …]`, built by
   `modeLine` in `studio/runtime.ts`), and the studio tells each tutor never to ask or choose the
-  mode. For `examen`, that line also carries the chosen engine format (`exam: "oral"|"written"|"practical"`)
-  and, only for practical, the selected `practice` value; the tutor must pass them to
-  `learning_stage init` without asking for either again. Antigravity's contract says not to ask for
+  mode. For an explicit exam choice, that line carries the engine format (`exam: "oral"|"written"|"practical"`)
+  and, only for practical, the selected `practice` value; for `deducir` it carries the inference
+  instruction above. The tutor passes selected or inferred values to `learning_stage init` without
+  asking for either again. Antigravity's contract says not to ask for
   the mode on every turn; inside the studio Pi's system prompt carries the same rule (the adapter's
   `before_agent_start`, studio mode only).
+- **A real exam or document.** The **Adjuntar examen o documento** control accepts PDF (`application/pdf`),
+  PNG (`image/png`), JPEG (`image/jpeg`) and WebP (`image/webp`). It sends each file as the raw body
+  of `POST api/subir`, with its MIME type in
+  `Content-Type` and its encoded name in `X-File-Name`; each file is limited to 20 MiB. The page
+  allows at most five attached files per learning entry and shows
+  «Puedes adjuntar un máximo de 5 archivos por tema.» when a selection exceeds that limit. A
+  successful response is `{"id":"<id>","nombre":"<safe-name>","tipo":"application/pdf|image/png|image/jpeg|image/webp"}`; the original is stored at
+  `<LEARNING_ROOT>/.subidas/<id>/<safe-name>`. A PDF also gets a sibling `<safe-name>.txt`, extracted
+  with `pdftotext`; extraction failure rejects the upload instead of silently keeping a PDF without
+  text.
+
+  `POST api/aprender` sends the uploaded IDs as `fuentes: [id, ...]` (1–5 valid uploads). The first
+  turn names each original stored path and, for PDFs, its extracted-text path; it tells the tutor to
+  read them and pass the original paths—not the `.txt` paths—to `learning_stage init` as `sources`.
+  For exam mode, the tutor also passes the selected original exam path as `examSource`, one of those
+  `sources`. The adapter stages the files into `<topic>/fuentes/` before engine `init`; the tutor
+  does not copy them.
+
+  Upload and source-related API refusals return JSON `{error: "…"}` with these exact messages:
+
+  | Status | Condition | `error` |
+  |---|---|---|
+  | 415 | Unsupported `Content-Type` | `Tipo de archivo no permitido. Sube PDF, PNG, JPEG o WebP.` |
+  | 400 | Missing or invalid `X-File-Name` | `Incluye un nombre de archivo válido en X-File-Name.` |
+  | 400 | Empty upload body | `El archivo está vacío.` |
+  | 413 | File exceeds 20 MiB | `El archivo supera el límite de 20 MB.` |
+  | 500 | PDF text extraction fails (including missing `pdftotext`) | `No se pudo extraer el texto del PDF.` |
+  | 500 | File storage fails | `No se pudo guardar el archivo en el vault.` |
+  | 400 | `api/aprender.fuentes` is not 1–5 valid uploaded IDs | `Las fuentes deben ser entre 1 y 5 archivos subidos válidos.` |
+  | 400 | `deducir` without a source | `El formato «deducir» requiere al menos una fuente.` |
+
 - **Exam topic tag.** A topic whose engine state contains `exam` shows an `Examen` tag in the
   library; its title and accessible label identify the exam format.
 - **A concept question is answered in the chat.** «¿qué es la varianza?», «¿qué significa varianza

@@ -303,9 +303,19 @@
     // Each of the part's own exercises gets a box under its statement; a part without exercises gets none.
     const exercises = (data.exercises || []).map((ex, index) => {
       const box = el('fieldset', undefined, { class: 'lk-question lk-exercise' });
-      box.append(el('legend', `${index + 1}. ${ex.enunciado}`), textField('Tu respuesta (opcional)', `exercise-${ex.id}`));
+      box.append(el('legend', `${index + 1}. ${ex.enunciado}`));
+      if (ex.entregable) box.append(el('p', `Entregable: ${ex.entregable}`, { class: 'lk-exercise-deliverable' }));
+      box.append(textField('Tu respuesta (opcional)', `exercise-${ex.id}`));
       return { id: ex.id, box };
     });
+    const showExerciseSolutions = solutions => {
+      for (const { id, box } of exercises) {
+        if (typeof solutions?.[id] !== 'string') continue;
+        const reveal = el('div', undefined, { class: 'lk-exercise-solution' });
+        reveal.append(el('strong', 'Solución'), el('p', solutions[id]));
+        box.append(reveal);
+      }
+    };
     const submit = el('button', 'Enviar al tutor', { type: 'submit' });
     form.append(ownWords, ...exercises.map(({ box }) => box), submit, out); this.append(form);
     function showResults(graded) {
@@ -333,8 +343,9 @@
         for (const input of boxes.get(q.id).querySelectorAll('input')) if (input.name === `${q.id}-confianza`) input.checked = input.value === reasoning.confianza;
       }
       form.elements.ownWords.value = a.ownWords || '';
-      for (const { id, box } of exercises) box.querySelector('textarea').value = a.exercises?.[id] || '';
+      for (const { id, box } of exercises) box.querySelector('textarea').value = data.answeredExercises?.[id] || a.exercises?.[id] || '';
       showResults(a);
+      showExerciseSolutions(Object.fromEntries((data.exercises || []).flatMap(ex => typeof ex.solucion === 'string' ? [[ex.id, ex.solucion]] : [])));
     }
     if (data.verdicts != null) {
       const panel = el('section'); panel.append(el('h3', 'Diagnóstico por concepto'));
@@ -366,6 +377,7 @@
         if (Object.keys(exerciseAnswers).length) payload.exercises = exerciseAnswers;
         const graded = await post(payload);
         showResults(graded);
+        showExerciseSolutions(graded.exerciseSolutions || {});
         notifyStudio(graded);
       } catch (e) { out.textContent = e.message; submit.disabled = false; }
     });

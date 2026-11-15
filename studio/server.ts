@@ -15,7 +15,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -79,6 +79,7 @@ import {
   createPageTiming,
   createSettleGate,
   isStudioPrompt,
+  fuentesLine,
   modeLine,
   type CallReason,
   type ExamChoice,
@@ -94,9 +95,81 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
 const UI_DIR = join(HERE, "ui");
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const UPLOAD_TYPES = {
+  "application/pdf": ".pdf",
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp",
+} as const;
+type UploadType = keyof typeof UPLOAD_TYPES;
+const UPLOAD_TYPE_BY_EXTENSION = new Map<string, UploadType>(
+  Object.entries(UPLOAD_TYPES).map(([type, extension]) => [extension, type as UploadType]),
+);
+const UPLOAD_ERRORS = {
+  tooLarge: "El archivo supera el límite de 20 MB.",
+  unsupported: "Tipo de archivo no permitido. Sube PDF, PNG, JPEG o WebP.",
+  pdfText: "No se pudo extraer el texto del PDF.",
+  storage: "No se pudo guardar el archivo en el vault.",
+  filename: "Incluye un nombre de archivo válido en X-File-Name.",
+  empty: "El archivo está vacío.",
+  fuentes: "Las fuentes deben ser entre 1 y 5 archivos subidos válidos.",
+  deducir: "El formato «deducir» requiere al menos una fuente.",
+} as const;
 /** The learning entry accepts a full syllabus; JSON escaping can use six bytes per source character. */
 const MAX_LEARNING_SOURCE_CHARS = 200_000;
 const MAX_LEARNING_SOURCE_BODY_BYTES = MAX_LEARNING_SOURCE_CHARS * 6 + 1024;
+
+function safeUploadName(raw: string, type: UploadType): string {
+  const leaf = basename(raw.replace(/\\/g, "/"));
+  const extension = UPLOAD_TYPES[type];
+  const suffix = `${extension}${type === "application/pdf" ? ".txt" : ""}`;
+  const stemLimit = 255 - Buffer.byteLength(suffix, "utf8");
+  const cleanedStem = (extname(leaf) ? leaf.slice(0, -extname(leaf).length) : leaf)
+    .normalize("NFKC")
+    .replace(/[\\/]/g, "")
+    .replace(/\.{2,}/g, ".")
+    .replace(/[^\p{L}\p{N} _.-]/gu, "")
+    .replace(/^[.\s]+|[.\s]+$/g, "");
+  let safeStem = "";
+  let safeStemBytes = 0;
+  for (const character of cleanedStem) {
+    const characterBytes = Buffer.byteLength(character, "utf8");
+    if (safeStemBytes + characterBytes > stemLimit) break;
+    safeStem += character;
+    safeStemBytes += characterBytes;
+  }
+  safeStem = safeStem.replace(/[.\\s]+$/g, "");
+  return `${safeStem || "documento"}${extension}`;
+}
+
+function uploadedSources(root: string, raw: unknown): Array<{ path: string; textPath?: string }> {
+  const invalid = () => new HttpError(400, UPLOAD_ERRORS.fuentes);
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 5) throw invalid();
+  return raw.map((value) => {
+    if (typeof value !== "string" || !/^[a-f0-9]{32}$/.test(value)) throw invalid();
+    const directory = join(root, ".subidas", value);
+    const containedDirectory = resolveContained(root, directory);
+    if (!containedDirectory.ok || containedDirectory.targetReal !== directory) throw invalid();
+    try {
+      const files = readdirSync(directory, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && UPLOAD_TYPE_BY_EXTENSION.has(extname(entry.name).toLowerCase()));
+      if (files.length !== 1) throw invalid();
+      const path = join(directory, files[0].name);
+      const containedFile = resolveContained(root, path);
+      if (!containedFile.ok || containedFile.targetReal !== path) throw invalid();
+      if (UPLOAD_TYPE_BY_EXTENSION.get(extname(path).toLowerCase()) !== "application/pdf") return { path };
+      const textPath = `${path}.txt`;
+      const containedText = resolveContained(root, textPath);
+      if (!containedText.ok || containedText.targetReal !== textPath || !statSync(textPath).isFile()) throw invalid();
+      return { path, textPath };
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw invalid();
+    }
+  });
+}
 /** A draft preview is bounded like a saved note; the reader refuses anything longer. */
 const DRAFT_MAX_CHARS = 200_000;
 const MAX_PROMPT_CHARS = 20000;
@@ -1573,10 +1646,92 @@ ${scripts}
     ].filter((line) => line !== "").join("\n");
   };
 
+  const upload = async (req: IncomingMessage, res: ServerResponse) => {
+    const type = String(req.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
+    if (!Object.hasOwn(UPLOAD_TYPES, type)) throw new HttpError(415, UPLOAD_ERRORS.unsupported);
+    const uploadType = type as UploadType;
+    const headerName = req.headers["x-file-name"];
+    if (typeof headerName !== "string" || !headerName) throw new HttpError(400, UPLOAD_ERRORS.filename);
+    let requestedName: string;
+    try {
+      requestedName = decodeURIComponent(headerName);
+    } catch {
+      throw new HttpError(400, UPLOAD_ERRORS.filename);
+    }
+    const nombre = safeUploadName(requestedName, uploadType);
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += bytes.length;
+      if (size <= MAX_UPLOAD_BYTES) chunks.push(bytes);
+    }
+    if (size > MAX_UPLOAD_BYTES) throw new HttpError(413, UPLOAD_ERRORS.tooLarge);
+    if (!size) throw new HttpError(400, UPLOAD_ERRORS.empty);
+    const content = Buffer.concat(chunks, size);
+    const uploadsRoot = join(root, ".subidas");
+    try {
+      if (existsSync(uploadsRoot)) {
+        const contained = resolveContained(root, uploadsRoot);
+        if (!contained.ok || contained.targetReal !== uploadsRoot || !statSync(uploadsRoot).isDirectory()) {
+          throw new HttpError(500, UPLOAD_ERRORS.storage);
+        }
+      } else {
+        mkdirSync(uploadsRoot);
+      }
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(500, UPLOAD_ERRORS.storage);
+    }
+    let id = "";
+    let directory = "";
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidate = randomBytes(16).toString("hex");
+      const candidateDirectory = join(uploadsRoot, candidate);
+      try {
+        mkdirSync(candidateDirectory);
+        id = candidate;
+        directory = candidateDirectory;
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw new HttpError(500, UPLOAD_ERRORS.storage);
+      }
+    }
+    if (!id || !directory) throw new HttpError(500, UPLOAD_ERRORS.storage);
+    const cleanup = () => {
+      try { rmSync(directory, { recursive: true, force: true }); } catch { /* best-effort cleanup after a failed upload */ }
+    };
+    try {
+      const containedDirectory = resolveContained(root, directory);
+      if (!containedDirectory.ok || containedDirectory.targetReal !== directory) throw new HttpError(500, UPLOAD_ERRORS.storage);
+      const filePath = join(directory, nombre);
+      const textPath = uploadType === "application/pdf" ? `${filePath}.txt` : undefined;
+      writeFileSync(filePath, content, { flag: "wx" });
+      const containedFile = resolveContained(root, filePath);
+      if (!containedFile.ok || containedFile.targetReal !== filePath) throw new HttpError(500, UPLOAD_ERRORS.storage);
+      if (textPath) {
+        const failure = await new Promise<Error | null>((resolveFailure) => {
+          execFile("pdftotext", [filePath, textPath], { timeout: 30_000 }, (error) => resolveFailure(error));
+        });
+        if (failure) throw new HttpError(500, UPLOAD_ERRORS.pdfText);
+        const containedText = resolveContained(root, textPath);
+        if (!containedText.ok || containedText.targetReal !== textPath || !statSync(textPath).isFile()) {
+          throw new HttpError(500, UPLOAD_ERRORS.pdfText);
+        }
+      }
+      return sendJson(res, 200, { id, nombre, tipo: uploadType });
+    } catch (error) {
+      cleanup();
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(500, UPLOAD_ERRORS.storage);
+    }
+  };
+
   const post = async (req: IncomingMessage, res: ServerResponse, action: string) => {
     const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.origin)]);
     if (!allowed.has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
-    // Audio is not JSON: it is streamed to the transcriber as it arrives.
+    // Raw uploads and audio are streamed; every other POST carries JSON.
+    if (action === "api/subir") return upload(req, res);
     if (action === "api/transcribe") return transcribe(req, res);
     if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
     const bodyLimit = action === "api/aprender" ? MAX_LEARNING_SOURCE_BODY_BYTES : MAX_BODY_BYTES;
@@ -1646,10 +1801,11 @@ ${scripts}
         const modo = STUDY_MODES.find((mode) => mode === body.modo);
         if (!modo) throw new HttpError(400, "elige rápido, universitario o examen antes de enviar");
         let examen: ExamChoice | undefined;
+        const fuentes = uploadedSources(root, body.fuentes);
         if (modo === "examen") {
           const choice = body.examen;
-          if (!isRecord(choice) || (choice.formato !== "oral" && choice.formato !== "written" && choice.formato !== "practical")) {
-            throw new HttpError(400, "Elige un formato válido para tu examen: oral, escrito o práctico.");
+          if (!isRecord(choice) || (choice.formato !== "oral" && choice.formato !== "written" && choice.formato !== "practical" && choice.formato !== "deducir")) {
+            throw new HttpError(400, "Elige un formato válido para tu examen: oral, escrito, práctico o deducir.");
           }
           const formato: ExamFormat = choice.formato;
           if (formato === "practical") {
@@ -1658,6 +1814,7 @@ ${scripts}
             }
             examen = { formato, practica: choice.practica.trim() };
           } else {
+            if (formato === "deducir" && fuentes.length === 0) throw new HttpError(400, UPLOAD_ERRORS.deducir);
             if (Object.hasOwn(choice, "practica")) {
               throw new HttpError(400, "Solo puedes indicar una práctica para el formato práctico.");
             }
@@ -1668,7 +1825,8 @@ ${scripts}
         }
         // A deep-mode request's topic does not exist yet: its first write under a topic folder
         // binds it, and the gate asks the engine about that folder when it settles.
-        await startTurn(`Quiero aprender ${text}.\n\n${modeLine(modo, examen)}`, { topic: null, creation: modo !== "rapido" });
+        const fuentesPrompt = fuentes.length ? `\n${fuentesLine(fuentes)}` : "";
+        await startTurn(`Quiero aprender ${text}.\n\n${modeLine(modo, examen)}${fuentesPrompt}`, { topic: null, creation: modo !== "rapido" });
         return sendJson(res, 200, { ok: true, modo });
       }
       case "api/metodo": {

@@ -17,7 +17,7 @@ import (
 const usage = `learning — deep-learning validation engine (structured rules, deterministic checks, recorded reviews)
 
 Usage:
-  learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode MODE] [--scope SCOPE] [--exam oral|written|practical] [--practice KIND] [--stage STAGE] [--json]
+  learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode MODE] [--scope SCOPE] [--exam oral|written|practical] [--practice KIND] [--exam-source PATH] [--stage STAGE] [--json]
   learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
   learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
   learning mcp
@@ -71,6 +71,8 @@ Flags:
               from state.
   --practice  init only: optional practical-exam practice kind; only with
               --exam practical. Later commands read it from state.
+  --exam-source init only: existing topic-relative file under fuentes/ (no ..);
+              only with --exam. Later commands read it from state.
   --method    method only: the learner's explanation method, chosen once
               right after the diagnosis in a strict-flow run: pareto (the
               vital 20%; sets the pareto scope) or preferencias.
@@ -204,7 +206,7 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 		}
 		name := strings.TrimPrefix(tok, "--")
 		switch name {
-		case "root", "workspace", "rules", "mode", "scope", "exam", "practice", "method", "stage",
+		case "root", "workspace", "rules", "mode", "scope", "exam", "practice", "exam-source", "method", "stage",
 			"rule", "verdict", "reason", "reviewer":
 		default:
 			return engine.Options{}, false, fmt.Errorf("unknown flag --%s", name)
@@ -232,6 +234,8 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 			opts.Exam = args[i]
 		case "practice":
 			opts.Practice = args[i]
+		case "exam-source":
+			opts.ExamSource = args[i]
 		case "method":
 			opts.Method = args[i]
 		case "stage":
@@ -251,6 +255,9 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 	}
 	if seen["practice"] && strings.TrimSpace(opts.Practice) == "" {
 		return engine.Options{}, false, fmt.Errorf("--practice requires a non-empty kind")
+	}
+	if seen["exam-source"] && strings.TrimSpace(opts.ExamSource) == "" {
+		return engine.Options{}, false, fmt.Errorf("--exam-source requires a non-empty path")
 	}
 	for _, req := range []string{"root", "workspace", "rules"} {
 		if !seen[req] {

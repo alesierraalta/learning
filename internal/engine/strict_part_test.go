@@ -19,6 +19,66 @@ func strictReady(t *testing.T, parts ...partCfg) *fixture {
 	return f
 }
 
+func strictThroughAdaptation(t *testing.T, planFormat string) *fixture {
+	t.Helper()
+	f := newFixture(t)
+	f.rules = strictRulesFile(t)
+	parts := defaultParts()
+	f.initOK(t)
+	f.writePlan(t, parts...)
+	writePlanFormat(t, f, planFormat)
+	f.advanceOK(t, "preparation")
+	f.writeDiagQuestions(t, buildDiagQuestions(6, 6, parts...))
+	f.writeDiagAnswersFor(t, parts, 2)
+	f.advanceOK(t, "diagnosis")
+	f.methodIfAsked(t)
+	f.writePlanWith(t, "Dificultades detectadas en consenso y en quórums.", []string{"d3"}, parts...)
+	writePlanFormat(t, f, planFormat)
+	f.advanceOK(t, "planning")
+
+	f.writeExplanation(t, "p1", true, "v1")
+	f.advanceOK(t, "explanation")
+	f.writeQuizQuestions(t, "p1")
+	f.writeQuizAnswers(t, "p1", 5)
+	f.advanceOK(t, "quiz")
+	f.writeOwnWords(t, "p1")
+	f.writeVuelco(t, "p1", true, "Explicó el concepto con un ejemplo propio.")
+	f.advanceOK(t, "own_words")
+	f.writeFeedback(t, "p1", true)
+	f.advanceOK(t, "feedback")
+
+	// The plan change after feedback satisfies adaptation's changed-after condition.
+	f.writePlanWith(t, "Plan actualizado después del feedback.", []string{"d3"}, parts...)
+	writePlanFormat(t, f, planFormat)
+	f.advanceOK(t, "planning")
+	f.advanceOK(t, "adaptation")
+	return f
+}
+
+func writePlanFormat(t *testing.T, f *fixture, format string) {
+	t.Helper()
+	raw := f.read(t, "plan.json")
+	if format == "pretty" {
+		var formatted bytes.Buffer
+		if err := json.Indent(&formatted, raw, "", "  "); err != nil {
+			t.Fatal(err)
+		}
+		formatted.WriteByte('\n')
+		f.write(t, "plan.json", formatted.String())
+		return
+	}
+	if format != "compact-unsorted" {
+		t.Fatalf("unknown plan format %q", format)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw, compact.Bytes()) || bytes.Index(raw, []byte(`"topic"`)) > bytes.Index(raw, []byte(`"parts"`)) {
+		t.Fatalf("fixture plan is not compact, unsorted JSON: %s", raw)
+	}
+}
+
 // writeVuelco records the tutor's verdict on the learner's own words for one part.
 func (f *fixture) writeVuelco(t *testing.T, part string, understood bool, evidence string) {
 	t.Helper()
@@ -225,5 +285,78 @@ func TestSnapshotWithoutStrictFlowKeepsOwnWordsBeforeTheQuiz(t *testing.T) {
 	f.writeQuizAnswers(t, "p1", 2)
 	if rep := f.advanceOK(t, "quiz"); rep.NextStage != "explanation" {
 		t.Fatalf("old snapshot failed quiz next = %s, want explanation (re-teach)", rep.NextStage)
+	}
+}
+
+func TestStrictAdaptationPlanReceiptsHandleFormattingAndEdits(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		format string
+	}{
+		{name: "pretty-printed", format: "pretty"},
+		{name: "compact-unsorted", format: "compact-unsorted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := strictThroughAdaptation(t, tc.format)
+			planBefore := f.read(t, "plan.json")
+
+			rep := f.statusExpect(t, "accepted")
+			fresh, ok := hasCheck(rep, "receipts-fresh")
+			if !ok || fresh.Status != "PASS" {
+				t.Fatalf("receipts-fresh = %+v, want PASS", fresh)
+			}
+			if !bytes.Equal(f.read(t, "plan.json"), planBefore) {
+				t.Fatal("status changed plan.json")
+			}
+
+			f.writePlanWith(t, "Plan editado después de adaptación.", []string{"d3"}, defaultParts()...)
+			writePlanFormat(t, f, tc.format)
+			rep = f.statusExpect(t, "blocked")
+			stale, ok := hasCheck(rep, "receipts-fresh")
+			if !ok || stale.Status != "FAIL" || !strings.Contains(stale.Reason, "adaptation/p1(plan.json)") {
+				t.Fatalf("receipts-fresh = %+v, want stale adaptation/p1(plan.json)", stale)
+			}
+		})
+	}
+}
+
+func TestStrictAdaptationAcceptsUnchangedLegacyRawPlanReceipt(t *testing.T) {
+	f := strictThroughAdaptation(t, "pretty")
+	state := f.state(t)
+	parts, ok := state["parts"].(map[string]any)
+	if !ok {
+		t.Fatal("state has no parts")
+	}
+	part, ok := parts["p1"].(map[string]any)
+	if !ok {
+		t.Fatal("state has no p1 record")
+	}
+	stages, ok := part["stages"].(map[string]any)
+	if !ok {
+		t.Fatal("p1 has no stage records")
+	}
+	adaptation, ok := stages["adaptation"].(map[string]any)
+	if !ok {
+		t.Fatal("p1 has no adaptation receipt")
+	}
+	receipts, ok := adaptation["receipts"].(map[string]any)
+	if !ok {
+		t.Fatal("adaptation has no receipts")
+	}
+	receipts["plan.json"] = hashBytes(f.read(t, "plan.json"))
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, ".learning/state.json", string(encoded))
+
+	planBefore := f.read(t, "plan.json")
+	rep := f.statusExpect(t, "accepted")
+	fresh, ok := hasCheck(rep, "receipts-fresh")
+	if !ok || fresh.Status != "PASS" {
+		t.Fatalf("receipts-fresh = %+v, want PASS for unchanged legacy receipt", fresh)
+	}
+	if !bytes.Equal(f.read(t, "plan.json"), planBefore) {
+		t.Fatal("status changed plan.json")
 	}
 }

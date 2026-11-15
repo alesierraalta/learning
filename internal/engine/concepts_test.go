@@ -467,6 +467,7 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	undoStrictFlow(prod)
 	delete(prod["thresholds"].(map[string]any), "strictFlow")
 	delete(prod["thresholds"].(map[string]any), "partStandard")
+	delete(prod["thresholds"].(map[string]any)["exam"].(map[string]any), "minPracticePerPart")
 	delete(prod["thresholds"].(map[string]any)["options"].(map[string]any), "varyAnswerKeys")
 	// The positional key (#265) is declared by production and not by this run.
 	delete(prod["thresholds"].(map[string]any)["options"].(map[string]any), "positionalKeys")
@@ -476,7 +477,7 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 		var keep []any
 		for _, item := range list.([]any) {
 			decl := item.(map[string]any)
-			if decl["kind"] == "concept_verdicts" || decl["kind"] == "part_standard" {
+			if decl["kind"] == "concept_verdicts" || decl["kind"] == "part_standard" || decl["kind"] == "exam_practice" {
 				continue
 			}
 			delete(decl, "verdicts")

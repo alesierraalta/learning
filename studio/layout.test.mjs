@@ -255,6 +255,54 @@ test("home asks for exam format and practice, sends the choice, and clears it on
   assert.equal(await submit.isDisabled(), true, "the next request still needs a mode");
 });
 
+test("the learning entry uploads up to five sources, reports failures inline, and offers deduced exam format", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 844 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+
+  const entry = page.locator(".home-page .new-learning");
+  const fileInput = entry.getByLabel("Adjuntar examen o documento");
+  assert.equal(await fileInput.getAttribute("accept"), ".pdf,image/png,image/jpeg,image/webp");
+  assert.notEqual(await fileInput.getAttribute("multiple"), null, "the picker accepts several files");
+  const errors = entry.locator(".learning-source-errors");
+  await fileInput.setInputFiles(Array.from({ length: 6 }, (_, index) => ({
+    name: `examen-${index + 1}.png`,
+    mimeType: "image/png",
+    buffer: Buffer.from("imagen"),
+  })));
+  await page.waitForFunction(() => document.querySelectorAll(".learning-source-item").length === 5);
+  assert.match(await errors.innerText(), /máximo de 5/);
+  const first = entry.locator(".learning-source-item").first();
+  await first.getByRole("button", { name: /Quitar/ }).click();
+  assert.equal(await entry.locator(".learning-source-item").count(), 4, "a remove button detaches a source from the request");
+
+  await fileInput.setInputFiles({ name: "notas.txt", mimeType: "text/plain", buffer: Buffer.from("texto") });
+  await page.waitForFunction(() => document.querySelector(".learning-source-errors")?.textContent.includes("notas.txt"));
+  assert.match(await errors.innerText(), /Tipo de archivo no permitido/);
+  const exam = entry.locator('.mode-pick[data-modo="examen"]');
+  await exam.click();
+  const formatRow = entry.locator('[aria-label="Formato del examen"]');
+  const deducir = formatRow.getByRole("button", { name: "Que lo deduzca el tutor" });
+  assert.equal(await deducir.count(), 1);
+  assert.deepEqual(await formatRow.locator("button").allTextContents(), ["Oral", "Escrito", "Práctico", "Que lo deduzca el tutor"]);
+  await entry.locator(".ask-big textarea").fill("redes neuronales");
+  await deducir.click();
+  const fuentes = await entry.locator(".learning-source-item").evaluateAll((items) => items.map((item) => item.dataset.id));
+  const requests = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/aprender")) requests.push(request.postDataJSON());
+  });
+  await entry.locator('button[type="submit"]').click();
+  await page.waitForFunction(() => document.querySelector('.mode-pick[data-modo="examen"]')?.getAttribute("aria-pressed") === "false");
+  assert.deepEqual(requests, [{ text: "redes neuronales", modo: "examen", examen: { formato: "deducir" }, fuentes }]);
+  assert.equal(await entry.locator(".learning-source-item").count(), 0, "a sent request clears its attached files");
+});
+
 test("the learning entry preserves pasted lines, grows, and sends with Enter", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;

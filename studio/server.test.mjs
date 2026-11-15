@@ -3,11 +3,13 @@
 import { after, afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import fs from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { request, createServer } from "node:http";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { entryUrl, idleMinutesFor, DEFAULT_IDLE_MINUTES, noteFromMessages, noteFromPath, startStudio as startStudioChecked, studioLinks, topicFromPath } from "./server.ts";
@@ -52,6 +54,37 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** What the learner wrote, out of the prompt the tutor received: the standing lessons are the studio's. */
 const said = (prompt) => stripLecciones(prompt);
 const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
+const UPLOAD_LIMIT = 20 * 1024 * 1024;
+const UPLOAD_ERRORS = {
+  tooLarge: "El archivo supera el límite de 20 MB.",
+  unsupported: "Tipo de archivo no permitido. Sube PDF, PNG, JPEG o WebP.",
+  pdfText: "No se pudo extraer el texto del PDF.",
+  fuentes: "Las fuentes deben ser entre 1 y 5 archivos subidos válidos.",
+  deducir: "El formato «deducir» requiere al menos una fuente.",
+};
+const pdftotextAvailable = spawnSync("pdftotext", ["-v"], { stdio: "ignore" }).error?.code !== "ENOENT";
+const tinyPdf = () => {
+  const stream = "BT /F1 12 Tf 20 100 Td (Examen real de redes.) Tj ET";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(stream, "ascii")} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(pdf, "ascii"));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(pdf, "ascii");
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, "ascii");
+};
+const tinyImage = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/X8sAAAAASUVORK5CYII=", "base64");
 /**
  * `scene-lint` opens a real browser: the tests that measure a part with the repo's tools need one,
  * and a machine without Playwright skips them instead of pretending the part was measured.
@@ -1151,6 +1184,156 @@ test("quick mode refuses exam fields before starting a turn", async () => {
   await assertExamRefusal({ text: "redes neuronales", modo: "rapido", examen: { formato: "written" } }, /solo.*modo examen/i);
 });
 
+test("PDF uploads store the original and pdftotext extraction", { skip: pdftotextAvailable ? false : "pdftotext is not installed; PDF extraction cannot be verified" }, async () => {
+  const { studio, root } = await setup();
+  const bytes = tinyPdf();
+  const response = await uploadFile(studio, `${"漢".repeat(120)}.pdf`, "application/pdf", bytes);
+  assert.equal(response.status, 200, response.body);
+  const uploaded = JSON.parse(response.body);
+  assert.deepEqual(Object.keys(uploaded).sort(), ["id", "nombre", "tipo"]);
+  assert.equal(uploaded.tipo, "application/pdf");
+  assert.ok(uploaded.nombre.endsWith(".pdf"), "the sanitized name keeps the PDF extension");
+  assert.ok(Buffer.byteLength(uploaded.nombre, "utf8") <= 255);
+  assert.ok(Buffer.byteLength(`${uploaded.nombre}.txt`, "utf8") <= 255, "the extracted-text sibling also fits NAME_MAX");
+  assert.match(uploaded.id, /^[a-f0-9]{32}$/);
+  const directory = join(root, ".subidas", uploaded.id);
+  assert.deepEqual(readFileSync(join(directory, uploaded.nombre)), bytes);
+  assert.match(readFileSync(join(directory, `${uploaded.nombre}.txt`), "utf8"), /Examen real de redes/);
+});
+
+test("failed PDF extraction returns its exact error and leaves no stored file", { skip: pdftotextAvailable ? false : "pdftotext is not installed; PDF extraction cannot be verified" }, async () => {
+  const { studio, root } = await setup();
+  const response = await uploadFile(studio, "roto.pdf", "application/pdf", Buffer.from("esto no es un PDF"));
+  assert.equal(response.status, 500, response.body);
+  assert.equal(JSON.parse(response.body).error, UPLOAD_ERRORS.pdfText);
+  const uploadRoot = join(root, ".subidas");
+  assert.ok(existsSync(uploadRoot));
+  for (const id of readdirSync(uploadRoot)) assert.deepEqual(readdirSync(join(uploadRoot, id)), [], "failed extraction removes both stored outputs");
+});
+
+test("image uploads preserve bytes and sanitize names to each matching MIME extension", async () => {
+  const { studio, root } = await setup();
+  for (const [type, extension, filename] of [
+    ["image/png", ".png", "../../archivo..malicioso.jpg"],
+    ["image/jpeg", ".jpg", "captura.png"],
+    ["image/webp", ".webp", "foto.gif"],
+  ]) {
+    const response = await uploadFile(studio, filename, type, tinyImage);
+    assert.equal(response.status, 200, response.body);
+    const uploaded = JSON.parse(response.body);
+    assert.equal(uploaded.tipo, type);
+    assert.ok(uploaded.nombre.endsWith(extension), `${uploaded.nombre} matches ${type}`);
+    assert.doesNotMatch(uploaded.nombre, /[\\/]|\.\./);
+    if (type === "image/png") assert.equal(uploaded.nombre, "archivo.malicioso.png");
+    assert.deepEqual(readFileSync(join(root, ".subidas", uploaded.id, uploaded.nombre)), tinyImage);
+  }
+});
+
+test("long image filenames are byte-bounded without losing their extension or safe dot boundaries", async () => {
+  const { studio, root } = await setup();
+  const response = await uploadFile(studio, `${"漢".repeat(120)}.png`, "image/png", tinyImage);
+  assert.equal(response.status, 200, response.body);
+  const uploaded = JSON.parse(response.body);
+  assert.ok(uploaded.nombre.endsWith(".png"), "the sanitized name keeps its image extension");
+  assert.ok(Buffer.byteLength(uploaded.nombre, "utf8") <= 255, "the filename component fits NAME_MAX in UTF-8 bytes");
+  assert.deepEqual(readFileSync(join(root, ".subidas", uploaded.id, uploaded.nombre)), tinyImage);
+
+  const edge = await uploadFile(studio, `${"a".repeat(250)}.${"漢".repeat(20)}.png`, "image/png", tinyImage);
+  assert.equal(edge.status, 200, edge.body);
+  const edgeName = JSON.parse(edge.body).nombre;
+  assert.ok(edgeName.endsWith(".png"));
+  assert.ok(Buffer.byteLength(edgeName, "utf8") <= 255);
+  assert.doesNotMatch(edgeName, /[\\/]|\.\./, "truncation does not create a path separator or dot-dot");
+});
+
+test("a failed upload write removes its id directory", async () => {
+  const { studio, root } = await setup();
+  const originalWriteFileSync = fs.writeFileSync;
+  fs.writeFileSync = (path, ...args) => {
+    if (String(path).split(sep).includes(".subidas")) throw Object.assign(new Error("simulated storage failure"), { code: "EIO" });
+    return originalWriteFileSync(path, ...args);
+  };
+  syncBuiltinESMExports();
+  try {
+    const response = await uploadFile(studio, "fallo.png", "image/png", tinyImage);
+    assert.equal(response.status, 500, response.body);
+    assert.equal(JSON.parse(response.body).error, "No se pudo guardar el archivo en el vault.");
+    assert.deepEqual(readdirSync(join(root, ".subidas")), [], "a failed write leaves no upload id directory");
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
+    syncBuiltinESMExports();
+  }
+});
+
+test("uploads reject unknown content types with the exact Spanish error", async () => {
+  const { studio } = await setup();
+  const response = await uploadFile(studio, "nota.txt", "text/plain", Buffer.from("texto"));
+  assert.equal(response.status, 415, response.body);
+  assert.equal(JSON.parse(response.body).error, UPLOAD_ERRORS.unsupported);
+});
+
+test("uploads accept exactly 20 MB and reject one byte over with the exact Spanish error", async () => {
+  const { studio, root } = await setup();
+  const exact = await uploadFile(studio, "limite.png", "image/png", Buffer.alloc(UPLOAD_LIMIT));
+  assert.equal(exact.status, 200, exact.body);
+  const stored = JSON.parse(exact.body);
+  assert.equal(statSync(join(root, ".subidas", stored.id, stored.nombre)).size, UPLOAD_LIMIT);
+  const response = await uploadFile(studio, "grande.png", "image/png", Buffer.alloc(UPLOAD_LIMIT + 1));
+  assert.equal(response.status, 413, response.body);
+  assert.equal(JSON.parse(response.body).error, UPLOAD_ERRORS.tooLarge);
+  assert.equal(readdirSync(join(root, ".subidas")).length, 1, "an oversized body is never stored");
+});
+
+test("api/aprender accepts one to five existing fuentes and refuses invalid ids or counts", async () => {
+  const { studio, received } = await setup();
+  const ids = [];
+  for (let index = 0; index < 6; index++) {
+    const response = await uploadFile(studio, `fuente-${index}.png`, "image/png", tinyImage);
+    assert.equal(response.status, 200, response.body);
+    ids.push(JSON.parse(response.body).id);
+  }
+  for (const fuentes of [[], ["no-existe"], ids]) {
+    const response = await post(studio, "api/aprender", { text: "redes", modo: "universitario", fuentes });
+    assert.equal(response.status, 400, response.body);
+    assert.equal(JSON.parse(response.body).error, UPLOAD_ERRORS.fuentes);
+  }
+  assert.equal(received().filter((entry) => entry.type === "prompt").length, 0);
+  const accepted = await post(studio, "api/aprender", { text: "redes", modo: "universitario", fuentes: ids.slice(0, 5) });
+  assert.equal(accepted.status, 200, accepted.body);
+  await until(() => received().some((entry) => entry.type === "prompt"));
+});
+
+test("exam format deducir without fuentes is refused with the exact Spanish error", async () => {
+  const { studio, received } = await setup();
+  const response = await post(studio, "api/aprender", { text: "redes", modo: "examen", examen: { formato: "deducir" } });
+  assert.equal(response.status, 400, response.body);
+  assert.equal(JSON.parse(response.body).error, UPLOAD_ERRORS.deducir);
+  assert.equal(received().filter((entry) => entry.type === "prompt").length, 0);
+});
+
+test("the first-turn prompt names uploaded PDF and image paths and asks for deduced exam init", { skip: pdftotextAvailable ? false : "pdftotext is not installed; PDF prompt paths cannot be created" }, async () => {
+  const { studio, root, received } = await setup();
+  const pdf = JSON.parse((await uploadFile(studio, "parcial.pdf", "application/pdf", tinyPdf())).body);
+  const image = JSON.parse((await uploadFile(studio, "captura.png", "image/png", tinyImage)).body);
+  const response = await post(studio, "api/aprender", {
+    text: "redes neuronales",
+    modo: "examen",
+    examen: { formato: "deducir" },
+    fuentes: [pdf.id, image.id],
+  });
+  assert.equal(response.status, 200, response.body);
+  await until(() => received().some((entry) => entry.type === "prompt"));
+  const prompt = received().find((entry) => entry.type === "prompt").message;
+  const pdfPath = join(root, ".subidas", pdf.id, pdf.nombre);
+  const pdfTextPath = `${pdfPath}.txt`;
+  const imagePath = join(root, ".subidas", image.id, image.nombre);
+  const expectedSources = `[Fuentes subidas: archivo ${JSON.stringify(pdfPath)} (texto extraído: ${JSON.stringify(pdfTextPath)}); archivo ${JSON.stringify(imagePath)}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos. Pasa las rutas originales (no los .txt extraídos) a learning_stage init como sources; en modo examen, pasa también la ruta original del examen principal como examSource (una de sources). El adaptador las copia a <topic>/fuentes/. No copies los archivos tú.]`;
+  const expectedDeducir = "[Modo de estudio: examen — ya decidido en el estudio, con formato por deducir a partir de las fuentes. Deduce el formato (y, si es práctico, el tipo de práctica) del examen/documento subido y pásalos a learning_stage init como exam y, solo si corresponde, practice. Nunca elijas un formato ni un tipo de práctica por defecto.]";
+  assert.ok(prompt.includes(expectedDeducir), `deduced format is passed to init: ${prompt}`);
+  const sourceLine = prompt.split("\n").find((line) => line.startsWith("[Fuentes subidas:"));
+  assert.equal(sourceLine, expectedSources);
+});
+
 test("a request from «Aprender algo nuevo» carries the mode to each tutor", async () => {
   const pi = await piStudio();
   try {
@@ -1760,6 +1943,18 @@ const post = (studio, path, payload, headers = {}) =>
     method: "POST",
     headers: { "content-type": "application/json", origin: new URL(studio.url).origin, ...headers },
     body: typeof payload === "string" ? payload : JSON.stringify(payload),
+  });
+
+const uploadFile = (studio, filename, type, body, headers = {}) =>
+  http(`${studio.url}api/subir`, {
+    method: "POST",
+    headers: {
+      "content-type": type,
+      "x-file-name": encodeURIComponent(filename),
+      origin: new URL(studio.url).origin,
+      ...headers,
+    },
+    body,
   });
 
 /** Collects Server-Sent Events; `next(name, pred)` waits for a matching one. */
