@@ -875,10 +875,35 @@ function shutdownOf(host) {
   };
 }
 
+function fakeGate(root, { delayMs = 0, serves = true, ok = serves } = {}) {
+  const tool = join(root, "fake-explain-check.mjs");
+  const dependency = join(root, "fake-gate-result.mjs");
+  const runs = join(root, "gate-runs.log");
+  const started = join(root, "gate-started.log");
+  writeFileSync(dependency, `export const serves = ${serves};\n`);
+  writeFileSync(tool, [
+    'import { appendFileSync } from "node:fs";',
+    'import { serves } from "./fake-gate-result.mjs";',
+    `appendFileSync(${JSON.stringify(started)}, "start\\n");`,
+    ...(delayMs ? [`await new Promise(resolve => setTimeout(resolve, ${delayMs}));`] : []),
+    `appendFileSync(${JSON.stringify(runs)}, "run\\n");`,
+    `console.log(JSON.stringify({ ok: ${ok}, serves }));`,
+    "",
+  ].join("\n"));
+  return {
+    tool,
+    dependency,
+    runs,
+    started,
+    count: () => existsSync(runs) ? readFileSync(runs, "utf8").trim().split("\n").length : 0,
+  };
+}
+
 async function setup(options = {}) {
   const { root, topic } = makeRoot();
   const host = makeHost();
-  registerBridge(host.api, { root, ...options });
+  const gate = fakeGate(root);
+  registerBridge(host.api, { root, gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json"), ...options });
   const view = async (params, cwd = root) => {
     const result = await host.tools.get("learning_view").execute("call", params, undefined, undefined, { cwd });
     return result;
@@ -1084,6 +1109,88 @@ test("frameAncestors lets one loopback origin embed the pages; anything else is 
   }
 });
 
+test("a rich-page verdict survives a bridge restart and invalidates on page or gate changes", async () => {
+  const { root, topic } = makeRoot();
+  const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
+  writeFileSync(pagePath, `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
+  const gate = fakeGate(root);
+  const options = { gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json"), tokenSeed: "327-gate-cache" };
+  const first = await openBridge(root, options);
+  let result = await first.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 1);
+  await first.shutdown();
+
+  const restarted = await openBridge(root, options);
+  result = await restarted.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 1, "a new bridge process reuses the disk verdict");
+
+  writeFileSync(pagePath, `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL page edit -->`);
+  result = await restarted.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 2, "changed page bytes are rechecked");
+
+  writeFileSync(gate.dependency, "export const serves = true; // changed imported gate module\n");
+  result = await restarted.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 3, "a changed imported gate module is rechecked");
+
+  writeFileSync(gate.tool, `${readFileSync(gate.tool, "utf8")}\n// changed gate tool\n`);
+  result = await restarted.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 4, "changed gate-tool bytes are rechecked");
+  await restarted.shutdown();
+});
+
+test("a corrupt gate-verdict store is ignored and rewritten after a successful check", async () => {
+  const { root, topic } = makeRoot();
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
+  const gate = fakeGate(root);
+  const store = join(root, ".learning-cache", "gate-verdicts.json");
+  mkdirSync(join(root, ".learning-cache"), { recursive: true });
+  writeFileSync(store, "not json");
+  const bridge = await openBridge(root, { gateToolPath: gate.tool, gateVerdictsFile: store });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  assert.match((await http(result.structuredContent.url)).body, /RICH_SENTINEL/);
+  assert.equal(gate.count(), 1, "the corrupt store is not trusted");
+  assert.doesNotThrow(() => JSON.parse(readFileSync(store, "utf8")));
+  await bridge.shutdown();
+});
+
+test("a slow rich-page gate neither blocks another route nor runs twice for concurrent requests", async () => {
+  const { root, topic } = makeRoot();
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
+  const gate = fakeGate(root, { delayMs: 700 });
+  const bridge = await openBridge(root, { gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  const partRequests = [http(result.structuredContent.url), http(result.structuredContent.url)];
+  const deadline = Date.now() + 1000;
+  while (!existsSync(gate.started) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(existsSync(gate.started), "the injected slow gate began asynchronously");
+  const started = Date.now();
+  const topicPage = await http(`${result.structuredContent.base}${TOPIC}`);
+  assert.equal(topicPage.status, 200);
+  assert.ok(Date.now() - started < 300, "another bridge route answers while the gate is still running");
+  const pages = await Promise.all(partRequests);
+  assert.ok(pages.every(page => page.status === 200));
+  assert.equal(gate.count(), 1, "concurrent requests share one gate process");
+  await bridge.shutdown();
+});
+
+test("a rich page with a failing cached verdict is never served", async () => {
+  const { root, topic } = makeRoot();
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.html"), `${QUALIFYING_PAGE}\n<!-- RICH_SENTINEL -->`);
+  const gate = fakeGate(root, { serves: false });
+  const bridge = await openBridge(root, { gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
+  const result = await bridge.view({ topic: TOPIC, part: "p1" });
+  const page = await http(result.structuredContent.url);
+  assert.equal(page.status, 200);
+  assert.doesNotMatch(page.body, /RICH_SENTINEL/, "the learner gets the note fallback, never the failing rich page");
+  assert.equal(gate.count(), 1);
+  await bridge.shutdown();
+});
+
 test("a part's rich HTML page replaces the Markdown rendering, with the kit, the quiz API and the injected config", async () => {
   const { root, topic } = makeRoot();
   const kitDir = realpathSync(mkdtempSync(join(tmpdir(), "kit-")));
@@ -1096,7 +1203,8 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
     QUALIFYING_PAGE,
   );
   const host = makeHost();
-  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"] });
+  const gate = fakeGate(root);
+  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"], gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
   const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
   const url = result.structuredContent.url;
   const prefix = new URL(result.structuredContent.base).pathname;
@@ -1165,7 +1273,8 @@ test("a video control or kit asset named only inside a comment is still missing"
     QUALIFYING_PAGE.replace('<script src="../kit/kit.js" defer></script>', '<!-- <script src="../kit/kit.js"></script> -->').replace('</main>', '<!-- <lk-video></lk-video> --></main>'),
   );
   const host = makeHost();
-  registerBridge(host.api, { root, kitDir });
+  const gate = fakeGate(root);
+  registerBridge(host.api, { root, kitDir, gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
   const result = await host.tools.get("learning_view").execute("x", { topic: TOPIC, part: "p1" }, undefined, undefined, { cwd: root });
   const page = await http(result.structuredContent.url);
   assert.equal(page.status, 200);
@@ -1340,11 +1449,9 @@ test("a part's page that lacks only the authoring cues is still served", async (
   const pagePath = join(topic, "explicaciones", "Parte 1 - Claves.html");
   // The page as #304 wrote it, before the cues: the clean fixture carries them now, so this copy keeps the old shape.
   writeFileSync(pagePath, readFileSync(join(import.meta.dirname, "..", "..", "tools", "register", "fixtures", "bench305", "tcp-handshake-sin-senales.html"), "utf8"));
-  // La precondición: la página no pasa las reglas de autoría. Si ya las pasara, la prueba no probaría nada.
-  const measured = JSON.parse(spawnSync(process.execPath, [join(import.meta.dirname, "..", "..", "tools", "explain-check.mjs"), pagePath, "--json"], { encoding: "utf8" }).stdout);
-  assert.equal(measured.ok, false, "the page passes the authoring cues: this test proves nothing");
   const host = makeHost();
-  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"] });
+  const gate = fakeGate(root, { ok: false, serves: true });
+  registerBridge(host.api, { root, kitDir, frameAncestors: ["http://127.0.0.1:5555"], gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json") });
   // Closed like setup()'s bridge: here at the end, and through openServers if an assertion fails first.
   const shutdown = shutdownOf(host);
   openServers.push(shutdown);

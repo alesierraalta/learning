@@ -120,6 +120,34 @@ function restarts(s) {
   return existsSync(s.calls) ? readFileSync(s.calls, "utf8").trim().split("\n").filter(Boolean) : [];
 }
 
+test("the vault backup ignores the cache exactly once, even without a database and on repeat runs", () => {
+  const vault = mkdtempSync(join(tmpdir(), "backup-gate-cache-"));
+  roots.push(vault);
+  const bin = join(vault, "bin");
+  mkdirSync(bin);
+  const gitLog = join(vault, "git.log");
+  writeFileSync(join(vault, ".gitignore"), ".learning/\n");
+  writeFileSync(join(bin, "git"), [
+    "#!/usr/bin/env bash",
+    'printf \'%s\\n\' "$*" >> "$GIT_LOG"',
+    'case "$*" in',
+    '  "add -A"|"diff --cached --quiet") exit 0 ;;',
+    '  "rev-list --count @{u}..HEAD") printf "0\\n" ;;',
+    "  *) exit 97 ;;",
+    "esac",
+    "",
+  ].join("\n"));
+  chmodSync(join(bin, "git"), 0o755);
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, GIT_LOG: gitLog, LEARNING_ROOT: vault, STUDIO_DB: join(vault, "missing.db") };
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const run = spawnSync("bash", [join(REPO, "deploy", "vps", "learnings-backup.sh")], { cwd: vault, encoding: "utf8", env });
+    assert.equal(run.status, 0, run.stderr);
+  }
+  const cacheIgnores = readFileSync(join(vault, ".gitignore"), "utf8").split("\n").filter((line) => line === ".learning-cache/");
+  assert.equal(cacheIgnores.length, 1, "the cache is excluded exactly once, including when no database exists");
+});
+
 function markBusyFile(s, mark) {
   mkdirSync(s.stateDir, { recursive: true });
   writeFileSync(s.busy, JSON.stringify(mark));

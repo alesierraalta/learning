@@ -3,7 +3,7 @@
 // learner's part was measured — a fake measurement would prove nothing.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -289,6 +289,29 @@ test("a note named twice is measured once by each tool", async () => {
   await runPartChecks([file, file], { toolsDir: fake });
   const lines = readFileSync(log, "utf8").trim().split("\n");
   assert.equal(lines.length, 5, lines.join("\n"));
+});
+
+test("the turn-end explain-check result is the bridge's cached verdict", async () => {
+  const { getGateVerdict } = await import("../integrations/pi/gate-verdicts.ts");
+  const folder = mkdtempSync(join(tmpdir(), "shared-gate-verdict-"));
+  const tools = join(folder, "tools");
+  mkdirSync(tools);
+  const file = join(folder, "Parte 1 - Capas.html");
+  const log = join(folder, "gate-runs.log");
+  writeFileSync(file, "<html><body>Una página</body></html>");
+  for (const tool of ["scene-gate.mjs", "scene-lint.mjs", "deck-gate.mjs", "page-gate.mjs"]) writeFileSync(join(tools, tool), "process.exit(0);\n");
+  writeFileSync(join(tools, "explain-check.mjs"), [
+    'import { appendFileSync } from "node:fs";',
+    `appendFileSync(${JSON.stringify(log)}, "run\\n");`,
+    'console.log(JSON.stringify({ serves: true }));',
+    "",
+  ].join("\n"));
+  const store = join(folder, ".learning-cache", "gate-verdicts.json");
+
+  const checked = await runPartChecks([file], { toolsDir: tools, gateVerdictsFile: store });
+  assert.deepEqual(checked, { kind: "clean" });
+  assert.equal(await getGateVerdict(file, { gateToolPath: join(tools, "explain-check.mjs"), gateVerdictsFile: store }), true);
+  assert.equal(readFileSync(log, "utf8"), "run\n", "the bridge reuses the turn-end check instead of spawning explain-check again");
 });
 
 test("the page gate's own lines are read as findings, in the tool's own words", () => {
