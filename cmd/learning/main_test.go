@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -169,7 +170,7 @@ func TestCLIHelpDocumentsCommandsAndExitsZero(t *testing.T) {
 			t.Fatalf("%s exit = %d", arg, code)
 		}
 		text := out.String()
-		for _, want := range []string{"init", "validate", "advance", "status", "review", "--rules", "--exam", "--practice", "--exam-source", "plan.json", "--verdict", "pendingReviews"} {
+		for _, want := range []string{"init", "validate", "advance", "status", "review", "--rules", "--exam", "--practice", "--source", "--exam-source", "plan.json", "--verdict", "pendingReviews"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("help text missing %q:\n%s", want, text)
 			}
@@ -427,7 +428,7 @@ func TestCLIExamSourceRejectsInvalidInputsWithoutWritingState(t *testing.T) {
 		want  string
 	}{
 		{"requires exam", []string{"--exam-source", "fuentes/parcial.pdf"}, "--exam-source requires --exam"},
-		{"absolute path", []string{"--exam", "oral", "--exam-source", filepath.Join("/tmp", "parcial.pdf")}, "--exam-source must be a relative path under fuentes/ without .."},
+		{"absolute path", []string{"--exam", "oral", "--exam-source", filepath.Join("/tmp", "parcial.pdf")}, "--exam-source must name one of --source or a relative path under fuentes/"},
 		{"parent traversal", []string{"--exam", "oral", "--exam-source", "fuentes/../parcial.pdf"}, "--exam-source must be a relative path under fuentes/ without .."},
 		{"outside fuentes", []string{"--exam", "oral", "--exam-source", "plan.json"}, "--exam-source must be a relative path under fuentes/ without .."},
 		{"missing file", []string{"--exam", "oral", "--exam-source", "fuentes/no-existe.pdf"}, "--exam-source file does not exist: fuentes/no-existe.pdf"},
@@ -553,5 +554,221 @@ func TestCLIExamAndPracticeAreInitOnly(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func writeCLIUpload(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCLIInitStagesUploadedSourcesAndBindsExamSource(t *testing.T) {
+	c := newCLIFixture(t)
+	c.ws = filepath.Join(c.root, "exam-topic")
+	batch := filepath.Join(c.root, ".subidas", "lote")
+	pdf := filepath.Join(batch, "parcial.pdf")
+	image := filepath.Join(batch, "captura.png")
+	for path, content := range map[string]string{
+		pdf:             "pdf bytes",
+		pdf + ".txt":    "texto extraído",
+		pdf + ".p1.png": "página uno",
+		pdf + ".p2.png": "página dos",
+		image:           "imagen",
+	} {
+		writeCLIUpload(t, path, content)
+	}
+
+	var out bytes.Buffer
+	args := c.args("init", "--exam", "written", "--source", pdf, "--source", image, "--exam-source", pdf, "--json")
+	if code := run(args, &out); code != 0 {
+		t.Fatalf("init exit = %d, want 0: %s", code, out.String())
+	}
+	if report := parseOne(t, &out); report["status"] != "accepted" {
+		t.Fatalf("init report = %v, want accepted", report)
+	}
+	for name, want := range map[string]string{
+		"parcial.pdf":        "pdf bytes",
+		"parcial.pdf.txt":    "texto extraído",
+		"parcial.pdf.p1.png": "página uno",
+		"parcial.pdf.p2.png": "página dos",
+		"captura.png":        "imagen",
+	} {
+		got, err := os.ReadFile(filepath.Join(c.ws, "fuentes", name))
+		if err != nil || string(got) != want {
+			t.Fatalf("staged %s = %q, %v; want %q", name, got, err, want)
+		}
+	}
+	var state map[string]any
+	raw, err := os.ReadFile(filepath.Join(c.ws, ".learning", "state.json"))
+	if err != nil || json.Unmarshal(raw, &state) != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if !equalJSONMap(state["exam"], map[string]any{"format": "written", "source": "fuentes/parcial.pdf"}) {
+		t.Fatalf("state.exam = %v, want written exam with staged source", state["exam"])
+	}
+}
+
+func TestCLIInitRejectsInvalidUploadedSourcesBeforeWriting(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(*testing.T, *cliFixture) []string
+		want  string
+	}{
+		{
+			name: "missing source after a valid one",
+			setup: func(t *testing.T, c *cliFixture) []string {
+				valid := filepath.Join(c.root, ".subidas", "valid.png")
+				writeCLIUpload(t, valid, "valid")
+				return []string{valid, filepath.Join(c.root, ".subidas", "missing.png")}
+			},
+			want: "source is not an uploaded file under .subidas",
+		},
+		{
+			name: "non-regular source",
+			setup: func(t *testing.T, c *cliFixture) []string {
+				path := filepath.Join(c.root, ".subidas", "directory")
+				if err := os.MkdirAll(path, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				return []string{path}
+			},
+			want: "source is not an uploaded file under .subidas",
+		},
+		{
+			name:  "relative path",
+			setup: func(_ *testing.T, _ *cliFixture) []string { return []string{"relative.png"} },
+			want:  "source is not an uploaded file under .subidas",
+		},
+		{
+			name: "more than five sources",
+			setup: func(t *testing.T, c *cliFixture) []string {
+				sources := make([]string, 6)
+				for index := range sources {
+					sources[index] = filepath.Join(c.root, ".subidas", fmt.Sprintf("source-%d.png", index+1))
+					writeCLIUpload(t, sources[index], "source")
+				}
+				return sources
+			},
+			want: "--source accepts 1 to 5 uploaded files",
+		},
+		{
+			name: "outside uploads",
+			setup: func(t *testing.T, c *cliFixture) []string {
+				path := filepath.Join(c.root, "not-uploaded.png")
+				writeCLIUpload(t, path, "outside")
+				return []string{path}
+			},
+			want: "source is not an uploaded file under .subidas",
+		},
+		{
+			name: "symlink escape",
+			setup: func(t *testing.T, c *cliFixture) []string {
+				target := filepath.Join(filepath.Dir(c.root), "outside.png")
+				writeCLIUpload(t, target, "outside")
+				link := filepath.Join(c.root, ".subidas", "escape.png")
+				if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, link); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+				return []string{link}
+			},
+			want: "source is not an uploaded file under .subidas",
+		},
+		{
+			name: "duplicate target names",
+			setup: func(t *testing.T, c *cliFixture) []string {
+				first := filepath.Join(c.root, ".subidas", "one", "same.png")
+				second := filepath.Join(c.root, ".subidas", "two", "same.png")
+				writeCLIUpload(t, first, "one")
+				writeCLIUpload(t, second, "two")
+				return []string{first, second}
+			},
+			want: "duplicate filenames",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newCLIFixture(t)
+			sources := tc.setup(t, c)
+			args := c.args("init")
+			for _, source := range sources {
+				args = append(args, "--source", source)
+			}
+			args = append(args, "--json")
+			var out bytes.Buffer
+			if code := run(args, &out); code != 2 {
+				t.Fatalf("init exit = %d, want 2: %s", code, out.String())
+			}
+			report := parseOne(t, &out)
+			if report["status"] != "error" || !strings.Contains(report["detail"].(string), tc.want) {
+				t.Fatalf("init report = %v, want error containing %q", report, tc.want)
+			}
+			for _, path := range []string{filepath.Join(c.ws, "fuentes"), filepath.Join(c.ws, ".learning")} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("rejected sources wrote %s (stat error %v)", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestCLIInitRollsBackStagedSourcesWhenInitializationFails(t *testing.T) {
+	c := newCLIFixture(t)
+	source := filepath.Join(c.root, ".subidas", "captura.png")
+	writeCLIUpload(t, source, "uploaded")
+	rulesDir := filepath.Join(c.ws, ".learning", "rules.json")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(rulesDir, "keep.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := c.args("init", "--source", source, "--json")
+	var out bytes.Buffer
+	if code := run(args, &out); code != 2 {
+		t.Fatalf("init exit = %d, want 2: %s", code, out.String())
+	}
+	if report := parseOne(t, &out); !strings.Contains(report["detail"].(string), "cannot snapshot the run rules") {
+		t.Fatalf("init report = %v, want snapshot failure", report)
+	}
+	if _, err := os.Stat(filepath.Join(c.ws, "fuentes")); !os.IsNotExist(err) {
+		t.Fatalf("failed init left staged sources (stat error %v)", err)
+	}
+	if got, err := os.ReadFile(sentinel); err != nil || string(got) != "keep" {
+		t.Fatalf("failed init changed pre-existing file: %q, %v", got, err)
+	}
+}
+
+func TestCLISourceIsInitOnly(t *testing.T) {
+	c := newCLIFixture(t)
+	var out bytes.Buffer
+	if code := run(c.args("init", "--json"), &out); code != 0 {
+		t.Fatalf("init exit = %d: %s", code, out.String())
+	}
+	statePath := filepath.Join(c.ws, ".learning", "state.json")
+	before, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(c.root, ".subidas", "unused.png")
+	out.Reset()
+	if code := run(c.args("status", "--source", source, "--json"), &out); code != 2 {
+		t.Fatalf("status with --source exit = %d, want 2: %s", code, out.String())
+	}
+	report := parseOne(t, &out)
+	if report["status"] != "error" || report["detail"] != "--source is only accepted by the init command" {
+		t.Fatalf("status report = %v, want --source init-only rejection", report)
+	}
+	after, err := os.ReadFile(statePath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("rejected --source changed state: %v", err)
 	}
 }

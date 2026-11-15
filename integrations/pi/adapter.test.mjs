@@ -3,7 +3,7 @@
 // correctness is owned by `go test ./...` in this repository.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -608,7 +608,14 @@ const okEngine = async () => ({ code: 0, stdout: reportJson("accepted"), stderr:
 
 function installAtRoot(env, script = okEngine) {
   const host = makeHost({ cwd: env.root });
-  const engine = makeEngine(script);
+  const engine = makeEngine(async (call) => {
+    const outcome = await script(call);
+    if (call.args[0] === "init" && outcome.code === 0) {
+      const workspace = call.args[call.args.indexOf("--workspace") + 1];
+      mkdirSync(workspace, { recursive: true });
+    }
+    return outcome;
+  });
   extension(host.api, { root: env.root, enginePath: env.engine, execFile: engine.execFile });
   return { host, engine };
 }
@@ -714,47 +721,15 @@ function uploadSource(env, directory, name, content) {
   return path;
 }
 
-async function assertRejectedSourceArguments(options, detail, prepare = () => {}) {
-  const env = tempEnv();
-  prepare(env);
-  const { host, engine } = installAtRoot(env);
-  await enroll(host);
-
-  const args = typeof options === "function" ? options(env) : options;
-  const expectedDetail = typeof detail === "function" ? detail(env) : detail;
-  const result = await executeTool(host, { action: "init", topic: "source-rejected", ...args });
-  const expected = { source: "adapter", status: "error", reason: "invalid-arguments", detail: expectedDetail };
-  assert.equal(result.isError, true);
-  assert.deepEqual(result.structuredContent, expected);
-  assert.equal(result.content[0].text, JSON.stringify(expected, null, 2));
-  assert.equal(engine.calls.length, 0, "invalid sources never reach the engine");
-  assert.equal(existsSync(join(env.root, "source-rejected")), false, "invalid sources create no topic");
-  assert.equal(host.entries.length, 0, "invalid sources do not enroll the topic");
-  const stillInactive = await executeTool(host, { action: "status" });
-  assert.equal(stillInactive.structuredContent.reason, "inactive", "rejection leaves the session inactive");
-  assert.equal(engine.calls.length, 0);
-  assert.equal(host.entries.length, 0);
-}
-
-test("stage tool init stages every source and passes the selected exam source once", async () => {
+test("stage tool init forwards original sources and examSource to the engine without copying", async () => {
   const env = tempEnv();
   const pdf = uploadSource(env, "upload-1", "parcial.pdf", "pdf bytes");
-  const pdfText = `${pdf}.txt`;
-  writeFileSync(pdfText, "texto extraído");
-  const pdfPageOne = `${pdf}.p1.png`;
-  const pdfPageTwo = `${pdf}.p2.png`;
-  writeFileSync(pdfPageOne, "page one image");
-  writeFileSync(pdfPageTwo, "page two image");
+  writeFileSync(`${pdf}.txt`, "texto extraído");
+  writeFileSync(`${pdf}.p1.png`, "page image");
   const image = uploadSource(env, "upload-2", "captura.png", "image bytes");
-  let stagedBeforeEngine = false;
+  let fuentesExistedAtEngineCall = true;
   const { host, engine } = installAtRoot(env, async () => {
-    const topic = join(env.root, "examen-real");
-    stagedBeforeEngine =
-      existsSync(join(topic, "fuentes", "parcial.pdf")) &&
-      existsSync(join(topic, "fuentes", "parcial.pdf.txt")) &&
-      existsSync(join(topic, "fuentes", "parcial.pdf.p1.png")) &&
-      existsSync(join(topic, "fuentes", "parcial.pdf.p2.png")) &&
-      existsSync(join(topic, "fuentes", "captura.png"));
+    fuentesExistedAtEngineCall = existsSync(join(env.root, "examen-real", "fuentes"));
     return { code: 0, stdout: reportJson("accepted"), stderr: "" };
   });
   await enroll(host);
@@ -768,20 +743,21 @@ test("stage tool init stages every source and passes the selected exam source on
   });
 
   assert.equal(result.isError, false, JSON.stringify(result.structuredContent));
-  assert.equal(stagedBeforeEngine, true, "all originals and the PDF text sibling are copied before init");
-  assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "parcial.pdf"), "utf8"), "pdf bytes");
-  assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "parcial.pdf.txt"), "utf8"), "texto extraído");
-  assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "parcial.pdf.p1.png"), "utf8"), "page one image");
-  assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "parcial.pdf.p2.png"), "utf8"), "page two image");
-  assert.equal(readFileSync(join(env.root, "examen-real", "fuentes", "captura.png"), "utf8"), "image bytes");
+  assert.equal(fuentesExistedAtEngineCall, false, "source staging belongs to the engine");
   const args = engine.calls[0].args;
-  assert.equal(args[args.indexOf("--exam-source") + 1], "fuentes/parcial.pdf");
+  const forwardedSources = [];
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === "--source") forwardedSources.push(args[index + 1]);
+  }
+  assert.deepEqual(forwardedSources, [pdf, image]);
+  assert.equal(args[args.indexOf("--exam-source") + 1], pdf);
   assert.equal(args.filter((arg) => arg === "--exam-source").length, 1);
-  assert.equal(args.includes("--sources"), false, "only the selected main file is an engine flag");
+  assert.equal(engine.calls[0].opts.cwd, realpathSync(env.root), "init can launch before the engine creates its workspace");
   assert.equal(args[args.indexOf("--exam") + 1], "written");
+  assert.equal(existsSync(join(env.root, "examen-real", "fuentes")), false, "the adapter creates no source copy");
 });
 
-test("stage tool init accepts five documents-only sources without examSource", async () => {
+test("stage tool init forwards five documents-only sources without examSource", async () => {
   const env = tempEnv();
   const sources = Array.from({ length: 5 }, (_, index) =>
     uploadSource(env, `upload-${index + 1}`, `apuntes-${index + 1}.png`, `image ${index + 1}`),
@@ -793,53 +769,32 @@ test("stage tool init accepts five documents-only sources without examSource", a
 
   assert.equal(result.isError, false, JSON.stringify(result.structuredContent));
   assert.equal(engine.calls.length, 1);
-  assert.equal(engine.calls[0].args.includes("--exam-source"), false);
-  for (let index = 0; index < sources.length; index++) {
-    assert.equal(readFileSync(join(env.root, "documentos", "fuentes", `apuntes-${index + 1}.png`), "utf8"), `image ${index + 1}`);
+  const args = engine.calls[0].args;
+  const forwardedSources = [];
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === "--source") forwardedSources.push(args[index + 1]);
   }
+  assert.deepEqual(forwardedSources, sources);
+  assert.equal(args.includes("--exam-source"), false);
+  assert.equal(existsSync(join(env.root, "documentos", "fuentes")), false);
 });
 
-test("stage tool refuses invalid sources before creating or enrolling a topic", async () => {
-  const valid = (env) => uploadSource(env, "upload-1", "parcial.png", "image bytes");
-  await assertRejectedSourceArguments({ exam: "oral", sources: [], examSource: "/unused" }, "sources must contain 1 to 5 absolute uploaded file paths");
-  await assertRejectedSourceArguments((env) => ({
-    sources: Array.from({ length: 6 }, (_, index) => uploadSource(env, `upload-${index + 1}`, `source-${index + 1}.png`, "image")),
-  }), "sources must contain 1 to 5 absolute uploaded file paths");
-  await assertRejectedSourceArguments({ exam: "oral", sources: ["relative/path.png"] }, "sources entries must be absolute paths", (env) => {
-    uploadSource(env, "upload-1", "path.png", "image bytes");
-  });
-  await assertRejectedSourceArguments({ exam: "oral", sources: ["/tmp/outside.png"] }, "source is not an uploaded file under .subidas: /tmp/outside.png");
-  await assertRejectedSourceArguments((env) => {
-    const outside = join(env.root, "not-uploaded.png");
-    writeFileSync(outside, "not uploaded");
-    return { exam: "oral", sources: [outside] };
-  }, (env) => `source is not an uploaded file under .subidas: ${join(env.root, "not-uploaded.png")}`);
-  await assertRejectedSourceArguments((env) => {
-    const outside = join(env.root, "not-uploaded.png");
-    writeFileSync(outside, "not uploaded");
-    const uploadDir = join(env.root, ".subidas", "upload-1");
-    mkdirSync(uploadDir, { recursive: true });
-    const link = join(uploadDir, "alias.png");
-    symlinkSync(outside, link, "file");
-    return { exam: "oral", sources: [link] };
-  }, (env) => `source is not an uploaded file under .subidas: ${join(env.root, ".subidas", "upload-1", "alias.png")}`);
-  await assertRejectedSourceArguments((env) => {
-    const validSource = valid(env);
-    const outside = join(env.root, "not-uploaded.png");
-    writeFileSync(outside, "not uploaded");
-    return { exam: "oral", sources: [validSource, outside] };
-  }, (env) => `source is not an uploaded file under .subidas: ${join(env.root, "not-uploaded.png")}`);
-  await assertRejectedSourceArguments({ exam: "oral", sources: ["/no/such/upload.png"] }, "source is not an uploaded file under .subidas: /no/such/upload.png");
-  await assertRejectedSourceArguments({ sources: ["/unused"], examSource: "/unused" }, "examSource requires exam");
-  await assertRejectedSourceArguments({ exam: "oral", examSource: "  " }, "examSource must be a non-empty path");
-  await assertRejectedSourceArguments((env) => {
-    const source = valid(env);
-    return { exam: "oral", sources: [source], examSource: "/other/source.png" };
-  }, "examSource must be one of sources");
-  await assertRejectedSourceArguments((env) => {
-    const source = uploadSource(env, "upload-1", "parcial.pdf", "pdf bytes");
-    return { sources: [source] };
-  }, (env) => `PDF source is missing its extracted .txt sibling: ${join(env.root, ".subidas", "upload-1", "parcial.pdf")}`);
+test("stage tool forwards source validation to the engine", async () => {
+  const env = tempEnv();
+  const missing = join(env.root, ".subidas", "missing.png");
+  const { host, engine } = installAtRoot(env, async () => ({
+    code: 2,
+    stdout: JSON.stringify({ status: "error", checks: [], detail: `source is not an uploaded file under .subidas: ${missing}` }),
+    stderr: "",
+  }));
+  await enroll(host);
+
+  const result = await executeTool(host, { action: "init", topic: "source-rejected", sources: [missing] });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.detail, `source is not an uploaded file under .subidas: ${missing}`);
+  assert.deepEqual(engine.calls[0].args.slice(engine.calls[0].args.indexOf("--source")), ["--source", missing, "--json"]);
+  assert.equal(existsSync(join(env.root, "source-rejected", "fuentes")), false);
 });
 
 test("stage tool rejects source arguments outside init without touching the engine", async () => {
@@ -867,7 +822,7 @@ test("stage tool rejects source arguments outside init without touching the engi
   assert.equal(host.entries.length, entriesBefore);
 });
 
-test("stage tool rolls back staged sources when engine init refuses", async () => {
+test("stage tool does not stage sources when engine init refuses", async () => {
   const env = tempEnv();
   const source = uploadSource(env, "upload-1", "parcial.png", "image bytes");
   const { host, engine } = installAtRoot(env, async () => ({
@@ -882,7 +837,7 @@ test("stage tool rolls back staged sources when engine init refuses", async () =
 
   assert.equal(result.isError, true);
   assert.equal(engine.calls.length, 1);
-  assert.equal(existsSync(join(env.root, "rechazado")), false, "new topic and staged fuentes are rolled back");
+  assert.equal(existsSync(join(env.root, "rechazado")), false, "the engine owns topic creation");
   assert.equal(host.entries.length, 0, "refused init never enrolls the topic");
   assert.equal(stillInactive.structuredContent.reason, "inactive");
 });

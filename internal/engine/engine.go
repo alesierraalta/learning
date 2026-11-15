@@ -23,17 +23,18 @@ type Options struct {
 	Root       string
 	Workspace  string
 	RulesPath  string
-	Mode       string // deep (default) | conceptual
-	Scope      string // init only: complete (default) | pareto
-	Exam       string // init only: oral | written | practical; implies pareto scope
-	Practice   string // init only: practical exam's optional practice kind
-	ExamSource string // init only: topic-relative file under fuentes/ for a real exam
-	Method     string // method only: pareto | preferencias
-	Stage      string // required for advance and review, optional for validate
-	Rule       string // review: rubric id receiving the verdict
-	Verdict    string // review: PASS or FAIL
-	Reason     string // review: reviewer rationale (required)
-	Reviewer   string // review: reviewer identity label (default "chat")
+	Mode       string   // deep (default) | conceptual
+	Scope      string   // init only: complete (default) | pareto
+	Exam       string   // init only: oral | written | practical; implies pareto scope
+	Practice   string   // init only: practical exam's optional practice kind
+	Sources    []string // init only: absolute uploaded files under <root>/.subidas/
+	ExamSource string   // init only: uploaded source or topic-relative file under fuentes/
+	Method     string   // method only: pareto | preferencias
+	Stage      string   // required for advance and review, optional for validate
+	Rule       string   // review: rubric id receiving the verdict
+	Verdict    string   // review: PASS or FAIL
+	Reason     string   // review: reviewer rationale (required)
+	Reviewer   string   // review: reviewer identity label (default "chat")
 }
 
 // Check is one validated requirement with its verdict and reason.
@@ -107,6 +108,9 @@ func Run(opts Options) (Report, int) {
 	}
 	if opts.Practice != "" && opts.Command != "init" {
 		return errorReport("--practice is only accepted by the init command"), ExitOperational
+	}
+	if len(opts.Sources) > 0 && opts.Command != "init" {
+		return errorReport("--source is only accepted by the init command"), ExitOperational
 	}
 	if opts.ExamSource != "" && opts.Command != "init" {
 		return errorReport("--exam-source is only accepted by the init command"), ExitOperational
@@ -187,21 +191,27 @@ func Run(opts Options) (Report, int) {
 	if err != nil {
 		return errorReport("root unavailable: " + opts.Root), ExitOperational
 	}
-	wsReal, err := filepath.EvalSymlinks(opts.Workspace)
+	wsReal, workspaceExisted, err := resolveWorkspace(rootReal, opts.Workspace, opts.Command)
 	if err != nil {
-		return errorReport("workspace unavailable: " + opts.Workspace), ExitOperational
+		return errorReport(err.Error()), ExitOperational
 	}
-	rel, err := filepath.Rel(rootReal, wsReal)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return errorReport("workspace escapes the configured root: " + wsReal + " is not inside " + rootReal), ExitOperational
-	}
-	if fi, err := os.Stat(wsReal); err != nil || !fi.IsDir() {
-		return errorReport("workspace is not a directory: " + wsReal), ExitOperational
+	sourceCopies, sourceTargets, err := validateSources(rootReal, opts.Sources)
+	if err != nil {
+		return errorReport(err.Error()), ExitOperational
 	}
 	if opts.ExamSource != "" {
-		if err := validateExamSource(wsReal, opts.ExamSource); err != nil {
+		if filepath.IsAbs(opts.ExamSource) {
+			target, ok := sourceTargets[filepath.Clean(opts.ExamSource)]
+			if !ok {
+				return errorReport("--exam-source must name one of --source or a relative path under fuentes/"), ExitOperational
+			}
+			opts.ExamSource = target
+		} else if err := validateExamSource(wsReal, opts.ExamSource); err != nil {
 			return errorReport(err.Error()), ExitOperational
 		}
+	}
+	if err := validateSourceTargets(wsReal, sourceCopies); err != nil {
+		return errorReport(err.Error()), ExitOperational
 	}
 
 	// A run keeps the rules it started with: once init has snapshotted them,
@@ -232,7 +242,7 @@ func Run(opts Options) (Report, int) {
 
 	switch opts.Command {
 	case "init":
-		return runInit(wsReal, r, opts.Scope, exam)
+		return runInit(wsReal, r, opts.Scope, exam, sourceCopies, workspaceExisted)
 	case "status":
 		return runStatus(wsReal, r)
 	case "method":
@@ -240,6 +250,41 @@ func Run(opts Options) (Report, int) {
 	default:
 		return runStage(opts, wsReal, r)
 	}
+}
+
+func resolveWorkspace(root, requested, command string) (string, bool, error) {
+	absolute, err := filepath.Abs(requested)
+	if err != nil {
+		return "", false, fmt.Errorf("workspace unavailable: %s", requested)
+	}
+	workspace, err := filepath.EvalSymlinks(absolute)
+	if err == nil {
+		rel, relErr := filepath.Rel(root, workspace)
+		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			return "", false, fmt.Errorf("workspace escapes the configured root: %s is not inside %s", workspace, root)
+		}
+		if info, statErr := os.Stat(workspace); statErr != nil || !info.IsDir() {
+			return "", false, fmt.Errorf("workspace is not a directory: %s", workspace)
+		}
+		return workspace, true, nil
+	}
+	if command != "init" || !os.IsNotExist(err) {
+		return "", false, fmt.Errorf("workspace unavailable: %s", requested)
+	}
+	if _, err := os.Lstat(absolute); err == nil {
+		return "", false, fmt.Errorf("workspace unavailable: %s", requested)
+	} else if !os.IsNotExist(err) {
+		return "", false, fmt.Errorf("workspace unavailable: %s", requested)
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(absolute))
+	if err != nil {
+		return "", false, fmt.Errorf("workspace unavailable: %s", requested)
+	}
+	parentRel, err := filepath.Rel(root, parent)
+	if err != nil || parentRel == ".." || strings.HasPrefix(parentRel, ".."+string(filepath.Separator)) || filepath.IsAbs(parentRel) {
+		return "", false, fmt.Errorf("workspace escapes the configured root: %s is not inside %s", absolute, root)
+	}
+	return filepath.Join(parent, filepath.Base(absolute)), false, nil
 }
 
 func validateExamSource(ws, source string) error {
@@ -350,21 +395,69 @@ func blocked(checks []Check, stage, next, part string, code int) (Report, int) {
 
 // --- init ------------------------------------------------------------------
 
-func runInit(ws string, r *rules.Rules, scope string, exam *Exam) (Report, int) {
+func runInit(ws string, r *rules.Rules, scope string, exam *Exam, sources []sourceCopy, workspaceExisted bool) (Report, int) {
+	stateDirPath := stateDir(ws)
+	_, dirErr := os.Lstat(stateDirPath)
+	stateDirExisted := dirErr == nil
+	if dirErr != nil && !os.IsNotExist(dirErr) {
+		return errorReport("cannot inspect state directory: " + dirErr.Error()), ExitOperational
+	}
 	release, err := acquireLock(ws)
 	if err != nil {
+		if !stateDirExisted {
+			_ = os.Remove(stateDirPath)
+		}
+		if !workspaceExisted {
+			_ = os.Remove(ws)
+		}
 		return errorReport(err.Error()), ExitOperational
 	}
 	defer release()
-	if _, err := os.Stat(statePath(ws)); err == nil {
-		return errorReport("run already initialized: .learning/state.json exists; refusing to overwrite the existing run"), ExitOperational
+	fail := func(err error, created []string, createdFuentes bool, snapshotCreated, stateTempCreated bool) (Report, int) {
+		release()
+		rollbackUploadedSources(created, createdFuentes, ws)
+		if snapshotCreated {
+			_ = os.Remove(rulesSnapshotPath(ws))
+		}
+		if stateTempCreated {
+			_ = os.Remove(statePath(ws) + ".tmp")
+		}
+		if !stateDirExisted {
+			_ = os.Remove(stateDirPath)
+		}
+		if !workspaceExisted {
+			_ = os.Remove(ws)
+		}
+		return errorReport(err.Error()), ExitOperational
 	}
-	if err := os.WriteFile(rulesSnapshotPath(ws), r.Raw, 0o644); err != nil {
-		return errorReport("cannot snapshot the run rules: " + err.Error()), ExitOperational
+	if _, err := os.Lstat(statePath(ws)); err == nil {
+		return errorReport("run already initialized: .learning/state.json exists; refusing to overwrite the existing run"), ExitOperational
+	} else if !os.IsNotExist(err) {
+		return errorReport("cannot inspect existing run state: " + err.Error()), ExitOperational
+	}
+	if _, err := os.Lstat(statePath(ws) + ".tmp"); err == nil {
+		return errorReport("cannot initialize run: a state temporary file already exists"), ExitOperational
+	} else if !os.IsNotExist(err) {
+		return errorReport("cannot inspect state temporary file: " + err.Error()), ExitOperational
+	}
+	created, createdFuentes, err := copyUploadedSources(ws, sources)
+	if err != nil {
+		return fail(err, created, createdFuentes, false, false)
+	}
+	snapshot, err := os.OpenFile(rulesSnapshotPath(ws), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return fail(fmt.Errorf("cannot snapshot the run rules: %w", err), created, createdFuentes, false, false)
+	}
+	if _, err := snapshot.Write(r.Raw); err != nil {
+		_ = snapshot.Close()
+		return fail(fmt.Errorf("cannot snapshot the run rules: %w", err), created, createdFuentes, true, false)
+	}
+	if err := snapshot.Close(); err != nil {
+		return fail(fmt.Errorf("cannot snapshot the run rules: %w", err), created, createdFuentes, true, false)
 	}
 	st := newState(ws, r.Hash, scope, exam)
 	if err := saveState(ws, st); err != nil {
-		return errorReport(err.Error()), ExitOperational
+		return fail(err, created, createdFuentes, true, true)
 	}
 	evidence := map[string]any{"runId": st.RunID, "scope": scope}
 	if exam != nil {

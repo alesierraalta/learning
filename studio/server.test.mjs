@@ -249,6 +249,8 @@ test("the selected Antigravity tutor answers a conversation", async () => {
     assert.match(sent, /«Responder el diagnóstico»/);
     assert.match(sent, /«Ir a Parte N»/);
     assert.match(sent, /voseo/);
+    assert.match(sent, /learning init \.\.\. --source <path> --exam-source <path>/);
+    assert.match(sent, /nunca copies archivos a mano/i);
   } finally { stream.close(); }
 });
 
@@ -1393,7 +1395,7 @@ test("the first-turn prompt names the PDF page images and tells the tutor to rea
   const pdfTextPath = `${pdfPath}.txt`;
   const pdfPagePath = `${pdfPath}.p1.png`;
   const imagePath = join(root, ".subidas", image.id, image.nombre);
-  const expectedSources = `[Fuentes subidas: archivo ${JSON.stringify(pdfPath)} (texto extraído: ${JSON.stringify(pdfTextPath)}; páginas como imágenes: ${JSON.stringify(pdfPagePath)}); archivo ${JSON.stringify(imagePath)}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos. Lee las imágenes de las páginas como imágenes: contienen preguntas y contenido visual que pdftotext no puede extraer. Pasa las rutas originales (no los .txt extraídos) a learning_stage init como sources; en modo examen, pasa también la ruta original del examen principal como examSource (una de sources). El adaptador las copia a <topic>/fuentes/. No copies los archivos tú.]`;
+  const expectedSources = `[Fuentes subidas: archivo ${JSON.stringify(pdfPath)} (texto extraído: ${JSON.stringify(pdfTextPath)}; páginas como imágenes: ${JSON.stringify(pdfPagePath)}); archivo ${JSON.stringify(imagePath)}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos. Lee las imágenes de las páginas como imágenes: contienen preguntas y contenido visual que pdftotext no puede extraer. Pasa todas las rutas originales (no los .txt extraídos) a learning_stage init como sources (Pi) o a learning init ... --source <path> --exam-source <path> (CLI; repite --source por archivo y omite --exam-source salvo en modo examen). En modo examen, la ruta principal debe ser una de sources en Pi; pasa esa misma ruta con --exam-source en CLI. El motor las copia a <topic>/fuentes/. Nunca copies los archivos a mano.]`;
   const expectedDeducir = "[Modo de estudio: examen — ya decidido en el estudio, con formato por deducir a partir de las fuentes. Deduce el formato (y, si es práctico, el tipo de práctica) del examen/documento subido y pásalos a learning_stage init como exam y, solo si corresponde, practice. Nunca elijas un formato ni un tipo de práctica por defecto.]";
   assert.ok(prompt.includes(expectedDeducir), `deduced format is passed to init: ${prompt}`);
   const sourceLine = prompt.split("\n").find((line) => line.startsWith("[Fuentes subidas:"));
