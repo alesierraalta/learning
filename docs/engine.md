@@ -2,9 +2,9 @@
 
 Go implementation of the deterministic deep-learning validation flow defined in
 [protocol.md](protocol.md). The engine owns rules, state, validation, judging and
-completion; the Pi adapter is transport only. It writes exactly one kind of file
-into the vault: its own `.learning/` state, and only when `init`/`advance` is
-explicitly invoked. It never creates or edits Obsidian notes.
+completion; the Pi adapter is transport only. It writes its own `.learning/`
+state and, during `init`, stages validated uploaded files under the topic's
+`fuentes/`. It never creates or edits Obsidian notes.
 
 Covered specs: S2 (objective checks are code, not model opinion), S3 (per-stage
 detection before completion), S4 (conditional proof that the plan really changed
@@ -25,16 +25,19 @@ rtk go build -o bin/learning ./cmd/learning
 ## CLI contract
 
 ```text
-learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--exam oral|written|practical] [--practice KIND] [--exam-source PATH] [--stage STAGE] [--json]
+learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode deep|conceptual] [--scope complete|pareto] [--exam oral|written|practical] [--practice KIND] [--source PATH ...] [--exam-source PATH] [--stage STAGE] [--json]
 learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
 learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
 learning mcp
 learning help
 ```
 
-- `--root` and `--workspace` are canonical paths. Both are resolved with
-  `realpath` (`EvalSymlinks`) and the workspace must stay inside the root;
-  traversal and symlink escapes are rejected before any file is touched.
+- `--root` and `--workspace` are canonical paths. The root and existing
+  workspace are resolved with `realpath` (`EvalSymlinks`) and the workspace must
+  stay inside the root. `init` may receive a not-yet-created workspace directly
+  under an existing in-root parent; it creates that directory after validation
+  and removes it on failure if it created it. Traversal and symlink escapes are
+  rejected before any file is touched.
 - With `--json`, stdout is exactly one JSON report object, never mixed with logs.
   Errors are JSON too when `--json` is present.
 - Exit codes: `0` accepted/completed/waiting/skipped, `1` failed mandatory
@@ -49,9 +52,17 @@ learning help
   while the rules load) terminates the process with the default signal status;
   nothing has been written and no lock exists yet. Only `SIGKILL` or a crash
   leaves the lock, which is taken over after five minutes.
-- Unknown flags, duplicate flags, missing values, missing required flags, an
-  unknown command, an invalid mode, `advance` without `--stage`, and `--stage`
-  on `init`/`status` are strict operational errors (exit 2, `status:"error"`).
+- Unknown flags, duplicate flags (except repeatable `--source`), missing values,
+  missing required flags, an unknown command, an invalid mode, `advance` without
+  `--stage`, and `--stage` on `init`/`status` are strict operational errors
+  (exit 2, `status:"error"`).
+- `--source` is init-only and repeatable for 1–5 absolute regular files under
+  `<root>/.subidas/`. The engine resolves symlinks, validates the full source
+  set before writing, rejects duplicate target names, and copies each source to
+  `<workspace>/fuentes/`. A PDF includes its required `.txt` sibling and any
+  contiguous rendered page PNGs. `--exam-source` accepts one of those original
+  source paths (stored as `fuentes/<name>`) or an existing relative path under
+  `fuentes/`; it requires `--exam`.
 
 Report shape:
 
@@ -76,7 +87,7 @@ The adapter may only treat the first group as passing.
 
 | Command | Writes | Review activity | Notes |
 |---|---|---|---|
-| `init` | creates `.learning/state.json` | none | refuses to overwrite an existing run (exit 2) |
+| `init` | creates `.learning/state.json`; stages optional uploads under `fuentes/` | none | refuses to overwrite an existing run (exit 2); failure rolls back only files/directories it created |
 | `validate` | none | lists `pendingReviews` (missing/stale) | without `--stage` targets the current frontier |
 | `advance` | state (only on full success) | requires fresh recorded reviews after all deterministic checks | blocked while any review is missing, stale or a gate FAIL; rejected transitions write nothing |
 | `review` | `state.semantic[]` receipt | records one verdict | frontier stage only, objective checks must pass first |
@@ -136,10 +147,19 @@ exactly as before.
 It is init-only, implies `pareto` scope, and cannot be combined with explicit
 `--scope complete` (exit 2). `--practice "<kind>"` is also init-only and is
 accepted only with `--exam practical`; it is optional even for practical runs.
-`--exam-source PATH` is init-only, requires `--exam`, and must name an existing
-regular file at a topic-relative path under `fuentes/` without `..` (for
-example, `fuentes/examen.pdf`). It fixes which real source the run mirrors.
-Later commands read the exam contract from state rather than accepting new flags.
+`--exam-source PATH` is init-only and requires `--exam`. It may name one of the
+absolute `--source` paths, recorded as `fuentes/<name>`, or an existing
+regular topic-relative file under `fuentes/` without `..` (for example,
+`fuentes/examen.pdf`). It fixes which real source the run mirrors. Later
+commands read the exam contract from state rather than accepting new flags.
+
+`--source` is repeatable on init (1–5). Each absolute path must resolve to a
+regular file contained under `<root>/.subidas/`, including through symlinks.
+The engine validates every source and destination name before copying. For a
+PDF, the extracted `<pdf>.txt` sibling is required and copied; existing
+contiguous `<pdf>.p<N>.png` page images are copied too. Init never overwrites
+existing files. If it fails after staging, only its own copies and directories
+are removed; pre-existing files remain untouched.
 The studio's `deducir` choice is not an engine exam format: the tutor infers
 `oral`, `written` or `practical` from the source, then passes that format (and
 `--practice` only when practical) to `init`.

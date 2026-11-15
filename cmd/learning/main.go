@@ -17,15 +17,15 @@ import (
 const usage = `learning — deep-learning validation engine (structured rules, deterministic checks, recorded reviews)
 
 Usage:
-  learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode MODE] [--scope SCOPE] [--exam oral|written|practical] [--practice KIND] [--exam-source PATH] [--stage STAGE] [--json]
+  learning <init|validate|advance|status|review> --root ROOT --workspace TOPIC --rules RULES [--mode MODE] [--scope SCOPE] [--exam oral|written|practical] [--practice KIND] [--source PATH ...] [--exam-source PATH] [--stage STAGE] [--json]
   learning review --root ROOT --workspace TOPIC --rules RULES --stage STAGE --rule RULE --verdict PASS|FAIL --reason TEXT [--reviewer LABEL] [--json]
   learning method --root ROOT --workspace TOPIC --rules RULES --method pareto|preferencias [--json]
   learning mcp
   learning help
 
 Commands:
-  init       Create engine-owned state (.learning/state.json) for a new deep run.
-             Refuses to overwrite an existing run. Writes nothing else.
+  init       Create the topic workspace and engine-owned state (.learning/state.json).
+             May stage uploaded sources into fuentes/. Refuses to overwrite an existing run.
   validate   Evaluate the objective checks of a stage without writing anything.
              Reports each applicable review rule: fresh reviews as PASS,
              missing/stale ones as SKIP plus evidence.pendingReviews (the
@@ -58,7 +58,7 @@ Review flow (the chat, optionally via subagents, is the reviewer):
 
 Flags:
   --root      Canonical Learnings root directory (containment boundary).
-  --workspace Topic workspace directory inside the root (realpath-checked).
+  --workspace Topic workspace inside the root (init may create its final directory).
   --rules     Structured rules file (repository rules/deep.json): stage order,
               thresholds, check declarations, conditions and rubrics.
   --mode      deep (default) or conceptual. Conceptual reports skipped and
@@ -71,8 +71,10 @@ Flags:
               from state.
   --practice  init only: optional practical-exam practice kind; only with
               --exam practical. Later commands read it from state.
-  --exam-source init only: existing topic-relative file under fuentes/ (no ..);
-              only with --exam. Later commands read it from state.
+  --source    init only, repeatable (1–5): absolute uploaded file under
+              <root>/.subidas/. PDFs include their .txt and page-image companions.
+  --exam-source init only, with --exam: one --source path (recorded as
+              fuentes/<name>) or an existing relative path under fuentes/.
   --method    method only: the learner's explanation method, chosen once
               right after the diagnosis in a strict-flow run: pareto (the
               vital 20%; sets the pareto scope) or preferencias.
@@ -206,12 +208,12 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 		}
 		name := strings.TrimPrefix(tok, "--")
 		switch name {
-		case "root", "workspace", "rules", "mode", "scope", "exam", "practice", "exam-source", "method", "stage",
+		case "root", "workspace", "rules", "mode", "scope", "exam", "practice", "source", "exam-source", "method", "stage",
 			"rule", "verdict", "reason", "reviewer":
 		default:
 			return engine.Options{}, false, fmt.Errorf("unknown flag --%s", name)
 		}
-		if seen[name] {
+		if seen[name] && name != "source" {
 			return engine.Options{}, false, fmt.Errorf("duplicate flag --%s", name)
 		}
 		if i+1 >= len(args) {
@@ -234,6 +236,8 @@ func parseArgs(args []string) (engine.Options, bool, error) {
 			opts.Exam = args[i]
 		case "practice":
 			opts.Practice = args[i]
+		case "source":
+			opts.Sources = append(opts.Sources, args[i])
 		case "exam-source":
 			opts.ExamSource = args[i]
 		case "method":

@@ -291,10 +291,12 @@ son los mismos, y el markdown de la parte que el tutor escribió no se toca.
   `POST api/aprender` sends the uploaded IDs as `fuentes: [id, ...]` (1–5 valid uploads). The first
   turn names each original stored path and, for PDFs, its extracted-text path and page-image paths;
   it tells the tutor to read the page PNGs as images because they may contain questions that
-  `pdftotext` cannot see. It passes the original paths—not the `.txt` paths—to `learning_stage init`
-  as `sources`. For exam mode, the tutor also passes the selected original exam path as `examSource`,
-  one of those `sources`. The adapter stages the PDF, `.txt` and page PNGs into `<topic>/fuentes/`
-  before engine `init`; the tutor does not copy them.
+  `pdftotext` cannot see. In Pi, it passes the original paths—not the `.txt` paths—to
+  `learning_stage init` as `sources`; the adapter only forwards `sources` and `examSource` to the
+  engine. In CLI mode, the tutor uses `learning init --source <path> ... --exam-source <path>`
+  (repeat `--source` for every source and use `--exam-source` only in exam mode). The engine
+  validates and stages each original source, including the PDF `.txt` and page PNG companions, into
+  `<topic>/fuentes/`, and records the exam source as `fuentes/<name>`. The tutor does not copy them.
 
   Upload and source-related API refusals return JSON `{error: "…"}` with these exact messages:
 

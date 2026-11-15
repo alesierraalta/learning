@@ -68,7 +68,7 @@ export function fuentesLine(sources: readonly UploadedSourcePrompt[]): string {
   const truncation = sources.some((source) => source.pagesTruncated)
     ? " El PDF continúa después de la página 20: solo se renderizaron sus primeras 20 páginas."
     : "";
-  return `[Fuentes subidas: ${paths.join("; ")}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos.${pageInstructions}${truncation} Pasa las rutas originales (no los .txt extraídos) a learning_stage init como sources; en modo examen, pasa también la ruta original del examen principal como examSource (una de sources). El adaptador las copia a <topic>/fuentes/. No copies los archivos tú.]`;
+  return `[Fuentes subidas: ${paths.join("; ")}. Lee todos los archivos; son los exámenes/documentos reales para preparar la ruta. Para las imágenes, usa tu herramienta de lectura de archivos.${pageInstructions}${truncation} Pasa todas las rutas originales (no los .txt extraídos) a learning_stage init como sources (Pi) o a learning init ... --source <path> --exam-source <path> (CLI; repite --source por archivo y omite --exam-source salvo en modo examen). En modo examen, la ruta principal debe ser una de sources en Pi; pasa esa misma ruta con --exam-source en CLI. El motor las copia a <topic>/fuentes/. Nunca copies los archivos a mano.]`;
 }
 
 /**
