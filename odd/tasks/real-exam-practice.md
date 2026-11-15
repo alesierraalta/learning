@@ -15,7 +15,7 @@ T1 — S1,S2 — engine check `exam-practice` + rules + tests — #306 — gentl
 T2 — S2 — view: practical exercises in part page and mini-quiz (bridge + kit) — #307 — gentle-ai-worker — done: f44bacb
 T3 — S3,S4 — studio upload + form + prompt line — #308 — gentle-ai-worker — done: bf33c2d
 T4 — S4,S5 — engine `--exam-source`, plan structure, mock mirror + adapter + skill references/examen.md — #309 — gentle-ai-worker — done: c986ec1
-T5 — all — docs + real run — #310 — gentle-ai-worker — in_progress
+T5 — all — docs + real run — #310 — gentle-ai-worker — done: f9c547d; real run S1-S5 green
 
 ## Log
 L1 — "en la seccion de examenes, si se elige algo practico, el tutor debe generar ejercicios practicos, y debe existir la opcion de que si yo subo un examen o documento, el tutor arme la ruta para prepararme para ese examen, como el modo examen pero partiendo de un examen real"
@@ -25,3 +25,5 @@ V1 — Independent verify (static, then probed): a symlinked `practica/` dir or 
 V2 — Independent verify (runtime probe): a 120 × "漢" image name (360 bytes) returned 500, and failed uploads (also invalid PDF, missing pdftotext) left an empty `.subidas/<id>/`. Fixed test-first in 4f51727 (byte-bounded names keeping the extension and the PDF `.txt` budget; failed uploads remove their dir); re-verified PASS.
 V3 — Verify PASS: adapter refusals (duplicates, outside source, escaping symlink) make no engine call and create no topic; rollback preserves pre-existing files; old exam states without `source` load unchanged; no-exam runs SKIP the new checks.
 L3 — Exploration on origin/main: exam checks in internal/engine/exam.go (evalExamPlan, evalExamMock); part exercises today are only code exercises (`codigo/<id>/ejercicio.json` with `parte`, listed by integrations/pi/bridge.ts listExercises, shown by kit.js mini-quiz boxes); the studio already reads raw audio bodies (MAX_AUDIO_BYTES) and JSON bodies up to 64 KB; the skill ships from the repo at skills/explicacion-interactiva.
+L4 — Real run (scratch root): uploads, staging, refusals, exam-plan FAIL/PASS, exam-practice FAIL/PASS, exam-mock FAIL on mismatched structure and on an empty deliverable, PASS when matching; `deducir` without fuentes → 400. Reaching final_quiz needed a key-sorted compact plan.json because of the pre-existing open issue #225 (out of scope).
+L5 — Final checks on the candidate: `go vet ./...` clean; `go test ./...` ok (3 packages); `node --test integrations/pi/*.test.mjs studio/*.test.mjs` 641 tests, 628 pass, 0 fail, 13 skipped.
