@@ -4848,7 +4848,12 @@ test("the runnable list, the pull line and the pull action come from the merged 
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   assert.match(readFileSync(log, "utf8"), /^pull python-missing:348$/m, "only the explicit action pulls");
-  const status = JSON.parse((await http(`${url}api/code/pull?language=python&topic=${encodeURIComponent(TOPIC)}`)).body);
+  // El estado de la descarga avanza en segundo plano: se espera a que llegue, no se asume el instante.
+  let status = JSON.parse((await http(`${url}api/code/pull?language=python&topic=${encodeURIComponent(TOPIC)}`)).body);
+  for (let i = 0; i < 80 && status.state === "pulling"; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    status = JSON.parse((await http(`${url}api/code/pull?language=python&topic=${encodeURIComponent(TOPIC)}`)).body);
+  }
   assert.equal(status.state, "done", "a finished pull is a state, not an error dump");
   assert.equal(typeof status.message, "string");
 });
@@ -4965,6 +4970,8 @@ test("the reader's install hint is short, copyable and remembered only for the s
   const strip = page.locator(".runners-strip");
   const summary = strip.locator("summary");
   await summary.waitFor();
+  // La tira pinta primero lo que trae la página y se refresca desde /api/runners: se espera al refresco.
+  await page.waitForFunction(() => /^Ejecutables aquí: python · ver lenguajes/.test(document.querySelector(".runners-strip summary")?.textContent ?? ""), undefined, { timeout: 30_000 });
   assert.match(await summary.textContent(), /^Ejecutables aquí: python · ver lenguajes/);
   assert.equal(await strip.locator("details").evaluate((node) => node.open), false, "the list starts collapsed");
   await summary.click();
