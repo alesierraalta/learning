@@ -359,6 +359,9 @@ legend { padding: 0; font-size: 20px; font-weight: 700; }
 .lk-thought-label { font-size: 1.02rem; }
 .lk-thought-hint, .lk-mic-note { font-family: var(--sans); font-size: 12px; color: var(--muted); }
 .lk-thought textarea { font-family: var(--mono); font-size: 14px; line-height: 1.6; min-height: 120px; }
+/* #334: a code answer is a code field: the reader's code face and size (its pre), its lines kept and not wrapped. Its paper
+   and ink come from the textarea rule above, so light, dark and black draw it alike. */
+textarea.lk-code { font-family: var(--mono); font-size: 15px; line-height: 1.55; white-space: pre; overflow-wrap: normal; overflow-x: auto; tab-size: 2; }
 .lk-mic { font-family: var(--sans); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; }
 .lk-mic::before { content: none; }
 .lk-mic[data-state=listening] { border-color: var(--ink); color: var(--on-ink); background: var(--ink); }

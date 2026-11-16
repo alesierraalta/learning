@@ -12,6 +12,8 @@
   if (!window.learningThoughtField && home) await beside('dictate.js');
   // The question renderer (#332) loads beside the kit without holding the kit up: a scene or a page that lacks it still draws.
   const questionReady = window.lkQuestion || !home ? Promise.resolve() : beside('question.js').catch(() => {});
+  // The code field (#334) loads beside the kit the same way: a page without it keeps its answer boxes plain.
+  const codeReady = window.lkCodeField || !home ? Promise.resolve() : beside('code-field.js').catch(() => {});
   const offline = 'Abre esta página desde Pi para enviarla al tutor';
   const config = () => window.LEARNING_BRIDGE;
   // A part saved for reading with no connection: what reaches the tutor or the network says so.
@@ -261,9 +263,11 @@
       this.append(row);
     }
   });
-  function textField(label, name, required = false) {
+  // A code answer (#334) is a code field; any other answer stays the plain box it always was.
+  function textField(label, name, required = false, code = false) {
     const wrapper = el('label', label, { class: 'lk-field' });
     const input = el('textarea', undefined, { name, rows: '3' }); input.required = required;
+    if (code) window.lkCodeField?.enhance(input);
     wrapper.append(input); return wrapper;
   }
   define('lk-ask', function () {
@@ -286,7 +290,7 @@
     if (unreachable()) { this.append(el('p', b?.offline ? 'El mini-quiz se responde con conexión: el tutor lo corrige.' : offline)); return; }
     const response = await fetch(b.quizUrl);
     if (!response.ok) throw new Error(`No se pudo cargar el mini-quiz (HTTP ${response.status})`);
-    await questionReady;
+    await Promise.all([questionReady, codeReady]);
     const data = await response.json(), form = el('form'), out = status();
     const boxes = new Map();
     for (const [index, q] of data.questions.entries()) {
@@ -297,7 +301,9 @@
         const label = el('label', undefined, { class: 'lk-option' });
         label.append(el('input', undefined, { type: 'radio', name: q.id, value: letter, required: '' }), drawn('span', `${letter}. `, text)); box.append(label);
       }
-      box.append(thoughtField(q.id, index));
+      const thought = thoughtField(q.id, index);
+      if (window.lkCodeField?.isCode(q)) window.lkCodeField.enhance(thought.querySelector('textarea'));
+      box.append(thought);
       const confidence = el('div', 'Confianza (opcional): ', { class: 'lk-controls' });
       for (const [value, title] of Object.entries({ seguro: 'Seguro', dudo: 'Dudo', adivine: 'Adiviné' })) {
         const label = el('label'); label.append(el('input', undefined, { type: 'radio', name: `${q.id}-confianza`, value }), document.createTextNode(title)); confidence.append(label);
@@ -317,7 +323,7 @@
       const box = el('fieldset', undefined, { class: 'lk-question lk-exercise' });
       box.append(drawn('legend', `${index + 1}. `, ex.enunciado));
       if (ex.entregable) box.append(el('p', `Entregable: ${ex.entregable}`, { class: 'lk-exercise-deliverable' }));
-      box.append(textField('Tu respuesta (opcional)', `exercise-${ex.id}`));
+      box.append(textField('Tu respuesta (opcional)', `exercise-${ex.id}`, false, window.lkCodeField?.isCode(ex)));
       return { id: ex.id, box };
     });
     const showExerciseSolutions = solutions => {

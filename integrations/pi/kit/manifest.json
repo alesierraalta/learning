@@ -1,5 +1,5 @@
 {
   "head": ["kit.css", "scene.js", "kit.js"],
-  "beside": ["dictate.js", "question.js"],
+  "beside": ["dictate.js", "question.js", "code-field.js"],
   "assets": ["fonts/atkinson-400.woff2", "fonts/atkinson-700.woff2"]
 }

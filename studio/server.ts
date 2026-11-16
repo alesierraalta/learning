@@ -1648,6 +1648,7 @@ ${scripts}
 <script src="/${token}/kit/scene.js"></script>
 <script src="/${token}/kit/dictate.js"></script>
 <script src="/${token}/kit/question.js"></script>
+<script src="/${token}/kit/code-field.js"></script>
 <script src="/${token}/tutorial.js"></script>
 <script src="/${token}/studio.js"></script>
 </body>
@@ -2279,6 +2280,7 @@ ${scripts}
       case "kit/theme.js":
       case "kit/dictate.js":
       case "kit/question.js":
+      case "kit/code-field.js":
         // The reader's own scripts, served by the studio: one paper, one dictation box, one kit.
         return send(res, 200, "text/javascript; charset=utf-8", readFileSync(join(HERE, "..", "integrations", "pi", "kit", path.slice(4))));
       case "studio.css":
