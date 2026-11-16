@@ -4950,8 +4950,10 @@ test("a missing setupFile is an honest no-run, not a 500 (#348)", async () => {
 
 test("the reader's install hint is short, copyable and remembered only for the session (#348)", { skip: !playwright && "playwright not installed" }, async (t) => {
   t.after(dockerStub(presenceStub(join(realpathSync(mkdtempSync(join(tmpdir(), "docker-hint-"))), "calls.log"))));
-  const image = "python:3.12-alpine@sha256:b658b05ce9c4eb97ec6fc19424818a1f31993659c2b505a532f470e83807815d";
-  const builtinFile = catalogueFile({ python: { image, file: "main.py", run: "python3 main.py", size: "~18 MB", label: "Python 3.12" } });
+  const builtinFile = catalogueFile({
+    python: { image: "python:3.12-alpine-present@sha256:b658b05ce9c4", file: "main.py", run: "python3 main.py", size: "~18 MB", label: "Python 3.12" },
+    plsql: { image: "python:3.12-alpine@sha256:b658b05ce9c4eb97ec6fc19424818a1f31993659c2b505a532f470e83807815d", file: "main.sql", run: "sqlplus -s", size: "~755 MB", label: "PL/SQL" },
+  });
   const { topic, view } = await setup({ runnersFile: builtinFile, env: {} });
   codeExercise(topic, "plsql");
   const pageResult = await view({ topic: TOPIC, part: "codigo/bloque" });
@@ -4967,13 +4969,15 @@ test("the reader's install hint is short, copyable and remembered only for the s
   assert.equal(await strip.locator("details").evaluate((node) => node.open), false, "the list starts collapsed");
   await summary.click();
   assert.equal(await strip.locator("details").evaluate((node) => node.open), true);
-  assert.match(await strip.textContent(), /Python 3\.12 · ~18 MB/);
+  assert.match(await strip.textContent(), /Python 3\.12 · ~18 MB · disponible/);
+  assert.match(await strip.textContent(), /PL\/SQL · ~755 MB/);
   assert.match(await strip.textContent(), /docker pull python:3\.12-alpine/);
   assert.match(await strip.textContent(), /referencia fijada: python:3\.12-alpine@sha256:b658b05/);
   assert.equal(await strip.locator("code").first().textContent(), "docker pull python:3.12-alpine");
-  const copy = strip.getByRole("button", { name: /Copiar/ });
+  const copy = strip.getByRole("button", { name: /Copiar/ }).first();
   await copy.click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "docker pull python:3.12-alpine");
+  assert.doesNotMatch(await strip.textContent(), /ENOENT/, "an optional overlay that does not exist is not a learner-facing warning");
   await page.reload();
   assert.equal(await strip.locator("details").evaluate((node) => node.open), true, "the learner's choice survives a reload in this session");
   await context.close();

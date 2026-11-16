@@ -323,6 +323,11 @@ function readRunnerFile(file: string): Record<string, unknown> {
   try {
     raw = JSON.parse(readFileSync(file, "utf8"));
   } catch (err) {
+    // Un JSON que no existe o no se puede leer no es un archivo malo: la capa es opcional y solo un
+    // contenido inválido merece un aviso.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "EACCES") throw Object.assign(err as Error, { code });
+    if (/ENOENT|ENOTDIR|EACCES/.test((err as Error).message)) throw Object.assign(err as Error, { code: "ENOENT" });
     throw new CodeRunError(`${file}: ${(err as Error).message}`);
   }
   if (!isRecord(raw)) throw new CodeRunError(`${file} must be an object of languages`);

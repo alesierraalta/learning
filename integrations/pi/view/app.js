@@ -481,22 +481,50 @@
    * loads, so neither the reader nor the studio ever waits on Docker to draw the exercise.
    */
   let runnersBox;
+  /** El comando corto que se copia: `docker pull repo:tag`, sin el digest fijado. */
+  function shortPull(item) {
+    const full = String(item.pull ?? `docker pull ${item.image ?? ""}`).trim();
+    return full.replace(/@sha256:[0-9a-f]+/i, "");
+  }
+
+  const RUNNERS_OPEN = "learning.runners-open";
+  function rememberedOpen() {
+    try { return sessionStorage.getItem(RUNNERS_OPEN) === "1"; } catch { return false; }
+  }
+  function rememberOpen(open) {
+    try { sessionStorage.setItem(RUNNERS_OPEN, open ? "1" : "0"); } catch { /* sin sesión: queda cerrada */ }
+  }
+
   function paintRunners(list) {
     if (!runnersBox) return;
     runnersBox.replaceChildren();
     const languages = list?.languages ?? data.runners ?? [];
     const runnable = list?.runnable ?? data.runnable ?? [];
-    runnersBox.append(element("p", `Ejecutables aquí: ${runnable.length ? runnable.join(" · ") : "ninguno todavía"}`, "runners-now"));
-    if (!languages.length && !(list?.warnings ?? data.warnings ?? []).length) return;
+    // #348: la línea plegada lleva delante lo que sí corre aquí; la lista se abre a petición y
+    // el navegador recuerda esa elección solo mientras dure la sesión.
+    const queCorren = runnable.length ? runnable.join(", ") : "ninguno";
+    if (!languages.length && !(list?.warnings ?? data.warnings ?? []).length) {
+      runnersBox.append(element("p", `Ejecutables aquí: ${queCorren}`, "runners-now"));
+      return;
+    }
     const details = document.createElement("details");
-    details.append(element("summary", "Ver lenguajes y cómo instalar los que faltan"));
+    details.append(element("summary", `Ejecutables aquí: ${queCorren} · ver lenguajes`));
+    details.open = rememberedOpen();
+    details.addEventListener("toggle", () => rememberOpen(details.open));
     const rows = element("ul", undefined, "runners-list");
     for (const item of languages) {
       const row = element("li", undefined, item.present ? "runner-yes" : "runner-no");
-      row.append(element("strong", item.language), element("span", ` · ${item.size}`));
+      row.append(element("strong", item.label ?? item.language), element("span", ` · ${item.size}`));
       if (item.present) row.append(element("span", " · disponible"));
       else {
-        row.append(element("code", item.pull || `docker pull ${item.image}`));
+        const order = shortPull(item);
+        const code = element("code", order);
+        const copy = element("button", "Copiar", "secondary");
+        copy.type = "button";
+        copy.onclick = () => {
+          void navigator.clipboard?.writeText(order).catch(() => undefined);
+        };
+        row.append(code, copy, element("span", `referencia fijada: ${item.image ?? ""}`, "runner-pin"));
         const state = element("span", item.state === "pulling" ? "Descargando…" : "", "runner-state");
         const ask = element("button", "Pedir al estudio que lo descargue", "secondary");
         ask.type = "button";
