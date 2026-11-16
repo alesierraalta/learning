@@ -7,17 +7,22 @@
 // ajustar, texto fuera del lienzo y palabras encima de otras palabras.
 //
 // Uso: node tools/scene-gate.mjs <nota.md | directorio>
-// Sale 1 si encuentra algo, 0 si todas las escenas pasan.
+// Sale 1 si encuentra algo, 0 si todas las escenas pasan, 2 si no puede leer una nota o el kit está incompleto.
+// La página que mide copia el kit como lo carga el alumno: la lista de archivos sale de
+// integrations/pi/kit/manifest.json (tools/scene-gate-kit.mjs). SCENE_GATE_KIT mide otra carpeta de kit;
+// SCENE_GATE_DUMP deja en su carpeta el HTML que dibujó cada nota.
 
-import { mkdtempSync, mkdirSync, cpSync, rmSync, writeFileSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { measurePieces, PIECE_TAGS } from '../integrations/pi/kit/piece-gate.mjs';
+import { gatePage, missingKitFiles, readKitManifest, stageKit } from './scene-gate-kit.mjs';
 
-const KIT = fileURLToPath(new URL('../integrations/pi/kit', import.meta.url));
+// `SCENE_GATE_KIT` mide otra carpeta de kit: los tests la usan con un kit al que le falta un archivo.
+const KIT = process.env.SCENE_GATE_KIT ? resolve(process.env.SCENE_GATE_KIT) : fileURLToPath(new URL('../integrations/pi/kit', import.meta.url));
 // El suelo duro: por debajo de 11 px el glifo no se lee de ninguna manera.
 const MIN_PX = 11;
 // El mínimo del lector: la figura se dibuja a 1 unidad ≈ 1 píxel, así que una
@@ -73,6 +78,10 @@ function notesAt(target) {
 // dibujan con el mismo vocabulario y se miden igual; el recorrido, paso a paso.
 const SCENE = new RegExp(`<lk-(scene|story|${PIECE_TAGS.join('|')})[^>]*>\\s*<script type="application\\/json">([\\s\\S]*?)<\\/script>\\s*<\\/lk-\\1>`, 'g');
 
+// La pregunta de un punto (`lk-quick-quiz`) no es una escena: no se mide, pero se dibuja en la página
+// como la ve el alumno, para que la puerta vea su código (#336).
+const QUIZ = /<lk-quick-quiz\b[^>]*>[\s\S]*?<\/lk-quick-quiz>/g;
+
 // La línea de suelo (#261): una historia de derivación traza una línea horizontal al pie de su
 // lienzo bajo sus actores, y esa línea no significa nada salvo en un alcance o en una línea de
 // tiempo, que lo declaran con `frame`. Una historia de fórmula dibuja ejes de su función (la
@@ -101,6 +110,21 @@ if (!playwright) {
 const targets = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 if (!targets.length) {
   console.log('usage: node tools/scene-gate.mjs <nota.md | directorio>');
+  process.exit(2);
+}
+
+// Sin el kit completo la puerta no mide la página que ve el alumno: falla antes de abrir el navegador (#336).
+let manifest;
+try {
+  manifest = readKitManifest(KIT);
+} catch (error) {
+  console.log(`manifiesto del kit ilegible: ${error.message}`);
+  process.exit(2);
+}
+const missing = missingKitFiles(KIT, manifest);
+if (missing.length) {
+  console.log(`kit incompleto: falta ${missing.join(', ')} (lo lista ${join(KIT, 'manifest.json')})`);
+  console.log('sin esos archivos la puerta mediría una página que el alumno no ve');
   process.exit(2);
 }
 
@@ -145,6 +169,7 @@ try {
     }
     if (!readable.length) continue;
     const specsToDraw = readable;
+    const quizzes = [...source.matchAll(QUIZ)].map((m) => m[0]);
     // El suelo se mide en el JSON, sin navegador: la misma regla que `explain-check` no tiene.
     for (const spec of readable) {
       if (spec.tag !== 'story') continue;
@@ -156,12 +181,9 @@ try {
     }
 
     const dir = mkdtempSync(join(tmpdir(), 'scene-gate-'));
-    mkdirSync(join(dir, 'kit'), { recursive: true });
-    for (const file of ['kit.css', 'kit.js', 'scene.js', 'dictate.js']) cpSync(join(KIT, file), join(dir, 'kit', file));
-    const body = specsToDraw.map((s, i) => `<lk-${s.tag} id="s${i}"><script type="application/json">${s.json}</script></lk-${s.tag}>`).join('\n');
-    writeFileSync(join(dir, 'page.html'), `<!doctype html><html lang="es"><head><meta charset="utf-8">
-<link rel="stylesheet" href="./kit/kit.css"><script src="./kit/scene.js" defer></script><script src="./kit/kit.js" defer></script>
-</head><body><main style="max-width:720px;margin:0 auto">${body}</main></body></html>`);
+    stageKit(KIT, join(dir, 'kit'), manifest);
+    const body = [...specsToDraw.map((s, i) => `<lk-${s.tag} id="s${i}"><script type="application/json">${s.json}</script></lk-${s.tag}>`), ...quizzes].join('\n');
+    writeFileSync(join(dir, 'page.html'), gatePage(manifest, body));
 
     // The gate measures settled frames: reduced motion swaps each step at once, so no piece is caught mid-slide.
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
@@ -308,6 +330,10 @@ try {
         console.log(`${note}: escena ${i + 1}${scene.title ? ` — ${scene.title}` : ''}`);
         for (const p of scene.problems) console.log(`  ${p.kind}: ${p.text} (${p.detail})`);
       });
+      if (process.env.SCENE_GATE_DUMP) {
+        if (quizzes.length) await page.waitForSelector('lk-quick-quiz .lk-question', { timeout: 5000 }).catch(() => {});
+        writeFileSync(join(process.env.SCENE_GATE_DUMP, `${basename(note, '.md')}.html`), await page.content());
+      }
     } catch (error) {
       // Un payload que sí es JSON pero que el lector no puede dibujar también es
       // de la nota: el tutor recibe el hallazgo, no el log del estudio.
