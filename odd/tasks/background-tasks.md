@@ -39,9 +39,9 @@ works with the Antigravity runtime as with Pi.
 
 | ID | Spec | Issue | Route | Commit |
 |---|---|---|---|---|
-| T1 | S1, S2, S4, S5, S6 | #340 | worker (with T2, one writer) | — |
-| T2 | S1, S3, S5, S6 | #341 | worker (with T1) | — |
-| T3 | S7 | #342 | worker | — |
+| T1 | S1, S2, S4, S5, S6 | #340 | worker (with T2, one writer) | 5b0042c |
+| T2 | S1, S3, S5, S6 | #341 | worker (with T1) | 5b0042c |
+| T3 | S7 | #342 | worker | 3d46dd7 |
 
 ## Log
 
@@ -67,3 +67,10 @@ switch on that one process, so they never run at the same time.
 - Tutor change (agent/model): running tasks finish on their current runtime; the next turn of each task and every new task use the new settings (an idle task's runtime is replaced before its next turn).
 - Idle shutdown and the busy marker count every session: per-session busy entries, aggregated.
 - Part checks share the root-level gate verdict cache (`integrations/pi/gate-verdicts.ts`): writes to it must stay safe under two topics settling at once.
+
+**L6** — Independent verification (risk item 4) of 5b0042c found three defects, fixed before this
+branch closed: a detached topic ticket leaked when a turn failed to start, wedging that topic
+forever (`studio/server.ts` startTurn catch plus one idempotent release flag), `publish()` could
+delete another live studio's aggregate busy marker (`studio/state.ts`), and a dead `lockPromise`
+field was removed. The first verifier attempt died at the 1 h relay bound with no findings; the
+bounded second attempt found them.
