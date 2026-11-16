@@ -21,7 +21,7 @@ import { HttpError } from "./errors.ts";
 import { resolveContained, safeTopic } from "./paths.ts";
 import { recordQuizTelemetry } from "./telemetry.ts";
 import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio, type Transcriber } from "./transcribe.ts";
-import { CodeRunError, DockerDaemonError, ImageMissingError, loadRunners, readExercise, publicExercise, forPage, runCode, unavailableRun, type RunResult, type Runner } from "./coderun.ts";
+import { cachedRunnerList, CodeRunError, DockerDaemonError, ImageMissingError, loadCatalogue, loadRunners, pullRunnerImage, pullState, readExercise, publicExercise, forPage, runCode, runnerList, unavailableRun, type RunResult, type Runner, type RunnerCatalogue } from "./coderun.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { gateVerdictsFile as defaultGateVerdictsFile, getGateVerdict, type GateVerdictOptions } from "./gate-verdicts.ts";
 
@@ -929,7 +929,8 @@ function viewRunners(dir: string, runners: Record<string, Runner>): Record<strin
       if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
       const language = (raw as Record<string, unknown>).lenguaje;
       if (typeof language === "string" && language && !Object.hasOwn(all, language)) {
-        all[language] = { image: "", file: "main.txt", run: "true" };
+        // A listing-only stand-in: never executed, never claimed as runnable here.
+        all[language] = { image: "unavailable:no-runner", file: "main.txt", run: "true" };
       }
     } catch {
       // A malformed exercise is left to the vault's own listing, which names the bad field.
@@ -940,6 +941,15 @@ function viewRunners(dir: string, runners: Record<string, Runner>): Record<strin
 
 const exerciseNotice = (language: string) =>
   `No se puede ejecutar aquí: este estudio no tiene un ejecutor configurado para «${language}». Tu respuesta se guarda y se envía al tutor igualmente.`;
+
+/** A named seed is read inside the honest-run guard: an authoring mistake is never a 500. */
+function readSeed(workDir: string, name: string): string {
+  try {
+    return readFileSync(join(workDir, name), "utf8");
+  } catch (error) {
+    throw new CodeRunError(`setupFile ${name} is missing or unreadable: ${(error as Error).message}`);
+  }
+}
 
 const failedRunNotice = (language: string, error: unknown, runners: Record<string, Runner>) => {
   const detail =
@@ -1471,7 +1481,12 @@ type TopicLockClaim = (Promise<WriterTicket> & { queued?: boolean }) | { ticket:
 
 export interface BridgeOptions {
   root: string;
+  /** Builtin layer (defaults to integrations/pi/runners.json). */
   runnersFile?: string;
+  /** Machine layer; tests pass their own file, production uses $XDG_CONFIG_HOME or ~/.config/learning. */
+  machineRunnersFile?: string;
+  /** Environment for the $LEARNING_RUNNERS / $XDG_CONFIG_HOME lookup (tests pass an isolated one). */
+  env?: NodeJS.ProcessEnv;
   /** 0 picks a free port. */
   port?: number;
   /** Loopback origins (e.g. the learning studio) allowed to embed pages and apps. */
@@ -1546,6 +1561,10 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
   let port = 0;
   let token = "";
   let rootReal = "";
+
+  /** The same three layers for a page, a run and the tool: builtins < machine < topic. */
+  const catalogueFor = (dir?: string): RunnerCatalogue =>
+    loadCatalogue({ builtinFile: options.runnersFile, machineFile: options.machineRunnersFile, env: options.env, topicDir: dir });
 
   const allowedHosts = () => new Set([`127.0.0.1:${port}`, `localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.host)]);
   const allowedOrigins = () => new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.origin)]);
@@ -1648,11 +1667,22 @@ ${scripts}
     return html;
   };
 
-  const page = (res: ServerResponse, title: string, data: Record<string, unknown>) =>
-    send(res, 200, "text/html; charset=utf-8", pageHtml(title, data), { "content-security-policy": pageCsp });
+  /**
+   * A page never waits on Docker: it carries only the last cached answer. The reader asks
+   * /api/runners as it loads and paints the fresh state before the learner writes anything.
+   */
+  const page = (res: ServerResponse, title: string, data: Record<string, unknown>, topic?: string) => {
+    const list = cachedRunnerList(catalogueFor(topic ? topicDir(topic) : undefined));
+    const suffix = topic ? `?topic=${encodeURIComponent(topic)}` : "";
+    return send(res, 200, "text/html; charset=utf-8", pageHtml(title, {
+      ...data, runnable: list.runnable, runners: list.languages, warnings: list.warnings,
+      runnersUrl: `/${token}/api/runners${suffix}`,
+      pullUrl: `/${token}/api/code/pull`,
+    }), { "content-security-policy": pageCsp });
+  };
 
   const indexPage = (res: ServerResponse) => {
-    page(res, "Learnings", { kind: "index", topics: listTopics(rootReal, loadRunners(options.runnersFile)).map(({ id, title }) => ({ id, title })) });
+    page(res, "Learnings", { kind: "index", topics: listTopics(rootReal, catalogueFor().runners).map(({ id, title }) => ({ id, title })) });
   };
 
   const topicPage = (res: ServerResponse, topic: string) => {
@@ -1664,11 +1694,11 @@ ${scripts}
       kind: "topic",
       topic,
       title: plan?.topic || topic,
-      exercises: viewExercises(dir, loadRunners(options.runnersFile)),
+      exercises: viewExercises(dir, catalogueFor(dir).runners),
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
       parts,
       hasDiagnosis: existsSync(join(dir, "quiz.json")),
-    });
+    }, topic);
   };
 
   const config = (topic: string, partId: string, plan: { parts: PlanPart[] }, dir: string) => {
@@ -1702,9 +1732,13 @@ ${scripts}
       // after the body, because the script looks for the page it paginates.
       const bookAssets = `<link rel="stylesheet" href="/${token}/book.css?v=${staticVersion}"><script src="/${token}/book.js?v=${staticVersion}"></script>`;
       html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => bookAssets + "</body>") : html + bookAssets;
-      const exercises = viewExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId);
+      const exercises = viewExercises(dir, catalogueFor(dir).runners).filter((e) => e.parte === partId);
+      const escape = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+      const catalogueList = cachedRunnerList(catalogueFor(dir));
+      const hints = catalogueList.languages.filter((l) => !l.present).map((l) => `<li>${escape(l.language)} · ${escape(l.size)} · <code>${escape(l.pull)}</code></li>`).join("");
+      const strip = `<aside class="runners-strip"><p>Ejecutables aquí: ${escape(catalogueList.runnable.join(" · ") || "ninguno todavía")}</p>${hints ? `<details><summary>Ver cómo instalar los que faltan</summary><ul>${hints}</ul></details>` : ""}</aside>`;
+      html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => strip + "</body>") : html + strip;
       if (exercises.length) {
-        const escape = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
         const links = exercises.map((e) => `<li><a href="/${token}/${encodeURIComponent(topic)}/codigo/${encodeURIComponent(e.id)}">${escape(e.titulo)}</a> · ${escape(e.lenguaje)} · Mejor: ${escape(e.mejor || "sin entregas")}${e.ejecutable === false ? " · no se puede ejecutar aquí" : ""}</li>`).join("");
         const section = `<section><h2>Ejercicios de código</h2><ul>${links}</ul></section>`;
         html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => section + "</body>") : html + section;
@@ -1721,7 +1755,7 @@ ${scripts}
     const noteText = obsidianToMarkdown(readFileSync(note, "utf8"), dir);
     page(res, part.title, {
       kind: "part",
-      exercises: viewExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId),
+      exercises: viewExercises(dir, catalogueFor(dir).runners).filter((e) => e.parte === partId),
       topic,
       part: partId,
       title: part.title,
@@ -1729,7 +1763,7 @@ ${scripts}
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
       markdown: withoutQuickKeys(questions ? withoutMiniQuiz(noteText) : noteText, checkpoints),
       quiz: questions
-        ? { questions: questions.map((q) => publicQuestion(q, orderFor(q))), exercises: partExercises(dir, partId, loadRunners(options.runnersFile), revealSolutions) }
+        ? { questions: questions.map((q) => publicQuestion(q, orderFor(q))), exercises: partExercises(dir, partId, catalogueFor(dir).runners, revealSolutions) }
         : null,
       answered: questions ? gradeRecorded(questions, recorded, orderFor) : null,
       ...(recorded?.exercises ? { answeredExercises: recorded.exercises } : {}),
@@ -1737,7 +1771,7 @@ ${scripts}
       video: partVideoInfo(dir, plan, partId),
       audio: partAudioInfo(dir, plan, partId),
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
-    });
+    }, topic);
   };
 
   const quizApi = (res: ServerResponse, url: URL) => {
@@ -1753,7 +1787,7 @@ ${scripts}
     const orderFor = orderOf(miniScope(topic, partId));
     sendJson(res, 200, {
       questions: questions.map((q) => publicQuestion(q, orderFor(q))),
-      exercises: partExercises(dir, partId, loadRunners(options.runnersFile), existsSync(answerFile)),
+      exercises: partExercises(dir, partId, catalogueFor(dir).runners, existsSync(answerFile)),
       ...(recorded?.exercises ? { answeredExercises: recorded.exercises } : {}),
       answered: gradeRecorded(questions, recorded, orderFor),
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
@@ -1827,7 +1861,7 @@ ${scripts}
       answered: gradeRecorded(questions, readAnswers(join(dir, "quiz.answers.json")), orderFor),
       demos: [],
       verdicts: readVerdicts(join(dir, "diagnostico-conceptos.json")),
-    });
+    }, topic);
   };
 
   const serveFile = (req: IncomingMessage, res: ServerResponse, topic: string, segments: string[]) => {
@@ -1953,7 +1987,7 @@ ${scripts}
     try {
     const dir = topicDir(payload.topic);
     const file = exerciseFile(dir, payload.exercise);
-    const runners = loadRunners(options.runnersFile);
+    const runners = catalogueFor(dir).runners;
     const ex = readExercise(file, viewRunners(dir, runners));
     if (typeof payload.code !== "string") throw new HttpError(400, "code must be a string");
     if (payload.input !== undefined && (typeof payload.input !== "string" || payload.input.length > 100_000)) throw new HttpError(400, "input must be a string of at most 100000 characters");
@@ -1964,7 +1998,10 @@ ${scripts}
     if (!runner) result = unavailableRun(exerciseNotice(ex.lenguaje));
     else {
       try {
-        result = await runCode({ runner, code: payload.code, tests, limitSeconds: ex.limite_segundos });
+        result = await runCode({
+          runner, code: payload.code, tests, limitSeconds: ex.limite_segundos,
+          ...(ex.setupFile ? { setupFileContent: readSeed(dirname(file), ex.setupFile) } : {}),
+        });
       } catch (error) {
         // A missing image, a stopped daemon or an absent docker binary is a truthful notice,
         // never a dead end and never a score for tests that did not run (#344).
@@ -2006,16 +2043,48 @@ ${scripts}
     return codeRequest(res, payload, false);
   };
 
+  /** The merged catalogue with this machine's image state; a GET, so it can never pull anything. */
+  const runnersApi = async (res: ServerResponse, url: URL) => {
+    const topic = url.searchParams.get("topic");
+    const catalogue = catalogueFor(topic ? topicDir(topic) : undefined);
+    sendJson(res, 200, await runnerList(catalogue));
+  };
+
+  /** A pull is always an explicit POST from a button; the state is polled with a GET. */
+  const pullApi = async (req: IncomingMessage, res: ServerResponse, url: URL, post: boolean) => {
+    const language = post ? undefined : url.searchParams.get("language");
+    const topic = post ? undefined : url.searchParams.get("topic");
+    let payload: Record<string, unknown> = {};
+    if (post) {
+      if (!allowedOrigins().has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
+      if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
+      const raw: unknown = JSON.parse(await readBody(req));
+      if (!isRecord(raw) || Object.keys(raw).some((k) => !["language", "topic"].includes(k))) throw new HttpError(400, "unknown field");
+      payload = raw;
+    }
+    const name = typeof payload.language === "string" ? payload.language : language;
+    if (typeof name !== "string" || !/^[\w+-]+$/.test(name)) throw new HttpError(400, "language must be a runner name");
+    const topicName = typeof payload.topic === "string" ? payload.topic : topic ?? undefined;
+    const catalogue = catalogueFor(topicName ? topicDir(topicName) : undefined);
+    const runner = catalogue.runners[name];
+    if (!runner) throw new HttpError(404, `no runner is declared for «${name}»`);
+    if (!post) {
+      const state = pullState(name);
+      return sendJson(res, 200, state ?? { language: name, image: runner.image, state: "idle", message: "", at: 0 });
+    }
+    sendJson(res, 200, pullRunnerImage(name, runner));
+  };
+
   const codePage = (res: ServerResponse, topic: string, id: string) => {
     const dir = topicDir(topic);
     const file = exerciseFile(dir, id);
-    const runners = loadRunners(options.runnersFile);
+    const runners = catalogueFor(dir).runners;
     const ex = readExercise(file, viewRunners(dir, runners));
     const runner = runners[ex.lenguaje];
     page(res, ex.titulo, { kind: "code", topic, title: ex.titulo,
       exercise: { ...publicExercise(ex), id, ejecutable: Boolean(runner), ...(runner ? {} : { aviso: exerciseNotice(ex.lenguaje) }) },
       file: runner?.file ?? "",
-      ...readSubmissions(dirname(file)), runUrl: `/${token}/api/code/run`, topicBase: `/${token}/${encodeURIComponent(topic)}/`, topicTitle: readPlan(dir)?.topic || topic });
+      ...readSubmissions(dirname(file)), runUrl: `/${token}/api/code/run`, topicBase: `/${token}/${encodeURIComponent(topic)}/`, topicTitle: readPlan(dir)?.topic || topic }, topic);
   };
 
   const submit = async (req: IncomingMessage, res: ServerResponse) => {
@@ -2172,7 +2241,7 @@ ${scripts}
       const answers = checkAnswers(payload.answers, questions, true, orderFor);
       const reasoning = optionalReasoning(payload.reasoning, answers);
       const ownWords = optionalText(payload, "ownWords");
-      const runners = loadRunners(options.runnersFile);
+      const runners = catalogueFor(dir).runners;
       const declared = partExercises(dir, partId, runners);
       const exercises = exerciseAnswers(payload.exercises, declared);
       const saved = `mini-quiz/${partId}.answers.json`;
@@ -2283,6 +2352,7 @@ ${scripts}
     if (req.method === "POST") {
       if (rest.join("/") === "api/transcribe") return transcribe(req, res);
       if (rest.join("/") === "api/code/run") return codeRun(req, res);
+      if (rest.join("/") === "api/code/pull") return pullApi(req, res, url, true);
       if (rest.length === 1 && rest[0] === "submit") return submit(req, res);
       if (rest.length === 2 && rest[0] === "api" && rest[1] === "draft") return draftPost(req, res);
       throw new HttpError(404, "not found");
@@ -2291,6 +2361,8 @@ ${scripts}
     if (rest.length === 0) return indexPage(res);
     if (rest[0] === "kit" && rest.length >= 2) return kitFile(res, rest.slice(1).join("/"));
     if (rest.length === 2 && rest[0] === "api" && rest[1] === "quiz") return quizApi(res, url);
+    if (rest.length === 2 && rest[0] === "api" && rest[1] === "runners") return runnersApi(res, url);
+    if (rest.length === 3 && rest[0] === "api" && rest[1] === "code" && rest[2] === "pull") return pullApi(req, res, url, false);
     if (rest.length === 2 && rest[0] === "borrador") return draftPage(res, rest[1]);
     if (rest.length === 1 && (rest[0] === "app.js" || rest[0] === "app.css" || rest[0] === "book.js" || rest[0] === "book.css" || rest[0] === "math.js" || rest[0] === "favicon.svg")) {
       return send(res, 200, MIME[extname(rest[0])], readFileSync(join(VIEW_DIR, rest[0])), { "cache-control": "no-cache" });
@@ -2362,11 +2434,13 @@ ${scripts}
     label: "Learning HTML view",
     description:
       "Start (once per session) the local interactive HTML view of the Learnings vault and return its URL: index of topics, a topic, one written part (note, video, demos, live mini-quiz) the diagnosis quiz (part = \"quiz\") or a code exercise (part = \"codigo/<id>\"). " +
+      "The result also names the languages that can run on this machine: prefer one of them for a code exercise. If the topic needs another language, declare it in the topic's runners.json (image, file, run, optional setup) and offer the learner the one-line docker pull this result lists. " +
       "The learner's quiz answers are stored in the answers file the engine reads (never overwriting recorded answers) and arrive in this chat as a message starting with [Vista HTML · ...], together with reasoning, own words, exercises or questions.",
     promptSnippet: "Get the interactive HTML view URL of a Learnings topic or part",
     promptGuidelines: [
       "After a part, a mini-quiz or a diagnosis round is written, call learning_view for it and give the learner the URL as the place to watch, try the demos and answer.",
       "A message starting with [Vista HTML · ...] is the learner's own submission: treat it exactly like answers typed in the chat; the answers file it names is already written.",
+      "For an exercise that must be graded here, choose a language in the result's runnable list; the reader shows the exact docker pull line for the ones that are missing.",
     ],
     // SAFETY: plain JSON Schema object; the host only reads it as a TypeBox-compatible schema.
     parameters: {
@@ -2396,10 +2470,14 @@ ${scripts}
         return viewError(`could not start the view server: ${(err as Error).message}`);
       }
       const url = base() + path;
+      // The tool is not a page render: one short, cached Docker check makes the first call
+      // already truthful, without ever pulling anything.
+      const list = await runnerList(catalogueFor(typeof topic === "string" ? topicDir(topic) : undefined));
+      const runnable = list.runnable.join(", ") || "ninguno todavía";
       return {
-        content: [{ type: "text" as const, text: `Vista HTML: ${url}` }],
-        details: { url },
-        structuredContent: { url, base: base(), localBase: localBase() },
+        content: [{ type: "text" as const, text: `Vista HTML: ${url}\nEjecutables aquí: ${runnable}` }],
+        details: { url, runnable: list.runnable, warnings: list.warnings },
+        structuredContent: { url, base: base(), localBase: localBase(), runnable: list.runnable, runners: list.languages, warnings: list.warnings },
         isError: false,
       };
     },

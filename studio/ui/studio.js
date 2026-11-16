@@ -504,7 +504,7 @@
   }
 
   // ---------- routing ----------
-  let library = { topics: [], quick: [] };
+  let library = { topics: [], quick: [], runners: null };
   let panoramaBack = "#/";
   const openPanorama = (id, from) => { panoramaBack = from; go(`#/panorama/${id}`); };
   const go = (hash) => {
@@ -1021,6 +1021,7 @@
         focus ? continueCard(focus.t, focus.s, false, true) : h("div", { class: "continue reveal", style: "--i:1" }, h("span", { class: "label" }, "Para empezar"), h("p", { class: "next" }, "Todavía no tienes temas. Escribe arriba lo que quieres aprender.")),
       ),
       h("div", { class: "section-title" }, h("h2", {}, "Tus temas"), h("p", {}, `${library.topics.length} en tu biblioteca`)),
+      runnersNote(),
       library.topics.length
         ? h(
             "div",
@@ -1101,6 +1102,7 @@
     }
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: topic.title }]);
     markOpened(topic);
+    const catalogueNote = runnersNote(topic);
     const step = nextStep(topic);
     const firstPending = topic.parts.find((p) => !p.written);
     const gaps = topic.gaps || { missing: [], noVisuals: [], noQuiz: [] };
@@ -1174,6 +1176,7 @@
             h("a", { class: "topic-back", href: "#/" }, "← Volver a tus temas"),
             topicTag(topic, step.tone, true),
             h("h1", { class: "reveal", style: "--i:0" }, topic.title),
+            catalogueNote,
             h("div", { class: "reveal", style: "--i:1;max-width:520px" }, progress(topic)),
             // The plan and the map are one picture of the whole topic, not two
             // more notes: the entry sits with the progress it explains.
@@ -2993,6 +2996,29 @@
   );
 
   // ---------- boot ----------
+  /** #348: the same merged catalogue the reader uses, fetched after the shell paints. */
+  function runnersNote(topic) {
+    const list = topic?.runners ?? library.runners;
+    if (!list?.languages?.length) return null;
+    return h(
+      "p",
+      { class: "runners-note" },
+      h("span", { class: "muted" }, "Ejecutables aquí: "),
+      h("span", {}, list.runnable.length ? list.runnable.join(" · ") : "ninguno todavía"),
+    );
+  }
+
+  /** Docker is never on the first paint: the library draws, then this quietly fills the runner line. */
+  async function loadRunners() {
+    try {
+      library.runners = await request("api/runners");
+    } catch {
+      // A stopped Docker daemon is a state, not a broken studio: the library keeps its last list.
+    }
+    const [, view] = location.hash.split("/");
+    if (view !== "leer" && view !== "rapido" && view !== "editar" && view !== "resultados" && view !== "preferencias" && view !== "sugerencias") render();
+  }
+
   async function loadLibrary() {
     try {
       library = await request("api/library");
@@ -3004,6 +3030,7 @@
     // Never re-render the editor from a library change: it would drop typed text.
     // The results page refreshes its own status instead of being drawn again.
     if (view !== "leer" && view !== "rapido" && view !== "editar" && view !== "resultados" && view !== "preferencias" && view !== "sugerencias") render();
+    void loadRunners();
   }
   root.replaceChildren(
     h(

@@ -1046,6 +1046,7 @@ test("an unknown language is an honest exercise, never «Ejercicio no disponible
   const page = codeViewData((await http(result.structuredContent.url)).body);
   assert.equal(page.exercise.lenguaje, "cobol");
   assert.equal(page.exercise.ejecutable, false);
+  assert.equal(page.runnable.includes("cobol"), false, "an undeclared language is never advertised as runnable");
   assert.match(page.exercise.aviso, /no tiene un ejecutor/);
   const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code });
   assert.equal(run.status, 200);
@@ -1301,7 +1302,9 @@ async function setup(options = {}) {
   const { root, topic } = makeRoot();
   const host = makeHost();
   const gate = fakeGate(root);
-  registerBridge(host.api, { root, gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json"), ...options });
+  // #348: no test may inherit the operator's real machine overlay.
+  const env = { HOME: root, XDG_CONFIG_HOME: join(root, ".config"), ...options.env };
+  registerBridge(host.api, { root, gateToolPath: gate.tool, gateVerdictsFile: join(root, ".learning-cache", "gate-verdicts.json"), ...options, env });
   const view = async (params, cwd = root) => {
     const result = await host.tools.get("learning_view").execute("call", params, undefined, undefined, { cwd });
     return result;
@@ -4784,4 +4787,221 @@ test("a phone width recomputes a demo's frame, and a wide screen shrinks it agai
   assert.equal(await frameHeight(frame), wide, "back on a wide screen the frame shrinks to its content");
   assert.deepEqual(errors, []);
   await shutdown();
+});
+
+// #348: runnable languages are the merged catalogue filtered by image presence.
+function catalogueFile(entries) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "bridge-catalogue-")));
+  const file = join(dir, "runners.json");
+  writeFileSync(file, JSON.stringify(entries));
+  return file;
+}
+
+const presenceStub = (log) => [
+  "#!/bin/sh",
+  `printf '%s\\n' "$*" >> ${JSON.stringify(log)}`,
+  'if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then',
+  '  case "$3" in',
+  '    *present*) exit 0 ;;',
+  '    *) echo "Error: No such image: $3" >&2; exit 1 ;;',
+  '  esac',
+  'fi',
+  'if [ "$1" = "pull" ]; then exit 0; fi',
+  "exit 1",
+  "",
+].join("\n");
+
+test("the runnable list, the pull line and the pull action come from the merged catalogue (#348)", async (t) => {
+  const log = join(realpathSync(mkdtempSync(join(tmpdir(), "docker-pull-"))), "calls.log");
+  t.after(dockerStub(presenceStub(log)));
+  const builtinFile = catalogueFile({ python: { image: "python-builtin:348", file: "main.py", run: "python3 main.py", size: "~18 MB" } });
+  const machineFile = catalogueFile({
+    python: { image: "python-missing:348", file: "main.py", run: "python3 main.py", size: "~19 MB" },
+    rust: { image: "rust-present:348", file: "main.rs", run: "./main", size: "~20 MB" },
+    cobol: { image: "", file: "main.cbl", run: "cobc -x main.cbl" },
+  });
+  const { topic, view } = await setup({ runnersFile: builtinFile, machineRunnersFile: machineFile, env: {} });
+  writeFileSync(join(topic, "runners.json"), JSON.stringify({ go: { image: "go-present:348", file: "main.go", run: "go run main.go", size: "~25 MB" } }));
+  codeExercise(topic, "plsql");
+  const result = await view({ topic: TOPIC, part: "codigo/bloque" });
+  assert.equal(result.isError, false);
+  const url = base(result);
+  // The reader asks this endpoint as it loads; it is what warms the cached list the page carries.
+  const listed = JSON.parse((await http(`${url}api/runners?topic=${encodeURIComponent(TOPIC)}`)).body);
+  const page = codeViewData((await http(result.structuredContent.url)).body);
+  assert.ok(page.runnable.includes("rust"), "the machine overlay is in the page's runnable list");
+  assert.ok(page.runnable.includes("go"), "the topic overlay is in the page's runnable list");
+  assert.equal(page.runnable.includes("python"), false, "a missing image is not runnable here");
+  assert.match(page.warnings.join(" "), /cobol/);
+
+  assert.deepEqual(listed.runnable.slice().sort(), ["go", "rust"]);
+  const python = listed.languages.find((l) => l.language === "python");
+  assert.equal(python.present, false);
+  assert.equal(python.pull, "docker pull python-missing:348");
+  assert.equal(python.size, "~19 MB");
+  assert.doesNotMatch(existsSync(log) ? readFileSync(log, "utf8") : "", /^pull /m, "a page or a listing never pulls an image");
+
+  const asked = await codePost(url, "api/code/pull", { language: "python", topic: TOPIC });
+  assert.equal(asked.status, 200);
+  assert.ok(["pulling", "done"].includes(JSON.parse(asked.body).state));
+  for (let i = 0; i < 40 && !/^pull python-missing:348$/m.test(existsSync(log) ? readFileSync(log, "utf8") : ""); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.match(readFileSync(log, "utf8"), /^pull python-missing:348$/m, "only the explicit action pulls");
+  // El estado de la descarga avanza en segundo plano: se espera a que llegue, no se asume el instante.
+  let status = JSON.parse((await http(`${url}api/code/pull?language=python&topic=${encodeURIComponent(TOPIC)}`)).body);
+  for (let i = 0; i < 80 && status.state === "pulling"; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    status = JSON.parse((await http(`${url}api/code/pull?language=python&topic=${encodeURIComponent(TOPIC)}`)).body);
+  }
+  assert.equal(status.state, "done", "a finished pull is a state, not an error dump");
+  assert.equal(typeof status.message, "string");
+});
+
+test("a topic overlay adds a language that runs, without touching the builtins (#348)", async (t) => {
+  t.after(dockerStub([
+    "#!/bin/sh",
+    'if [ "$1" = "image" ]; then exit 0; fi',
+    'if [ "$1" = "run" ]; then',
+    '  work=""',
+    '  while [ "$#" -gt 0 ]; do',
+    '    if [ "$1" = "-v" ]; then work="${2%%:*}"; fi',
+    "    shift",
+    "  done",
+    '  for f in "$work"/.judge/in/*; do',
+    '    i=$(basename "$f")',
+    '    printf "listo\\n" > "$work/.judge/out/$i.out"',
+    '    printf "" > "$work/.judge/out/$i.err"',
+    '    printf "0 1\\n" > "$work/.judge/meta/$i"',
+    "  done",
+    "  exit 0",
+    "fi",
+    "exit 1",
+    "",
+  ].join("\n")));
+  const builtinFile = catalogueFile({ python: { image: "python-builtin:348", file: "main.py", run: "python3 main.py" } });
+  const { topic, view } = await setup({ runnersFile: builtinFile, env: {} });
+  writeFileSync(join(topic, "runners.json"), JSON.stringify({ rust: { image: "rust-topic:348", file: "main.rs", run: "cat main.rs" } }));
+  codeExercise(topic, "rust");
+  const result = await view({ topic: TOPIC, part: "codigo/bloque" });
+  const page = codeViewData((await http(result.structuredContent.url)).body);
+  assert.equal(page.exercise.lenguaje, "rust");
+  assert.equal(page.exercise.ejecutable, true);
+  const run = await codePost(base(result), "api/code/run", { topic: TOPIC, exercise: "bloque", code: "fn main() {}" });
+  assert.equal(run.status, 200);
+  assert.equal(JSON.parse(run.body).aprobados, 1, "the topic runner really graded the answer");
+});
+
+test("a seeded sqlite exercise runs, grades and is saved through the reader (#348)", { skip: spawnSync("docker", ["image", "inspect", loadRunners().sqlite.image]).status !== 0 && "sqlite image is not installed" }, async () => {
+  const { topic, host, view } = await setup({ env: {} });
+  const dir = join(topic, "codigo", "consulta");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "setup.sql"), "CREATE TABLE alumnos(nombre TEXT);\nINSERT INTO alumnos(nombre) VALUES ('Grace'), ('Ada');\n");
+  writeFileSync(join(dir, "ejercicio.json"), JSON.stringify({
+    titulo: "Alumnos ordenados",
+    enunciado: "Escribe la consulta que devuelve los nombres en orden alfabético.",
+    lenguaje: "sqlite",
+    setupFile: "setup.sql",
+    parte: "p1",
+    tests: [{ nombre: "orden", entrada: "", salida: "Ada\nGrace\n" }],
+  }));
+  const result = await view({ topic: TOPIC, part: "codigo/consulta" });
+  const page = codeViewData((await http(result.structuredContent.url)).body);
+  assert.equal(page.exercise.ejecutable, true);
+  assert.equal(page.exercise.setupFile, "setup.sql");
+  const url = base(result);
+  const code = "SELECT nombre FROM alumnos ORDER BY nombre;\n";
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "consulta", code });
+  assert.equal(run.status, 200);
+  assert.equal(JSON.parse(run.body).aprobados, 1);
+  const submitted = await codePost(url, "submit", { topic: TOPIC, exercise: "consulta", code, kind: "code" });
+  assert.equal(JSON.parse(submitted.body).score, "1/1");
+  assert.equal(JSON.parse(readFileSync(join(dir, "entregas", "001.json"), "utf8")).codigo, code);
+  assert.equal(host.sent.length, 1);
+});
+
+test("learning_view exports the merged catalogue's runnable languages for the tutor (#348)", async (t) => {
+  t.after(dockerStub(presenceStub(join(realpathSync(mkdtempSync(join(tmpdir(), "docker-tool-"))), "calls.log"))));
+  const builtinFile = catalogueFile({ python: { image: "python-tool-missing:348", file: "main.py", run: "python3 main.py" } });
+  const machineFile = catalogueFile({ rust: { image: "rust-tool-present:348", file: "main.rs", run: "./main" } });
+  const { view } = await setup({ runnersFile: builtinFile, machineRunnersFile: machineFile, env: {} });
+  const result = await view({ topic: TOPIC });
+  assert.equal(result.isError, false);
+  assert.ok(result.structuredContent.runnable.includes("rust"), "the tool's own list is accurate on first call, without a page warming it");
+  assert.equal(result.structuredContent.runnable.includes("python"), false);
+  assert.match(result.content[0].text, /Ejecutables aquí: rust/);
+  assert.ok(Array.isArray(result.structuredContent.runners));
+});
+
+test("a missing setupFile is an honest no-run, not a 500 (#348)", async () => {
+  const { topic, view } = await setup({ env: {} });
+  const dir = join(topic, "codigo", "sin-semilla");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "ejercicio.json"), JSON.stringify({
+    titulo: "Sin semilla",
+    enunciado: "El tutor nombró una semilla que no existe.",
+    lenguaje: "sqlite",
+    setupFile: "no-existe.sql",
+    tests: [{ nombre: "consulta", entrada: "", salida: "1\n" }],
+  }));
+  const url = base(await view({ topic: TOPIC, part: "codigo/sin-semilla" }));
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "sin-semilla", code: "SELECT 1;\n" });
+  assert.equal(run.status, 200, "an authoring error is a truthful notice, never a dead end");
+  const data = JSON.parse(run.body);
+  assert.match(data.aviso, /setupFile|semilla/i);
+  assert.deepEqual(data.resultados, []);
+  assert.equal(data.total, 0);
+});
+
+test("the reader's install hint is short, copyable and remembered only for the session (#348)", { skip: !playwright && "playwright not installed" }, async (t) => {
+  t.after(dockerStub(presenceStub(join(realpathSync(mkdtempSync(join(tmpdir(), "docker-hint-"))), "calls.log"))));
+  const builtinFile = catalogueFile({
+    python: { image: "python:3.12-alpine-present@sha256:b658b05ce9c4", file: "main.py", run: "python3 main.py", size: "~18 MB", label: "Python 3.12" },
+    plsql: { image: "python:3.12-alpine@sha256:b658b05ce9c4eb97ec6fc19424818a1f31993659c2b505a532f470e83807815d", file: "main.sql", run: "sqlplus -s", size: "~755 MB", label: "PL/SQL" },
+  });
+  const { topic, view } = await setup({ runnersFile: builtinFile, env: {} });
+  codeExercise(topic, "plsql");
+  const pageResult = await view({ topic: TOPIC, part: "codigo/bloque" });
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await context.newPage();
+  await page.goto(pageResult.structuredContent.url);
+  const strip = page.locator(".runners-strip");
+  const summary = strip.locator("summary");
+  await summary.waitFor();
+  // El resumen debe coincidir con lo que el servidor considera ejecutable ahora mismo: si en esta
+  // máquina Docker no responde, la lista vacía es la respuesta correcta, no un fallo.
+  const listed = JSON.parse((await http(`${base(pageResult)}api/runners?topic=${encodeURIComponent(TOPIC)}`)).body);
+  const expected = listed.runnable.length ? listed.runnable.join(", ") : "ninguno";
+  await page.waitForFunction((want) => new RegExp(`^Ejecutables aquí: ${want} · ver lenguajes$`).test(document.querySelector(".runners-strip summary")?.textContent ?? ""), expected, { timeout: 30_000 });
+  assert.match(await summary.textContent(), /^Ejecutables aquí: .+ · ver lenguajes$/);
+  assert.equal(await strip.locator("details").evaluate((node) => node.open), false, "the list starts collapsed");
+  await summary.click();
+  assert.equal(await strip.locator("details").evaluate((node) => node.open), true);
+  const missing = listed.languages.find((l) => !l.present);
+  const present = listed.languages.find((l) => l.present);
+  const text = await strip.textContent();
+  if (present) assert.match(text, new RegExp(`${present.label ?? present.language} · ${present.size} · disponible`), "a language that runs says so");
+  // Qué imágenes hay instaladas es asunto de la máquina, no de la página: en un entorno donde la sonda
+  // no puede responder, todo se declara disponible y el caso de la pista lo cubre la prueba de la API.
+  if (missing) {
+    const short = `docker pull ${missing.image.replace(/@sha256:[0-9a-f]+/i, "")}`;
+    assert.match(text, new RegExp(`${missing.label ?? missing.language} · ${missing.size}`));
+    assert.ok(text.includes(short), `the install line is short: ${short}`);
+    assert.ok(text.includes(`referencia fijada: ${missing.image}`), "the pinned reference stays available beside it");
+    assert.equal(await strip.locator("code").first().textContent(), short);
+    const copy = strip.getByRole("button", { name: /Copiar/ }).first();
+    await copy.click();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), short);
+  }
+  assert.doesNotMatch(await strip.textContent(), /ENOENT/, "an optional overlay that does not exist is not a learner-facing warning");
+  await page.reload();
+  assert.equal(await strip.locator("details").evaluate((node) => node.open), true, "the learner's choice survives a reload in this session");
+  await context.close();
+  const other = await browser.newContext();
+  const fresh = await other.newPage();
+  await fresh.goto(pageResult.structuredContent.url);
+  assert.equal(await fresh.locator(".runners-strip details").evaluate((node) => node.open), false, "another session starts collapsed");
+  await other.close();
 });

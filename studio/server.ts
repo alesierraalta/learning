@@ -33,6 +33,7 @@ import {
   writeQuickNote,
   type DeleteResult,
 } from "../integrations/pi/bridge.ts";
+import { loadCatalogue, runnerList } from "../integrations/pi/coderun.ts";
 import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio } from "../integrations/pi/transcribe.ts";
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { ROOT_UNSET, resolveContained } from "../integrations/pi/paths.ts";
@@ -2568,6 +2569,13 @@ ${scripts}
         return taskEvents(res, taskFor(url.searchParams.get("task")));
       case "api/library":
         return sendJson(res, 200, await library());
+      case "api/runners": {
+        // The studio asks on its own after the shell paints: Docker never blocks a page,
+        // and a cheap topic check never runs the engine status of every topic.
+        const topic = url.searchParams.get("tema");
+        const dir = topic && /^[\w-]+$/.test(topic) && existsSync(join(root, topic)) ? join(root, topic) : undefined;
+        return sendJson(res, 200, await runnerList(loadCatalogue({ topicDir: dir })));
+      }
       case "api/chats": {
         // The list is only true once the boot session has been adopted.
         await main.ready;
