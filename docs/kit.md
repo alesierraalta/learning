@@ -684,7 +684,9 @@ Entrada ➔ Proceso ➔ Salida, one-line-per-concept table, three-bullet summary
 final integrating mini-quiz and two exercises (easy/medium, 60% threshold).
 Keep every original section in order. Do not gate reading behind interactions.
 Place each demo inline in the section it illustrates, never on a separate app
-screen. Keep review questions at the end. Use vertical Mermaid for decision
+screen. A demo page is one scroller, its frame: it nests no scroll container, sets no
+full-height `html`/`body`, keeps its text at 14 px or more and wraps its code (see
+"Demo frame and page rules" in `study-view-format.md`). Keep review questions at the end. Use vertical Mermaid for decision
 trees; use SVG where spatial relationships genuinely clarify the example.
 
 Use the shared white-paper palette and system DejaVu Sans / DejaVu Sans Mono;

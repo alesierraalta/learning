@@ -594,6 +594,10 @@ export function obsidianToMarkdown(markdown: string, topicDir: string): string {
     .replace(/\u0000(\d+)\u0000/g, (_m, index: string) => kept[Number(index)]!);
 }
 
+/** A demo page under explicaciones/demos/: the one kind of topic file that carries the height reporter (#338). */
+const isDemoPage = (segments: string[]) =>
+  segments.length === 3 && segments[0] === "explicaciones" && segments[1] === "demos" && extname(segments[2]).toLowerCase() === ".html";
+
 function partDemos(topicDir: string, partId: string): string[] {
   const dir = join(topicDir, "explicaciones", "demos");
   if (!existsSync(dir)) return [];
@@ -1790,6 +1794,15 @@ ${scripts}
       // Demos and any other topic file run in an opaque origin: they cannot use the token routes.
       "content-security-policy": "sandbox allow-scripts",
     };
+    // The reader frames a demo to the height it reports, so every demo page carries the reporter before </head> (#338).
+    // The reporter is inline, so the saved copy keeps it as it keeps the demo's own script.
+    if (isDemoPage(segments)) {
+      const page = injectHeadLast(readFileSync(contained.targetReal, "utf8"), `<script>${readFileSync(join(KIT_DIR, "demo-height.js"), "utf8")}</script>`);
+      const body = Buffer.from(page, "utf8");
+      res.writeHead(200, { ...headers, "content-length": String(body.length) });
+      res.end(body);
+      return;
+    }
     const range = req.headers.range;
     if (range) {
       const match = /^bytes=(\d*)-(\d*)$/.exec(range);

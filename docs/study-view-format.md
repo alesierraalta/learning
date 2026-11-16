@@ -109,6 +109,27 @@ with the demo filename, capped at 2,000 characters) populate the question box;
 the learner still submits them to the tutor. Do not send secrets or answers
 through this channel.
 
+### Demo frame and page rules
+
+The reader frames a demo to its content (#338). The bridge adds a small reporter,
+`integrations/pi/kit/demo-height.js`, inside the `<head>` of every demo page it serves.
+The reporter posts `{ type: "learning-demo-height", height }` with the content's height,
+and the frame takes it, between 320 and 900 px. Above 900 px the demo scrolls inside its
+frame. A demo that never reports keeps the default frame: 420 px, or 360 px on a phone.
+The reader asks for a new measure when the frame's width changes, because a narrower or
+wider screen rewraps the text. A saved part carries the same reporter.
+
+A demo page must:
+
+- have one scroller, its frame. Do not nest a scroll container (`overflow: auto` with a
+  fixed height or a `max-height`, a card that scrolls) inside the page.
+- not set `height: 100%`, `100vh` or `min-height: 100vh` on `html` or `body`. The frame
+  takes the content's height, so a page that fills the viewport has no height to report.
+- keep text at 14 px or more, and body text at 16 px or more.
+- wrap long code lines (`white-space: pre-wrap` with `overflow-wrap: anywhere`). A line
+  that truly cannot wrap may scroll sideways inside its own block, never by pushing the page.
+- keep its content in the normal flow: content positioned outside it is not measured.
+
 ## The video control belongs to every node
 
 The video is not optional furniture: every part node must offer a way to get it, and the
