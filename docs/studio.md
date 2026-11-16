@@ -460,6 +460,14 @@ funcionando; las tramas de una tarea se sirven en su propio flujo y siempre llev
 También se emite un evento `tareas` con el resumen de la lista cada vez que cambia la cola o
 el estado.
 
+La interfaz muestra esas tareas en un panel a la derecha, con una píldora «Tareas» en la barra
+superior: lleva una insignia con el número de tareas trabajando y dice «te pregunta algo» cuando
+alguna espera una respuesta. Cada tarjeta da el título humano del tema, el estado (con las
+peticiones en cola), la actividad y una transcripción con el texto del tutor, las acciones de las
+herramientas y las preguntas abiertas; esas preguntas se contestan allí mismo y cada tarjeta
+tiene su propio control «Detener». El chat principal conserva su conversación y sus tramas: ni
+recibe los mensajes de las tareas ni espera a que terminen para aceptar un prompt.
+
 ### Cambio de tutor
 
 Cambiar de agente o modelo (`POST api/tutor`) no interrumpe a las tareas que están trabajando:

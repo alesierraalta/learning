@@ -1964,15 +1964,26 @@ const SUBMITTED = {
 };
 
 test("a submitted quiz opens its results while the tutor reads them, then offers the next step", { skip: browser ? false : "playwright not installed" }, async (t) => {
-  const { studio, page } = await studioPage(t);
+  // An enrolled topic sends its delivery to the topic's background task, not the main chat.
+  const { studio, page } = await studioPage(t, (root) => writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n"));
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
   await page.waitForFunction(() => document.querySelector("iframe.sheet")?.getAttribute("src"), null, { timeout: 5000 });
   // Only the reading frame may announce a submission.
   await page.evaluate((message) => postMessage(message, "*"), SUBMITTED);
   await page.waitForTimeout(300);
   assert.equal(await page.evaluate(() => location.hash), "#/leer/redes/p1", "a message from elsewhere is ignored");
+  // The reader posts the delivery to the bridge first; the bridge routes it to the topic's task,
+  // and only then does the frame announce the graded result to the studio.
   const frame = await (await page.locator("iframe.sheet").elementHandle()).contentFrame();
-  await frame.evaluate((message) => parent.postMessage(message, "*"), SUBMITTED);
+  await frame.evaluate(async (message) => {
+    const response = await fetch(window.LEARNING_BRIDGE.submitUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "leyendo las respuestas" }),
+    });
+    if (!response.ok) throw new Error(`submit ${response.status}`);
+    parent.postMessage(message, "*");
+  }, SUBMITTED);
   await page.waitForFunction(() => location.hash === "#/resultados/redes/p1", null, { timeout: 5000 });
   const results = page.locator(".results");
   await results.getByText("1/2").first().waitFor();
@@ -1980,14 +1991,13 @@ test("a submitted quiz opens its results while the tutor reads them, then offers
   await results.getByText("No sé").first().waitFor();
   await results.getByText("El agente está leyendo tus análisis").waitFor();
   assert.equal(await results.getByRole("button", { name: "Ir a lo siguiente" }).count(), 0);
-  // The bridge sends the submission to the tutor as a prompt; here the page sends it.
-  await page.evaluate(async () => {
-    const response = await fetch("prompt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "[Vista HTML · redes · p1] respuestas" }) });
-    if (!response.ok) throw new Error(`prompt ${response.status}`);
-  });
-  await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).waitFor({ timeout: 5000 });
-  assert.equal(await results.getByText("El agente está leyendo tus análisis").count(), 1, "still reading while the tutor works");
-  await page.locator(".ask-card").getByRole("button", { name: "Universitario" }).click();
+  // The dialog belongs to the topic's task panel; the main chat stays as it was.
+  await page.locator(".tasks-pill").click();
+  const task = page.locator('.task-card[data-task="redes"]');
+  await task.locator(".ask-card").getByRole("button", { name: "Universitario" }).waitFor({ timeout: 5000 });
+  assert.equal(await results.getByText("El agente está leyendo tus análisis").count(), 1, "still reading while the task works");
+  await task.locator(".ask-card").getByRole("button", { name: "Universitario" }).click();
+  await page.locator(".tasks-pill").click();
   const next = results.getByRole("button", { name: "Ir a lo siguiente" });
   await next.waitFor({ timeout: 10000 });
   assert.equal(await results.getByText("El agente está leyendo tus análisis").count(), 0);
