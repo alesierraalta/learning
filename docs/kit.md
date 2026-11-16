@@ -488,6 +488,12 @@ is answered once; its answers file is `explicaciones/Parte N - <slug>.qq.answers
 `rapidos/<nota>.answers.json` for a quick note. The file route serves neither a note nor a tutor page (demos excepted):
 both carry the key (#276).
 
+Question text is drawn by one renderer, `kit/question.js` (`window.lkQuestion`), in the reader and
+in the studio alike (#332). A stem, an option, an exercise statement or a `pieza` is prose that
+may hold: a fence (```` ```lang ````) whose lines are kept and highlighted, `code` inline,
+`$...$` or `$$...$$` drawn by KaTeX, `**bold**`, `*italic*` or `_italic_`, and `- ` or `1. ` lists as
+real elements. Everything else is text: a question's words never reach `innerHTML`. A `pieza` of tipo `codigo`, `salida` or `katex` is drawn by the same renderer.
+
 `lk-quiz` fetches questions and requires only a choice for each. The `razonamiento` box — where
 the learner drains what they are thinking, typed or dictated with the microphone button — and
 `confianza` (`seguro`, `dudo`, `adivine`) are optional extras that show the tutor how the learner

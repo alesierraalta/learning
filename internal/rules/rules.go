@@ -492,6 +492,12 @@ type Thresholds struct {
 	MisPalabrasHdr string            `json:"misPalabrasHeader"`
 	PlanVisualHead string            `json:"planVisualHeading"`
 	PlanSections   []string          `json:"planSections"`
+
+	// CodigoEnLinea turns on the code-in-prose rule (#332): a question stem or option that carries code flattened
+	// into prose, outside a fence or a pieza, is refused with its id. False means the rule is not declared, so a
+	// frozen snapshot keeps accepting the questions it accepted.
+	CodigoEnLinea bool `json:"codigoEnLinea,omitempty"`
+
 	// VisualBlocks are fenced code-block languages that render a visual in
 	// the vault (native mermaid and installed Obsidian plugins). Embeds
 	// (![...]) always count as visuals.

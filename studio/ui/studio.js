@@ -1989,6 +1989,12 @@
     }
     showResultsStatus();
   }
+  /** A question's own words, drawn by the shared renderer (#332): its code and formulas, never raw HTML. */
+  const questionWords = (tag, props, text) => {
+    const node = h(tag, props);
+    window.lkQuestion.render(node, text ?? "");
+    return node;
+  };
   function resultsView(topicId, part) {
     if (!submitted || submitted.topic !== topicId || (submitted.part || "quiz") !== part) return go(`#/tema/${encodeURIComponent(topicId)}`);
     const topic = topicById(topicId);
@@ -2026,9 +2032,9 @@
             h(
               "li",
               { class: r.ok ? "ok" : "miss" },
-              h("p", { class: "question" }, r.enunciado || r.id),
-              h("p", {}, h("strong", {}, r.ok ? "✔ Correcta" : "✘ Incorrecta"), ` — elegiste ${r.chosen}: ${r.chosenText}`),
-              r.ok ? null : h("p", { class: "muted" }, `La correcta es ${r.correct}: ${r.correctText}`),
+              questionWords("p", { class: "question" }, r.enunciado || r.id),
+              h("p", {}, h("strong", {}, r.ok ? "✔ Correcta" : "✘ Incorrecta"), " — elegiste ", `${r.chosen}: `, questionWords("span", {}, r.chosenText)),
+              r.ok ? null : h("p", { class: "muted" }, `La correcta es ${r.correct}: `, questionWords("span", {}, r.correctText)),
             ),
           ),
         ),

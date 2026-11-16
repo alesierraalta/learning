@@ -1614,6 +1614,9 @@ func evalFinalQuizNote(c *evalCtx, decl rules.CheckDecl) Check {
 	if len(qs) == 0 {
 		return failCheck(decl.ID, decl.Questions+" declares no questions")
 	}
+	if err := finalCodeInProse(qs, c.r.Thresholds); err != nil {
+		return failCheck(decl.ID, err.Error())
+	}
 	planBytes, err := os.ReadFile(absPath(c.ws, decl.Note))
 	if err != nil {
 		return failCheck(decl.ID, "planificador note unavailable: "+decl.Note)

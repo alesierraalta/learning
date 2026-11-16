@@ -108,6 +108,15 @@
     globalThis.lkMath?.render(node, math.blocks);
     return node;
   };
+  // A question's own words (stem, options, exercise statements) go through the shared renderer: code and formulas
+  // are drawn as code and math, and nothing a question says becomes markup (#332). Without the renderer the words
+  // stay plain text, as the kit draws them.
+  const drawnText = (text, inline = false) => {
+    const node = element(inline ? "span" : "div");
+    if (globalThis.lkQuestion) globalThis.lkQuestion.render(node, text ?? "");
+    else node.append(text ?? "");
+    return node;
+  };
   const status = () => {
     const node = element("p");
     node.setAttribute("role", "status");
@@ -222,7 +231,7 @@
     const line = element("div", undefined, result.ok ? "correct result" : "error result");
     line.append(element("strong", `${result.ok ? "✔ Correcta" : "✘ Incorrecta"} — elegiste ${result.chosen}`));
     if (!result.ok) {
-      line.append(element("span", ` · la correcta es ${result.correct}: `), markdown(question.options[result.correct] || "", true));
+      line.append(element("span", ` · la correcta es ${result.correct}: `), drawnText(question.options[result.correct] || "", true));
     }
     parent.append(line);
   }
@@ -264,9 +273,14 @@
       const field = element("fieldset", undefined, "quiz-question");
       const legend = element("legend");
       if (diagnosis) legend.append(document.createTextNode(`${index + 1}. `));
-      legend.append(markdown(question.enunciado, true));
+      legend.append(drawnText(question.enunciado, true));
       field.append(legend);
-      if (typeof question.pieza?.contenido === "string") field.append(markdown(question.pieza.contenido));
+      if (typeof question.pieza?.contenido === "string") {
+        // A code, output or formula pieza is drawn by the renderer; the visual pieces keep their markdown drawing.
+        const piece = element("div");
+        if (globalThis.lkQuestion?.pieza(piece, question.pieza)) field.append(piece);
+        else field.append(markdown(question.pieza.contenido));
+      }
       const result = recorded.get(question.id);
       const readonly = Boolean(result) || (!diagnosis && Array.isArray(data.answered));
       const choices = [];
@@ -279,7 +293,7 @@
         radio.value = letter;
         radio.disabled = readonly;
         radio.checked = result?.chosen === letter;
-        label.append(radio, element("strong", letter), markdown(question.options[letter], true));
+        label.append(radio, element("strong", letter), drawnText(question.options[letter], true));
         field.append(label);
         choices.push(radio);
       }
@@ -325,7 +339,7 @@
     const exercises = (data.quiz.exercises || []).map((exercise, index) => {
       const box = element("fieldset", undefined, "quiz-question exercise-box");
       const legend = element("legend");
-      legend.append(document.createTextNode(`${index + 1}. `), markdown(exercise.enunciado, true));
+      legend.append(document.createTextNode(`${index + 1}. `), drawnText(exercise.enunciado, true));
       box.append(legend);
       if (exercise.entregable) box.append(element("p", `Entregable: ${exercise.entregable}`, "exercise-deliverable"));
       const input = textarea(box, "Tu respuesta (opcional)");
@@ -452,7 +466,7 @@
 
   function codePage() {
     const ex = data.exercise;
-    app.append(element("p", `Lenguaje: ${ex.lenguaje} · archivo ${data.file}`, "part-kicker"), markdown(ex.enunciado));
+    app.append(element("p", `Lenguaje: ${ex.lenguaje} · archivo ${data.file}`, "part-kicker"), drawnText(ex.enunciado));
     for (const test of ex.tests.filter((t) => !t.oculto)) {
       app.append(element("h3", test.nombre), element("p", "Entrada"), element("pre", test.entrada), element("p", "Salida esperada"), element("pre", test.salida));
     }

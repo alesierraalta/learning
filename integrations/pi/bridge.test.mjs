@@ -1799,6 +1799,28 @@ test("the reader draws the mini-quiz in the served order and answers with the le
   await shutdown();
 });
 
+// The reader's mini-quiz draws the code of a stem and of its pieza as code blocks, never as one run-on line (#332).
+test('the mini-quiz draws the code of a stem and of its pieza as code blocks', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { topic, view, shutdown } = await setup();
+  writeFileSync(join(topic, 'explicaciones', 'Parte 1 - Claves.html'), QUALIFYING_PAGE);
+  const plsql = 'CREATE OR REPLACE PACKAGE PA_Reportes AS\n  PROCEDURE mostrar_cliente(p_id NUMBER);\nEND PA_Reportes;';
+  mkdirSync(join(topic, 'mini-quiz'), { recursive: true });
+  writeFileSync(join(topic, 'mini-quiz', 'p1.json'), JSON.stringify({ questions: [{ id: 'q1', enunciado: `¿Qué imprime el bloque?\n\`\`\`plsql\n${plsql}\n\`\`\``, pieza: { tipo: 'codigo', lenguaje: 'plsql', contenido: plsql }, options: { A: 'Lista los clientes.', B: 'Falla al compilar.', C: 'No imprime nada.', D: 'Entra en bucle.', E: 'No sé' }, answer: 'A' }] }));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto((await view({ topic: TOPIC, part: 'p1' })).structuredContent.url);
+  const question = page.locator('fieldset.lk-question').first();
+  await question.waitFor();
+  const blocks = question.locator('pre > code.language-plsql');
+  await blocks.first().waitFor();
+  assert.equal(await blocks.count(), 2, 'the fence of the stem and the pieza are both code blocks');
+  assert.equal(await blocks.nth(0).textContent(), plsql, 'the stem keeps every line of the statement');
+  assert.equal(await blocks.nth(1).textContent(), plsql, 'the pieza keeps every line of the statement');
+  assert.match(await question.textContent(), /¿Qué imprime el bloque\?/, 'the sentence of the stem stays text');
+  await shutdown();
+});
+
 // A part's exercises are the codigo/ ones whose "parte" names it. The mini-quiz shows each
 // statement above its own answer box, and an answer reaches the tutor under its exercise (#253).
 const quizQuestion = (id) => ({ id, enunciado: `Pregunta ${id}`, options: { A: "a", B: "b", C: "c", D: "d", E: "No sé" }, answer: "B" });
