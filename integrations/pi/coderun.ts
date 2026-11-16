@@ -69,6 +69,15 @@ export interface RunResult {
   resultados: TestResult[];
   aprobados: number;
   total: number;
+  /** Set when this machine could not execute the answer: no test ran, so no score is claimed. */
+  aviso?: string;
+}
+
+/** An honest result for an answer that could not be executed here: nothing was graded. */
+export function unavailableRun(aviso: string): RunResult {
+  // `total` counts graded tests, not authored ones: 0/2 here would claim a score
+  // for tests that never ran (#344).
+  return { compilacion: { ok: true, salida: "" }, resultados: [], aprobados: 0, total: 0, aviso };
 }
 
 export class CodeRunError extends Error {}

@@ -30,8 +30,9 @@ Para temas de programación (laboratorios, algoritmos, estructuras de datos, cua
 }
 ```
 
-- `lenguaje`: una clave de `~/documents/learning/integrations/pi/runners.json` (hoy `python`, `c`, `cpp`, `java`, `javascript`). Java: la clase pública se llama `Main` (archivo `Main.java`).
+- `lenguaje`: una clave de `~/documents/learning/integrations/pi/runners.json` (hoy `python`, `c`, `cpp`, `java`, `javascript` y `plsql`). Java: la clase pública se llama `Main` (archivo `Main.java`).
 - Un lenguaje nuevo se agrega como una entrada en `runners.json` (`image`, `file`, `compile?`, `run`) + `learning code setup <lenguaje>`; no hace falta tocar código.
+- `plsql` usa `main.sql` y el comando `sqlplus` configurado contra una imagen Oracle XE (`gvenzl/oracle-xe:21-slim` por defecto). La imagen **no hace falta en el arranque**: se instala sólo en la máquina donde se quiera ejecutar PL/SQL (son varios GB y exige aceptar la licencia de Oracle). No hay un `plsql-lite` con SQLite: ejecutar sólo el subconjunto DML calificaría mal bloques anónimos, excepciones y `DBMS_OUTPUT` sin que se note. Si el tema enseña algo que no se puede ejecutar aquí, prefiere un ejercicio de predecir, trazar o explicar código, o un lenguaje con ejecutor disponible (#344).
 - Las pruebas son de **entrada estándar → salida estándar**, como en los jueces en línea. Se ignoran los espacios al final de línea, las líneas vacías del final y CRLF; todo lo demás debe coincidir exacto, así que el enunciado fija el formato de salida con un ejemplo.
 - `parte` (opcional) enlaza el ejercicio a una parte del plan: aparece en la página de esa parte y en su mini-quiz, encima de una caja de respuesta numerada; un ejercicio de una parte siempre lleva su `enunciado`.
 
@@ -57,7 +58,7 @@ learning code submit <tema> <id>    # todas las pruebas, guarda la entrega
 
 Un mensaje `[Vista HTML · <tema> · código <id>]` es la entrega: el archivo `entregas/NNN.json` que nombra ya está guardado, con el código, la nota de la persona y el resultado de **todas** las pruebas (ocultas incluidas). Una entrega hecha desde la terminal no llega al chat: si la persona dice que entregó, lee el último `entregas/NNN.json`.
 
-1. **Lo objetivo primero**: puntaje de pruebas, error de compilación, tiempo excedido. No contradigas a las pruebas: si fallan, el programa está mal aunque "se vea bien".
+1. **Lo objetivo primero**: puntaje de pruebas, error de compilación, tiempo excedido. No contradigas a las pruebas: si fallan, el programa está mal aunque "se vea bien". Si la entrega dice `Resultado: sin ejecución` y trae «No se puede ejecutar aquí: …», **no hay puntaje**: no digas que aprobó ni que falló. El enunciado, el código y la nota sí llegaron: corrige con la lectura y pide, si hace falta, una ejecución en una máquina con ese entorno (#344).
 2. **Diagnostica la causa** de cada prueba fallida (borde no contemplado, formato de salida, desbordamiento, índice fuera de rango), sin darle el código corregido entero: una pista concreta y la línea donde mirar.
 3. **Revisión de tutor**: enfoque (¿la idea es correcta y razonable en complejidad?), legibilidad (nombres, funciones, duplicación), errores típicos del lenguaje (memoria en C, `Scanner` en Java, enteros en Python…).
 4. **Inyecta la corrección** en la nota de la parte (o en `ejercicios.md`) con el callout de siempre: `> [!success]- Ejercicio <id> — corrección (Pruebas: a/b)` con su código, las pruebas que fallaron y por qué, y la revisión.

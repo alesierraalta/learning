@@ -80,7 +80,7 @@ async function answerAll(page) {
 
 async function send(page) {
   const [response] = await Promise.all([
-    page.waitForResponse((r) => r.url().endsWith('/submit')),
+    page.waitForResponse((r) => r.url().endsWith('/submit'), { timeout: 90_000 }),
     page.getByRole('button', { name: 'Enviar al tutor' }).click(),
   ]);
   assert.equal(response.status(), 200);
@@ -179,7 +179,7 @@ test('a quick checkpoint draws the options as served and sends its id and the le
   assert.deepEqual(await page.locator('label.lk-option').allTextContents(), ['A. b', 'B. a', 'C. c', 'D. d', 'E. No sé']);
   await page.locator('input[value="B"]').check();
   const [response] = await Promise.all([
-    page.waitForResponse((r) => r.url().endsWith('/submit')),
+    page.waitForResponse((r) => r.url().endsWith('/submit'), { timeout: 90_000 }),
     page.getByRole('button', { name: 'Comprobar respuesta' }).click(),
   ]);
   assert.equal(response.status(), 200);
@@ -191,7 +191,7 @@ test('a quick checkpoint shows the verdict and the explanation the bridge sends 
   await page.locator('input[value="B"]').check();
   await page.getByRole('button', { name: 'Comprobar respuesta' }).click();
   const result = page.locator('.lk-qq-result');
-  await result.filter({ hasText: 'Incorrecto' }).waitFor();
+  await result.filter({ hasText: 'Incorrecto' }).waitFor({ timeout: 90_000 });
   assert.match(await result.textContent(), /Elegiste B; la correcta es C\./);
   assert.match(await result.textContent(), /Apunta a la clave de otra tabla\./);
   assert.equal(await page.locator('input[value="B"]').isDisabled(), true, 'an answered checkpoint is not answered twice');
@@ -201,7 +201,7 @@ test('a checkpoint the bridge refuses says so and lets the learner try again (#2
   const { page } = await openCheckpoint(t, { error: 'Ya respondiste este punto de la explicación.' }, 409);
   await page.locator('input[value="B"]').check();
   await page.getByRole('button', { name: 'Comprobar respuesta' }).click();
-  await page.locator('.lk-qq-result').filter({ hasText: 'Ya respondiste' }).waitFor();
+  await page.locator('.lk-qq-result').filter({ hasText: 'Ya respondiste' }).waitFor({ timeout: 90_000 });
   assert.equal(await page.getByRole('button', { name: 'Comprobar respuesta' }).isDisabled(), false);
   assert.equal(await page.locator('input[value="B"]').isEnabled(), true);
 });

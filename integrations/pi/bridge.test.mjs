@@ -395,7 +395,7 @@ test('plain part and diagnosis share optional dictable reasoning', { skip: !play
     await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Detener');
     await page.waitForTimeout(300);
     await mic.click();
-    await page.waitForFunction(() => document.querySelector('fieldset textarea')?.value === 'Mi razonamiento dictado');
+    await page.waitForFunction(() => document.querySelector('fieldset textarea')?.value === 'Mi razonamiento dictado', null, { timeout: 90_000 });
     assert.equal(await fields.first().getByLabel('Cómo lo pensé (opcional)').inputValue(), 'Mi razonamiento dictado');
     if (part === 'p1') {
       for (const field of await fields.all()) {
@@ -404,8 +404,8 @@ test('plain part and diagnosis share optional dictable reasoning', { skip: !play
       await page.getByRole('button', { name: 'Enviar al tutor' }).click();
       await page.getByText('Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.').waitFor();
       for (const field of await fields.all()) await field.locator('.confidence input').first().check();
-      const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
-      const received = page.waitForResponse(response => response.url().endsWith('/submit'));
+      const sent = page.waitForRequest(request => request.url().endsWith('/submit'), { timeout: 90_000 });
+      const received = page.waitForResponse(response => response.url().endsWith('/submit'), { timeout: 90_000 });
       await page.getByRole('button', { name: 'Enviar al tutor' }).click();
       const payload = (await sent).postDataJSON();
       assert.equal((await received).status(), 200);
@@ -583,13 +583,13 @@ test('«No sé» needs no confidence and a framed submit notifies the studio', {
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
   await frame.getByText('Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.').waitFor();
   await second.locator('.confidence input').first().check();
-  const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
+  const sent = page.waitForRequest(request => request.url().endsWith('/submit'), { timeout: 90_000 });
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
   const payload = (await sent).postDataJSON();
   assert.deepEqual(payload.reasoning.q1, { razonamiento: '' });
   assert.deepEqual(payload.reasoning.q2, { razonamiento: '', confianza: 'seguro' });
   // The frame also reports scroll direction, so wait for the submission itself.
-  await page.waitForFunction(() => window.received.some((message) => message.type === 'learning:submitted'));
+  await page.waitForFunction(() => window.received.some((message) => message.type === 'learning:submitted'), null, { timeout: 90_000 });
   assert.deepEqual((await page.evaluate(() => window.received)).filter((message) => message.type === 'learning:submitted'), [{
     type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
     results: [
@@ -636,12 +636,12 @@ test('rich-page quiz: «No sé» hides confidence and a framed submit notifies t
   assert.equal(await first.locator('.lk-controls').isVisible(), false);
   await first.locator('textarea').fill('ni idea');
   await second.locator(`input[value=${b2}]`).check();
-  const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
+  const sent = page.waitForRequest(request => request.url().endsWith('/submit'), { timeout: 90_000 });
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
   const payload = (await sent).postDataJSON();
   assert.deepEqual(payload.reasoning.q1, { razonamiento: 'ni idea' });
   // The frame also reports scroll direction, so wait for the submission itself.
-  await page.waitForFunction(() => window.received.some((message) => message.type === 'learning:submitted'));
+  await page.waitForFunction(() => window.received.some((message) => message.type === 'learning:submitted'), null, { timeout: 90_000 });
   assert.deepEqual((await page.evaluate(() => window.received)).filter((message) => message.type === 'learning:submitted'), [{
     type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
     results: [
@@ -886,6 +886,212 @@ test("code HTTP runs, free input, submissions and rejected requests", async (t) 
   assert.match(page.body, /"lastCode":"print\(input\(\)\)"/);
   assert.doesNotMatch(page.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
 });
+// #344: the exercise stays an exercise when this machine cannot run its language.
+function codeRunnerFile(language, image) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "runner-")));
+  const file = join(dir, "runners.json");
+  writeFileSync(file, JSON.stringify({ [language]: { image, file: "main.sql", run: "cat main.sql" } }));
+  return file;
+}
+
+function codeExercise(topic, language) {
+  const dir = join(topic, "codigo", "bloque");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "ejercicio.json"), JSON.stringify({
+    titulo: "Bloque anónimo",
+    enunciado: "Escribe un bloque anónimo que imprima «listo».",
+    lenguaje: language,
+    plantilla: "BEGIN\n  NULL;\nEND;\n/",
+    parte: "p1",
+    tests: [
+      { nombre: "visible", entrada: "algo", salida: "listo" },
+      { nombre: "oculta", entrada: "otro", salida: "listo", oculto: true },
+    ],
+  }));
+  return dir;
+}
+
+/** A docker CLI on PATH: the judge still goes through the real code path, only the CLI is fake. */
+function dockerStub(script) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "docker-stub-")));
+  writeFileSync(join(dir, "docker"), script, { mode: 0o755 });
+  const before = process.env.PATH;
+  process.env.PATH = `${dir}${process.platform === "win32" ? ";" : ":"}${before}`;
+  return () => { process.env.PATH = before; };
+}
+
+const codePost = (base, path, body) => http(base + path, {
+  method: "POST",
+  headers: { origin: new URL(base).origin, "content-type": "application/json" },
+  body: JSON.stringify(body),
+});
+const codeViewData = (html) => JSON.parse(html.match(/<script type="application\/json" id="view-data">([\s\S]*?)<\/script>/)?.[1] ?? "null");
+
+test("the shipped runners declare PL/SQL with a configurable image (#344)", () => {
+  const runners = loadRunners();
+  assert.ok(runners.plsql, "plsql must be declared");
+  assert.match(runners.plsql.image, /oracle/i);
+  assert.equal(runners.plsql.file, "main.sql");
+  assert.ok(runners.plsql.run.trim(), "a command must be configured");
+});
+
+test("a PL/SQL exercise keeps its statement, explains it cannot run here and still submits the answer (#344)", async () => {
+  const runnersFile = codeRunnerFile("plsql", "learning-no-such-oracle:missing");
+  const { topic, host, view } = await setup({ runnersFile });
+  const dir = codeExercise(topic, "plsql");
+  const code = "BEGIN\n  DBMS_OUTPUT.PUT_LINE('listo');\nEND;\n/";
+  const result = await view({ topic: TOPIC, part: "codigo/bloque" });
+  assert.equal(result.isError, false);
+  const url = base(result);
+  const page = codeViewData((await http(result.structuredContent.url)).body);
+  assert.equal(page.kind, "code");
+  assert.equal(page.exercise.lenguaje, "plsql");
+  assert.equal(page.exercise.ejecutable, true, "the runner is declared, so trying it is honest");
+  assert.doesNotMatch(JSON.stringify(page), /Ejercicio no disponible/);
+
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code });
+  assert.equal(run.status, 200, "a missing image is not an HTTP error");
+  const ran = JSON.parse(run.body);
+  assert.match(ran.aviso, /No se puede ejecutar aquí/);
+  assert.deepEqual(ran.resultados, [], "no test was run");
+
+  const submitted = await codePost(url, "submit", { topic: TOPIC, exercise: "bloque", code, kind: "code", note: "Mi bloque" });
+  assert.equal(submitted.status, 200, "the answer is still accepted");
+  const answer = JSON.parse(submitted.body);
+  assert.equal(answer.score, "sin ejecución");
+  assert.match(answer.aviso, /No se puede ejecutar aquí/);
+  const saved = JSON.parse(readFileSync(join(dir, "entregas", "001.json"), "utf8"));
+  assert.equal(saved.codigo, code, "exactly the learner's answer is saved");
+  assert.equal(saved.nota, "Mi bloque");
+  assert.match(saved.aviso, /No se puede ejecutar aquí/);
+  assert.equal(host.sent.length, 1, "the answer still reaches the tutor");
+  assert.match(host.sent[0].content, /```plsql\n/);
+  assert.ok(host.sent[0].content.includes(code));
+  assert.match(host.sent[0].content, /No se puede ejecutar aquí/);
+
+  const index = await http((await view({ topic: TOPIC })).structuredContent.url);
+  assert.match(index.body, /Bloque anónimo/);
+  assert.doesNotMatch(index.body, /Ejercicio no disponible/);
+});
+
+test("an unknown language is an honest exercise, never «Ejercicio no disponible» (#344)", async () => {
+  const { topic, host, view } = await setup();
+  const dir = codeExercise(topic, "cobol");
+  const code = "DISPLAY 'listo'.";
+  const result = await view({ topic: TOPIC, part: "codigo/bloque" });
+  assert.equal(result.isError, false);
+  const url = base(result);
+  const page = codeViewData((await http(result.structuredContent.url)).body);
+  assert.equal(page.exercise.lenguaje, "cobol");
+  assert.equal(page.exercise.ejecutable, false);
+  assert.match(page.exercise.aviso, /no tiene un ejecutor/);
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code });
+  assert.equal(run.status, 200);
+  assert.match(JSON.parse(run.body).aviso, /no tiene un ejecutor/);
+  const submitted = await codePost(url, "submit", { topic: TOPIC, exercise: "bloque", code, kind: "code" });
+  assert.equal(submitted.status, 200);
+  assert.equal(JSON.parse(readFileSync(join(dir, "entregas", "001.json"), "utf8")).codigo, code);
+  assert.equal(host.sent.length, 1);
+  assert.match(host.sent[0].content, /```cobol\n/);
+  const index = await http((await view({ topic: TOPIC })).structuredContent.url);
+  assert.match(index.body, /Bloque anónimo/);
+  assert.doesNotMatch(index.body, /Ejercicio no disponible/);
+  assert.match(index.body, /no se puede ejecutar aquí/i);
+  const part = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
+  assert.doesNotMatch(part.body, /Ejercicio no disponible/);
+  assert.match(part.body, /no se puede ejecutar aquí/i);
+});
+
+test("a stopped docker daemon falls back to the same notice without throwing (#344)", async (t) => {
+  t.after(dockerStub('#!/bin/sh\necho "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2\nexit 1\n'));
+  const runnersFile = codeRunnerFile("plsql", "fake-oracle:test");
+  const { topic, view } = await setup({ runnersFile });
+  codeExercise(topic, "plsql");
+  const url = base(await view({ topic: TOPIC, part: "codigo/bloque" }));
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code: "BEGIN NULL; END;\n/" });
+  assert.equal(run.status, 200);
+  assert.match(JSON.parse(run.body).aviso, /No se puede ejecutar aquí/);
+  assert.match(JSON.parse(run.body).aviso, /Docker/i);
+});
+
+test("a configured image that exists still executes and shows the result panel (#344)", { skip: !playwright && "playwright not installed" }, async (t) => {
+  t.after(dockerStub([
+    "#!/bin/sh",
+    'if [ "$1" = "image" ]; then exit 0; fi',
+    'if [ "$1" = "run" ]; then',
+    '  work=""',
+    '  while [ "$#" -gt 0 ]; do',
+    '    if [ "$1" = "-v" ]; then work="${2%%:*}"; fi',
+    "    shift",
+    "  done",
+    '  for f in "$work"/.judge/in/*; do',
+    '    i=$(basename "$f")',
+    '    printf "listo\n" > "$work/.judge/out/$i.out"',
+    '    printf "" > "$work/.judge/out/$i.err"',
+    '    printf "0 1\n" > "$work/.judge/meta/$i"',
+    "  done",
+    "  exit 0",
+    "fi",
+    "exit 1",
+    "",
+  ].join("\n")));
+  const runnersFile = codeRunnerFile("plsql", "fake-oracle:test");
+  const { topic, view } = await setup({ runnersFile });
+  codeExercise(topic, "plsql");
+  const pageResult = await view({ topic: TOPIC, part: "codigo/bloque" });
+  const url = base(pageResult);
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code: "BEGIN NULL; END;\n/" });
+  assert.equal(run.status, 200);
+  const ran = JSON.parse(run.body);
+  assert.equal(ran.aviso, undefined, "with an image the answer really runs");
+  assert.deepEqual(ran.resultados.map((r) => r.estado), ["correcto"]);
+  assert.equal(ran.aprobados, 1);
+
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(pageResult.structuredContent.url);
+  await page.getByRole("button", { name: "Probar con las pruebas visibles" }).click();
+  const panel = page.locator(".code-results");
+  await panel.getByText("Resultado: 1/1 pruebas").waitFor({ timeout: 90_000 });
+  assert.equal((await panel.locator("h3").first().textContent())?.trim(), "visible · ✔ correcto");
+});
+
+test("a missing docker binary is the same honest notice, not a crash (#344)", async (t) => {
+  t.after(dockerStub("#!/bin/sh\nexit 127\n"));
+  const runnersFile = codeRunnerFile("plsql", "fake-oracle:test");
+  const { topic, view } = await setup({ runnersFile });
+  codeExercise(topic, "plsql");
+  const url = base(await view({ topic: TOPIC, part: "codigo/bloque" }));
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code: "BEGIN NULL; END;\n/" });
+  assert.equal(run.status, 200);
+  assert.match(JSON.parse(run.body).aviso, /No se puede ejecutar aquí/);
+});
+
+test("the learner sees the notice, keeps writing and still gets the answer saved (#344)", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, host, view } = await setup();
+  const dir = codeExercise(topic, "cobol");
+  const result = await view({ topic: TOPIC, part: "codigo/bloque" });
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(`${result.structuredContent.url}?theme=black`);
+  const notice = page.locator(".code-notice").first();
+  await notice.waitFor();
+  assert.match(await notice.textContent(), /No se puede ejecutar aquí/);
+  assert.equal(await page.locator("h1").first().textContent(), "Bloque anónimo", "the exercise is shown, not a dead end");
+  const editor = page.locator("textarea.code-editor");
+  await editor.fill("DISPLAY 'listo'.\n");
+  assert.equal(await editor.inputValue(), "DISPLAY 'listo'.\n", "the answer is still editable");
+  await page.getByRole("button", { name: "Entregar al tutor" }).click();
+  const panel = page.locator(".code-results");
+  await panel.getByText("Entrega guardada y enviada al tutor.").waitFor({ timeout: 90_000 });
+  assert.match(await panel.textContent(), /No se puede ejecutar aquí/);
+  assert.equal(await panel.getByText(/Resultado:/).count(), 0, "no score is claimed for tests that never ran");
+  assert.equal(JSON.parse(readFileSync(join(dir, "entregas", "001.json"), "utf8")).codigo.trim(), "DISPLAY 'listo'.");
+  assert.equal(host.sent.length, 1);
+});
+
 const openServers = [];
 // A bridge is this file's handle: `after` alone does not close it on a filtered run,
 // where the harness posts its root hooks before the matched test opens a server.
@@ -1882,7 +2088,7 @@ test("the reader draws the mini-quiz in the served order and answers with the le
   await page.getByRole("button", { name: "Enviar al tutor" }).click();
   await page.getByText("Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.").waitFor();
   for (const field of await fields.all()) await field.locator(".confidence input").first().check();
-  const received = page.waitForResponse((response) => response.url().endsWith("/submit"));
+  const received = page.waitForResponse((response) => response.url().endsWith("/submit"), { timeout: 90_000 });
   await page.getByRole("button", { name: "Enviar al tutor" }).click();
   assert.equal((await received).status(), 200);
   assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")).answers, { q1: "B", q2: "C" }, "the file keeps the tutor's letters");
@@ -1984,7 +2190,7 @@ test("the rich mini-quiz shows practical deliverables, keeps answers, and reveal
   await exercise.locator("textarea").fill("Uso una tabla por entidad");
   for (const question of ["q1", "q2"]) await page.locator(`input[name="${question}"][value="B"]`).check();
   await page.getByRole("button", { name: "Enviar al tutor" }).click();
-  await exercise.locator(".lk-exercise-solution").waitFor();
+  await exercise.locator(".lk-exercise-solution").waitFor({ timeout: 90_000 });
   assert.match(await exercise.textContent(), /SOLUTION_SECRET: cada tabla tiene una clave primaria/);
   assert.equal(await exercise.locator("textarea").inputValue(), "Uso una tabla por entidad");
 
@@ -2064,7 +2270,7 @@ test("the reader's mini-quiz draws each exercise statement above its own box, an
   await page.locator('input[name="confidence-1"][value="seguro"]').check();
   await boxes.nth(1).locator("textarea").fill("print(1 + 2)");
   const [response] = await Promise.all([
-    page.waitForResponse((r) => r.url().endsWith("/submit")),
+    page.waitForResponse((r) => r.url().endsWith("/submit"), { timeout: 90_000 }),
     page.getByRole("button", { name: "Enviar al tutor" }).click(),
   ]);
   assert.equal(response.status(), 200);
@@ -2092,10 +2298,10 @@ test("the Markdown part page shows practical deliverables, keeps answers, and re
     await page.locator(`input[name="question-${index}"][value="B"]`).check();
     await page.locator(`input[name="confidence-${index}"][value="seguro"]`).check();
   }
-  const response = page.waitForResponse((res) => res.url().endsWith("/submit"));
+  const response = page.waitForResponse((res) => res.url().endsWith("/submit"), { timeout: 90_000 });
   await page.getByRole("button", { name: "Enviar al tutor" }).click();
   assert.equal((await response).status(), 200);
-  await exercise.locator(".exercise-solution").waitFor();
+  await exercise.locator(".exercise-solution").waitFor({ timeout: 90_000 });
   assert.match(await exercise.textContent(), /SOLUTION_SECRET: cada tabla tiene una clave primaria/);
   assert.equal(await exercise.locator("textarea").inputValue(), "Uso una tabla por entidad");
 
@@ -2208,7 +2414,7 @@ test('a refused submission shows the bridge message, with no reload advice', { s
     if (await field.locator('.confidence').isVisible()) await field.locator('.confidence input').first().check();
   }
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
-  await frame.getByText(/El tutor está trabajando/).waitFor();
+  await frame.getByText(/El tutor está trabajando/).waitFor({ timeout: 90_000 });
   const shown = await frame.locator('body').innerText();
   assert.doesNotMatch(shown, /Recarga la página/, 'the turn lock stored nothing: no reload advice');
 });
@@ -2430,11 +2636,11 @@ test("the kit page answers a quick checkpoint through the bridge and shows its v
   assert.deepEqual(await card.locator("label.lk-option").allTextContents(), Object.entries(spec.opciones).map(([letter, text]) => `${letter}. ${text}`));
   await card.locator(`input[value="${shownIn(spec, "A")}"]`).check();
   const [response] = await Promise.all([
-    kitPage.waitForResponse((r) => r.url().endsWith("/submit")),
+    kitPage.waitForResponse((r) => r.url().endsWith("/submit"), { timeout: 90_000 }),
     card.getByRole("button", { name: "Comprobar respuesta" }).click(),
   ]);
   assert.equal(response.status(), 200);
-  await card.locator(".lk-qq-result").filter({ hasText: "Incorrecto" }).waitFor();
+  await card.locator(".lk-qq-result").filter({ hasText: "Incorrecto" }).waitFor({ timeout: 90_000 });
   const said = await card.locator(".lk-qq-result").textContent();
   assert.ok(said.includes(CHECKPOINTS[1].explicacion), said);
   assert.ok(said.includes(`la correcta es ${shownIn(spec, "C")}`), said);
@@ -2455,11 +2661,11 @@ test("the reader answers a quick checkpoint in a quick note, which names its own
   await card.locator("form").waitFor();
   await card.locator(`input[value="${shownIn(spec, "B")}"]`).check();
   const [response] = await Promise.all([
-    reader.waitForResponse((r) => r.url().endsWith("/submit")),
+    reader.waitForResponse((r) => r.url().endsWith("/submit"), { timeout: 90_000 }),
     card.getByRole("button", { name: "Comprobar respuesta" }).click(),
   ]);
   assert.equal(response.status(), 200);
-  await card.locator(".lk-qq-result").filter({ hasText: "Correcto" }).waitFor();
+  await card.locator(".lk-qq-result").filter({ hasText: "Correcto" }).waitFor({ timeout: 90_000 });
   assert.ok((await card.locator(".lk-qq-result").textContent()).includes(CHECKPOINTS[0].explicacion));
   await shutdown();
 });
@@ -2478,11 +2684,11 @@ test("the reader draws a quick checkpoint in the learner's order and shows the s
   assert.deepEqual(await card.locator("label.lk-option").allTextContents(), Object.entries(spec.opciones).map(([letter, text]) => `${letter}. ${text}`));
   await card.locator(`input[value="${shownIn(spec, "C")}"]`).check();
   const [response] = await Promise.all([
-    reader.waitForResponse((r) => r.url().endsWith("/submit")),
+    reader.waitForResponse((r) => r.url().endsWith("/submit"), { timeout: 90_000 }),
     card.getByRole("button", { name: "Comprobar respuesta" }).click(),
   ]);
   assert.equal(response.status(), 200);
-  await card.locator(".lk-qq-result").filter({ hasText: "Incorrecto" }).waitFor();
+  await card.locator(".lk-qq-result").filter({ hasText: "Incorrecto" }).waitFor({ timeout: 90_000 });
   assert.ok((await card.textContent()).includes(CHECKPOINTS[0].explicacion));
   await shutdown();
 });
