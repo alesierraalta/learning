@@ -1944,7 +1944,9 @@
 
   // ---------- results of a submitted quiz ----------
   // The reading frame announces a graded submission; the learner lands on its results
-  // and watches the tutor read them until it is done, then goes on to the next step.
+  // and watches the topic's background task read them until it settles, then goes on
+  // to the next step. The main chat is a different conversation and says nothing here.
+  const taskStates = new Map();
   let submitted = null;
   let showResultsStatus = () => {};
   window.addEventListener("message", (event) => {
@@ -1975,16 +1977,29 @@
     if (!data || data.type !== "learning:submitted" || typeof data.topic !== "string" || !Array.isArray(data.results)) return;
     const frame = stage.querySelector("iframe.sheet");
     if (!frame || event.source !== frame.contentWindow) return;
-    submitted = { ...data, sawBusy: tutor.busy, done: false };
+    submitted = { ...data, sawBusy: false, done: false, since: Date.now() };
     go(`#/resultados/${encodeURIComponent(data.topic)}/${encodeURIComponent(data.part || "quiz")}`);
   });
-  // Called on every tutor change: the turn that reads the answers is over once the tutor
-  // has been busy and is idle again (the prompt may still be queued when the page opens).
+  // Called on every task summary: the reader's answers belong to the topic's task, so only
+  // that task settling ends the wait. A main-chat turn is no longer evidence of anything here.
   function watchResults() {
     if (!submitted || submitted.done) return;
-    if (tutor.busy) submitted.sawBusy = true;
-    else if (submitted.sawBusy || !tutor.alive) {
+    const task = taskStates.get(submitted.topic);
+    const pending = task && task.state !== "done" && task.state !== "failed";
+    if (pending) {
+      submitted.sawBusy = true;
+      submitted.activity = task.activity;
+    } else if (task && (submitted.sawBusy || task.updatedAt >= submitted.since)) {
       submitted.done = true;
+      submitted.activity = "";
+      loadLibrary().then(() => showResultsStatus());
+    } else if (!task && tutor.busy) {
+      // A delivery the bridge could not bind to a topic stays in the general chat.
+      submitted.sawBusy = true;
+      submitted.activity = tutor.activity;
+    } else if (!task && submitted.sawBusy && !tutor.busy) {
+      submitted.done = true;
+      submitted.activity = "";
       loadLibrary().then(() => showResultsStatus());
     }
     showResultsStatus();
@@ -2007,7 +2022,7 @@
       if (!submitted.done) {
         status.replaceChildren(
           h("span", { class: "spinner" }),
-          h("div", {}, h("p", { class: "reading" }, "El agente está leyendo tus análisis…"), tutor.activity ? h("p", { class: "muted" }, tutor.activity) : null),
+          h("div", {}, h("p", { class: "reading" }, "El agente está leyendo tus análisis…"), submitted.activity ? h("p", { class: "muted" }, submitted.activity) : null),
         );
         return;
       }
@@ -2443,16 +2458,8 @@
     }
     return assistant.get(id);
   }
-  function askCard(dialog) {
-    const answer = async (body) => {
-      card.querySelectorAll("button, textarea").forEach((n) => (n.disabled = true));
-      try {
-        await post("dialog", { id: dialog.id, ...body });
-      } catch (error) {
-        card.querySelectorAll("button, textarea").forEach((n) => (n.disabled = false));
-        toast(error.message);
-      }
-    };
+  /** The same question card serves the main chat and a topic task; only the route differs. */
+  function dialogCard(dialog, answer) {
     const field = h("textarea", { rows: "3", placeholder: dialog.placeholder || "Tu respuesta" });
     const card = h(
       "section",
@@ -2461,13 +2468,24 @@
       h("h4", {}, dialog.title || "¿Cómo seguimos?"),
       dialog.message ? h("p", {}, dialog.message) : null,
       dialog.method === "select"
-        ? h("div", { class: "options" }, (dialog.options || []).map((option) => h("button", { type: "button", onclick: () => answer({ value: String(option) }) }, String(option))))
+        ? h("div", { class: "options" }, (dialog.options || []).map((option) => h("button", { type: "button", onclick: () => answer({ value: String(option) }, card) }, String(option))))
         : dialog.method === "confirm"
-          ? h("div", { class: "options" }, h("button", { type: "button", onclick: () => answer({ confirmed: true }) }, "Sí"), h("button", { type: "button", onclick: () => answer({ confirmed: false }) }, "No"))
-          : h("div", { class: "options" }, field, h("button", { type: "button", onclick: () => answer({ value: field.value }) }, "Enviar respuesta")),
-      h("button", { class: "cancel", type: "button", onclick: () => answer({ cancelled: true }) }, "Ahora no"),
+          ? h("div", { class: "options" }, h("button", { type: "button", onclick: () => answer({ confirmed: true }, card) }, "Sí"), h("button", { type: "button", onclick: () => answer({ confirmed: false }, card) }, "No"))
+          : h("div", { class: "options" }, field, h("button", { type: "button", onclick: () => answer({ value: field.value }, card) }, "Enviar respuesta")),
+      h("button", { class: "cancel", type: "button", onclick: () => answer({ cancelled: true }, card) }, "Ahora no"),
     );
     return card;
+  }
+  function askCard(dialog) {
+    return dialogCard(dialog, async (body, card) => {
+      card.querySelectorAll("button, textarea").forEach((n) => (n.disabled = true));
+      try {
+        await post("dialog", { id: dialog.id, ...body });
+      } catch (error) {
+        card.querySelectorAll("button, textarea").forEach((n) => (n.disabled = false));
+        toast(error.message);
+      }
+    });
   }
 
   const events = new EventSource(base + "events");
@@ -2632,6 +2650,227 @@
     stateLine.textContent = "Reconectando…";
   };
 
+  // ---------- background tasks ----------
+  // A topic's reader work owns a Session and a tagged stream. The panel mirrors those
+  // frames without ever writing into the main chat; the pill is the always-visible sign
+  // that something is working or waiting for the learner.
+  const TASK_STATE_TEXT = {
+    working: "Trabajando",
+    waiting: "Esperando turno",
+    asking: "Preguntándote",
+    done: "Terminada",
+    failed: "Fallida",
+  };
+  const taskCards = new Map();
+  const tasksList = h("div", { class: "tasks-list", "aria-label": "Tareas de fondo" },
+    h("p", { class: "tasks-empty muted" }, "Todavía no hay tareas de fondo."));
+  const tasksBadge = h("span", { class: "badge", hidden: true });
+  const tasksWhat = h("span", { class: "what" }, "Tareas");
+  const tasksPill = h("button", { class: "tasks-pill", type: "button", "aria-controls": "tasks-panel", "aria-expanded": "false", onclick: () => (document.body.classList.contains("tasks-open") ? closeTasks() : openTasks()) },
+    h("span", { class: "dot" }), tasksWhat, tasksBadge);
+  const tasksPanel = h(
+    "aside",
+    { class: "tasks-panel", id: "tasks-panel", "aria-label": "Tareas de fondo" },
+    h("div", { class: "tasks-head" },
+      h("h2", {}, "Tareas"),
+      h("p", { class: "muted" }, "Cada tema trabaja en su propia conversación."),
+      h("button", { class: "icon-btn", type: "button", "aria-label": "Cerrar las tareas", onclick: closeTasks }, icon("x"))),
+    tasksList,
+  );
+  // Its own scrim, not the tutor's: existing pages ask for `.scrim` and expect one.
+  const tasksScrim = h("div", { class: "tasks-scrim", "aria-hidden": "true", onclick: closeTasks });
+
+  function openTasks() {
+    document.body.classList.add("tasks-open");
+    tasksPill.setAttribute("aria-expanded", "true");
+  }
+  function closeTasks() {
+    document.body.classList.remove("tasks-open");
+    tasksPill.setAttribute("aria-expanded", "false");
+  }
+  const taskTitle = (topic) => library.topics.find((t) => t.id === topic)?.title || topic;
+  function paintTaskTitles() {
+    for (const record of taskCards.values()) {
+      record.title.textContent = taskTitle(record.topic);
+      record.abort.setAttribute("aria-label", `Detener la tarea de ${record.title.textContent}`);
+    }
+  }
+  function updateTasksPill() {
+    const states = [...taskStates.values()];
+    const active = states.filter((t) => t.state === "working" || t.state === "waiting").length;
+    const asking = states.some((t) => t.state === "asking") || [...taskCards.values()].some((r) => r.dialogs.size > 0);
+    tasksPill.className = `tasks-pill${asking ? " asking" : active ? " working" : ""}`;
+    tasksWhat.textContent = asking ? "Tareas · te pregunta algo" : active ? `Tareas · ${active} trabajando` : "Tareas";
+    tasksPill.setAttribute("aria-label", asking ? "Tareas: te pregunta algo" : `Tareas: ${active} trabajando`);
+    tasksBadge.hidden = active === 0;
+    tasksBadge.textContent = String(active);
+  }
+  function paintTask(record) {
+    const view = taskStates.get(record.topic) ?? {};
+    const state = view.state ?? "done";
+    record.card.dataset.state = state;
+    record.state.textContent = TASK_STATE_TEXT[state] ?? state;
+    if (view.queued) record.state.textContent += ` · ${view.queued} en cola`;
+    record.state.title = record.state.textContent;
+    record.activity.textContent = view.activity ?? "";
+  }
+  function ensureTaskCard(topic) {
+    let record = taskCards.get(topic);
+    if (record) return record;
+    tasksList.querySelector(".tasks-empty")?.remove();
+    const title = h("h3", { class: "task-title" }, taskTitle(topic));
+    const state = h("span", { class: "task-state" });
+    const abort = btn("Detener", async () => {
+      try {
+        await post("api/tareas/abortar", { task: topic });
+      } catch (error) { toast(error.message); }
+    }, "btn small ghost danger task-abort", "stop");
+    const activity = h("p", { class: "task-activity muted" });
+    const transcript = h("div", { class: "task-transcript", "aria-live": "polite" });
+    const card = h("section", { class: "task-card", "data-task": topic },
+      h("div", { class: "task-head" }, title, state, abort), activity, transcript);
+    record = { topic, card, title, state, abort, activity, transcript, stream: null, messages: new Map(), tools: new Map(), dialogs: new Map() };
+    taskCards.set(topic, record);
+    tasksList.append(card);
+    paintTask(record);
+    abort.setAttribute("aria-label", `Detener la tarea de ${title.textContent}`);
+    return record;
+  }
+  function setTaskViews(views) {
+    if (!Array.isArray(views)) return;
+    for (const view of views) {
+      if (!view || typeof view.topic !== "string") continue;
+      taskStates.set(view.topic, {
+        state: view.state,
+        activity: typeof view.activity === "string" ? view.activity : "",
+        queued: Number(view.queued) || 0,
+        updatedAt: Date.now(),
+      });
+      const record = ensureTaskCard(view.topic);
+      paintTask(record);
+      openTaskStream(view.topic);
+    }
+    updateTasksPill();
+    watchResults();
+  }
+  function updateTaskState(topic, data) {
+    const state = data.estado ?? data.state;
+    if (!state) return;
+    const previous = taskStates.get(topic) ?? {};
+    taskStates.set(topic, {
+      state,
+      activity: typeof data.activity === "string" ? data.activity : previous.activity ?? "",
+      queued: Number(data.queued ?? previous.queued) || 0,
+      updatedAt: Date.now(),
+    });
+    const record = taskCards.get(topic);
+    if (record) paintTask(record);
+    updateTasksPill();
+    watchResults();
+  }
+  function appendTask(record, node) {
+    record.transcript.querySelector(".tasks-empty")?.remove();
+    record.transcript.append(node);
+  }
+  function renderTaskHistory(record, messages) {
+    record.transcript.replaceChildren();
+    record.messages.clear();
+    record.tools.clear();
+    record.dialogs.clear();
+    for (const message of messages) {
+      const text = String(message?.text ?? "");
+      if (message?.role === "user") appendTask(record, h("div", { class: "msg user" }, text));
+      else if (message?.role === "assistant") appendTask(record, h("div", { class: "msg assistant" }, ...markdown(text).childNodes));
+    }
+    if (!messages.length) record.transcript.append(h("p", { class: "tasks-empty muted" }, "Todavía no ha dicho nada."));
+    updateTasksPill();
+  }
+  function taskAssistant(record, id) {
+    let entry = record.messages.get(String(id));
+    if (!entry) {
+      const node = h("div", { class: "msg assistant" });
+      entry = { node, text: "" };
+      record.messages.set(String(id), entry);
+      appendTask(record, node);
+    }
+    return entry;
+  }
+  function paintTaskAssistant(entry) {
+    entry.node.replaceChildren(...markdown(entry.text).childNodes);
+  }
+  function taskTool(record, { phase, id, label, ok }) {
+    const name = String(label ?? "Trabajando");
+    if (phase === "start") {
+      const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), name);
+      record.tools.set(String(id), row);
+      appendTask(record, row);
+      return;
+    }
+    const row = record.tools.get(String(id));
+    if (!row) return;
+    row.replaceChildren(icon(ok ? "check" : "x"), name);
+    row.classList.remove("running");
+  }
+  function taskDialog(record, dialog) {
+    if (!dialog || typeof dialog.id !== "string" || record.dialogs.has(dialog.id)) return;
+    const card = dialogCard(dialog, async (body, node) => {
+      node.querySelectorAll("button, textarea").forEach((n) => (n.disabled = true));
+      try {
+        await post("api/tareas/dialogo", { task: record.topic, id: dialog.id, ...body });
+      } catch (error) {
+        node.querySelectorAll("button, textarea").forEach((n) => (n.disabled = false));
+        toast(error.message);
+      }
+    });
+    record.dialogs.set(dialog.id, card);
+    appendTask(record, card);
+    updateTasksPill();
+  }
+  function openTaskStream(topic) {
+    const record = taskCards.get(topic);
+    if (!record || record.stream) return;
+    const stream = new EventSource(`${base}api/tareas/eventos?task=${encodeURIComponent(topic)}`);
+    record.stream = stream;
+    const onTask = (name, fn) => stream.addEventListener(name, (event) => {
+      let data;
+      try { data = JSON.parse(event.data); } catch { return; }
+      if (!data || data.task !== topic) return;
+      fn(data);
+    });
+    onTask("historial", ({ messages }) => renderTaskHistory(record, Array.isArray(messages) ? messages : []));
+    onTask("estado", (s) => updateTaskState(topic, s));
+    onTask("state", (s) => updateTaskState(topic, s));
+    onTask("user", ({ text }) => appendTask(record, h("div", { class: "msg user" }, String(text ?? ""))));
+    onTask("assistant_delta", ({ id, delta }) => {
+      const entry = taskAssistant(record, id);
+      entry.text += String(delta ?? "");
+      paintTaskAssistant(entry);
+    });
+    onTask("assistant_end", ({ id, text }) => {
+      const entry = taskAssistant(record, id);
+      entry.text = String(text ?? "");
+      paintTaskAssistant(entry);
+    });
+    onTask("tool", (data) => taskTool(record, data));
+    onTask("dialog", (dialog) => taskDialog(record, dialog));
+    onTask("dialog_closed", ({ id }) => {
+      const card = record.dialogs.get(String(id));
+      card?.remove();
+      record.dialogs.delete(String(id));
+      updateTasksPill();
+    });
+    onTask("notice", ({ message }) => appendTask(record, h("div", { class: "notice" }, String(message ?? ""))));
+    onTask("error", ({ message }) => appendTask(record, h("div", { class: "notice error" }, String(message ?? ""))));
+    onTask("tareas", ({ tareas }) => setTaskViews(tareas));
+    onTask("library_changed", () => loadLibrary());
+  }
+  events.addEventListener("tareas", (event) => {
+    let data;
+    try { data = JSON.parse(event.data); } catch { return; }
+    setTaskViews(Array.isArray(data.tareas) ? data.tareas : []);
+  });
+  updateTasksPill();
+
   // ---------- the panel's own controls ----------
   // The tutor is a workspace, not a fixed rail: its left edge is a handle, its list
   // of conversations folds away and its reading mode gives the chat the window.
@@ -2760,6 +2999,7 @@
     } catch (error) {
       toast(`No se pudo leer la biblioteca: ${error.message}`);
     }
+    paintTaskTitles();
     const [, view] = location.hash.split("/");
     // Never re-render the editor from a library change: it would drop typed text.
     // The results page refreshes its own status instead of being drawn again.
@@ -2772,7 +3012,7 @@
       mobileBack,
       h("a", { class: "brand", href: "#/" }, h("b", {}, "Estudio"), h("span", {}, "Learnings")),
       crumbs,
-      h("div", { class: "top-actions" }, themeButton(), h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill),
+      h("div", { class: "top-actions" }, themeButton(), h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill, tasksPill),
     ),
     offlineBanner,
     h("div", { class: "app" }, stage),
@@ -2780,12 +3020,15 @@
     // dims and a tap on it closes the tutor, instead of a page cut mid-word.
     h("div", { class: "scrim", "aria-hidden": "true", onclick: () => closeDrawer() }),
     drawer,
+    tasksScrim,
+    tasksPanel,
   );
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     menu.classList.remove("open");
-    // Escape leaves the tutor, like its close button; a dialog on top owns the key.
+    // Escape leaves the tasks first, then the tutor, like their close buttons; a dialog on top owns the key.
     if (document.querySelector(".modal-backdrop")) return;
+    if (document.body.classList.contains("tasks-open")) { closeTasks(); return; }
     closeDrawer();
   });
   applyWidth();

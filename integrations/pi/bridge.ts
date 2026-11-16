@@ -1465,6 +1465,10 @@ export function listTopics(rootReal: string, runners = loadRunners()): TopicSumm
     });
 }
 
+type WriterTicket = { release: () => void };
+/** A host can hand back the ticket promise alone, or say up front that this request joined a FIFO queue. */
+type TopicLockClaim = (Promise<WriterTicket> & { queued?: boolean }) | { ticket: Promise<WriterTicket>; queued?: boolean };
+
 export interface BridgeOptions {
   root: string;
   runnersFile?: string;
@@ -1490,9 +1494,16 @@ export interface BridgeOptions {
   tokenSeed?: string;
   /**
    * Why a new tutor turn cannot start right now, or null when it can. A submission is a turn, so it
-   * is refused with this message before anything is written for it.
+   * is refused with this message before anything is written for it. Kept for hosts that have one
+   * process and one writer only; the studio uses `lockTopic` instead.
    */
   refuseTurn?: () => string | null;
+  /**
+   * A per-topic FIFO writer ticket. When present, a busy topic queues instead of being refused.
+   * A claim marked `queued` is answered 202 at once and its work runs after the ticket is granted;
+   * the ticket is always acquired before any answer file is written.
+   */
+  lockTopic?: (topic: string) => TopicLockClaim;
 }
 
 export function validatePublicOrigin(option: string, value: string | undefined): URL | undefined {
@@ -1894,11 +1905,34 @@ ${scripts}
   /** The learner reloads to see what was really stored; only said when something was. */
   const SAVED_HINT = "Recarga la página para ver las respuestas guardadas.";
 
-  /** A submission starts a tutor turn: while one is active it is refused before any write. */
+  /** A legacy host with no topic lock refuses a second turn before any write. */
   const requireTurn = () => {
     const refused = options.refuseTurn?.();
     if (refused) throw new HttpError(409, refused);
   };
+
+  /**
+   * The topic's writer ticket, held across the reads, the answer-file write and the delivery.
+   * A host without a per-topic lock keeps its old refusal; a studio queue says synchronously
+   * whether this request joined it, so the bridge can answer before the ticket is granted.
+   */
+  const claimTopic = (topic: unknown): { ticket: Promise<WriterTicket | null>; queued: boolean } => {
+    if (!options.lockTopic) {
+      requireTurn();
+      return { ticket: Promise.resolve(null), queued: false };
+    }
+    if (typeof topic !== "string") throw new HttpError(400, "topic must be a string");
+    const claim = options.lockTopic(topic);
+    if ("ticket" in claim) return { ticket: claim.ticket, queued: claim.queued === true };
+    return { ticket: claim, queued: claim.queued === true };
+  };
+
+  /** The reader is told the work was accepted, not what it will eventually decide. */
+  const queuedAck = (kind: string) => ({
+    ok: true,
+    queued: true,
+    ...(kind === "audio" || kind === "video" || kind === "question" ? { sent: true } : {}),
+  });
 
   const deliver = async (text: string) => {
     try {
@@ -1910,8 +1944,13 @@ ${scripts}
     }
   };
 
-  const codeRequest = async (res: ServerResponse, payload: Record<string, unknown>, submit: boolean) => {
-    if (submit) requireTurn();
+  const codeRequest = async (
+    res: ServerResponse, payload: Record<string, unknown>, submit: boolean,
+    claim: { ticket: Promise<WriterTicket | null>; queued: boolean } = { ticket: Promise.resolve(null), queued: false },
+  ) => {
+    if (claim.queued) sendJson(res, 202, queuedAck("code"));
+    const ticket = await claim.ticket;
+    try {
     const dir = topicDir(payload.topic);
     const file = exerciseFile(dir, payload.exercise);
     const runners = loadRunners(options.runnersFile);
@@ -1951,7 +1990,8 @@ ${scripts}
     if (note) lines.push(quote(note));
     lines.push("Revisa la corrección según las pruebas, el enfoque, la legibilidad y los errores típicos. Inyecta la corrección en la nota del tema como de costumbre.");
     await deliver(lines.join("\n"));
-    sendJson(res, 200, { ...forPage(result), saved, score });
+    if (!claim.queued) sendJson(res, 200, { ...forPage(result), saved, score });
+    } finally { ticket?.release(); }
   };
 
   const codeRun = async (req: IncomingMessage, res: ServerResponse) => {
@@ -1994,9 +2034,13 @@ ${scripts}
     const kind = payload.kind;
     const unknownKey = Object.keys(payload).find((key) => !ALLOWED_KEYS[kind].has(key));
     if (unknownKey) throw new HttpError(400, `unknown field: ${unknownKey}`);
-    if (kind === "code") return codeRequest(res, payload, true);
-    // One turn at a time in the studio: refusing here keeps the answers' file untouched.
-    requireTurn();
+    const claim = claimTopic(payload.topic);
+    if (kind === "code") return codeRequest(res, payload, true, claim);
+    if (claim.queued) sendJson(res, 202, queuedAck(kind));
+    // The topic's writer owns the answer file from here until the delivery is accepted.
+    const ticket = await claim.ticket;
+    const answer = (body: unknown) => { if (!claim.queued) sendJson(res, 200, body); };
+    try {
     const dir = topicDir(payload.topic);
     const topic = payload.topic as string;
     const plan = readPlan(dir);
@@ -2017,7 +2061,7 @@ ${scripts}
       await deliver(
         `[${header}]\nLa persona pide el audio de esta parte en estilo ${payload.style}: escríbelo y prodúcelo con el motor de audio (skill learnings-audio), con la spec en tools/audio/specs/${topic}-${partId}-${payload.style}.json y la entrega en ${audioFile(partPlan, partId, payload.style)}.`,
       );
-      sendJson(res, 200, { sent: true });
+      answer({ sent: true });
       return;
     }
 
@@ -2027,7 +2071,7 @@ ${scripts}
       await deliver(
         `[${header}]\nLa persona pide el video de esta parte: prodúcelo con el pipeline de learnings-video (video-distill.md) y guárdalo en ${partVideo(partPlan, partId)}.`,
       );
-      sendJson(res, 200, { sent: true });
+      answer({ sent: true });
       return;
     }
 
@@ -2040,7 +2084,7 @@ ${scripts}
       }
       const header = ["Vista HTML", topic, partId, "pregunta", demo && `demo ${demo}`].filter(Boolean).join(" · ");
       await deliver(`[${header}]\nPregunta de la persona:\n${quote(text)}`);
-      sendJson(res, 200, { sent: true });
+      answer({ sent: true });
       return;
     }
 
@@ -2116,7 +2160,7 @@ ${scripts}
       if (said !== "") lines.push(`Explicación: ${said}`);
       lines.push(`Guardado en ${saved}`);
       await deliver(lines.join("\n"));
-      sendJson(res, 200, { id: checkpoint.id, chosen: shown.chosen, correct: shown.correct, ok: shown.ok, explicacion: said, saved, telemetry: tele });
+      answer({ id: checkpoint.id, chosen: shown.chosen, correct: shown.correct, ok: shown.ok, explicacion: said, saved, telemetry: tele });
       return;
     }
 
@@ -2149,7 +2193,7 @@ ${scripts}
       await deliver(lines.join("\n"));
       const exerciseSolutions = Object.fromEntries(partExercises(dir, partId, runners, true)
         .flatMap((ex) => typeof ex.solucion === "string" ? [[ex.id, ex.solucion]] : []));
-      sendJson(res, 200, {
+      answer({
         results: shown.map(({ id, chosen, correct, ok }) => ({ id, chosen, correct, ok })),
         score: `${graded.filter((r) => r.ok).length}/${graded.length}`,
         saved,
@@ -2176,7 +2220,8 @@ ${scripts}
     const graded = asked.map((q) => grade(q, answers[q.id]));
     const shown = asked.map((q, i) => shownAnswer(q, orderFor(q), graded[i]));
     await deliver(quizMessage(`[Vista HTML · ${topic} · diagnóstico]`, saved, shown, reasoning).join("\n"));
-    sendJson(res, 200, { results: shown.map(({ id, chosen, correct, ok }) => ({ id, chosen, correct, ok })), score: `${graded.filter((r) => r.ok).length}/${graded.length}`, saved });
+    answer({ results: shown.map(({ id, chosen, correct, ok }) => ({ id, chosen, correct, ok })), score: `${graded.filter((r) => r.ok).length}/${graded.length}`, saved });
+    } finally { ticket?.release(); }
   };
 
   // A draft preview draws what the author is typing without touching the vault: the

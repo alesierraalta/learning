@@ -14,6 +14,7 @@ import { stored } from "../../studio/testdata/stored.mjs";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { loadRunners } from "./coderun.ts";
 import { measurePiece } from "./kit/piece-measure.mjs";
+import { createTopicLocks } from "../../studio/tasks.ts";
 
 const TOPIC = "sql-demo";
 // A page that passes the reader's gates and carries the note's figures: the bench's clean TCP page (#265).
@@ -1336,6 +1337,39 @@ function submit(url, payload, headers = {}) {
   });
 }
 
+/** A host lock that reports, on the claim itself, whether this request had to join the queue. */
+const lockWithQueueFlag = (locks) => (topic) => Object.assign(locks.acquire(topic), { queued: locks.queued(topic) > 0 });
+const bounded = (promise, ms, message) => {
+  void promise.catch(() => {});
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))]);
+};
+const until = async (pred, ms = 3000) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (pred()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("condition not met");
+};
+/** A reader that hangs up as soon as it has its acknowledgement, before the queued work runs. */
+const submitThenDisconnect = (url, payload) => new Promise((resolve, reject) => {
+  const req = request(`${url}submit`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: new URL(url).origin },
+  }, (res) => {
+    const chunks = [];
+    res.on("data", (c) => chunks.push(c));
+    res.on("end", () => {
+      const result = { status: res.statusCode, body: Buffer.concat(chunks).toString("utf8") };
+      res.destroy();
+      req.destroy();
+      resolve(result);
+    });
+  });
+  req.on("error", reject);
+  req.end(JSON.stringify(payload));
+});
+
 test("learning_view rejects a session outside the Learnings root and starts no server", async () => {
   const { view, shutdown } = await setup();
   const outside = realpathSync(mkdtempSync(join(tmpdir(), "elsewhere-")));
@@ -2044,6 +2078,222 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
   assert.ok(text.includes(`- q2: ${shownLetter(q2, "C")} «c» ✘ (correcta: ${shownLetter(q2, "B")} «b»)\n  Pensamiento: Pide qué error da Oracle. Pensé que C porque...\n    lo vi en clase\n  Confianza: adiviné`), text);
   assert.match(text, /Vuelco con mis palabras:\n"""\nUna clave identifica una fila\.\n"""/);
   await shutdown();
+});
+
+test("a queued submit answers 202 at once and writes only after the topic ticket is free", async () => {
+  const locks = createTopicLocks();
+  const held = await locks.acquire(TOPIC);
+  const { view, topic, host, shutdown } = await setup({ lockTopic: lockWithQueueFlag(locks) });
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const [q1, q2] = await servedPart(url);
+  const answerFile = join(topic, "mini-quiz", "p1.answers.json");
+  try {
+    const started = Date.now();
+    const response = await bounded(submit(url, {
+      kind: "mini-quiz", topic: TOPIC, part: "p1",
+      answers: { q1: shownLetter(q1, "B"), q2: shownLetter(q2, "C") },
+      reasoning: why("q1", "q2"),
+    }), 900, "a queued POST waited for the topic lock");
+    assert.ok(Date.now() - started < 900, `the acknowledgement took ${Date.now() - started} ms`);
+    assert.equal(response.status, 202, response.body);
+    const ack = JSON.parse(response.body);
+    assert.equal(ack.ok, true, response.body);
+    assert.equal(ack.queued, true, response.body);
+    assert.equal(existsSync(answerFile), false, "the answer file was written before the lock was owned");
+    assert.equal(host.sent.length, 0, "the task was called before the lock was owned");
+
+    held.release();
+    await until(() => existsSync(answerFile) && host.sent.length === 1);
+    assert.deepEqual(JSON.parse(readFileSync(answerFile, "utf8")), {
+      answers: { q1: "B", q2: "C" }, razonamientos: why("q1", "q2"),
+    });
+    assert.match(host.sent[0].content, /mini-quiz\/p1\.answers\.json/);
+  } finally {
+    held.release();
+    await shutdown();
+  }
+});
+
+test("two queued submissions keep their order once the lock is free", async () => {
+  const locks = createTopicLocks();
+  const held = await locks.acquire(TOPIC);
+  const { view, host, shutdown } = await setup({ lockTopic: lockWithQueueFlag(locks) });
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  try {
+    const first = await bounded(submit(url, { kind: "question", topic: TOPIC, part: "p1", text: "primera" }), 900, "the first POST waited for the lock");
+    const second = await bounded(submit(url, { kind: "question", topic: TOPIC, part: "p1", text: "segunda" }), 900, "the second POST waited for the lock");
+    assert.deepEqual([first.status, second.status], [202, 202]);
+    assert.deepEqual([JSON.parse(first.body).queued, JSON.parse(second.body).queued], [true, true]);
+    assert.equal(host.sent.length, 0);
+    held.release();
+    await until(() => host.sent.length === 2);
+    assert.match(host.sent[0].content, /primera/);
+    assert.match(host.sent[1].content, /segunda/);
+  } finally {
+    held.release();
+    await shutdown();
+  }
+});
+
+test("a queued submission outlives a client disconnect and still writes its answer file", async () => {
+  const locks = createTopicLocks();
+  const held = await locks.acquire(TOPIC);
+  const { view, topic, host, shutdown } = await setup({ lockTopic: lockWithQueueFlag(locks) });
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const [q1, q2] = await servedPart(url);
+  const answerFile = join(topic, "mini-quiz", "p1.answers.json");
+  const payload = { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: shownLetter(q1, "B"), q2: shownLetter(q2, "B") }, reasoning: why("q1", "q2") };
+  try {
+    const response = await bounded(submitThenDisconnect(url, payload), 900, "a queued POST waited for the lock");
+    assert.equal(response.status, 202, response.body);
+    assert.equal(JSON.parse(response.body).queued, true);
+    held.release();
+    await until(() => existsSync(answerFile) && host.sent.length === 1);
+    assert.deepEqual(JSON.parse(readFileSync(answerFile, "utf8")).answers, { q1: "B", q2: "B" });
+  } finally {
+    held.release();
+    await shutdown();
+  }
+});
+
+// The standalone view's own handlers (app.js) and the kit elements it hosts must treat the
+// bridge's 202 as an acknowledgement: no grade, no score, no invented delivery.
+const ackQueued = (page) => page.route("**/submit", (route) => route.fulfill({
+  status: 202, contentType: "application/json", body: JSON.stringify({ ok: true, queued: true }),
+}));
+
+test("the reader acknowledges a queued mini-quiz without drawing a verdict", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { view, shutdown } = await setup();
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ reducedMotion: "reduce" });
+  await ackQueued(page);
+  await page.goto(url);
+  const form = page.locator("form").filter({ has: page.getByRole("button", { name: "Enviar al tutor" }) });
+  const fields = form.locator("fieldset.quiz-question");
+  await fields.first().waitFor();
+  for (const field of await fields.all()) {
+    await field.locator("input[type=radio]").first().check();
+    await field.locator(".confidence input").first().check();
+  }
+  const [response] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/submit")),
+    form.getByRole("button", { name: "Enviar al tutor" }).click(),
+  ]);
+  assert.equal(response.status(), 202, "the bridge queued the answer");
+  await form.getByText(/En cola/).waitFor({ timeout: 3000 });
+  assert.equal(await page.locator(".result, .reward").count(), 0, "the acknowledgement drew a grade");
+  assert.equal(await form.locator(".error").count(), 0, "the acknowledgement was shown as an error");
+  assert.equal(await form.locator("input:not([disabled]), textarea:not([disabled]), button:not([disabled])").count(), 0, "the quiz stayed open");
+  await shutdown();
+});
+
+test("the reader acknowledges a queued quick checkpoint without a verdict", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup(LEARNER);
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - Claves.md"), CHECKPOINT_NOTE);
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const [spec] = checkpointsOf(readerMarkdown((await http(url)).body));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ reducedMotion: "reduce" });
+  await ackQueued(page);
+  await page.goto(url);
+  const card = page.locator("lk-quick-quiz").first();
+  await card.locator("form").waitFor();
+  await card.locator(`input[value="${shownIn(spec, "B")}"]`).check();
+  const [response] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/submit")),
+    card.getByRole("button", { name: "Comprobar respuesta" }).click(),
+  ]);
+  assert.equal(response.status(), 202, "the bridge queued the answer");
+  await card.locator(".lk-qq-result").getByText(/En cola/).waitFor({ timeout: 3000 });
+  assert.equal(await card.locator(".lk-correct, .lk-error").count(), 0, "the acknowledgement drew a verdict");
+  assert.equal(await card.locator("input:not([disabled]), button:not([disabled])").count(), 0, "the checkpoint stayed open");
+  await shutdown();
+});
+
+test("a queued question is acknowledged without claiming it was delivered", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { view, shutdown } = await setup();
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ reducedMotion: "reduce" });
+  await ackQueued(page);
+  await page.goto(url);
+  const form = page.locator("form.tutor");
+  await form.locator("textarea").fill("¿Por qué la PK no admite NULL?");
+  const [response] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/submit")),
+    form.getByRole("button", { name: "Enviar pregunta" }).click(),
+  ]);
+  assert.equal(response.status(), 202, "the bridge queued the question");
+  const line = form.locator("p[role=status]");
+  await line.getByText(/En cola/).waitFor({ timeout: 3000 });
+  assert.equal(await line.textContent().then((text) => /Enviada al chat/.test(text)), false, "the question was not delivered yet");
+  assert.equal(await form.locator(".error").count(), 0);
+  await shutdown();
+});
+
+test("a queued code submission shows no invented tests or score", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup();
+  codeFixture(topic);
+  const url = (await view({ topic: TOPIC, part: "codigo/eco" })).structuredContent.url;
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ reducedMotion: "reduce" });
+  await ackQueued(page);
+  await page.goto(url);
+  await page.locator("textarea.code-editor").waitFor();
+  const panel = page.locator(".code-results");
+  const [response] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/submit")),
+    page.getByRole("button", { name: "Entregar al tutor" }).click(),
+  ]);
+  assert.equal(response.status(), 202, "the bridge queued the submission");
+  await panel.getByText(/En cola/).waitFor({ timeout: 3000 });
+  const text = await panel.textContent();
+  assert.equal(/Resultado:|No se pudo ejecutar|Entrega guardada/.test(text), false, text);
+  assert.equal(await panel.locator("h2, h3, pre, .correct, .error").count(), 0, "the acknowledgement drew test results");
+  assert.equal(await page.getByRole("button", { name: "Entregar al tutor" }).isDisabled(), true, "the submission can be repeated");
+  await shutdown();
+});
+
+test("a free topic still answers 200 with the finished body even with a topic lock", async () => {
+  const locks = createTopicLocks();
+  const { view, topic, host, shutdown } = await setup({ lockTopic: lockWithQueueFlag(locks) });
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const [q1, q2] = await servedPart(url);
+  const res = await bounded(submit(url, {
+    kind: "mini-quiz", topic: TOPIC, part: "p1",
+    answers: { q1: shownLetter(q1, "B"), q2: shownLetter(q2, "C") }, reasoning: why("q1", "q2"),
+  }), 900, "a free POST waited");
+  assert.equal(res.status, 200, res.body);
+  assert.equal(JSON.parse(res.body).queued, undefined, res.body);
+  assert.equal(JSON.parse(res.body).score, "1/2");
+  assert.equal(existsSync(join(topic, "mini-quiz", "p1.answers.json")), true);
+  assert.equal(host.sent.length, 1);
+  await shutdown();
+});
+
+test("a busy topic still refuses a foreign origin and a wrong token without queueing", async () => {
+  const locks = createTopicLocks();
+  const held = await locks.acquire(TOPIC);
+  const { view, host, shutdown } = await setup({ lockTopic: lockWithQueueFlag(locks) });
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  try {
+    const foreign = await bounded(submit(url, { kind: "question", topic: TOPIC, text: "x" }, { origin: "http://evil.example" }), 900, "a refused POST waited for the lock");
+    assert.equal(foreign.status, 403, foreign.body);
+    const wrongToken = await bounded(http(`${new URL(url).origin}/${"0".repeat(64)}/submit`, {
+      method: "POST", headers: { "content-type": "application/json", origin: new URL(url).origin },
+      body: JSON.stringify({ kind: "question", topic: TOPIC, text: "x" }),
+    }), 900, "a wrong-token POST waited for the lock");
+    assert.equal(wrongToken.status, 404, wrongToken.body);
+    assert.equal(host.sent.length, 0);
+  } finally {
+    held.release();
+    await shutdown();
+  }
 });
 
 // #272: a learner sees each question's options in an order of their own, relabelled A–E in that order, so the

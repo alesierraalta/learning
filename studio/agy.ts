@@ -66,6 +66,8 @@ export function createAgy(options: {
   onError: (message: string) => void;
   /** The id Antigravity assigned to this conversation, so the studio can record it on the chat. */
   onConversation?: (id: string) => void;
+  /** Extra environment for the process: a task names its topic so its conversation is its own. */
+  env?: Record<string, string>;
 }) {
   let proc: ChildProcessWithoutNullStreams | undefined;
   let conversation: string | undefined;
@@ -97,7 +99,11 @@ export function createAgy(options: {
       }
       if (conversation) args.push("--conversation", conversation);
       const [command, ...base] = options.command;
-      const current = spawn(command, [...base, ...args], { cwd: options.cwd, stdio: ["pipe", "pipe", "pipe"] });
+      const current = spawn(command, [...base, ...args], {
+        cwd: options.cwd,
+        env: { ...process.env, ...options.env },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
       proc = current;
       let buffer = "";
       let answer = "";

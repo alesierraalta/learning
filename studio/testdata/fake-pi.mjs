@@ -20,7 +20,17 @@ if (process.argv.includes("--list-models")) {
 
 const log = process.env.FAKE_PI_LOG;
 const out = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
-const record = (command) => log && appendFileSync(log, `${JSON.stringify({ ...command, interactiveHost: process.env.GENTLE_SHELL_INTERACTIVE_HOST, cwd: process.cwd() })}\n`);
+// Each process is a different session. The id and pid travel with the command log so a test can
+// tell the main chat's runtime from a topic task's, even when both write to the same log.
+const sessionIdAt = process.argv.indexOf("--session-id");
+const sessionId = sessionIdAt >= 0 ? process.argv[sessionIdAt + 1] : null;
+const record = (command) => {
+  if (!log) return;
+  // Identity is attached only to prompts: the other commands are asserted byte for byte by
+  // existing tests, while a task's prompts must be told apart from the main chat's.
+  const identity = command.type === "prompt" ? { sessionId, pid: process.pid } : {};
+  appendFileSync(log, `${JSON.stringify({ ...command, ...identity, interactiveHost: process.env.GENTLE_SHELL_INTERACTIVE_HOST, cwd: process.cwd() })}\n`);
+};
 // The mode the studio started this child in. It is written apart from the command log because the
 // log is a record of Pi's protocol, not of the environment it inherited.
 if (process.env.FAKE_PI_GATE) writeFileSync(process.env.FAKE_PI_GATE, `${process.env.LEARNING_SETTLE_GATE ?? ""}\n`);
@@ -31,7 +41,9 @@ const receivedPrompts = [];
 // FAKE_PI_SESSION_DIR lets a test own the directory the studio is allowed to delete from.
 const sessionDir = process.env.FAKE_PI_SESSION_DIR ?? "/tmp";
 let sessionSeq = 0;
-let sessionFile = join(sessionDir, "fake-session-0.jsonl");
+// Two runtimes in the same folder must never truncate each other's session file.
+const sessionName = !sessionId || sessionId === "estudio" ? "fake-session-0" : `fake-${sessionId.replace(/[^\w.-]/g, "-")}`;
+let sessionFile = join(sessionDir, `${sessionName}.jsonl`);
 mkdirSync(sessionDir, { recursive: true });
 writeFileSync(sessionFile, "");
 // The writes the scripted turn makes; a test points them at notes of its own root.

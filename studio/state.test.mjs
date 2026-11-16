@@ -11,6 +11,7 @@ import {
   busyActive,
   busyFile,
   clearBusy,
+  createBusyTracker,
   markBusy,
   pidAlive,
   readBusy,
@@ -87,6 +88,47 @@ test("the conversation copy round-trips and a damaged one is ignored", () => {
   writeFileSync(file, "{ not json");
   assert.equal(readSnapshot(file), null);
   assert.equal(readSnapshot(join(dir, "missing.json")), null);
+});
+
+test("two sessions sharing a state dir keep the aggregate until the last one clears", () => {
+  const dir = stateDir();
+  const stateFile = join(dir, "opened.json");
+  const aggregate = busyFile(stateFile);
+  const a = createBusyTracker(stateFile);
+  const b = createBusyTracker(stateFile);
+  const now = Date.now();
+
+  a.mark("main", { pid: process.pid, startedAt: now, topic: "redes" });
+  b.mark("task-redes", { pid: process.pid, startedAt: now + 1, topic: "otra" });
+  assert.ok(readBusy(aggregate), "a live session publishes the aggregate");
+  assert.equal(b.held(), true);
+
+  a.clear("main");
+  assert.equal(readBusy(aggregate)?.topic, "otra", "one session clearing must not hide the other's work");
+  assert.equal(a.held(), true);
+  assert.equal(b.held(), true);
+
+  b.clear("task-redes");
+  assert.equal(readBusy(aggregate), null, "the last live session clears the aggregate");
+  assert.equal(b.held(), false);
+});
+
+test("a live aggregate with no visible session mark still holds; a dead pid's does not", () => {
+  const dir = stateDir();
+  const stateFile = join(dir, "opened.json");
+  const aggregate = busyFile(stateFile);
+  const tracker = createBusyTracker(stateFile);
+  const alive = { pid: 1, startedAt: Date.now(), topic: "otra" };
+
+  markBusy(aggregate, alive);
+  assert.equal(tracker.held(), true, "another live studio's marker is real even without its session file");
+  tracker.clear("missing");
+  assert.deepEqual(readBusy(aggregate), { busy: true, ...alive }, "publish keeps the other studio's marker");
+
+  markBusy(aggregate, { ...alive, pid: 2 ** 22 + 12345, topic: "muerta" });
+  assert.equal(tracker.held(), false, "a dead process cannot keep the studio busy");
+  tracker.clear("missing");
+  assert.equal(readBusy(aggregate), null, "publish removes a stale aggregate");
 });
 
 test("a restart adopts only the copy of a process that is gone", () => {

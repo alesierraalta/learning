@@ -13,5 +13,10 @@ if (args[0] === "models") {
   process.stdout.write("Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n");
   process.exit(0);
 }
-process.stdout.write(`${JSON.stringify({ event: "init", conversation_id: "test-conversation" })}\n`);
+// A task gives its own conversation id on the command line (or through the topic hint);
+// the main chat keeps the historic fixed id so the existing conformance tests still hold.
+const passed = args[args.indexOf("--conversation") + 1];
+const hinted = process.env.LEARNING_TASK_TOPIC ? `tarea-${process.env.LEARNING_TASK_TOPIC}` : undefined;
+const conversation = (args.includes("--conversation") ? passed : hinted) || "test-conversation";
+process.stdout.write(`${JSON.stringify({ event: "init", conversation_id: conversation })}\n`);
 process.stdout.write(`${JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "Respuesta de Antigravity" } })}\n`);

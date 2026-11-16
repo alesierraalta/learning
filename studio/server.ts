@@ -45,15 +45,23 @@ import { checkTutorContext, driftMessage } from "./context.ts";
 import {
   busyActive,
   busyFile,
-  clearBusy,
-  markBusy,
+  createBusyTracker,
   readBusy,
   readRestartSnapshot,
   saveSnapshot as saveSnapshotFile,
+  sessionSnapshotFile,
   snapshotFile,
   type ChatMessage,
   type InterruptedTurn,
 } from "./state.ts";
+import {
+  createTopicLocks,
+  readTaskConversations,
+  saveTaskConversation,
+  taskConversationsFile,
+  type TaskState,
+  type TaskView,
+} from "./tasks.ts";
 import {
   chatById,
   chatForAmbito,
@@ -365,6 +373,48 @@ type Turn = {
    * report the studio writes when the turn ends. It only reads the turn; it never changes it.
    */
   timing: PageTiming;
+  /** The topic writer ticket this turn inherited from its route, released when the turn ends. */
+  lock?: { release: () => void } | null;
+  lockPromise?: Promise<{ release: () => void }>;
+  /** An aborted turn ends as failed, whatever the runtime reports afterwards. */
+  aborted?: boolean;
+};
+
+/** One main-chat Session plus one per topic task: each owns its process and its in-flight turn. */
+type Session = {
+  id: string;
+  topic: string | null;
+  kind: "main" | "task";
+  child?: ChildProcessWithoutNullStreams;
+  agy?: ReturnType<typeof createAgy>;
+  agyTurns: Array<{ role: "user" | "assistant"; text: string }>;
+  alive: boolean;
+  ready: Promise<void>;
+  turn: Turn | null;
+  turnTopic: string | null;
+  tema: string | null;
+  gateBlocked: boolean;
+  settleGate: ReturnType<typeof createSettleGate>;
+  nextId: number;
+  assistantSeq: number;
+  assistantId: string;
+  waiting: Map<string, (record: Json) => void>;
+  toolArgs: Map<string, unknown>;
+  dialogs: Map<string, Json>;
+  transcript: ChatMessage[];
+  interrupted: InterruptedTurn | null;
+  /** The file a deploy reads; each session also has its own entry in the busy directory. */
+  busyMarker: string;
+  conversationFile: string;
+  activity: string;
+  status: TaskState;
+  /** The tutor changed while this session was working: replace its runtime before the next turn. */
+  stale: boolean;
+  agyConversation: string | null;
+  emit: (event: string, data: unknown) => void;
+  state: () => Record<string, unknown>;
+  saveSnapshot: () => void;
+  remember: (message: ChatMessage) => void;
 };
 
 /** The learner reads this when the studio refuses a second turn: one turn at a time, studio-wide. */
@@ -560,9 +610,9 @@ export function idleMinutesFor(options: { idleMinutes?: number; publicOrigin?: s
  */
 async function stopChild(proc: ChildProcessWithoutNullStreams): Promise<void> {
   if (proc.exitCode !== null || proc.signalCode !== null) return;
-  const gone = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
+  const exited = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
   proc.kill();
-  await Promise.race([gone, new Promise<void>((resolve) => { setTimeout(resolve, CHILD_EXIT_MS).unref(); })]);
+  await Promise.race([exited, new Promise<void>((resolve) => { setTimeout(resolve, CHILD_EXIT_MS).unref(); })]);
   if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
 }
 
@@ -580,9 +630,20 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   if (!contained.ok) throw new Error(contained.reason);
   if (options.token !== undefined && !TOKEN_SHAPE.test(options.token)) throw new Error("token must be 64 lowercase hex characters");
   const root = contained.rootReal;
-  // Its own session id: terminal sessions in the same folder are never written by two processes.
   let tutor = readTutor(root);
-  const piCommand = () => options.piCommand ?? ["pi", "--mode", "rpc", "--session-id", "estudio", ...(tutor.modelo ? ["--model", tutor.modelo] : []), ...(tutor.pensamiento ? ["--thinking", tutor.pensamiento] : [])];
+  /** Every task gets its own Pi session id; the main chat keeps the one it always had. */
+  const piCommand = (topic?: string | null): string[] => {
+    const base = options.piCommand ?? ["pi", "--mode", "rpc"];
+    if (topic) {
+      const args = [...base];
+      const at = args.indexOf("--session-id");
+      if (at >= 0) args[at + 1] = `tarea-${topic}`;
+      else args.push("--session-id", `tarea-${topic}`);
+      return args;
+    }
+    if (options.piCommand) return base;
+    return [...base, "--session-id", "estudio", ...(tutor.modelo ? ["--model", tutor.modelo] : []), ...(tutor.pensamiento ? ["--thinking", tutor.pensamiento] : [])];
+  };
   const enginePath = options.enginePath ?? join(REPO, "bin", "learning");
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
   const token = options.token ?? randomBytes(32).toString("hex");
@@ -600,28 +661,25 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   // restart comes back to when the runtime's session is gone. Both live next to `opened.json`.
   const busyMarker = busyFile(openedFile);
   const conversationFile = snapshotFile(openedFile);
-  /** The active chat's thread, written as it happens: a restart must not take the turn with it. */
-  let transcript: ChatMessage[] = [];
-  /** The turn a previous process was holding when it went away; shown until the learner resumes. */
-  let interrupted: InterruptedTurn | null = null;
-  {
-    // Only a copy whose writer is gone: a studio that is still running keeps its own.
-    const copied = readRestartSnapshot(conversationFile, chats.activo);
-    if (copied) {
-      transcript = copied.messages;
-      interrupted = copied.interrupted;
-    }
-  }
-  /** The studio's own copy of the conversation, written at every turn boundary. */
-  const saveSnapshot = () =>
-    saveSnapshotFile(conversationFile, { version: 1, chat: chats.activo, pid: process.pid, messages: transcript, interrupted });
-  /** A message the studio keeps for itself; the runtime's own session is not the only copy. */
-  const remember = (message: ChatMessage) => {
-    transcript.push(message);
-    saveSnapshot();
+  const busyTracker = createBusyTracker(openedFile);
+  const locks = createTopicLocks();
+  const taskConversationFile = taskConversationsFile(chatsFile);
+  /** One Session for the main chat, one per topic: a map, never a global limit. */
+  const tasks = new Map<string, Session>();
+  const taskClients = new Map<string, Set<ServerResponse>>();
+  const allTaskClients = new Set<ServerResponse>();
+  const taskView = (session: Session): TaskView => ({
+    topic: session.topic ?? session.id,
+    state: taskState(session),
+    activity: session.activity,
+    queued: session.topic === null ? 0 : locks.queued(session.topic),
+  });
+  const taskViews = (): TaskView[] => [...tasks.values()].map(taskView).sort((a, b) => a.topic.localeCompare(b.topic));
+  const emitTareas = () => {
+    const frame = `event: tareas\ndata: ${JSON.stringify({ tareas: taskViews() })}\n\n`;
+    for (const res of clients) res.write(frame);
+    for (const res of allTaskClients) res.write(frame);
   };
-  /** Adopting the boot session must finish before the first prompt decides where it lands. */
-  let ready: Promise<void> = Promise.resolve();
   const offlineCacheDir = options.offlineCacheDir ?? join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "learning-studio", "cdn");
   let port = 0;
 
@@ -631,37 +689,95 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const res of clients) res.write(frame);
   };
+  /** Task frames are written to a task stream and always name the topic; main frames never do. */
+  const emitTask = (topic: string, event: string, data: unknown) => {
+    const frame = `event: ${event}\ndata: ${JSON.stringify({ ...(isRecord(data) ? data : {}), task: topic })}\n\n`;
+    const group = taskClients.get(topic);
+    for (const res of group ?? []) res.write(frame);
+    // A topic stream is in both sets: the global set is only for streams with no topic filter.
+    for (const res of allTaskClients) if (!group?.has(res)) res.write(frame);
+  };
 
-  // ---- Pi child (JSONL RPC) ----------------------------------------------
-  let child: ChildProcessWithoutNullStreams | undefined;
-  /** Antigravity keeps its conversation per process, so the studio keeps what the learner read. */
-  let agy: ReturnType<typeof createAgy> | undefined;
-  const agyTurns: Array<{ role: "user" | "assistant"; text: string }> = [];
-  /** The topic the learner picked for deep tutoring; general chat and quick notes never set it. */
-  let tema: string | null = null;
-  /**
-   * The topic the last turn taught, or null when it taught none. The page needs it at the end of
-   * the turn to offer that topic's next step: a turn that writes nothing still teaches a topic.
-   */
-  let turnTopic: string | null = null;
-  let gateBlocked = false;
-  /**
-   * The one turn in flight, from the moment the studio accepts it until its settle is decided —
-   * gate corrections included. Holding it is what makes a second turn impossible by construction:
-   * every turn start refuses while it is held, and every exit releases it.
-   */
-  let turn: Turn | null = null;
-  /** The failing-stage rule: one gate for every runtime, its counters reset when the learner talks. */
-  const settleGate = createSettleGate();
-  let alive = false;
-  let nextId = 0;
-  let assistantSeq = 0;
-  let assistantId = "";
-  const waiting = new Map<string, (record: Json) => void>();
-  // A tool's end event may arrive without its arguments; the row keeps the ones its start carried.
-  const toolArgs = new Map<string, unknown>();
-  const dialogs = new Map<string, Json>();
-  const state = () => ({ busy: turn !== null, alive, tema: turnTopic });
+  const taskState = (session: Session): TaskState => {
+    const queued = session.topic === null ? 0 : locks.queued(session.topic);
+    if (session.turn) {
+      if (queued > 0) return "waiting";
+      if (session.dialogs.size > 0) return "asking";
+      return "working";
+    }
+    // A task waiting for the main chat's writer is visible even before it owns a turn (S5).
+    if (queued > 0) return "waiting";
+    return session.status;
+  };
+  const stateOf = (session: Session): Record<string, unknown> => ({
+    busy: session.turn !== null,
+    alive: session.alive,
+    tema: session.turnTopic,
+    ...(session.kind === "task" ? { estado: taskState(session), activity: session.activity, queued: locks.queued(session.topic ?? "") } : {}),
+  });
+
+  /** A session owns its process, its turn, its dialogs, its transcript and its busy entry. */
+  function createSession(spec: { id: string; kind: "main" | "task"; topic?: string | null }): Session {
+    const file = spec.kind === "main" ? conversationFile : sessionSnapshotFile(openedFile, spec.id);
+    const session: Session = {
+      id: spec.id,
+      topic: spec.kind === "task" ? spec.id : null,
+      kind: spec.kind,
+      agyTurns: [],
+      alive: false,
+      ready: Promise.resolve(),
+      turn: null,
+      turnTopic: null,
+      tema: null,
+      gateBlocked: false,
+      settleGate: createSettleGate(),
+      nextId: 0,
+      assistantSeq: 0,
+      assistantId: "",
+      waiting: new Map(),
+      toolArgs: new Map(),
+      dialogs: new Map(),
+      transcript: [],
+      interrupted: null,
+      busyMarker,
+      conversationFile: file,
+      activity: "Preparado",
+      status: "done",
+      stale: false,
+      agyConversation: null,
+      emit: (_event, _data) => {},
+      state: () => ({}),
+      saveSnapshot: () => {},
+      remember: (_message) => {},
+    };
+    if (spec.kind === "main") {
+      // Only a copy whose writer is gone: a studio that is still running keeps its own.
+      const copied = readRestartSnapshot(file, chats.activo);
+      if (copied) {
+        session.transcript = copied.messages;
+        session.interrupted = copied.interrupted;
+      }
+    }
+    session.emit = (event, data) => {
+      if (session.kind === "main") emit(event, data);
+      else emitTask(session.id, event, data);
+    };
+    session.state = () => stateOf(session);
+    session.saveSnapshot = () => saveSnapshotFile(file, {
+      version: 1,
+      chat: session.kind === "main" ? chats.activo : `tarea:${session.id}`,
+      pid: process.pid,
+      messages: session.transcript,
+      interrupted: session.interrupted,
+    });
+    session.remember = (message) => {
+      session.transcript.push(message);
+      session.saveSnapshot();
+    };
+    return session;
+  }
+  /** The chat the learner sees: its behaviour, frames and one-turn rule stay where they were. */
+  const main = createSession({ id: "main", kind: "main" });
 
   // ---- Idle exit ---------------------------------------------------------
   /**
@@ -676,7 +792,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   /** Resolves once the studio closed because nobody had it open; never when the window is off. */
   const whenIdleClosed = new Promise<void>((resolve) => { announceIdle = resolve; });
   /** What holds a studio open with no page on it: a message stream, a turn, or a marker a deploy wrote. */
-  const idleHeld = () => clients.size > 0 || turn !== null || busyActive(readBusy(busyMarker));
+  const idleHeld = () => clients.size > 0 || taskClients.size > 0 || busyTracker.held();
   /** A page or a turn took over: the countdown starts again when it lets go. */
   const holdIdle = () => {
     if (idleTimer) clearTimeout(idleTimer);
@@ -704,38 +820,42 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     announceIdle();
   };
 
-  const handle = (record: Json) => {
+  const handle = (record: Json, session: Session) => {
     const type = record.type;
-    if (type === "response" && typeof record.id === "string" && waiting.has(record.id)) {
-      waiting.get(record.id)!(record);
-      waiting.delete(record.id);
+    if (type === "response" && typeof record.id === "string" && session.waiting.has(record.id)) {
+      session.waiting.get(record.id)!(record);
+      session.waiting.delete(record.id);
       return;
     }
+    const chatId = () => session.kind === "main" ? chats.activo : `tarea:${session.id}`;
+    const changed = () => { if (session.kind === "task") emitTareas(); };
     switch (type) {
       case "agent_start":
         return;
       case "agent_settled": {
-        toolArgs.clear();
+        session.toolArgs.clear();
         // The call the studio was waiting for is over: its time is the runtime's own work, and what
         // follows (the engine's verdict, the part's checks) is the studio's own phase.
-        turn?.timing.endCall(true);
+        session.turn?.timing.endCall(true);
         // Only the session Pi is in can report its usage, so it is read while it is active.
-        if (!agy) void refreshContexto();
-        emit("library_changed", {});
-        // There is exactly one turn in flight, so the settle always belongs to it. The engine is the
-        // authority on whether it is over; a turn that teaches no topic simply ends.
-        const settled = turn;
+        if (!session.agy && session.kind === "main") void refreshContexto(session);
+        session.emit("library_changed", {});
+        // There is exactly one turn in flight per Session, so the settle always belongs to it. The
+        // engine is the authority on whether it is over; a turn that teaches no topic simply ends.
+        const settled = session.turn;
         if (!settled) return;
         if (!settled.topic) {
           // A Universitario request whose tutor wrote no topic folder has nothing to gate; the
           // learner is told instead of being left with a silent stop.
-          if (settled.creation) emit("notice", { level: "warning", message: "El tutor no creó ningún tema todavía." });
+          if (settled.creation) session.emit("notice", { level: "warning", message: "El tutor no creó ningún tema todavía." });
           // A regeneration of a topic the engine does not track has nothing to check the part against.
           if (settled.regeneration) settled.regeneration.reason ??= "el tema no está inscrito en el motor de aprendizaje";
-          releaseTurn(settled);
+          releaseTurn(session, settled);
           return;
         }
-        void settleTurn(settled);
+        session.activity = "Revisando el motor";
+        changed();
+        void settleTurn(session, settled);
         return;
       }
       case "message_start": {
@@ -747,18 +867,19 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           // The gate's instruction is the studio's prompt, never the learner's own words.
           if (isStudioPrompt(text)) return;
           if (text) {
-            emit("user", { text });
-            if (agy) agyTurns.push({ role: "user", text });
-            remember({ role: "user", text });
+            session.emit("user", { text });
+            if (session.agy) session.agyTurns.push({ role: "user", text });
+            session.remember({ role: "user", text });
+            if (session.kind === "task") { session.activity = text.slice(0, 80); changed(); }
           }
         }
-        if (isRecord(message) && message.role === "assistant") assistantId = `a${++assistantSeq}`;
+        if (isRecord(message) && message.role === "assistant") session.assistantId = `a${++session.assistantSeq}`;
         return;
       }
       case "message_update": {
         const ev = record.assistantMessageEvent;
         if (isRecord(ev) && ev.type === "text_delta" && typeof ev.delta === "string") {
-          emit("assistant_delta", { id: assistantId, delta: ev.delta });
+          session.emit("assistant_delta", { id: session.assistantId, delta: ev.delta });
         }
         return;
       }
@@ -771,55 +892,63 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           const text = studioLinks(raw, root);
           // What the call answered, as the model produced it: the size of its own output, before the
           // studio rewrote a single link.
-          if (raw && turn) turn.timing.addOutput(raw.length);
-          if (text) emit("assistant_end", { id: assistantId, text });
-          if (agy && text) agyTurns.push({ role: "assistant", text });
-          if (text) remember({ role: "assistant", text });
+          if (raw && session.turn) session.turn.timing.addOutput(raw.length);
+          if (text) session.emit("assistant_end", { id: session.assistantId, text });
+          if (session.agy && text) session.agyTurns.push({ role: "assistant", text });
+          if (text) session.remember({ role: "assistant", text });
         }
         return;
       }
       case "tool_execution_start": {
         const name = String(record.toolName);
         const id = String(record.toolCallId);
-        toolArgs.set(id, record.args);
+        session.toolArgs.set(id, record.args);
         const note = toolNote(name, record.args, root);
         const topic = toolTopic(name, record.args, root);
-        emit("tool", { phase: "start", chat: chats.activo, id: record.toolCallId, name: record.toolName, label: toolLabel(name, record.args), ok: true, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
+        const label = toolLabel(name, record.args);
+        if (session.kind === "task") { session.activity = label; changed(); }
+        session.emit("tool", { phase: "start", chat: chatId(), id: record.toolCallId, name: record.toolName, label, ok: true, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
       }
       case "tool_execution_end": {
         const name = String(record.toolName);
         const id = String(record.toolCallId);
-        const args = record.args ?? toolArgs.get(id);
-        toolArgs.delete(id);
+        const args = record.args ?? session.toolArgs.get(id);
+        session.toolArgs.delete(id);
         const note = toolNote(name, args, root);
         const topic = toolTopic(name, args, root);
         // The part notes the turn wrote are measured at its settle: the studio knows them from the
         // tool events, so no file is guessed from the plan.
-        if (turn && !record.isError && note !== null && "index" in note && typeof args === "object" && args !== null) {
+        if (session.turn && !record.isError && note !== null && "index" in note && typeof args === "object" && args !== null) {
           const path = (args as Json).path;
           if (typeof path === "string") {
             // A part's note and its page are two files: each is listed once and measured on its own (#265).
             const file = resolve(root, path);
-            if (!turn.parts.includes(file)) turn.parts.push(file);
+            if (!session.turn.parts.includes(file)) session.turn.parts.push(file);
           }
         }
         // A Universitario request creates the topic its own writes name: the first folder the tutor
-        // writes into becomes the held turn's topic, so the gate can ask the engine about it.
-        if (turn?.creation && turn.topic === null && !record.isError && topic !== null) {
-          turn.topic = topic;
-          // The topic was not there when the turn started: the method the engine has for it is read when the
-          // turn names it, before anything the turn wrote can have recorded one (#314).
-          turn.methodBefore = methodOf(topic);
-          tema = topic;
-          gateBlocked = false;
-          // The deploy's message names the topic the turn is really teaching.
-          const startedAt = interrupted?.at ?? Date.now();
-          interrupted = { topic, at: startedAt };
-          markBusy(busyMarker, { pid: process.pid, startedAt, topic });
-          saveSnapshot();
+        // writes into becomes the held turn's topic, so the gate can ask the engine about it. The
+        // writer ticket is taken here without blocking the tool result (L5).
+        if (session.turn?.creation && session.turn.topic === null && !record.isError && topic !== null) {
+          const started = session.turn;
+          started.topic = topic;
+          started.methodBefore = methodOf(topic);
+          session.tema = topic;
+          session.gateBlocked = false;
+          const startedAt = session.interrupted?.at ?? Date.now();
+          session.interrupted = { topic, at: startedAt };
+          started.lockPromise = locks.acquire(topic);
+          void started.lockPromise.then((ticket) => {
+            if (session.turn === started) started.lock = ticket;
+            else ticket.release();
+            changed();
+          });
+          session.emit("state", session.state());
+          busyTracker.mark(session.id, { pid: process.pid, startedAt, topic });
+          session.saveSnapshot();
         }
-        emit("tool", { phase: "end", chat: chats.activo, id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
+        session.emit("tool", { phase: "end", chat: chatId(), id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
       }
       case "extension_ui_request": {
@@ -833,10 +962,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
             options: Array.isArray(record.options) ? record.options : [],
             placeholder: record.placeholder ?? "",
           };
-          dialogs.set(record.id, dialog);
-          emit("dialog", dialog);
+          session.dialogs.set(record.id, dialog);
+          session.emit("dialog", dialog);
+          if (session.kind === "task") { session.activity = `Preguntándote: ${dialog.title || dialog.message || ""}`.trim(); changed(); }
         } else if (method === "notify" && typeof record.message === "string") {
-          if (!HARNESS_NOTICE.test(record.message.trim())) emit("notice", { level: record.notifyType ?? "info", message: record.message });
+          if (!HARNESS_NOTICE.test(record.message.trim())) session.emit("notice", { level: record.notifyType ?? "info", message: record.message });
           else process.stderr.write(`estudio: aviso del arnés fuera del chat · ${record.message}\n`);
         }
         return;
@@ -844,15 +974,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     }
   };
 
-  const startPi = () => {
-    const [cmd, ...args] = piCommand();
+  const startPi = (session: Session) => {
+    const [cmd, ...args] = piCommand(session.topic);
     const proc = spawn(cmd, args, {
       cwd: root,
       env: { ...process.env, GENTLE_SHELL_INTERACTIVE_HOST: "1", LEARNING_SETTLE_GATE: "studio" },
       stdio: ["pipe", "pipe", "pipe"],
     });
-    child = proc;
-    alive = true;
+    session.child = proc;
+    session.alive = true;
     let buffer = Buffer.alloc(0);
     proc.stdout.on("data", (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
@@ -864,7 +994,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         if (!line.trim()) continue;
         try {
           const record = JSON.parse(line);
-          if (isRecord(record)) handle(record);
+          if (isRecord(record)) handle(record, session);
         } catch {
           // Not a protocol record; Pi reserves stdout for records.
         }
@@ -872,49 +1002,103 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     });
     proc.stderr.resume();
     proc.on("exit", () => {
-      if (child !== proc) return;
-      alive = false;
-      for (const resolve of waiting.values()) resolve({ success: false, error: "Pi exited" });
-      waiting.clear();
-      for (const id of dialogs.keys()) emit("dialog_closed", { id });
-      dialogs.clear();
+      if (session.child !== proc) return;
+      session.alive = false;
+      for (const resolve of session.waiting.values()) resolve({ success: false, error: "Pi exited" });
+      session.waiting.clear();
+      for (const id of session.dialogs.keys()) session.emit("dialog_closed", { id });
+      session.dialogs.clear();
       // A dead runtime cannot finish its turn: releasing it is what keeps nothing latched.
-      releaseTurn();
-      emit("state", state());
-      emit("error", { message: "El tutor se detuvo." });
+      if (session.turn) session.turn.aborted = true;
+      releaseTurn(session);
+      if (session.kind === "task") { session.status = "failed"; session.activity = "El tutor se detuvo"; emitTareas(); }
+      session.emit("state", session.state());
+      session.emit("error", { message: "El tutor se detuvo." });
     });
-    proc.on("error", (err) => emit("error", { message: `No se pudo iniciar Pi: ${err.message}` }));
-    emit("state", state());
+    proc.on("error", (err) => session.emit("error", { message: `No se pudo iniciar Pi: ${err.message}` }));
+    session.emit("state", session.state());
   };
 
-  const write = (command: Json) => {
+  const stopRuntime = (session: Session) => {
+    const proc = session.child;
+    session.child = undefined;
+    if (proc) proc.kill();
+    session.agy?.stop();
+    session.agy = undefined;
+    session.alive = false;
+  };
+
+  /** Starts the runtime a task will use; new settings only reach tasks that were idle at the change. */
+  const startTaskRuntime = (session: Session) => {
+    if (options.agentDisabled) return;
+    session.stale = false;
+    if (tutor.agente === "pi") {
+      startPi(session);
+      session.ready = Promise.resolve();
+    } else {
+      const conversations = readTaskConversations(taskConversationFile);
+      session.agyConversation = conversations.conversaciones[session.id] ?? null;
+      session.agy = createAgy({
+        command: options.agyCommand ?? ["agy"],
+        cwd: root,
+        config: tutor,
+        onRecord: (record) => handle(record, session),
+        onError: (message) => session.emit("error", { message }),
+        onConversation: (id) => {
+          session.agyConversation = id;
+          saveTaskConversation(taskConversationFile, session.id, id);
+        },
+        env: { LEARNING_TASK_TOPIC: session.id },
+      });
+      if (session.agyConversation) session.agy.open(session.agyConversation);
+      session.ready = Promise.resolve();
+      session.alive = true;
+      session.emit("state", session.state());
+    }
+  };
+
+  const missingRuntime = (session: Session) => !session.agy && !(session.child && session.alive);
+
+  /** The task for a topic is created on first use and then kept for the studio's lifetime. */
+  const ensureTask = (topic: string): Session => {
+    let session = tasks.get(topic);
+    if (!session) {
+      session = createSession({ id: topic, kind: "task", topic });
+      session.agyConversation = readTaskConversations(taskConversationFile).conversaciones[topic] ?? null;
+      tasks.set(topic, session);
+      emitTareas();
+    }
+    return session;
+  };
+
+  const write = (session: Session, command: Json) => {
     // Learner-visible: the page shows these words, so they are the studio's Spanish.
     if (options.agentDisabled) throw new HttpError(503, "El tutor está desactivado.");
-    if (!child || !alive) throw new HttpError(503, "El tutor no está en marcha.");
-    child.stdin.write(`${JSON.stringify(command)}\n`);
+    if (!session.child || !session.alive) throw new HttpError(503, "El tutor no está en marcha.");
+    session.child.stdin.write(`${JSON.stringify(command)}\n`);
   };
 
-  const call = (command: Json, timeoutMs = 30000): Promise<Json> =>
+  const call = (session: Session, command: Json, timeoutMs = 30000): Promise<Json> =>
     new Promise((resolve, reject) => {
-      const id = `s${++nextId}`;
+      const id = `s${++session.nextId}`;
       const timer = setTimeout(() => {
-        waiting.delete(id);
+        session.waiting.delete(id);
         reject(new HttpError(504, `Pi did not answer ${command.type}`));
       }, timeoutMs);
-      waiting.set(id, (record) => {
+      session.waiting.set(id, (record) => {
         clearTimeout(timer);
         resolve(record);
       });
       try {
-        write({ ...command, id });
+        write(session, { ...command, id });
       } catch (err) {
         clearTimeout(timer);
-        waiting.delete(id);
+        session.waiting.delete(id);
         reject(err);
       }
     });
 
-  // ---- conversations -------------------------------------------------------
+  // ---- conversations (the main chat only) ----------------------------------
   /** The index is the list; every change is written before the browser hears about it. */
   const persist = (doc: ChatDoc): ChatDoc => {
     chats = saveChats(chatsFile, doc);
@@ -932,11 +1116,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const piSessionsRoot = () => process.env.PI_CODING_AGENT_SESSION_DIR || join(homedir(), ".pi", "agent", "sessions");
 
   /** Pi's own report of the session it is in: the file, and how full its context is. */
-  const piStats = async (): Promise<{ file: string | null; contexto: ChatContexto | null }> => {
-    if (!child || !alive) return { file: null, contexto: null };
+  const piStats = async (session: Session): Promise<{ file: string | null; contexto: ChatContexto | null }> => {
+    if (!session.child || !session.alive) return { file: null, contexto: null };
     try {
       // A short bound: a runtime that cannot report its session must not stall a turn.
-      const reply = await call({ type: "get_session_stats" }, 2500);
+      const reply = await call(session, { type: "get_session_stats" }, 2500);
       const data = isRecord(reply.data) ? reply.data : {};
       const file = typeof data.sessionFile === "string" ? data.sessionFile : null;
       const usage = isRecord(data.contextUsage) ? data.contextUsage : null;
@@ -955,10 +1139,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   /** The last usage Pi measured for the active chat, so the list shows how full it is. */
-  const refreshContexto = async () => {
+  const refreshContexto = async (session: Session) => {
+    if (session.kind !== "main") return;
     const current = activeChat();
     if (!current) return;
-    const stats = await piStats();
+    const stats = await piStats(session);
     if (stats.contexto) persist(recordContexto(chats, current.id, stats.contexto));
     emit("chats", chats);
   };
@@ -968,29 +1153,29 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * no handle yet starts one and records it, so the next open comes back to it.
    */
   const switchTo = async (chat: Chat) => {
-    if (turn) throw new HttpError(409, TURN_ACTIVE);
-    if (agy) {
+    if (main.turn) throw new HttpError(409, TURN_ACTIVE);
+    if (main.agy) {
       // Antigravity names its conversation per turn, so switching is choosing the id.
-      agy.open(chat.agyConversation ?? undefined);
+      main.agy.open(chat.agyConversation ?? undefined);
       return;
     }
     if (chat.piSession) {
-      const reply = await call({ type: "switch_session", sessionPath: chat.piSession });
+      const reply = await call(main, { type: "switch_session", sessionPath: chat.piSession });
       if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi no quiso cambiar de conversación."));
       if (isRecord(reply.data) && reply.data.cancelled === true) throw new HttpError(409, "una extensión canceló el cambio de conversación.");
       return;
     }
-    const reply = await call({ type: "new_session" });
+    const reply = await call(main, { type: "new_session" });
     if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi no quiso abrir una conversación nueva."));
-    const stats = await piStats();
+    const stats = await piStats(main);
     if (stats.file) persist(setPiSession(chats, chat.id, stats.file));
   };
 
   /** The copy belongs to the chat that is now active; the runtime serves this chat's thread. */
   const adoptConversation = async () => {
-    transcript = [];
-    interrupted = null;
-    saveSnapshot();
+    main.transcript = [];
+    main.interrupted = null;
+    main.saveSnapshot();
     return rememberHistory();
   };
 
@@ -1005,7 +1190,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   const newConversation = async (input: { nombre: unknown; ambito?: unknown }): Promise<{ doc: ChatDoc; chat: Chat }> => {
-    if (turn) throw new HttpError(409, TURN_ACTIVE);
+    if (main.turn) throw new HttpError(409, TURN_ACTIVE);
     const { doc, chat } = createChat(chats, input);
     persist(doc);
     await switchTo(chat);
@@ -1019,9 +1204,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * a later boot returns to the active chat's own session instead of the boot one.
    */
   const adoptBoot = async () => {
-    if (agy) return;
-    const stats = await piStats();
-    if (!alive) return;
+    if (main.agy) return;
+    const stats = await piStats(main);
+    if (!main.alive) return;
     const current = activeChat();
     if (!current) return;
     // A restart boots the studio's own session; the active chat may be another one.
@@ -1037,35 +1222,39 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     emit("chats", chats);
   };
 
+  /** Changing tutor never kills a task that is working: its next turn uses the new settings. */
   const startTutor = (config: TutorConfig) => {
-    const previous = child;
-    // A restart ends the turn the previous tutor was running, and restores the front of the rule.
-    releaseTurn();
-    settleGate.reset();
-    child = undefined;
-    previous?.kill();
-    for (const resolve of waiting.values()) resolve({ success: false, error: "Tutor restarted" });
-    waiting.clear();
-    agy?.stop();
-    agy = undefined;
+    releaseTurn(main);
+    main.settleGate.reset();
+    stopRuntime(main);
+    for (const resolve of main.waiting.values()) resolve({ success: false, error: "Tutor restarted" });
+    main.waiting.clear();
     tutor = config;
+    for (const session of tasks.values()) {
+      // A running task finishes on this runtime; the next turn replaces it with the new one.
+      session.stale = true;
+      if (session.turn) continue;
+      stopRuntime(session);
+      session.activity = "Actualizando al tutor";
+    }
     if (config.agente === "pi") {
-      startPi();
-      ready = adoptBoot();
+      startPi(main);
+      main.ready = adoptBoot();
     } else {
-      agy = createAgy({
+      main.agy = createAgy({
         command: options.agyCommand ?? ["agy"],
         cwd: root,
         config,
-        onRecord: handle,
-        onError: message => emit("error", { message }),
+        onRecord: (record) => handle(record, main),
+        onError: (message) => emit("error", { message }),
         // The id belongs to the chat that is talking, so it is recorded where it can be found again.
-        onConversation: id => { if (activeChat()) persist(setAgyConversation(chats, chats.activo, id)); },
+        onConversation: (id) => { if (activeChat()) persist(setAgyConversation(chats, chats.activo, id)); },
       });
-      ready = Promise.resolve();
-      alive = true;
-      emit("state", state());
+      main.ready = Promise.resolve();
+      main.alive = true;
+      emit("state", main.state());
     }
+    emitTareas();
   };
 
   /** A deep topic must be one the engine tracks; anything else would be tutored without a gate. */
@@ -1095,35 +1284,38 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * The engine's own report on a topic: the call the library makes, so the gate and the library can
    * never describe the same topic differently, with the error handling that call already has.
    */
-  const runGate = async (topic: string) => {
+  const runGate = async (session: Session, topic: string) => {
     // The engine's own answer, even for a folder with no run yet: a topic a Universitario request
     // just created must still hear the engine's words ("run not initialized: …"), not a shortcut.
     const report = await engineReport(join(root, topic));
     const verdict = gateVerdict(report as GateReport);
-    // A gate for a topic the learner already left says nothing about the one they are on.
-    if (tema === topic) {
-      gateBlocked = !verdict.passing;
-      emit("gate", { tema: topic, ...verdict });
+    // A gate for a topic this Session already left says nothing about the one it is on.
+    if (session.tema === topic) {
+      session.gateBlocked = !verdict.passing;
+      session.emit("gate", { tema: topic, ...verdict });
     }
     return { report, verdict };
   };
 
-  /** One turn at a time: a turn start while another is held is refused, in the learner's language. */
-  const requireNoTurn = () => {
-    if (turn) throw new HttpError(409, TURN_ACTIVE);
+  /** One turn per Session at a time: the main chat keeps its own rule, tasks queue before this. */
+  const requireNoTurn = (session: Session) => {
+    if (session.turn) throw new HttpError(409, TURN_ACTIVE);
   };
 
-  /** Holds the one turn and tells the page the tutor is working. */
-  const holdTurn = (started: Turn) => {
-    turn = started;
-    turnTopic = started.topic;
+  /** Holds a Session's turn and tells its stream the tutor is working. */
+  const holdTurn = (session: Session, started: Turn) => {
+    session.turn = started;
+    session.turnTopic = started.topic;
     // Written before the runtime is asked to work: a deploy reads it, and a process that
     // dies leaves the turn marked so the next boot can say it was interrupted.
     const at = Date.now();
-    interrupted = { topic: started.topic, at };
-    markBusy(busyMarker, { pid: process.pid, startedAt: at, topic: started.topic });
-    saveSnapshot();
-    emit("state", state());
+    session.interrupted = { topic: started.topic, at };
+    busyTracker.mark(session.id, { pid: process.pid, startedAt: at, topic: started.topic });
+    session.status = "working";
+    session.activity = "Trabajando";
+    session.saveSnapshot();
+    session.emit("state", session.state());
+    emitTareas();
   };
 
   // ---- the timing of a generation --------------------------------------------
@@ -1159,17 +1351,20 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * or an engine call that could not answer. Nothing may leave a turn held.
    *
    * A release that resumes after an `await` names the turn it was called for (`owner`), so a settle
-   * that finishes late can never release the turn the learner started after it: an abort or a
-   * restart may have released that turn and a new one may be in flight. The studio's own immediate
-   * decisions (abort, restart, a dead runtime, a turn that teaches no topic) release the live turn.
+   * that finishes late can never release the turn the learner started after it. The writer ticket
+   * the turn inherited is released here, never before its files are safe.
    */
-  const releaseTurn = (owner?: Turn) => {
-    if (!turn) return;
-    if (owner !== undefined && turn !== owner) return;
-    const ended = turn;
-    turn = null;
-    interrupted = null;
-    clearBusy(busyMarker);
+  const releaseTurn = (session: Session, owner?: Turn) => {
+    if (!session.turn) return;
+    if (owner !== undefined && session.turn !== owner) return;
+    const ended = session.turn;
+    session.turn = null;
+    session.interrupted = null;
+    busyTracker.clear(session.id);
+    ended.lock?.release();
+    if (ended.lockPromise) void ended.lockPromise.then((ticket) => ticket.release());
+    session.status = ended.aborted ? "failed" : "done";
+    session.activity = ended.aborted ? "Turno detenido" : "Terminado";
     // A regeneration only replaces the previous version once it has passed. Every exit goes through
     // here, so an aborted, restarted or spent correction puts the reader back on the old part.
     if (ended.regeneration && !ended.regeneration.passed) {
@@ -1195,7 +1390,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         process.stderr.write(`estudio: no se pudo restaurar la versión anterior · ${(error as Error).message}\n`);
       }
       const sentence = /[.!?]$/.test(why) ? why : `${why}.`;
-      emit("error", {
+      session.emit("error", {
         message: restored
           ? `La versión nueva no pasó: ${sentence} Sigues leyendo la versión anterior.`
           : `La versión nueva no pasó: ${sentence} Esta parte no tenía una versión anterior: no hay nada que mostrar.`,
@@ -1204,22 +1399,22 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     // A turn that wrote a part generated a page: its timings are on disk before the page hears
     // the turn is over, so a reader can compare this generation with the next one.
     if (ended.parts.length > 0) savePageTiming(ended.timing, ended.parts);
-    saveSnapshot();
-    emit("state", state());
+    session.saveSnapshot();
+    session.emit("state", session.state());
+    emitTareas();
     // The turn that held the studio is over: the idle window starts counting again.
     armIdle();
   };
 
   /** One prompt to the runtime. A refusal is the studio's log, never the learner's words. */
-  const deliver = async (text: string, started: Turn, reason: CallReason = "turn") => {
+  const deliver = async (session: Session, text: string, started: Turn, reason: CallReason = "turn") => {
     // From here until the runtime settles is this call's own time; the sizes are what it sends.
     started.timing.startCall(reason, text.length);
     try {
-      if (agy) {
-        agy.prompt(text);
+      if (session.agy) {
+        session.agy.prompt(text);
       } else {
-        // One turn at a time: the studio never queues a follow-up behind a running turn.
-        const reply = await call({ type: "prompt", message: text });
+        const reply = await call(session, { type: "prompt", message: text });
         if (reply.success === false) throw new HttpError(409, String(reply.error ?? "el tutor rechazó el turno"));
       }
     } catch (error) {
@@ -1235,22 +1430,22 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   /** What the learner is told when a correction could not be sent; the cause stays in the log. */
-  const correctionRefused = (topic: string) => {
-    emit("error", { message: `El tutor no pudo retomar «${topic}»: el motor sigue sin darlo por cerrado. Vuelve a pedírselo.` });
+  const correctionRefused = (session: Session, topic: string) => {
+    session.emit("error", { message: `El tutor no pudo retomar «${topic}»: el motor sigue sin darlo por cerrado. Vuelve a pedírselo.` });
   };
 
   /**
    * The tutor reads its skill and the Learnings `AGENTS.md` from links the deploy
-   * owns. A link that resolves anywhere else means the learner would be taught
-   * with a standard nobody reviewed, so the turn never starts.
+   * owns. A link that resolves anywhere else means nobody reviewed what the tutor would read,
+   * so the turn never starts.
    */
-  const refuseDriftedContext = () => {
+  const refuseDriftedContext = (session: Session) => {
     // A disabled tutor starts no turn at all, so its own refusal is the answer.
     if (options.skipContextCheck || options.agentDisabled) return;
     const drift = checkTutorContext({ repo: REPO, root, home: options.contextHome });
     if (!drift) return;
     const message = driftMessage(drift);
-    emit("error", { message });
+    session.emit("error", { message });
     throw new HttpError(409, message);
   };
 
@@ -1276,58 +1471,72 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 
   /**
    * The only way a tutor turn starts, whatever path asks for it: the composer, a submission from the
-   * page, a regeneration. Every one names the topic it teaches, or says in code why it teaches none.
-   * The turn is held until its settle is decided; only an accepted learner turn restores the budget.
-   * Every refusal comes before the hold, and a regeneration's backup comes after it: a turn that
-   * cannot start moves nothing (#316).
+   * page, a regeneration. A writer ticket may already be held by the route; the turn takes it over
+   * and releases it when the settle (or an abort) ends. A regeneration's backup comes after the hold.
    */
-  const startTurn = async (text: string, spec: { topic: string | null; correction?: boolean; creation?: boolean; backup?: () => NonNullable<Turn["regeneration"]> }) => {
-    requireNoTurn();
-    // A drifted skill or AGENTS.md link means nobody reviewed what the tutor would read.
-    refuseDriftedContext();
-    // Never route a turn before the studio knows which conversation it belongs to. A runtime that
-    // could not open its conversation refuses the turn in the learner's words, as a drift does.
+  const startTurn = async (session: Session, text: string, spec: {
+    topic: string | null;
+    correction?: boolean;
+    creation?: boolean;
+    lock?: { release: () => void } | null;
+    backup?: () => NonNullable<Turn["regeneration"]>;
+  }) => {
+    let started: Turn | null = null;
     try {
-      await ready;
+      requireNoTurn(session);
+      // A drifted skill or AGENTS.md link means nobody reviewed what the tutor would read.
+      refuseDriftedContext(session);
+      // Never route a turn before the studio knows which conversation it belongs to.
+      try {
+        await session.ready;
+      } catch (error) {
+        process.stderr.write(`estudio: el tutor no pudo abrir su conversación · ${(error as Error).message}\n`);
+        const message = "El tutor no empieza: no pudo abrir su conversación. Vuelve a intentarlo en un momento.";
+        session.emit("error", { message });
+        throw new HttpError(503, message);
+      }
+      // A task whose settings changed while it was working gets its new runtime before the next turn.
+      if (session.kind === "task" && (session.stale || missingRuntime(session))) {
+        stopRuntime(session);
+        startTaskRuntime(session);
+        await session.ready;
+      }
+      // `ready` can take a moment, and a Session must not hold two turns because of it.
+      requireNoTurn(session);
+      started = {
+        topic: spec.topic,
+        correction: spec.correction === true,
+        creation: spec.creation === true,
+        parts: [],
+        methodBefore: spec.topic === null ? null : methodOf(spec.topic),
+        timing: createPageTiming({ runtime: tutor.agente, model: tutor.modelo, topic: spec.topic }),
+        lock: spec.lock ?? null,
+      };
+      holdTurn(session, started);
+      try {
+        if (spec.backup) started.regeneration = spec.backup();
+        const prompt = await started.timing.measure("contexto", () => withLecciones(namedPart(text), root));
+        await deliver(session, prompt, started);
+      } catch (error) {
+        releaseTurn(session, started);
+        throw error;
+      }
+      if (!started.correction) session.settleGate.reset();
+      // The topic the tutor is teaching is the topic the page is on, whatever path started the turn.
+      if (started.topic) {
+        session.tema = started.topic;
+        session.gateBlocked = false;
+      }
     } catch (error) {
-      process.stderr.write(`estudio: el tutor no pudo abrir su conversación · ${(error as Error).message}\n`);
-      const message = "El tutor no empieza: no pudo abrir su conversación. Vuelve a intentarlo en un momento.";
-      emit("error", { message });
-      throw new HttpError(503, message);
-    }
-    // `ready` can take a moment, and the studio must not hold two turns because of it.
-    requireNoTurn();
-    const started: Turn = {
-      topic: spec.topic,
-      correction: spec.correction === true,
-      creation: spec.creation === true,
-      parts: [],
-      // What the engine had recorded before this turn: a method it already had is never blamed on the turn (#314).
-      methodBefore: spec.topic === null ? null : methodOf(spec.topic),
-      // The generation's clocks start when the studio accepts the turn, not when the tutor starts.
-      timing: createPageTiming({ runtime: tutor.agente, model: tutor.modelo, topic: spec.topic }),
-    };
-    holdTurn(started);
-    try {
-      // A regeneration moves its previous version aside only now that the turn is held: from here on every
-      // exit releases the turn, and the release puts that version back.
-      if (spec.backup) started.regeneration = spec.backup();
-      // Every turn of every topic carries the learner's standing lessons: the same place for both
-      // runtimes, so neither can start a turn without them. Read per turn, so a lesson just
-      // recorded already applies to the next one.
-      // Building the prompt the tutor reads (the part's own name, the learner's standing lessons)
-      // is a phase of its own: it is the studio's work, before the model is called at all.
-      const prompt = await started.timing.measure("contexto", () => withLecciones(namedPart(text), root));
-      await deliver(prompt, started);
-    } catch (error) {
-      releaseTurn(started);
+      // Every exit owns the ticket: a held turn unwinds through releaseTurn, while a refusal
+      // before the hold releases the route's ticket right here. Release is idempotent, so a
+      // delivery failure that already let go still passes safely through this final path.
+      try {
+        if (started && session.turn === started) releaseTurn(session, started);
+      } finally {
+        spec.lock?.release();
+      }
       throw error;
-    }
-    if (!started.correction) settleGate.reset();
-    // The topic the tutor is teaching is the topic the page is on, whatever path started the turn.
-    if (started.topic) {
-      tema = started.topic;
-      gateBlocked = false;
     }
   };
 
@@ -1341,7 +1550,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * What the tools say about the parts a turn wrote. A tool that could not run is the studio's own
    * failure and goes to the log: it is never a finding the tutor is asked to fix.
    */
-  const checkParts = async (settled: Turn): Promise<PartReport | null> => {
+  const checkParts = async (session: Session, settled: Turn): Promise<PartReport | null> => {
     const files = partNotes(settled.parts);
     if (!files.length) return null;
     const checkPartsWithVerdicts = options.partChecks ?? ((paths: string[]) => runPartChecks(paths, { gateVerdictsFile: gateStoreFile, gateToolPath: options.gateToolPath }));
@@ -1356,65 +1565,58 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   /**
-   * What a settled turn still owes, for every runtime. The engine decides first: a cleared turn ends
-   * its part, a failing stage comes back as one more prompt of the same turn carrying the engine's
-   * own reasons, and a spent budget tells the learner instead of stopping silently. A turn the
-   * engine cleared still owes the part's own checks, because the engine cannot see a figure. Every
-   * path out releases the turn; only a correction that was sent keeps it.
+   * What a settled turn still owes, for every runtime and every Session. Every path out releases
+   * only its own turn; only a correction that was sent keeps it.
    */
-  const settleTurn = async (settled: Turn) => {
+  const settleTurn = async (session: Session, settled: Turn) => {
     const topic = settled.topic;
     let corrected = false;
     try {
       if (!topic) return;
-      const { report } = await settled.timing.measure("motor", () => runGate(topic));
+      const { report } = await settled.timing.measure("motor", () => runGate(session, topic));
       // Aborted or restarted while the engine answered: this turn is no longer the studio's.
-      if (turn !== settled) return;
-      // The method is the learner's choice on the topic page. A turn that recorded one itself took
-      // that choice away, and the studio does not accept it: the learner hears it instead of being
-      // taught a route they never picked (#248).
+      if (session.turn !== settled) return;
       const chose = tutorChoseMethod(topic, report, settled.methodBefore);
       if (chose) {
         const message = `El tutor eligió el método por ti (${chose}): el método se elige en la página del tema, no en el chat. El turno no se da por bueno.`;
-        // A regeneration says why through its quarantine: the learner reads that reason once, with the previous version.
         if (settled.regeneration) settled.regeneration.reason = message;
-        else emit("error", { message });
+        else session.emit("error", { message });
         return;
       }
-      const decision = settleGate.decide(report);
+      const decision = session.settleGate.decide(report);
       if (decision.action === "stop" && settled.regeneration) settled.regeneration.reason = decision.text;
       if (decision.action === "ask") {
         // The correction is the same turn, one more prompt: it is not a new turn start.
         try {
-          await deliver(decision.text, settled, "engine-correction");
+          await deliver(session, decision.text, settled, "engine-correction");
           corrected = true;
         } catch {
           if (settled.regeneration) settled.regeneration.reason ??= "el tutor no pudo retomar la corrección";
-          correctionRefused(topic);
+          correctionRefused(session, topic);
         }
       } else if (decision.action === "stop") {
-        emit("error", { message: decision.text });
+        session.emit("error", { message: decision.text });
       } else {
         if (decision.action === "unreadable") {
-          emit("notice", { level: "warning", message: `El motor no pudo revisar «${topic}»: el turno termina sin comprobarlo.` });
+          session.emit("notice", { level: "warning", message: `El motor no pudo revisar «${topic}»: el turno termina sin comprobarlo.` });
         }
         // The engine is done with this turn, so what it cannot measure is measured here: the part
         // the turn wrote still owes the scene and explanation checks before it reaches the learner.
-        const found = await settled.timing.measure("comprobaciones", () => checkParts(settled));
-        if (turn !== settled) return;
+        const found = await settled.timing.measure("comprobaciones", () => checkParts(session, settled));
+        if (session.turn !== settled) return;
         if (found) {
-          const verdict = settleGate.decideFindings(found);
+          const verdict = session.settleGate.decideFindings(found);
           if (verdict.action === "ask") {
             try {
-              await deliver(verdict.text, settled, "part-correction");
+              await deliver(session, verdict.text, settled, "part-correction");
               corrected = true;
             } catch {
               if (settled.regeneration) settled.regeneration.reason = "el tutor no pudo retomar la corrección";
-              correctionRefused(topic);
+              correctionRefused(session, topic);
             }
           } else if (verdict.action === "stop") {
             if (settled.regeneration) settled.regeneration.reason = verdict.text;
-            else emit("error", { message: verdict.text });
+            else session.emit("error", { message: verdict.text });
           }
         } else if (settled.regeneration && !settled.regeneration.passed && !settled.regeneration.reason) {
           // The engine cleared the turn and the tools found nothing: the new version is what the
@@ -1425,17 +1627,20 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       }
     } catch (error) {
       if (settled.regeneration) settled.regeneration.reason ??= "el turno no pudo comprobarse entero";
-      correctionRefused(topic ?? "el tema");
+      correctionRefused(session, topic ?? "el tema");
       process.stderr.write(`estudio: el motor no pudo decidir el turno · ${(error as Error).message}\n`);
     } finally {
       // Only the turn this settle was called for: a late answer may belong to a turn already gone.
-      if (!corrected) releaseTurn(settled);
+      if (!corrected) releaseTurn(session, settled);
     }
   };
 
   // ---- hosted study-view bridge -------------------------------------------
   const tools = new Map<string, { execute: (...args: unknown[]) => Promise<Json> }>();
   const shutdownHandlers: Array<() => Promise<void> | void> = [];
+  /** The bridge owns a topic ticket while it writes an answer file; the turn then inherits it. */
+  type LockHandle = { ticket: { release: () => void }; transfer: () => void; release: () => void };
+  const pendingTickets = new Map<string, LockHandle>();
   const fakePi = {
     on(event: string, handler: () => Promise<void> | void) {
       if (event === "session_shutdown") shutdownHandlers.push(handler);
@@ -1445,8 +1650,18 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       tools.set(tool.name, tool);
     },
     sendUserMessage(text: string) {
-      // The page's own submissions are deep turns when they belong to an enrolled topic.
-      return startTurn(text, { topic: bridgeTopic(text) });
+      // A topic's work belongs to that topic's task; the main chat keeps general submissions.
+      const topic = bridgeTopic(text);
+      const session = topic === null ? main : ensureTask(topic);
+      const handle = topic === null ? undefined : pendingTickets.get(topic);
+      const lock = handle?.ticket ?? null;
+      if (session.kind === "task" && missingRuntime(session)) startTaskRuntime(session);
+      return startTurn(session, text, { topic, lock }).then((result) => {
+        // Until the turn holds the ticket the bridge still owns it, so its `finally` is the
+        // safety net for a refusal before the hold. Only then is the handoff final.
+        handle?.transfer();
+        return result;
+      });
     },
   };
   const view = async (topic?: string, part?: string) => {
@@ -1890,8 +2105,6 @@ ${scripts}
       case "api/regenerar": {
         if (options.agentDisabled) throw new HttpError(503, "El tutor está desactivado.");
         if (!isRecord(body)) throw new HttpError(400, "No pude leer la regeneración.");
-        // A regeneration starts a turn: it is refused before anything is written or moved aside.
-        requireNoTurn();
         const tema = typeof body.tema === "string" ? body.tema : "";
         const parte = typeof body.parte === "string" ? body.parte : "";
         if (!/^[\w-]+$/.test(tema) || !/^p\d+$/.test(parte)) throw new HttpError(400, "Esa parte no se puede regenerar.");
@@ -1902,13 +2115,20 @@ ${scripts}
         const text = regenerationPrompt(tema, parte, input, planned.trash);
         if (text.length > MAX_PROMPT_CHARS) throw new HttpError(400, "La regeneración pide demasiado texto de una vez.");
         const saved = recordSugerencia(root, { ...input, origen: "regenerar" });
+        // The writer ticket is taken before the backup moves a single file. A busy topic queues
+        // here; it never writes an old version aside ahead of the turn that owns it.
+        const lock = await locks.acquire(tema);
+        const taskSession = enrolled(root, tema) ? ensureTask(tema) : main;
+        if (taskSession.kind === "task" && missingRuntime(taskSession)) startTaskRuntime(taskSession);
         // A part lives in a deep topic: a regeneration the engine does not clear is not an end.
-        // The previous version moves aside once the turn is held, and goes back unless the new one passes:
-        // a turn that cannot start (drift, a runtime not ready, another turn) moves nothing (#316).
-        await startTurn(text, {
-          topic: enrolled(root, tema) ? tema : null,
-          backup: () => ({ ...backupPartForRegeneration(root, { topic: tema, part: parte }, new Date(), planned.trash || undefined), part: parte }),
-        });
+        // Every exit of the turn puts the previous version back unless the new one passes (#316).
+        try {
+          await startTurn(taskSession, text, {
+            topic: enrolled(root, tema) ? tema : null,
+            lock,
+            backup: () => ({ ...backupPartForRegeneration(root, { topic: tema, part: parte }, new Date(), planned.trash || undefined), part: parte }),
+          });
+        } catch (error) { lock.release(); throw error; }
         return sendJson(res, 200, { ok: true, prompt: text, trash: planned.trash, entrada: saved.entrada });
       }
       case "api/telemetry": {
@@ -1919,16 +2139,16 @@ ${scripts}
         return sendJson(res, 200, { ok: true, global: saveGlobalTelemetry(root, body) });
       }
       case "api/tutor": {
-        if (turn) throw new HttpError(409, TURN_ACTIVE);
+        if (main.turn) throw new HttpError(409, TURN_ACTIVE);
         const config = saveTutor(root, body);
         startTutor(config);
         return sendJson(res, 200, config);
       }
       case "api/tema": {
-        if (turn) throw new HttpError(409, TURN_ACTIVE);
-        tema = requireTopic(body.tema);
-        gateBlocked = false;
-        return sendJson(res, 200, { tema });
+        if (main.turn) throw new HttpError(409, TURN_ACTIVE);
+        main.tema = requireTopic(body.tema);
+        main.gateBlocked = false;
+        return sendJson(res, 200, { tema: main.tema });
       }
       case "api/aprender": {
         // One of the learner's questions, asked by the page: the mode is decided before the turn.
@@ -1938,7 +2158,7 @@ ${scripts}
         if (text.length > MAX_LEARNING_SOURCE_CHARS) {
           throw new HttpError(400, `El texto es demasiado largo: como mucho ${MAX_LEARNING_SOURCE_CHARS} caracteres.`);
         }
-        requireNoTurn();
+        requireNoTurn(main);
         const modo = STUDY_MODES.find((mode) => mode === body.modo);
         if (!modo) throw new HttpError(400, "elige rápido, universitario o examen antes de enviar");
         let examen: ExamChoice | undefined;
@@ -1968,12 +2188,12 @@ ${scripts}
         // binds it, and the gate asks the engine about that folder when it settles.
         const fuentesPrompt = fuentes.length ? `\n${fuentesLine(fuentes)}` : "";
         const learningTarget = text || "el tema que aparece en el examen o documento adjunto";
-        await startTurn(`Quiero aprender ${learningTarget}.\n\n${modeLine(modo, examen)}${fuentesPrompt}`, { topic: null, creation: modo !== "rapido" });
+        await startTurn(main, `Quiero aprender ${learningTarget}.\n\n${modeLine(modo, examen)}${fuentesPrompt}`, { topic: null, creation: modo !== "rapido" });
         return sendJson(res, 200, { ok: true, modo });
       }
       case "api/metodo": {
         // The engine's method stage, answered on the page: recorded with the engine's own command.
-        requireNoTurn();
+        requireNoTurn(main);
         const topic = requireTopic(body.tema);
         const metodo = body.metodo === "pareto" || body.metodo === "preferencias" ? body.metodo : "";
         if (!metodo) throw new HttpError(400, "elige pareto o preferencias");
@@ -1984,12 +2204,15 @@ ${scripts}
           process.stderr.write(`estudio: el motor no aceptó el método ${metodo} en ${topic} · ${reason}\n`);
           throw new HttpError(409, "El motor no aceptó esa elección: el tema no está en el momento de elegir el método.");
         }
-        tema = topic;
-        gateBlocked = false;
+        main.tema = topic;
+        main.gateBlocked = false;
         recordPageMethod(topic, metodo);
         emit("library_changed", {});
-        // The tutor continues to planning with the method the learner just chose.
-        await startTurn(methodPrompt(metodo), { topic });
+        const lock = await locks.acquire(topic);
+        try {
+          // The tutor continues to planning with the method the learner just chose.
+          await startTurn(main, methodPrompt(metodo), { topic, lock });
+        } catch (error) { lock.release(); throw error; }
         return sendJson(res, 200, { ok: true, metodo });
       }
       case "prompt": {
@@ -1999,46 +2222,54 @@ ${scripts}
         }
         // One turn at a time, studio-wide. This early check only saves the engine call below;
         // `startTurn` refuses the turn itself, so no path can slip in through the gate window.
-        requireNoTurn();
+        requireNoTurn(main);
         // A prompt with no tema is the general chat or a quick note: the engine tracks no topic
-        // there, so there is nothing to gate. Nothing else in this route moves the studio's state
-        // before the turn is accepted: a refused prompt must neither clear the gate of the turn in
-        // flight nor repoint it at another topic.
+        // there, so there is nothing to gate. A prompt for a topic a task is writing waits for that
+        // topic's ticket instead of starting a second writer.
         const deep = body.tema === undefined ? null : requireTopic(body.tema);
-        if (deep !== null && deep === tema && gateBlocked) {
+        if (deep !== null && deep === main.tema && main.gateBlocked) {
           // A blocked topic is re-asked before it is refused, so passing releases it again.
-          const { verdict } = await runGate(deep);
+          const { verdict } = await runGate(main, deep);
           if (!verdict.passing) throw new HttpError(409, `El motor no dio por cerrado el último turno de «${deep}»; vuelve a pedírselo.`);
         }
-        await startTurn(text.trim(), { topic: deep });
+        const lock = deep === null ? null : await locks.acquire(deep);
+        try {
+          await startTurn(main, text.trim(), { topic: deep, lock });
+        } catch (error) { lock?.release(); throw error; }
         break;
       }
-      case "dialog": {
+      case "dialog":
+      case "api/tareas/dialogo": {
+        const session = action === "dialog" ? main : taskFor(body.task);
         const id = body.id;
-        if (typeof id !== "string" || !dialogs.has(id)) throw new HttpError(404, "Ese diálogo ya no está abierto.");
+        if (typeof id !== "string" || !session.dialogs.has(id)) throw new HttpError(404, "Ese diálogo ya no está abierto.");
         const response: Json = { type: "extension_ui_response", id };
         if (body.cancelled === true) response.cancelled = true;
         else if (typeof body.confirmed === "boolean") response.confirmed = body.confirmed;
         else if (typeof body.value === "string" && body.value.length <= MAX_PROMPT_CHARS) response.value = body.value;
         else throw new HttpError(400, "dialog answer needs value, confirmed or cancelled");
-        write(response);
-        dialogs.delete(id);
-        emit("dialog_closed", { id });
+        write(session, response);
+        session.dialogs.delete(id);
+        session.emit("dialog_closed", { id });
+        if (session.kind === "task") emitTareas();
         break;
       }
-      case "abort": {
-        // A turn the learner stopped is not the engine's business, and not a correction either:
-        // releasing it here is what makes the abort final, whatever the runtime does afterwards.
-        // A deploy names its cause, so the restart that follows can say the studio was updated.
+      case "abort":
+      case "api/tareas/abortar": {
+        // A turn the learner stopped is not the engine's business: releasing it here is what makes
+        // the abort final, whatever the runtime reports afterwards. Each Session owns its abort.
+        const session = action === "abort" ? main : taskFor(body.task);
         const cause = isRecord(body) && body.cause === "update" ? "update" : undefined;
-        const held = turn;
-        releaseTurn();
+        const held = session.turn;
+        if (held) held.aborted = true;
+        releaseTurn(session);
         if (cause !== undefined && held !== null) {
-          interrupted = { topic: held.topic, at: Date.now(), cause };
-          saveSnapshot();
+          session.interrupted = { topic: held.topic, at: Date.now(), cause };
+          session.saveSnapshot();
         }
-        if (agy) agy.abort();
-        else await call({ type: "abort" }, 60000);
+        if (session.agy) session.agy.abort();
+        else if (session.child) await call(session, { type: "abort" }, 60000);
+        if (session.kind === "task") emitTareas();
         break;
       }
       case "api/draft": {
@@ -2127,7 +2358,7 @@ ${scripts}
         const id = chatIdOf(body);
         const doc = persist(renameChat(chats, id, isRecord(body) ? body.nombre : undefined));
         // Pi's own name is cosmetic; the index is the list, so a refusal here is not fatal.
-        if (!agy && id === chats.activo) await call({ type: "set_session_name", name: chatById(doc, id).nombre }).catch(() => undefined);
+        if (!main.agy && id === chats.activo) await call(main, { type: "set_session_name", name: chatById(doc, id).nombre }).catch(() => undefined);
         emit("chats", doc);
         return sendJson(res, 200, doc);
       }
@@ -2145,7 +2376,7 @@ ${scripts}
       }
       case "api/chats/exportar": {
         const id = chatIdOf(body);
-        if (agy) throw new HttpError(400, "Antigravity does not export conversations");
+        if (main.agy) throw new HttpError(400, "Antigravity does not export conversations");
         if (id !== chats.activo) throw new HttpError(409, "Abre la conversación antes de exportarla.");
         const chat = chatById(chats, id);
         // Pi writes the export into its working directory, which here is the vault.
@@ -2154,7 +2385,7 @@ ${scripts}
         mkdirSync(dir, { recursive: true });
         const slug = chat.nombre.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "chat";
         const outputPath = join(dir, `${slug}-${new Date().toISOString().replace(/[:.]/g, "-")}.html`);
-        const reply = await call({ type: "export_html", outputPath }, 30000);
+        const reply = await call(main, { type: "export_html", outputPath }, 30000);
         // Pi's own refusal is the answer: an empty conversation cannot be exported.
         if (reply.success === false) throw new HttpError(409, String(reply.error ?? "Pi no quiso exportar la conversación."));
         const path = isRecord(reply.data) && typeof reply.data.path === "string" ? reply.data.path : "";
@@ -2168,8 +2399,7 @@ ${scripts}
       }
       case "restart":
         if (options.agentDisabled) throw new HttpError(503, "El tutor está desactivado.");
-        // Restart is the escape hatch for a turn that never settles, so it works while busy.
-        if (alive) child?.kill();
+        // Restart is the escape hatch for the main chat; running tasks finish on their runtime.
         startTutor(tutor);
         break;
       default:
@@ -2179,20 +2409,24 @@ ${scripts}
   };
 
   /** What the chat shows about a turn a previous process was holding: the topic, its title and why it ended. */
-  const interruptedView = () => {
-    const turn = interrupted;
+  const interruptedView = (session: Session) => {
+    const turn = session.interrupted;
     if (turn === null) return null;
     const topic = turn.topic;
     const view = { topic, title: topic === null ? null : listTopics(root).find((t) => t.id === topic)?.title ?? topic };
     return turn.cause === undefined ? view : { ...view, cause: turn.cause };
   };
 
-  const history = async (): Promise<{ messages: Json[]; note: Note | null; interrupted: { topic: string | null; title: string | null; cause?: "update" } | null }> => {
-    const shown = interruptedView();
-    const copy = transcript.map((message) => ({ role: message.role, text: message.text }));
-    if (!alive || agy) return { messages: agy ? [...agyTurns] : copy, note: null, interrupted: shown };
+  type History = { messages: Json[]; note: Note | null; interrupted: { topic: string | null; title: string | null; cause?: "update" } | null };
+  const history = async (session: Session): Promise<History> => {
+    const shown = interruptedView(session);
+    const copy = session.transcript.map((message) => ({ role: message.role, text: message.text }));
+    // A task's own copy is authoritative: Pi's `get_messages` reports the one session it is in,
+    // which belongs to the main chat, not to a topic's separate process.
+    if (session.kind === "task") return { messages: session.agy ? [...session.agyTurns] : copy, note: null, interrupted: shown };
+    if (!session.alive || session.agy) return { messages: session.agy ? [...session.agyTurns] : copy, note: null, interrupted: shown };
     try {
-      const reply = await call({ type: "get_messages" }, 10000);
+      const reply = await call(session, { type: "get_messages" }, 10000);
       const raw = isRecord(reply.data) && Array.isArray(reply.data.messages) ? reply.data.messages : [];
       const messages = raw
         .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
@@ -2210,19 +2444,26 @@ ${scripts}
 
   /** The copy follows what the runtime serves, so a restart falls back to the whole thread. */
   const rememberHistory = async () => {
-    const shown = await history();
+    const shown = await history(main);
     if (shown.messages.length) {
-      transcript = shown.messages.map((message) => ({ role: message.role as ChatMessage["role"], text: String(message.text) }));
-      saveSnapshot();
+      main.transcript = shown.messages.map((message) => ({ role: message.role as ChatMessage["role"], text: String(message.text) }));
+      main.saveSnapshot();
     }
     return shown;
   };
 
   /** The update notice is one notice: once a page has been sent it, no later page or restart repeats it. */
   const spendUpdateNotice = () => {
-    if (interrupted?.cause !== "update") return;
-    interrupted = null;
-    saveSnapshot();
+    if (main.interrupted?.cause !== "update") return;
+    main.interrupted = null;
+    main.saveSnapshot();
+  };
+
+  /** A known topic is needed before a task stream can name whose frames it wants. */
+  const taskFor = (value: unknown): Session => {
+    if (typeof value !== "string" || !/^[\w-]+$/.test(value)) throw new HttpError(400, "task must be a topic name");
+    if (!listTopics(root).some((topic) => topic.id === value)) throw new HttpError(404, `unknown task: ${value}`);
+    return ensureTask(value);
   };
 
   const events = async (res: ServerResponse) => {
@@ -2234,14 +2475,41 @@ ${scripts}
       armIdle();
     });
     res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", "x-content-type-options": "nosniff" });
-    const shown = await history();
+    const shown = await history(main);
     res.write(`event: history\ndata: ${JSON.stringify(shown)}\n\n`);
     if (shown.interrupted?.cause === "update") spendUpdateNotice();
-    res.write(`event: state\ndata: ${JSON.stringify(state())}\n\n`);
-    for (const dialog of dialogs.values()) res.write(`event: dialog\ndata: ${JSON.stringify(dialog)}\n\n`);
+    res.write(`event: state\ndata: ${JSON.stringify(main.state())}\n\n`);
+    for (const dialog of main.dialogs.values()) res.write(`event: dialog\ndata: ${JSON.stringify(dialog)}\n\n`);
+    res.write(`event: tareas\ndata: ${JSON.stringify({ tareas: taskViews() })}\n\n`);
     // A page that left while the history was being read has already fired its close: counting
     // it now would hold the studio open for a client that is not there.
     if (!res.destroyed) clients.add(res);
+  };
+
+  /** A task stream carries the same event names as the chat, with `task` on every data object. */
+  const taskEvents = async (res: ServerResponse, session: Session) => {
+    holdIdle();
+    const leave = () => {
+      const group = taskClients.get(session.id);
+      group?.delete(res);
+      if (group?.size === 0) taskClients.delete(session.id);
+      allTaskClients.delete(res);
+      armIdle();
+    };
+    res.on("close", leave);
+    res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", "x-content-type-options": "nosniff" });
+    const shown = await history(session);
+    const frame = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify({ ...(isRecord(data) ? data : {}), task: session.id })}\n\n`);
+    frame("historial", shown);
+    frame("estado", session.state());
+    for (const dialog of session.dialogs.values()) frame("dialog", dialog);
+    frame("tareas", { tareas: taskViews() });
+    if (!res.destroyed) {
+      let group = taskClients.get(session.id);
+      if (!group) { group = new Set(); taskClients.set(session.id, group); }
+      group.add(res);
+      allTaskClients.add(res);
+    }
   };
 
   const tokenMatches = (candidate: string) => {
@@ -2290,14 +2558,22 @@ ${scripts}
         return send(res, 200, "image/svg+xml", readFileSync(join(HERE, "..", "integrations", "pi", "view", "favicon.svg")), { "cache-control": "public, max-age=3600" });
       case "events":
         return events(res);
+      case "api/tareas":
+        return sendJson(res, 200, { tareas: taskViews() });
+      case "api/tareas/historial": {
+        const session = taskFor(url.searchParams.get("task"));
+        return sendJson(res, 200, { task: session.id, ...(await history(session)), estado: taskState(session), activity: session.activity, queued: locks.queued(session.id) });
+      }
+      case "api/tareas/eventos":
+        return taskEvents(res, taskFor(url.searchParams.get("task")));
       case "api/library":
         return sendJson(res, 200, await library());
       case "api/chats": {
         // The list is only true once the boot session has been adopted.
-        await ready;
+        await main.ready;
         // The active Pi chat reports its usage live; the others keep the last value seen.
-        if (!agy) {
-          const stats = await piStats();
+        if (!main.agy) {
+          const stats = await piStats(main);
           const current = activeChat();
           if (current && stats.contexto) persist(recordContexto(chats, current.id, stats.contexto));
         }
@@ -2314,7 +2590,7 @@ ${scripts}
         return sendJson(res, 200, { modelos: provider === "agy" ? await agyCatalog() : await piCatalog() });
       }
       case "api/tema":
-        return sendJson(res, 200, { tema });
+        return sendJson(res, 200, { tema: main.tema });
       case "api/preferences/candidatos": {
         const preferences = readPreferences(root);
         const taken = new Set([...preferences.aspectos.map((a) => a.id), ...(preferences.rechazados ?? [])]);
@@ -2429,8 +2705,42 @@ ${scripts}
   // The reader's token follows the studio's: a configured studio token keeps open pages working across restarts.
   registerBridge(fakePi as never, {
     root,
-    // One turn at a time: a submission from the page is refused before it writes anything.
-    refuseTurn: () => (turn ? TURN_ACTIVE : null),
+    // A topic queues instead of refusing: the ticket is held before the answer file is written.
+    lockTopic: (topic: string) => {
+      // Make the waiting task visible before its first message reaches the turn.
+      if (enrolled(root, topic)) ensureTask(topic);
+      const waiting = locks.acquire(topic);
+      // acquire() queues synchronously: this claim can tell the bridge to answer 202 at once,
+      // while the ticket it carries still grants the write only when the topic is free.
+      const queued = locks.queued(topic) > 0;
+      // The queue length changes synchronously inside acquire; publish it before the await.
+      queueMicrotask(emitTareas);
+      const ticket = waiting.then((owned) => {
+        // One flag ends the bridge's ownership, whether by handoff to a turn or by release.
+        // The ticket itself is idempotent, so both owners can let go without freeing twice.
+        let released = false;
+        const handle: LockHandle = {
+          ticket: owned,
+          transfer() {
+            if (released) return;
+            released = true;
+            pendingTickets.delete(topic);
+            emitTareas();
+          },
+          release() {
+            if (released) return;
+            released = true;
+            pendingTickets.delete(topic);
+            owned.release();
+            emitTareas();
+          },
+        };
+        pendingTickets.set(topic, handle);
+        emitTareas();
+        return { release: () => handle.release() };
+      });
+      return { ticket, queued };
+    },
     tokenSeed: token,
     transcriber: options.transcriberUrl === undefined ? undefined : { url: options.transcriberUrl, token: options.transcriberToken! },
     port: options.bridgePort,
@@ -2457,15 +2767,20 @@ ${scripts}
     holdIdle();
     // SIGTERM from a deploy lands here: the conversation and the turn it was holding are
     // written before the process goes, so the next boot can say what was interrupted.
-    saveSnapshot();
-    clearBusy(busyMarker);
+    main.saveSnapshot();
+    busyTracker.clearAll();
     for (const res of clients) res.end();
     clients.clear();
-    const proc = child;
-    // Cleared before the kill, so Pi's exit is this close and not a runtime that died mid-turn.
-    child = undefined;
-    if (proc) await stopChild(proc);
-    agy?.stop();
+    for (const group of taskClients.values()) for (const res of group) res.end();
+    taskClients.clear();
+    for (const res of allTaskClients) res.end();
+    allTaskClients.clear();
+    const sessions = [main, ...tasks.values()];
+    for (const session of sessions) stopRuntime(session);
+    for (const session of sessions) {
+      const proc = session.child;
+      if (proc) await stopChild(proc);
+    }
     for (const handler of shutdownHandlers) await handler();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
