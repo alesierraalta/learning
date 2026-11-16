@@ -123,11 +123,13 @@
     node.setAttribute("aria-live", "polite");
     return node;
   };
-  const textarea = (parent, title) => {
+  // A code answer (#334) is a code field, drawn and behaved by the shared kit; any other answer stays a plain box.
+  const textarea = (parent, title, code = false) => {
     const label = element("label", title, "text-field");
     const input = element("textarea");
     input.rows = 3;
     input.maxLength = 8000;
+    if (code) globalThis.lkCodeField?.enhance(input);
     label.append(input);
     parent.append(label);
     return input;
@@ -310,6 +312,7 @@
         const thought = window.learningThoughtField(`question-${index}`, index, data);
         field.append(thought);
         const razonamiento = thought.querySelector('textarea');
+        if (globalThis.lkCodeField?.isCode(question)) globalThis.lkCodeField.enhance(razonamiento);
         const confidence = element("div", undefined, "confidence");
         confidence.append(element("span", "¿Qué tan seguro estás?"));
         const sure = Object.entries(CONFIDENCE).map(([value, text]) => {
@@ -342,7 +345,7 @@
       legend.append(document.createTextNode(`${index + 1}. `), drawnText(exercise.enunciado, true));
       box.append(legend);
       if (exercise.entregable) box.append(element("p", `Entregable: ${exercise.entregable}`, "exercise-deliverable"));
-      const input = textarea(box, "Tu respuesta (opcional)");
+      const input = textarea(box, "Tu respuesta (opcional)", globalThis.lkCodeField?.isCode(exercise));
       input.value = data.answeredExercises?.[exercise.id] || "";
       input.disabled = submitted;
       form.append(box);
@@ -473,11 +476,13 @@
     const hidden = ex.tests.filter((t) => t.oculto).length;
     if (hidden) app.append(element("p", `Y ${hidden} ${hidden === 1 ? "prueba oculta" : "pruebas ocultas"} que se corrigen al entregar.`, "muted"));
     const key = `learning-code:${data.topic}:${ex.id}`;
-    const editor = textarea(app, "Tu código");
-    editor.className = "code-editor";
+    const editor = textarea(app, "Tu código", true);
+    editor.classList.add("code-editor");
     editor.spellcheck = false;
     editor.maxLength = 100000;
     editor.rows = 18;
+    // The editor authors 18 rows: size it now, since its inline height was set when the field was first enhanced.
+    globalThis.lkCodeField?.grow(editor);
     let draft;
     try { draft = localStorage.getItem(key); } catch {}
     editor.value = draft ?? data.lastCode ?? ex.plantilla;

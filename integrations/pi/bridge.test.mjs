@@ -422,6 +422,96 @@ test('plain part and diagnosis share optional dictable reasoning', { skip: !play
   assert.match(asset.headers['content-type'], /javascript/);
 });
 
+// #334: the code field is a kit script beside question.js: served, and loaded before kit.js on the reader and on a rich page.
+test('the code field is served beside the kit and loads before kit.js on the reader and on a rich page', async () => {
+  const { topic, view, shutdown } = await setup();
+  // A rich page that does not load the kit itself gets the kit from the bridge, code field included.
+  writeFileSync(join(topic, 'explicaciones', 'Parte 1 - Claves.html'), QUALIFYING_PAGE.replace('<script src="../kit/kit.js" defer></script>', ''));
+  const result = await view({ topic: TOPIC, part: 'p1' });
+  for (const body of [(await http(result.structuredContent.url)).body, (await http(`${base(result)}${TOPIC}/p1`)).body]) {
+    const field = body.indexOf('kit/code-field.js');
+    assert.ok(field > -1, 'the page loads the code field');
+    assert.ok(field < body.indexOf('kit/kit.js'), 'the code field loads before kit.js');
+  }
+  const asset = await http(`${base(result)}kit/code-field.js`);
+  assert.equal(asset.status, 200);
+  assert.match(asset.headers['content-type'], /javascript/);
+  assert.match(asset.body, /lkCodeField/);
+  await shutdown();
+});
+
+// #334: the quiz names the language of a code exercise, so the answer box can be a code field; a practical exercise names none.
+test('the quiz names the language of a code exercise and gives a practical exercise none', async () => {
+  const { topic, view, shutdown } = await setup();
+  linkedExercise(topic, 'eco', { titulo: 'Eco', enunciado: 'Repite la entrada', parte: 'p1' });
+  practicalFixture(topic);
+  const url = base(await view({ topic: TOPIC, part: 'p1' }));
+  const quiz = await quizJson(`${url}api/quiz?topic=${TOPIC}&part=p1`);
+  assert.equal(quiz.exercises.find(({ id }) => id === 'eco')?.lenguaje, 'python');
+  assert.equal('lenguaje' in quiz.exercises.find(({ id }) => id === 'practica/modelo'), false);
+  await shutdown();
+});
+
+// #334: in the reader, a code exercise's answer and a code question's reasoning are code fields; the plain ones stay plain,
+// and Tab in the answer indents it. The code page's editor is a code field too.
+test('the reader writes code answers in code fields and Tab indents them', { skip: !playwright && 'playwright not installed' }, async (t) => {
+  const { topic, view, shutdown } = await setup();
+  const plsql = 'SELECT nombre\nFROM clientes;';
+  const options = { A: 'Lista los clientes.', B: 'Falla al compilar.', C: 'No imprime nada.', D: 'Entra en bucle.', E: 'No sé' };
+  writeFileSync(join(topic, 'mini-quiz', 'p1.json'), JSON.stringify({ questions: [
+    { id: 'q1', enunciado: '¿Qué devuelve la consulta?', pieza: { tipo: 'codigo', lenguaje: 'plsql', contenido: plsql }, options, answer: 'A' },
+    { id: 'q2', enunciado: 'Pregunta dos', options, answer: 'B' },
+  ] }));
+  linkedExercise(topic, 'eco', { titulo: 'Eco', enunciado: 'Repite la entrada', parte: 'p1' });
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto((await view({ topic: TOPIC, part: 'p1' })).structuredContent.url);
+  const answer = page.locator('fieldset.exercise-box textarea').first();
+  await answer.waitFor();
+  assert.match(await answer.getAttribute('class') ?? '', /\blk-code\b/, 'the code exercise answers in a code field');
+  assert.match(await page.locator('textarea[name="question-0-razonamiento"]').getAttribute('class') ?? '', /\blk-code\b/, 'the code question reasons in a code field');
+  assert.doesNotMatch(await page.locator('textarea[name="question-1-razonamiento"]').getAttribute('class') ?? '', /\blk-code\b/, 'a plain question stays plain');
+  await answer.fill('for x in y:');
+  await answer.evaluate((el) => el.setSelectionRange(el.value.length, el.value.length));
+  await page.keyboard.press('Tab');
+  assert.equal(await answer.inputValue(), 'for x in y:  ', 'Tab indents the answer');
+  assert.equal(await answer.evaluate((el) => el === document.activeElement), true, 'Tab stays in the answer');
+  await page.goto((await view({ topic: TOPIC, part: 'codigo/eco' })).structuredContent.url);
+  assert.match(await page.locator('textarea.code-editor').getAttribute('class') ?? '', /\blk-code\b/, 'the code page editor is a code field');
+  await shutdown();
+});
+
+// #334: the reader's code answer grows with what the learner writes (no scrollbar until 18 rows) and Escape leaves it.
+test('the reader code answer grows with its content and Escape lets the keyboard leave it', { skip: !playwright && 'playwright not installed' }, async (t) => {
+  const { topic, view, shutdown } = await setup();
+  linkedExercise(topic, 'eco', { titulo: 'Eco', enunciado: 'Repite la entrada', parte: 'p1' });
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  await page.goto((await view({ topic: TOPIC, part: 'p1' })).structuredContent.url);
+  const answer = page.locator('fieldset.exercise-box textarea').first();
+  await answer.waitFor();
+  const size = () => answer.evaluate((el) => {
+    const s = getComputedStyle(el);
+    const line = parseFloat(s.lineHeight);
+    const pad = parseFloat(s.paddingTop) + parseFloat(s.paddingBottom);
+    return { rows: Math.round(((el.clientHeight - pad) / line) * 10) / 10, scrolls: el.scrollHeight > el.clientHeight + 1 };
+  });
+  // The reader's textarea has a 96px min-height, so an empty 3-row field measures a little taller than 3.
+  assert.ok((await size()).rows >= 3, 'it starts at no fewer than the authored rows');
+  await answer.fill('uno\ndos\ntres\ncuatro\ncinco');
+  assert.equal((await size()).rows, 5, 'five lines show five rows');
+  assert.equal((await size()).scrolls, false, 'no inner scrollbar while it fits');
+  await answer.fill(Array.from({ length: 25 }, (_, i) => `linea ${i + 1}`).join('\n'));
+  assert.equal((await size()).rows, 18, '25 lines stop at 18 rows');
+  assert.equal((await size()).scrolls, true, 'and scroll inside past the cap');
+  await answer.focus();
+  await page.keyboard.press('Escape');
+  assert.equal(await answer.evaluate((el) => el === document.activeElement), false, 'Escape leaves the field');
+  await shutdown();
+});
+
 test('diagnosis iframe presents the editorial layout and retains every question control', { skip: !playwright && 'playwright not installed' }, async t => {
   const { view } = await setup();
   const browser = await playwright.chromium.launch();
@@ -1913,9 +2003,10 @@ test("the mini-quiz lists the code exercises linked to its part, with their stat
   writeFileSync(join(topic, "mini-quiz", "p2.json"), JSON.stringify({ questions: [quizQuestion("q1")] }));
   const url = base(await view({ topic: TOPIC, part: "p1" }));
   const mine = await http(`${url}api/quiz?topic=${TOPIC}&part=p1`);
+  // The language is public (the reader names it and marks the answer box as code, #334); the tests and the paths are not.
   assert.deepEqual(JSON.parse(mine.body).exercises, [
-    { id: "eco", titulo: "Eco", enunciado: "Repite la entrada" },
-    { id: "suma", titulo: "Suma", enunciado: "Suma dos enteros" },
+    { id: "eco", titulo: "Eco", enunciado: "Repite la entrada", lenguaje: "python" },
+    { id: "suma", titulo: "Suma", enunciado: "Suma dos enteros", lenguaje: "python" },
   ]);
   assert.doesNotMatch(mine.body, /HIDDEN_/);
   // A part with no exercises of its own gets an empty list, never another part's exercises.
