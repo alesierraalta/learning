@@ -67,3 +67,10 @@ body.book > .lk-progress { position: fixed; top: 0; left: 0; right: 0; z-index: 
   body.wide main:not(#app) > figure,
   body.wide main:not(#app) > iframe { column-span: all; }
 }
+
+/* #344 follow-up: from 1360 px the «En esta parte» index is fixed in the right margin.
+   The reading control moves to the foot of the screen so the two fixed panels never
+   occupy the same corner; below that width the index is in flow and the control stays put. */
+@media screen and (min-width: 1360px) {
+  .reading-toggle { top: auto; bottom: 14px; }
+}

@@ -482,8 +482,8 @@
     editor.classList.add("code-editor");
     editor.spellcheck = false;
     editor.maxLength = 100000;
-    editor.rows = 18;
-    // The editor authors 18 rows: size it now, since its inline height was set when the field was first enhanced.
+    // The authored rows stay the floor; the shared code field sizes the box to the preset it is filled with next,
+    // then grows to its 18-row cap while the learner types. Its inline height is set when the field is enhanced.
     globalThis.lkCodeField?.grow(editor);
     let draft;
     try { draft = localStorage.getItem(key); } catch {}
