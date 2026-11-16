@@ -200,6 +200,12 @@ as the per-concept diagnosis (claro / dudoso / laguna with the quoted evidence).
 unchanged. A demo iframe can `postMessage({ type: "learning-demo", observation })` to add an
 observation to the question box; it is sent only when the learner presses send.
 
+The same channel sizes a demo's frame. The bridge serves every demo page under
+`explicaciones/demos/` with a height reporter (`kit/demo-height.js`) inside its `<head>`;
+the reporter posts `learning-demo-height` with the content's height, and the reader clamps
+it to 320–900 px. The reader sends `learning-demo-measure` to a demo when its width changes;
+a demo that never reports keeps the frame its stylesheet gives it.
+
 ### Security boundary
 
 - Listens on `127.0.0.1` only, on a random free port.

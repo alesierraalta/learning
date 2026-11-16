@@ -59,6 +59,19 @@ Prioridad si hay que recortar: 1 y 2 son innegociables; luego 3; 4-7 según el t
 - Cada animación con botones de control + Reiniciar (limpiar TODOS los timers en un array).
 - Para el PDF: cada animación tiene fallback estático `<pre class="print-only">` con el diagrama ASCII equivalente; el escenario animado lleva clase `no-print`.
 
+## Demo embebida (explicaciones/demos/)
+
+Si la página es una demo que el lector embebe bajo la nota, además de lo anterior:
+
+- **Un solo desplazamiento: el marco.** No anides un contenedor con scroll dentro de la demo (`overflow:auto` con altura fija o `max-height`, una tarjeta que se desplaza). El lector ajusta el marco a la altura del contenido, hasta 900 px; por encima de eso se desplaza el marco, no la demo.
+- **Sin altura de ventana.** Nada de `height:100%`, `100vh` ni `min-height:100vh` en `html` o `body`: la demo mide su contenido.
+- **Texto legible.** Nada por debajo de 14 px; el cuerpo, 16 px o más.
+- **Código.** Las líneas largas se ajustan (`white-space: pre-wrap; overflow-wrap: anywhere`). Si una línea no puede ajustarse, se desplaza de lado dentro de su propio bloque, nunca empujando la página.
+- **Flujo normal.** Lo posicionado fuera del flujo no se mide.
+- **Informe de altura.** No lo escribe la demo: el lector inyecta `kit/demo-height.js` en cada demo que sirve.
+
+Al verificarla en el lector, abrir la demo a 1500 px y a 390 px y comprobar que no hay barra de desplazamiento dentro del marco.
+
 ## Verificación obligatoria antes de entregar (real-run, no "debería andar")
 
 1. Sintaxis JS: `node -e "new Function(script)"` sobre el contenido del `<script>`.

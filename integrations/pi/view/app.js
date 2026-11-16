@@ -721,6 +721,14 @@
   }
   exerciseLinks();
   const frames = [];
+  // A demo's frame is as tall as the demo's content, between a readable minimum and the cap; above the cap the demo scrolls.
+  const DEMO_MIN = 320;
+  const DEMO_MAX = 900;
+  const sizeFrame = (frame, height) => {
+    const style = getComputedStyle(frame);
+    const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    frame.style.height = `${Math.min(DEMO_MAX, Math.max(DEMO_MIN, Math.ceil(height))) + border}px`;
+  };
   if (data.demos?.length) {
     const section = element("section");
     section.append(element("h2", "Demos interactivas"));
@@ -737,9 +745,20 @@
       frame.setAttribute("allowfullscreen", "");
       frame.title = name;
       section.append(element("h3", name), frame);
+      // The demo reports its height on load; the reader asks again once the frame has loaded, to be sure of it.
+      frame.addEventListener("load", () => frame.contentWindow?.postMessage({ type: "learning-demo-measure" }, "*"));
       frames.push({ frame, name });
     });
     app.append(section);
+    // A narrower or wider screen rewraps a demo's text, so every demo measures again when the section changes width.
+    let width = -1;
+    if (window.ResizeObserver) {
+      new ResizeObserver(([entry]) => {
+        if (entry.contentRect.width === width) return;
+        width = entry.contentRect.width;
+        for (const { frame } of frames) frame.contentWindow?.postMessage({ type: "learning-demo-measure" }, "*");
+      }).observe(section);
+    }
   }
   quiz();
   const questionForm = element("form", undefined, "tutor");
@@ -754,7 +773,12 @@
   let demo;
   window.addEventListener("message", (event) => {
     const source = frames.find((entry) => entry.frame.contentWindow === event.source);
-    if (!source || !event.data || event.data.type !== "learning-demo" || typeof event.data.observation !== "string") return;
+    if (!source || !event.data) return;
+    if (event.data.type === "learning-demo-height") {
+      if (Number.isFinite(event.data.height)) sizeFrame(source.frame, event.data.height);
+      return;
+    }
+    if (event.data.type !== "learning-demo" || typeof event.data.observation !== "string") return;
     const observation = `[demo ${source.name}] ${event.data.observation}`.slice(0, 2000);
     questionText.value = `${questionText.value}${questionText.value ? "\n" : ""}${observation}`;
     demo = source.name;

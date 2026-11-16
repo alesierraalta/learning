@@ -4019,3 +4019,122 @@ test("the scenario explorer follows its steps in every theme and width, in both 
     await page.close();
   }
 });
+
+// #338: a demo reports its own height and the reader frames it to that height, between 320 and 900 px. The bridge
+// adds the reporter to every demo page it serves, so no demo carries it; a demo that never reports keeps its frame.
+const DEMO_HEIGHT_MARKER = "learning-demo-height";
+const demoPage = (body, style = "margin:0") => `<!doctype html><html><head><meta charset="utf-8"></head><body style="${style}">${body}</body></html>`;
+
+test("a demo page is served with the height reporter, and only demo pages are", async () => {
+  const { topic, view, shutdown } = await setup();
+  writeFileSync(join(topic, "explicaciones", "demos", "p1-claves.html"), "<!doctype html><html><head><title>demo</title></head><body><p>demo</p></body></html>");
+  writeFileSync(join(topic, "notas.html"), "<p>no es demo</p>");
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const served = await http(new URL("file/explicaciones/demos/p1-claves.html", url).href);
+  assert.equal(served.status, 200);
+  assert.equal(served.headers["content-security-policy"], "sandbox allow-scripts", "a demo keeps its sandbox");
+  assert.equal(served.headers["content-length"], String(Buffer.byteLength(served.body)));
+  assert.equal(served.body.split("<script>").length - 1, 1, "one reporter per demo page");
+  assert.ok(served.body.includes(DEMO_HEIGHT_MARKER), "the reporter posts the height");
+  assert.ok(served.body.indexOf("<script>") < served.body.indexOf("</head>"), "the reporter sits in the head");
+  assert.match(served.body, /<p>demo<\/p>/);
+  // Any other HTML page of the topic is not served through the file route at all, so none can take the reporter.
+  const other = await http(new URL("file/notas.html", url).href);
+  assert.equal(other.status, 404, "a page outside explicaciones/demos/ is not served as a file");
+  await shutdown();
+});
+
+// The reader page of the fixture part at one viewport. `demo` answers the demo route in place of the bridge: a fixture
+// that reports on its own terms, or a page that never reports.
+async function readerFrame(t, url, viewport, demo) {
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  if (demo !== undefined) {
+    await page.route("**/file/explicaciones/demos/**", (route) =>
+      route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", headers: { "content-security-policy": "sandbox allow-scripts" }, body: demo }),
+    );
+  }
+  await page.goto(url);
+  const frame = page.locator('iframe[title="p1-claves.html"]');
+  await frame.waitFor();
+  return { page, frame, errors };
+}
+// The frame's height as the reader set it: the demo's own viewport, without the frame's border.
+const frameHeight = (frame) => frame.evaluate((el) => el.clientHeight);
+const waitForFrameHeight = (page, height) =>
+  page.waitForFunction((h) => document.querySelector('iframe[title="p1-claves.html"]')?.clientHeight === h, height, { timeout: 4000 });
+// Whether the demo's own document scrolls inside its frame.
+async function demoScrolls(frame) {
+  const demo = await (await frame.elementHandle()).contentFrame();
+  return demo.evaluate(() => document.documentElement.scrollHeight > window.innerHeight);
+}
+
+test("a demo's frame takes the height the demo reports, between 320 and 900 px", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { view, shutdown } = await setup();
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  for (const [reported, expected] of [[1200, 900], [400, 400], [100, 320]]) {
+    const demo = `<!doctype html><html><body><script>parent.postMessage({ type: "${DEMO_HEIGHT_MARKER}", height: ${reported} }, "*");</script></body></html>`;
+    const { page, frame, errors } = await readerFrame(t, url, { width: 1200, height: 900 }, demo);
+    await waitForFrameHeight(page, expected);
+    assert.equal(await frameHeight(frame), expected, `a demo reporting ${reported} px`);
+    assert.deepEqual(errors, [], "the reader raises no page error");
+  }
+  await shutdown();
+});
+
+test("the reporter sizes a demo to its content: a short demo has no scrollbar, a tall one scrolls at 900 px", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup();
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const demos = join(topic, "explicaciones", "demos", "p1-claves.html");
+  writeFileSync(demos, demoPage('<div style="height:400px"></div>'));
+  const short = await readerFrame(t, url, { width: 1200, height: 900 });
+  await waitForFrameHeight(short.page, 400);
+  assert.equal(await frameHeight(short.frame), 400, "a 400 px demo gets 400 px");
+  assert.equal(await demoScrolls(short.frame), false, "a 400 px demo has no scrollbar");
+  writeFileSync(demos, demoPage('<div style="height:1200px"></div>'));
+  const tall = await readerFrame(t, url, { width: 1200, height: 900 });
+  await waitForFrameHeight(tall.page, 900);
+  assert.equal(await frameHeight(tall.frame), 900, "a 1200 px demo gets the 900 px cap");
+  assert.equal(await demoScrolls(tall.frame), true, "above the cap the demo scrolls");
+  await shutdown();
+});
+
+test("a demo that never reports keeps the frame its stylesheet gives it, with no error", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { view, shutdown } = await setup();
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const silent = "<!doctype html><html><body><p>sin informe</p></body></html>";
+  const wide = await readerFrame(t, url, { width: 1200, height: 900 }, silent);
+  await (await wide.frame.elementHandle()).contentFrame().then((demo) => demo.waitForLoadState("load"));
+  // The stylesheet's height is the frame's border box; the demo's own viewport is the border's width shorter.
+  const outer = (frame) => frame.evaluate((el) => el.getBoundingClientRect().height);
+  assert.equal(await outer(wide.frame), 420, "the desktop frame keeps its 420 px");
+  assert.deepEqual(wide.errors, []);
+  await wide.page.setViewportSize({ width: 390, height: 844 });
+  await wide.page.waitForTimeout(300);
+  assert.equal(await outer(wide.frame), 360, "the phone frame keeps its 360 px");
+  assert.deepEqual(wide.errors, []);
+  await shutdown();
+});
+
+test("a phone width recomputes a demo's frame, and a wide screen shrinks it again", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup();
+  const url = (await view({ topic: TOPIC, part: "p1" })).structuredContent.url;
+  const prose = "Una frase de la demo que se repite para ocupar varias líneas en un teléfono. ".repeat(12);
+  writeFileSync(join(topic, "explicaciones", "demos", "p1-claves.html"), demoPage(`<p>${prose}</p>`, "margin:0;padding:20px;font:16px/1.5 sans-serif"));
+  const { page, frame, errors } = await readerFrame(t, url, { width: 1200, height: 900 });
+  await page.waitForTimeout(500);
+  const wide = await frameHeight(frame);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(500);
+  const phone = await frameHeight(frame);
+  assert.ok(phone > wide, `a narrow screen wraps the text into more lines (${wide} → ${phone})`);
+  assert.equal(await demoScrolls(frame), false, "the phone frame fits the demo");
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.waitForTimeout(500);
+  assert.equal(await frameHeight(frame), wide, "back on a wide screen the frame shrinks to its content");
+  assert.deepEqual(errors, []);
+  await shutdown();
+});
