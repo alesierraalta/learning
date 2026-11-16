@@ -886,6 +886,212 @@ test("code HTTP runs, free input, submissions and rejected requests", async (t) 
   assert.match(page.body, /"lastCode":"print\(input\(\)\)"/);
   assert.doesNotMatch(page.body, /HIDDEN_INPUT_97|HIDDEN_EXPECTED_98/);
 });
+// #344: the exercise stays an exercise when this machine cannot run its language.
+function codeRunnerFile(language, image) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "runner-")));
+  const file = join(dir, "runners.json");
+  writeFileSync(file, JSON.stringify({ [language]: { image, file: "main.sql", run: "cat main.sql" } }));
+  return file;
+}
+
+function codeExercise(topic, language) {
+  const dir = join(topic, "codigo", "bloque");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "ejercicio.json"), JSON.stringify({
+    titulo: "Bloque anónimo",
+    enunciado: "Escribe un bloque anónimo que imprima «listo».",
+    lenguaje: language,
+    plantilla: "BEGIN\n  NULL;\nEND;\n/",
+    parte: "p1",
+    tests: [
+      { nombre: "visible", entrada: "algo", salida: "listo" },
+      { nombre: "oculta", entrada: "otro", salida: "listo", oculto: true },
+    ],
+  }));
+  return dir;
+}
+
+/** A docker CLI on PATH: the judge still goes through the real code path, only the CLI is fake. */
+function dockerStub(script) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "docker-stub-")));
+  writeFileSync(join(dir, "docker"), script, { mode: 0o755 });
+  const before = process.env.PATH;
+  process.env.PATH = `${dir}${process.platform === "win32" ? ";" : ":"}${before}`;
+  return () => { process.env.PATH = before; };
+}
+
+const codePost = (base, path, body) => http(base + path, {
+  method: "POST",
+  headers: { origin: new URL(base).origin, "content-type": "application/json" },
+  body: JSON.stringify(body),
+});
+const codeViewData = (html) => JSON.parse(html.match(/<script type="application\/json" id="view-data">([\s\S]*?)<\/script>/)?.[1] ?? "null");
+
+test("the shipped runners declare PL/SQL with a configurable image (#344)", () => {
+  const runners = loadRunners();
+  assert.ok(runners.plsql, "plsql must be declared");
+  assert.match(runners.plsql.image, /oracle/i);
+  assert.equal(runners.plsql.file, "main.sql");
+  assert.ok(runners.plsql.run.trim(), "a command must be configured");
+});
+
+test("a PL/SQL exercise keeps its statement, explains it cannot run here and still submits the answer (#344)", async () => {
+  const runnersFile = codeRunnerFile("plsql", "learning-no-such-oracle:missing");
+  const { topic, host, view } = await setup({ runnersFile });
+  const dir = codeExercise(topic, "plsql");
+  const code = "BEGIN\n  DBMS_OUTPUT.PUT_LINE('listo');\nEND;\n/";
+  const result = await view({ topic: TOPIC, part: "codigo/bloque" });
+  assert.equal(result.isError, false);
+  const url = base(result);
+  const page = codeViewData((await http(result.structuredContent.url)).body);
+  assert.equal(page.kind, "code");
+  assert.equal(page.exercise.lenguaje, "plsql");
+  assert.equal(page.exercise.ejecutable, true, "the runner is declared, so trying it is honest");
+  assert.doesNotMatch(JSON.stringify(page), /Ejercicio no disponible/);
+
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code });
+  assert.equal(run.status, 200, "a missing image is not an HTTP error");
+  const ran = JSON.parse(run.body);
+  assert.match(ran.aviso, /No se puede ejecutar aquí/);
+  assert.deepEqual(ran.resultados, [], "no test was run");
+
+  const submitted = await codePost(url, "submit", { topic: TOPIC, exercise: "bloque", code, kind: "code", note: "Mi bloque" });
+  assert.equal(submitted.status, 200, "the answer is still accepted");
+  const answer = JSON.parse(submitted.body);
+  assert.equal(answer.score, "sin ejecución");
+  assert.match(answer.aviso, /No se puede ejecutar aquí/);
+  const saved = JSON.parse(readFileSync(join(dir, "entregas", "001.json"), "utf8"));
+  assert.equal(saved.codigo, code, "exactly the learner's answer is saved");
+  assert.equal(saved.nota, "Mi bloque");
+  assert.match(saved.aviso, /No se puede ejecutar aquí/);
+  assert.equal(host.sent.length, 1, "the answer still reaches the tutor");
+  assert.match(host.sent[0].content, /```plsql\n/);
+  assert.ok(host.sent[0].content.includes(code));
+  assert.match(host.sent[0].content, /No se puede ejecutar aquí/);
+
+  const index = await http((await view({ topic: TOPIC })).structuredContent.url);
+  assert.match(index.body, /Bloque anónimo/);
+  assert.doesNotMatch(index.body, /Ejercicio no disponible/);
+});
+
+test("an unknown language is an honest exercise, never «Ejercicio no disponible» (#344)", async () => {
+  const { topic, host, view } = await setup();
+  const dir = codeExercise(topic, "cobol");
+  const code = "DISPLAY 'listo'.";
+  const result = await view({ topic: TOPIC, part: "codigo/bloque" });
+  assert.equal(result.isError, false);
+  const url = base(result);
+  const page = codeViewData((await http(result.structuredContent.url)).body);
+  assert.equal(page.exercise.lenguaje, "cobol");
+  assert.equal(page.exercise.ejecutable, false);
+  assert.match(page.exercise.aviso, /no tiene un ejecutor/);
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code });
+  assert.equal(run.status, 200);
+  assert.match(JSON.parse(run.body).aviso, /no tiene un ejecutor/);
+  const submitted = await codePost(url, "submit", { topic: TOPIC, exercise: "bloque", code, kind: "code" });
+  assert.equal(submitted.status, 200);
+  assert.equal(JSON.parse(readFileSync(join(dir, "entregas", "001.json"), "utf8")).codigo, code);
+  assert.equal(host.sent.length, 1);
+  assert.match(host.sent[0].content, /```cobol\n/);
+  const index = await http((await view({ topic: TOPIC })).structuredContent.url);
+  assert.match(index.body, /Bloque anónimo/);
+  assert.doesNotMatch(index.body, /Ejercicio no disponible/);
+  assert.match(index.body, /no se puede ejecutar aquí/i);
+  const part = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
+  assert.doesNotMatch(part.body, /Ejercicio no disponible/);
+  assert.match(part.body, /no se puede ejecutar aquí/i);
+});
+
+test("a stopped docker daemon falls back to the same notice without throwing (#344)", async (t) => {
+  t.after(dockerStub('#!/bin/sh\necho "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2\nexit 1\n'));
+  const runnersFile = codeRunnerFile("plsql", "fake-oracle:test");
+  const { topic, view } = await setup({ runnersFile });
+  codeExercise(topic, "plsql");
+  const url = base(await view({ topic: TOPIC, part: "codigo/bloque" }));
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code: "BEGIN NULL; END;\n/" });
+  assert.equal(run.status, 200);
+  assert.match(JSON.parse(run.body).aviso, /No se puede ejecutar aquí/);
+  assert.match(JSON.parse(run.body).aviso, /Docker/i);
+});
+
+test("a configured image that exists still executes and shows the result panel (#344)", { skip: !playwright && "playwright not installed" }, async (t) => {
+  t.after(dockerStub([
+    "#!/bin/sh",
+    'if [ "$1" = "image" ]; then exit 0; fi',
+    'if [ "$1" = "run" ]; then',
+    '  work=""',
+    '  while [ "$#" -gt 0 ]; do',
+    '    if [ "$1" = "-v" ]; then work="${2%%:*}"; fi',
+    "    shift",
+    "  done",
+    '  for f in "$work"/.judge/in/*; do',
+    '    i=$(basename "$f")',
+    '    printf "listo\n" > "$work/.judge/out/$i.out"',
+    '    printf "" > "$work/.judge/out/$i.err"',
+    '    printf "0 1\n" > "$work/.judge/meta/$i"',
+    "  done",
+    "  exit 0",
+    "fi",
+    "exit 1",
+    "",
+  ].join("\n")));
+  const runnersFile = codeRunnerFile("plsql", "fake-oracle:test");
+  const { topic, view } = await setup({ runnersFile });
+  codeExercise(topic, "plsql");
+  const pageResult = await view({ topic: TOPIC, part: "codigo/bloque" });
+  const url = base(pageResult);
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code: "BEGIN NULL; END;\n/" });
+  assert.equal(run.status, 200);
+  const ran = JSON.parse(run.body);
+  assert.equal(ran.aviso, undefined, "with an image the answer really runs");
+  assert.deepEqual(ran.resultados.map((r) => r.estado), ["correcto"]);
+  assert.equal(ran.aprobados, 1);
+
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(pageResult.structuredContent.url);
+  await page.getByRole("button", { name: "Probar con las pruebas visibles" }).click();
+  const panel = page.locator(".code-results");
+  await panel.getByText("Resultado: 1/1 pruebas").waitFor();
+  assert.equal((await panel.locator("h3").first().textContent())?.trim(), "visible · ✔ correcto");
+});
+
+test("a missing docker binary is the same honest notice, not a crash (#344)", async (t) => {
+  t.after(dockerStub("#!/bin/sh\nexit 127\n"));
+  const runnersFile = codeRunnerFile("plsql", "fake-oracle:test");
+  const { topic, view } = await setup({ runnersFile });
+  codeExercise(topic, "plsql");
+  const url = base(await view({ topic: TOPIC, part: "codigo/bloque" }));
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code: "BEGIN NULL; END;\n/" });
+  assert.equal(run.status, 200);
+  assert.match(JSON.parse(run.body).aviso, /No se puede ejecutar aquí/);
+});
+
+test("the learner sees the notice, keeps writing and still gets the answer saved (#344)", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, host, view } = await setup();
+  const dir = codeExercise(topic, "cobol");
+  const result = await view({ topic: TOPIC, part: "codigo/bloque" });
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(`${result.structuredContent.url}?theme=black`);
+  const notice = page.locator(".code-notice").first();
+  await notice.waitFor();
+  assert.match(await notice.textContent(), /No se puede ejecutar aquí/);
+  assert.equal(await page.locator("h1").first().textContent(), "Bloque anónimo", "the exercise is shown, not a dead end");
+  const editor = page.locator("textarea.code-editor");
+  await editor.fill("DISPLAY 'listo'.\n");
+  assert.equal(await editor.inputValue(), "DISPLAY 'listo'.\n", "the answer is still editable");
+  await page.getByRole("button", { name: "Entregar al tutor" }).click();
+  const panel = page.locator(".code-results");
+  await panel.getByText("Entrega guardada y enviada al tutor.").waitFor();
+  assert.match(await panel.textContent(), /No se puede ejecutar aquí/);
+  assert.equal(await panel.getByText(/Resultado:/).count(), 0, "no score is claimed for tests that never ran");
+  assert.equal(JSON.parse(readFileSync(join(dir, "entregas", "001.json"), "utf8")).codigo.trim(), "DISPLAY 'listo'.");
+  assert.equal(host.sent.length, 1);
+});
+
 const openServers = [];
 // A bridge is this file's handle: `after` alone does not close it on a filtered run,
 // where the harness posts its root hooks before the matched test opens a server.

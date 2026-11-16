@@ -21,7 +21,7 @@ import { HttpError } from "./errors.ts";
 import { resolveContained, safeTopic } from "./paths.ts";
 import { recordQuizTelemetry } from "./telemetry.ts";
 import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio, type Transcriber } from "./transcribe.ts";
-import { CodeRunError, loadRunners, readExercise, publicExercise, forPage, runCode, type Runner } from "./coderun.ts";
+import { CodeRunError, DockerDaemonError, ImageMissingError, loadRunners, readExercise, publicExercise, forPage, runCode, unavailableRun, type RunResult, type Runner } from "./coderun.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { gateVerdictsFile as defaultGateVerdictsFile, getGateVerdict, type GateVerdictOptions } from "./gate-verdicts.ts";
 
@@ -913,12 +913,59 @@ function practicalExercises(dir: string, partId: string, revealSolutions: boolea
   });
 }
 
+/**
+ * The vault's strict reader rejects a language with no runner; the study view must not (#344).
+ * Lend it stand-in runners for the languages the exercises teach, so a taught language stays a
+ * normal exercise in listings while the real runners map decides whether its answer can run.
+ */
+function viewRunners(dir: string, runners: Record<string, Runner>): Record<string, Runner> {
+  const all = { ...runners };
+  const codigo = join(dir, "codigo");
+  if (!existsSync(codigo)) return all;
+  for (const entry of readdirSync(codigo, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    try {
+      const raw: unknown = JSON.parse(readFileSync(exerciseFile(dir, entry.name), "utf8"));
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const language = (raw as Record<string, unknown>).lenguaje;
+      if (typeof language === "string" && language && !Object.hasOwn(all, language)) {
+        all[language] = { image: "", file: "main.txt", run: "true" };
+      }
+    } catch {
+      // A malformed exercise is left to the vault's own listing, which names the bad field.
+    }
+  }
+  return all;
+}
+
+const exerciseNotice = (language: string) =>
+  `No se puede ejecutar aquí: este estudio no tiene un ejecutor configurado para «${language}». Tu respuesta se guarda y se envía al tutor igualmente.`;
+
+const failedRunNotice = (language: string, error: unknown, runners: Record<string, Runner>) => {
+  const detail =
+    error instanceof DockerDaemonError ? "Docker no está en marcha en este equipo."
+      : error instanceof ImageMissingError ? `la imagen ${runners[language]?.image ?? "configurada"} no está instalada en este equipo.`
+        : error instanceof CodeRunError ? error.message
+          : "el ejecutor no está disponible en este equipo.";
+  return `No se puede ejecutar aquí: ${detail} Tu respuesta se guarda y se envía al tutor igualmente.`;
+};
+
+/** Listing for the learner: an unrunnable language is still an exercise with its own quiet notice. */
+function viewExercises(dir: string, runners: Record<string, Runner>) {
+  return listExercises(dir, viewRunners(dir, runners)).map((item) => {
+    if (item.error || !item.lenguaje) return item;
+    const ejecutable = Object.hasOwn(runners, item.lenguaje);
+    // No tests were graded, so 0/0 is not a score worth showing in a listing (#344).
+    return { ...item, ...(item.mejor === "0/0" ? { mejor: "sin ejecución" } : {}), ejecutable, ...(ejecutable ? {} : { aviso: exerciseNotice(item.lenguaje) }) };
+  });
+}
+
 /** The part's code exercises, followed by its practical exercises, in the vault's declared order. */
 function partExercises(dir: string, partId: string, runners: Record<string, Runner>, revealSolutions = false): PartExercise[] {
-  const code = listExercises(dir, runners)
+  const code = viewExercises(dir, runners)
     .filter((e) => e.parte === partId)
     .map(({ id }) => {
-      const ex = readExercise(exerciseFile(dir, id), runners);
+      const ex = readExercise(exerciseFile(dir, id), viewRunners(dir, runners));
       return { id, titulo: ex.titulo, enunciado: ex.enunciado, lenguaje: ex.lenguaje };
     });
   return [...code, ...practicalExercises(dir, partId, revealSolutions)];
@@ -1387,7 +1434,7 @@ export function listTopics(rootReal: string, runners = loadRunners()): TopicSumm
       if (!plan && !existsSync(join(dir, "codigo"))) return [];
       // One unreadable file must not take the whole gallery down: a broken topic degrades to bare rows.
       try {
-        const exercises = listExercises(dir, runners).map(({ id, titulo, lenguaje, mejor }) => ({ id, titulo, lenguaje, mejor }));
+        const exercises = viewExercises(dir, runners).map(({ id, titulo, lenguaje, mejor }) => ({ id, titulo, lenguaje, mejor }));
         const parts = (plan?.parts ?? []).map((p) => {
           const rich = richPage(dir, plan!, p.id) !== undefined;
           const note = partNote(dir, plan!, p.id);
@@ -1606,7 +1653,7 @@ ${scripts}
       kind: "topic",
       topic,
       title: plan?.topic || topic,
-      exercises: listExercises(dir, loadRunners(options.runnersFile)),
+      exercises: viewExercises(dir, loadRunners(options.runnersFile)),
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
       parts,
       hasDiagnosis: existsSync(join(dir, "quiz.json")),
@@ -1644,10 +1691,10 @@ ${scripts}
       // after the body, because the script looks for the page it paginates.
       const bookAssets = `<link rel="stylesheet" href="/${token}/book.css?v=${staticVersion}"><script src="/${token}/book.js?v=${staticVersion}"></script>`;
       html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => bookAssets + "</body>") : html + bookAssets;
-      const exercises = listExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId);
+      const exercises = viewExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId);
       if (exercises.length) {
         const escape = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-        const links = exercises.map((e) => `<li><a href="/${token}/${encodeURIComponent(topic)}/codigo/${encodeURIComponent(e.id)}">${escape(e.titulo)}</a> · ${escape(e.lenguaje)} · Mejor: ${escape(e.mejor || "sin entregas")}</li>`).join("");
+        const links = exercises.map((e) => `<li><a href="/${token}/${encodeURIComponent(topic)}/codigo/${encodeURIComponent(e.id)}">${escape(e.titulo)}</a> · ${escape(e.lenguaje)} · Mejor: ${escape(e.mejor || "sin entregas")}${e.ejecutable === false ? " · no se puede ejecutar aquí" : ""}</li>`).join("");
         const section = `<section><h2>Ejercicios de código</h2><ul>${links}</ul></section>`;
         html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => section + "</body>") : html + section;
       }
@@ -1663,7 +1710,7 @@ ${scripts}
     const noteText = obsidianToMarkdown(readFileSync(note, "utf8"), dir);
     page(res, part.title, {
       kind: "part",
-      exercises: listExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId),
+      exercises: viewExercises(dir, loadRunners(options.runnersFile)).filter((e) => e.parte === partId),
       topic,
       part: partId,
       title: part.title,
@@ -1868,20 +1915,34 @@ ${scripts}
     const dir = topicDir(payload.topic);
     const file = exerciseFile(dir, payload.exercise);
     const runners = loadRunners(options.runnersFile);
-    const ex = readExercise(file, runners);
+    const ex = readExercise(file, viewRunners(dir, runners));
     if (typeof payload.code !== "string") throw new HttpError(400, "code must be a string");
     if (payload.input !== undefined && (typeof payload.input !== "string" || payload.input.length > 100_000)) throw new HttpError(400, "input must be a string of at most 100000 characters");
     const note = optionalText(payload, "note");
     const tests = submit ? ex.tests : payload.input !== undefined ? [{ nombre: "Entrada libre", entrada: payload.input as string }] : ex.tests.filter((t) => !t.oculto);
-    const result = await runCode({ runner: runners[ex.lenguaje], code: payload.code, tests, limitSeconds: ex.limite_segundos });
+    const runner = runners[ex.lenguaje];
+    let result: RunResult;
+    if (!runner) result = unavailableRun(exerciseNotice(ex.lenguaje));
+    else {
+      try {
+        result = await runCode({ runner, code: payload.code, tests, limitSeconds: ex.limite_segundos });
+      } catch (error) {
+        // A missing image, a stopped daemon or an absent docker binary is a truthful notice,
+        // never a dead end and never a score for tests that did not run (#344).
+        if (!(error instanceof CodeRunError)) throw error;
+        result = unavailableRun(failedRunNotice(ex.lenguaje, error, runners));
+      }
+    }
     if (!submit) return sendJson(res, 200, forPage(result));
     // The run takes seconds: a turn may have started meanwhile. A submission the studio will refuse
     // leaves no file, so the lock is asked again right before anything is written.
     requireTurn();
     const savedFile = saveSubmission(dirname(file), { ...result, lenguaje: ex.lenguaje, codigo: payload.code, ...(note ? { nota: note } : {}) });
     const saved = relative(dir, savedFile).split(sep).join("/");
-    const score = `${result.aprobados}/${result.total}`;
-    const lines = [`[Vista HTML · ${payload.topic} · código ${payload.exercise}]`, `Guardado: ${saved}`, `Resultado: ${score}`, `Compilación: ${result.compilacion.ok ? "correcta" : "error"}`, result.compilacion.salida];
+    const score = result.aviso ? "sin ejecución" : `${result.aprobados}/${result.total}`;
+    const lines = [`[Vista HTML · ${payload.topic} · código ${payload.exercise}]`, `Guardado: ${saved}`, `Resultado: ${score}`];
+    if (result.aviso) lines.push(result.aviso);
+    else lines.push(`Compilación: ${result.compilacion.ok ? "correcta" : "error"}`, result.compilacion.salida);
     for (const r of result.resultados) {
       lines.push(`${r.nombre}${r.oculto ? " (oculto)" : ""}: ${r.estado}`);
       if (r.estado !== "correcto") lines.push(`Esperado: ${r.esperado ?? ""}\nObtenido: ${r.obtenido ?? ""}\nErrores: ${r.errores ?? ""}`);
@@ -1909,8 +1970,11 @@ ${scripts}
     const dir = topicDir(topic);
     const file = exerciseFile(dir, id);
     const runners = loadRunners(options.runnersFile);
-    const ex = readExercise(file, runners);
-    page(res, ex.titulo, { kind: "code", topic, title: ex.titulo, exercise: { ...publicExercise(ex), id }, file: runners[ex.lenguaje].file,
+    const ex = readExercise(file, viewRunners(dir, runners));
+    const runner = runners[ex.lenguaje];
+    page(res, ex.titulo, { kind: "code", topic, title: ex.titulo,
+      exercise: { ...publicExercise(ex), id, ejecutable: Boolean(runner), ...(runner ? {} : { aviso: exerciseNotice(ex.lenguaje) }) },
+      file: runner?.file ?? "",
       ...readSubmissions(dirname(file)), runUrl: `/${token}/api/code/run`, topicBase: `/${token}/${encodeURIComponent(topic)}/`, topicTitle: readPlan(dir)?.topic || topic });
   };
 

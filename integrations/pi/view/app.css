@@ -182,6 +182,8 @@ textarea.code-editor { tab-size: 4; white-space: pre; overflow: auto; }
 .code-results { margin: 14px 0; padding: 0 0 0 1.2em; border: 0; }
 .code-results pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; margin: 0; }
 .code-results:empty { display: none; }
+/* #344: a quiet, theme-aware notice: the exercise is here, only execution is unavailable. */
+.code-notice { margin: 12px 0; padding-left: 12px; border-left: 2px solid var(--hair); color: var(--muted); font: 400 .8rem/1.5 var(--sans); }
 .code-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 20px; }
 
 button {

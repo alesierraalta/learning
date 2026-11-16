@@ -462,6 +462,7 @@
       const row = element("p");
       row.append(link(ex.titulo, data.topicBase + "codigo/" + encodeURIComponent(ex.id)), element("span", ` · ${ex.lenguaje} · Mejor: ${ex.mejor || "sin entregas"}`));
       if (ex.error) row.append(element("span", " · Ejercicio no disponible", "error"));
+      else if (ex.ejecutable === false && ex.aviso) row.append(element("span", " · no se puede ejecutar aquí", "muted"));
       section.append(row);
     }
     app.append(section);
@@ -469,7 +470,8 @@
 
   function codePage() {
     const ex = data.exercise;
-    app.append(element("p", `Lenguaje: ${ex.lenguaje} · archivo ${data.file}`, "part-kicker"), drawnText(ex.enunciado));
+    app.append(element("p", ex.ejecutable === false ? `Lenguaje: ${ex.lenguaje}` : `Lenguaje: ${ex.lenguaje} · archivo ${data.file}`, "part-kicker"), drawnText(ex.enunciado));
+    if (ex.aviso) app.append(element("p", ex.aviso, "code-notice"));
     for (const test of ex.tests.filter((t) => !t.oculto)) {
       app.append(element("h3", test.nombre), element("p", "Entrada"), element("pre", test.entrada), element("p", "Salida esperada"), element("pre", test.salida));
     }
@@ -495,7 +497,7 @@
     const history = element("section");
     history.append(element("h2", "Historial de entregas"));
     const when = (iso) => { const date = new Date(iso); return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("es", { dateStyle: "medium", timeStyle: "short" }); };
-    const addHistory = (s) => history.append(element("p", `#${s.numero} · ${s.aprobados}/${s.total} pruebas · ${when(s.fecha)}`));
+    const addHistory = (s) => history.append(element("p", `#${s.numero} · ${s.aviso ? "sin ejecución" : `${s.aprobados}/${s.total} pruebas`} · ${when(s.fecha)}`));
     (data.submissions || []).forEach(addHistory);
     const buttons = [];
     const states = { correcto: "✔ correcto", incorrecto: "✘ incorrecto", tiempo: "⏱ tiempo", error: "💥 error", ejecutado: "▶ ejecutado" };
@@ -509,18 +511,24 @@
         const response = await fetch(mode === "submit" ? data.submitUrl : data.runUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error);
-        panel.replaceChildren(element("h2", mode === "free" ? "Ejecución con tu entrada" : `Resultado: ${result.aprobados}/${result.total} pruebas`));
-        if (!result.compilacion.ok) panel.append(element("h3", "Error de compilación", "error"));
-        if (result.compilacion.salida) panel.append(element("pre", result.compilacion.salida));
-        for (const r of result.resultados) {
-          panel.append(element("h3", `${r.nombre}${r.oculto ? " (oculto)" : ""} · ${states[r.estado]}`, r.estado === "correcto" ? "correct" : r.estado === "ejecutado" ? "" : "error"));
-          if (!r.oculto) for (const [key, label] of [["entrada", "Entrada"], ["esperado", "Esperado"], ["obtenido", "Obtenido"], ["errores", "Errores"]]) {
-            if (r[key] !== undefined && (key !== "errores" || r[key].trim())) panel.append(element("p", label), element("pre", r[key]));
+        // An answer that could not run gets an honest notice, never a score for tests that never ran (#344).
+        panel.replaceChildren(result.aviso
+          ? element("h2", "No se puede ejecutar aquí")
+          : element("h2", mode === "free" ? "Ejecución con tu entrada" : `Resultado: ${result.aprobados}/${result.total} pruebas`));
+        if (result.aviso) panel.append(element("p", result.aviso, "code-notice"));
+        else {
+          if (!result.compilacion.ok) panel.append(element("h3", "Error de compilación", "error"));
+          if (result.compilacion.salida) panel.append(element("pre", result.compilacion.salida));
+          for (const r of result.resultados) {
+            panel.append(element("h3", `${r.nombre}${r.oculto ? " (oculto)" : ""} · ${states[r.estado]}`, r.estado === "correcto" ? "correct" : r.estado === "ejecutado" ? "" : "error"));
+            if (!r.oculto) for (const [key, label] of [["entrada", "Entrada"], ["esperado", "Esperado"], ["obtenido", "Obtenido"], ["errores", "Errores"]]) {
+              if (r[key] !== undefined && (key !== "errores" || r[key].trim())) panel.append(element("p", label), element("pre", r[key]));
+            }
           }
         }
         if (mode === "submit") {
           panel.append(element("p", "Entrega guardada y enviada al tutor."));
-          addHistory({ numero: Number(result.saved.split("/").pop().split(".")[0]), aprobados: result.aprobados, total: result.total, fecha: new Date().toISOString() });
+          addHistory({ numero: Number(result.saved.split("/").pop().split(".")[0]), aprobados: result.aprobados, total: result.total, ...(result.aviso ? { aviso: result.aviso } : {}), fecha: new Date().toISOString() });
         }
       } catch (error) { panel.replaceChildren(element("p", `No se pudo ejecutar: ${error.message}`, "error")); }
       finally { buttons.forEach((b) => b.disabled = false); }

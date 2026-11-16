@@ -10,6 +10,8 @@ UN solo archivo `.html` autocontenido (CSS y JS inline, cero dependencias extern
 
 Escribe cada bloque de código como `<pre><code class="language-sql">…</code></pre>` con el lenguaje que corresponda. Escapa dentro del código `<` como `&lt;`, `>` como `&gt;` y `&` como `&amp;`. Nunca uses fences Markdown en una página HTML: `explain-check` los rechaza y señala la línea.
 
+**Antes de prometer ejecución real** (#344): el lector corre ejercicios `codigo/<id>/ejercicio.json` en contenedor sólo para los lenguajes declarados en `integrations/pi/runners.json` — hoy `python`, `c`, `cpp`, `java`, `javascript` y `plsql` (Oracle XE, imagen opcional que se instala sólo donde se vaya a usar). Un lenguaje sin ejecutor, una imagen ausente, Docker apagado o un `docker` inexistente no convierten el ejercicio en «Ejercicio no disponible»: se muestra el enunciado y el editor, se guarda y se envía la respuesta, y el panel dice «No se puede ejecutar aquí: …» sin puntaje. Para una parte nueva: si el objetivo es ejecutar, elige un lenguaje de esa lista; si no, escribe un ejercicio de predecir, trazar o explicar código que no dependa de un ejecutor. Un validador JS del subset enseñado puede acompañar la página, pero no sustituye al juez ni debe calificar como correcto lo que no ejecutó de verdad.
+
 ## Componentes v2 (aprobados por el usuario — usar SIEMPRE; obligatorios cuando el tema es código)
 
 Modelo de referencia v2: `plsql-desde-cero-v2.html` en el directorio de salida (leerlo si existe antes de construir uno nuevo; motor de stepper, quiz v2 y juegos listos para copiar).
