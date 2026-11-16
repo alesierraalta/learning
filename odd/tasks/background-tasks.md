@@ -74,3 +74,11 @@ forever (`studio/server.ts` startTurn catch plus one idempotent release flag), `
 delete another live studio's aggregate busy marker (`studio/state.ts`), and a dead `lockPromise`
 field was removed. The first verifier attempt died at the 1 h relay bound with no findings; the
 bounded second attempt found them.
+
+**L7** — Real run with real Pi and a real browser: the queue was visible as «1 en cola» from
+16:04:32.820, but the second quiz only got its `200` at 16:04:39.671 — the POST hung ~7 s in
+`await holdTopic` (`integrations/pi/bridge.ts:1956`) before `sendJson(res, 200, …)`
+(`bridge.ts:2137`). S5 asks for immediate acceptance, so the lock claim now reports synchronously
+whether it joined the FIFO: that submission answers `202` with `{ok: true, queued: true, …}` and
+its answer file and task delivery run only once the ticket is owned; a free topic keeps the
+immediate `200`. The kit reader treats `202` as an acknowledgement and waits for the task's SSE.

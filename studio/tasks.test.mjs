@@ -255,11 +255,15 @@ for (const runtime of ["pi", "agy"]) {
       await untilAsync(async () => (await taskOf(studio, "redes"))?.state !== undefined);
       const answerFile = join(root, "redes", "mini-quiz", "p1.answers.json");
 
-      const queued = submitPage(bridge, {
+      const queuedAt = Date.now();
+      const queued = bounded(submitPage(bridge, {
         kind: "mini-quiz", topic: "redes", part: "p1", answers: { q1: "B" }, reasoning: { q1: { razonamiento: "pienso", confianza: "seguro" } },
-      });
-      let queuedDone = false;
-      void queued.then(() => { queuedDone = true; });
+      }), 1000, "the queued POST waited for the topic lock");
+      const queuedAck = await queued;
+      assert.ok(Date.now() - queuedAt < 1000, `the acknowledgement took ${Date.now() - queuedAt} ms`);
+      assert.equal(queuedAck.status, 202, queuedAck.body);
+      assert.equal(json(queuedAck).ok, true, queuedAck.body);
+      assert.equal(json(queuedAck).queued, true, queuedAck.body);
       await untilAsync(async () => (await taskOf(studio, "redes"))?.queued >= 1);
       assert.equal(existsSync(answerFile), false, "a queued submission writes no answer file before it owns the topic");
 
@@ -276,9 +280,12 @@ for (const runtime of ["pi", "agy"]) {
         const dialog = await redes.next("dialog", (d) => d.task === "redes");
         assert.equal((await post(studio, "api/tareas/dialogo", { task: "redes", id: dialog.id, value: "Universitario" })).status, 200);
       }
-      assert.equal((await queued).status, 200, "the queued submission ran after the lock was free");
+      await untilAsync(() => existsSync(answerFile), 3000);
       assert.ok(existsSync(answerFile), "the queued submission wrote its answer file when it owned the lock");
-      assert.equal(queuedDone, true);
+      await untilAsync(() => redes.events.some((e) => e.name === "user" && /mini-quiz/.test(String(e.data.text ?? ""))), 5000);
+      const delivered = redes.events.filter((e) => e.name === "user").map((e) => String(e.data.text ?? ""));
+      assert.ok(delivered.findIndex((text) => text.includes("mini-quiz")) > delivered.findIndex((text) => text.includes("primera de redes")),
+        `the task received the queued delivery in order: ${JSON.stringify(delivered)}`);
       if (runtime === "pi") {
         const nextDialog = await redes.next("dialog", (d) => d.task === "redes", 3000).catch(() => null);
         if (nextDialog) await post(studio, "api/tareas/dialogo", { task: "redes", id: nextDialog.id, value: "Universitario" });

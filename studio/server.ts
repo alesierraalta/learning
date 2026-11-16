@@ -2706,35 +2706,40 @@ ${scripts}
   registerBridge(fakePi as never, {
     root,
     // A topic queues instead of refusing: the ticket is held before the answer file is written.
-    lockTopic: async (topic: string) => {
+    lockTopic: (topic: string) => {
       // Make the waiting task visible before its first message reaches the turn.
       if (enrolled(root, topic)) ensureTask(topic);
       const waiting = locks.acquire(topic);
+      // acquire() queues synchronously: this claim can tell the bridge to answer 202 at once,
+      // while the ticket it carries still grants the write only when the topic is free.
+      const queued = locks.queued(topic) > 0;
       // The queue length changes synchronously inside acquire; publish it before the await.
       queueMicrotask(emitTareas);
-      const ticket = await waiting;
-      // One flag ends the bridge's ownership, whether by handoff to a turn or by release.
-      // The ticket itself is idempotent, so both owners can let go without freeing twice.
-      let released = false;
-      const handle: LockHandle = {
-        ticket,
-        transfer() {
-          if (released) return;
-          released = true;
-          pendingTickets.delete(topic);
-          emitTareas();
-        },
-        release() {
-          if (released) return;
-          released = true;
-          pendingTickets.delete(topic);
-          ticket.release();
-          emitTareas();
-        },
-      };
-      pendingTickets.set(topic, handle);
-      emitTareas();
-      return { release: () => handle.release() };
+      const ticket = waiting.then((owned) => {
+        // One flag ends the bridge's ownership, whether by handoff to a turn or by release.
+        // The ticket itself is idempotent, so both owners can let go without freeing twice.
+        let released = false;
+        const handle: LockHandle = {
+          ticket: owned,
+          transfer() {
+            if (released) return;
+            released = true;
+            pendingTickets.delete(topic);
+            emitTareas();
+          },
+          release() {
+            if (released) return;
+            released = true;
+            pendingTickets.delete(topic);
+            owned.release();
+            emitTareas();
+          },
+        };
+        pendingTickets.set(topic, handle);
+        emitTareas();
+        return { release: () => handle.release() };
+      });
+      return { ticket, queued };
     },
     tokenSeed: token,
     transcriber: options.transcriberUrl === undefined ? undefined : { url: options.transcriberUrl, token: options.transcriberToken! },

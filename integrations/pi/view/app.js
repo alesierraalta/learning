@@ -150,7 +150,9 @@
     const result = await response.json();
     // The bridge says what happened, including when reloading is worth it: the page adds nothing.
     if (!response.ok) throw new Error(result.error || "No se pudo enviar.");
-    return result;
+    // A 202 only accepts the work: the verdict will arrive later from the topic's task, so
+    // callers must not draw results from this body. The free topic's 200 body is unchanged.
+    return response.status === 202 ? { ...result, queued: true } : result;
   };
   function decorate(root) {
     root.querySelectorAll("blockquote").forEach((quote) => {
@@ -406,6 +408,11 @@
         message.textContent = "Enviando…";
         try {
           const response = await post(payload);
+          if (response.queued) {
+            form.querySelectorAll("input, textarea, button").forEach((input) => { input.disabled = true; });
+            message.textContent = "En cola…";
+            return;
+          }
           response.results.forEach((result) => {
             const item = pending.find((entry) => entry.question.id === result.id);
             if (item) showResult(item.field, result, item.question);
@@ -502,6 +509,7 @@
     const buttons = [];
     const states = { correcto: "✔ correcto", incorrecto: "✘ incorrecto", tiempo: "⏱ tiempo", error: "💥 error", ejecutado: "▶ ejecutado" };
     const run = async (mode) => {
+      let queued = false;
       buttons.forEach((b) => b.disabled = true);
       panel.replaceChildren(element("p", "Ejecutando…"));
       const payload = { topic: data.topic, exercise: ex.id, code: editor.value };
@@ -511,6 +519,11 @@
         const response = await fetch(mode === "submit" ? data.submitUrl : data.runUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error);
+        if (response.status === 202 || result.queued) {
+          queued = true;
+          panel.replaceChildren(element("p", "En cola…"));
+          return;
+        }
         // An answer that could not run gets an honest notice, never a score for tests that never ran (#344).
         panel.replaceChildren(result.aviso
           ? element("h2", "No se puede ejecutar aquí")
@@ -531,11 +544,12 @@
           addHistory({ numero: Number(result.saved.split("/").pop().split(".")[0]), aprobados: result.aprobados, total: result.total, ...(result.aviso ? { aviso: result.aviso } : {}), fecha: new Date().toISOString() });
         }
       } catch (error) { panel.replaceChildren(element("p", `No se pudo ejecutar: ${error.message}`, "error")); }
-      finally { buttons.forEach((b) => b.disabled = false); }
+      finally { buttons.forEach((b) => { b.disabled = queued && b.dataset.mode === "submit"; }); }
     };
     const actions = element("div", undefined, "code-actions");
     for (const [text, mode] of [["Probar con las pruebas visibles", "visible"], ["Probar con mi entrada", "free"], ["Entregar al tutor", "submit"]]) {
       const button = element("button", text);
+      button.dataset.mode = mode;
       button.onclick = () => run(mode);
       buttons.push(button);
       actions.append(button);
@@ -809,11 +823,11 @@
     if (data.part) payload.part = data.part;
     if (demo) payload.demo = demo;
     try {
-      await post(payload);
+      const response = await post(payload);
       questionText.value = "";
       demo = undefined;
-      questionStatus.className = "correct";
-      questionStatus.textContent = "Enviada al chat";
+      questionStatus.className = response.queued ? "" : "correct";
+      questionStatus.textContent = response.queued ? "En cola…" : "Enviada al chat";
     } catch (error) {
       questionStatus.className = "error";
       questionStatus.textContent = error.message;

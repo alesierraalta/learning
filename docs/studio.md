@@ -437,8 +437,12 @@ la suya y no muestra los mensajes de las tareas.
 El candado es FIFO y **uno por tema**, compartido por todas las Sesiones. Se toma antes de
 escribir el archivo de respuestas o de apartar la versión anterior de una regeneración, y se
 suelta cuando el turno termina, se aborta o el runtime muere. Un tema ocupado no devuelve 409:
-la petición espera su turno y el estudio la muestra como `waiting` con su número de esperas.
-Otros temas —y un prompt del chat principal sin ese tema— siguen trabajando al mismo tiempo.
+la entrega se acepta en cuanto llega con `202` y un cuerpo JSON `{ok: true, queued: true, …}`;
+el archivo de respuestas y el mensaje al tutor se producen después, cuando esa petición ya es la
+única escritora del tema, y el lector ve el resultado por la transmisión SSE de la tarea. Mientras
+espera, el estudio la muestra como `waiting` con su número de esperas; si el candado está libre,
+la respuesta sigue siendo el `200` inmediato con el resultado ya calculado. Otros temas —y un
+prompt del chat principal sin ese tema— siguen trabajando al mismo tiempo.
 
 ### Estado, diálogos y API
 

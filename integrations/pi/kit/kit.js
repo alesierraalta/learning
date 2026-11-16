@@ -67,7 +67,9 @@
     const response = await fetch(b.submitUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    return data;
+    // 202 means the topic's task accepted the work but has not graded it yet: the verdict arrives
+    // through that task's stream, so page-local result rendering must not run on the acknowledgement.
+    return response.status === 202 ? { ...data, queued: true } : data;
   }
   const thoughtField = (id, index) => window.learningThoughtField(id, index, config());
   const loaded = new Map();
@@ -394,6 +396,11 @@
         }
         if (Object.keys(exerciseAnswers).length) payload.exercises = exerciseAnswers;
         const graded = await post(payload);
+        if (graded.queued) {
+          out.textContent = 'En cola: el tutor lo revisará en su tarea.';
+          form.querySelectorAll('input, textarea, button').forEach(n => { n.disabled = true; });
+          return;
+        }
         showResults(graded);
         showExerciseSolutions(graded.exerciseSolutions || {});
         notifyStudio(graded);
@@ -464,6 +471,12 @@
       submit.disabled = true;
       try {
         const graded = await post({ kind: 'quick-quiz', id: qId, chosen });
+        if (graded.queued) {
+          resultBox.hidden = false;
+          resultBox.textContent = 'En cola: el tutor lo revisará en su tarea.';
+          form.querySelectorAll('input, button').forEach(i => { i.disabled = true; });
+          return;
+        }
         const ok = show(graded);
         form.querySelectorAll('input').forEach(i => { i.disabled = true; });
         const b = config();

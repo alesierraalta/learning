@@ -1714,7 +1714,7 @@ test("a submission from the page cannot start a turn while the studio gates the 
       method: "POST",
       headers: { "content-type": "application/json", origin: new URL(view.url).origin },
       body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿Qué es una capa?" }),
-    });
+    }).then((response) => ({ response, callsAtAck: engineCalls(root) }));
     // The reader's work queues visibly; the turn that is already settling keeps the topic.
     await untilAsync(async () => {
       const list = JSON.parse((await http(`${studio.url}api/tareas`)).body);
@@ -1724,7 +1724,12 @@ test("a submission from the page cannot start a turn while the studio gates the 
     await until(() => agyTurns(turns).length === 2);
     assert.match(agyTurns(turns)[1].join(" "), /--conversation test-conversation/);
     assert.equal((await stream.next("gate", (data) => data.passing === true)).tema, "redes");
-    assert.equal((await pending).status, 200, "the queued submission runs once the turn ends");
+    // A queued submission is acknowledged before the settling turn ends, then delivered afterwards.
+    const { response: ack, callsAtAck } = await pending;
+    assert.equal(callsAtAck, "1", "the POST answered while the studio still held the gate");
+    assert.equal(ack.status, 202, "the queued submission is accepted at once");
+    assert.equal(JSON.parse(ack.body).ok, true, ack.body);
+    assert.equal(JSON.parse(ack.body).queued, true, ack.body);
     await until(() => agyTurns(turns).some((argv) => argv.join(" ").includes("¿Qué es una capa?")));
     assert.ok(agyTurns(turns).some((argv) => argv.includes("--conversation")), "the submission runs in the topic task's own conversation");
   } finally {
