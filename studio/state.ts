@@ -65,10 +65,20 @@ export function createBusyTracker(stateFile: string) {
       return mark === null ? [] : [mark];
     });
   };
-  const publish = () => {
+  const sameMark = (a: BusyMark | null, b: BusyMark | undefined): boolean =>
+    a !== null && b !== undefined && a.pid === b.pid && a.startedAt === b.startedAt && a.topic === b.topic;
+  const publish = (finished?: BusyMark) => {
     const live = marks().filter((mark) => busyActive(mark));
-    if (live.length) markBusy(aggregate, live[0]);
-    else clearBusy(aggregate);
+    if (live.length) {
+      markBusy(aggregate, live[0]);
+      return;
+    }
+    // A live aggregate whose session file this tracker cannot see still belongs to another
+    // studio: `held()` honours it, so `publish()` must not erase it. The mark this session
+    // just finished is the one aggregate we may clear.
+    const other = readBusy(aggregate);
+    if (busyActive(other) && !sameMark(other, finished)) return;
+    clearBusy(aggregate);
   };
   return {
     mark(session: string, mark: { pid: number; startedAt: number; topic: string | null }) {
@@ -76,12 +86,14 @@ export function createBusyTracker(stateFile: string) {
       publish();
     },
     clear(session: string) {
+      const file = sessionBusyFile(stateFile, session);
+      const finished = readBusy(file);
       try {
-        unlinkSync(sessionBusyFile(stateFile, session));
+        unlinkSync(file);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
-      publish();
+      publish(finished ?? undefined);
     },
     /** A marker another process wrote is no less real than one of our sessions'. */
     held(): boolean {

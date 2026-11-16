@@ -1479,52 +1479,64 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     correction?: boolean;
     creation?: boolean;
     lock?: { release: () => void } | null;
-  lockPromise?: Promise<{ release: () => void }>;
     backup?: () => NonNullable<Turn["regeneration"]>;
   }) => {
-    requireNoTurn(session);
-    // A drifted skill or AGENTS.md link means nobody reviewed what the tutor would read.
-    refuseDriftedContext(session);
-    // Never route a turn before the studio knows which conversation it belongs to.
+    let started: Turn | null = null;
     try {
-      await session.ready;
+      requireNoTurn(session);
+      // A drifted skill or AGENTS.md link means nobody reviewed what the tutor would read.
+      refuseDriftedContext(session);
+      // Never route a turn before the studio knows which conversation it belongs to.
+      try {
+        await session.ready;
+      } catch (error) {
+        process.stderr.write(`estudio: el tutor no pudo abrir su conversación · ${(error as Error).message}\n`);
+        const message = "El tutor no empieza: no pudo abrir su conversación. Vuelve a intentarlo en un momento.";
+        session.emit("error", { message });
+        throw new HttpError(503, message);
+      }
+      // A task whose settings changed while it was working gets its new runtime before the next turn.
+      if (session.kind === "task" && (session.stale || missingRuntime(session))) {
+        stopRuntime(session);
+        startTaskRuntime(session);
+        await session.ready;
+      }
+      // `ready` can take a moment, and a Session must not hold two turns because of it.
+      requireNoTurn(session);
+      started = {
+        topic: spec.topic,
+        correction: spec.correction === true,
+        creation: spec.creation === true,
+        parts: [],
+        methodBefore: spec.topic === null ? null : methodOf(spec.topic),
+        timing: createPageTiming({ runtime: tutor.agente, model: tutor.modelo, topic: spec.topic }),
+        lock: spec.lock ?? null,
+      };
+      holdTurn(session, started);
+      try {
+        if (spec.backup) started.regeneration = spec.backup();
+        const prompt = await started.timing.measure("contexto", () => withLecciones(namedPart(text), root));
+        await deliver(session, prompt, started);
+      } catch (error) {
+        releaseTurn(session, started);
+        throw error;
+      }
+      if (!started.correction) session.settleGate.reset();
+      // The topic the tutor is teaching is the topic the page is on, whatever path started the turn.
+      if (started.topic) {
+        session.tema = started.topic;
+        session.gateBlocked = false;
+      }
     } catch (error) {
-      process.stderr.write(`estudio: el tutor no pudo abrir su conversación · ${(error as Error).message}\n`);
-      const message = "El tutor no empieza: no pudo abrir su conversación. Vuelve a intentarlo en un momento.";
-      session.emit("error", { message });
-      throw new HttpError(503, message);
-    }
-    // A task whose settings changed while it was working gets its new runtime before the next turn.
-    if (session.kind === "task" && (session.stale || missingRuntime(session))) {
-      stopRuntime(session);
-      startTaskRuntime(session);
-      await session.ready;
-    }
-    // `ready` can take a moment, and a Session must not hold two turns because of it.
-    requireNoTurn(session);
-    const started: Turn = {
-      topic: spec.topic,
-      correction: spec.correction === true,
-      creation: spec.creation === true,
-      parts: [],
-      methodBefore: spec.topic === null ? null : methodOf(spec.topic),
-      timing: createPageTiming({ runtime: tutor.agente, model: tutor.modelo, topic: spec.topic }),
-      lock: spec.lock ?? null,
-    };
-    holdTurn(session, started);
-    try {
-      if (spec.backup) started.regeneration = spec.backup();
-      const prompt = await started.timing.measure("contexto", () => withLecciones(namedPart(text), root));
-      await deliver(session, prompt, started);
-    } catch (error) {
-      releaseTurn(session, started);
+      // Every exit owns the ticket: a held turn unwinds through releaseTurn, while a refusal
+      // before the hold releases the route's ticket right here. Release is idempotent, so a
+      // delivery failure that already let go still passes safely through this final path.
+      try {
+        if (started && session.turn === started) releaseTurn(session, started);
+      } finally {
+        spec.lock?.release();
+      }
       throw error;
-    }
-    if (!started.correction) session.settleGate.reset();
-    // The topic the tutor is teaching is the topic the page is on, whatever path started the turn.
-    if (started.topic) {
-      session.tema = started.topic;
-      session.gateBlocked = false;
     }
   };
 
@@ -1627,7 +1639,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const tools = new Map<string, { execute: (...args: unknown[]) => Promise<Json> }>();
   const shutdownHandlers: Array<() => Promise<void> | void> = [];
   /** The bridge owns a topic ticket while it writes an answer file; the turn then inherits it. */
-  type LockHandle = { ticket: { release: () => void }; detach: () => void; release: () => void };
+  type LockHandle = { ticket: { release: () => void }; transfer: () => void; release: () => void };
   const pendingTickets = new Map<string, LockHandle>();
   const fakePi = {
     on(event: string, handler: () => Promise<void> | void) {
@@ -1642,12 +1654,14 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       const topic = bridgeTopic(text);
       const session = topic === null ? main : ensureTask(topic);
       const handle = topic === null ? undefined : pendingTickets.get(topic);
-      // Once a turn owns the ticket, the bridge's own `finally` must not free the topic early.
-      handle?.detach();
       const lock = handle?.ticket ?? null;
-      if (topic !== null) pendingTickets.delete(topic);
       if (session.kind === "task" && missingRuntime(session)) startTaskRuntime(session);
-      return startTurn(session, text, { topic, lock });
+      return startTurn(session, text, { topic, lock }).then((result) => {
+        // Until the turn holds the ticket the bridge still owns it, so its `finally` is the
+        // safety net for a refusal before the hold. Only then is the handoff final.
+        handle?.transfer();
+        return result;
+      });
     },
   };
   const view = async (topic?: string, part?: string) => {
@@ -2699,13 +2713,22 @@ ${scripts}
       // The queue length changes synchronously inside acquire; publish it before the await.
       queueMicrotask(emitTareas);
       const ticket = await waiting;
-      let detached = false;
+      // One flag ends the bridge's ownership, whether by handoff to a turn or by release.
+      // The ticket itself is idempotent, so both owners can let go without freeing twice.
+      let released = false;
       const handle: LockHandle = {
         ticket,
-        detach() { detached = true; },
-        release() {
+        transfer() {
+          if (released) return;
+          released = true;
           pendingTickets.delete(topic);
-          if (!detached) ticket.release();
+          emitTareas();
+        },
+        release() {
+          if (released) return;
+          released = true;
+          pendingTickets.delete(topic);
+          ticket.release();
           emitTareas();
         },
       };

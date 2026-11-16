@@ -2,8 +2,9 @@
 // A task owns its own process and its own turn; the main chat keeps its own one-turn rule.
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,6 +37,11 @@ const untilAsync = async (pred, timeout = 5000) => {
     await delay(25);
   }
   throw new Error("condition not met");
+};
+/** A leaked ticket shows up as a topic that never leaves the queue: bound the wait. */
+const bounded = (promise, ms, message) => {
+  void promise.catch(() => {});
+  return Promise.race([promise, delay(ms).then(() => { throw new Error(message); })]);
 };
 
 function http(url, { method = "GET", headers = {}, body } = {}) {
@@ -120,19 +126,20 @@ async function newStudio(runtime, options = {}) {
     process.env.FAKE_AGY_TURNS = turns;
     process.env.FAKE_AGY_DELAY_MS = String(options.agyDelay ?? 2000);
   }
-  const studio = await startStudio({
+  const studioConfig = {
     root,
     piCommand: [process.execPath, FAKE_PI],
     enginePath: engine,
     agyCommand: [process.execPath, FAKE_AGY],
     skipContextCheck: true,
     ...options.studio,
-  });
+  };
+  const studio = await startStudio(studioConfig);
   open.push(studio);
   if (runtime === "agy") {
     assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
   }
-  return { studio, root, log, turns, stateDir: process.env.XDG_STATE_HOME };
+  return { studio, studioConfig, root, log, turns, stateDir: process.env.XDG_STATE_HOME };
 }
 
 /** A second enrolled topic: another task, another process, another conversation. */
@@ -292,6 +299,30 @@ for (const runtime of ["pi", "agy"]) {
     } finally { redes.close(); otra.close(); }
   });
 
+  test(`S5: a topic whose turn cannot start stays usable — ${runtime}`, async () => {
+    // A drifted context is refused before holdTurn, with the bridge ticket already detached.
+    const { studio, studioConfig } = await newStudio(runtime, {
+      studio: { skipContextCheck: false, contextHome: mkdtempSync(join(tmpdir(), "studio-drift-")) },
+    });
+    const bridge = await bridgeFor(studio);
+    const stream = taskStream(studio, "redes");
+    try {
+      const refused = await submitPage(bridge, question("redes", "no puede empezar"));
+      assert.equal(refused.status, 409, refused.body);
+      studioConfig.skipContextCheck = true;
+
+      const next = submitPage(bridge, question("redes", "sí puede empezar"));
+      void next.catch(() => {});
+      await bounded(
+        untilAsync(async () => ["working", "asking"].includes((await taskOf(studio, "redes"))?.state), 3000),
+        3500, "the topic stayed locked after a turn that never started",
+      );
+      await settleTask(runtime, studio, stream, "redes");
+      assert.equal((await next).status, 200, "the next submission ran and settled");
+      assert.equal((await taskOf(studio, "redes")).state, "done");
+    } finally { stream.close(); }
+  });
+
   test(`S4: three topic tasks work at the same time — ${runtime}`, async () => {
     const { studio, root } = await newStudio(runtime);
     addTopic(root, "otra");
@@ -315,6 +346,51 @@ for (const runtime of ["pi", "agy"]) {
     } finally { for (const stream of streams) stream.close(); }
   });
 }
+
+test("S5: a Pi prompt refused inside startTurn leaves the topic usable", async () => {
+  process.env.FAKE_PI_REJECT = "[Vista HTML · redes · p1 · pregunta";
+  try {
+    const { studio } = await newStudio("pi");
+    const bridge = await bridgeFor(studio);
+    const stream = taskStream(studio, "redes");
+    try {
+      const refused = await submitPage(bridge, question("redes", "el modelo no responde"));
+      assert.equal(refused.status, 409, refused.body);
+      // The same process can deliver a different kind of submission: its prompt does not match.
+      const next = submitPage(bridge, { kind: "video", topic: "redes", part: "p1" });
+      void next.catch(() => {});
+      await bounded(
+        untilAsync(async () => ["working", "asking"].includes((await taskOf(studio, "redes"))?.state), 3000),
+        3500, "the topic stayed locked after a refused prompt",
+      );
+      await settleTask("pi", studio, stream, "redes");
+      assert.equal((await next).status, 200, "the next submission ran and settled");
+      assert.equal((await taskOf(studio, "redes")).state, "done");
+    } finally { stream.close(); }
+  } finally { delete process.env.FAKE_PI_REJECT; }
+});
+
+test("S5: an Antigravity prompt refused inside startTurn leaves the topic usable", async () => {
+  const { studio, studioConfig } = await newStudio("agy", { studio: { agyCommand: [] } });
+  const bridge = await bridgeFor(studio);
+  const stream = taskStream(studio, "redes");
+  try {
+    const refused = await submitPage(bridge, question("redes", "sin ejecutable"));
+    assert.equal(refused.status, 409, refused.body);
+    // A tutor change replaces the task's runtime, so the next turn uses the restored command.
+    studioConfig.agyCommand = [process.execPath, FAKE_AGY];
+    assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
+    const next = submitPage(bridge, question("redes", "ya funciona"));
+    void next.catch(() => {});
+    await bounded(
+      untilAsync(async () => ["working", "asking"].includes((await taskOf(studio, "redes"))?.state), 3000),
+      3500, "the topic stayed locked after a refused prompt",
+    );
+    await settleTask("agy", studio, stream, "redes");
+    assert.equal((await next).status, 200, "the next submission ran and settled");
+    assert.equal((await taskOf(studio, "redes")).state, "done");
+  } finally { stream.close(); }
+});
 
 test("task states, dialogs, transcript and abort are readable through the task API", async () => {
   const { studio } = await newStudio("pi");
