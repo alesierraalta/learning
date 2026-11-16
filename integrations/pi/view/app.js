@@ -475,10 +475,81 @@
     app.append(section);
   }
 
+  /**
+   * #348: a quiet line of languages that can run here, with the exact install command behind a
+   * disclosure. It is painted from cached page data and refreshed from /api/runners as the page
+   * loads, so neither the reader nor the studio ever waits on Docker to draw the exercise.
+   */
+  let runnersBox;
+  function paintRunners(list) {
+    if (!runnersBox) return;
+    runnersBox.replaceChildren();
+    const languages = list?.languages ?? data.runners ?? [];
+    const runnable = list?.runnable ?? data.runnable ?? [];
+    runnersBox.append(element("p", `Ejecutables aquí: ${runnable.length ? runnable.join(" · ") : "ninguno todavía"}`, "runners-now"));
+    if (!languages.length && !(list?.warnings ?? data.warnings ?? []).length) return;
+    const details = document.createElement("details");
+    details.append(element("summary", "Ver lenguajes y cómo instalar los que faltan"));
+    const rows = element("ul", undefined, "runners-list");
+    for (const item of languages) {
+      const row = element("li", undefined, item.present ? "runner-yes" : "runner-no");
+      row.append(element("strong", item.language), element("span", ` · ${item.size}`));
+      if (item.present) row.append(element("span", " · disponible"));
+      else {
+        row.append(element("code", item.pull || `docker pull ${item.image}`));
+        const state = element("span", item.state === "pulling" ? "Descargando…" : "", "runner-state");
+        const ask = element("button", "Pedir al estudio que lo descargue", "secondary");
+        ask.type = "button";
+        ask.onclick = async () => {
+          ask.disabled = true;
+          state.textContent = "Descargando…";
+          try {
+            const response = await fetch(data.pullUrl, {
+              method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ language: item.language, ...(data.topic ? { topic: data.topic } : {}) }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error);
+            const query = new URLSearchParams({ language: item.language, ...(data.topic ? { topic: data.topic } : {}) });
+            for (let i = 0; i < 120; i++) {
+              const current = await (await fetch(`${data.pullUrl}?${query}`)).json();
+              state.textContent = current.state === "pulling" ? "Descargando…" : current.message || "";
+              if (current.state === "done") { await refreshRunners(); break; }
+              if (current.state === "failed") break;
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+            }
+          } catch (error) { state.textContent = `No se pudo descargar: ${error.message}`; }
+          finally { ask.disabled = false; }
+        };
+        row.append(state, ask);
+      }
+      rows.append(row);
+    }
+    details.append(rows);
+    for (const warning of list?.warnings ?? data.warnings ?? []) details.append(element("p", warning, "runner-warning"));
+    runnersBox.append(details);
+  }
+
+  async function refreshRunners() {
+    if (!data.runnersUrl || !runnersBox) return;
+    try {
+      const response = await fetch(data.runnersUrl, { cache: "no-store" });
+      if (response.ok) paintRunners(await response.json());
+    } catch { /* the cached line stays: Docker is never a page error */ }
+  }
+
+  function runnerStrip() {
+    runnersBox = element("section", undefined, "runners-strip");
+    paintRunners();
+    void refreshRunners();
+    return runnersBox;
+  }
+
   function codePage() {
     const ex = data.exercise;
     app.append(element("p", ex.ejecutable === false ? `Lenguaje: ${ex.lenguaje}` : `Lenguaje: ${ex.lenguaje} · archivo ${data.file}`, "part-kicker"), drawnText(ex.enunciado));
     if (ex.aviso) app.append(element("p", ex.aviso, "code-notice"));
+    app.append(runnerStrip());
     for (const test of ex.tests.filter((t) => !t.oculto)) {
       app.append(element("h3", test.nombre), element("p", "Entrada"), element("pre", test.entrada), element("p", "Salida esperada"), element("pre", test.salida));
     }
@@ -588,6 +659,7 @@
     app.append(list);
     if (data.hasDiagnosis) app.append(link("Diagnóstico", data.topicBase + "quiz"));
     exerciseLinks();
+    app.append(runnerStrip());
     return;
   }
   if (data.kind === "part") {
@@ -787,6 +859,7 @@
       }).observe(section);
     }
   }
+  app.append(runnerStrip());
   quiz();
   const questionForm = element("form", undefined, "tutor");
   questionForm.append(element("h2", "Pregunta al tutor"));
