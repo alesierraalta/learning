@@ -8,7 +8,7 @@
  * studio that crashed cannot clear its marker, so one that fails either test is a
  * leftover and never blocks a deploy.
  */
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -40,6 +40,64 @@ const isRecord = (value: unknown): value is Json => value !== null && typeof val
 /** The marker and the conversation copy live beside the file the studio already keeps. */
 export const busyFile = (stateFile: string): string => join(dirname(stateFile), "busy.json");
 export const snapshotFile = (stateFile: string): string => join(dirname(stateFile), "conversacion.json");
+/** One background task owns one entry here; the deploy still reads the aggregate `busy.json`. */
+export const sessionBusyFile = (stateFile: string, session: string): string =>
+  join(dirname(stateFile), "busy-sesiones", `${session.replace(/[^\w.-]/g, "-")}.json`);
+export const sessionSnapshotFile = (stateFile: string, session: string): string =>
+  join(dirname(stateFile), "conversaciones-tareas", `${session.replace(/[^\w.-]/g, "-")}.json`);
+
+/**
+ * Every session marks its own turn. The file a deploy reads is an aggregate of the live marks,
+ * so a topic task holds the studio open and a deploy sees it exactly like the main chat's turn.
+ */
+export function createBusyTracker(stateFile: string) {
+  const aggregate = busyFile(stateFile);
+  const dir = join(dirname(stateFile), "busy-sesiones");
+  const marks = (): BusyMark[] => {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return [];
+    }
+    return names.flatMap((name) => {
+      const mark = readBusy(join(dir, name));
+      return mark === null ? [] : [mark];
+    });
+  };
+  const publish = () => {
+    const live = marks().filter((mark) => busyActive(mark));
+    if (live.length) markBusy(aggregate, live[0]);
+    else clearBusy(aggregate);
+  };
+  return {
+    mark(session: string, mark: { pid: number; startedAt: number; topic: string | null }) {
+      markBusy(sessionBusyFile(stateFile, session), mark);
+      publish();
+    },
+    clear(session: string) {
+      try {
+        unlinkSync(sessionBusyFile(stateFile, session));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      publish();
+    },
+    /** A marker another process wrote is no less real than one of our sessions'. */
+    held(): boolean {
+      if (marks().some((mark) => busyActive(mark))) return true;
+      return busyActive(readBusy(aggregate));
+    },
+    clearAll() {
+      for (const name of (() => { try { return readdirSync(dir); } catch { return []; } })()) {
+        try { unlinkSync(join(dir, name)); } catch { /* nothing to clean */ }
+      }
+      clearBusy(aggregate);
+    },
+  };
+}
+
+export type BusyTracker = ReturnType<typeof createBusyTracker>;
 
 /** A state file is replaced whole, so a reader never sees half of one. */
 function writeAtomic(file: string, text: string): void {

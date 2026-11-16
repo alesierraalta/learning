@@ -88,16 +88,25 @@ Deep tutoring names its topic instead of guessing it: the composer on a topic pa
 and `GET api/tema` / `POST api/tema` hold the selection. A topic the engine does not track — no
 `.learning/state.json` — is refused with `400` before the tutor is reached.
 
-### One turn at a time
+### One turn at a time — per Session
 
 The studio starts tutor turns; a tutor never starts one by itself. **One turn is active at a
-time, studio-wide.** It is held from the moment the studio accepts it until its settle is
-decided, and every turn start while it is held is refused with `409` and the Spanish sentence
-`El tutor está trabajando; espera a que termine.` The routes that start a turn are `POST prompt`
-(the composer), the hosted view's `POST submit` (the bridge asks the same lock before it writes
-anything), `POST api/regenerar`, `POST api/aprender` and `POST api/metodo`. The routes that need
-an idle studio are `POST api/tema`, `POST api/tutor` and the chat switches (`POST api/chats`,
-`POST api/chats/abrir`).
+time per Session.** The main chat is one Session, with the one-turn rule the learner already
+knows: a second prompt from the composer is refused with `409` and the Spanish sentence
+`El tutor está trabajando; espera a que termine.` Each topic's background task is another
+Session, with another runtime process and its own turn, dialogs, settle gate, assistant ids,
+tool arguments and transcript. There is no global limit: three topics work in three processes
+at once. The routes that need an idle main chat are `POST api/tema`, `POST api/tutor` and the
+chat switches (`POST api/chats`, `POST api/chats/abrir`).
+
+A topic is different: the hosted view's `POST submit` and `POST api/regenerar` go to that
+topic's task and **queue behind its current writer instead of being refused**. The queue is
+FIFO and per topic, shared by tasks and the main chat: a second main prompt naming a busy
+topic waits for the same ticket, while an unrelated main prompt starts at once. A deep main
+turn that only discovers its topic on the first write takes the ticket then without blocking
+that write; the topic stays locked until the turn settles, so other writers start afterwards.
+The bridge takes the ticket before it writes an answer file, and a regeneration before it
+moves the old part aside: a queued request never touches a topic's files early.
 
 Still available while a turn is held: answering a tutor dialog (`POST dialog`), `POST abort`,
 `POST restart`, and every read — the library, a conversation's history, the views, the panorama.
@@ -388,9 +397,11 @@ the results view of a submitted quiz offers it once the tutor has read the answe
 destination: when the engine's step already opens the note the turn wrote, the note is not offered
 a second time under the same reply, and the head keeps «Ir a la nota» / «Ir al diagnóstico».
 
-Every button that starts a turn goes through the existing post path, so the single-turn rule holds:
-pressed while the tutor works, it starts nothing and the chat shows the Spanish
-`El tutor está trabajando; espera a que termine.` The button stays usable — nothing is queued.
+The main chat's composer keeps its single-turn rule: pressed while the main tutor works, it
+starts nothing and the chat shows the Spanish `El tutor está trabajando; espera a que termine.`
+The button stays usable — nothing is queued there. Reader submissions from a topic page are
+different: they join that topic's queue and are answered when its writer is free (see
+«Tareas de fondo»).
 
 ### What tests prove, and what they do not
 
@@ -410,6 +421,50 @@ proven for both runtimes too: the button each engine state calls for (Parte 1 wr
 mini-quiz, a failed one), the same step after a reload, a turn that writes nothing, and the Spanish
 refusal that starts nothing. What no test can prove is a model's compliance: the instructions are
 asserted as text, and only the engine's verdict binds the outcome.
+
+## Tareas de fondo
+
+Un tema estudiado desde el lector no abre un segundo chat visible: abre una **tarea de fondo**.
+La primera entrega de un tema (`POST submit` desde la vista alojada) o su `POST api/regenerar`
+crea una Sesión para ese tema y la conserva durante toda la vida del estudio. En Pi el proceso
+arranca con `--session-id tarea-<tema>`; en Antigravity cada tema guarda su id de conversación
+en `tareas.json`, junto a `chats.json`, fuera del vault. Las preguntas, diagnósticos y
+regeneraciones de un tema vuelven siempre a esa misma conversación; el chat principal sigue en
+la suya y no muestra los mensajes de las tareas.
+
+### El candado por tema
+
+El candado es FIFO y **uno por tema**, compartido por todas las Sesiones. Se toma antes de
+escribir el archivo de respuestas o de apartar la versión anterior de una regeneración, y se
+suelta cuando el turno termina, se aborta o el runtime muere. Un tema ocupado no devuelve 409:
+la petición espera su turno y el estudio la muestra como `waiting` con su número de esperas.
+Otros temas —y un prompt del chat principal sin ese tema— siguen trabajando al mismo tiempo.
+
+### Estado, diálogos y API
+
+El estado de una tarea es `working` (su turno corre), `waiting` (hay peticiones esperando su
+candado), `asking` (hay un diálogo abierto), `done` (el último turno terminó) o `failed` (se
+abortó o murió su runtime). `activity` es la última acción observable del tutor y `queued` el
+número de peticiones en cola.
+
+| Ruta | Qué hace |
+|---|---|
+| `GET api/tareas` | `{tareas: [{topic, state, activity, queued}]}` |
+| `GET api/tareas/historial?task=<tema>` | `{task, messages, estado, activity, queued, interrupted, note}` |
+| `GET api/tareas/eventos?task=<tema>` | SSE de esa tarea: los mismos eventos del chat, con `task: <tema>` en cada `data` |
+| `POST api/tareas/dialogo` | `{task, id, value}` / `{task, id, confirmed}` / `{task, id, cancelled}` |
+| `POST api/tareas/abortar` | `{task}` — aborta el turno de esa tarea y lo marca `failed` |
+
+El flujo principal `/events` sigue sin etiquetar sus eventos, así que la interfaz actual sigue
+funcionando; las tramas de una tarea se sirven en su propio flujo y siempre llevan `task`.
+También se emite un evento `tareas` con el resumen de la lista cada vez que cambia la cola o
+el estado.
+
+### Cambio de tutor
+
+Cambiar de agente o modelo (`POST api/tutor`) no interrumpe a las tareas que están trabajando:
+terminan en el runtime que empezaron. Las tareas inactivas cambian de proceso antes de su
+siguiente turno, y las tareas nuevas ya usan la configuración guardada.
 
 ## Conversaciones
 
@@ -455,8 +510,10 @@ El estudio escribe, junto a `opened.json`, dos archivos de estado que un desplie
 token (`$XDG_STATE_HOME/learning-studio/`):
 
 - `busy.json`: `{"busy": true, "pid", "startedAt", "topic"}` mientras un turno está en
-  vuelo. Se escribe al aceptar el turno (antes de pedirle nada al runtime) y se borra cuando
-  el turno termina. `deploy/vps/update.sh` lo lee para no reiniciar el estudio mientras el
+  vuelo. Cada Sesión escribe su propia entrada en `busy-sesiones/` y el archivo que lee el
+  despliegue es el agregado de las entradas vivas: una tarea de fondo lo mantiene ocupado igual
+  que el chat principal. Se escribe al aceptar el turno (antes de pedirle nada al runtime) y se
+  borra cuando el turno termina. `deploy/vps/update.sh` lo lee para no reiniciar el estudio mientras el
   tutor trabaja; la regla vive en `studio/state.ts` y el despliegue la consulta con
   `node studio/state.ts --busy <archivo>`. Un marcador cuyo proceso ya no existe, o cuyo
   turno empezó hace más de una hora, es un resto de un estudio caído y nunca bloquea un

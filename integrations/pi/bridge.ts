@@ -1490,9 +1490,15 @@ export interface BridgeOptions {
   tokenSeed?: string;
   /**
    * Why a new tutor turn cannot start right now, or null when it can. A submission is a turn, so it
-   * is refused with this message before anything is written for it.
+   * is refused with this message before anything is written for it. Kept for hosts that have one
+   * process and one writer only; the studio uses `lockTopic` instead.
    */
   refuseTurn?: () => string | null;
+  /**
+   * A per-topic FIFO writer ticket. When present, a busy topic queues (the HTTP request waits)
+   * instead of being refused; the ticket is acquired before any answer file is written.
+   */
+  lockTopic?: (topic: string) => Promise<{ release: () => void }>;
 }
 
 export function validatePublicOrigin(option: string, value: string | undefined): URL | undefined {
@@ -1894,10 +1900,23 @@ ${scripts}
   /** The learner reloads to see what was really stored; only said when something was. */
   const SAVED_HINT = "Recarga la página para ver las respuestas guardadas.";
 
-  /** A submission starts a tutor turn: while one is active it is refused before any write. */
+  /** A legacy host with no topic lock refuses a second turn before any write. */
   const requireTurn = () => {
     const refused = options.refuseTurn?.();
     if (refused) throw new HttpError(409, refused);
+  };
+
+  /**
+   * The topic's writer ticket, held across the reads, the answer-file write and the delivery.
+   * A studio submission queues here; a host without a per-topic lock keeps its old refusal.
+   */
+  const holdTopic = async (topic: unknown): Promise<{ release: () => void } | null> => {
+    if (!options.lockTopic) {
+      requireTurn();
+      return null;
+    }
+    if (typeof topic !== "string") throw new HttpError(400, "topic must be a string");
+    return options.lockTopic(topic);
   };
 
   const deliver = async (text: string) => {
@@ -1910,8 +1929,9 @@ ${scripts}
     }
   };
 
-  const codeRequest = async (res: ServerResponse, payload: Record<string, unknown>, submit: boolean) => {
-    if (submit) requireTurn();
+  const codeRequest = async (res: ServerResponse, payload: Record<string, unknown>, submit: boolean, ticket: { release: () => void } | null = null) => {
+    if (submit && !ticket) requireTurn();
+    try {
     const dir = topicDir(payload.topic);
     const file = exerciseFile(dir, payload.exercise);
     const runners = loadRunners(options.runnersFile);
@@ -1952,6 +1972,7 @@ ${scripts}
     lines.push("Revisa la corrección según las pruebas, el enfoque, la legibilidad y los errores típicos. Inyecta la corrección en la nota del tema como de costumbre.");
     await deliver(lines.join("\n"));
     sendJson(res, 200, { ...forPage(result), saved, score });
+    } finally { ticket?.release(); }
   };
 
   const codeRun = async (req: IncomingMessage, res: ServerResponse) => {
@@ -1994,9 +2015,10 @@ ${scripts}
     const kind = payload.kind;
     const unknownKey = Object.keys(payload).find((key) => !ALLOWED_KEYS[kind].has(key));
     if (unknownKey) throw new HttpError(400, `unknown field: ${unknownKey}`);
-    if (kind === "code") return codeRequest(res, payload, true);
-    // One turn at a time in the studio: refusing here keeps the answers' file untouched.
-    requireTurn();
+    if (kind === "code") return codeRequest(res, payload, true, await holdTopic(payload.topic));
+    // The topic's writer owns the answer file from here until the delivery is accepted.
+    const ticket = await holdTopic(payload.topic);
+    try {
     const dir = topicDir(payload.topic);
     const topic = payload.topic as string;
     const plan = readPlan(dir);
@@ -2177,6 +2199,7 @@ ${scripts}
     const shown = asked.map((q, i) => shownAnswer(q, orderFor(q), graded[i]));
     await deliver(quizMessage(`[Vista HTML · ${topic} · diagnóstico]`, saved, shown, reasoning).join("\n"));
     sendJson(res, 200, { results: shown.map(({ id, chosen, correct, ok }) => ({ id, chosen, correct, ok })), score: `${graded.filter((r) => r.ok).length}/${graded.length}`, saved });
+    } finally { ticket?.release(); }
   };
 
   // A draft preview draws what the author is typing without touching the vault: the

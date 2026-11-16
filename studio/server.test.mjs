@@ -402,6 +402,11 @@ const engineCalls = (root) => (existsSync(join(root, ".engine-calls")) ? readFil
 
 /** What the page last knew about the tutor: false once the turn really ended. */
 const settleIdle = (stream) => stream.events.filter((event) => event.name === "state").at(-1)?.data.busy === false;
+/** A task's settle shows up in api/tareas, not in the main chat's state frames. */
+const taskIdle = async (studio, topic = "redes") => untilAsync(async () => {
+  const list = JSON.parse((await http(`${studio.url}api/tareas`)).body);
+  return list.tareas.find((t) => t.topic === topic)?.state === "done";
+}, 15000);
 
 /**
  * The Pi adapter's own settle decision, driven the way Pi drives it, for one gate mode:
@@ -463,12 +468,6 @@ async function piSettle(settleGate) {
 
 // ---- T3: one conformance scenario, run unchanged against each tutor -----------------
 
-/** The hosted view of a topic part: the page's origin and the base its submissions go to. */
-async function bridgeFor(studio, topic = "redes") {
-  const view = JSON.parse((await http(`${studio.url}api/view?topic=${topic}&part=p1`)).body);
-  return { base: view.url.replace(new RegExp(`${topic}/p1$`), ""), origin: new URL(view.url).origin };
-}
-
 /** One tutor, one studio, and the two primitive steps the scenario needs from it. */
 async function conformanceTutor(runtime, engineOptions) {
   const { root, engine, log } = makeRoot(engineOptions);
@@ -517,15 +516,6 @@ for (const runtime of ["pi", "agy"]) {
       assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
       await tutor.stream.next("state", (data) => data.busy === true);
       assert.equal(tutor.stream.events.filter((event) => event.name === "state").at(-1)?.data.busy, true, "the turn is held while it runs");
-      // A submission from the page while the turn is held is refused, in Spanish.
-      const bridge = await bridgeFor(tutor.studio);
-      const refused = await http(`${bridge.base}submit`, {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: bridge.origin },
-        body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿Qué es una capa?" }),
-      });
-      assert.equal(refused.status, 409, refused.body);
-      assert.match(JSON.parse(refused.body).error, /El tutor está trabajando/);
       await until(() => tutor.turnsSoFar() === 1);
       await tutor.endTurn();
       // Exactly one correction, and it carries the engine's own reason.
@@ -653,6 +643,7 @@ async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE 
     assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
     await stream.next("state");
   }
+  const taskStream = sse(`${studio.url}api/tareas/eventos?task=redes`);
   const turnsSoFar = () => (runtime === "agy" ? agyTurns(turns).length : piLog(log).filter((command) => command.type === "prompt").length);
   const turnText = () => (runtime === "agy" ? agyTurns(turns).at(-1).join(" ") : piLog(log).filter((command) => command.type === "prompt").at(-1).message);
   const endTurn = async () => {
@@ -660,13 +651,20 @@ async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE 
     const dialog = await stream.next("dialog");
     assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
   };
+  /** Regenerations go to the topic task, so their dialogs and errors live on its stream. */
+  const endTaskTurn = async () => {
+    if (runtime !== "pi") return;
+    const dialog = await taskStream.next("dialog");
+    assert.equal((await post(studio, "api/tareas/dialogo", { task: "redes", id: dialog.id, value: "Universitario" })).status, 200);
+  };
   const close = () => {
+    taskStream.close();
     stream.close();
     delete process.env.FAKE_PI_WRITES;
     delete process.env.FAKE_AGY_TURNS;
     delete process.env.FAKE_AGY_WRITES;
   };
-  return { runtime, studio, root, stream, turnsSoFar, turnText, endTurn, close };
+  return { runtime, studio, root, stream, taskStream, turnsSoFar, turnText, endTurn, endTaskTurn, close };
 }
 
 /** The studio's own measurement, with a note of what it was asked to measure. */
@@ -703,7 +701,7 @@ for (const runtime of ["pi", "agy"]) {
       assert.equal(tutor.turnsSoFar(), 2, "a part the tools pass asks for nothing else");
       // Each settle measures the part's .md and its .html once each: two files, two settles.
       assert.equal(measured.length, 4, "one measurement per file the turn wrote, per settle");
-      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "a part that passes says nothing to the learner");
+      assert.equal(tutor.taskStream.events.filter((event) => event.name === "error").length, 0, "a part that passes says nothing to the learner");
     } finally { tutor.close(); }
   });
 
@@ -981,6 +979,7 @@ async function agyStudio(options = {}) {
 
 test("a submission from the hosted view is gated like any other deep turn", async () => {
   const { studio, prompts, stream } = await piStudio({ root: { statuses: [FAILING_STAGE, CLEARED_STAGE] } });
+  const task = sse(`${studio.url}api/tareas/eventos?task=redes`);
   try {
     // The learner answers from the topic page: the bridge delivers the prompt, not the composer.
     const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
@@ -992,24 +991,25 @@ test("a submission from the hosted view is gated like any other deep turn", asyn
     });
     assert.equal(res.status, 200, res.body);
     await until(() => prompts().length === 1);
-    const dialog = await stream.next("dialog");
-    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    const dialog = await task.next("dialog");
+    assert.equal((await post(studio, "api/tareas/dialogo", { task: "redes", id: dialog.id, value: "Universitario" })).status, 200);
     await until(() => prompts().length === 2);
     assert.match(prompts()[1].message, /FAIL p1-explained: la explicación de la parte p1 no existe todavía/, "the turn the page started is gated too");
-  } finally { stream.close(); }
+  } finally { stream.close(); task.close(); }
 });
 
 test("a regeneration is gated like any other deep turn", async () => {
   const { studio, prompts, stream } = await piStudio({ root: { statuses: [FAILING_STAGE, CLEARED_STAGE] } });
+  const task = sse(`${studio.url}api/tareas/eventos?task=redes`);
   try {
     const answer = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto, por favor" });
     assert.equal(answer.status, 200, answer.body);
     await until(() => prompts().length === 1);
-    const dialog = await stream.next("dialog");
-    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    const dialog = await task.next("dialog");
+    assert.equal((await post(studio, "api/tareas/dialogo", { task: "redes", id: dialog.id, value: "Universitario" })).status, 200);
     await until(() => prompts().length === 2);
     assert.match(prompts()[1].message, /FAIL p1-explained: la explicación de la parte p1 no existe todavía/, "a failed regeneration is not a silent end");
-  } finally { stream.close(); }
+  } finally { stream.close(); task.close(); }
 });
 
 test("a refused prompt does not restore the correction budget", async () => {
@@ -1710,18 +1710,23 @@ test("a submission from the page cannot start a turn while the studio gates the 
     // The turn settled and the studio is asking the engine: the turn is still the studio's.
     await until(() => engineCalls(root) === "1");
     const view = JSON.parse((await http(`${studio.url}api/view?topic=redes&part=p1`)).body);
-    const res = await http(`${view.url.replace(/redes\/p1$/, "")}submit`, {
+    const pending = http(`${view.url.replace(/redes\/p1$/, "")}submit`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: new URL(view.url).origin },
       body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿Qué es una capa?" }),
     });
-    assert.equal(res.status, 409, res.body);
-    assert.match(JSON.parse(res.body).error, /El tutor está trabajando/);
+    // The reader's work queues visibly; the turn that is already settling keeps the topic.
+    await untilAsync(async () => {
+      const list = JSON.parse((await http(`${studio.url}api/tareas`)).body);
+      return list.tareas.some((task) => task.topic === "redes" && task.state === "waiting");
+    });
     // The correction still runs, in the same conversation, and the engine clears it.
     await until(() => agyTurns(turns).length === 2);
     assert.match(agyTurns(turns)[1].join(" "), /--conversation test-conversation/);
     assert.equal((await stream.next("gate", (data) => data.passing === true)).tema, "redes");
-    assert.equal(agyTurns(turns).length, 2, "the refused submission never ran a turn");
+    assert.equal((await pending).status, 200, "the queued submission runs once the turn ends");
+    await until(() => agyTurns(turns).some((argv) => argv.join(" ").includes("¿Qué es una capa?")));
+    assert.ok(agyTurns(turns).some((argv) => argv.includes("--conversation")), "the submission runs in the topic task's own conversation");
   } finally {
     stream.close();
     delete process.env.FAKE_AGY_TURNS;
@@ -1735,14 +1740,14 @@ test("a regeneration while a turn is active is refused and leaves the part untou
     const dialog = await stream.next("dialog");
     const part = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
     const before = readFileSync(part, "utf8");
-    const refused = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto, por favor" });
-    assert.equal(refused.status, 409, refused.body);
-    assert.match(JSON.parse(refused.body).error, /El tutor está trabajando/);
-    assert.equal(readFileSync(part, "utf8"), before, "the part was not moved: nothing is backed up for a refused turn");
+    const pending = post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto, por favor" });
+    await delay(80);
+    assert.equal(readFileSync(part, "utf8"), before, "a queued turn moves no file yet");
     assert.equal(existsSync(join(root, "papelera")), false, "and nothing was stored as a regeneration");
     assert.equal(prompts().length, 1, "no second turn started");
-    // The running turn is untouched: its dialog still answers.
+    // The running turn is untouched: its dialog still answers, and only then does the backup move.
     assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    assert.equal((await pending).status, 200, "the queued regeneration then starts");
   } finally { stream.close(); }
 });
 
@@ -1890,7 +1895,8 @@ test("the refusals the learner can hit are Spanish", async () => {
     expectSpanish(JSON.parse(stopped.body).error, "El tutor no está en marcha.");
   } finally { dead.stream.close(); }
 
-  // 409: a turn is held, from the composer and from the hosted view.
+  // 409: the main chat keeps its own one-turn rule. Reader submissions queue instead
+  // (covered in studio/tasks.test.mjs).
   const busy = await piStudio();
   try {
     assert.equal((await post(busy.studio, "prompt", { text: "primero", tema: "redes" })).status, 200);
@@ -1898,14 +1904,7 @@ test("the refusals the learner can hit are Spanish", async () => {
     const held = await post(busy.studio, "prompt", { text: "segundo" });
     assert.equal(held.status, 409);
     expectSpanish(JSON.parse(held.body).error, "El tutor está trabajando; espera a que termine.");
-    const view = JSON.parse((await http(`${busy.studio.url}api/view?topic=redes&part=p1`)).body);
-    const fromPage = await http(`${view.url.replace(/redes\/p1$/, "")}submit`, {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: new URL(view.url).origin },
-      body: JSON.stringify({ kind: "question", topic: "redes", part: "p1", text: "¿Qué es una capa?" }),
-    });
-    assert.equal(fromPage.status, 409, fromPage.body);
-    expectSpanish(JSON.parse(fromPage.body).error, "El tutor está trabajando; espera a que termine.");
+
   } finally { busy.stream.close(); }
 });
 
@@ -2899,9 +2898,9 @@ for (const runtime of ["pi", "agy"]) {
       assert.equal(answer.status, 200, answer.body);
       for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
         await until(() => tutor.turnsSoFar() === round + 1, 15000);
-        await tutor.endTurn();
+        await tutor.endTaskTurn();
       }
-      const told = await tutor.stream.next("error", () => true, 15000);
+      const told = await tutor.taskStream.next("error", () => true, 15000);
       assert.match(told.message, /stage-empty/, "the chat says why the new version did not pass");
       assert.match(told.message, /versión anterior/, "and that the previous one stays served");
       assert.equal(readFileSync(note, "utf8"), "LA VERSION ANTERIOR\n", "the note is the previous one");
@@ -2917,7 +2916,8 @@ for (const runtime of ["pi", "agy"]) {
       );
       const rejected = JSON.parse(readFileSync(join(tutor.root, trash, "rechazada", "papelera.json"), "utf8"));
       assert.match(rejected.reason, /stage-empty/, "the reason waits beside the rejected version, where the parent can read it");
-      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 1, "one clear message, not two");
+      const errors = tutor.taskStream.events.filter((event) => event.name === "error");
+      assert.equal(errors.length, 1, `one clear message, not two: ${JSON.stringify(errors.map((e) => e.data))}`);
     } finally { tutor.close(); }
   });
 
@@ -2936,11 +2936,11 @@ for (const runtime of ["pi", "agy"]) {
       writeFileSync(page, "<p>LA PAGINA ANTERIOR</p>");
       assert.equal((await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
       await until(() => tutor.turnsSoFar() === 1, 15000);
-      await tutor.endTurn();
-      await until(() => settleIdle(tutor.stream), 15000);
+      await tutor.endTaskTurn();
+      await taskIdle(tutor.studio);
       assert.equal(readFileSync(note, "utf8"), "# LA VERSION NUEVA\n", "a passing new version replaces the old one");
       assert.equal(readFileSync(page, "utf8"), "<p>LA PAGINA NUEVA</p>");
-      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "nothing failed, so the chat says nothing");
+      assert.equal(tutor.taskStream.events.filter((event) => event.name === "error").length, 0, "nothing failed, so the chat says nothing");
     } finally { tutor.close(); }
   });
 }
@@ -2967,9 +2967,9 @@ test("a failed regeneration with no previous version leaves the studio's error c
     assert.equal((await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p2", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
     for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
       await until(() => tutor.turnsSoFar() === round + 1, 15000);
-      await tutor.endTurn();
+      await tutor.endTaskTurn();
     }
-    const told = await tutor.stream.next("error", () => true, 15000);
+    const told = await tutor.taskStream.next("error", () => true, 15000);
     assert.match(told.message, /no tenía una versión anterior/);
     const view = await http(`${tutor.studio.url}api/view?topic=redes&part=p2`);
     assert.equal(view.status, 404, view.body);
@@ -3803,12 +3803,12 @@ for (const runtime of ["pi", "agy"]) {
       const answer = await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" });
       assert.equal(answer.status, 200, answer.body);
       await until(() => tutor.turnsSoFar() === 1, 15000);
-      await tutor.endTurn();
-      await until(() => settleIdle(tutor.stream), 15000);
-      assert.deepEqual(measured, [note, page], "the turn reached the part checks, which measured the note and the page it wrote");
+      await tutor.endTaskTurn();
+      await taskIdle(tutor.studio);
+      assert.deepEqual(measured, [note, page], `the turn reached the part checks: ${JSON.stringify(tutor.taskStream.events.map((e) => [e.name, e.data]))}`);
       assert.equal(readFileSync(note, "utf8"), "# LA VERSION NUEVA\n", "a clean new version replaces the previous one");
       assert.equal(readFileSync(page, "utf8"), "<p>LA PAGINA NUEVA</p>");
-      assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "the method the engine already had is not blamed on the turn");
+      assert.equal(tutor.taskStream.events.filter((event) => event.name === "error").length, 0, "the method the engine already had is not blamed on the turn");
     } finally { tutor.close(); }
   });
 
@@ -3827,11 +3827,11 @@ for (const runtime of ["pi", "agy"]) {
       const answer = await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" });
       assert.equal(answer.status, 200, answer.body);
       await until(() => tutor.turnsSoFar() === 1, 15000);
-      await tutor.endTurn();
+      await tutor.endTaskTurn();
       await until(() => tutor.turnsSoFar() === 2, 15000);
       assert.match(tutor.turnText(), /falta-resumen: 1 recorrido/, "the correction carries the tool's own finding");
-      await tutor.endTurn();
-      await until(() => settleIdle(tutor.stream), 15000);
+      await tutor.endTaskTurn();
+      await taskIdle(tutor.studio);
       assert.equal(tutor.turnsSoFar(), 2, "one correction for one finding");
       assert.equal(readFileSync(note, "utf8"), "# LA VERSION CORREGIDA\n", "the corrected version passes and replaces the previous one");
       assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "a part that passes says nothing to the learner");
@@ -3851,8 +3851,8 @@ for (const runtime of ["pi", "agy"]) {
       const answer = await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" });
       assert.equal(answer.status, 200, answer.body);
       await until(() => tutor.turnsSoFar() === 1, 15000);
-      await tutor.endTurn();
-      await until(() => settleIdle(tutor.stream), 15000);
+      await tutor.endTaskTurn();
+      await taskIdle(tutor.studio);
       const { trash } = JSON.parse(answer.body);
       const rejected = JSON.parse(readFileSync(join(tutor.root, trash, "rechazada", "papelera.json"), "utf8"));
       assert.equal(rejected.kind, "regeneracion-fallida");
