@@ -174,6 +174,7 @@ func planSubtemas(doc planDoc) map[string]bool {
 
 type pieza struct {
 	Tipo      string `json:"tipo"`
+	Lenguaje  string `json:"lenguaje,omitempty"`
 	Contenido string `json:"contenido"`
 }
 
@@ -437,6 +438,9 @@ func validateDiagnostic(qs []diagQuestion, plan *planDoc, th rules.Thresholds) e
 		if strings.TrimSpace(q.Enunciado) == "" {
 			return fmt.Errorf("question %s has an empty enunciado", q.ID)
 		}
+		if err := checkCodeInProse(q.ID, th, questionTexts(q.Enunciado, q.Options)...); err != nil {
+			return err
+		}
 		if strings.TrimSpace(q.Subtema) == "" {
 			return fmt.Errorf("question %s misses its subtema join key", q.ID)
 		}
@@ -547,6 +551,9 @@ func validateQuizQuestions(qs []quizQuestion, partSubtema string, planSubs map[s
 		seen[q.ID] = true
 		if strings.TrimSpace(q.Enunciado) == "" {
 			return fmt.Errorf("question %s has an empty enunciado", q.ID)
+		}
+		if err := checkCodeInProse(q.ID, th, questionTexts(q.Enunciado, q.Options)...); err != nil {
+			return err
 		}
 		if q.Subtema != partSubtema {
 			return fmt.Errorf("question %s subtema %q must inherit the part subtema %q", q.ID, q.Subtema, partSubtema)
@@ -860,6 +867,9 @@ func validateDiagQuestion(q diagQuestion, seen map[string]bool, planSubs map[str
 	seen[q.ID] = true
 	if strings.TrimSpace(q.Enunciado) == "" {
 		return fmt.Errorf("question %s has an empty enunciado", q.ID)
+	}
+	if err := checkCodeInProse(q.ID, th, questionTexts(q.Enunciado, q.Options)...); err != nil {
+		return err
 	}
 	if err := validateNivel(q.Nivel, th); err != nil {
 		return fmt.Errorf("question %s: %w", q.ID, err)

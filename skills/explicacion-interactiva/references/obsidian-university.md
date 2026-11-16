@@ -76,7 +76,29 @@ Para cada nota, delegar a un builder acotado con handoff exacto: plan y visual a
 - **Un elemento visual o ejemplo concreto dentro de cada pregunta** es obligatorio: debe plantear el caso que se analizará, sin revelar su resultado, conclusión, definición ni pistas.
 - No mostrar respuestas, definiciones, pistas ni callouts de ayuda antes de que la persona responda. Después, el tutor registra las respuestas y añade las correcciones en un callout plegado.
 - Nada de texto plano ni ASCII: callouts, tablas, code blocks, Mermaid, SVG, `$...$`.
+- **Código y fórmulas en las preguntas**: el código va en un bloque cercado con su lenguaje (`plsql`, `sql`, `python`, `rust`, `js`…) o como `pieza` `{"tipo": "codigo", "lenguaje": "plsql", "contenido": "…"}`, con sus saltos de línea y su sangría; nunca aplanado en la frase ni en una opción. Una fórmula va en `$...$` o `$$...$$`. El motor rechaza con `codigo-en-linea`, citando el id de la pregunta, un enunciado u opción con código aplanado: dos o más sentencias `;` en una misma línea, o tres o más palabras clave SQL/PL-SQL en la prosa, fuera de un bloque cercado y de la pieza.
 - Al final de cada ronda: instrucciones para responder en el chat, una por número (`1.1-B 1.2-E 1.3-C`).
+
+**Ejemplo** — la pregunta de diagnóstico de #332 sobre `PA_Reportes`: el enunciado es el del aprendiz y el código va en un bloque `plsql`, con sus líneas. Las opciones se quedan como las tiene el banco real; este ejemplo no las repite.
+
+> ¿Cómo resuelve el motor PL/SQL la invocación de PA_Reportes.mostrar_cliente cuando se ejecuta sin argumentos y cuál es el resultado de la emisión de datos?
+
+```plsql
+CREATE OR REPLACE PACKAGE PA_Reportes AS
+  PROCEDURE mostrar_cliente(p_id NUMBER);
+  PROCEDURE mostrar_cliente;
+END PA_Reportes;
+/
+CREATE OR REPLACE PACKAGE BODY PA_Reportes AS
+  PROCEDURE mostrar_cliente(p_id NUMBER) IS
+  BEGIN
+    FOR r IN (SELECT …) LOOP
+      DBMS_OUTPUT.PUT_LINE('Cliente: ' || r.nombre);
+    END LOOP;
+  END mostrar_cliente;
+```
+
+En `quiz.json` ese mismo código puede ir como `pieza` `codigo` con `lenguaje` `plsql`, o dentro del enunciado en su bloque cercado. Escrito en una sola línea —`CREATE OR REPLACE PACKAGE … PROCEDURE …; END PA_Reportes;`— el motor lo rechaza como `codigo-en-linea`, citando el id de la pregunta.
 
 ### Capa visual del quiz (obligatoria en modo extenso)
 
@@ -215,6 +237,7 @@ Estructura de **unidades cortas iteradas**: leer parte → mini-quiz → leer si
 
   **Obligatorio, no opcional**: los tres datos siguen teniendo que existir y bajo el título — la trazabilidad de la fuente, el nodo del mapa y el visual asignado son requisitos del plan — pero **colapsados**. Un `<details>` con esas tres líneas ocupa una sola línea visible. `DOMPurify` de Obsidian permite `<details>`/`<summary>`. La misma regla aplica a los metadatos de nivel de fichero (ruta general, origen de los visuales): se pliegan, no se borran, y solo la instrucción útil —cómo se cierra una parte— queda a la vista. La parte cierra con su `nivel`.
 - **Apertura con repaso (desde la parte 2; la parte 1 abre en limpio)**: cada parte abre —después del bloque plegado de metadatos— con un bloque corto basado **solo** en la corrección anterior (`mis-palabras.md`: `En la línea` / `Te faltó explicar` / `Estaba mal`). Dos mitades: (a) **refuerzo**: 1–2 líneas que reafirman lo que quedó sólido, como base de lo que sigue; (b) **mini clase de repaso**: lo que falló o no se entendió se **explica de nuevo en breve** —no se lista ("repasar X"), se enseña (la idea dicha de otra forma en 2–3 líneas)— con palabras nuevas, nunca copiando la corrección, nunca con tono de corrección nueva, nunca como pregunta. Encabezado fijo: `> En base a la explicación anterior, convendría repasar nuevamente estos puntos.` Tope: el bloque no pasa de 10 líneas y no introduce conceptos nuevos; si el hueco exige re-enseñanza completa, se abre mini-loop en vez de inflar el repaso. **Excepción**: lo que pertenece a una parte futura no se explica aquí — se avisa en claro, ej. `> Esto todavía no lo entiendes porque aún no lo hemos visto: es la Parte 3, que es su sitio.` Sin huecos en la parte anterior, solo aparece la mitad de refuerzo como puente de 1–2 líneas (sin el encabezado de repaso).
+- **Código en las preguntas del mini-quiz**: la misma regla que en el diagnóstico (sección 1): bloque cercado con su lenguaje o `pieza` `codigo`, nunca aplanado en la frase; el motor la aplica igual.
 - **Cada parte cierra con un mini-quiz** (A–D + «No sé»; 3 preguntas en una parte nueva, las que mide «Tamaño de parte», y 5 en los temas antiguos; el motor acepta 1–12 y aprueba con 2/3 sin fallar una central; siempre integradoras, con un solo razonamiento `razonamiento` **opcional**, escrito o dictado con el micrófono de la página) para recuperar y relacionar conceptos. No incluir respuestas ni correcciones antes de que la persona responda en el chat; después, el tutor registra `mini-quiz/{part}.answers.json` y añade la corrección en un callout plegado. El builder incluye las preguntas en la nota de la parte; el tutor escribe `mini-quiz/{part}.json` y actualiza `fallos_por_concepto` con el resultado.
 - **Inyección obligatoria de respuestas y corrección en la nota de la parte**:
   Obsidian es la pantalla de estudio del alumno. Las partes nunca quedan desnudas tras responder.

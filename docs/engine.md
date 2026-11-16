@@ -563,6 +563,17 @@ first and copy the question text and its piece from it.
   "answer": "B"}]}
 ```
 
+`pieza.lenguaje` names the language of a `codigo` piece (`plsql`, `sql`, `python`,
+`rust`, `js`). It is optional: a piece without it is drawn as plain monospace.
+
+**Code in prose (`codigo-en-linea`).** When `thresholds.codigoEnLinea` is declared, a
+diagnosis, mini-quiz or final-questionnaire stem or option that carries code flattened
+into prose is refused, and the refusal names the question id. Flattened means either two
+or more `;`-separated statements on one line, or three or more SQL/PL-SQL keywords in the
+prose, outside a fenced block and a `pieza`. The code belongs in a fence with its language or in a
+`pieza` of tipo `codigo`. The production rules declare the rule; a frozen rules snapshot
+never does, so a run started before it keeps the questions it accepted.
+
 `quiz.answers.json`, `mini-quiz/{part}.answers.json` and
 `cuestionario-final.answers.json` record the learner, one entry per question:
 `{"answers": {"d1": "B", "d2": "E"}}`.

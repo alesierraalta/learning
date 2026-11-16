@@ -466,6 +466,8 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	delete(prod["thresholds"].(map[string]any), "concepts")
 	undoStrictFlow(prod)
 	delete(prod["thresholds"].(map[string]any), "strictFlow")
+	// The code-in-prose rule (#332) is declared by production; the frozen snapshot never declared it.
+	delete(prod["thresholds"].(map[string]any), "codigoEnLinea")
 	delete(prod["thresholds"].(map[string]any), "partStandard")
 	delete(prod["thresholds"].(map[string]any)["exam"].(map[string]any), "minPracticePerPart")
 	delete(prod["thresholds"].(map[string]any)["options"].(map[string]any), "varyAnswerKeys")

@@ -42,6 +42,7 @@ const staticVersion = (() => {
     join(VIEW_DIR, "book.js"),
     join(KIT_DIR, "kit.css"),
     join(KIT_DIR, "kit.js"),
+    join(KIT_DIR, "question.js"),
     join(VISUALS_DIR, "draw.js"),
   ];
   let stamp = 1;
@@ -502,7 +503,7 @@ function injectHeadLast(html: string, content: string): string {
 function ensureNodeMedia(html: string, token: string): string {
   let out = html;
   const kitCss = `<link rel="stylesheet" href="/${token}/kit/kit.css">`;
-  const kitJs = `<script src="/${token}/kit/kit.js" defer></script>`;
+  const kitJs = `<script src="/${token}/kit/question.js" defer></script><script src="/${token}/kit/kit.js" defer></script>`;
   // A mention inside a comment is not a loaded asset: only real markup counts.
   const withoutComments = out.replace(/<!--[\s\S]*?-->/g, "");
   // A string inside a page script is not a loaded asset either, but keep the
@@ -1570,6 +1571,7 @@ ${scripts}
 <script src="${prefix}kit/dictate.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/visuals/draw.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/scene.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/question.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/kit.js?v=${staticVersion}"></script>
 <script src="${prefix}math.js?v=${staticVersion}"></script>
 <script src="${prefix}app.js?v=${staticVersion}"></script>

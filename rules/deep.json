@@ -90,6 +90,7 @@
       "caso",
       "imagen"
     ],
+    "codigoEnLinea": true,
     "misPalabrasHeader": "Vuelca aquí, con tus palabras",
     "planVisualHeading": "plan visual",
     "visualBlocks": [

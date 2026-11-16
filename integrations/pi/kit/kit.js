@@ -1,16 +1,17 @@
 /* Shared, light-DOM learning components. No build step. */
 (async () => {
-  // A kit inlined in a saved copy has no address to find dictate.js by, and sends nothing.
-  if (!window.learningThoughtField && document.currentScript?.src) {
-    const source = new URL('dictate.js', document.currentScript.src);
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = source.href;
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.append(script);
-    });
-  }
+  // A kit inlined in a saved copy has no address to find its helpers by: read at load, the kit's own address finds them.
+  const home = document.currentScript?.src;
+  const beside = (name) => new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = new URL(name, home).href;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.append(script);
+  });
+  if (!window.learningThoughtField && home) await beside('dictate.js');
+  // The question renderer (#332) loads beside the kit without holding the kit up: a scene or a page that lacks it still draws.
+  const questionReady = window.lkQuestion || !home ? Promise.resolve() : beside('question.js').catch(() => {});
   const offline = 'Abre esta página desde Pi para enviarla al tutor';
   const config = () => window.LEARNING_BRIDGE;
   // A part saved for reading with no connection: what reaches the tutor or the network says so.
@@ -26,6 +27,10 @@
     const b = el('button', text, { type: 'button' });
     b.addEventListener('click', action); return b;
   };
+  // Text a question says, after an optional prefix: the shared renderer draws its code and formulas, never raw HTML (#332).
+  // A page without the renderer keeps a question's words as plain text, so the rest of the kit still works.
+  const writeQuestion = (node, text) => { if (window.lkQuestion) window.lkQuestion.render(node, text ?? ''); else node.append(text ?? ''); return node; };
+  const drawn = (tag, prefix, text) => writeQuestion(el(tag, prefix), text);
   // Los datos de un paso y la tarjeta de cierre (#301): un hecho es [clave, valor] con texto o número en
   // los dos lados. Lo que no lo es no se dibuja; `scene-lint` dice qué le falta.
   const isText = (value) => (typeof value === 'string' ? value.trim() !== '' : Number.isFinite(value));
@@ -82,10 +87,15 @@
     }));
     return loaded.get(name);
   }
-  const katex = () => Promise.all([
-    library('katex-css', 'https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css', 'sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP', true),
-    library('katex', 'https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js', 'sha384-cMkvdD8LoxVzGF/RPUKAcvmm49FQ0oxwDF3BGKtDXcEc+T1b2N+teh/OJfpU0jr6')
-  ]);
+  // One KaTeX for the page: the question renderer loads it, and a page without the renderer loads it as the kit always did.
+  const katex = async () => {
+    await questionReady;
+    if (window.lkQuestion) return window.lkQuestion.katex();
+    await Promise.all([
+      library('katex-css', 'https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css', 'sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP', true),
+      library('katex', 'https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js', 'sha384-cMkvdD8LoxVzGF/RPUKAcvmm49FQ0oxwDF3BGKtDXcEc+T1b2N+teh/OJfpU0jr6'),
+    ]);
+  };
   function define(name, render) {
     customElements.define(name, class extends HTMLElement {
       connectedCallback() {
@@ -276,14 +286,16 @@
     if (unreachable()) { this.append(el('p', b?.offline ? 'El mini-quiz se responde con conexión: el tutor lo corrige.' : offline)); return; }
     const response = await fetch(b.quizUrl);
     if (!response.ok) throw new Error(`No se pudo cargar el mini-quiz (HTTP ${response.status})`);
+    await questionReady;
     const data = await response.json(), form = el('form'), out = status();
     const boxes = new Map();
     for (const [index, q] of data.questions.entries()) {
       const box = el('fieldset', undefined, { class: 'lk-question' });
-      box.append(el('legend', `${index + 1}. ${q.enunciado || q.stem}`));
+      box.append(drawn('legend', `${index + 1}. `, q.enunciado || q.stem));
+      if (q.pieza && window.lkQuestion) window.lkQuestion.pieza(box, q.pieza);
       for (const [letter, text] of Object.entries(q.options)) {
         const label = el('label', undefined, { class: 'lk-option' });
-        label.append(el('input', undefined, { type: 'radio', name: q.id, value: letter, required: '' }), el('span', `${letter}. ${text}`)); box.append(label);
+        label.append(el('input', undefined, { type: 'radio', name: q.id, value: letter, required: '' }), drawn('span', `${letter}. `, text)); box.append(label);
       }
       box.append(thoughtField(q.id, index));
       const confidence = el('div', 'Confianza (opcional): ', { class: 'lk-controls' });
@@ -303,7 +315,7 @@
     // Each of the part's own exercises gets a box under its statement; a part without exercises gets none.
     const exercises = (data.exercises || []).map((ex, index) => {
       const box = el('fieldset', undefined, { class: 'lk-question lk-exercise' });
-      box.append(el('legend', `${index + 1}. ${ex.enunciado}`));
+      box.append(drawn('legend', `${index + 1}. `, ex.enunciado));
       if (ex.entregable) box.append(el('p', `Entregable: ${ex.entregable}`, { class: 'lk-exercise-deliverable' }));
       box.append(textField('Tu respuesta (opcional)', `exercise-${ex.id}`));
       return { id: ex.id, box };
@@ -394,6 +406,7 @@
     }
   });
   define('lk-quick-quiz', async function () {
+    await questionReady;
     const raw = this.querySelector('script[type="application/json"]');
     if (!raw) return;
     let spec;
@@ -404,7 +417,8 @@
     const box = el('fieldset', undefined, { class: 'lk-question lk-qq-box' });
     const tagLabel = el('span', `Quiz rápido · ${point || 'Punto clave'}`, { class: 'lk-qq-badge' });
     const legend = el('legend');
-    legend.append(tagLabel, document.createElement('br'), document.createTextNode(spec.pregunta || spec.enunciado || ''));
+    legend.append(tagLabel, document.createElement('br'));
+    writeQuestion(legend, spec.pregunta || spec.enunciado || '');
     box.append(legend);
 
     // #276: the options come in the learner's order and the key never comes at all, so the bridge grades the pick.
@@ -415,7 +429,7 @@
       const label = el('label', undefined, { class: 'lk-option' });
       label.append(
         el('input', undefined, { type: 'radio', name, value: letter, required: '' }),
-        el('span', `${letter}. ${text}`)
+        drawn('span', `${letter}. `, text)
       );
       box.append(label);
     }
