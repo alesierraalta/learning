@@ -4970,20 +4970,28 @@ test("the reader's install hint is short, copyable and remembered only for the s
   const strip = page.locator(".runners-strip");
   const summary = strip.locator("summary");
   await summary.waitFor();
-  // La tira pinta primero lo que trae la página y se refresca desde /api/runners: se espera al refresco.
-  await page.waitForFunction(() => /^Ejecutables aquí: python · ver lenguajes/.test(document.querySelector(".runners-strip summary")?.textContent ?? ""), undefined, { timeout: 30_000 });
-  assert.match(await summary.textContent(), /^Ejecutables aquí: python · ver lenguajes/);
+  // El resumen debe coincidir con lo que el servidor considera ejecutable ahora mismo: si en esta
+  // máquina Docker no responde, la lista vacía es la respuesta correcta, no un fallo.
+  const listed = JSON.parse((await http(`${base(pageResult)}api/runners?topic=${encodeURIComponent(TOPIC)}`)).body);
+  const expected = listed.runnable.length ? listed.runnable.join(", ") : "ninguno";
+  await page.waitForFunction((want) => new RegExp(`^Ejecutables aquí: ${want} · ver lenguajes$`).test(document.querySelector(".runners-strip summary")?.textContent ?? ""), expected, { timeout: 30_000 });
+  assert.match(await summary.textContent(), /^Ejecutables aquí: .+ · ver lenguajes$/);
   assert.equal(await strip.locator("details").evaluate((node) => node.open), false, "the list starts collapsed");
   await summary.click();
   assert.equal(await strip.locator("details").evaluate((node) => node.open), true);
-  assert.match(await strip.textContent(), /Python 3\.12 · ~18 MB · disponible/);
-  assert.match(await strip.textContent(), /PL\/SQL · ~755 MB/);
-  assert.match(await strip.textContent(), /docker pull python:3\.12-alpine/);
-  assert.match(await strip.textContent(), /referencia fijada: python:3\.12-alpine@sha256:b658b05/);
-  assert.equal(await strip.locator("code").first().textContent(), "docker pull python:3.12-alpine");
+  const missing = listed.languages.find((l) => !l.present);
+  const present = listed.languages.find((l) => l.present);
+  const text = await strip.textContent();
+  if (present) assert.match(text, new RegExp(`${present.label ?? present.language} · ${present.size} · disponible`), "a language that runs says so");
+  assert.ok(missing, "the fixture always declares one language whose image is absent");
+  const short = `docker pull ${missing.image.replace(/@sha256:[0-9a-f]+/i, "")}`;
+  assert.match(text, new RegExp(`${missing.label ?? missing.language} · ${missing.size}`));
+  assert.ok(text.includes(short), `the install line is short: ${short}`);
+  assert.ok(text.includes(`referencia fijada: ${missing.image}`), "the pinned reference stays available beside it");
+  assert.equal(await strip.locator("code").first().textContent(), short);
   const copy = strip.getByRole("button", { name: /Copiar/ }).first();
   await copy.click();
-  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "docker pull python:3.12-alpine");
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), short);
   assert.doesNotMatch(await strip.textContent(), /ENOENT/, "an optional overlay that does not exist is not a learner-facing warning");
   await page.reload();
   assert.equal(await strip.locator("details").evaluate((node) => node.open), true, "the learner's choice survives a reload in this session");
