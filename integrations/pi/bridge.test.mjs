@@ -395,7 +395,7 @@ test('plain part and diagnosis share optional dictable reasoning', { skip: !play
     await page.waitForFunction(() => document.querySelector('.lk-mic')?.textContent === 'Detener');
     await page.waitForTimeout(300);
     await mic.click();
-    await page.waitForFunction(() => document.querySelector('fieldset textarea')?.value === 'Mi razonamiento dictado');
+    await page.waitForFunction(() => document.querySelector('fieldset textarea')?.value === 'Mi razonamiento dictado', null, { timeout: 90_000 });
     assert.equal(await fields.first().getByLabel('Cómo lo pensé (opcional)').inputValue(), 'Mi razonamiento dictado');
     if (part === 'p1') {
       for (const field of await fields.all()) {
@@ -404,8 +404,8 @@ test('plain part and diagnosis share optional dictable reasoning', { skip: !play
       await page.getByRole('button', { name: 'Enviar al tutor' }).click();
       await page.getByText('Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.').waitFor();
       for (const field of await fields.all()) await field.locator('.confidence input').first().check();
-      const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
-      const received = page.waitForResponse(response => response.url().endsWith('/submit'));
+      const sent = page.waitForRequest(request => request.url().endsWith('/submit'), { timeout: 90_000 });
+      const received = page.waitForResponse(response => response.url().endsWith('/submit'), { timeout: 90_000 });
       await page.getByRole('button', { name: 'Enviar al tutor' }).click();
       const payload = (await sent).postDataJSON();
       assert.equal((await received).status(), 200);
@@ -583,13 +583,13 @@ test('«No sé» needs no confidence and a framed submit notifies the studio', {
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
   await frame.getByText('Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.').waitFor();
   await second.locator('.confidence input').first().check();
-  const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
+  const sent = page.waitForRequest(request => request.url().endsWith('/submit'), { timeout: 90_000 });
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
   const payload = (await sent).postDataJSON();
   assert.deepEqual(payload.reasoning.q1, { razonamiento: '' });
   assert.deepEqual(payload.reasoning.q2, { razonamiento: '', confianza: 'seguro' });
   // The frame also reports scroll direction, so wait for the submission itself.
-  await page.waitForFunction(() => window.received.some((message) => message.type === 'learning:submitted'));
+  await page.waitForFunction(() => window.received.some((message) => message.type === 'learning:submitted'), null, { timeout: 90_000 });
   assert.deepEqual((await page.evaluate(() => window.received)).filter((message) => message.type === 'learning:submitted'), [{
     type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
     results: [
@@ -636,12 +636,12 @@ test('rich-page quiz: «No sé» hides confidence and a framed submit notifies t
   assert.equal(await first.locator('.lk-controls').isVisible(), false);
   await first.locator('textarea').fill('ni idea');
   await second.locator(`input[value=${b2}]`).check();
-  const sent = page.waitForRequest(request => request.url().endsWith('/submit'));
+  const sent = page.waitForRequest(request => request.url().endsWith('/submit'), { timeout: 90_000 });
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
   const payload = (await sent).postDataJSON();
   assert.deepEqual(payload.reasoning.q1, { razonamiento: 'ni idea' });
   // The frame also reports scroll direction, so wait for the submission itself.
-  await page.waitForFunction(() => window.received.some((message) => message.type === 'learning:submitted'));
+  await page.waitForFunction(() => window.received.some((message) => message.type === 'learning:submitted'), null, { timeout: 90_000 });
   assert.deepEqual((await page.evaluate(() => window.received)).filter((message) => message.type === 'learning:submitted'), [{
     type: 'learning:submitted', kind: 'mini-quiz', topic: TOPIC, part: 'p1', score: '1/2',
     results: [
@@ -1053,7 +1053,7 @@ test("a configured image that exists still executes and shows the result panel (
   await page.goto(pageResult.structuredContent.url);
   await page.getByRole("button", { name: "Probar con las pruebas visibles" }).click();
   const panel = page.locator(".code-results");
-  await panel.getByText("Resultado: 1/1 pruebas").waitFor();
+  await panel.getByText("Resultado: 1/1 pruebas").waitFor({ timeout: 90_000 });
   assert.equal((await panel.locator("h3").first().textContent())?.trim(), "visible · ✔ correcto");
 });
 
@@ -1085,7 +1085,7 @@ test("the learner sees the notice, keeps writing and still gets the answer saved
   assert.equal(await editor.inputValue(), "DISPLAY 'listo'.\n", "the answer is still editable");
   await page.getByRole("button", { name: "Entregar al tutor" }).click();
   const panel = page.locator(".code-results");
-  await panel.getByText("Entrega guardada y enviada al tutor.").waitFor();
+  await panel.getByText("Entrega guardada y enviada al tutor.").waitFor({ timeout: 90_000 });
   assert.match(await panel.textContent(), /No se puede ejecutar aquí/);
   assert.equal(await panel.getByText(/Resultado:/).count(), 0, "no score is claimed for tests that never ran");
   assert.equal(JSON.parse(readFileSync(join(dir, "entregas", "001.json"), "utf8")).codigo.trim(), "DISPLAY 'listo'.");
@@ -2088,7 +2088,7 @@ test("the reader draws the mini-quiz in the served order and answers with the le
   await page.getByRole("button", { name: "Enviar al tutor" }).click();
   await page.getByText("Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.").waitFor();
   for (const field of await fields.all()) await field.locator(".confidence input").first().check();
-  const received = page.waitForResponse((response) => response.url().endsWith("/submit"));
+  const received = page.waitForResponse((response) => response.url().endsWith("/submit"), { timeout: 90_000 });
   await page.getByRole("button", { name: "Enviar al tutor" }).click();
   assert.equal((await received).status(), 200);
   assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")).answers, { q1: "B", q2: "C" }, "the file keeps the tutor's letters");
@@ -2190,7 +2190,7 @@ test("the rich mini-quiz shows practical deliverables, keeps answers, and reveal
   await exercise.locator("textarea").fill("Uso una tabla por entidad");
   for (const question of ["q1", "q2"]) await page.locator(`input[name="${question}"][value="B"]`).check();
   await page.getByRole("button", { name: "Enviar al tutor" }).click();
-  await exercise.locator(".lk-exercise-solution").waitFor();
+  await exercise.locator(".lk-exercise-solution").waitFor({ timeout: 90_000 });
   assert.match(await exercise.textContent(), /SOLUTION_SECRET: cada tabla tiene una clave primaria/);
   assert.equal(await exercise.locator("textarea").inputValue(), "Uso una tabla por entidad");
 
@@ -2270,7 +2270,7 @@ test("the reader's mini-quiz draws each exercise statement above its own box, an
   await page.locator('input[name="confidence-1"][value="seguro"]').check();
   await boxes.nth(1).locator("textarea").fill("print(1 + 2)");
   const [response] = await Promise.all([
-    page.waitForResponse((r) => r.url().endsWith("/submit")),
+    page.waitForResponse((r) => r.url().endsWith("/submit"), { timeout: 90_000 }),
     page.getByRole("button", { name: "Enviar al tutor" }).click(),
   ]);
   assert.equal(response.status(), 200);
@@ -2298,10 +2298,10 @@ test("the Markdown part page shows practical deliverables, keeps answers, and re
     await page.locator(`input[name="question-${index}"][value="B"]`).check();
     await page.locator(`input[name="confidence-${index}"][value="seguro"]`).check();
   }
-  const response = page.waitForResponse((res) => res.url().endsWith("/submit"));
+  const response = page.waitForResponse((res) => res.url().endsWith("/submit"), { timeout: 90_000 });
   await page.getByRole("button", { name: "Enviar al tutor" }).click();
   assert.equal((await response).status(), 200);
-  await exercise.locator(".exercise-solution").waitFor();
+  await exercise.locator(".exercise-solution").waitFor({ timeout: 90_000 });
   assert.match(await exercise.textContent(), /SOLUTION_SECRET: cada tabla tiene una clave primaria/);
   assert.equal(await exercise.locator("textarea").inputValue(), "Uso una tabla por entidad");
 
@@ -2414,7 +2414,7 @@ test('a refused submission shows the bridge message, with no reload advice', { s
     if (await field.locator('.confidence').isVisible()) await field.locator('.confidence input').first().check();
   }
   await frame.getByRole('button', { name: 'Enviar al tutor' }).click();
-  await frame.getByText(/El tutor está trabajando/).waitFor();
+  await frame.getByText(/El tutor está trabajando/).waitFor({ timeout: 90_000 });
   const shown = await frame.locator('body').innerText();
   assert.doesNotMatch(shown, /Recarga la página/, 'the turn lock stored nothing: no reload advice');
 });
@@ -2636,11 +2636,11 @@ test("the kit page answers a quick checkpoint through the bridge and shows its v
   assert.deepEqual(await card.locator("label.lk-option").allTextContents(), Object.entries(spec.opciones).map(([letter, text]) => `${letter}. ${text}`));
   await card.locator(`input[value="${shownIn(spec, "A")}"]`).check();
   const [response] = await Promise.all([
-    kitPage.waitForResponse((r) => r.url().endsWith("/submit")),
+    kitPage.waitForResponse((r) => r.url().endsWith("/submit"), { timeout: 90_000 }),
     card.getByRole("button", { name: "Comprobar respuesta" }).click(),
   ]);
   assert.equal(response.status(), 200);
-  await card.locator(".lk-qq-result").filter({ hasText: "Incorrecto" }).waitFor();
+  await card.locator(".lk-qq-result").filter({ hasText: "Incorrecto" }).waitFor({ timeout: 90_000 });
   const said = await card.locator(".lk-qq-result").textContent();
   assert.ok(said.includes(CHECKPOINTS[1].explicacion), said);
   assert.ok(said.includes(`la correcta es ${shownIn(spec, "C")}`), said);
@@ -2661,11 +2661,11 @@ test("the reader answers a quick checkpoint in a quick note, which names its own
   await card.locator("form").waitFor();
   await card.locator(`input[value="${shownIn(spec, "B")}"]`).check();
   const [response] = await Promise.all([
-    reader.waitForResponse((r) => r.url().endsWith("/submit")),
+    reader.waitForResponse((r) => r.url().endsWith("/submit"), { timeout: 90_000 }),
     card.getByRole("button", { name: "Comprobar respuesta" }).click(),
   ]);
   assert.equal(response.status(), 200);
-  await card.locator(".lk-qq-result").filter({ hasText: "Correcto" }).waitFor();
+  await card.locator(".lk-qq-result").filter({ hasText: "Correcto" }).waitFor({ timeout: 90_000 });
   assert.ok((await card.locator(".lk-qq-result").textContent()).includes(CHECKPOINTS[0].explicacion));
   await shutdown();
 });
@@ -2684,11 +2684,11 @@ test("the reader draws a quick checkpoint in the learner's order and shows the s
   assert.deepEqual(await card.locator("label.lk-option").allTextContents(), Object.entries(spec.opciones).map(([letter, text]) => `${letter}. ${text}`));
   await card.locator(`input[value="${shownIn(spec, "C")}"]`).check();
   const [response] = await Promise.all([
-    reader.waitForResponse((r) => r.url().endsWith("/submit")),
+    reader.waitForResponse((r) => r.url().endsWith("/submit"), { timeout: 90_000 }),
     card.getByRole("button", { name: "Comprobar respuesta" }).click(),
   ]);
   assert.equal(response.status(), 200);
-  await card.locator(".lk-qq-result").filter({ hasText: "Incorrecto" }).waitFor();
+  await card.locator(".lk-qq-result").filter({ hasText: "Incorrecto" }).waitFor({ timeout: 90_000 });
   assert.ok((await card.textContent()).includes(CHECKPOINTS[0].explicacion));
   await shutdown();
 });

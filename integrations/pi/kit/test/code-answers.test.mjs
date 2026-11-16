@@ -114,7 +114,9 @@ test('a code exercise answer reaches the tutor with its line breaks and inner in
   const { page, submitted } = await open(t, { questions: QUESTIONS, exercises: [ECO] });
   await page.locator('textarea[name="exercise-eco"]').fill('SELECT 1;\n  FROM dual;\n');
   await answerAll(page);
+  // Register the response waiter before clicking: an instant /submit reply can otherwise land before the waiter exists.
+  const response = page.waitForResponse((r) => r.url().endsWith('/submit'), { timeout: 90_000 });
   await page.getByRole('button', { name: 'Enviar al tutor' }).click();
-  await page.waitForResponse((r) => r.url().endsWith('/submit'));
+  assert.equal((await response).status(), 200);
   assert.equal(submitted[0].exercises.eco, 'SELECT 1;\n  FROM dual;', 'the line breaks and the indentation inside the answer survive');
 });
