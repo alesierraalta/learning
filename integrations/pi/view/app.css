@@ -179,6 +179,9 @@ textarea { display: block; width: 100%; resize: vertical; min-height: 96px; marg
 textarea:disabled { background: var(--soft, var(--paper)); color: var(--muted); }
 /* #334: the code editor's size is the code field's (kit.css, textarea.lk-code), the same as every code answer. */
 textarea.code-editor { tab-size: 4; white-space: pre; overflow: auto; }
+/* #344 follow-up: a code field sizes itself from its rows; the reader's 96 px floor would make
+   an empty box taller than the authored rows it promises to keep. */
+textarea.lk-code, textarea.code-editor { min-height: 0; }
 .code-results { margin: 14px 0; padding: 0 0 0 1.2em; border: 0; }
 .code-results pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; margin: 0; }
 .code-results:empty { display: none; }
@@ -254,6 +257,21 @@ button.secondary { background: transparent; color: var(--ink); }
   body.wide figure:has(svg), body.wide .mermaid { width: 100%; margin-left: 0; transform: none; }
   body.wide .note-pair { display: block; }
 }
+
+/* #344 follow-up: kit.css floats «En esta parte» in the right margin from 1360 px. Its old
+   offset met the toggle pinned at the top right, so one fixed panel sat on the other control,
+   and any content reaching the gutter went under it. The reader owns the surrounding layout:
+   hold the index 16 px clear of the 648 px measure, leave the foot of the screen to the
+   reading control (book.css), and keep the index out of a fullscreen figure's top layer. */
+@media screen and (min-width: 1360px) {
+  body:not(.wide) main .lk-toc {
+    left: calc(50% + 340px);
+    right: auto;
+    max-height: calc(100vh - 120px);
+  }
+}
+/* A figure in fullscreen owns the whole top layer; the index returns with the page. */
+body:has(:fullscreen) .lk-toc { display: none; }
 
 /* #228: el explorador de un escenario necesita el ancho de una figura ancha: su lista, su
    mapa y su panel van en fila a partir de 640 px. Se extiende sobre la columna de lectura,

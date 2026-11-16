@@ -57,6 +57,52 @@ test('mobile reader control does not cover walkthrough content', { skip: !playwr
   assert.equal(await page.evaluate(() => document.body.classList.contains('wide')), true);
 });
 
+// #344 follow-up: the floating «En esta parte» index lives in the reader's right gutter.
+// It must never sit on an editor, a figure or a control, at desktop widths or in fullscreen.
+test('the floating index clears editors, figures and buttons at 1200 and 1500 (#344 follow-up)', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { topic, view } = await setup();
+  codeExercise(topic, 'plsql');
+  const spec = JSON.stringify({ viewBox: '0 0 320 200', title: 'Bucle', steps: [{ title: 'Paso', text: 'Una transición', scene: { boxes: [{ x: 20, y: 20, w: 280, h: 70, label: 'Memoria' }] } }] });
+  writeFileSync(join(topic, 'explicaciones', 'Parte 1 - Claves.md'), [
+    '# Parte 1 — Claves', '', '## Memoria', '',
+    `<lk-scene><script type="application/json">${JSON.stringify({ viewBox: '0 0 320 200', title: 'Memoria', scene: { boxes: [{ x: 20, y: 20, w: 280, h: 70, label: 'Memoria' }] } })}</script></lk-scene>`,
+    `<lk-walkthrough><script type="application/json">${spec}</script></lk-walkthrough>`, '',
+    '## Práctica', '', 'Escribe el bloque.', '',
+  ].join('\n'));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1200, height: 900 } });
+  const clear = async (where) => {
+    await page.locator('.lk-toc').waitFor();
+    const hits = await page.evaluate(() => {
+      const panel = document.querySelector('.lk-toc');
+      const a = panel.getBoundingClientRect();
+      return [...document.querySelectorAll('textarea, figure, lk-scene, lk-story, button, .code-notice')].flatMap((node) => {
+        const b = node.getBoundingClientRect();
+        return b.width && b.height && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+          ? [{ tag: node.tagName, cls: String(node.className).slice(0, 40), text: (node.textContent || '').trim().slice(0, 30) }]
+          : [];
+      });
+    });
+    assert.deepEqual(hits, [], `${where}: ${JSON.stringify(hits)}`);
+  };
+  for (const width of [1200, 1500]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const [where, part] of [['parte', 'p1'], ['código', 'codigo/bloque']]) {
+      await page.goto((await view({ topic: TOPIC, part })).structuredContent.url);
+      await page.locator('textarea').first().waitFor();
+      await clear(`${where} @ ${width}`);
+    }
+  }
+  await page.goto((await view({ topic: TOPIC, part: 'p1' })).structuredContent.url);
+  await page.locator('.lk-wt-full').first().click();
+  await page.waitForFunction(() => Boolean(document.fullscreenElement));
+  assert.equal(await page.locator('.lk-toc').isVisible(), false, 'the index does not float over a fullscreen figure');
+  await page.evaluate(() => document.exitFullscreen());
+  await page.waitForFunction(() => !document.fullscreenElement);
+  assert.equal(await page.locator('.lk-toc').isVisible(), true, 'the index comes back with the page');
+});
+
 test('a scene written in a note reaches the reader drawn', { skip: !playwright && 'playwright not installed' }, async t => {
   const { root, view } = await setup();
   mkdirSync(join(root, 'rapidos'), { recursive: true });
@@ -911,6 +957,21 @@ function codeExercise(topic, language) {
   return dir;
 }
 
+/** A code exercise whose preset has exactly the lines the editor should open at. */
+function codeExerciseWithTemplate(topic, id, plantilla) {
+  const dir = join(topic, 'codigo', id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'ejercicio.json'), JSON.stringify({
+    titulo: id === 'largo' ? 'Bloque largo' : 'Bloque anónimo',
+    enunciado: 'Escribe un bloque anónimo.',
+    lenguaje: 'plsql',
+    plantilla,
+    parte: 'p1',
+    tests: [{ nombre: 'visible', entrada: 'algo', salida: 'listo' }],
+  }));
+  return dir;
+}
+
 /** A docker CLI on PATH: the judge still goes through the real code path, only the CLI is fake. */
 function dockerStub(script) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "docker-stub-")));
@@ -1090,6 +1151,45 @@ test("the learner sees the notice, keeps writing and still gets the answer saved
   assert.equal(await panel.getByText(/Resultado:/).count(), 0, "no score is claimed for tests that never ran");
   assert.equal(JSON.parse(readFileSync(join(dir, "entregas", "001.json"), "utf8")).codigo.trim(), "DISPLAY 'listo'.");
   assert.equal(host.sent.length, 1);
+});
+
+test('a code editor opens at the preset height, grows and caps (#344 follow-up)', { skip: !playwright && 'playwright not installed' }, async t => {
+  const { topic, view } = await setup();
+  const template = Array.from({ length: 10 }, (_, i) => `  linea ${i + 1};`).join('\n');
+  codeExerciseWithTemplate(topic, 'bloque', template);
+  codeExerciseWithTemplate(topic, 'largo', Array.from({ length: 25 }, (_, i) => `  linea ${i + 1};`).join('\n'));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1500, height: 900 } });
+  const sizeOf = () => page.locator('textarea.code-editor').evaluate((el) => {
+    const s = getComputedStyle(el);
+    const pad = parseFloat(s.paddingTop) + parseFloat(s.paddingBottom);
+    return {
+      rows: Math.round(((el.clientHeight - pad) / parseFloat(s.lineHeight)) * 10) / 10,
+      scrolls: el.scrollHeight > el.clientHeight + 1,
+      authored: el.rows,
+    };
+  });
+  const open = async (id) => page.goto((await view({ topic: TOPIC, part: `codigo/${id}` })).structuredContent.url);
+  await open('bloque');
+  const editor = page.locator('textarea.code-editor');
+  await editor.waitFor();
+  let size = await sizeOf();
+  assert.equal(size.rows, 10, `a 10-line preset opens at ten rows: ${JSON.stringify(size)}`);
+  assert.equal(size.scrolls, false, 'the preset fits without an inner scrollbar');
+  assert.equal(size.authored, 3, 'the authored rows attribute is untouched');
+  await editor.fill(Array.from({ length: 25 }, (_, i) => `linea ${i + 1}`).join('\n'));
+  size = await sizeOf();
+  assert.equal(size.rows, 18, 'typing past the cap stops at 18 rows');
+  assert.equal(size.scrolls, true, 'and the box scrolls past the cap');
+  await editor.fill('');
+  size = await sizeOf();
+  assert.equal(size.rows, 3, 'an emptied editor keeps the authored rows');
+  await open('largo');
+  await editor.waitFor();
+  size = await sizeOf();
+  assert.equal(size.rows, 18, 'a 25-line preset also stops at the cap');
+  assert.equal(size.scrolls, true, 'a 25-line preset scrolls');
 });
 
 const openServers = [];
