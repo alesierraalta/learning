@@ -348,12 +348,118 @@
 
   const badge = (cx, cy, n) => `<circle cx="${cx}" cy="${cy}" r="24" fill="${C.blue}"/>` + txt(cx, cy + 9, String(n), { size: 26, color: "#ffffff" });
 
+  // Una secuencia (#353): quién habla con quién, en qué orden y de qué categoría. Los actores
+  // van arriba con su línea de vida; cada mensaje baja una fila y su pendiente es el tiempo que
+  // pasa entre emisor y receptor. La pieza entera se dibuja de una vez: `walkScene` le da su
+  // clave, y esa clave es la que sigue a un paso, destella y se anilla como cualquier otra.
+  const SEQ_TONES = { blue: C.blue, green: C.green, amber: C.amber, red: C.red, slate: C.slate, ink: C.ink };
+  const SEQ_FILLS = { blue: C.blueS, green: C.greenS, amber: C.amberS, red: C.redS, slate: C.soft2, ink: C.soft };
+  const SEQ_LEGEND = { blue: 'petición', green: 'respuesta', amber: 'espera', red: 'error' };
+  const sequence = (seq = {}, { x = 24, y = 30, width = 700, rowH = 44, nameSize = 17, subSize = 15, labelSize = 15 } = {}) => {
+    const s = seq && typeof seq === 'object' ? seq : {};
+    const actors = (Array.isArray(s.actors) ? s.actors : []).filter((a) => a && a.id != null);
+    const messages = Array.isArray(s.messages) ? s.messages : [];
+    const toneOf = (kind) => SEQ_TONES[kind] || C.slate;
+    const fillOf = (kind) => SEQ_FILLS[kind] || C.soft2;
+    // `at` ordena; si falta, el lugar del mensaje en la lista. Dos mensajes con el mismo `at`
+    // comparten fila: scene-lint lo dice cuando sus tramos se pisan.
+    let last = -1;
+    const timed = messages.filter((m) => m && typeof m === 'object').map((m, i) => {
+      const at = Number.isFinite(Number(m.at)) ? Number(m.at) : last + 1;
+      last = at;
+      return { m, at, i };
+    }).sort((a, b) => a.at - b.at || a.i - b.i);
+    const rows = [...new Set(timed.map((t) => t.at))];
+    const rowY = (at) => y + 92 + rows.indexOf(at) * rowH;
+    const bottom = y + 92 + Math.max(0, rows.length - 1) * rowH + 22;
+    const colW = width / Math.max(1, actors.length);
+    const centerOf = new Map(actors.map((a, i) => [String(a.id), x + colW * (i + 0.5)]));
+    let out = `<g data-sequence="1"${s.id != null ? ` data-sequence-id="${esc(s.id)}"` : ''}>`;
+
+    // Las bandas de fase van primero, con relleno y sin trazo: son el papel sobre el que se
+    // dibuja el resto, no una caja que pueda enterrar la punta de una flecha.
+    for (const p of (Array.isArray(s.phases) ? s.phases : [])) {
+      if (!p || typeof p !== 'object') continue;
+      const at = rows.includes(Number(p.at)) ? Number(p.at) : rows[0];
+      if (at === undefined) continue;
+      const top = rowY(at) - 28, to = rows[rows.indexOf(at) + 1];
+      const end = to === undefined ? bottom + 6 : rowY(to) - 28;
+      out += `<path data-sequence-phase="1" d="M ${f(x)} ${f(top)} H ${f(x + width)} V ${f(end)} H ${f(x)} Z" fill="${fillOf(p.tone || 'slate')}"/>`
+        + `<g data-sequence-phase-label="1">` + txt(x + 4, f(top + 15), p.label || '', { size: labelSize, color: toneOf(p.tone || 'slate'), anchor: 'start', fit: width / 2 }) + '</g>';
+    }
+
+    for (const a of actors) {
+      const cx = centerOf.get(String(a.id));
+      const chipW = Math.min(colW - 12, Math.max(78, String(a.label || a.id).length * nameSize * 0.62 + 18));
+      const chipH = a.sub ? 48 : 34;
+      const ink = toneOf(a.tone || 'slate');
+      out += `<g data-sequence-actor="${esc(a.id)}">`
+        + `<rect x="${f(cx - chipW / 2)}" y="${y}" width="${f(chipW)}" height="${chipH}" rx="8" fill="#ffffff" stroke="${ink}" stroke-width="2"/>`
+        + txt(cx, f(y + (a.sub ? 21 : chipH / 2 + 5)), a.label || String(a.id), { size: nameSize, color: ink, fit: chipW - 12 })
+        + (a.sub ? txt(cx, f(y + 39), a.sub, { size: subSize, color: C.slate, bold: false, italic: true, fit: chipW - 12 }) : '')
+        + '</g>';
+      out += `<path data-sequence-lifeline="${esc(a.id)}" d="M ${f(cx)} ${y + 52} V ${bottom}" fill="none" stroke="${C.line}" stroke-width="1.5" stroke-dasharray="4 5"/>`;
+    }
+    out += `<path data-sequence-base="1" d="M ${f(x)} ${bottom} H ${f(x + width)}" fill="none" stroke="${C.line}" stroke-width="1.5"/>`;
+
+    // La pendiente del mensaje es el tiempo que tarda en llegar: la flecha nace en la línea de
+    // vida del emisor y baja hasta la del receptor. El hueco de 10 unidades deja ver las dos
+    // líneas de vida y le da sitio a la punta.
+    for (const { m, at } of timed) {
+      const from = centerOf.get(String(m.from)), to = centerOf.get(String(m.to));
+      if (from === undefined || to === undefined) continue;
+      const yy = rowY(at);
+      const kind = SEQ_TONES[m.kind] ? m.kind : 'blue';
+      const ink = toneOf(kind);
+      if (from === to) {
+        const d = `M ${f(from + 5)} ${f(yy)} C ${f(from + 44)} ${f(yy)}, ${f(from + 44)} ${f(yy + 22)}, ${f(from + 12)} ${f(yy + 22)}`;
+        out += `<g data-arrow="${f(from + 5)},${f(yy)}" data-to="${f(from + 12)},${f(yy + 22)}" data-label-size="${labelSize}" data-sequence-at="${at}" data-sequence-kind="${kind}">`
+          + `<circle data-sequence-stop="1" cx="${f(from + 5)}" cy="${f(yy)}" r="3" fill="${ink}"/>`
+          + `<path d="${d}"${flowClass(m.flow === true)} fill="none" stroke="${ink}" stroke-width="2.5" marker-end="url(#${markerId(ink, 2.5)})"/>`
+          + txt(f(from + 28), f(yy - 8), m.label || '', { size: labelSize, color: ink, fit: 92 })
+          + '</g>';
+        continue;
+      }
+      const sign = to > from ? 1 : -1;
+      const x1 = from + sign * 10, x2 = to - sign * 10;
+      const y2 = yy + Math.min(18, Math.max(9, Math.abs(to - from) * 0.06));
+      out += `<g data-arrow="${f(x1)},${f(yy)}" data-to="${f(x2)},${f(y2)}" data-label-size="${labelSize}" data-sequence-at="${at}" data-sequence-kind="${kind}">`
+        + `<circle data-sequence-stop="1" cx="${f(from)}" cy="${f(yy)}" r="3" fill="${ink}"/>`
+        + `<circle data-sequence-stop="1" cx="${f(to)}" cy="${f(y2)}" r="3" fill="${ink}"/>`
+        + `<path d="M ${f(x1)} ${f(yy)} L ${f(x2)} ${f(y2)}"${flowClass(m.flow === true)} fill="none" stroke="${ink}" stroke-width="2.5" marker-end="url(#${markerId(ink, 2.5)})"/>`
+        + txt(f((x1 + x2) / 2), f(Math.min(yy, y2) - 8), m.label || '', { size: labelSize, color: ink, fit: Math.max(56, Math.abs(x2 - x1) - 14) })
+        + '</g>';
+    }
+
+    // Las notas van al pie, en orden de tiempo: explican una fila sin meterse en su trazo.
+    let cursor = bottom + 22;
+    for (const note of (Array.isArray(s.notes) ? s.notes : []).slice().sort((a, b) => Number(a?.at ?? 0) - Number(b?.at ?? 0))) {
+      if (!note || typeof note !== 'object') continue;
+      out += `<g data-sequence-note="1">` + txt(x + 4, f(cursor), `• ${note.text || ''}`, { size: subSize, color: toneOf(note.tone || 'slate'), anchor: 'start', bold: false, fit: width - 8 }) + '</g>';
+      cursor += 20;
+    }
+    const kinds = [...new Set(timed.map((t) => (SEQ_TONES[t.m.kind] ? t.m.kind : 'blue')))];
+    if (kinds.length) {
+      out += '<g data-sequence-legend="1">';
+      let lx = x + 4;
+      const ly = cursor + 4;
+      for (const kind of kinds) {
+        const word = (s.legend && s.legend[kind]) || SEQ_LEGEND[kind] || kind;
+        out += `<rect x="${f(lx)}" y="${f(ly - 10)}" width="12" height="12" rx="2" fill="${fillOf(kind)}" stroke="${toneOf(kind)}" stroke-width="1.5"/>`
+          + txt(f(lx + 18), f(ly), word, { size: subSize, color: C.slate, anchor: 'start', bold: false, fit: 180 });
+        lx += Math.max(96, 30 + String(word).length * subSize * 0.62);
+      }
+      out += '</g>';
+    }
+    return out + '</g>';
+  };
+
   /** A complete SVG document showing markup, sized by its viewBox. */
   const svg = (markup, viewBox = "0 0 1728 740") =>
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${defs(markup)}${markup}</svg>`;
 
   window.LKScene = {
     C, esc, f, txt, lbl, step, piece, gear, packet, dashed, sheet, box, node, badge, grid, icon, prop, bars, stat, formula, defs,
-    curve, path, line, flowClass, svg, tag, elbow, mark, head, markerId,
+    curve, path, line, flowClass, svg, tag, elbow, mark, head, markerId, sequence,
   };
 })();

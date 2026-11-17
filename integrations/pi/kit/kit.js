@@ -1479,6 +1479,9 @@
       // ella: a 22 sobre fichas de 16 se leía como un título (#280).
       ...(scene.actors || []).map((a) => (a.kind || a.icon ? (a.tag ? STAGE_TAG_SIZE : 0) : a.size || 18)),
       ...(scene.tags || []).map(() => STAGE_TAG_SIZE),
+      // La letra de una secuencia es letra de la figura: ninguna etiqueta de flecha
+      // ajena se dibuja más grande que ella (#353).
+      ...(scene.sequence ? [scene.sequence.labelSize || 15] : []),
     ].filter((size) => size > 0);
     const labelCap = figureSizes.length ? Math.min(...figureSizes) : 22;
     let out = '';
@@ -1491,8 +1494,8 @@
       keys.set(base, n);
       return n > 1 ? `${base}#${n}` : base;
     };
-    // Las piezas con id se pueden enfocar con `ring` (#299; `ring` desde #305): una caja, un icono, un rótulo, un actor o una prop.
-    const FOCUSABLE = ['box', 'icon', 'label', 'actor', 'prop'];
+    // Las piezas con id se pueden enfocar con `ring` (#299; `ring` desde #305): una caja, un icono, un rótulo, un actor, una prop o una secuencia (#353).
+    const FOCUSABLE = ['box', 'icon', 'label', 'actor', 'prop', 'sequence'];
     const idOf = (kind, item) => (FOCUSABLE.includes(kind) && item?.id != null ? String(item.id) : undefined);
     const keep = (from, kind, item, label) => { out = out.slice(0, from) + S.piece(keyOf(kind, item, label), out.slice(from), idOf(kind, item)); };
     // Sheets and boxes first: a highlight drawn before them would disappear
@@ -1571,6 +1574,14 @@
     }
     for (const st of scene.stats || []) {
       out += S.piece(keyOf('stat', st, st.label || String(st.value)), S.stat(st.x, st.y, st.value, st.label || '', { color: tone(st.tone || 'ink').stroke, size: st.size || 54 }));
+    }
+    // Una secuencia es una pieza de estado como cualquier otra: su clave la sigue entre pasos,
+    // su `id` la hace memorable para `ring` y sus flechas son las flechas del kit (#353).
+    if (scene.sequence) {
+      const sq = scene.sequence;
+      const from = out.length;
+      out += S.sequence(sq, { x: sq.x ?? 24, y: sq.y ?? 30, width: sq.width ?? Math.max(360, stageWidth - 48), rowH: sq.rowH ?? 44 });
+      keep(from, 'sequence', sq, String(sq.id ?? 'sequence'));
     }
     // Una curva es una curva: el escenario del video ya la dibuja así
     // (`tools/video/src/page/stage.js`), y la lectura tiene que poder dibujar la
@@ -1918,10 +1929,20 @@
     for (const text of now.querySelectorAll('text')) run.anims.push(text.animate([{ opacity: 0 }, { opacity: 1 }], DRAW_MOTION));
   }
   // Lo que sigue se desliza desde donde estaba y cambia de tono, forma a forma.
+  const arrowKey = (a) => [
+    a.dataset.sequenceAt || '', a.dataset.sequenceKind || '',
+    a.dataset.arrow || '', a.dataset.to || '', a.textContent.trim(),
+  ].join('|');
   function carryPiece(run, was, now) {
     const a = was.getBBox(), b = now.getBBox();
     if ((a.width || a.height) && (b.width || b.height) && (a.x !== b.x || a.y !== b.y)) {
       run.anims.push(now.animate([{ transform: `translate(${a.x - b.x}px, ${a.y - b.y}px)` }, { transform: 'translate(0px, 0px)' }], STEP_MOTION));
+    }
+    // Una pieza que sigue puede estrenar una flecha —un mensaje nuevo en una secuencia, #353—.
+    // Se dibuja como la flecha de un paso nuevo: el trazo avanza y la punta llega al final (#300).
+    if (arrowPaths(now).length) {
+      const old = new Set([...was.querySelectorAll('[data-arrow]')].map(arrowKey));
+      for (const node of now.querySelectorAll('[data-arrow]')) if (!old.has(arrowKey(node))) drawArrow(run, node);
     }
     // Un texto o un tono que cambian destacan una vez, sin que el autor lo escriba (#299).
     const toned = tonePiece(run, was, now);
@@ -1960,6 +1981,9 @@
     const steps = spec.steps || [];
     if (!steps.length) throw new Error('El recorrido no tiene pasos');
     const stage = el('div', undefined, { class: 'lk-wt-stage lk-remap' });
+    // Una secuencia se dibuja a tamaño de figura y se desliza en su marco en el teléfono,
+    // sin encoger la letra (#353). El marco lo sabe por esta clase.
+    if (steps.some((s) => s.scene?.sequence)) stage.classList.add('lk-has-sequence');
     const stageWidth = Number((spec.viewBox || '0 0 1200 640').trim().split(/[\s,]+/)[2]) || 1200;
     // El ancho declarado es el techo de la figura: 1 unidad ≈ 1 píxel. En modo
     // ancho la columna mide el doble y, sin esto, la escena se estiraba a 1,7×.
@@ -3303,6 +3327,7 @@
     const box = viewBox.trim().split(/[\s,]+/).map(Number);
     const stageWidth = box[2] || 360, stageTop = box[1] || 0, stageHeight = box[3] || 250;
     const stage = el('div', undefined, { class: 'lk-story-stage lk-wt-stage lk-remap' });
+    if (steps.some((s) => (s.stage?.scene || s.stage || {})?.sequence)) stage.classList.add('lk-has-sequence');
     stage.style.setProperty('--lk-vb', `${stageWidth}px`);
     // La fórmula vive en la cabecera (HTML, con el token del paso resaltado); el
     // escenario dibuja la acción, no repite la fórmula. Duplicarla en el SVG la
