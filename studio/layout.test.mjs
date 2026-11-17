@@ -1096,8 +1096,9 @@ test("the reader bar is one row and its overflow menu holds the five actions (S1
   assert.match(page.url(), /#\/leer\/redes\/p1/);
 });
 
-// S3: above 720px the bar is the row it always was, with every control in it.
-test("the reader bar keeps its controls in the row on a desktop (S3, S5)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+// S3-S5: wide or narrow, the reader keeps four controls and one overflow; the
+// board's ten actions live in that single menu, never in a second row.
+test("the reader bar keeps four controls and one labelled overflow on a desktop (S3, S4, S5)", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
@@ -1108,8 +1109,9 @@ test("the reader bar keeps its controls in the row on a desktop (S3, S5)", { ski
 
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
   await page.waitForSelector(".reader-bar .title");
-  assert.equal(await page.locator(".reader-more").isVisible(), false, "the overflow trigger is a phone's");
-  assert.equal(await page.locator(".reader-menu").isVisible(), false, "the menu is open on a desktop");
+  assert.equal(await page.locator(".reader-more").isVisible(), true, "the one labelled overflow is part of the bar at every width");
+  assert.equal(await page.locator(".reader-menu").isVisible(), false, "the menu is closed on a desktop");
+  assert.equal(await page.locator(".reader-mode").isVisible(), true, "the reading-mode control stays in the bar");
   const seen = await page.evaluate(() => {
     const controls = [...document.querySelectorAll(".reader-bar > button")]
       .map((b) => {
@@ -1117,13 +1119,26 @@ test("the reader bar keeps its controls in the row on a desktop (S3, S5)", { ski
         return { name: b.getAttribute("aria-label") || b.textContent.trim(), h: Math.round(r.height), top: Math.round(r.top), right: Math.round(r.right) };
       })
       .filter((c) => c.h > 0);
-    return { controls, tops: [...new Set(controls.map((c) => c.top))] };
+    return { controls, tops: [...new Set(controls.map((c) => c.top))], modes: [...document.querySelectorAll(".reader-bar > select")].map((s) => s.getAttribute("aria-label")) };
   });
   assert.equal(seen.tops.length, 1, "the desktop bar wraps into two rows");
   for (const c of seen.controls) assert.ok(c.right <= 1280, `control off screen: ${JSON.stringify(c)}`);
-  const saves = ["Descargar para ver sin conexión", "Descargando…", "Guardada en este dispositivo"];
-  assert.equal(seen.controls.filter((c) => saves.includes(c.name)).length, 1, `the save control is missing: ${JSON.stringify(seen.controls)}`);
-  assert.deepEqual(seen.controls.map((c) => c.name).filter((name) => !saves.includes(name)), ["Volver", "Preguntar", "Sugerir", "Regenerar", "Borrar"]);
+  assert.deepEqual(seen.modes, ["Modo de lectura"]);
+  assert.deepEqual(seen.controls.map((c) => c.name), ["Volver", "Preguntar", "Más acciones"]);
+  assert.equal(await page.locator(".reader-bar .btn.primary").count(), 0, "the part adds no second primary to the header's");
+
+  const more = page.getByRole("button", { name: "Más acciones" });
+  assert.equal(await more.getAttribute("aria-haspopup"), "menu");
+  await more.click();
+  assert.equal(await more.getAttribute("aria-expanded"), "true");
+  assert.deepEqual((await page.locator(".reader-menu button").allInnerTexts()).map((text) => text.trim()), [
+    "Descargar para ver sin conexión", "Preguntar", "Sugerir", "Regenerar", "Modo: art.", "Borrar",
+    "Conversación de esta parte", "Tema oscuro", "Configuración", "Tutorial",
+  ]);
+  assert.equal(await page.evaluate(() => !!document.activeElement.closest?.(".reader-menu")), true, "the menu takes focus");
+  await page.keyboard.press("Escape");
+  assert.equal(await more.getAttribute("aria-expanded"), "false");
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute("aria-label")), "Más acciones", "Escape returns focus to the overflow");
 });
 
 // The row must not starve the part's own name: the save control used to take
@@ -1148,6 +1163,95 @@ test("the desktop reader bar shows the whole part title (S3)", { skip: browser ?
   assert.ok(seen.client + 1 >= seen.scroll, `the part title is cut off: ${JSON.stringify(seen)}`);
 });
 
+// The board's reading surface: the rail beside the sheet carries only numbers
+// the studio already has, and the sheet keeps its own reading measure.
+test("the reading rail uses real progress and keeps the sheet measure at 1440 and 1280 (S3)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  // No service worker: with nothing saved there is no «Guardado» block to invent.
+  const context = await (browser.chromium ?? browser.default).launch().then((b) => b.newContext({ serviceWorkers: "block" }));
+  t.after(() => context.browser().close());
+  await context.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const page = await context.newPage();
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".study-rail");
+  const sheet = page.locator("iframe.sheet");
+  await sheet.waitFor();
+
+  const observe = async (width, theme) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(700); // let the progress chip's 0.5s colour transition settle
+    const seen = await page.evaluate(() => {
+      const rail = document.querySelector(".study-rail");
+      const bar = document.querySelector(".reader-bar");
+      const progress = rail.querySelector("[role=progressbar]");
+      const headings = [...rail.querySelectorAll(".rail-block h3")].map((n) => n.textContent.trim());
+      const css = (selector, property) => getComputedStyle(document.querySelector(selector))[property];
+      return {
+        railVisible: rail.getBoundingClientRect().width > 0,
+        railWidth: Math.round(rail.getBoundingClientRect().width),
+        headings,
+        progress: { now: progress.getAttribute("aria-valuenow"), max: progress.getAttribute("aria-valuemax"), label: progress.parentElement.textContent.trim() },
+        step: rail.querySelectorAll(".rail-block")[1].textContent.trim(),
+        sheetWidth: Math.round(document.querySelector("iframe.sheet").getBoundingClientRect().width),
+        barHeight: Math.round(bar.getBoundingClientRect().height),
+        moreWidth: Math.round(document.querySelector(".reader-more").getBoundingClientRect().width),
+        overflow: document.documentElement.scrollWidth - innerWidth,
+        palette: { paper: css("body", "backgroundColor"), ink: css(".reader-bar .title", "color"), accent: css(".study-rail .progress span.on", "backgroundColor") },
+      };
+    });
+    const frame = await (await sheet.elementHandle()).contentFrame();
+    const measure = await frame.evaluate(() => {
+      const r = document.querySelector("#app").getBoundingClientRect();
+      return { width: Math.round(r.width), left: Math.round(r.left), right: Math.round(r.right), viewport: innerWidth };
+    });
+    const shot = await page.screenshot();
+    console.log(`rail ${width} ${theme}: rail ${seen.railWidth}px, sheet ${seen.sheetWidth}px, bar ${seen.barHeight}px, overflow trigger ${seen.moreWidth}px, article ${measure.width}px, palette ${JSON.stringify(seen.palette)}, screenshot ${shot.length} bytes in memory`);
+    assert.equal(seen.railVisible, true, `the rail fills the wide area at ${width}px`);
+    assert.equal(seen.railWidth, width === 1440 ? 288 : 248, `the rail keeps the board's width at ${width}px`);
+    assert.deepEqual(seen.headings, ["Progreso", "Siguiente paso"]);
+    assert.deepEqual(seen.progress.now, "1");
+    assert.equal(seen.progress.max, "2");
+    assert.match(seen.progress.label, /1 de 2 partes escritas/);
+    assert.match(seen.step, /Responde el diagnóstico inicial/, "the next step is the engine's");
+    assert.ok(!/Servicios|Tutor ·|Tareas ·/.test(await page.locator(".study-rail").innerText()), "no duplicated services");
+    assert.ok(Math.abs(seen.sheetWidth - (width - seen.railWidth)) <= 2, `the sheet keeps the room the rail leaves: ${JSON.stringify(seen)}`);
+    assert.ok(seen.barHeight >= 40 && seen.barHeight <= 60, `the bar keeps its height: ${seen.barHeight}`);
+    assert.ok(seen.moreWidth >= 44, `the overflow is a touch target: ${seen.moreWidth}`);
+    assert.equal(seen.overflow, 0, `no horizontal overflow at ${width}px`);
+    assert.equal(measure.width, 648, `the article keeps its 648px measure: ${JSON.stringify(measure)}`);
+    assert.ok(measure.left >= 0 && measure.right <= measure.viewport, JSON.stringify(measure));
+    assert.deepEqual(seen.palette, theme === "light"
+      ? { paper: "rgb(255, 255, 255)", ink: "rgb(15, 46, 61)", accent: "rgb(0, 66, 118)" }
+      : { paper: "rgb(13, 25, 31)", ink: "rgb(228, 237, 241)", accent: "rgb(143, 194, 227)" });
+
+    const more = page.getByRole("button", { name: "Más acciones" });
+    assert.equal(await more.getAttribute("aria-expanded"), "false");
+    await more.click();
+    assert.equal(await more.getAttribute("aria-expanded"), "true");
+    assert.equal(await page.evaluate(() => !!document.activeElement.closest?.(".reader-menu")), true);
+    await page.keyboard.press("Escape");
+    assert.equal(await more.getAttribute("aria-expanded"), "false");
+    assert.equal(await page.evaluate(() => document.activeElement.getAttribute("aria-label")), "Más acciones");
+  };
+
+  for (const width of [1440, 1280]) await observe(width, "light");
+  await page.getByRole("button", { name: "Contexto" }).click();
+  await page.getByRole("menuitem", { name: "Cambiar a modo oscuro" }).click();
+  for (const width of [1440, 1280]) await observe(width, "night");
+
+  await page.setViewportSize({ width: 1080, height: 900 });
+  const narrow = await page.evaluate(() => ({
+    rail: document.querySelector(".study-rail").getBoundingClientRect().width,
+    sheet: Math.round(document.querySelector("iframe.sheet").getBoundingClientRect().width),
+  }));
+  console.log(`rail 1080 night: rail ${narrow.rail}px, sheet ${narrow.sheet}px`);
+  assert.equal(narrow.rail, 0, "below 1100px the rail is gone");
+  assert.equal(narrow.sheet, 1080, "the sheet takes the whole stage");
+});
+
 test("reader actions remain reachable when the tutor narrows the desktop", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
@@ -1160,7 +1264,8 @@ test("reader actions remain reachable when the tutor narrows the desktop", { ski
   await page.locator(".tutor-pill").click();
   await page.waitForFunction(() => document.querySelector(".stage").getBoundingClientRect().width <= 1000);
   const more = page.getByRole("button", { name: "Más acciones" });
-  assert.equal(await more.isVisible(), true, "the narrowed reader must expose the overflow menu");
+  assert.equal(await more.isVisible(), true, "the narrowed reader keeps the same single overflow");
+  assert.equal(await page.locator(".study-rail").isVisible(), false, "the rail gives its room back to the sheet");
   const geometry = await page.locator(".reader-bar").evaluate((bar) => {
     const box = bar.getBoundingClientRect();
     return [...bar.querySelectorAll("button, select")].filter((node) => node.getBoundingClientRect().width > 0).map((node) => ({ name: node.getAttribute("aria-label"), right: node.getBoundingClientRect().right, barRight: box.right }));
@@ -1176,7 +1281,9 @@ test("the reading index follows the real markdown headings", { skip: browser ? f
   process.env.FAKE_PI_LOG = log;
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
   open.push(studio);
-  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1440, height: 900 } }));
+  // With the 288px study rail, only a sheet of at least 1360px keeps the
+  // reader's index beside its text; at 1680 the stage leaves that much.
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1680, height: 900 } }));
   t.after(() => page.context().browser().close());
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
@@ -1210,7 +1317,9 @@ test("the rich reader keeps its index and anchors on desktop and mobile", { skip
   process.env.FAKE_PI_LOG = log;
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
   open.push(studio);
-  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1440, height: 900 } }));
+  // The study rail takes 288px of a wide stage; at 1680 the sheet still has the
+  // 1360px the reader needs to put its index beside the text.
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1680, height: 900 } }));
   t.after(() => page.context().browser().close());
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
@@ -2393,9 +2502,15 @@ const savedParts = (page) =>
 test("the reader marks an automatically saved part", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page, studio } = await controlledStudio(t);
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
-  const button = page.locator(".reader-bar").getByRole("button", { name: "Guardada en este dispositivo" });
-  await button.waitFor({ timeout: 10000 });
-  assert.equal(await button.isDisabled(), true);
+  await page.getByRole("button", { name: "Más acciones" }).click();
+  const button = page.locator(".reader-menu").getByRole("menuitem", { name: "Descargar para ver sin conexión" });
+  await page.waitForFunction(
+    () => [...document.querySelectorAll(".reader-menu button")].some((b) => b.textContent.includes("Descargar para ver sin conexión") && b.disabled),
+    null,
+    { timeout: 10000 },
+  );
+  assert.equal(await button.isDisabled(), true, "the saved action stays in the menu, unavailable");
+  await page.locator(".study-rail").getByText("Guardada en este dispositivo · Capas").waitFor();
 });
 
 test("the reader explains when the browser cannot save a part", { skip: browser ? false : "playwright not installed" }, async (t) => {
@@ -2408,10 +2523,13 @@ test("the reader explains when the browser cannot save a part", { skip: browser 
   await context.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
   const page = await context.newPage();
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
-  const button = page.locator(".reader-bar").getByRole("button", { name: "Descargar para ver sin conexión" });
+  await page.getByRole("button", { name: "Más acciones" }).click();
+  const button = page.locator(".reader-menu").getByRole("menuitem", { name: "Descargar para ver sin conexión" });
   await button.click({ timeout: 5000 });
   assert.match(await page.locator(".toast").innerText(), /certificado de confianza/);
-  assert.equal(await button.isEnabled(), true);
+  // Choosing the action closes the menu; reopen the same one to see it is still armed.
+  await page.getByRole("button", { name: "Más acciones" }).click();
+  assert.equal(await page.getByRole("menuitem", { name: "Descargar para ver sin conexión" }).isEnabled(), true);
 });
 
 test("a part read with a connection opens again without one, in the same reader", { skip: browser ? false : "playwright not installed" }, async (t) => {
@@ -2521,7 +2639,8 @@ test("the suggestion box asks for a reason before it can be sent, and reads like
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
   await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
 
-  await page.getByRole("button", { name: "Sugerir" }).click();
+  await page.getByRole("button", { name: "Más acciones" }).click();
+  await page.getByRole("menuitem", { name: "Sugerir" }).click();
   const accept = page.getByRole("button", { name: "Guardar sugerencia" });
   await accept.waitFor();
   const idle = await accept.evaluate((el) => ({ disabled: el.disabled, opacity: Number(getComputedStyle(el).opacity) }));

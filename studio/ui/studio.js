@@ -1745,6 +1745,45 @@
     );
   }
 
+  /**
+   * The wide reading surface's companion. Every line comes from records the
+   * studio already holds: the engine's next step, the topic's written parts and
+   * the parts this device actually saved. Tutor and Tareas live once, in the
+   * header; repeating them here would give an action two ranks.
+   */
+  function studyRail(topic, part, title) {
+    const step = nextStep(topic);
+    const block = (name, ...children) => h("div", { class: "rail-block" }, h("h3", {}, name), ...children);
+    const blocks = [
+      block("Progreso", progress(topic)),
+      block("Siguiente paso", h("span", { class: "label" }, step.label), h("p", {}, step.text)),
+    ];
+    const savedBlock = h("div", { class: "rail-block", hidden: true });
+    const showSaved = () => {
+      const savedParts = topic.parts.filter((p) => saved.has(savedKey(topic.id, p.id)));
+      savedBlock.hidden = !savedParts.length;
+      if (!savedParts.length) return savedBlock.replaceChildren();
+      const current = savedParts.find((p) => p.id === part);
+      const one = savedParts.length === 1;
+      savedBlock.replaceChildren(
+        h("h3", {}, "Guardado"),
+        h("p", { class: "saved" }, icon("check"),
+          current ? `Guardada en este dispositivo · ${title}` : `${savedParts.length} ${one ? "parte guardada" : "partes guardadas"} en este dispositivo`),
+      );
+    };
+    showSaved();
+    const rail = h(
+      "aside",
+      { class: "study-rail", "aria-labelledby": "study-rail-title" },
+      h("p", { class: "eyebrow" }, "Recuperado del área vacío"),
+      h("h2", { id: "study-rail-title" }, "Tu ruta"),
+      ...blocks,
+      savedBlock,
+    );
+    rail.showSaved = showSaved;
+    return rail;
+  }
+
   // ---------- reader ----------
   let readSeq = 0;
   async function readerView({ topicId, part, quickId, mode }) {
@@ -1779,31 +1818,29 @@
     const barBtn = (label, onclick, cls, iconName) =>
       h("button", { class: cls, type: "button", onclick, "aria-label": label, title: label }, icon(iconName), h("span", { class: "label" }, label));
     let saveButton;
-    let menuSave;
     let modeMenuItem;
-    // `short` is what the row shows; the full sentence stays the accessible
-    // name, because a 339px chip left the part's own title reading "Parte 5 Ta…".
-    const setSaveState = (label, disabled, iconName, short) => {
+    // The menu keeps the action's promise (`Descargar para ver sin conexión`)
+    // in all states; only its availability follows the download. The saved
+    // state itself is named by «Guardado» in the rail beside the sheet.
+    const setSaveState = (label, disabled) => {
       if (seq !== readSeq || !saveButton.isConnected) return;
       saveButton.disabled = disabled;
-      saveButton.setAttribute("aria-label", label);
       saveButton.title = label;
-      saveButton.replaceChildren(icon(iconName), h("span", { class: "label" }, short || label));
-      // The menu entry keeps its own name (it promises the action); only its
-      // availability follows the row it replaces.
-      if (menuSave) menuSave.disabled = disabled;
     };
     const saveReaderPart = async (automatic = false) => {
       if (!navigator.serviceWorker?.controller) {
         if (!automatic) canSaveParts();
         return;
       }
-      setSaveState("Descargando…", true, "doc");
+      setSaveState("Descargando…", true);
       const ok = await savePart(topicId, part);
       if (seq !== readSeq || !saveButton.isConnected) return;
-      if (ok) setSaveState("Guardada en este dispositivo", true, "check", "Guardada");
+      if (ok) {
+        setSaveState("Guardada en este dispositivo", true);
+        stage.querySelector(".study-rail")?.showSaved?.();
+      }
       else {
-        setSaveState("Descargar para ver sin conexión", false, "doc");
+        setSaveState("Descargar para ver sin conexión", false);
         toast("No se pudo guardar: vuelve a intentarlo con conexión.");
       }
     };
@@ -1813,9 +1850,9 @@
     // wide-reading key the document keeps for itself.
     let readingMode = localStorage.getItem(READING_MODE_KEY);
     if (!READING_MODES.some(([id]) => id === readingMode)) readingMode = "articulo";
-    // A native select, not three buttons: the row already carries five actions
-    // and the title, and three more buttons collapsed the title to zero width on
-    // a 1280 px bar whose font metrics differ from the machine that wrote this.
+    // A native select, not three buttons: the row keeps back, title, Preguntar
+    // and the overflow; three more buttons collapsed the title on a 1280px bar
+    // whose font metrics differ from the machine that wrote this.
     const modeSwitch = h(
       "select",
       { class: "reader-mode", "aria-label": "Modo de lectura", title: "Modo de lectura", onchange: (e) => applyMode(e.target.value) },
@@ -1862,17 +1899,19 @@
           }
         : null,
       // The phone gives the studio bar's room to the lesson, so what that bar carried
-      // lives here: nothing becomes unreachable when the chrome leaves.
-      // The phone gives the studio bar's room to the lesson, so what that bar carried
-      // lives here: nothing becomes unreachable when the chrome leaves. They are menu
-      // only: the row has no room for them, and on a wide screen the bar still has them.
+      // lives here: nothing becomes unreachable when the chrome leaves. These are
+      // menu-only at every width: one overflow, never a second row of equivalents.
       { label: "Conversación de esta parte", icon: "chat", cls: "btn small ghost", menuOnly: true, run: () => openDrawer() },
       { label: "Tema oscuro", icon: "moon", cls: "btn small ghost", menuOnly: true, run: toggleTheme },
       { label: "Configuración", icon: "settings", cls: "btn small ghost", menuOnly: true, run: () => go("#/preferencias") },
       { label: "Tutorial", icon: "deck", cls: "btn small ghost", menuOnly: true, run: () => openTutorial() },
+      // «Anterior» and «Siguiente» were counted apart from the ten menu items in
+      // the inventory: they move here too, so the bar has no second row of arrows.
+      prev ? { label: "Anterior", icon: "back", cls: "btn small ghost", menuOnly: true, run: () => go(`#/leer/${topicId}/${prev.id}`) } : null,
+      next ? { label: "Siguiente", icon: "next", cls: "btn small ghost", menuOnly: true, run: () => go(`#/leer/${topicId}/${next.id}`) } : null,
     ].filter(Boolean);
 
-    // The phone menu: a positioned list, closed by Escape or a click outside.
+    // The one overflow: a positioned list, closed by Escape or a click outside.
     let closeMenu = () => {};
     const menu = h(
       "div",
@@ -1884,7 +1923,11 @@
           icon(action.icon),
           h("span", {}, action.label),
         );
-        if (action.save) menuSave = item;
+        if (action.save) {
+          // The row's save chip and this menu item are now the same control:
+          // one label, one state, one handler, with no second rank in the bar.
+          saveButton = item;
+        }
         if (action.mode) modeMenuItem = item;
         return item;
       }),
@@ -1892,7 +1935,7 @@
     const moreButton = h(
       "button",
       {
-        class: "icon-btn reader-more",
+        class: "btn small ghost reader-more",
         type: "button",
         "aria-label": "Más acciones",
         title: "Más acciones",
@@ -1901,6 +1944,7 @@
         "aria-controls": "reader-actions",
       },
       icon("more"),
+      h("span", { class: "label" }, "Más acciones"),
     );
     const onMenuPointer = (event) => {
       if (!menu.contains(event.target) && event.target !== moreButton) closeMenu();
@@ -1927,22 +1971,14 @@
       menu.querySelector("button:not(:disabled)")?.focus();
     });
 
-    const actionButton = (action) => {
-      const node = barBtn(action.label, action.run, `${action.cls} reader-action`, action.icon);
-      if (action.save) saveButton = node;
-      return node;
-    };
-    const saveAction = actions.find((action) => action.save);
+    const askAction = actions.find((action) => action.label === "Preguntar");
     const bar = h(
       "div",
       { class: "reader-bar" },
       h("button", { class: "icon-btn reader-back", type: "button", "aria-label": "Volver", title: "Volver", onclick: () => go(quick ? "#/" : `#/tema/${topicId}`) }, icon("back")),
       h("div", { class: "title" }, h("small", {}, kicker), title),
-      saveAction ? actionButton(saveAction) : null,
-      prev ? barBtn("Anterior", () => go(`#/leer/${topicId}/${prev.id}`), "btn small ghost nav", "back") : null,
-      next ? barBtn("Siguiente", () => go(`#/leer/${topicId}/${next.id}`), "btn small ghost nav", "next") : null,
-      ...actions.filter((action) => !action.save && !action.mode && !action.menuOnly).map(actionButton),
       modeSwitch,
+      barBtn(askAction.label, askAction.run, "btn small reader-ask", askAction.icon),
       moreButton,
     );
     const readerBack = bar.querySelector(".reader-back");
@@ -1952,7 +1988,7 @@
     const pageNext = h("button", { class: "icon-btn", type: "button", "aria-label": "Página siguiente", title: "Página siguiente", onclick: () => turnPage(1) }, icon("next"));
     const pageBar = h("div", { class: "reader-pages", hidden: true }, pagePrev, pageLabel, pageNext);
     const reader = h("div", { class: "reader" }, h("div", { class: "reader-head" }, bar, menu), h("div", { class: "sheet-wrap" }, frame, pageBar));
-    stage.replaceChildren(reader);
+    stage.replaceChildren(topic ? h("div", { class: "reader-layout" }, reader, studyRail(topic, part, title)) : reader);
     function applyMode(id) {
       readingMode = id;
       try { localStorage.setItem(READING_MODE_KEY, id); } catch { /* private mode */ }
@@ -1981,8 +2017,9 @@
       if (saveButton) {
         await savedReady;
         if (seq !== readSeq || !saveButton.isConnected) return;
+        stage.querySelector(".study-rail")?.showSaved?.();
         if (saved.has(savedKey(topicId, part))) {
-          setSaveState("Guardada en este dispositivo", true, "check", "Guardada");
+          setSaveState("Guardada en este dispositivo", true);
           // A kept copy follows the last version read online, so it is saved again in the background. The read does not
           // wait for that save, and a save that fails keeps the copy it had and shows nothing: savePart never rejects.
           savePart(topicId, part);
@@ -1993,8 +2030,9 @@
       if (!error.offline || !info) return frame.replaceWith(h("p", { class: "empty" }, error.message));
       await savedReady;
       if (seq !== readSeq) return;
+      stage.querySelector(".study-rail")?.showSaved?.();
       if (mode !== "app" && saved.has(savedKey(topicId, part))) {
-        setSaveState("Guardada en este dispositivo", true, "check", "Guardada");
+        setSaveState("Guardada en este dispositivo", true);
         frame.src = offlineCopy(topicId, part);
       } else
         frame.replaceWith(
