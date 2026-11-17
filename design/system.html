@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema visual del Estudio · #355</title>
+<style>
+  :root {
+    /* Colores: todos declarados en design/system.md con su ruta de origen. */
+    --paper: #ffffff;
+    --ink: #0F2E3D;
+    --slate: #3F5B69;
+    --meta: #555555;
+    --muted: rgba(15, 46, 61, .62);
+    --line: rgba(15, 46, 61, .18);
+    --soft: #F6F7F7;
+    --soft2: #FAFBFB;
+    --blue: #004276;
+    --blue-s: #E7EDF2;
+    --green: #21594F;
+    --green-s: #E9F0EE;
+    --amber: #8A6B3F;
+    --amber-s: #F4EFE7;
+    --red: #DD4A68;
+    --red-s: #FBEAEE;
+    --gold: #a67f59;
+    --mark: #b3d4fc;
+    --on-ink: #ffffff;
+    --night-paper: #0D191F;
+    --night-ink: #E4EDF1;
+    --night-blue: #8FC2E3;
+    --night-soft: #142228;
+    --night-soft2: #111E24;
+    --kit-paper: #0E1A20;
+    --kit-ink: #E3EBEF;
+    --kit-blue: #8FC0E0;
+    --shadow-hard: rgba(15, 23, 42, .14);
+    --shadow-soft: rgba(15, 23, 42, .12);
+
+    --serif: "Liberation Serif", "DejaVu Serif", "Hoefler Text", Georgia, "Times New Roman", Times, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "Liberation Mono", "DejaVu Sans Mono", Consolas, monospace;
+
+    /* Parámetros: rangos derivados de los valores documentados. */
+    --space-step: 8px;
+    --radius: 8px;
+    --control-h: 40px;
+    --type-ratio: 1.25;
+    --fs-base: 16px;
+    --fs-down: calc(var(--fs-base) / var(--type-ratio));
+    --fs-up: calc(var(--fs-base) * var(--type-ratio));
+    --fs-up2: calc(var(--fs-base) * var(--type-ratio) * var(--type-ratio));
+    --fs-up3: calc(var(--fs-base) * var(--type-ratio) * var(--type-ratio) * var(--type-ratio));
+  }
+
+  * { box-sizing: border-box; }
+  html { background: var(--soft); }
+  body { margin: 0; color: var(--ink); background: var(--soft); font: 16px/1.5 var(--sans); }
+  h1, h2, h3, h4, p, ul, ol { margin-top: 0; }
+  h1, h2, h3, h4 { font-family: var(--serif); font-weight: 400; }
+  h1 { font-size: var(--fs-up3); line-height: 1.1; margin-bottom: 8px; }
+  h2 { font-size: var(--fs-up2); line-height: 1.2; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid var(--line); }
+  h3 { font-size: var(--fs-up); line-height: 1.25; margin-bottom: 8px; }
+  p { margin-bottom: 12px; }
+  code { font-family: var(--mono); font-size: .9em; }
+  a { color: var(--blue); }
+  :focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+
+  .artboard { width: 1440px; margin: 0 auto; padding: 40px 56px 72px; background: var(--paper); border: 1px solid var(--line); }
+  .masthead { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; padding-bottom: 24px; border-bottom: 3px solid var(--ink); }
+  .masthead .eyebrow { font: 700 11px/1.4 var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--slate); margin-bottom: 8px; }
+  .masthead p { max-width: 62ch; color: var(--slate); margin-bottom: 0; }
+  .stamp { font: 700 11px/1.4 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--ink); border: 1px solid var(--ink); padding: 8px 12px; white-space: nowrap; }
+
+  main { display: grid; gap: 40px; margin-top: 36px; }
+  .panel { border: 1px solid var(--line); padding: 24px 26px; }
+  .panel > p:last-child { margin-bottom: 0; }
+  .hint { color: var(--slate); font-size: 13px; line-height: 1.5; }
+  .source { font: 12px/1.5 var(--mono); color: var(--slate); }
+
+  .params { border-color: var(--ink); }
+  .knobs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px; margin-top: 18px; }
+  .knob { display: flex; flex-direction: column; gap: 8px; }
+  .knob label { font-weight: 700; font-size: 13px; }
+  .knob output { font: 700 13px/1.4 var(--mono); color: var(--blue); }
+  .knob input[type="range"] { width: 100%; accent-color: var(--blue); min-height: var(--control-h); }
+  .knob .range { font: 11px/1.4 var(--mono); color: var(--slate); }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+  #copy-status { margin: 0; font-weight: 700; color: var(--green); }
+  #prompt-fallback { display: grid; gap: 6px; width: 100%; margin-top: 8px; font-size: 13px; }
+  #prompt-fallback[hidden] { display: none; }
+  #prompt-out { width: 100%; min-height: 110px; padding: 10px 12px; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); color: var(--ink); font: 13px/1.5 var(--mono); resize: vertical; }
+
+  .swatches { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px 14px; list-style: none; padding: 0; }
+  .swatches li { min-width: 0; }
+  .swatch { display: block; height: 54px; border: 1px solid var(--line); background: var(--swatch); }
+  .swatch.dark { display: grid; place-items: center; color: var(--night-ink); font: 700 12px/1.4 var(--sans); }
+  .swatch.on-light { color: var(--night-paper); }
+  .swatches b { display: block; margin-top: 6px; font: 700 12px/1.4 var(--sans); }
+  .swatches span { display: block; font: 11px/1.4 var(--mono); color: var(--slate); overflow-wrap: anywhere; }
+
+  .type-grid { display: grid; grid-template-columns: 150px minmax(0, 1fr) 120px; gap: 10px 20px; align-items: baseline; }
+  .type-grid .kind { font: 700 12px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--slate); }
+  .type-grid .sample { overflow-wrap: anywhere; }
+  .type-grid .metric { text-align: right; font: 12px/1.4 var(--mono); color: var(--slate); }
+  .serif { font-family: var(--serif); }
+  .sans { font-family: var(--sans); }
+  .mono { font-family: var(--mono); }
+
+  .scale { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+  .scale figure { margin: 0; text-align: center; }
+  .scale .bar { display: block; width: calc(var(--space-step) * var(--n)); height: 26px; background: var(--blue-s); border: 1px solid var(--blue); }
+  .scale figcaption { margin-top: 6px; font: 11px/1.4 var(--mono); color: var(--slate); }
+  .radii { display: flex; flex-wrap: wrap; gap: 16px; }
+  .radii figure { margin: 0; text-align: center; }
+  .radii .box { width: 96px; height: 64px; border: 2px solid var(--ink); background: var(--soft2); border-radius: calc(var(--radius) * var(--n)); }
+  .radii figcaption { margin-top: 6px; font: 11px/1.4 var(--mono); color: var(--slate); }
+
+  .shadow-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  .shadow-row article { padding: 18px; border: 1px solid var(--line); min-height: 100px; }
+  .shadow-row .hard { box-shadow: 8px 8px 0 var(--shadow-hard); }
+  .shadow-row .small { box-shadow: 4px 4px 0 var(--shadow-soft); }
+  .shadow-row .focus { box-shadow: 0 0 0 4px var(--blue-s); }
+  .shadow-row h3 { margin-bottom: 4px; }
+  .shadow-row p { margin: 0; font: 12px/1.5 var(--mono); color: var(--slate); }
+
+  .component-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 28px; }
+  .component-grid section { border: 1px solid var(--line); padding: 18px; min-height: 132px; }
+  .component-grid h3 { font-size: var(--fs-base); margin-bottom: 14px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--control-h); padding: 8px 16px; border: 2px solid var(--ink); border-radius: calc(var(--radius) / 2); background: var(--paper); color: var(--ink); font: 700 13px/1.2 var(--sans); cursor: pointer; transition: background .12s, color .12s; }
+  .btn:hover { background: var(--soft); }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: var(--on-ink); }
+  .btn.primary:hover { background: var(--slate); border-color: var(--slate); }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--slate); }
+  .btn.ghost:hover { border-color: var(--line); background: var(--paper); }
+  .icon-btn { display: inline-grid; place-items: center; width: var(--control-h); height: var(--control-h); padding: 0; border: 2px solid var(--line); border-radius: calc(var(--radius) / 2); background: var(--paper); color: var(--slate); cursor: pointer; }
+  .icon-btn svg { width: 20px; height: 20px; }
+  .chip { display: inline-flex; align-items: center; min-height: calc(var(--control-h) - 8px); padding: 6px 13px; border: 2px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--slate); font: 700 12px/1.2 var(--sans); }
+  .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+  .field { display: grid; gap: 6px; font: 700 11px/1.4 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--slate); }
+  .field input { min-height: var(--control-h); padding: 8px 12px; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); color: var(--ink); font: 14px/1.4 var(--mono); letter-spacing: 0; text-transform: none; }
+  .callout { margin: 0; padding: 14px 0 14px 18px; border-left: 3px solid var(--blue); background: var(--amber-s); }
+  .callout h4 { margin: 0 0 4px; font: 700 12px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink); }
+  .callout p { margin: 0; font-family: var(--serif); }
+
+  .conflicts { background: var(--amber-s); border-color: var(--amber); }
+  .conflicts ol { margin: 0; padding-left: 22px; }
+  .conflicts li { margin-bottom: 6px; }
+  footer { margin-top: 32px; padding-top: 16px; border-top: 2px solid var(--ink); color: var(--slate); font-size: 12px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+<div class="artboard">
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Issue #355 · Gentle Design · parametrización</p>
+      <h1>Sistema visual del Estudio</h1>
+      <p>Los tokens que ya existen en el Studio, el lector y el kit, con los cuatro parámetros que pidió el usuario. Mueve los controles: el tablero se recalcula y el botón copia el resultado como prompt.</p>
+    </div>
+    <p class="stamp">1440 × artboard · papel × Distill</p>
+  </header>
+
+  <main>
+    <section class="panel params" aria-labelledby="params-title">
+      <h2 id="params-title">Parámetros en vivo</h2>
+      <p class="hint">Cada extremo aparece en `design/system.md` con su ruta de origen. Los valores intermedios son los que faltaban para poder decidir.</p>
+      <form id="knob-form" class="knobs">
+        <div class="knob">
+          <label for="spacing-step">Paso de espaciado</label>
+          <output id="spacing-out" for="spacing-step">8 px</output>
+          <input id="spacing-step" name="spacing-step" type="range" min="4" max="12" step="1" value="8">
+          <span class="range">4 – 12 px</span>
+        </div>
+        <div class="knob">
+          <label for="radius">Radio base</label>
+          <output id="radius-out" for="radius">8 px</output>
+          <input id="radius" name="radius" type="range" min="0" max="18" step="1" value="8">
+          <span class="range">0 – 18 px</span>
+        </div>
+        <div class="knob">
+          <label for="density">Altura de control</label>
+          <output id="density-out" for="density">40 px</output>
+          <input id="density" name="density" type="range" min="34" max="48" step="1" value="40">
+          <span class="range">34 – 48 px</span>
+        </div>
+        <div class="knob">
+          <label for="ratio">Ratio tipográfico</label>
+          <output id="ratio-out" for="ratio">1,25</output>
+          <input id="ratio" name="ratio" type="range" min="1.20" max="1.33" step="0.01" value="1.25">
+          <span class="range">1,20 – 1,33</span>
+        </div>
+      </form>
+      <div class="actions">
+        <button class="btn primary" id="copy-prompt" type="button">Copy as prompt</button>
+        <p id="copy-status" role="status" aria-live="polite">Sin copiar todavía.</p>
+      </div>
+      <div id="prompt-fallback" hidden>
+        <label for="prompt-out">Portapapeles no disponible: selecciona y copia este texto.</label>
+        <textarea id="prompt-out" readonly spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="colors-title">
+      <h2 id="colors-title">Color</h2>
+      <p class="hint">Papel, tinta y tres acentos. Los swatches oscuros son los papeles de noche del Studio y del kit; cada color figura en `design/system.md` con su ruta.</p>
+      <ul class="swatches">
+        <li><span class="swatch" style="background: var(--paper)"></span><b>Papel</b><span>--paper · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--ink)"></span><b>Tinta</b><span>--ink · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--slate)"></span><b>Slate</b><span>--slate · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--meta)"></span><b>Meta</b><span>--meta · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--soft)"></span><b>Soft</b><span>--soft · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--soft2)"></span><b>Soft 2</b><span>--soft2 · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--blue)"></span><b>Azul</b><span>--blue / --accent · studio.css, app.css</span></li>
+        <li><span class="swatch" style="background: var(--blue-s)"></span><b>Azul claro</b><span>--blue-s · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--green)"></span><b>Verde</b><span>--green · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--green-s)"></span><b>Verde claro</b><span>--green-s · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--amber)"></span><b>Ámbar</b><span>--amber · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--amber-s)"></span><b>Ámbar claro</b><span>--amber-s · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--red)"></span><b>Rojo</b><span>--red · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--red-s)"></span><b>Rojo claro</b><span>--red-s · studio.css</span></li>
+        <li><span class="swatch" style="background: var(--gold)"></span><b>Oro</b><span>--gold, --warm · studio.css, app.css</span></li>
+        <li><span class="swatch" style="background: var(--mark)"></span><b>Marca</b><span>--mark · app.css</span></li>
+        <li><span class="swatch dark" style="background: var(--night-paper)">noche</span><b>Papel noche</b><span>--paper · studio.css:858</span></li>
+        <li><span class="swatch dark on-light" style="background: var(--night-ink)">tinta</span><b>Tinta noche</b><span>--ink · studio.css:850</span></li>
+        <li><span class="swatch dark on-light" style="background: var(--night-blue)">acento</span><b>Acento noche</b><span>--blue · studio.css:859</span></li>
+        <li><span class="swatch dark" style="background: var(--night-soft)">soft</span><b>Soft noche</b><span>--soft · studio.css:856</span></li>
+        <li><span class="swatch dark" style="background: var(--night-soft2)">soft 2</span><b>Soft 2 noche</b><span>--soft2 · studio.css:857</span></li>
+        <li><span class="swatch dark" style="background: var(--kit-paper)">kit</span><b>Papel kit</b><span>--paper · kit.css:408</span></li>
+        <li><span class="swatch dark on-light" style="background: var(--kit-ink)">kit</span><b>Tinta kit</b><span>--ink · kit.css:408</span></li>
+        <li><span class="swatch dark on-light" style="background: var(--kit-blue)">kit</span><b>Acento kit</b><span>--accent · kit.css:410</span></li>
+        <li><span class="swatch" style="background: var(--muted)"></span><b>Muted</b><span>--muted · studio.css:8</span></li>
+      </ul>
+    </section>
+
+    <section class="panel" aria-labelledby="type-title">
+      <h2 id="type-title">Escala tipográfica</h2>
+      <p class="hint">Tres stacks del sistema, sin fuentes remotas. Los tamaños se recalculan con el ratio elegido sobre una base de 16 px, presente en la tabla del lector.</p>
+      <div class="type-grid">
+        <span class="kind">Serif · display</span><p class="sample serif" id="type-display">¿Qué estudiamos hoy?</p><span class="metric" id="metric-display">—</span>
+        <span class="kind">Serif · título</span><p class="sample serif" id="type-title-sample">Tu ruta de aprendizaje</p><span class="metric" id="metric-title">—</span>
+        <span class="kind">Sans · interfaz</span><p class="sample sans" id="type-ui">Empezar una parte del tema</p><span class="metric" id="metric-ui">—</span>
+        <span class="kind">Sans · detalle</span><p class="sample sans" id="type-small">11 · minúsculas espaciadas</p><span class="metric" id="metric-small">—</span>
+        <span class="kind">Mono · código</span><p class="sample mono" id="type-code">funcion hash → entrada, salida</p><span class="metric" id="metric-code">—</span>
+      </div>
+    </section>
+
+    <div class="panel">
+      <h2>Espaciado, radios y sombras</h2>
+      <h3>Espaciado</h3>
+      <div class="scale" id="spacing-scale">
+        <figure><span class="bar" style="--n: 1"></span><figcaption>×1</figcaption></figure>
+        <figure><span class="bar" style="--n: 2"></span><figcaption>×2</figcaption></figure>
+        <figure><span class="bar" style="--n: 3"></span><figcaption>×3</figcaption></figure>
+        <figure><span class="bar" style="--n: 4"></span><figcaption>×4</figcaption></figure>
+        <figure><span class="bar" style="--n: 6"></span><figcaption>×6</figcaption></figure>
+      </div>
+      <h3>Radios</h3>
+      <div class="radii">
+        <figure><span class="box" style="--n: 0"></span><figcaption>0 · piel papel</figcaption></figure>
+        <figure><span class="box" style="--n: .5"></span><figcaption>radio / 2</figcaption></figure>
+        <figure><span class="box" style="--n: 1"></span><figcaption>radio base</figcaption></figure>
+        <figure><span class="box" style="--n: 2"></span><figcaption>radio × 2</figcaption></figure>
+        <figure><span class="box" style="border-radius: 999px"></span><figcaption>999 px · píldora</figcaption></figure>
+      </div>
+      <h3>Sombras duras documentadas</h3>
+      <div class="shadow-row">
+        <article class="hard"><h3>Modal</h3><p>8px 8px 0 rgba(15, 23, 42, .14)</p></article>
+        <article class="small"><h3>Paginación</h3><p>4px 4px 0 rgba(15, 23, 42, .12)</p></article>
+        <article class="focus"><h3>Foco</h3><p>0 0 0 4px var(--blue-s)</p></article>
+      </div>
+      <p class="hint">La piel papel del Studio anula todas las sombras con <code>box-shadow: none !important</code>; aquí se muestran para documentar los valores que aún existen en el código.</p>
+    </div>
+
+    <section class="panel" aria-labelledby="components-title">
+      <h2 id="components-title">Componentes base</h2>
+      <div class="component-grid">
+        <section aria-labelledby="buttons-title">
+          <h3 id="buttons-title">Botones</h3>
+          <div class="row">
+            <button class="btn primary" type="button">Siguiente parte</button>
+            <button class="btn" type="button">Ver el tema</button>
+            <button class="btn ghost" type="button">Ahora no</button>
+          </div>
+        </section>
+        <section aria-labelledby="icon-title">
+          <h3 id="icon-title">Botón de icono</h3>
+          <div class="row">
+            <button class="icon-btn" type="button" aria-label="Más acciones" title="Más acciones">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+            </button>
+            <span class="hint">Más acciones · 44 px si el dedo manda</span>
+          </div>
+        </section>
+        <section aria-labelledby="chip-title">
+          <h3 id="chip-title">Chip</h3>
+          <div class="row">
+            <button class="chip" type="button" aria-pressed="true">No cuadró el ejemplo</button>
+            <button class="chip" type="button" aria-pressed="false">Faltó práctica</button>
+          </div>
+        </section>
+        <section aria-labelledby="field-title">
+          <h3 id="field-title">Campo</h3>
+          <label class="field" for="note-title-board">Título de la nota rápida
+            <input id="note-title-board" name="note-title" type="text" value="Funciones hash en tres ejemplos">
+          </label>
+        </section>
+        <section aria-labelledby="callout-title" class="callout" style="grid-column: 1 / -1">
+          <h4 id="callout-title">Recuerda</h4>
+          <p>El motor elige la siguiente parte; el tutor escribe la explicación, el mini-quiz y los visuales. Aquí solo decidimos cómo se ve y dónde vive cada acción.</p>
+        </section>
+      </div>
+    </section>
+
+    <aside class="panel conflicts" aria-labelledby="conflicts-title">
+      <h2 id="conflicts-title">Conflictos sin resolver</h2>
+      <ol>
+        <li>Radio: cero forzado en la piel papel contra 6 / 8 / 18 px en el propio Studio.</li>
+        <li>Espaciado de página: 56/48/110, 64/36/90 y 72/24/96 px según superficie.</li>
+        <li>Altura de control: 34 px en el selector de lectura, 38 px en iconos y 44 px al tacto.</li>
+        <li>Acento: <code>--blue</code> en el Studio, <code>--accent</code> en lector y kit, <code>--cobalt</code> con otro valor en el kit heredado.</li>
+        <li>Tinta de noche: tres papeles distintos para el mismo cambio de tema.</li>
+      </ol>
+    </aside>
+  </main>
+
+  <footer>
+    Tablero autónomo: CSS, JS y SVG en línea, sin URL externas. Fuentes del sistema. Contraste AA verificado sobre papel y sobre papel de noche.
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var spacing = document.getElementById("spacing-step");
+    var radius = document.getElementById("radius");
+    var density = document.getElementById("density");
+    var ratio = document.getElementById("ratio");
+    var promptOut = document.getElementById("prompt-out");
+    var status = document.getElementById("copy-status");
+    var fallback = document.getElementById("prompt-fallback");
+    var knobs = [spacing, radius, density, ratio];
+
+    function decimal(value) {
+      return String(value).replace(".", ",");
+    }
+
+    function promptText() {
+      return "Diseña la UI/UX del Estudio (#355) con estos parámetros: paso de espaciado " +
+        spacing.value + "px; radio base " + radius.value + "px; altura de control " +
+        density.value + "px; ratio tipográfico " + decimal(ratio.value) +
+        ". Aplica una jerarquía clara a las acciones, agrupa las equivalentes y da un propósito al área vacía.";
+    }
+
+    function paint() {
+      root.style.setProperty("--space-step", spacing.value + "px");
+      root.style.setProperty("--radius", radius.value + "px");
+      root.style.setProperty("--control-h", density.value + "px");
+      root.style.setProperty("--type-ratio", ratio.value);
+
+      document.getElementById("spacing-out").textContent = spacing.value + " px";
+      document.getElementById("radius-out").textContent = radius.value + " px";
+      document.getElementById("density-out").textContent = density.value + " px";
+      document.getElementById("ratio-out").textContent = decimal(ratio.value);
+
+      var base = 16;
+      var r = Number(ratio.value);
+      var sizes = {
+        "metric-small": base / r,
+        "metric-code": base,
+        "metric-ui": base * r,
+        "metric-title": base * r * r,
+        "metric-display": base * r * r * r
+      };
+      Object.keys(sizes).forEach(function (id) {
+        document.getElementById(id).textContent = Math.round(sizes[id]) + " px";
+        var sample = document.getElementById(id.replace("metric-", "type-"));
+        if (sample) sample.style.fontSize = sizes[id].toFixed(1) + "px";
+      });
+
+      Array.prototype.forEach.call(document.querySelectorAll("#spacing-scale figcaption"), function (caption, index) {
+        var factors = [1, 2, 3, 4, 6];
+        caption.textContent = "×" + factors[index] + " · " + (Number(spacing.value) * factors[index]) + "px";
+      });
+      promptOut.value = promptText();
+    }
+
+    knobs.forEach(function (input) { input.addEventListener("input", paint); });
+
+    document.getElementById("copy-prompt").addEventListener("click", function () {
+      var text = promptText();
+      function useFallback(message) {
+        fallback.hidden = false;
+        promptOut.value = text;
+        promptOut.focus();
+        promptOut.select();
+        status.textContent = message;
+        status.style.color = "var(--amber)";
+      }
+      if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+        useFallback("Portapapeles no disponible: el texto quedó seleccionado abajo.");
+        return;
+      }
+      navigator.clipboard.writeText(text).then(function () {
+        fallback.hidden = true;
+        status.textContent = "Copiado al portapapeles.";
+        status.style.color = "var(--green)";
+      }).catch(function () {
+        useFallback("No se pudo copiar: el texto quedó seleccionado abajo.");
+      });
+    });
+
+    paint();
+  }());
+</script>
+</body>
+</html>
