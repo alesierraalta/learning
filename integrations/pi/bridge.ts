@@ -1735,8 +1735,10 @@ ${scripts}
       const exercises = viewExercises(dir, catalogueFor(dir).runners).filter((e) => e.parte === partId);
       const escape = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
       const catalogueList = cachedRunnerList(catalogueFor(dir));
-      const hints = catalogueList.languages.filter((l) => !l.present).map((l) => `<li>${escape(l.language)} · ${escape(l.size)} · <code>${escape(l.pull)}</code></li>`).join("");
-      const strip = `<aside class="runners-strip"><p>Ejecutables aquí: ${escape(catalogueList.runnable.join(" · ") || "ninguno todavía")}</p>${hints ? `<details><summary>Ver cómo instalar los que faltan</summary><ul>${hints}</ul></details>` : ""}</aside>`;
+      const hints = catalogueList.languages.filter((l) => l.state === "missing").map((l) => `<li>${escape(l.language)} · ${escape(l.size)} · <code>${escape(l.pull)}</code></li>`).join("");
+      // #350: an unchecked image is not a missing one: keep the install hint, but claim neither state.
+      const unchecked = catalogueList.languages.filter((l) => l.state === "unknown").map((l) => `<li>${escape(l.language)} · ${escape(l.size)} · no se pudo comprobar · <code>${escape(l.pull)}</code></li>`).join("");
+      const strip = `<aside class="runners-strip"><p>Ejecutables aquí: ${escape(catalogueList.runnable.join(" · ") || "ninguno todavía")}</p>${unchecked ? `<details><summary>Ver los lenguajes que no se pudieron comprobar</summary><ul>${unchecked}</ul></details>` : ""}${hints ? `<details><summary>Ver cómo instalar los que faltan</summary><ul>${hints}</ul></details>` : ""}</aside>`;
       html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => strip + "</body>") : html + strip;
       if (exercises.length) {
         const links = exercises.map((e) => `<li><a href="/${token}/${encodeURIComponent(topic)}/codigo/${encodeURIComponent(e.id)}">${escape(e.titulo)}</a> · ${escape(e.lenguaje)} · Mejor: ${escape(e.mejor || "sin entregas")}${e.ejecutable === false ? " · no se puede ejecutar aquí" : ""}</li>`).join("");
@@ -2072,7 +2074,7 @@ ${scripts}
       const state = pullState(name);
       return sendJson(res, 200, state ?? { language: name, image: runner.image, state: "idle", message: "", at: 0 });
     }
-    sendJson(res, 200, pullRunnerImage(name, runner));
+    sendJson(res, 200, await pullRunnerImage(name, runner));
   };
 
   const codePage = (res: ServerResponse, topic: string, id: string) => {
@@ -2440,7 +2442,7 @@ ${scripts}
     promptGuidelines: [
       "After a part, a mini-quiz or a diagnosis round is written, call learning_view for it and give the learner the URL as the place to watch, try the demos and answer.",
       "A message starting with [Vista HTML · ...] is the learner's own submission: treat it exactly like answers typed in the chat; the answers file it names is already written.",
-      "For an exercise that must be graded here, choose a language in the result's runnable list; the reader shows the exact docker pull line for the ones that are missing.",
+      "For an exercise that must be graded here, choose a language in the result's runnable list; the reader shows the exact docker pull line for the ones that are missing, and says «no se pudo comprobar» for the ones whose image could not be probed.",
     ],
     // SAFETY: plain JSON Schema object; the host only reads it as a TypeBox-compatible schema.
     parameters: {

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { existsSync } from "node:fs";
-import { forPage, imageFailure, loadCatalogue, loadRunners, publicExercise, readExercise, runnerList, runCode, sameOutput, workRoot } from "./coderun.ts";
+import { forPage, imageFailure, imageStatuses, loadCatalogue, loadRunners, publicExercise, pullRunnerImage, pullState, readExercise, runnerList, runCode, sameOutput, workRoot } from "./coderun.ts";
 
 const runners = loadRunners();
 
@@ -175,6 +175,20 @@ function catalogueFile(entries) {
 
 const builtinEntry = { image: "builtin-python:test", file: "main.py", run: "python3 main.py" };
 
+/** A docker CLI whose answers the probe can exercise without a daemon. */
+function probeStub(script, name = "docker") {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "image-probe-")));
+  const file = join(dir, name);
+  writeFileSync(file, script, { mode: 0o755 });
+  return file;
+}
+
+const DAEMON_DOWN = '#!/bin/sh\necho "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2\nexit 1\n';
+const probeCatalogue = (image) => loadCatalogue({
+  builtinFile: catalogueFile({ python: { image, file: "main.py", run: "python3 main.py", size: "~18 MB" } }),
+  env: isolatedEnv(dirname(image)),
+});
+
 const isolatedEnv = (dir, extra = {}) => ({ HOME: dir, XDG_CONFIG_HOME: join(dir, "config"), ...extra });
 
 test("the machine overlay extends builtins and honours LEARNING_RUNNERS (#348)", () => {
@@ -268,6 +282,93 @@ test("a failing setup explains why and grades nothing", { skip: needs("sqlite") 
   assert.deepEqual(result.resultados, []);
   assert.equal(result.total, 0, "nothing was graded");
   assert.equal(result.aprobados, 0);
+});
+
+test("a daemon error makes the probe answer unknown, never present or plain missing (#350)", async () => {
+  const image = "probe-daemon:350";
+  const dockerBin = probeStub(DAEMON_DOWN);
+  const status = (await imageStatuses([image], { dockerBin }))[image];
+  assert.equal(status.state, "unknown");
+  assert.equal(status.present, false);
+  assert.match(status.detail, /Cannot connect/);
+
+  const list = await runnerList(probeCatalogue(image), { dockerBin });
+  assert.equal(list.languages[0].state, "unknown");
+  assert.equal(list.languages[0].present, false);
+  assert.equal(list.languages[0].size, "~18 MB");
+  assert.equal(list.languages[0].pull, `docker pull ${image}`);
+  assert.deepEqual(list.runnable, [], "an unchecked image is never advertised as runnable");
+});
+
+test("a missing docker CLI makes the probe answer unknown (#350)", async () => {
+  const image = "probe-enoent:350";
+  const dockerBin = join(dirname(probeStub(DAEMON_DOWN)), "no-docker-on-path");
+  const status = (await imageStatuses([image], { dockerBin }))[image];
+  assert.equal(status.state, "unknown");
+  assert.equal(status.present, false);
+  assert.match(status.detail, /ENOENT|no-docker-on-path/);
+});
+
+test("a probe that times out makes the image unknown, not absent (#350)", async () => {
+  const image = "probe-timeout:350";
+  const dockerBin = probeStub("#!/bin/sh\nwhile :; do :; done\n");
+  const status = (await imageStatuses([image], { dockerBin, timeoutMs: 80 }))[image];
+  assert.equal(status.state, "unknown");
+  assert.equal(status.present, false);
+  assert.match(status.detail, /timed out|timeout|tiempo/i);
+});
+
+test("a successful inspect is present and a missing image stays absent (#350)", async () => {
+  const presentImage = "probe-present:350";
+  const present = (await imageStatuses([presentImage], { dockerBin: probeStub("#!/bin/sh\nprintf '12345678\n'\nexit 0\n") }))[presentImage];
+  assert.equal(present.state, "present");
+  assert.equal(present.present, true);
+  assert.equal(present.bytes, 12345678);
+  assert.deepEqual((await runnerList(probeCatalogue(presentImage), { dockerBin: probeStub("#!/bin/sh\nprintf '12345678\n'\nexit 0\n") })).runnable, ["python"]);
+
+  const missingImage = "probe-missing:350";
+  const missing = (await imageStatuses([missingImage], { dockerBin: probeStub('#!/bin/sh\necho "Error: No such image: probe-missing:350" >&2\nexit 1\n') }))[missingImage];
+  assert.equal(missing.state, "missing");
+  assert.equal(missing.present, false);
+  assert.deepEqual((await runnerList(probeCatalogue(missingImage), { dockerBin: probeStub('#!/bin/sh\necho "Error: No such image" >&2\nexit 1\n') })).runnable, []);
+});
+
+test("an unknown answer is cached and flips when a later probe answers (#350)", async () => {
+  const image = "probe-flip:350";
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "probe-flip-")));
+  const dockerBin = join(dir, "docker");
+  const log = join(dir, "calls.log");
+  const ready = join(dir, "ready");
+  writeFileSync(dockerBin, [
+    "#!/bin/sh",
+    `printf '%s\\n' "$*" >> ${JSON.stringify(log)}`,
+    `if [ -f ${JSON.stringify(ready)} ]; then printf '99\\n'; exit 0; fi`,
+    'echo "Cannot connect to the Docker daemon" >&2; exit 1',
+    "",
+  ].join("\n"), { mode: 0o755 });
+  const options = { dockerBin, ttlMs: 60, timeoutMs: 500 };
+  const [first, concurrent] = await Promise.all([imageStatuses([image], options), imageStatuses([image], options)]);
+  assert.equal(first[image].state, "unknown");
+  assert.equal(concurrent[image].state, "unknown");
+  const calls = () => readFileSync(log, "utf8").trim().split(/\n/).filter(Boolean).length;
+  assert.equal(calls(), 1, "concurrent pages share one inspect");
+  assert.equal((await imageStatuses([image], options))[image].state, "unknown");
+  assert.equal(calls(), 1, "a cached unknown stays unknown until the TTL ends");
+  writeFileSync(ready, "");
+  await new Promise((resolve) => setTimeout(resolve, 90));
+  const fresh = (await imageStatuses([image], options))[image];
+  assert.equal(fresh.state, "present");
+  assert.equal(fresh.bytes, 99);
+});
+
+test("a pull asked while the probe cannot answer reports the state, not an error dump (#350)", async () => {
+  const image = "probe-pull:350";
+  const dockerBin = probeStub(DAEMON_DOWN);
+  const state = await pullRunnerImage("probe", { image, file: "main.py", run: "python3 main.py" }, dockerBin);
+  assert.equal(state.state, "unknown");
+  assert.match(state.message, /no se pudo comprobar/i);
+  assert.doesNotMatch(state.message, /ENOENT|spawn|exit \d/);
+  assert.equal(pullState("probe").state, "unknown");
 });
 
 test("runner listings give a friendly label, a short pull and the pinned reference", async () => {
