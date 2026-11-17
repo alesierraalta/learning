@@ -508,8 +508,12 @@
       return;
     }
     const details = document.createElement("details");
-    details.append(element("summary", `Ejecutables aquí: ${queCorren} · ver lenguajes`));
+    const summaryLine = element("summary", `Ejecutables aquí: ${queCorren} · ver lenguajes`);
+    details.append(summaryLine);
     details.open = rememberedOpen();
+    // El evento `toggle` llega en una tarea aparte: si la página se recarga justo después del clic, la
+    // elección no llegaría a guardarse. El clic es sincrónico y guarda el estado que va a quedar.
+    summaryLine.addEventListener("click", () => rememberOpen(!details.open));
     details.addEventListener("toggle", () => rememberOpen(details.open));
     const rows = element("ul", undefined, "runners-list");
     for (const item of languages) {
