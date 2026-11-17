@@ -2420,11 +2420,12 @@ ${scripts}
 
   type History = { messages: Json[]; note: Note | null; interrupted: { topic: string | null; title: string | null; cause?: "update" } | null };
   const history = async (session: Session): Promise<History> => {
-    const shown = interruptedView(session);
     const copy = session.transcript.map((message) => ({ role: message.role, text: message.text }));
     // A task's own copy is authoritative: Pi's `get_messages` reports the one session it is in,
-    // which belongs to the main chat, not to a topic's separate process.
-    if (session.kind === "task") return { messages: session.agy ? [...session.agyTurns] : copy, note: null, interrupted: shown };
+    // which belongs to the main chat, not to a topic's separate process. Its interruption is kept
+    // on disk for the next turn, but the learner only reads the task's state and activity line.
+    if (session.kind === "task") return { messages: session.agy ? [...session.agyTurns] : copy, note: null, interrupted: null };
+    const shown = interruptedView(session);
     if (!session.alive || session.agy) return { messages: session.agy ? [...session.agyTurns] : copy, note: null, interrupted: shown };
     try {
       const reply = await call(session, { type: "get_messages" }, 10000);

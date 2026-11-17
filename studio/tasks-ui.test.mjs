@@ -3,11 +3,12 @@
 // the main chat keeps its own turn and its own transcript.
 import { after, afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL as fileUrl } from "node:url";
 
 import { startStudio } from "./server.ts";
+import { sessionSnapshotFile } from "./state.ts";
 import { makeRoot } from "./testdata/root.mjs";
 
 const CANDIDATES = [
@@ -68,6 +69,32 @@ async function submitQuestion(page, text, announce) {
   }, { question: text, message: announce });
 }
 
+/** The first `historial` frame of a task stream, read outside the page so its payload is explicit. */
+async function firstHistorial(studio, topic) {
+  const controller = new AbortController();
+  try {
+    const response = await fetch(`${studio.url}api/tareas/eventos?task=${encodeURIComponent(topic)}`, { signal: controller.signal });
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    try {
+      while (!text.includes("\n\n")) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+      }
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+    const data = /^data: (.+)$/m.exec(text.split("\n\n")[0]);
+    assert.ok(data, "the stream starts with a JSON frame");
+    return JSON.parse(data[1]);
+  } finally {
+    controller.abort();
+  }
+}
+
 const SUBMITTED = {
   type: "learning:submitted", kind: "mini-quiz", topic: "redes", part: "p1", score: "1/2",
   results: [
@@ -121,6 +148,40 @@ test("aborting a task marks it failed without touching the main chat", { skip: b
   await page.waitForFunction(() => document.querySelector('.task-card[data-task="redes"]')?.dataset.state === "failed", null, { timeout: 10000 });
   assert.match(await card.locator(".task-state").innerText(), /Fallida|Detenida/);
   assert.equal(await page.locator(".thread").innerText().then((text) => text.includes("trabajo que se detiene")), false);
+});
+
+test("an interrupted background task stays silent in its panel", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await pageAt(t);
+  await submitQuestion(page, "pregunta que se interrumpe");
+  await page.locator(".tasks-pill").click();
+  const card = page.locator('.task-card[data-task="redes"]');
+  await card.waitFor({ timeout: 5000 });
+  await page.waitForFunction(() => ["working", "waiting", "asking"].includes(document.querySelector('.task-card[data-task="redes"]')?.dataset.state), null, { timeout: 5000 });
+
+  // The turn is held and therefore marked on disk: the next turn still knows what was lost.
+  const snapshot = sessionSnapshotFile(join(process.env.XDG_STATE_HOME, "learning-studio", "opened.json"), "redes");
+  assert.ok(JSON.parse(readFileSync(snapshot, "utf8")).interrupted, "the task's interrupted turn is still recorded");
+
+  // The learner-facing payload, though, is quiet: both the SSE frame and the panel itself.
+  assert.equal((await firstHistorial(studio, "redes")).interrupted, null, "a task's SSE history never announces its interruption");
+  const byHttp = await (await fetch(`${studio.url}api/tareas/historial?task=redes`)).json();
+  assert.equal(byHttp.interrupted, null, "the task's history route stays quiet too");
+  assert.doesNotMatch(await card.innerText(), /se interrumpió/i, "the task says what happened with its own state and activity");
+  assert.equal(await card.getByRole("button", { name: /Seguir con/i }).count(), 0, "no resume button belongs in a background task");
+  assert.equal(await page.locator(".tasks-panel .next-cta.interrupted").count(), 0, "the task panel draws no interruption card");
+
+  // The update cause is still recorded for the next turn, but it is no announcement either.
+  const aborted = await fetch(`${studio.url}api/tareas/abortar`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: new URL(studio.url).origin },
+    body: JSON.stringify({ task: "redes", cause: "update" }),
+  });
+  assert.equal(aborted.status, 200);
+  await page.waitForFunction(() => document.querySelector('.task-card[data-task="redes"]')?.dataset.state === "failed", null, { timeout: 10000 });
+  assert.equal(JSON.parse(readFileSync(snapshot, "utf8")).interrupted?.cause, "update", "the update cause is kept on disk");
+  assert.equal((await firstHistorial(studio, "redes")).interrupted, null, "even an update-interrupted task stays quiet");
+  assert.doesNotMatch(await card.innerText(), /se interrumpió/i, "the failed task only shows its failed state and activity");
+  assert.equal(await card.getByRole("button", { name: /Seguir con/i }).count(), 0);
 });
 
 test("a reader result waits for its topic's task, not for the main chat", { skip: browser ? false : "playwright not installed" }, async (t) => {
