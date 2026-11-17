@@ -1252,6 +1252,71 @@ test("the reading rail uses real progress and keeps the sheet measure at 1440 an
   assert.equal(narrow.sheet, 1080, "the sheet takes the whole stage");
 });
 
+// Measured inside the real frame at 1080, 1280, 1440, 1536 and 1680, plus a
+// 1440px sheet with the rail suppressed (the old geometry). Before: fixed
+// [1060,16,240,103] beside the text. With the rail at 1440: static
+// [276,160,600,104] in the reading column after the title, two links, focusable.
+// Only 1680 (1392px sheet) keeps the fixed side panel. The aid is recomposed,
+// never removed, so the rail stays; `node --test` proves reachability at every width.
+test("the reading index survives the study rail across the wide band", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), "# Parte 1 — Capas\n\n## Por qué existe\n\nUna explicación.\n\n## Las piezas\n\nOtra explicación.\n");
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1440, height: 900 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  const frame = await (await page.waitForSelector("iframe.sheet[src]")).contentFrame();
+  await frame.locator(".lk-toc").waitFor();
+  let suppressed;
+  const measure = async (width, withoutRail = false) => {
+    await page.setViewportSize({ width, height: 900 });
+    if (withoutRail && !suppressed) suppressed = await page.addStyleTag({ content: ".study-rail { display: none !important; }" });
+    if (!withoutRail && suppressed) { await suppressed.evaluate((node) => node.remove()); suppressed = undefined; }
+    await page.waitForTimeout(200);
+    const chrome = await page.evaluate(() => ({
+      rail: Math.round(document.querySelector(".study-rail").getBoundingClientRect().width),
+      sheet: Math.round(document.querySelector("iframe.sheet").getBoundingClientRect().width),
+    }));
+    const inside = await frame.evaluate(() => {
+      const toc = document.querySelector(".lk-toc");
+      const firstParagraph = document.querySelector(".prose p").getBoundingClientRect();
+      const main = document.querySelector("main").getBoundingClientRect();
+      const rect = toc.getBoundingClientRect();
+      const links = [...toc.querySelectorAll("a")];
+      links[0]?.focus();
+      return {
+        display: getComputedStyle(toc).display,
+        position: getComputedStyle(toc).position,
+        box: [rect.x, rect.y, rect.width, rect.height].map(Math.round),
+        mainRight: Math.round(main.right),
+        firstParagraphTop: Math.round(firstParagraph.top),
+        flow: [...document.querySelector(".prose").children].slice(0, 5).map((el) => [el.tagName, Math.round(el.getBoundingClientRect().top), el.textContent.trim().slice(0, 24)]),
+        placement: rect.left >= main.right - 1 ? "beside" : "in-flow-after-title",
+        links: links.length,
+        focused: document.activeElement === links[0],
+      };
+    });
+    console.log(`index ${width}${withoutRail ? " no-rail" : ""}: sheet ${chrome.sheet}px, rail ${chrome.rail}px, ${JSON.stringify(inside)}`);
+    assert.notEqual(inside.display, "none", `the index is gone at ${width}px`);
+    assert.ok(inside.box[2] > 0 && inside.box[3] > 0, `the index has no box at ${width}px`);
+    assert.ok(inside.links >= 2, `the index has no anchors at ${width}px`);
+    assert.equal(inside.focused, true, `an index link cannot take focus at ${width}px`);
+    return { ...chrome, ...inside };
+  };
+
+  const before = await measure(1440, true);
+  const at1440 = await measure(1440);
+  const seen = {};
+  for (const width of [1080, 1280, 1440, 1536, 1680]) seen[width] = await measure(width);
+  assert.equal(before.placement, "beside", "the 1440px sheet without the rail had the index beside the text");
+  assert.ok(at1440.links >= 2 && at1440.focused, "the rail may not remove the index at 1440px");
+  assert.equal(seen[1080].rail, 0, "the rail steps aside below 1100px");
+  assert.equal(seen[1440].box.join(","), at1440.box.join(","), "the band measurement repeats the 1440px case");
+});
+
 test("reader actions remain reachable when the tutor narrows the desktop", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
