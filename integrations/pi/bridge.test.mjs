@@ -4983,8 +4983,8 @@ test("the reader's install hint is short, copyable and remembered only for the s
   const present = listed.languages.find((l) => l.present);
   const text = await strip.textContent();
   if (present) assert.match(text, new RegExp(`${present.label ?? present.language} · ${present.size} · disponible`), "a language that runs says so");
-  // Qué imágenes hay instaladas es asunto de la máquina, no de la página: en un entorno donde la sonda
-  // no puede responder, todo se declara disponible y el caso de la pista lo cubre la prueba de la API.
+  // Qué imágenes hay instaladas es asunto de la máquina, no de la página: una sonda que no responde
+  // deja el lenguaje como «no se pudo comprobar» (#350), cubierto por su propia prueba de lector.
   if (missing) {
     const short = `docker pull ${missing.image.replace(/@sha256:[0-9a-f]+/i, "")}`;
     assert.match(text, new RegExp(`${missing.label ?? missing.language} · ${missing.size}`));
@@ -5004,4 +5004,88 @@ test("the reader's install hint is short, copyable and remembered only for the s
   await fresh.goto(pageResult.structuredContent.url);
   assert.equal(await fresh.locator(".runners-strip details").evaluate((node) => node.open), false, "another session starts collapsed");
   await other.close();
+});
+
+// #350: when the probe cannot answer, neither the page nor the API claims the image is there.
+const DAEMON_DOWN_STUB = '#!/bin/sh\necho "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2\nexit 1\n';
+
+test("an unchecked image keeps the honest run and reports a pull state without an error dump (#350)", async (t) => {
+  t.after(dockerStub(DAEMON_DOWN_STUB));
+  const runnersFile = codeRunnerFile("plsql", "fake-oracle-unknown:350");
+  const { topic, host, view } = await setup({ runnersFile });
+  const dir = codeExercise(topic, "plsql");
+  const result = await view({ topic: TOPIC, part: "codigo/bloque" });
+  const url = base(result);
+  const listed = JSON.parse((await http(`${url}api/runners?topic=${encodeURIComponent(TOPIC)}`)).body);
+  const item = listed.languages.find((l) => l.language === "plsql");
+  assert.equal(item.state, "unknown");
+  assert.equal(item.present, false);
+  assert.deepEqual(listed.runnable, []);
+  const page = codeViewData((await http(result.structuredContent.url)).body);
+  assert.deepEqual(page.runnable, [], "the reader never lists an unchecked language as runnable");
+
+  const code = "BEGIN NULL; END;\n/";
+  const run = await codePost(url, "api/code/run", { topic: TOPIC, exercise: "bloque", code });
+  assert.equal(run.status, 200);
+  const ran = JSON.parse(run.body);
+  assert.match(ran.aviso, /No se puede ejecutar aquí/);
+  assert.equal(ran.total, 0, "no test was graded");
+  const submitted = await codePost(url, "submit", { topic: TOPIC, exercise: "bloque", code, kind: "code" });
+  assert.equal(JSON.parse(submitted.body).score, "sin ejecución");
+  const saved = JSON.parse(readFileSync(join(dir, "entregas", "001.json"), "utf8"));
+  assert.equal(saved.codigo, code);
+  assert.match(saved.aviso, /No se puede ejecutar aquí/);
+  assert.equal(host.sent.length, 1);
+  assert.match(host.sent[0].content, /Resultado: sin ejecución/);
+  assert.match(host.sent[0].content, /No se puede ejecutar aquí/);
+
+  const pulled = await codePost(url, "api/code/pull", { language: "plsql", topic: TOPIC });
+  assert.equal(pulled.status, 200);
+  const state = JSON.parse(pulled.body);
+  assert.equal(state.state, "unknown", "an attempted pull reports the same state");
+  assert.match(state.message, /no se pudo comprobar/i);
+  assert.doesNotMatch(state.message, /ENOENT|spawn|daemon at/i, "no error dump reaches the learner");
+});
+
+test("the reader says «no se pudo comprobar» and lists only what runs (#350)", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "probe-reader-")));
+  t.after(dockerStub([
+    "#!/bin/sh",
+    `printf '%s\\n' "$*" >> ${JSON.stringify(join(dir, "calls.log"))}`,
+    'if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then',
+    '  case "$3" in',
+    "    *present*) printf '12345\\n'; exit 0 ;;",
+    '    *) echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2; exit 1 ;;',
+    "  esac",
+    "fi",
+    "exit 1",
+    "",
+  ].join("\n")));
+  const runnersFile = catalogueFile({
+    rust: { image: "rust-unknown:350", file: "main.rs", run: "cat main.rs", size: "~20 MB", label: "Rust" },
+    python: { image: "python-present:350", file: "main.py", run: "python3 main.py", size: "~18 MB", label: "Python 3.12" },
+  });
+  const { topic, view } = await setup({ runnersFile, env: {} });
+  codeExercise(topic, "rust");
+  const pageResult = await view({ topic: TOPIC, part: "codigo/bloque" });
+  const listed = JSON.parse((await http(`${base(pageResult)}api/runners?topic=${encodeURIComponent(TOPIC)}`)).body);
+  assert.deepEqual(listed.runnable, ["python"]);
+  assert.equal(listed.languages.find((l) => l.language === "rust").state, "unknown");
+
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(pageResult.structuredContent.url);
+  const strip = page.locator(".runners-strip");
+  await page.waitForFunction(() => document.querySelector(".runners-strip summary")?.textContent?.includes("python"), null, { timeout: 30_000 });
+  assert.equal(await strip.locator("summary").textContent(), "Ejecutables aquí: python · ver lenguajes");
+  await strip.locator("summary").click();
+  const rust = strip.locator("li").filter({ hasText: "Rust" });
+  const rustText = await rust.textContent();
+  assert.match(rustText, /~20 MB/);
+  assert.match(rustText, /no se pudo comprobar/);
+  assert.doesNotMatch(rustText, /disponible/, "an unchecked language is never announced as available");
+  assert.match(rustText, /docker pull rust-unknown:350/, "the install hint is still shown");
+  assert.equal(await rust.getByRole("button", { name: "Pedir al estudio que lo descargue" }).count(), 0, "pulling would fail for the same reason");
+  assert.match(await strip.locator("li").filter({ hasText: "Python 3.12" }).textContent(), /disponible/);
 });

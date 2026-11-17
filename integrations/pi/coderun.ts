@@ -122,16 +122,19 @@ function inspectImage(image: string, dockerBin: string, timeoutMs: number): Prom
     const child = spawn(dockerBin, ["image", "inspect", image, "--format", "{{.Size}}"], { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
     child.stdout.on("data", (chunk: Buffer) => { if (stdout.length < 1000) stdout += chunk.toString("utf8"); });
     child.stderr.on("data", (chunk: Buffer) => { if (stderr.length < 1000) stderr += chunk.toString("utf8"); });
-    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutMs);
     child.on("error", (err) => {
       clearTimeout(timer);
       resolve({ image, state: "unknown", present: false, detail: `cannot run ${dockerBin}: ${err.message}` });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (code === 0) {
+      // A killed probe never answered: a timeout says nothing about presence, so it is not "missing".
+      if (timedOut) resolve({ image, state: "unknown", present: false, detail: `docker image inspect timed out after ${timeoutMs} ms` });
+      else if (code === 0) {
         const bytes = Number(stdout.trim());
         resolve({ image, state: "present", present: true, ...(Number.isFinite(bytes) && bytes > 0 ? { bytes } : {}) });
       } else if (imageFailure(code, stderr) === "daemon") {
@@ -226,21 +229,40 @@ export function cachedRunnerList(catalogue: RunnerCatalogue): RunnerList {
 export interface PullState {
   language: string;
   image: string;
-  state: "pulling" | "done" | "failed";
+  state: "pulling" | "done" | "failed" | "unknown";
   message: string;
   at: number;
 }
 
 const pulls = new Map<string, PullState>();
+const pullFlights = new Map<string, Promise<PullState>>();
 export const pullState = (language: string): PullState | undefined => pulls.get(language);
 
 /** An explicit learner action: nothing here runs on page load or in the background. */
-export function pullRunnerImage(language: string, runner: Runner, dockerBin = "docker"): PullState {
+export async function pullRunnerImage(language: string, runner: Runner, dockerBin = "docker"): Promise<PullState> {
   if (!/^[\w./:@-]+$/.test(runner.image) || HOST_IMAGES.has(runner.image.toLowerCase())) {
     throw new CodeRunError(`${language}: refusing to pull a host command`);
   }
-  const current = pulls.get(language);
-  if (current?.state === "pulling") return current;
+  if (pulls.get(language)?.state === "pulling") return pulls.get(language)!;
+  let flight = pullFlights.get(language);
+  if (!flight) {
+    flight = startPull(language, runner, dockerBin).finally(() => pullFlights.delete(language));
+    pullFlights.set(language, flight);
+  }
+  return flight;
+}
+
+async function startPull(language: string, runner: Runner, dockerBin: string): Promise<PullState> {
+  // A pull cannot succeed while the probe cannot reach Docker. Say so as a state, not an error dump.
+  const status = (await imageStatuses([runner.image], { dockerBin }))[runner.image];
+  if (status.state === "unknown") {
+    const unknown: PullState = {
+      language, image: runner.image, state: "unknown", at: Date.now(),
+      message: "No se pudo comprobar Docker; no se intentó descargar la imagen. Vuelve a intentarlo cuando el ejecutor responda.",
+    };
+    pulls.set(language, unknown);
+    return unknown;
+  }
   const state: PullState = { language, image: runner.image, state: "pulling", message: `Descargando ${runner.image}…`, at: Date.now() };
   pulls.set(language, state);
   const child = spawn(dockerBin, ["pull", runner.image], { stdio: ["ignore", "pipe", "pipe"] });
