@@ -189,12 +189,13 @@
    * to the reader frame: it is another origin, so it cannot read this storage and
    * gets the theme in its address instead, which makes its first paint the right one.
    */
+  const THEME_TEXT = { light: "Tema oscuro", dark: "Tema negro", black: "Tema claro" };
   const paintTheme = (button) => {
     const current = document.documentElement.dataset.theme;
     const label = current === "dark" ? "Cambiar a modo negro" : current === "black" ? "Cambiar a modo claro" : "Cambiar a modo oscuro";
     button.setAttribute("aria-label", label);
     button.title = label;
-    button.replaceChildren(icon(current === "black" ? "sun" : "moon"));
+    button.replaceChildren(icon(current === "black" ? "sun" : "moon"), h("span", {}, THEME_TEXT[current] || THEME_TEXT.light));
   };
   const toggleTheme = () => {
     const current = document.documentElement.dataset.theme;
@@ -207,9 +208,12 @@
     }
   };
   const themeButton = () => {
-    const button = h("button", { class: "icon-btn theme-btn", type: "button" });
+    const button = h("button", { class: "theme-btn", type: "button", role: "menuitem" });
     paintTheme(button);
-    button.addEventListener("click", toggleTheme);
+    button.addEventListener("click", () => {
+      closeContextMenu();
+      toggleTheme();
+    });
     return button;
   };
   const withTheme = (url) => {
@@ -516,6 +520,26 @@
   };
   const topicById = (id) => library.topics.find((t) => t.id === id);
   const crumbs = h("nav", { class: "crumbs", "aria-label": "Ubicación" });
+  // «Ancladas»: the next step keeps one rank. It is the only primary in the bar,
+  // wherever the card that used to hold it happens to be.
+  let primaryHandler = () => {};
+  const headerPrimary = h(
+    "button",
+    { class: "btn primary header-action", type: "button", hidden: true, onclick: () => primaryHandler() },
+    icon("next"),
+    h("span", { class: "label" }),
+  );
+  const setPrimary = (step) => {
+    if (!step || !Array.isArray(step.cta)) {
+      headerPrimary.hidden = true;
+      return;
+    }
+    primaryHandler = step.cta[1];
+    const text = step.cta[0];
+    headerPrimary.lastChild.textContent = text;
+    headerPrimary.setAttribute("aria-label", text);
+    headerPrimary.hidden = false;
+  };
   const stage = h("main", { class: "stage", id: "stage" });
   const mobileBack = h("a", { class: "mobile-back", hidden: true }, "←");
   let scrollAnchor = 0;
@@ -556,6 +580,8 @@
   function render() {
     const [, view, a, b] = location.hash.split("/").map(decodeURIComponent);
     if (view !== "leer" || enteredPart !== `${a}/${b}`) enteredPart = "";
+    closeContextMenu();
+    setPrimary(null);
     showChrome();
     scrollAnchor = 0;
     window.scrollTo(0, 0);
@@ -715,7 +741,7 @@
     );
   }
 
-  function continueCard(topic, step, compact = false, showProgress = false) {
+  function continueCard(topic, step, compact = false, showProgress = false, anchored = false) {
     return h(
       "article",
       { class: "continue reveal", style: `--tone:${TONE[step.tone]};--i:1` },
@@ -726,7 +752,7 @@
       h(
         "div",
         { class: "actions" },
-        btn(step.cta[0], step.cta[1], `btn ${step.tone === "you" ? "you" : "primary"}`, "play"),
+        anchored ? null : btn(step.cta[0], step.cta[1], `btn ${step.tone === "you" ? "you" : "primary"}`, "play"),
         compact ? null : btn("Ver el tema", () => go(`#/tema/${topic.id}`), "btn ghost"),
       ),
     );
@@ -1000,16 +1026,45 @@
     return card;
   }
 
+  /**
+   * The wide library's continuation surface. Every line comes from records the
+   * studio already holds: the focused topic, its computed next step, its part
+   * progress and the parts this device actually saved. Nothing is invented.
+   */
+  function homeRail(focus) {
+    const block = (title, ...children) => h("div", { class: "rail-block" }, h("h3", {}, title), ...children);
+    const blocks = [];
+    if (focus) {
+      blocks.push(block("Progreso", progress(focus.t)));
+      blocks.push(block("Siguiente paso", h("span", { class: "label" }, focus.s.label), h("p", {}, focus.s.text)));
+      const savedParts = focus.t.parts.filter((p) => saved.has(savedKey(focus.t.id, p.id)));
+      if (savedParts.length) {
+        const one = savedParts.length === 1;
+        blocks.push(block("Guardado", h("p", { class: "saved" }, icon("check"), `${savedParts.length} ${one ? "parte guardada" : "partes guardadas"} en este dispositivo`)));
+      }
+    } else {
+      blocks.push(block("Siguiente paso", h("p", {}, "Todavía no tienes temas. Escribe arriba lo que quieres aprender.")));
+    }
+    return h(
+      "aside",
+      { class: "home-rail", "aria-label": "Tu ruta" },
+      h("p", { class: "eyebrow" }, "Recuperado del área vacío"),
+      h("h2", {}, "Tu ruta"),
+      ...blocks,
+    );
+  }
+
   function homeView() {
     setCrumbs([{ text: "Inicio" }]);
     const order = { you: 0, tutor: 1, alert: 2, done: 4, test: 5 };
     const ranked = library.topics.map((t) => ({ t, s: nextStep(t) })).sort((x, y) => order[x.s.tone] - order[y.s.tone]);
     const focus = ranked.find((r) => r.s.tone !== "test" && r.s.tone !== "done") || ranked[0];
+    setPrimary(focus?.s);
     // The cards follow the last time each topic was opened; never-opened ones keep the order above.
     const byOpened = [...ranked].sort((x, y) => (y.t.opened || 0) - (x.t.opened || 0));
-    const page = h(
+    const main = h(
       "div",
-      { class: "page home-page" },
+      { class: "home-main" },
       h(
         "section",
         { class: "hero" },
@@ -1021,7 +1076,7 @@
           h("p", { class: "lede" }, "Elige un tema de tu biblioteca o pide uno nuevo. El tutor trabaja de fondo: prepara el plan, escribe las explicaciones, corrige tus respuestas y te guía."),
           newLearningEntry(),
         ),
-        focus ? continueCard(focus.t, focus.s, false, true) : h("div", { class: "continue reveal", style: "--i:1" }, h("span", { class: "label" }, "Para empezar"), h("p", { class: "next" }, "Todavía no tienes temas. Escribe arriba lo que quieres aprender.")),
+        focus ? continueCard(focus.t, focus.s, false, true, true) : h("div", { class: "continue reveal", style: "--i:1" }, h("span", { class: "label" }, "Para empezar"), h("p", { class: "next" }, "Todavía no tienes temas. Escribe arriba lo que quieres aprender.")),
       ),
       h("div", { class: "section-title" }, h("h2", {}, "Tus temas"), h("p", {}, `${library.topics.length} en tu biblioteca`)),
       runnersNote(),
@@ -1078,6 +1133,11 @@
           h("p", {}, "Descubre cómo empezar un tema, leer una parte y trabajar con tu tutor.")),
         h("button", { class: "btn ghost", type: "button", "aria-label": "Abrir el tutorial", onclick: () => openTutorial() }, "Abrir tutorial")),
     );
+    const page = h(
+      "div",
+      { class: "page home-page" },
+      h("div", { class: "home-layout" }, main, homeRail(focus)),
+    );
     stage.replaceChildren(page);
   }
 
@@ -1107,6 +1167,7 @@
     markOpened(topic);
     const catalogueNote = runnersNote(topic);
     const step = nextStep(topic);
+    setPrimary(step);
     const firstPending = topic.parts.find((p) => !p.written);
     const gaps = topic.gaps || { missing: [], noVisuals: [], noQuiz: [] };
     const rows = [];
@@ -1211,7 +1272,7 @@
             h(
               "div",
               { class: "aside-sticky" },
-              continueCard(topic, step, true),
+              continueCard(topic, step, true, false, true),
               h(
                                         "div",
                                         { class: "side-actions reveal", style: "--i:2" },
@@ -1298,6 +1359,8 @@
       return stage.replaceChildren(h("div", { class: "page" }, h("p", { class: "empty" }, `No pude reunir el panorama: ${error.message}`)));
     }
     if (seq !== panoSeq) return;
+    const step = nextStep(topic);
+    setPrimary(step);
     stage.replaceChildren(
       h(
         "div",
@@ -1401,7 +1464,7 @@
         h(
           "div",
           { class: "aside-sticky" },
-          continueCard(topic, nextStep(topic), true),
+          continueCard(topic, nextStep(topic), true, false, true),
           h(
             "div",
             { class: "side-actions" },
@@ -2686,6 +2749,57 @@
   // Its own scrim, not the tutor's: existing pages ask for `.scrim` and expect one.
   const tasksScrim = h("div", { class: "tasks-scrim", "aria-hidden": "true", onclick: closeTasks });
 
+  // ---------- the one labelled overflow ----------
+  // Three shell controls leave the bar together: the theme, Configuración and Tutorial.
+  // Their old handlers are kept verbatim; only their rank and their container change.
+  const contextMenu = h(
+    "div",
+    { class: "context-menu", id: "context-menu", role: "menu", "aria-label": "Contexto", hidden: true },
+    themeButton(),
+    h("button", { type: "button", role: "menuitem", onclick: () => { closeContextMenu(); go("#/preferencias"); } }, icon("settings"), h("span", {}, "Configuración")),
+    h("button", { type: "button", role: "menuitem", onclick: () => { closeContextMenu(); openTutorial(); } }, icon("deck"), h("span", {}, "Tutorial")),
+  );
+  const contextTrigger = h(
+    "button",
+    {
+      class: "context-trigger",
+      type: "button",
+      "aria-label": "Contexto",
+      "aria-haspopup": "true",
+      "aria-expanded": "false",
+      "aria-controls": "context-menu",
+    },
+    h("span", { class: "label" }, "Contexto"),
+    icon("more"),
+  );
+  function closeContextMenu(returnFocus = false) {
+    if (contextMenu.hidden) return;
+    contextMenu.hidden = true;
+    contextTrigger.setAttribute("aria-expanded", "false");
+    if (returnFocus) contextTrigger.focus();
+  }
+  function openContextMenu() {
+    if (!contextMenu.hidden) return;
+    contextMenu.hidden = false;
+    contextTrigger.setAttribute("aria-expanded", "true");
+    contextMenu.querySelector("button")?.focus();
+  }
+  contextTrigger.addEventListener("click", () => {
+    if (contextMenu.hidden) openContextMenu();
+    else closeContextMenu(true);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (contextMenu.hidden) return;
+    if (!contextMenu.contains(event.target) && !contextTrigger.contains(event.target)) closeContextMenu();
+  });
+  contextMenu.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const items = [...contextMenu.querySelectorAll("button")];
+    const at = items.indexOf(document.activeElement);
+    items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+    event.preventDefault();
+  });
+
   function openTasks() {
     document.body.classList.add("tasks-open");
     tasksPill.setAttribute("aria-expanded", "true");
@@ -3044,7 +3158,8 @@
       mobileBack,
       h("a", { class: "brand", href: "#/" }, h("b", {}, "Estudio"), h("span", {}, "Learnings")),
       crumbs,
-      h("div", { class: "top-actions" }, themeButton(), h("button", { class: "btn small settings-btn", type: "button", "aria-label": "Configuración", onclick: () => go("#/preferencias") }, icon("settings"), h("span", {}, "Configuración")), btn("Tutorial", () => openTutorial(), "btn small tutorial-btn", "deck"), pill, tasksPill),
+      headerPrimary,
+      h("div", { class: "top-actions" }, pill, tasksPill, contextTrigger, contextMenu),
     ),
     offlineBanner,
     h("div", { class: "app" }, stage),
@@ -3057,6 +3172,8 @@
   );
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
+    // Escape closes the overflow first and gives the key back to its trigger.
+    if (!contextMenu.hidden) { closeContextMenu(true); return; }
     menu.classList.remove("open");
     // Escape leaves the tasks first, then the tutor, like their close buttons; a dialog on top owns the key.
     if (document.querySelector(".modal-backdrop")) return;
@@ -3077,7 +3194,7 @@
   addEventListener("online", () => loadLibrary());
   // The marks of saved parts arrive from the worker after the first drawing.
   savedReady.then(() => {
-    if (location.hash.startsWith("#/tema/")) render();
+    if (location.hash.startsWith("#/tema/") || location.hash === "#/" || location.hash === "") render();
   });
   loadLibrary().then(() => {
     render();

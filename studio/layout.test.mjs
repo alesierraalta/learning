@@ -118,7 +118,7 @@ test("home editorial layout preserves real progress and next action on desktop a
     assert.match(await card.innerText(), /1 de 2 partes escritas/);
     assert.match(await card.innerText(), /La Parte 2 todavía no está escrita/);
   }
-  await page.locator(".home-page .hero .continue .actions button").first().click();
+  await page.locator(".topbar .header-action").click();
   assert.match((await sentPrompts(log))[0], /Parte 2/);
 });
 
@@ -662,7 +662,9 @@ test("preferences are reachable, editable and fit a phone", { skip: browser ? fa
   await page.setViewportSize({ width: 375, height: 800 });
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
   await page.goto(studio.url, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Configuración" }).click();
+  await page.getByRole("button", { name: "Contexto" }).click();
+  assert.equal(await page.getByRole("button", { name: "Contexto" }).getAttribute("aria-expanded"), "true");
+  await page.getByRole("menuitem", { name: "Configuración" }).click();
   await page.getByRole("heading", { name: "Preferencias" }).waitFor();
   assert.equal(await page.getByRole("link", { name: /Volver al inicio/ }).count(), 1);
   assert.equal(await page.getByText("Tu forma de aprender").count(), 1);
@@ -696,7 +698,9 @@ test("a saved tutor model the catalogue no longer lists survives saving the pref
   t.after(() => page.context().browser().close());
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
   await page.goto(studio.url, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Configuración" }).click();
+  await page.getByRole("button", { name: "Contexto" }).click();
+  assert.equal(await page.getByRole("button", { name: "Contexto" }).getAttribute("aria-expanded"), "true");
+  await page.getByRole("menuitem", { name: "Configuración" }).click();
   const modelo = page.locator("select[name=modelo]");
   await modelo.locator("option[value='claude-bridge/claude-sonnet-4-6']").waitFor({ state: "attached" });
   assert.equal(await modelo.inputValue(), "retired/model-x", "the saved model stays selected");
@@ -883,7 +887,8 @@ test("the topic route hides unwritten parts and their requests", { skip: browser
   rmSync(join(root, "redes", ".learning"), { recursive: true });
   await page.reload({ waitUntil: "networkidle" });
   assert.equal(await page.locator("li.part-row", { hasText: "TCP" }).count(), 0, "unwritten parts remain hidden without engine tracking");
-  assert.equal((await page.locator("article.continue .actions button").first().textContent()).trim(), "Escribir la Parte 2", "and it is the card's next step too");
+  assert.equal((await page.locator(".topbar .header-action").textContent()).trim(), "Escribir la Parte 2", "the next step is anchored beside the breadcrumb");
+  assert.equal(await page.locator("article.continue .actions button").count(), 0, "the card no longer holds a second primary");
 });
 
 // After the diagnosis the engine can sit on an explanation stage whose part has no
@@ -900,8 +905,8 @@ test("the next step asks the tutor to write the part the engine names", { skip: 
   await topicPage(page, studio, 1280);
   const card = page.locator("article.continue");
   assert.match(await card.innerText(), /La Parte 2 todavía no está escrita/);
-  const cta = card.locator(".actions button").first();
-  assert.notEqual((await cta.innerText()).trim(), "Ver el tema", "the card offers the action, not the page it is on");
+  const cta = page.locator(".topbar .header-action");
+  assert.notEqual((await cta.innerText()).trim(), "Ver el tema", "the anchored action is the next step, not the page it is on");
   await cta.click();
   assert.match((await sentPrompts(log))[0], /Parte 2/);
 });
@@ -917,8 +922,8 @@ test("the next step asks for the first missing part when the engine names none",
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
 
   await topicPage(page, studio, 1280);
-  const card = page.locator("article.continue");
-  await card.locator(".actions button").first().click();
+  assert.equal(await page.locator("article.continue .actions button").count(), 0, "only the anchored action is primary");
+  await page.locator(".topbar .header-action").click();
   assert.match((await sentPrompts(log))[0], /Parte 2/, "the missing part, not a vague follow-up");
 });
 
@@ -1382,6 +1387,68 @@ const finaleChoices = (page) =>
       }),
   );
 
+test("the shell anchors one primary and keeps theme, preferences and tutorial in Contexto", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot({ status: { status: "waiting", stage: "explanation", nextStage: "explanation", part: "p2" } });
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => {
+    localStorage.setItem("estudio.tutorial", "visto");
+    localStorage.setItem("learnings.theme", "light");
+  });
+
+  for (const width of [1440, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+    for (const selector of [".topbar > .brand", ".topbar > .crumbs", ".topbar .header-action", ".topbar .tutor-pill", ".topbar .tasks-pill", ".context-trigger", ".home-rail"]) {
+      assert.equal(await page.locator(selector).isVisible(), true, `${selector} is part of the wide shell at ${width}px`);
+    }
+    assert.equal(await page.locator(".topbar .settings-btn, .topbar .tutorial-btn").count(), 0, "the old row of equivalents is gone");
+    assert.equal(await page.locator("#context-menu [role=menuitem]").count(), 3, "three actions left the bar");
+    assert.match(await page.locator(".topbar .header-action").innerText(), /PARTE 2/i, "the next step is the one primary");
+    const geometry = await page.evaluate(() => {
+      const bar = document.querySelector(".topbar");
+      const crumbs = document.querySelector(".crumbs");
+      const probe = document.createElement("span");
+      probe.textContent = "0";
+      probe.style.font = getComputedStyle(crumbs).font;
+      probe.style.position = "absolute";
+      document.body.append(probe);
+      const ch = probe.getBoundingClientRect().width;
+      probe.remove();
+      return {
+        ch,
+        crumbs: crumbs.getBoundingClientRect().width,
+        primary: document.querySelector(".header-action").getBoundingClientRect().width,
+        pad: parseFloat(getComputedStyle(bar).paddingLeft),
+        overflow: document.documentElement.scrollWidth - innerWidth,
+      };
+    });
+    assert.ok(geometry.crumbs >= geometry.ch * 11.5, `the breadcrumb keeps 12ch at ${width}px: ${JSON.stringify(geometry)}`);
+    assert.ok(geometry.primary >= 40, `the title-side action never collapses at ${width}px`);
+    assert.equal(geometry.pad, 48, `the page keeps the 48px inset at ${width}px`);
+    assert.ok(geometry.overflow <= 0, `no horizontal overflow at ${width}px`);
+
+    const trigger = page.getByRole("button", { name: "Contexto" });
+    assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+    assert.equal(await trigger.getAttribute("aria-controls"), "context-menu");
+    await trigger.click();
+    assert.equal(await trigger.getAttribute("aria-expanded"), "true");
+    assert.equal(await page.locator("#context-menu").isVisible(), true);
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector("#context-menu button")), true, "the menu takes focus");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#context-menu").isVisible(), false);
+    assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("context-trigger")), true, "Escape returns focus to Contexto");
+  }
+
+  const trigger = page.getByRole("button", { name: "Contexto" });
+  await trigger.click();
+  await page.getByRole("menuitem", { name: "Cambiar a modo oscuro" }).click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "dark", "the theme still changes from Contexto");
+});
+
 test("the tutorial's final choices survive turning the phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const page = await tutorialAtEnd(t, 360, 760);
   await page.setViewportSize({ width: 760, height: 360 });
@@ -1767,9 +1834,8 @@ test("the topic page keeps the same next step after a reload", { skip: browser ?
   });
   await page.locator(".thread .next-cta").getByRole("button", { name: "Ir a Parte 1" }).waitFor({ timeout: 10000 });
   await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
-  const card = page.locator(".continue");
-  await card.waitFor({ timeout: 10000 });
-  assert.equal(await card.getByRole("button", { name: "Ir a Parte 1" }).count(), 1, "the reload finds the same step");
+  await page.locator(".topbar .header-action").waitFor({ timeout: 10000 });
+  assert.equal(await page.locator(".topbar .header-action").textContent(), "Ir a Parte 1", "the reload finds the same anchored step");
 });
 
 // Parte 2's mini-quiz passed and the tutor advanced it: the engine now points at Parte 3.
@@ -1867,9 +1933,9 @@ test("a next step refused while the tutor works says so in Spanish and starts no
   await page.locator(".ask-card").waitFor({ timeout: 10000 });
   // The topic page offers the same step while the turn is still open on the tutor's question.
   await page.evaluate(() => { document.body.classList.remove("drawer-open"); location.hash = "#/tema/redes"; });
-  const card = page.locator(".continue");
-  await card.waitFor({ timeout: 10000 });
-  const button = card.getByRole("button", { name: "Regenerar Parte 2" });
+  await page.locator(".topbar .header-action").waitFor({ timeout: 10000 });
+  const button = page.locator(".topbar .header-action");
+  assert.match(await button.textContent(), /Regenerar Parte 2/);
   await button.click();
   const notice = page.locator(".thread .notice.error");
   await notice.waitFor({ timeout: 5000 });
