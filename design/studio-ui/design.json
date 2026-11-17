@@ -1,0 +1,28 @@
+{
+  "title": "Cromo del Estudio en pantalla ancha",
+  "brief": "Tres estructuras distintas para que la barra deje de competir con el área vacía: un primario por dirección, un lugar y un rango por acción, Lector e Inicio renderizados de contenido real con el mismo cromo y los cinco conflictos de design/system.md resueltos de forma explícita.",
+  "feature": "odd/tasks/studio-ui-ux.md",
+  "artboards": [
+    {
+      "file": "01-acciones-ancladas.html",
+      "title": "Ancladas",
+      "tradeoff": "El borde derecho deja de ser una tira de botones; los secundarios frecuentes requieren reconstruir el hábito en «Contexto» y en el rail de estudio.",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "file": "02-cabecera-contexto.html",
+      "title": "Cabecera de contexto",
+      "tradeoff": "La acción generativa nunca está a un clic: el descubrimiento depende de desplazarse hasta el objeto al que pertenece.",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "file": "03-riel-de-acciones.html",
+      "title": "Riel de acciones",
+      "tradeoff": "Ocupa 200 px de forma permanente; a 1280 px el estado se reduce a 180 px para conservar la hoja y el título.",
+      "width": 1440,
+      "height": 900
+    }
+  ]
+}

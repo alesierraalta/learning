@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dirección 2 · Cabecera de contexto · Estudio #355</title>
+<style>
+  :root {
+    /* Colores y familias: design/system.md, con su ruta de origen. */
+    --paper: #ffffff;
+    --ink: #0F2E3D;
+    --slate: #3F5B69;
+    --slate2: #5A7481;
+    --muted: rgba(15, 46, 61, .62);
+    --meta: #555555;
+    --line: rgba(15, 46, 61, .18);
+    --soft: #F6F7F7;
+    --soft2: #FAFBFB;
+    --blue: #004276;
+    --blue-s: #E7EDF2;
+    --green: #21594F;
+    --green-s: #E9F0EE;
+    --amber: #8A6B3F;
+    --amber-s: #F4EFE7;
+    --red: #DD4A68;
+    --red-s: #FBEAEE;
+    --on-ink: #ffffff;
+    --serif: "Liberation Serif", "DejaVu Serif", "Hoefler Text", Georgia, "Times New Roman", Times, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "Liberation Mono", "DejaVu Sans Mono", Consolas, monospace;
+  }
+  .artboard {
+    /* Resolución: radio 6, inset 24, control 44, azul #004276, noche kit. */
+    --ctl: 44px;
+    --radius: 6px;
+    --gutter: 24px;
+    width: 1440px;
+    height: 900px;
+    margin: 0 auto;
+    overflow: hidden;
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.5 var(--sans);
+    display: grid;
+    grid-template-rows: 64px minmax(0, 1fr) 116px;
+    gap: 8px;
+    outline: 2px solid var(--line);
+    outline-offset: -2px;
+  }
+  .artboard[data-theme="dark"] {
+    --paper: #0E1A20;
+    --ink: #E3EBEF;
+    --slate: #AFC2CB;
+    --slate2: #9BB0BA;
+    --muted: rgba(227, 235, 239, .62);
+    --meta: #9AAFB8;
+    --line: rgba(227, 235, 239, .18);
+    --soft: #142228;
+    --soft2: #111E24;
+    --blue: #8FC0E0;
+    --blue-s: #1E3B52;
+    --green: #7FCBAE;
+    --green-s: #11241E;
+    --amber: #E0B583;
+    --amber-s: #241E15;
+    --red: #EE93A4;
+    --red-s: #2A151C;
+    --on-ink: #0E1A20;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--soft); }
+  body { margin: 0; }
+  h1, h2, h3, p, ul, ol { margin: 0; }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 400; }
+  a { color: var(--blue); }
+  button, select, textarea { font-family: var(--sans); color: var(--ink); }
+  button { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .kicker { font: 700 10px/1.4 var(--sans); letter-spacing: .14em; text-transform: uppercase; color: var(--meta); }
+
+  /* ---------- instrumentación de la maqueta ---------- */
+  .board-head { display: grid; grid-template-columns: 330px 280px minmax(0, 1fr); align-items: center; gap: 24px; padding: 0 24px; border-bottom: 2px solid var(--line); }
+  .board-head h1 { font-size: 31px; line-height: 1.05; }
+  .seg { display: flex; border: 2px solid var(--ink); border-radius: var(--radius); overflow: hidden; }
+  .seg button { min-height: 36px; min-width: 96px; padding: 5px 14px; border: 0; background: var(--paper); font-size: 13px; font-weight: 700; }
+  .seg button + button { border-left: 2px solid var(--ink); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+  .board-tools { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+  .toggle { min-height: 36px; padding: 5px 12px; border: 2px solid var(--line); border-radius: var(--radius); background: var(--soft2); font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .board-count { min-width: 0; font: 700 11px/1.35 var(--sans); color: var(--slate); text-align: right; }
+
+  /* ---------- cabecera: identidad, ruta y un solo disparador ---------- */
+  .viewport { width: 1440px; height: 100%; margin-inline: auto; container-type: inline-size; }
+  .shell { height: 100%; display: flex; flex-direction: column; }
+  .topbar { position: relative; display: flex; align-items: center; gap: 22px; min-height: 64px; padding: 0 var(--gutter); border-bottom: 2px solid var(--line); }
+  .brand { flex: none; font: 400 27px/1 var(--serif); }
+  .brand small { display: block; font: 11px/1.3 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--meta); }
+  .crumbs { min-width: 18ch; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px/1.4 var(--sans); color: var(--meta); }
+  .crumbs b { color: var(--ink); font-weight: 700; }
+  .identity { flex: none; padding: 5px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--soft2); font: 12px/1.4 var(--sans); color: var(--slate); }
+  .overflow { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--ctl); min-width: var(--ctl); padding: 5px 12px; border: 2px solid var(--ink); border-radius: var(--radius); background: var(--paper); font-size: 12px; font-weight: 700; }
+  .overflow svg { width: 17px; height: 17px; }
+  .menu { position: absolute; z-index: 20; right: var(--gutter); top: calc(100% + 6px); min-width: 260px; padding: 6px; border: 2px solid var(--ink); border-radius: var(--radius); background: var(--paper); box-shadow: 8px 8px 0 var(--blue-s); }
+  .menu button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 38px; padding: 5px 10px; border: 0; border-radius: 4px; background: var(--paper); text-align: left; font-size: 12px; font-weight: 700; }
+  .menu button:hover, .menu button:focus-visible { background: var(--soft); }
+  .menu svg { width: 15px; height: 15px; color: var(--slate); }
+
+  /* ---------- el área vacía es el propio objeto de trabajo ---------- */
+  .stage { flex: 1; min-height: 0; min-width: 0; }
+  .screen { height: 100%; overflow: hidden; }
+  .object-header { display: flex; align-items: baseline; gap: 12px; padding: 18px var(--gutter) 10px; }
+  .object-header h1 { font-size: 36px; }
+  .object-header p { font: 12px/1.4 var(--sans); color: var(--slate); }
+  .workarea { height: calc(100% - 76px); display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 32px; padding: 0 var(--gutter) 22px; }
+  .document { min-width: 0; overflow: hidden; padding: 22px 30px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); }
+  .document h2 { font-size: 25px; margin: 14px 0 6px; }
+  .document h3 { font-size: 19px; margin: 0 0 6px; }
+  .document > p { font: 17px/1.55 var(--serif); margin-bottom: 10px; }
+  .inline-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 16px; padding: 8px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .inline-actions .where { margin-right: auto; font: 11px/1.4 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--meta); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: var(--ctl); padding: 6px 14px; border: 2px solid var(--ink); border-radius: var(--radius); background: var(--paper); color: var(--ink); font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .btn svg { width: 15px; height: 15px; flex: none; }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: var(--on-ink); }
+  .btn.soft { background: var(--blue-s); border-color: var(--blue); }
+  .btn.danger { border-color: var(--red); background: var(--red-s); }
+  .callout { border-left: 3px solid var(--blue); background: var(--amber-s); padding: 10px 0 10px 16px; margin: 10px 0; }
+  .callout h3 { font: 700 11px/1.4 var(--sans); letter-spacing: .1em; text-transform: uppercase; }
+  .quiz { margin-top: 12px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--soft2); }
+  .toc { min-width: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--soft2); }
+  .toc h2 { font: 700 11px/1.4 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--meta); margin-bottom: 10px; }
+  .toc ol { padding-left: 18px; font: 13px/1.9 var(--serif); }
+  .toc li { border-bottom: 1px solid var(--line); }
+  .toc p { margin-top: 14px; font: 12px/1.5 var(--sans); color: var(--slate); }
+  .pagebar { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+  .pagebar span { min-width: 52px; text-align: center; font: 700 12px/1 var(--sans); }
+  .icon-btn { display: inline-grid; place-items: center; width: var(--ctl); height: var(--ctl); border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); color: var(--slate); }
+  .icon-btn svg { width: 17px; height: 17px; }
+  .reader-mode { min-height: var(--ctl); padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); font-size: 12px; }
+
+  /* ---------- Inicio: todo sobre la tarjeta o el campo ---------- */
+  .home { height: 100%; padding: 16px var(--gutter) 20px; overflow: hidden; }
+  .home-hero { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 26px; padding: 16px 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--soft2); }
+  .home h1 { font-size: 38px; line-height: 1.05; margin: 4px 0 8px; }
+  .lede { max-width: 66ch; font: 14px/1.5 var(--serif); color: var(--slate); margin-bottom: 10px; }
+  .ask textarea { display: block; width: 100%; min-height: 48px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); font-size: 12px; resize: none; }
+  .picks { display: flex; gap: 8px; margin: 8px 0; }
+  .pick { min-height: var(--ctl); padding: 5px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); font-size: 12px; font-weight: 700; }
+  .pick[aria-pressed="true"] { background: var(--blue-s); border-color: var(--blue); }
+  .next-card { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); align-self: start; }
+  .next-card h2 { font-size: 24px; margin: 4px 0; }
+  .next-card p { font: 12px/1.5 var(--sans); }
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; margin: 16px 0 8px; padding-bottom: 5px; border-bottom: 2px solid var(--line); }
+  .section-head h2 { font-size: 23px; }
+  .section-head span { font: 11px/1.4 var(--sans); color: var(--meta); }
+  .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .card { padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); }
+  .card h3 { font-size: 20px; margin: 5px 0; }
+  .card p { font: 12px/1.4 var(--sans); color: var(--slate); }
+  .card .inline-actions { margin-bottom: 0; border-bottom: 0; }
+
+  /* ---------- pie ---------- */
+  .board-foot { display: grid; grid-template-columns: 470px minmax(0, 1fr); gap: 24px; padding: 10px 24px; border-top: 2px solid var(--ink); background: var(--soft2); }
+  .foot-map p { font: 12px/1.45 var(--sans); }
+  .foot-map strong { color: var(--ink); }
+  .resolutions h2 { font: 700 10px/1.4 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--meta); margin-bottom: 4px; }
+  .resolutions ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; padding-left: 18px; }
+  .resolutions li { font: 11px/1.45 var(--sans); color: var(--slate); }
+
+  @container (max-width: 1320px) {
+    .workarea { grid-template-columns: minmax(0, 1fr) 190px; gap: 20px; }
+    .document { padding-inline: 22px; }
+    .home-hero { grid-template-columns: minmax(0, 1fr) 260px; gap: 18px; }
+    .crumbs { min-width: 20ch; }
+    .inline-actions { gap: 6px; }
+  }
+  .artboard[data-width="1280"] .viewport { width: 1280px; }
+  @media (pointer: coarse) {
+    .artboard { --ctl: 44px; }
+    .seg button, .toggle, .menu button, .reader-mode, .pick { min-height: 44px; }
+    .btn, .overflow, .icon-btn { min-width: 44px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="artboard" data-width="1440" data-theme="light" data-resolution="Radio: 6 px en todo control, tarjeta, menú y documento; no 0 ni 8/18 px.
+Espaciado: 24 px horizontales del papel del kit en ambas vistas; no 48 ni 36 px.
+Altura: 44 px por control con ratón o dedo; sin 34 ni 38 px.
+Acento: un azul #004276 para Studio, lector y kit; se descarta cobalt #2563eb.
+Noche: kit #E3EBEF sobre #0E1A20 con acento #8FC0E0; el lector hereda el par.">
+  <header class="board-head">
+    <div>
+      <p class="kicker">Dirección 2 · issue #355</p>
+      <h1>Cabecera de contexto</h1>
+    </div>
+    <div class="seg" role="group" aria-label="Pantalla de la maqueta">
+      <button type="button" data-screen="inicio" aria-pressed="false">Inicio</button>
+      <button type="button" data-screen="lector" aria-pressed="true">Lector</button>
+    </div>
+    <div class="board-tools">
+      <p class="board-count">Barra 8 → 1 visible (overflow) + 7 en el objeto · Lector 14 en línea · Tutor 37 tras «Tutor»</p>
+      <button class="toggle" id="width-toggle" type="button" aria-pressed="false">Ver 1280</button>
+      <button class="toggle" id="theme-toggle" type="button" aria-pressed="false">Noche</button>
+    </div>
+  </header>
+
+  <div class="viewport">
+    <div class="shell">
+      <header class="topbar">
+        <span class="brand">Estudio<small>Learnings</small></span>
+        <nav class="crumbs" aria-label="Ruta de la página"><span data-for="lector">Inicio / Redes / Parte 1</span><span data-for="inicio" hidden>Inicio</span></nav>
+        <span class="identity" data-for="lector">Capas · Guardada en este dispositivo</span>
+        <span class="identity" data-for="inicio" hidden>Tu cuaderno de estudio</span>
+        <button class="overflow" id="more-options" type="button" aria-label="Más opciones" aria-haspopup="true" aria-expanded="false" aria-controls="options-menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+          Más opciones
+        </button>
+        <div class="menu" id="options-menu" role="menu" aria-label="Más opciones" hidden>
+          <button type="button" role="menuitem" data-action="theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 15a8 8 0 0 1-11-11 8 8 0 1 0 11 11Z"/></svg>Tema oscuro</button>
+          <button type="button" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg>Configuración</button>
+          <button type="button" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h6"/></svg>Tutorial</button>
+          <button type="button" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 15a4 4 0 0 1-4 4H8l-4 3V6a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4Z"/></svg>Tutor · Listo (37 controles)</button>
+          <button type="button" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Tareas · 1 trabajando</button>
+        </div>
+      </header>
+
+      <main class="stage">
+        <section class="screen" id="screen-lector" aria-label="Lector · objeto Capas">
+          <header class="object-header">
+            <p class="kicker">Redes · Parte 1</p>
+            <h1>Capas</h1>
+            <p>El cromo se ha ido: lo que queda pertenece a la explicación.</p>
+          </header>
+          <div class="workarea">
+            <article class="document" aria-labelledby="part-title">
+              <h2 id="part-title">Parte 1 — Capas</h2>
+              <p>Una red en capas. Una fórmula: a^2 + b^2</p>
+              <div class="inline-actions">
+                <span class="where">Sobre el objeto «Capas»</span>
+                <a class="btn" href="#/tema/redes">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M19 12H6m5 5-5-5 5-5"/></svg>
+                  Volver
+                </a>
+                <button class="btn" type="button" data-action="download">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 3h7l4 4v14H7zM14 3v5h4"/></svg>
+                  Descargar para ver sin conexión
+                </button>
+                <label class="sr-only" for="reading-mode">Modo de lectura</label>
+                <select class="reader-mode" id="reading-mode">
+                  <option value="articulo">art.</option>
+                  <option value="ancho">ancho</option>
+                  <option value="libro">libro</option>
+                </select>
+                <button class="btn" type="button" data-action="mode">Modo: art.</button>
+              </div>
+              <h2>Por qué existe</h2>
+              <p>Una explicación.</p>
+              <div class="inline-actions">
+                <span class="where">Sobre esta explicación</span>
+                <button class="btn primary" type="button" data-action="ask">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 15a4 4 0 0 1-4 4H8l-4 3V6a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4Z"/></svg>
+                  Preguntar
+                </button>
+                <button class="btn" type="button" data-action="suggest">Sugerir</button>
+                <button class="btn" type="button" data-action="regenerate">Regenerar</button>
+                <button class="btn" type="button" data-action="chat">Conversación de esta parte</button>
+              </div>
+              <aside class="callout">
+                <h3>Conexión</h3>
+                <p>Una explicación relacionada.</p>
+              </aside>
+              <h2>Las piezas</h2>
+              <p>Otra explicación.</p>
+              <section class="quiz" aria-labelledby="quiz-title">
+                <h3 id="quiz-title">Mini-quiz</h3>
+                <p>¿Qué es una capa?</p>
+                <div class="inline-actions">
+                  <span class="where">Sobre el mini-quiz</span>
+                  <button class="btn soft" type="button">Resolver</button>
+                  <button class="btn" type="button">Ver</button>
+                </div>
+              </section>
+              <div class="inline-actions">
+                <span class="where">Navegación de la hoja</span>
+                <button class="btn" type="button">Anterior</button>
+                <button class="btn" type="button">Siguiente</button>
+                <button class="btn danger" type="button" data-action="delete">Borrar</button>
+                <div class="pagebar" aria-label="Páginas">
+                  <button class="icon-btn" type="button" aria-label="Página anterior" title="Página anterior"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M19 12H6m5 5-5-5 5-5"/></svg></button>
+                  <span>1 / 1</span>
+                  <button class="icon-btn" type="button" aria-label="Página siguiente" title="Página siguiente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h13m-5-5 5 5-5 5"/></svg></button>
+                </div>
+              </div>
+            </article>
+            <nav class="toc" aria-label="Índice de lectura">
+              <h2>Índice de lectura</h2>
+              <ol>
+                <li>Por qué existe</li>
+                <li>Las piezas</li>
+                <li>Mini-quiz</li>
+              </ol>
+              <p>El índice y las acciones viajan con el contenido: no hay carril fijo. Al desplazarte, cada botón sigue junto a lo que modifica.</p>
+            </nav>
+          </div>
+        </section>
+
+        <section class="screen" id="screen-inicio" aria-label="Inicio · biblioteca" hidden>
+          <div class="home">
+            <div class="home-hero">
+              <div>
+                <p class="kicker">Tu cuaderno de estudio</p>
+                <h1>¿Qué estudiamos hoy?</h1>
+                <p class="lede">Elige un tema de tu biblioteca o pide uno nuevo. El tutor trabaja de fondo: prepara el plan, escribe las explicaciones, corrige tus respuestas y te guía.</p>
+                <div class="ask">
+                  <label class="sr-only" for="new-topic">¿Qué quieres aprender?</label>
+                  <textarea id="new-topic" rows="1" placeholder="Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…"></textarea>
+                  <div class="picks" role="group" aria-label="Modo de aprendizaje">
+                    <button class="pick" type="button" aria-pressed="false">Universitario</button>
+                    <button class="pick" type="button" aria-pressed="false">Rápido</button>
+                    <button class="pick" type="button" aria-pressed="false">Examen</button>
+                  </div>
+                  <div class="inline-actions">
+                    <span class="where">Sobre el campo</span>
+                    <button class="btn" type="button">Adjuntar examen o documento</button>
+                    <button class="btn" type="button">Que lo deduzca el tutor</button>
+                    <button class="btn" type="button">Empezar</button>
+                  </div>
+                </div>
+              </div>
+              <aside class="next-card" aria-label="Siguiente paso">
+                <p class="kicker">Siguiente paso · Redes</p>
+                <h2>La Parte 2 todavía no está escrita.</h2>
+                <p>1 de 2 partes escritas · explicación</p>
+                <div class="inline-actions">
+                  <button class="btn soft" type="button">Ir a Parte 2</button>
+                  <a class="btn" href="#/tema/redes">Ver el tema</a>
+                </div>
+              </aside>
+            </div>
+            <div class="section-head"><h2>Tus temas</h2><span>3 en tu biblioteca</span></div>
+            <div class="cards">
+              <article class="card"><p class="kicker">Universitario · Te toca a ti</p><h3>Redes</h3><p>1 de 2 partes escritas</p><div class="inline-actions"><button class="btn" type="button">Leer</button><button class="btn" type="button">Panorama del tema</button></div></article>
+              <article class="card"><p class="kicker">Rápido · Lista para leer</p><h3>Hash</h3><p>Nota rápida · sin plan</p><div class="inline-actions"><button class="btn" type="button">Leer</button><button class="btn" type="button">Editar</button></div></article>
+              <article class="card"><p class="kicker">Universitario · Terminado</p><h3>Álgebra</h3><p>3 de 3 partes escritas</p><div class="inline-actions"><button class="btn" type="button">Repasar mis lagunas</button><button class="btn" type="button">Panorama del tema</button></div></article>
+            </div>
+            <div class="section-head"><h2>Notas rápidas y tutorial</h2><span>Explicaciones breves, sin plan</span></div>
+            <div class="cards">
+              <article class="card"><h3>JOINs en SQL</h3><p>Nota rápida</p><div class="inline-actions"><button class="btn" type="button">Editar</button></div></article>
+              <article class="card"><h3>El teorema de Bayes</h3><p>Nota rápida</p><div class="inline-actions"><button class="btn" type="button">Editar</button></div></article>
+              <article class="card"><h3>Conoce tu espacio de aprendizaje</h3><p>Un recorrido por el Estudio · 6 diapositivas</p><div class="inline-actions"><button class="btn" type="button">Ver el tutorial</button><button class="btn" type="button">Abrir tutorial</button></div></article>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <footer class="board-foot">
+    <div class="foot-map">
+      <p><strong>1 primario:</strong> «Preguntar», pegado a la explicación de «Por qué existe»: la acción generativa nace del texto que la provoca, no de una barra global.</p>
+      <p><strong>Dónde está el resto:</strong> la barra conserva sólo «Más opciones»; 7 controles globales van en ese menú; los 14 del lector y los 18 de Inicio están sobre su tarjeta o su campo; los 37 del tutor se abren desde «Tutor».</p>
+      <p><strong>Contraoferta:</strong> la acción más generativa no está a un clic y su descubrimiento depende de llegar al punto correcto del contenido.</p>
+    </div>
+    <div class="resolutions">
+      <h2>Resolución de los cinco conflictos · 1280: índice 190 px y ruta ≥ 20ch · noche: kit</h2>
+      <ol>
+        <li>Radio: 6 px en controles, tarjetas, menú y hoja.</li>
+        <li>Espaciado: 24 px horizontales del papel del kit.</li>
+        <li>Altura: 44 px por control, ratón y dedo.</li>
+        <li>Acento: azul #004276 único; fuera cobalt legacy.</li>
+        <li>Noche: #E3EBEF sobre #0E1A20; acento #8FC0E0.</li>
+      </ol>
+    </div>
+  </footer>
+</div>
+<script>
+  (function () {
+    var board = document.querySelector(".artboard");
+    var screens = [document.getElementById("screen-lector"), document.getElementById("screen-inicio")];
+    var segButtons = [].slice.call(document.querySelectorAll(".seg button"));
+    var contextual = [].slice.call(document.querySelectorAll("[data-for]"));
+
+    function showScreen(name) {
+      screens.forEach(function (screen) { screen.hidden = screen.id !== "screen-" + name; });
+      contextual.forEach(function (node) { node.hidden = node.getAttribute("data-for") !== name; });
+      segButtons.forEach(function (button) { button.setAttribute("aria-pressed", String(button.getAttribute("data-screen") === name)); });
+    }
+    segButtons.forEach(function (button) {
+      button.addEventListener("click", function () { showScreen(button.getAttribute("data-screen")); });
+    });
+
+    var trigger = document.getElementById("more-options");
+    var menu = document.getElementById("options-menu");
+    function closeMenu(returnFocus) {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+      if (returnFocus) trigger.focus();
+    }
+    trigger.addEventListener("click", function () {
+      if (!menu.hidden) return closeMenu(true);
+      menu.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+      menu.querySelector("button").focus();
+    });
+    document.addEventListener("pointerdown", function (event) {
+      if (!menu.contains(event.target) && !trigger.contains(event.target)) closeMenu(false);
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !menu.hidden) {
+        event.stopPropagation();
+        closeMenu(true);
+      }
+    });
+    menu.addEventListener("keydown", function (event) {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      var items = [].slice.call(menu.querySelectorAll("button"));
+      var at = items.indexOf(document.activeElement);
+      items[(at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+      event.preventDefault();
+    });
+
+    var theme = document.getElementById("theme-toggle");
+    theme.addEventListener("click", function () {
+      var dark = board.getAttribute("data-theme") !== "dark";
+      board.setAttribute("data-theme", dark ? "dark" : "light");
+      theme.setAttribute("aria-pressed", String(dark));
+      theme.textContent = dark ? "Día" : "Noche";
+    });
+    var width = document.getElementById("width-toggle");
+    width.addEventListener("click", function () {
+      var narrow = board.getAttribute("data-width") !== "1280";
+      board.setAttribute("data-width", narrow ? "1280" : "1440");
+      width.setAttribute("aria-pressed", String(narrow));
+      width.textContent = narrow ? "Ver 1440" : "Ver 1280";
+    });
+    document.querySelector('[data-action="theme"]').addEventListener("click", function () { theme.click(); });
+  }());
+</script>
+</body>
+</html>
