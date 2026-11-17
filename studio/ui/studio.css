@@ -5,7 +5,7 @@
   --ink: #0F2E3D;
   --slate: #3F5B69;
   --slate2: #5A7481;
-  --muted: rgba(15, 46, 61, .62);
+  --muted: rgba(15, 46, 61, .70);          /* 4.63:1 even on --blue-s; 4.5:1 AA for small copy */
   --meta: #555555;
   --line: rgba(15, 46, 61, .18);
   --soft: #F6F7F7;
@@ -558,7 +558,7 @@ body.tasks-open .tasks-scrim { opacity: 1; visibility: visible; }
   .hero > *, .topic-head > *, .how > * { min-width: 0; }
   .topic-head aside .aside-sticky { position: static; }
   .reader-bar { flex-wrap: nowrap; }
-  .reader-bar .reader-action, .reader-bar .reader-mode, .reader-bar .reader-ask { display: none; }
+  .reader-bar .reader-action, .reader-bar .reader-mode { display: none; }
   .reader-bar .reader-more { display: inline-flex; flex: none; }
   .reader-menu:not([hidden]) { display: flex; }
 }
@@ -671,7 +671,7 @@ h3 { font-style: italic; }
 .tag { border: 1px solid var(--line); background: transparent; font-family: var(--sans); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .progress span { border: 1px solid var(--line); }
 .progress span.on { background: var(--accent, var(--blue)); border-color: var(--blue); }
-input, textarea, select { border: 1px solid var(--ink); background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: 14px; }
+input, textarea, select { min-height: var(--ctl); border: 1px solid var(--ink); background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: 14px; }
 input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 .brand b { font-weight: 400; }
@@ -895,6 +895,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   .btn.small { padding-block: var(--space); }
   .icon-btn, .composer .send { width: var(--ctl); height: var(--ctl); }
   .composer .stop { min-height: var(--ctl); padding-inline: calc(var(--space) + 2px); }
+  .composer textarea { min-height: var(--ctl); }
+  .chat-options summary, .panel-learning summary { display: flex; align-items: center; min-width: var(--ctl); min-height: var(--ctl); padding-block: 0; }
+  .chat-menu button, .ask-card .options button, .ask-card .cancel { min-width: var(--ctl); min-height: var(--ctl); }
+  .drawer-splitter { width: var(--ctl); left: calc(var(--ctl) / -2); }
+  .drawer-splitter::after { left: calc(50% - 1px); }
   .brand { align-items: center; min-height: var(--ctl); }
   /* Line height, not flex: a long topic still ends in «…» instead of being cut at both sides. */
   .crumbs a { min-height: var(--ctl); line-height: var(--ctl); min-width: var(--ctl); text-align: center; }

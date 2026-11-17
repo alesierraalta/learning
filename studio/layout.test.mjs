@@ -988,8 +988,9 @@ test("the reader bar stays compact and readable on a phone", { skip: browser ? f
     assert.ok(c.w >= 32 && c.h >= 32, `undersized control: ${JSON.stringify(c)}`);
     assert.ok(c.right <= 360, `control off screen: ${JSON.stringify(c)}`);
   }
-  // The five actions leave the row; the trigger that opens them takes their place.
-  assert.deepEqual(seen.controls.map((c) => c.name), ["Volver a Redes", "Más acciones"]);
+  // The part's actions leave the row; Preguntar stays in it at every width, and
+  // the one trigger takes the place of everything else.
+  assert.deepEqual(seen.controls.map((c) => c.name), ["Volver a Redes", "Preguntar", "Más acciones"]);
   assert.ok(seen.sheetTop <= 150, `the sheet starts at ${seen.sheetTop}px`);
   assert.ok(seen.pageOverflow <= 0, `page scrolls sideways by ${seen.pageOverflow}px`);
 });
@@ -1021,8 +1022,7 @@ test("mobile chrome follows the cross-origin reader and preserves its escape rou
   assert.equal(Math.round((await sheet.boundingBox()).y), 0, "hiding the bar resized the lesson");
   await frame.evaluate(() => window.scrollTo(0, 200));
   await page.waitForFunction(() => !document.body.classList.contains("chrome-hidden"));
-  await page.getByRole("button", { name: "Más acciones" }).click();
-  await page.getByRole("menuitem", { name: "Preguntar" }).click();
+  await page.locator(".reader-bar").getByRole("button", { name: "Preguntar" }).click();
   await frame.evaluate(() => window.scrollTo(0, 500));
   await page.waitForTimeout(150);
   assert.equal(await page.evaluate(() => document.body.classList.contains("chrome-hidden")), false);
@@ -1034,7 +1034,7 @@ test("mobile chrome follows the cross-origin reader and preserves its escape rou
 
 // S1-S2: one row on a phone, and the actions that leave the row stay reachable
 // in an overflow menu with the same handlers (delete still asks first).
-test("the reader bar is one row and its overflow menu holds the five actions (S1, S2, S5)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+test("the reader bar is one row and its overflow menu holds the part actions (S1, S2, S5)", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
@@ -1065,12 +1065,12 @@ test("the reader bar is one row and its overflow menu holds the five actions (S1
   assert.equal(await more.getAttribute("aria-expanded"), "true");
   const menu = page.locator(".reader-menu");
   assert.equal(await menu.isVisible(), true);
-  // The five actions, plus the reading mode: on a phone the three modes are
+  // The part's actions, plus the reading mode: on a phone the three modes are
   // reached here, because the row belongs to the title.
   // The part's actions, plus what the phone's studio bar used to carry: it is gone
   // on the reader, so its controls live here instead of becoming unreachable.
   assert.deepEqual((await menu.locator("button").allInnerTexts()).map((text) => text.trim()), [
-    "Descargar para ver sin conexión", "Preguntar", "Sugerir", "Regenerar", "Modo: art.", "Borrar",
+    "Descargar para ver sin conexión", "Sugerir", "Regenerar", "Modo: art.", "Borrar",
     "Conversación de esta parte", "Tema oscuro", "Configuración", "Tutorial",
   ]);
   assert.equal(await page.evaluate(() => !!document.activeElement.closest?.(".reader-menu")), true, "the menu is not keyboard reachable");
@@ -1097,7 +1097,7 @@ test("the reader bar is one row and its overflow menu holds the five actions (S1
 });
 
 // S3-S5: wide or narrow, the reader keeps four controls and one overflow; the
-// board's ten actions live in that single menu, never in a second row.
+// board's actions live in that single menu, never in a second row; Preguntar stays in the bar.
 test("the reader bar keeps four controls and one labelled overflow on a desktop (S3, S4, S5)", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
   process.env.FAKE_PI_LOG = log;
@@ -1132,7 +1132,7 @@ test("the reader bar keeps four controls and one labelled overflow on a desktop 
   await more.click();
   assert.equal(await more.getAttribute("aria-expanded"), "true");
   assert.deepEqual((await page.locator(".reader-menu button").allInnerTexts()).map((text) => text.trim()), [
-    "Descargar para ver sin conexión", "Preguntar", "Sugerir", "Regenerar", "Modo: art.", "Borrar",
+    "Descargar para ver sin conexión", "Sugerir", "Regenerar", "Modo: art.", "Borrar",
     "Conversación de esta parte", "Tema oscuro", "Configuración", "Tutorial",
   ]);
   assert.equal(await page.evaluate(() => !!document.activeElement.closest?.(".reader-menu")), true, "the menu takes focus");
@@ -1336,8 +1336,9 @@ test("reader actions remain reachable when the tutor narrows the desktop", { ski
     return [...bar.querySelectorAll("button, select")].filter((node) => node.getBoundingClientRect().width > 0).map((node) => ({ name: node.getAttribute("aria-label"), right: node.getBoundingClientRect().right, barRight: box.right }));
   });
   for (const item of geometry) assert.ok(item.right <= item.barRight + 1, `${item.name} is clipped by the tutor`);
+  assert.equal(await page.locator(".reader-bar").getByRole("button", { name: "Preguntar" }).isVisible(), true, "Preguntar stays in the bar");
   await more.click();
-  for (const name of ["Preguntar", "Sugerir", "Regenerar", "Borrar"]) assert.equal(await page.getByRole("menuitem", { name }).isVisible(), true, `${name} must remain reachable`);
+  for (const name of ["Sugerir", "Regenerar", "Borrar"]) assert.equal(await page.getByRole("menuitem", { name }).isVisible(), true, `${name} must remain reachable`);
 });
 
 test("the reading index follows the real markdown headings", { skip: browser ? false : "playwright not installed" }, async (t) => {
@@ -1511,6 +1512,122 @@ test("the tutorial reads and works on a phone", { skip: browser ? false : "playw
   const finale = (await controls()).filter((c) => c.name === "Empezar un tema" || c.name === "Ver mis temas");
   assert.equal(finale.length, 2, JSON.stringify(await controls()));
   for (const c of finale) assert.ok(c.h >= 32 && c.font >= 12 && c.inside, JSON.stringify(c));
+});
+
+// WCAG AA: 4.5:1 for the 11-20px muted copy. Measure the rendered colour over
+// the rendered background, not the token literal, on every surface that paints it.
+test("muted copy clears 4.5:1 on Inicio, Preferencias and the reader in both themes", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 900 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => {
+    localStorage.setItem("estudio.tutorial", "visto");
+    localStorage.setItem("learnings.theme", "light");
+  });
+
+  const collect = (label) => page.evaluate((label) => {
+    const parse = (value) => { const n = (value.match(/[\d.]+/g) || []).map(Number); return { r: n[0] ?? 0, g: n[1] ?? 0, b: n[2] ?? 0, a: n[3] === undefined ? 1 : n[3] }; };
+    const over = (top, base) => ({ r: top.a * top.r + (1 - top.a) * base.r, g: top.a * top.g + (1 - top.a) * base.g, b: top.a * top.b + (1 - top.a) * base.b, a: 1 });
+    const lum = (c) => { const s = [c.r, c.g, c.b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2]; };
+    const ratio = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+    const probe = document.createElement("span");
+    probe.style.color = "var(--muted)";
+    document.body.append(probe);
+    const muted = getComputedStyle(probe).color;
+    probe.remove();
+    const background = (el) => {
+      const layers = [];
+      for (let n = el; n; n = n.parentElement) { const c = parse(getComputedStyle(n).backgroundColor); if (c.a > 0) layers.unshift(c); }
+      return layers.reduce((base, layer) => over(layer, base), { r: 255, g: 255, b: 255, a: 1 });
+    };
+    const measured = (el) => {
+      const bg = background(el);
+      const fg = over(parse(getComputedStyle(el).color), bg);
+      return { text: el.textContent.trim().slice(0, 24), ratio: Math.round(ratio(fg, bg) * 100) / 100, size: Math.round(parseFloat(getComputedStyle(el).fontSize)), fg: [fg.r, fg.g, fg.b].map(Math.round).join(","), bg: [bg.r, bg.g, bg.b].map(Math.round).join(",") };
+    };
+    const surfaces = [...document.querySelectorAll("body *")].filter((el) => {
+      const cs = getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      return cs.color === muted && cs.visibility !== "hidden" && box.width > 0 && box.height > 0
+        && [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+    }).map(measured);
+    const kicker = document.querySelector(".reader-bar .title small");
+    return { label, muted, surfaces, kicker: kicker ? measured(kicker) : null };
+  }, label);
+
+  const failures = [];
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+    for (const [label, route] of [["Inicio", "#/"], ["Preferencias", "#/preferencias"], ["Lector", "#/leer/redes/p1"]]) {
+      await page.goto(`${studio.url}${route}`, { waitUntil: "networkidle" });
+      const seen = await collect(`${theme} ${label}`);
+      const low = seen.surfaces.filter((s) => s.ratio < 4.5);
+      if (low.length) failures.push({ screen: seen.label, low });
+      console.log(`contrast ${theme} ${label}: ${seen.surfaces.length} muted surfaces, min ${Math.min(...seen.surfaces.map((s) => s.ratio))}:1 ${JSON.stringify(seen.surfaces.slice(0, 3))}${seen.kicker ? ` kicker ${seen.kicker.ratio}:1 (${seen.kicker.fg} on ${seen.kicker.bg})` : ""}`);
+      if (seen.kicker && seen.kicker.ratio < 4.5) failures.push({ screen: `${seen.label} kicker`, low: [seen.kicker] });
+    }
+  }
+  assert.deepEqual(failures, [], `copy below 4.5:1: ${JSON.stringify(failures)}`);
+});
+
+// The coarse pointer is a real device context, not an emulated media query.
+const coarsePage = async (t, browserRef, url, route, setup) => {
+  const context = await (browserRef.chromium ?? browserRef.default).launch().then((b) => b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }));
+  t.after(() => context.browser().close());
+  await context.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const page = await context.newPage();
+  await page.goto(`${url}${route}`, { waitUntil: "networkidle" });
+  if (setup) await setup(page);
+  assert.equal(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), true, "the context must be a coarse pointer");
+  return page;
+};
+
+test("preferences selects are control-height on a coarse pointer", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await coarsePage(t, browser, studio.url, "#/preferencias");
+  const seen = await page.evaluate(() => ({
+    selects: [...document.querySelectorAll(".preferences-form select")].map((el) => { const r = el.getBoundingClientRect(); return { name: el.name, w: Math.round(r.width), h: Math.round(r.height) }; }),
+    overflow: document.documentElement.scrollWidth - innerWidth,
+  }));
+  console.log(`coarse preferences: ${JSON.stringify(seen)}`);
+  assert.equal(seen.selects.length, 2);
+  for (const s of seen.selects) assert.ok(s.h >= 44, `${s.name} select is ${s.h}px tall`);
+  assert.ok(seen.overflow <= 0, `the form overflows by ${seen.overflow}px`);
+});
+
+test("every tutor drawer target is 44px on a coarse pointer", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await coarsePage(t, browser, studio.url, "#/", async (p) => { await p.click(".tutor-pill"); await p.waitForTimeout(400); });
+  const small = await page.evaluate(() => [...document.querySelectorAll(".drawer button, .drawer summary, .drawer textarea, .drawer select, .drawer input, .drawer [role=separator], .drawer [role=button]")]
+    // The clipped file input is not a touch target: its 44px label is.
+    .filter((el) => el.type !== "file" && getComputedStyle(el).clip !== "rect(0px, 0px, 0px, 0px)")
+    .filter((el) => { const cs = getComputedStyle(el); const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none"; })
+    .map((el) => { const r = el.getBoundingClientRect(); return { name: el.getAttribute("aria-label") || el.textContent.trim().slice(0, 28) || el.tagName, w: Math.round(r.width), h: Math.round(r.height) }; })
+    .filter((c) => c.w < 44 || c.h < 44));
+  const picker = await page.locator(".drawer .learning-source-picker").first().boundingBox();
+  console.log(`coarse drawer undersized: ${JSON.stringify(small)}, file label ${Math.round(picker.height)}px`);
+  assert.ok(picker.height >= 44, `the file picker label is ${picker.height}px tall`);
+  assert.deepEqual(small, [], `drawer targets under 44px: ${JSON.stringify(small)}`);
+});
+
+test("Preguntar lives only in the reader bar, not the overflow", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 900 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".reader-bar .reader-ask");
+  assert.equal(await page.locator(".reader-bar").getByRole("button", { name: "Preguntar" }).count(), 1);
+  await page.getByRole("button", { name: "Más acciones" }).click();
+  assert.equal(await page.getByRole("menuitem", { name: "Preguntar" }).count(), 0, "the action has one rank only");
 });
 
 test("top bar and tutor controls are touch targets on a phone", { skip: browser ? false : "playwright not installed" }, async (t) => {

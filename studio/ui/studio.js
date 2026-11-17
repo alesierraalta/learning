@@ -1859,16 +1859,18 @@
       READING_MODES.map(([id, short, full]) => h("option", { value: id, title: full }, short)),
     );
 
+    // S2/S4: one place, one rank. Preguntar is the bar's secondary action and
+    // never reappears in the overflow; it is defined once and used only there.
+    const askAction = {
+      label: "Preguntar",
+      icon: "chat",
+      cls: "btn small",
+      run: () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `),
+    };
     const actions = [
       info?.written && mode !== "app"
         ? { label: "Descargar para ver sin conexión", icon: "doc", cls: "btn small ghost", run: () => saveReaderPart(), save: true }
         : null,
-      {
-        label: "Preguntar",
-        icon: "chat",
-        cls: "btn small",
-        run: () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `),
-      },
       info?.written
         ? { label: "Sugerir", icon: "pencil", cls: "btn small ghost", run: () => askSugerencia({ topic: topicId, part, title, regenerate: false }) }
         : null,
@@ -1971,7 +1973,6 @@
       menu.querySelector("button:not(:disabled)")?.focus();
     });
 
-    const askAction = actions.find((action) => action.label === "Preguntar");
     const bar = h(
       "div",
       { class: "reader-bar" },
