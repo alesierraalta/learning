@@ -127,6 +127,45 @@ keeps its scale and scrolls sideways instead of shrinking its type.
 </lk-scene>
 ```
 
+### Sequences: who says what to whom, in order (#353)
+
+When an idea is a process across actors — a request through a client, an API and a database — draw
+a `sequence` inside a `<lk-story>` step (or a legacy `<lk-walkthrough>` step) instead of a row of
+boxes with arrows. Boxes say who exists; a sequence says who speaks, to whom and when. Declare
+`{actors: [{id, label, sub}], messages: [{from, to, label, kind, at?}], notes?, phases?}` on the
+`scene`; `kind` is one of the existing tones (`blue`, `green`, `amber`, `red`) and `at` is the row
+that orders time. `phases` adds a band per stretch, `notes` a caption below the rows, `legend`
+names the categories, and `flow: true` makes a message flow. Author the `viewBox` around 680 wide
+so one unit is about one pixel at the reading column: labels that small still clear the reader's
+14 px floor.
+
+The whole diagram is one piece of state: with an `id` its key is stable across steps, so it
+slides from where it was, flashes when a message changes, accepts `ring: "<id>"`, and its arrows
+draw themselves and flow with the kit's own motion. `facts` and `summary` work unchanged. At 390 px
+the stage scrolls horizontally inside its frame instead of shrinking the type; the gates measure
+the settled frame. `scene-lint` reports `mensaje-sin-actor`, `mensaje-desordenado`, `mensajes-encimados`
+and `actor-sin-etiqueta`.
+
+```html
+<lk-story>
+<script type="application/json">
+{"kind":"derivation","viewBox":"0 0 680 360","steps":[
+ {"title":"La petición","narrator":"El cliente pide y la API consulta.",
+  "stage":{"scene":{"sequence":{
+   "id":"pedido",
+   "actors":[{"id":"cli","label":"Cliente","sub":"navegador"},{"id":"api","label":"API"},{"id":"db","label":"Base"}],
+   "messages":[{"from":"cli","to":"api","label":"GET /pedido","kind":"blue","at":0,"flow":true},{"from":"api","to":"db","label":"SELECT id","kind":"amber","at":1}],
+   "phases":[{"label":"Petición","at":0,"tone":"blue"}]
+  }}},
+  "facts":[["emisor","Cliente"]]}
+]}
+</script>
+</lk-story>
+```
+
+Worked example, gated in black at 1500 px and at 390 px:
+`integrations/pi/kit/examples/secuencia-peticion.md`.
+
 ### Figures from the visual engine
 
 A note figure is not hand-drawn SVG: it is a JSON scene the engine in `tools/visuals/`

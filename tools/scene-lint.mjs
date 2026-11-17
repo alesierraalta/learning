@@ -256,18 +256,69 @@ const asList = (value) => (Array.isArray(value) ? value : []);
 
 // Un `ring` nombra una pieza con id de su propio paso (#299; `ring` desde #305): una caja, un icono, un rótulo, un actor
 // o una prop. Si no nombra ninguna, el anillo no tiene a qué rodear.
-const FOCUSABLE = ['boxes', 'icons', 'labels', 'actors', 'props'];
+const FOCUSABLE = ['boxes', 'icons', 'labels', 'actors', 'props', 'sequences'];
 const focusMisses = stepScenes.flatMap(({ block, title, n, step, scene }) => {
   if (typeof step?.ring !== 'string') return [];
-  const ids = FOCUSABLE.flatMap((kind) => asList(scene[kind]).map((piece) => piece?.id)).filter((id) => id != null).map(String);
+  const ids = FOCUSABLE.flatMap((kind) => asList(scene[kind]).map((piece) => piece?.id))
+    // La secuencia es una sola pieza, no una lista (#353).
+    .concat(scene.sequence?.id != null ? [scene.sequence.id] : [])
+    .filter((id) => id != null).map(String);
   if (ids.includes(step.ring)) return [];
-  return [{ block, title, kind: 'foco-sin-pieza', text: step.ring, detail: `el paso ${n + 1} enfoca «${step.ring}», y ninguna pieza con ese id está en ese paso: ponle el id a la caja, el icono, el rótulo, el actor o la prop que quieres marcar, o quita el ring` }];
+  return [{ block, title, kind: 'foco-sin-pieza', text: step.ring, detail: `el paso ${n + 1} enfoca «${step.ring}», y ninguna pieza con ese id está en ese paso: ponle el id a la caja, el icono, el rótulo, el actor, la prop o la secuencia que quieres marcar, o quita el ring` }];
 });
 
 // El `flow` de una flecha o de un movimiento (#300) es true o false: cualquier otro valor no dibuja el flujo.
 const flowMisses = stepScenes.flatMap(({ block, title, n, scene }) => [...asList(scene.arrows), ...asList(scene.moves)]
   .filter((piece) => piece?.flow !== undefined && typeof piece.flow !== 'boolean')
   .map((piece) => ({ block, title, kind: 'flujo-no-booleano', text: JSON.stringify(piece.flow), detail: `el paso ${n + 1} declara flow: ${JSON.stringify(piece.flow)}; flow es true o false, y solo true dibuja la flecha que fluye` })));
+// Una secuencia (#353) nombra a sus actores y ordena sus mensajes por `at`. Cuatro cosas no se
+// pueden ver en el SVG: un mensaje a quien no existe, un tiempo que retrocede, dos mensajes que
+// comparten fila y se pisan, y un actor sin rótulo. Se leen del JSON, como `ring` o `facts`.
+const sequenceMisses = stepScenes.flatMap(({ block, title, n, scene }) => {
+  const seq = scene?.sequence;
+  if (!seq || typeof seq !== 'object' || Array.isArray(seq)) return [];
+  const at = (kind, text, detail) => ({ block, title, kind, text, detail });
+  const found = [];
+  const actors = asList(seq.actors).filter((a) => a && typeof a === 'object');
+  const ids = new Set(actors.map((a) => String(a.id ?? '')).filter(Boolean));
+  for (const actor of actors) {
+    if (typeof actor.label === 'string' && actor.label.trim()) continue;
+    found.push(at('actor-sin-etiqueta', String(actor.id ?? '?'), `el paso ${n + 1} dibuja al actor «${actor.id ?? '?'}» sin rótulo: un actor sin label no dice quién habla`));
+  }
+  // El orden de tiempo es el de `at`; sin `at`, el lugar del mensaje. Dos mensajes con el
+  // mismo `at` comparten fila: si sus tramos se solapan, el lector ve una sola flecha.
+  let last = -1, previous = null;
+  const rows = new Map();
+  for (const [i, m] of asList(seq.messages).entries()) {
+    if (!m || typeof m !== 'object') continue;
+    const time = m.at !== undefined && Number.isFinite(Number(m.at)) ? Number(m.at) : last + 1;
+    last = time;
+    if (previous !== null && time < previous) {
+      found.push(at('mensaje-desordenado', String(m.at), `el paso ${n + 1} pone un mensaje en el tiempo ${m.at}, después de uno en ${previous}: el tiempo no puede retroceder`));
+    }
+    previous = time;
+    for (const end of [m.from, m.to]) {
+      if (end != null && ids.has(String(end))) continue;
+      found.push(at('mensaje-sin-actor', String(end ?? '?'), `el paso ${n + 1} envía «${m.label || 'un mensaje'}» a/desde «${end ?? '?'}», que no es un actor de la secuencia`));
+    }
+    if (!ids.has(String(m.from)) || !ids.has(String(m.to))) continue;
+    const lo = Math.min(ids.has(String(m.from)) ? actors.findIndex((a) => String(a.id) === String(m.from)) : 0, actors.findIndex((a) => String(a.id) === String(m.to)));
+    const hi = Math.max(actors.findIndex((a) => String(a.id) === String(m.from)), actors.findIndex((a) => String(a.id) === String(m.to)));
+    const row = rows.get(time) || [];
+    row.push({ labels: `${m.label || i} (${m.from} → ${m.to})`, lo: lo - 0.25, hi: hi + 0.25 });
+    rows.set(time, row);
+  }
+  for (const [time, row] of rows) {
+    for (let a = 0; a < row.length; a++) {
+      for (let b = a + 1; b < row.length; b++) {
+        if (row[a].lo >= row[b].hi || row[b].lo >= row[a].hi) continue;
+        found.push(at('mensajes-encimados', `${row[a].labels} / ${row[b].labels}`, `el paso ${n + 1} pone dos mensajes en la misma fila (tiempo ${time}) con un tramo compartido: repártelos en filas distintas`));
+      }
+    }
+  }
+  return found;
+});
+
 // Los datos de un paso (`facts`) y la tarjeta de cierre (`summary`) (#301) son pares [clave, valor]: como
 // mucho cinco filas, con texto o número en los dos lados. La tarjeta lleva un título y sus métricas, con esa forma.
 const FACTS = { malformed: 'hechos-mal-formados', many: 'hechos-demasiados', empty: 'hechos-vacios' };
@@ -346,7 +397,7 @@ const findings = lookalikes.map(({ block, title, one, two }) => ({
   text: `${one.tag || one.label} / ${two.tag || two.label}`,
   detail: `los dos se dibujan igual (${drawn(one).replace(' · ', ' y tono ')}) y sus fichas no comparten ninguna palabra: dale a cada uno su personaje (database, row, session, lock, user, server, process, file, packet, robot), su tono o su estado`,
 }));
-findings.push(...focusMisses, ...flowMisses, ...factsMisses, ...summaryMisses);
+findings.push(...focusMisses, ...flowMisses, ...sequenceMisses, ...factsMisses, ...summaryMisses);
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.goto(pathToFileURL(join(dir, 'page.html')).href);
@@ -545,7 +596,9 @@ try {
           for (const p of svg.querySelectorAll('path')) {
             // La tinta de una flecha no es una pieza: medirla contra sí misma deja
             // pasar una punta que solo se toca a sí misma.
-            if (p.closest('marker') || p.closest('[data-arrow]') || p.hasAttribute('marker-end') || stepOf(p) !== step) continue;
+            if (p.closest('marker') || p.closest('[data-arrow]') || p.hasAttribute('marker-end')
+              // El papel de una secuencia —líneas de vida, bandas y base— no es la tinta de una pieza (#353).
+              || p.closest('[data-sequence-lifeline], [data-sequence-phase], [data-sequence-base]') || stepOf(p) !== step) continue;
             if (!p.getTotalLength) continue;
             const len = p.getTotalLength();
             if (!len) continue;
@@ -709,7 +762,7 @@ try {
         // tienen que «llegar» a nada, y medirlos como flechas rechazaba la escena
         // que el alumno sí lee. Los conectores siguen midiéndose igual.
         const strokes = [...svg.querySelectorAll('path')]
-          .filter((p) => !p.closest('marker') && !p.closest('[data-icon], [data-prop-id], [data-actor]'))
+          .filter((p) => !p.closest('marker') && !p.closest('[data-icon], [data-prop-id], [data-actor], [data-sequence-phase], [data-sequence-lifeline], [data-sequence-base]'))
           .map((p) => {
             const len = p.getTotalLength ? p.getTotalLength() : 0;
             const pts = [];

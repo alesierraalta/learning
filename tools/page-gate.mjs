@@ -379,8 +379,17 @@ try {
                 const canvasRect = box(canvas);
                 if (canvasRect.width < 2 || canvasRect.height < 2) push('stage-empty', title, 'el escenario mide cero: la página lo tapa');
                 if (!ink.length) push('stage-empty', title, 'el escenario no tiene tinta visible en este paso');
+                // Una pieza que se desliza dentro de su marco —una secuencia en el teléfono, #353—
+                // dibuja fuera de la caja visible sin salirse de su escenario: el marco que mide es
+                // su extensión deslizable, no solo lo que cabe en pantalla en este instante.
+                const stageFrame = {
+                  left: stageRect.left - stage.scrollLeft,
+                  right: stageRect.left - stage.scrollLeft + Math.max(stage.clientWidth, stage.scrollWidth),
+                  top: stageRect.top - stage.scrollTop,
+                  bottom: stageRect.top - stage.scrollTop + Math.max(stage.clientHeight, stage.scrollHeight),
+                };
                 for (const { el, rect } of ink) {
-                  if (rect.left < stageRect.left - 2 || rect.right > stageRect.right + 2 || rect.top < stageRect.top - 2 || rect.bottom > stageRect.bottom + 2) {
+                  if (rect.left < stageFrame.left - 2 || rect.right > stageFrame.right + 2 || rect.top < stageFrame.top - 2 || rect.bottom > stageFrame.bottom + 2) {
                     push('ink-outside-stage', el.textContent?.trim() || labelOf(el), 'la tinta del paso se sale de su escenario');
                   }
                 }

@@ -40,7 +40,7 @@ quien lee no puede ver lo único que la parte venía a explicar.
 | El estado de la memoria (stack, heap, punteros), paso a paso | `<lk-memory>` (§8e) |
 | Dos tablas unidas por una clave, o filas que se agrupan | `<lk-tables>` (§8e) |
 | Qué región de dos o tres conjuntos responde (INNER / LEFT / FULL JOIN) | `<lk-venn>` (§8e) |
-| Un proceso entre varios sistemas a lo largo del tiempo (abrir una página, un handshake, una petición que cruza tres servicios) | `<lk-explorer>` (§8f) |
+| Un proceso entre varios sistemas a lo largo del tiempo (abrir una página, un handshake, una petición que cruza tres servicios) | `<lk-explorer>` (§8f), o `sequence` dentro de una historia cuando importa el orden de los mensajes (§8i) |
 | Código que el lector podría ejecutar | bloque de código con su lenguaje |
 
 `lk-diagram` existe todavía para diagramas de arquitectura viejos. No se usa en material
@@ -720,6 +720,66 @@ Los conteos de una probabilidad se dibujan como **árbol de frecuencias**: `<lk-
 - **Medidas**: `scene-lint`, `scene-gate` y la matriz de `integrations/pi/kit/test/tree.test.mjs` miden la pieza a 1440 y a 390 px, en las tres tintas: texto de 13 px como mínimo, ningún rótulo sobre otro, ningún trazo sobre un texto, cada rótulo a 10 px como mucho de su rama, y el texto de cada grupo dentro de su persona.
 - **El ejemplo gated**: `integrations/pi/kit/examples/bayes-mil-personas.md`. El árbol de mil personas y, después, la historia que aísla los 108 positivos (9 + 99) y calcula 9/108 ≈ 8,3 % con la fórmula en la cabecera.
 - **Personajes** (`personaje-sin-sentido`, #261): un personaje contradice su etiqueta cuando un `server`, un `file` o una `database` dibuja a una persona («enfermos», «sanos», «pacientes») o a un resultado de la prueba («positivos», «negativos», «prueba»), o cuando un `user` dibuja un servidor, un archivo o una base. Una persona se dibuja con `user`; un resultado, con una marca o una pieza. La regla vale para las historias, las escenas y los grupos de un `<lk-tree>`. El léxico es corto, y lo comparten `explain-check` y el motor.
+
+## 8i. La secuencia: quién dice qué, en qué orden (#353)
+
+Cuando la idea es un **proceso entre actores** y lo que importa es *quién habla con quién y en
+qué momento*, dibuja la pieza `sequence` en un paso de `<lk-story>` (o de `<lk-walkthrough>`
+legado). No la sustituyas por una fila de cajas con flechas: las cajas dicen quién existe, pero
+no dicen el orden, y el alumno acaba leyendo una lista en prosa para entender lo que el dibujo
+debería mostrar. Prefiere `<lk-explorer>` (§8f) cuando el tema sea un **mapa** que se recorre;
+prefiere `sequence` cuando el tema sea un **guion** que se desarrolla.
+
+```html
+<lk-story>
+<script type="application/json">
+{
+  "kind": "derivation", "viewBox": "0 0 680 360",
+  "steps": [
+    { "title": "El cliente pide", "narrator": "La petición llega a la API.",
+      "stage": { "scene": { "sequence": {
+        "id": "pedido",
+        "actors": [
+          { "id": "cli", "label": "Cliente", "sub": "navegador" },
+          { "id": "api", "label": "API", "sub": "servicio" },
+          { "id": "db", "label": "Base", "sub": "datos" }
+        ],
+        "messages": [
+          { "from": "cli", "to": "api", "label": "GET /pedido", "kind": "blue", "at": 0, "flow": true },
+          { "from": "api", "to": "db", "label": "SELECT id", "kind": "amber", "at": 1 },
+          { "from": "db", "to": "api", "label": "fila", "kind": "green", "at": 2 },
+          { "from": "api", "to": "cli", "label": "200 OK", "kind": "green", "at": 3, "flow": true }
+        ],
+        "phases": [
+          { "label": "Petición", "at": 0, "tone": "blue" },
+          { "label": "Respuesta", "at": 2, "tone": "green" }
+        ],
+        "notes": [{ "at": 1, "text": "La API valida la sesión antes de consultar." }],
+        "legend": { "blue": "petición", "amber": "consulta", "green": "respuesta" }
+      } } } }
+  ]
+}
+</script>
+</lk-story>
+```
+
+- **Forma**: `actors` son fichas con `id`, `label` y `sub` opcional; de cada ficha baja una línea
+de vida. `messages` declara `from`, `to`, `label`, `kind` (`blue`, `green`, `amber`, `red`) y
+`at` opcional: el número de fila, que ordena el tiempo. La pendiente del trazo crece con la
+distancia y baja con el tiempo; dos mensajes con el mismo `at` comparten fila y no deben
+traslaparse. `phases` pone una banda por tramo, `notes` una aclaración al pie y `legend` el
+nombre de cada categoría. `flow: true` hace que el mensaje fluya (#300).
+- **Es estado**: la secuencia entera es una pieza con clave estable —el `id` si lo hay—, así que
+sigue al paso siguiente, destella cuando cambia un mensaje y la puedes nombrar con
+`ring: "<id>"`. Sus datos van con `facts` y la historia cierra con `summary` (#301). La
+estatura de la letra y la geometría asentada la miden `scene-gate` y `scene-lint`; `deck-gate`
+y `page-gate` la miden a 390 px, donde se desliza dentro de su marco sin reducir la letra.
+- **No se confunde con cajas**: usa `sequence` para un intercambio con tres o más actores; para
+dos cajas que se miran sin orden temporal basta una escena; para el estado de un actor en un
+paso, los actores y `moves` de §8b. No se pide una secuencia para una cuenta (§8c) ni para una
+fórmula (§8b).
+- **Lo que el lint rechaza**: `mensaje-sin-actor` (un `from`/`to` que no es un actor), `mensaje-desordenado` (un `at` menor que el anterior), `mensajes-encimados` (dos mensajes en la misma fila con tramos que se solapan) y `actor-sin-etiqueta` (un actor sin `label`).
+- **El ejemplo gated**: `integrations/pi/kit/examples/secuencia-peticion.md`, una petición que cruza cliente, API y base, revisada en tema negro a 1500 px y en teléfono a 390 px.
 
 ## 9. La curva, no la caja
 

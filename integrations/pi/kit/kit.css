@@ -168,6 +168,10 @@ lk-walkthrough.lk-wt-compact .lk-wt-stage { max-width: min(100%, calc(var(--lk-v
      para el tamaño de lectura. */
   lk-story .lk-wt-stage { overflow:visible; }
   lk-story .lk-wt-stage > svg { width:100%; min-width:0; }
+  /* Una secuencia no se encoge en el teléfono: se desliza dentro de su propio marco (#353).
+     Vale para el recorrido y para la historia, que por defecto no hacen scroll. */
+  .lk-wt-stage.lk-has-sequence { overflow-x:auto; overflow-y:hidden; padding-bottom:6px; }
+  .lk-wt-stage.lk-has-sequence > svg { width:auto; min-width:680px; }
 }
 /* Full screen: the figure takes the whole screen, letters included */
 .lk-walkthrough:fullscreen, .lk-walkthrough:-webkit-full-screen { display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; width:100%; height:100%; margin:0; border:0; border-radius:0; box-shadow:none; padding:22px 34px; background:#fff; }
