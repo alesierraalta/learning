@@ -2855,4 +2855,8 @@ test("an interrupted turn shows in Spanish with the way back", { skip: browser ?
   assert.match(await notice.innerText(), /El turno se interrumpió; el tutor puede seguir con Redes/);
   // The button's CSS uppercases it; the words are the resume action's.
   assert.match((await notice.locator("button").innerText()).trim(), /^seguir con redes$/i);
+  // The card belongs to this chat: opening the tasks panel neither moves nor duplicates it.
+  await page.locator(".tasks-pill").click();
+  assert.equal(await notice.count(), 1, "the main chat keeps its own card");
+  assert.equal(await page.locator(".tasks-panel .next-cta.interrupted").count(), 0, "the task panel stays quiet");
 });

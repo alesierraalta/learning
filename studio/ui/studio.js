@@ -2840,6 +2840,8 @@
       if (!data || data.task !== topic) return;
       fn(data);
     });
+    // A task's history is its messages, state and activity only: the interruption card belongs to
+    // the learner's own chat, never to a background task working silently in this panel.
     onTask("historial", ({ messages }) => renderTaskHistory(record, Array.isArray(messages) ? messages : []));
     onTask("estado", (s) => updateTaskState(topic, s));
     onTask("state", (s) => updateTaskState(topic, s));
