@@ -543,6 +543,11 @@ body.tasks-open .tasks-scrim { opacity: 1; visibility: visible; }
 .task-transcript .ask-card { padding: 10px 12px; }
 .task-transcript .ask-card h4 { font-size: 1.1rem; }
 .task-abort { align-self: flex-end; }
+/* Hidden controls must not win over .btn's inline-flex display. */
+.task-card .btn[hidden] { display: none; }
+.task-way:empty { display: none; }
+.task-way .btn { align-self: flex-start; }
+.task-no-result { margin: 0; font-size: .85rem; }
 
 .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--ink); color: var(--on-ink); padding: 10px 18px; border-radius: var(--ctl-radius); z-index: 60; }
 /* Deleting a note is confirmed by name: the card that leaves is the one that was read. */
