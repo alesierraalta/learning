@@ -168,8 +168,28 @@ jobs:
         # the step's 5m cap and the job's existing 15m budget.
         timeout-minutes: 5
         run: |
-          if ffmpeg -version >/dev/null 2>&1; then
-            echo "ffmpeg is already available; skipping apt-get"
+          set -e
+          ffmpeg_usable() {
+            if ! ffmpeg -version >/dev/null 2>&1; then
+              echo "ffmpeg is not usable" >&2
+              return 1
+            fi
+            if ! ffprobe -version >/dev/null 2>&1; then
+              echo "ffprobe is not usable" >&2
+              return 1
+            fi
+            encoders="$(ffmpeg -hide_banner -encoders 2>/dev/null)" || return 1
+            for codec in libx264 aac libmp3lame; do
+              if ! awk -v codec="$codec" \
+                '$2 == codec { found = 1 } END { exit !found }' \
+                <<<"$encoders"; then
+                echo "ffmpeg is missing the $codec encoder" >&2
+                return 1
+              fi
+            done
+          }
+          if ffmpeg_usable; then
+            echo "ffmpeg, ffprobe and codecs are ready; skipping apt-get"
             exit 0
           fi
           timeout --kill-after=10s 120s \
@@ -180,7 +200,7 @@ jobs:
             sudo apt-get -o Acquire::Retries=3 \
               -o Acquire::http::Timeout=20 \
               -o Acquire::https::Timeout=20 install -y ffmpeg
-          ffmpeg -version
+          ffmpeg_usable
 
       - name: Video, visuals and audio suites
         run: |
