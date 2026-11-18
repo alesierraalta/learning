@@ -77,6 +77,8 @@ function makeRoot() {
     '> [!tip]+ Ver pistas',
     '> Una pista escrita para esta pregunta.',
     '',
+    '## Una sección',
+    '',
     'Una **clave** identifica la fila.',
     '',
   ].join('\n'));
@@ -112,6 +114,7 @@ async function openReader(t, { theme, coarse }) {
   // Wait for the two structures the real scripts emit, not for a fixture we authored.
   await page.waitForSelector('form:has(> fieldset.quiz-question) > button[type="submit"]');
   await page.waitForSelector('.prose details.callout > summary');
+  await page.waitForSelector('.lk-toc summary');
   await page.evaluate(() => document.fonts.ready);
   const pointer = await page.evaluate(() => matchMedia('(pointer: coarse)').matches);
   assert.equal(pointer, coarse, 'the reader pointer context is not the one being measured');
@@ -157,6 +160,9 @@ const READER_PROBES = [
   ['.prose details.callout > summary', 'callout disclosure', true],
   ['fieldset.quiz-question label.option', 'reader option', true],
   ['fieldset.quiz-question .confidence label', 'reader confidence', true],
+  ['.lk-toc', 'index box', false],
+  ['.lk-toc summary', 'index disclosure', false],
+  ['.lk-toc a', 'index link', false],
 ];
 const KIT_PROBES = [
   ['lk-quiz form > button[type="submit"]', 'kit submit', true],
@@ -176,6 +182,8 @@ const measure = (probes) => probes.flatMap(([selector, name, quiz]) => {
       selector,
       quiz,
       missing: false,
+      x: Math.round(r.x * 10) / 10,
+      y: Math.round(r.y * 10) / 10,
       w: Math.round(r.width * 10) / 10,
       h: Math.round(r.height * 10) / 10,
       minHeight: computed.minHeight,
@@ -189,7 +197,7 @@ const report = (label, seen) => {
   for (const box of seen.boxes) {
     console.log(box.missing
       ? `  ${box.key.padEnd(26)} MISSING ${box.selector}`
-      : `  ${box.key.padEnd(26)} ${String(box.w).padStart(6)} × ${String(box.h).padStart(6)}  min-height:${box.minHeight} height:${box.height}${box.quiz ? '' : '  [not a quiz control]'}`);
+      : `  ${box.key.padEnd(26)} ${String(box.x).padStart(6)},${String(box.y).padStart(6)} ${String(box.w).padStart(6)} × ${String(box.h).padStart(6)}  min-height:${box.minHeight} height:${box.height}${box.quiz ? '' : '  [not a quiz control]'}`);
   }
   const missing = seen.boxes.filter((b) => b.missing).map((b) => `${b.key} (${b.selector})`);
   const small = seen.boxes.filter((b) => !b.missing && b.quiz && (b.w < 44 || b.h < 44)).map((b) => `${b.key} ${b.w}×${b.h}`);
@@ -228,19 +236,37 @@ for (const theme of ['light', 'dark']) {
 test('real DOM fine-pointer geometry stays where origin/main left it', { skip }, async (t) => {
   const seen = await scenario(t, { theme: 'light', coarse: false });
   assert.equal(seen.appWidth, 648, 'the reading measure moved');
-  // Pinned from the real-DOM run against the current (unfixed) CSS: coarse rules never apply here.
-  const before = {
-    'reader submit[0]': [139, 36.8],
-    'callout disclosure[0]': [579, 19.2],
-    'reader option[0]': [600, 31.4], 'reader option[1]': [600, 31.4], 'reader option[2]': [600, 31.4],
-    'reader option[3]': [600, 31.4], 'reader option[4]': [600, 31.4],
-    'reader confidence[0]': [66.7, 22.4], 'reader confidence[1]': [58.1, 22.4], 'reader confidence[2]': [72.1, 22.4],
-    'kit submit[0]': [139, 36.8],
-    'kit option[0]': [652, 40.6], 'kit option[1]': [652, 40.6], 'kit option[2]': [652, 40.6],
-    'kit option[3]': [652, 40.6], 'kit option[4]': [652, 40.6],
-    'kit confidence[0]': [60.7, 23.4], 'kit confidence[1]': [52.1, 23.4], 'kit confidence[2]': [66.1, 23.4],
+
+  // Heights and the measure are what a coarse-pointer block could change by accident. Pin them exactly.
+  const fineHeights = {
+    'reader submit': 36.8,
+    'callout disclosure': 19.2,
+    'reader option': 31.4,
+    'reader confidence': 22.4,
+    'kit submit': 36.8,
+    'kit option': 40.6,
+    'kit confidence': 23.4,
+  };
+  // Only widths that come from the layout container are pinned; a text-sized button's width
+  // follows the runner's font metrics (CI: 145.4px, laptop: 139px) and carries no CSS intent here.
+  const fineLayout = {
+    'reader option': [420, 600],
+    'kit option': [394, 652],
   };
   for (const box of seen.boxes.filter((b) => b.quiz)) {
-    if (before[box.key]) assert.deepEqual([box.w, box.h], before[box.key], `${box.key} moved under a fine pointer`);
+    const base = box.key.replace(/\[\d+\]$/, '');
+    assert.equal(box.h, fineHeights[base], `${box.key} height moved under a fine pointer`);
+    assert.ok(box.minHeight === 'auto' || parseFloat(box.minHeight) < 44,
+      `${box.key} carries a coarse floor on a fine pointer: min-height ${box.minHeight}`);
+    if (fineLayout[base]) {
+      assert.deepEqual([box.x, box.w], fineLayout[base], `${box.key} left its layout column`);
+    }
   }
+
+  const index = seen.boxes.find((b) => b.key === 'index box[0]');
+  assert.ok(index && !index.missing, 'the reading index was not drawn');
+  assert.deepEqual([index.x, index.y, index.w], [1060, 16, 240], 'the index geometry moved');
+  const links = seen.boxes.filter((b) => b.key.startsWith('index link['));
+  assert.equal(links.length, 1, 'the index entries changed');
+  assert.ok(links[0].x > index.x, 'an index entry left the index');
 });
