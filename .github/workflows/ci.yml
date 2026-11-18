@@ -164,7 +164,45 @@ jobs:
           playwright install --with-deps chromium
 
       - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        # Two 210s apt calls + 10s kill grace each = 440s worst case, under
+        # this step's 8m (480s) cap; 8m + 5m Playwright < 15m job.
+        # A hung apt call therefore exits 124 before the step cap.
+        timeout-minutes: 8
+        run: |
+          set -e
+          ffmpeg_usable() {
+            if ! ffmpeg -version >/dev/null 2>&1; then
+              echo "ffmpeg is not usable" >&2
+              return 1
+            fi
+            if ! ffprobe -version >/dev/null 2>&1; then
+              echo "ffprobe is not usable" >&2
+              return 1
+            fi
+            encoders="$(ffmpeg -hide_banner -encoders 2>/dev/null)" || return 1
+            for codec in libx264 aac libmp3lame; do
+              if ! awk -v codec="$codec" \
+                '$2 == codec { found = 1 } END { exit !found }' \
+                <<<"$encoders"; then
+                echo "ffmpeg is missing the $codec encoder" >&2
+                return 1
+              fi
+            done
+          }
+          if ffmpeg_usable; then
+            echo "ffmpeg, ffprobe and codecs are ready; skipping apt-get"
+            exit 0
+          fi
+          timeout --kill-after=10s 210s \
+            sudo apt-get -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=20 \
+              -o Acquire::https::Timeout=20 update
+          timeout --kill-after=10s 210s \
+            sudo apt-get -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=20 \
+              -o Acquire::https::Timeout=20 \
+              install -y --no-install-recommends ffmpeg
+          ffmpeg_usable
 
       - name: Video, visuals and audio suites
         run: |
