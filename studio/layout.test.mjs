@@ -3679,3 +3679,163 @@ test("an answered turn's outputs appear once after an abort", { skip: browser ? 
   assert.equal(counts.next.length, 1, `the next step is not duplicated: ${JSON.stringify(counts)}`);
   assert.equal(counts.note.length, 1, `the note link is not duplicated: ${JSON.stringify(counts)}`);
 });
+
+// The browser renders the real studio and its real CSS; only the SSE transport is
+// replaced, so a test can name the exact state and tool result the server reported.
+const installTaskFrames = (page) => page.addInitScript(() => {
+  const streams = [];
+  window.__taskFrames = {
+    send(name, data, task) {
+      const stream = task === undefined
+        ? streams.find((s) => /\/events$/.test(s.url))
+        : streams.find((s) => s.url.includes(`task=${encodeURIComponent(task)}`));
+      if (!stream) throw new Error(`no stream for ${task ?? "events"}: ${streams.map((s) => s.url).join(", ")}`);
+      for (const listener of stream.listeners.get(name) ?? []) listener({ data: JSON.stringify(data) });
+    },
+  };
+  window.EventSource = class {
+    constructor(url) {
+      this.url = String(url);
+      this.listeners = new Map();
+      this.onerror = null;
+      streams.push(this);
+    }
+    addEventListener(name, fn) {
+      if (!this.listeners.has(name)) this.listeners.set(name, []);
+      this.listeners.get(name).push(fn);
+    }
+    close() {
+      const at = streams.indexOf(this);
+      if (at >= 0) streams.splice(at, 1);
+    }
+  };
+});
+const taskView = (topic, state, extra = {}) => ({ topic, ...(state === undefined ? {} : { state }), activity: "", queued: 0, ...extra });
+const showTasks = (page, views) => page.evaluate((tareas) => window.__taskFrames.send("tareas", { tareas }), views);
+
+test("a finished task does not keep a Detener that no longer does anything", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await installTaskFrames(page);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tasks-pill").click();
+  await showTasks(page, [taskView("redes", "working")]);
+  const card = page.locator('.task-card[data-task="redes"]');
+  await card.waitFor();
+  assert.equal(await card.getByRole("button", { name: /Detener/i }).count(), 1, "a running task can still be stopped");
+  await showTasks(page, [taskView("redes", "done")]);
+  await page.waitForFunction(() => document.querySelector('.task-card[data-task="redes"]')?.dataset.state === "done");
+  assert.equal(await card.getByRole("button", { name: /Detener/i }).count(), 0, "nothing to stop once the task is done");
+  assert.match(await card.locator(".task-state").innerText(), /Terminada/, "the state still says what it is");
+});
+
+test("a dismissed task stays hidden after a reload that still reports the same finished task", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await installTaskFrames(page);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tasks-pill").click();
+  const finished = taskView("redes", "done", { activity: "Escribió la Parte 1" });
+  await showTasks(page, [finished]);
+  const card = page.locator('.task-card[data-task="redes"]');
+  await card.waitFor();
+  await card.getByRole("button", { name: /Quitar/i }).click();
+  assert.equal(await card.count(), 0, "the card leaves the list");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator(".tasks-pill").click();
+  // The server still has that same finished task: a fresh page gets the same summary.
+  await showTasks(page, [finished]);
+  assert.equal(await card.count(), 0, "a reload does not bring the dismissed instance back");
+});
+
+test("a new task for a dismissed topic appears as soon as it reports a live state", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await installTaskFrames(page);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tasks-pill").click();
+  await showTasks(page, [taskView("redes", "done", { activity: "Escribió la Parte 1" })]);
+  const card = page.locator('.task-card[data-task="redes"]');
+  await card.waitFor();
+  await card.getByRole("button", { name: /Quitar/i }).click();
+  assert.equal(await card.count(), 0, "the finished instance is hidden");
+  await showTasks(page, [taskView("redes", "asking", { activity: "Preguntándote: ¿cómo seguimos?" })]);
+  assert.equal(await card.count(), 1, "a later task for the same topic is visible");
+  assert.equal(await card.getAttribute("data-state"), "asking");
+  assert.equal(await card.getByRole("button", { name: /Detener/i }).count(), 1, "the live task can be stopped");
+  assert.equal(await card.getByRole("button", { name: /Quitar/i }).count(), 0, "Quitar stays hidden while the task can be stopped");
+});
+
+test("a finished task leads to the note its own tool wrote", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await installTaskFrames(page);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tasks-pill").click();
+  await showTasks(page, [taskView("redes", "working")]);
+  const card = page.locator('.task-card[data-task="redes"]');
+  await card.waitFor();
+  await page.evaluate(() => {
+    window.__taskFrames.send("tool", { task: "redes", phase: "end", id: "w1", label: "Escribir explicación", ok: true, note: { topic: "redes", index: 1 }, topic: "redes" }, "redes");
+    window.__taskFrames.send("estado", { task: "redes", estado: "done", activity: "" }, "redes");
+  });
+  const way = card.getByRole("button", { name: /Ir a la nota|Ir a Parte 1/i });
+  await way.waitFor();
+  await way.click();
+  await page.waitForFunction(() => location.hash === "#/leer/redes/p1", null, { timeout: 5000 });
+  assert.equal(await page.evaluate(() => document.body.classList.contains("tasks-open")), false, "the panel gets out of the way of the result");
+});
+
+test("Tareas and Tutor never stack on the same edge, and focus leaves the panel that closes", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.getByLabel("Mensaje para el tutor").focus();
+  await page.locator(".tasks-pill").click();
+  assert.equal(await page.locator(".tutor-pill").getAttribute("aria-expanded"), "false", "the tutor pill tells the truth");
+  assert.equal(await page.locator(".tasks-pill").getAttribute("aria-expanded"), "true", "the tasks pill tells the truth");
+  assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "the drawer is closed");
+  assert.equal(await page.evaluate(() => Boolean(document.activeElement?.closest(".drawer"))), false, "focus is not left in the hidden drawer");
+  assert.equal(await page.evaluate(() => Boolean(document.activeElement?.closest(".tasks-panel"))), true, "focus lands in the panel that opened");
+  await page.locator(".tasks-panel .icon-btn").focus();
+  await page.locator(".tutor-pill").click();
+  assert.equal(await page.locator(".tasks-pill").getAttribute("aria-expanded"), "false", "the tasks pill tells the truth on the way back");
+  assert.equal(await page.locator(".tutor-pill").getAttribute("aria-expanded"), "true", "the tutor pill tells the truth on the way back");
+  assert.equal(await page.evaluate(() => document.body.classList.contains("tasks-open")), false, "the tasks panel is closed");
+  assert.equal(await page.evaluate(() => Boolean(document.activeElement?.closest(".tasks-panel"))), false, "focus is not left in the hidden tasks panel");
+  assert.equal(await page.evaluate(() => Boolean(document.activeElement?.closest(".drawer"))), true, "focus lands back in the drawer");
+});
+
+test("a task whose state was never reported is not shown as finished", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await installTaskFrames(page);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tasks-pill").click();
+  await showTasks(page, [taskView("redes", undefined)]);
+  const card = page.locator('.task-card[data-task="redes"]');
+  await card.waitFor();
+  assert.doesNotMatch(await card.locator(".task-state").innerText(), /Terminada|done/i, "a missing state is not done");
+  assert.match(await card.locator(".task-state").innerText(), /desconocid/i, "the learner sees an honest unknown");
+  assert.equal(await card.getByRole("button", { name: /Detener/i }).count(), 0, "no stop without a reported state");
+  await showTasks(page, [taskView("redes", "en-curso")]);
+  assert.match(await card.locator(".task-state").innerText(), /desconocid/i, "an unreported state value is unknown too");
+});
+
+test("the task card's controls follow every state the server can report", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await installTaskFrames(page);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tasks-pill").click();
+  const card = page.locator('.task-card[data-task="redes"]');
+  for (const state of ["working", "waiting", "asking", "done", "failed"]) {
+    await showTasks(page, [taskView("redes", state)]);
+    if (await card.count() === 0) await card.waitFor();
+    const stoppable = ["working", "waiting", "asking"].includes(state);
+    assert.equal(await card.getAttribute("data-state"), state);
+    assert.equal(await card.getByRole("button", { name: /Detener/i }).count(), stoppable ? 1 : 0, `${state}: stop`);
+    assert.equal(await card.getByRole("button", { name: /Quitar/i }).count(), stoppable ? 0 : 1, `${state}: dismiss`);
+  }
+  await showTasks(page, [taskView("redes", "done")]);
+  assert.equal(await card.getByRole("button", { name: /Ir al tema/i }).count(), 1, "done leads to the topic the task really worked on when it wrote no note");
+  await showTasks(page, [taskView("redes", "otro")]);
+  assert.equal(await card.getAttribute("data-state"), "unknown");
+  assert.equal(await card.getByRole("button", { name: /Detener/i }).count(), 0, "unknown: stop");
+  assert.equal(await card.getByRole("button", { name: /Quitar/i }).count(), 1, "unknown: dismiss");
+  assert.equal(await card.locator(".task-way .btn").count(), 0, "unknown: no invented destination");
+});

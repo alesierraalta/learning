@@ -2512,6 +2512,9 @@
     updatePill();
   };
   function openDrawer(prefill) {
+    // The two panels share the right edge: the tutor never opens on top of Tareas.
+    const fromTasks = document.body.classList.contains("tasks-open");
+    closeTasks();
     showChrome();
     document.body.classList.add("drawer-open");
     pill.setAttribute("aria-expanded", "true");
@@ -2522,12 +2525,14 @@
       grow();
       composerText.focus();
       composerText.setSelectionRange(prefill.length, prefill.length);
-    }
+    } else if (fromTasks) composerText.focus();
     thread.scrollTop = thread.scrollHeight;
   }
   function closeDrawer() {
+    const hadFocus = document.getElementById("drawer")?.contains(document.activeElement);
     document.body.classList.remove("drawer-open");
     pill.setAttribute("aria-expanded", "false");
+    if (hadFocus) pill.focus();
   }
   /**
    * A writing request travels with what the learner already said and chose: the server
@@ -2820,7 +2825,37 @@
     asking: "Preguntándote",
     done: "Terminada",
     failed: "Fallida",
+    unknown: "Estado desconocido",
   };
+  const KNOWN_TASK_STATES = new Set(["working", "waiting", "asking", "done", "failed"]);
+  const STOPPABLE_TASK_STATES = new Set(["working", "waiting", "asking"]);
+  // «Quitar» hides one finished instance, never a topic forever. The summary carries no
+  // run id, so the instance is its final state plus the activity it reported; the browser
+  // keeps that small map with the studio's other UI state.
+  const DISMISSED_KEY = "estudio.tareas.descartadas";
+  const readDismissals = () => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(DISMISSED_KEY) ?? "{}");
+      return stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+    } catch { return {}; }
+  };
+  const dismissedTasks = readDismissals();
+  const saveDismissals = () => {
+    try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(dismissedTasks)); } catch { /* private mode */ }
+  };
+  const taskInstance = (state, activity) => JSON.stringify({ state, activity: String(activity ?? "") });
+  function hiddenTask(topic, state, activity) {
+    const signature = taskInstance(state, activity);
+    const stored = dismissedTasks[topic];
+    if (stored === undefined) return false;
+    // A live state, or a different terminal run, belongs to another instance: forget the old one.
+    if (STOPPABLE_TASK_STATES.has(state) || stored !== signature) {
+      delete dismissedTasks[topic];
+      saveDismissals();
+      return false;
+    }
+    return true;
+  }
   const taskCards = new Map();
   const tasksList = h("div", { class: "tasks-list", "aria-label": "Tareas de fondo" },
     h("p", { class: "tasks-empty muted" }, "Todavía no hay tareas de fondo."));
@@ -2892,18 +2927,23 @@
   });
 
   function openTasks() {
+    closeDrawer();
     document.body.classList.add("tasks-open");
     tasksPill.setAttribute("aria-expanded", "true");
+    tasksPanel.querySelector(".icon-btn")?.focus();
   }
   function closeTasks() {
+    const hadFocus = tasksPanel.contains(document.activeElement);
     document.body.classList.remove("tasks-open");
     tasksPill.setAttribute("aria-expanded", "false");
+    if (hadFocus) tasksPill.focus();
   }
   const taskTitle = (topic) => library.topics.find((t) => t.id === topic)?.title || topic;
   function paintTaskTitles() {
     for (const record of taskCards.values()) {
       record.title.textContent = taskTitle(record.topic);
       record.abort.setAttribute("aria-label", `Detener la tarea de ${record.title.textContent}`);
+      record.dismiss.setAttribute("aria-label", `Quitar la tarea de ${record.title.textContent} de la lista`);
     }
   }
   function updateTasksPill() {
@@ -2916,14 +2956,33 @@
     tasksBadge.hidden = active === 0;
     tasksBadge.textContent = String(active);
   }
+  // The note a task's own tool wrote is the way to what it produced. The task view
+  // has no destination field, so no link is drawn unless that note (or a listed
+  // topic) really routes somewhere.
+  function paintTaskResult(record, state) {
+    record.way.replaceChildren();
+    if (state !== "done") return;
+    const note = record.note;
+    const route = note ? noteRoute(note) : topicById(record.topic) ? `#/tema/${encodeURIComponent(record.topic)}` : null;
+    if (!route) {
+      record.way.append(h("p", { class: "task-no-result muted" }, "Esta tarea no dejó una ruta que se pueda abrir."));
+      return;
+    }
+    const label = note ? noteLabel(note) : "Ir al tema";
+    record.way.append(btn(label, () => { closeTasks(); closeDrawer(); go(route); }, "btn small ghost turn-link", note ? "book" : "next"));
+  }
   function paintTask(record) {
     const view = taskStates.get(record.topic) ?? {};
-    const state = view.state ?? "done";
+    const state = KNOWN_TASK_STATES.has(view.state) ? view.state : "unknown";
     record.card.dataset.state = state;
-    record.state.textContent = TASK_STATE_TEXT[state] ?? state;
+    record.state.textContent = TASK_STATE_TEXT[state];
     if (view.queued) record.state.textContent += ` · ${view.queued} en cola`;
     record.state.title = record.state.textContent;
     record.activity.textContent = view.activity ?? "";
+    const stoppable = STOPPABLE_TASK_STATES.has(state);
+    record.abort.hidden = !stoppable;
+    record.dismiss.hidden = stoppable;
+    paintTaskResult(record, state);
   }
   function ensureTaskCard(topic) {
     let record = taskCards.get(topic);
@@ -2936,24 +2995,39 @@
         await post("api/tareas/abortar", { task: topic });
       } catch (error) { toast(error.message); }
     }, "btn small ghost danger task-abort", "stop");
+    const dismiss = btn("Quitar", () => dismissTask(record), "btn small ghost task-dismiss");
     const activity = h("p", { class: "task-activity muted" });
+    const way = h("div", { class: "task-way" });
     const transcript = h("div", { class: "task-transcript", "aria-live": "polite" });
     const card = h("section", { class: "task-card", "data-task": topic },
-      h("div", { class: "task-head" }, title, state, abort), activity, transcript);
-    record = { topic, card, title, state, abort, activity, transcript, stream: null, messages: new Map(), tools: new Map(), dialogs: new Map() };
+      h("div", { class: "task-head" }, title, state, abort, dismiss), activity, way, transcript);
+    record = { topic, card, title, state, abort, dismiss, activity, way, transcript, note: null, stream: null, messages: new Map(), tools: new Map(), dialogs: new Map() };
     taskCards.set(topic, record);
     tasksList.append(card);
     paintTask(record);
     abort.setAttribute("aria-label", `Detener la tarea de ${title.textContent}`);
+    dismiss.setAttribute("aria-label", `Quitar la tarea de ${title.textContent} de la lista`);
     return record;
+  }
+  function dismissTask(record) {
+    const view = taskStates.get(record.topic) ?? {};
+    dismissedTasks[record.topic] = taskInstance(view.state, view.activity);
+    saveDismissals();
+    const hadFocus = record.card.contains(document.activeElement);
+    record.stream?.close();
+    record.card.remove();
+    taskCards.delete(record.topic);
+    if (hadFocus) tasksPanel.querySelector(".icon-btn")?.focus();
   }
   function setTaskViews(views) {
     if (!Array.isArray(views)) return;
     for (const view of views) {
       if (!view || typeof view.topic !== "string") continue;
+      const activity = typeof view.activity === "string" ? view.activity : "";
+      if (hiddenTask(view.topic, view.state, activity)) continue;
       taskStates.set(view.topic, {
         state: view.state,
-        activity: typeof view.activity === "string" ? view.activity : "",
+        activity,
         queued: Number(view.queued) || 0,
         updatedAt: Date.now(),
       });
@@ -2968,13 +3042,16 @@
     const state = data.estado ?? data.state;
     if (!state) return;
     const previous = taskStates.get(topic) ?? {};
+    const activity = typeof data.activity === "string" ? data.activity : previous.activity ?? "";
+    const hadDismissal = Object.hasOwn(dismissedTasks, topic);
+    if (hiddenTask(topic, state, activity)) return;
     taskStates.set(topic, {
       state,
-      activity: typeof data.activity === "string" ? data.activity : previous.activity ?? "",
+      activity,
       queued: Number(data.queued ?? previous.queued) || 0,
       updatedAt: Date.now(),
     });
-    const record = taskCards.get(topic);
+    const record = taskCards.get(topic) ?? (hadDismissal ? ensureTaskCard(topic) : null);
     if (record) paintTask(record);
     updateTasksPill();
     watchResults();
@@ -3009,7 +3086,13 @@
   function paintTaskAssistant(entry) {
     entry.node.replaceChildren(...markdown(entry.text).childNodes);
   }
-  function taskTool(record, { phase, id, label, ok }) {
+  function taskTool(record, { phase, id, label, ok, note }) {
+    // A task's tool result is the only place the stream carries what it wrote:
+    // remember its note so the finished card can lead to the real note.
+    if (phase === "end" && ok && note && typeof note === "object") {
+      record.note = note;
+      paintTask(record);
+    }
     const name = String(label ?? "Trabajando");
     if (phase === "start") {
       const row = h("div", { class: "activity running" }, h("span", { class: "spinner" }), name);
@@ -3276,6 +3359,7 @@
       toast(`No se pudo leer la biblioteca: ${error.message}`);
     }
     paintTaskTitles();
+    for (const record of taskCards.values()) paintTask(record);
     const [, view] = location.hash.split("/");
     // Never re-render the editor from a library change: it would drop typed text.
     // The results page refreshes its own status instead of being drawn again.
