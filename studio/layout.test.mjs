@@ -3512,6 +3512,49 @@ test("the approved board keeps its thread and suggestion chips uncut (S2)", { sk
   }
 });
 
+test("the approved board stays uncut under every font metric (S2, CI run 44339499427)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const url = pathToFileURL(join(import.meta.dirname, "..", "design", "tutor-panel", "01-reagrupado.html")).href;
+  const running = await (browser.chromium ?? browser.default).launch();
+  const page = await running.newPage({ viewport: { width: 1440, height: 900 } });
+  t.after(() => running.close());
+  // CI resolves the system stacks to other metrics and clipped the thread by 45px.
+  // The board has to survive each stack and a larger root without any slice.
+  const metrics = [
+    ["default", ""],
+    ["root 18px", ":root { font-size: 18px !important; }"],
+    ["root 20px", ":root { font-size: 20px !important; }"],
+    ["Georgia serif", ":root { --serif: Georgia, serif !important; }"],
+    ["monospace serif", ":root { --serif: monospace !important; --mono: monospace !important; }"],
+    ["monospace fallback", ":root { --serif: monospace !important; --sans: monospace !important; --mono: monospace !important; }"],
+  ];
+  const inspect = () => page.evaluate(() => {
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const thread = document.querySelector(".thread");
+    const scroller = document.querySelector(".thread-scroll");
+    const t = rect(".thread"), c = rect(".chips"), rare = rect(".rare"), composer = rect(".composer");
+    return {
+      clip: thread.scrollHeight - thread.clientHeight,
+      chipsClip: Math.max(0, Math.round(t.top - c.top), Math.round(c.bottom - t.bottom)),
+      scroll: scroller.scrollHeight - scroller.clientHeight,
+      bands: rare.top >= t.bottom - 1 && composer.top >= rare.bottom - 1,
+      band: Math.round(rare.height),
+    };
+  });
+  for (const theme of ["light", "night"]) {
+    for (const [name, css] of metrics) {
+      await page.goto(url);
+      if (css) await page.addStyleTag({ content: css });
+      if (theme === "night") await page.locator("#theme-toggle").click();
+      const seen = await inspect();
+      console.log(`board metrics ${theme} ${name}: thread clip ${seen.clip}px, chips clip ${seen.chipsClip}px, deliberate scroll ${seen.scroll}px, band ${seen.band}px`);
+      assert.equal(seen.clip, 0, `the board's thread is clipped by ${seen.clip}px in ${theme} / ${name}`);
+      assert.equal(seen.chipsClip, 0, `the board's chips are clipped by ${seen.chipsClip}px in ${theme} / ${name}`);
+      assert.equal(seen.bands, true, `the board's bands overlap in ${theme} / ${name}`);
+      assert.equal(await page.locator(".thread-scroll").evaluate((n) => getComputedStyle(n).overflowY), "auto", "the conversation scrolls deliberately when it needs to");
+    }
+  }
+});
+
 // ---- independent verification pass: four defects, each with a real-browser reproduction ----
 test("turn outputs are unavailable while another turn runs", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page } = await tutorTurn(t, (root) => [{ path: join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), content: "# Parte 1\n" }]);

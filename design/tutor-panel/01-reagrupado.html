@@ -230,14 +230,29 @@
   }
   .icon-btn svg, .btn svg, .primary-btn svg { width: 16px; height: 16px; flex: none; }
 
-  /* El hilo manda: ocupa toda la altura que queda y el compositor queda anclado abajo. */
+  /* El hilo manda: el cajón le cede el alto que dejan la banda y el compositor.
+     La conversación tiene su propio desplazamiento visible; los chips quedan fuera
+     de él, anclados en el hilo, para que ninguna métrica los pueda recortar. */
   .thread {
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     padding: 12px 18px 10px;
     background: var(--paper);
   }
+  .thread-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--slate2) var(--soft2);
+  }
+  .thread-scroll::-webkit-scrollbar { width: 8px; }
+  .thread-scroll::-webkit-scrollbar-thumb { background: var(--slate2); }
+  .thread-scroll::-webkit-scrollbar-track { background: var(--soft2); }
   .msg { max-width: 92%; padding: 9px 12px; margin-bottom: var(--space); border: 2px solid var(--line); border-radius: var(--radius); font-size: 12px; }
   .msg.user { margin-left: auto; background: var(--green-s); border-color: var(--green); color: var(--ink); }
   .msg.tutor { background: var(--soft2); }
@@ -295,7 +310,8 @@
   }
   .text-action:disabled { border-bottom-style: dashed; border-color: var(--slate2); color: var(--slate); }
 
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .thread > .group-inline { flex: 0 1 auto; min-height: var(--ctl); overflow-y: auto; }
+  .chips { display: flex; flex: none; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .chip {
     min-height: 30px;
     padding: 5px 10px;
@@ -342,7 +358,7 @@
     position: relative;
     flex: none;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 5px;
     border-top: 2px solid var(--line);
@@ -350,8 +366,8 @@
     padding: 2px 12px 4px;
   }
   .rare > .kicker { flex: 0 0 100%; display: block; padding: 0 4px 2px; }
-  .rare .group { position: relative; margin-bottom: 0; }
-  .rare .group > summary { min-height: var(--ctl); padding: 4px 6px; font-size: 10px; white-space: nowrap; }
+  .rare .group { position: relative; flex: 0 1 auto; min-width: 0; margin-bottom: 0; }
+  .rare .group > summary { min-height: var(--ctl); padding: 4px 6px; font-size: 10px; min-width: 0; white-space: normal; }
   .rare .group > summary::after { position: static; margin-left: 4px; }
   .rare .group > summary .count { margin-left: 4px; padding-right: 0; }
   .rare .num { width: 16px; height: 16px; }
@@ -551,23 +567,25 @@
           </header>
 
           <section class="thread" aria-label="Mensajes del tutor" aria-live="polite">
-            <div class="msg user"><span class="who">Tú</span>¿Qué tengo pendiente en mis temas?</div>
-            <div class="msg tutor">
-              <span class="who">Tutor</span>
-              <p>Tienes la Parte 2 de «Redes» pendiente. La Parte 1 ya está escrita: puedo continuar con las capas o repasar el mini-quiz antes de seguir.</p>
-            </div>
-
-            <span class="turn-note working-only">Trabajando en la Parte 2. «Enviar» y las respuestas se abren al terminar el turno; «Detener» manda.</span>
-
-            <details class="group-inline" id="group-2">
-              <summary><span class="num" aria-hidden="true">2</span> Después de la respuesta <span class="count">4</span></summary>
-              <div class="group-body link-row">
-                <button class="text-action" type="button" data-block-during-turn disabled>Ir a la nota</button>
-                <button class="text-action" type="button" data-block-during-turn disabled>Ir a Parte 2</button>
-                <button class="text-action" type="button" data-block-during-turn disabled>Seguir con Redes</button>
-                <button class="text-action" type="button" data-block-during-turn disabled>Ir al diagnóstico</button>
+            <div class="thread-scroll">
+              <div class="msg user"><span class="who">Tú</span>¿Qué tengo pendiente en mis temas?</div>
+              <div class="msg tutor">
+                <span class="who">Tutor</span>
+                <p>Tienes la Parte 2 de «Redes» pendiente. La Parte 1 ya está escrita: puedo continuar con las capas o repasar el mini-quiz antes de seguir.</p>
               </div>
-            </details>
+
+              <span class="turn-note working-only">Trabajando en la Parte 2. «Enviar» y las respuestas se abren al terminar el turno; «Detener» manda.</span>
+
+              <details class="group-inline" id="group-2">
+                <summary><span class="num" aria-hidden="true">2</span> Después de la respuesta <span class="count">4</span></summary>
+                <div class="group-body link-row">
+                  <button class="text-action" type="button" data-block-during-turn disabled>Ir a la nota</button>
+                  <button class="text-action" type="button" data-block-during-turn disabled>Ir a Parte 2</button>
+                  <button class="text-action" type="button" data-block-during-turn disabled>Seguir con Redes</button>
+                  <button class="text-action" type="button" data-block-during-turn disabled>Ir al diagnóstico</button>
+                </div>
+              </details>
+            </div>
 
             <div class="chips" role="group" aria-label="1 · Preguntas sugeridas">
               <button class="chip" type="button" data-block-during-turn>¿Qué tengo pendiente en mis temas?</button>
