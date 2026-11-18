@@ -41,6 +41,8 @@ const staticVersion = (() => {
     join(VIEW_DIR, "book.css"),
     join(VIEW_DIR, "book.js"),
     join(KIT_DIR, "kit.css"),
+    join(KIT_DIR, "stage.css"),
+    join(KIT_DIR, "stage.js"),
     join(KIT_DIR, "kit.js"),
     join(KIT_DIR, "question.js"),
     join(KIT_DIR, "code-field.js"),
@@ -504,15 +506,21 @@ function injectHeadLast(html: string, content: string): string {
 function ensureNodeMedia(html: string, token: string): string {
   let out = html;
   const kitCss = `<link rel="stylesheet" href="/${token}/kit/kit.css">`;
+  const stageCss = `<link rel="stylesheet" href="/${token}/kit/stage.css">`;
   const kitJs = `<script src="/${token}/kit/question.js" defer></script><script src="/${token}/kit/code-field.js" defer></script><script src="/${token}/kit/kit.js" defer></script>`;
+  const stageJs = `<script src="/${token}/kit/stage.js" defer></script>`;
   // A mention inside a comment is not a loaded asset: only real markup counts.
   const withoutComments = out.replace(/<!--[\s\S]*?-->/g, "");
   // A string inside a page script is not a loaded asset either, but keep the
   // <script src> opening tag: that is how a real kit asset is loaded.
   const markup = withoutComments.replace(/(<script\b[^>]*>)[\s\S]*?(<\/script\s*>)/gi, "$1$2");
   // Appended, never prepended: the bridge config stays the first script in head.
-  if (!/kit\.js/i.test(markup)) out = injectHeadLast(out, kitCss + kitJs);
-  else if (!/kit\.css/i.test(markup)) out = injectHeadLast(out, kitCss);
+  if (!/kit\.js/i.test(markup)) out = injectHeadLast(out, kitCss + stageCss + kitJs + stageJs);
+  else {
+    if (!/kit\.css/i.test(markup)) out = injectHeadLast(out, kitCss);
+    if (!/stage\.css/i.test(markup)) out = injectHeadLast(out, stageCss);
+    if (!/stage\.js/i.test(markup)) out = injectHeadLast(out, stageJs);
+  }
   // A control inside a comment or a page script does not render either.
   const visible = out.replace(/<!--[\s\S]*?-->/g, "").replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
   // The part owns its media, so the control closes the article: inside <main> it
@@ -1644,6 +1652,7 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
 <title>${escapedTitle}</title>
 <link rel="icon" href="${prefix}favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="${prefix}kit/kit.css?v=${staticVersion}">
+<link rel="stylesheet" href="${prefix}kit/stage.css?v=${staticVersion}">
 <link rel="stylesheet" href="${prefix}app.css?v=${staticVersion}">
 <link rel="stylesheet" href="${prefix}book.css?v=${staticVersion}">
 ${scripts}
@@ -1655,6 +1664,7 @@ ${scripts}
 <script src="${prefix}kit/dictate.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/visuals/draw.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/scene.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/stage.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/question.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/code-field.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/kit.js?v=${staticVersion}"></script>

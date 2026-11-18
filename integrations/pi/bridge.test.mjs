@@ -3566,6 +3566,8 @@ test("the part page ships the kit stylesheet and scripts for the note's own elem
   assert.match(page.body, /<link rel="stylesheet" href="[^"]*kit\/kit\.css\?v=\d+">/, "kit.css must load before app.css");
   assert.match(page.body, /kit\/scene\.js\?v=\d+/, "scene.js must load so a deck can be drawn");
   assert.match(page.body, /kit\/kit\.js\?v=\d+/, "kit.js must load so the custom elements upgrade");
+  assert.match(page.body, /kit\/stage\.css\?v=\d+/, "stage.css must load with the kit stylesheet");
+  assert.match(page.body, /kit\/stage\.js\?v=\d+/, "stage.js must load so lk-stage upgrades");
   const kitAt = page.body.indexOf("kit/kit.css");
   const appAt = page.body.indexOf("app.css");
   assert.ok(kitAt !== -1 && appAt !== -1 && kitAt < appAt, "kit.css comes first, app.css refines it");
@@ -4364,7 +4366,10 @@ const PIECE_ASSERTS = {
 const PIECE_EXAMPLES = [["bayes-mil-personas", "bayes-mil-personas.md"], ["prestamos-rust", "prestamos-rust.md"], ["memoria-string-rust", "memoria-string-rust.md"], ["sql-join-videojuegos", "sql-join-videojuegos.md"], ["sql-group-by", "sql-group-by.md"], ["sql-venn-joins", "sql-venn-joins.md"], ["plsql-parte-1-v3", "../test/fixtures/plsql-parte-1-v3.md"]];
 // Every kit example that draws lk-tables is in the matrix, so a new one cannot skip the phone width.
 test("every kit example that draws lk-tables is in the visual matrix", () => {
-  const drawn = readdirSync(KIT_EXAMPLES).filter((file) => example(file).includes("lk-tables"));
+  const drawn = readdirSync(KIT_EXAMPLES, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((file) => example(file).includes("lk-tables"));
   assert.ok(drawn.length >= 1, "no kit example draws lk-tables");
   for (const file of drawn) assert.ok(PIECE_EXAMPLES.some(([, owner]) => owner === file), `${file} draws lk-tables but is not in the piece matrix`);
 });

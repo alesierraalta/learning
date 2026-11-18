@@ -696,6 +696,77 @@ Worked example, gated: `integrations/pi/kit/examples/abrir-una-pagina.md` (clien
 as a `database` and the web server as a `server`; eight steps, the most one explorer takes: the DNS query and its answer, the
 TCP handshake (SYN, SYN-ACK, ACK), the HTTP request and its 200 OK, and the browser painting the page).
 
+### `<lk-stage>` — a declared isometric stage
+
+A new figure base (#358), chosen over the old `lk-scene` look: actors sit in named cells of an
+isometric grid and the renderer computes their prisms, their labels, the lane verbs and the camera.
+It does not draw `lk-scene` primitives. The element reads one inline JSON payload and needs no
+build step or npm dependency; `manifest.json` and the reader's page ship `stage.css` and `stage.js`
+beside `kit.css`/`kit.js`, and the same file works in light, dark and black themes.
+
+**Spec vocabulary (S4).** The payload is one object; every listed key is required unless marked
+optional, and nothing else is accepted at any level.
+
+| Level | Keys |
+| --- | --- |
+| root | `title` (optional), `question`, `focus`, `actors[]`, `lanes[]`, `steps[]` |
+| `actors[]` | `id`, `kind`, `cell`, `name`, `color` (`#RRGGBB`) |
+| `lanes[]` | `id`, `from`, `to`, `verb`, `identity` |
+| `steps[]` | `activeActor`, `highlightLane`, `battery` (optional, 0–100), `facts[]`, `narrator[]` |
+| `facts[]` | `identity`, `label`, `value`, `tone` |
+| `narrator[]` | a Spanish line, optionally with inline chips `[text\|tone]` |
+
+- `cell` is `A1`–`F5` (six columns, five rows). There are **no x/y coordinates anywhere**; placement,
+  label placement and camera framing are derived from the cell names.
+- `from`, `to`, `identity`, `activeActor` and `fact.identity` are actor ids; `highlightLane` is a lane
+  id or `null`. `focus` is one word copied from `question`, highlighted in the heading.
+- `fact.tone` ∈ `neutral | good | bad | warn`; a chip tone ∈ `neutral | good | bad | warn | info`.
+- Kinds (v1): `robot` (blue screen and battery), `room` (flat dirt-spotted floor), `charger` (tall
+  prism with a bolt) and `block` (generic prism). Every kind is an isometric prism with a light top,
+  mid left face, dark right face and a soft shadow; no kind is invented by the renderer.
+- A step's narrator uses base A's grammar: coloured chips such as `[4 % de batería|warn]`. The last
+  line of a multi-line step reads as the conclusion.
+
+The stage shows a question with its focus word marked, prisms and shadows on a subtle grid, dashed
+lanes that flow and carry their verb pill, a facts panel, and a player with previous / next, dots and
+`N/M`. Arrow keys move the steps while the element has focus. Labels are painted in a top layer and
+placed against the projected prism silhouettes and the other labels: a verb pill never hides behind
+a prism or covers a name tag, and no cell code is printed. The camera fits the declared actors and
+their labels with even margins, then eases closer to the active actor step by step. One easing curve
+(`cubic-bezier(.2,.8,.2,1)`, 150–420 ms) covers the camera, the lanes and the narrator;
+`prefers-reduced-motion` settles every step at once.
+
+```html
+<lk-stage>
+<script type="application/json">
+{
+  "question": "¿Qué acciones elijo para maximizar la recompensa total?",
+  "focus": "acciones",
+  "actors": [
+    { "id": "robot", "kind": "robot", "cell": "B3", "name": "Robot", "color": "#5AB0FF" },
+    { "id": "charger", "kind": "charger", "cell": "E4", "name": "Cargador", "color": "#5FD6A4" }
+  ],
+  "lanes": [
+    { "id": "charge", "from": "robot", "to": "charger", "verb": "cargar", "identity": "charger" }
+  ],
+  "steps": [
+    {
+      "activeActor": "robot", "battery": 4, "highlightLane": null,
+      "facts": [{ "identity": "robot", "label": "Batería", "value": "4 %", "tone": "warn" }],
+      "narrator": ["Le queda [4 % de batería|warn]."]
+    }
+  ]
+}
+</script>
+</lk-stage>
+```
+
+Invalid specs fail loudly at authoring time: the error names the offending value and the path it was
+written at, for example `actors[0].cell: "Z9" is not a cell`,
+`steps[1].activeActor: "robo" is not an actor` or `actors[0].x: unknown key "x"`. A page that
+still renders an invalid payload shows that message inside the element (`role="alert"`) instead of a
+broken figure. Worked, gated example: `integrations/pi/kit/examples/lk-stage-robot.html`.
+
 ## Injected config
 
 The bridge injects this **first in head**; builders must not hardcode tokens:

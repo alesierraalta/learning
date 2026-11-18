@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>lk-stage · recompensa diferida</title>
+  <script src="../theme.js"></script>
+  <link rel="stylesheet" href="../kit.css">
+  <link rel="stylesheet" href="../stage.css">
+  <script src="../stage.js" defer></script>
+  <style>
+    /* The example measures the stage itself, not the reader's 700 px column. */
+    main { max-width: none; margin: 0; padding: 22px 28px 32px; }
+  </style>
+</head>
+<body>
+<main>
+  <lk-stage>
+    <script type="application/json">
+    {
+      "title": "Recompensa diferida",
+      "question": "¿Qué acciones elijo a lo largo del tiempo para maximizar la recompensa total?",
+      "focus": "acciones",
+      "actors": [
+        { "id": "robot", "kind": "robot", "cell": "B3", "name": "Robot", "color": "#5AB0FF" },
+        { "id": "room", "kind": "room", "cell": "D2", "name": "Habitación sucia", "color": "#F2B45C" },
+        { "id": "charger", "kind": "charger", "cell": "E4", "name": "Cargador", "color": "#5FD6A4" },
+        { "id": "battery", "kind": "block", "cell": "A5", "name": "Batería", "color": "#9AA7BD" }
+      ],
+      "lanes": [
+        { "id": "sweep", "from": "robot", "to": "room", "verb": "aspirar", "identity": "robot" },
+        { "id": "charge", "from": "robot", "to": "charger", "verb": "cargar", "identity": "charger" }
+      ],
+      "steps": [
+        {
+          "activeActor": "robot",
+          "battery": 4,
+          "highlightLane": null,
+          "facts": [
+            { "identity": "battery", "label": "Batería", "value": "4 %", "tone": "warn" },
+            { "identity": "room", "label": "Habitaciones sucias", "value": "1", "tone": "neutral" },
+            { "identity": "charger", "label": "Distancia al cargador", "value": "2 celdas", "tone": "neutral" }
+          ],
+          "narrator": [
+            "El robot está en una habitación sucia.",
+            "Le queda [4 % de batería|warn]."
+          ]
+        },
+        {
+          "activeActor": "robot",
+          "battery": 4,
+          "highlightLane": "sweep",
+          "facts": [
+            { "identity": "robot", "label": "Opción A · aspirar", "value": "alta", "tone": "good" },
+            { "identity": "charger", "label": "Opción B · cargar", "value": "ninguna", "tone": "neutral" },
+            { "identity": "battery", "label": "Batería disponible", "value": "4 %", "tone": "warn" }
+          ],
+          "narrator": [
+            "Puede aspirar. Recompensa inmediata: [alta|good].",
+            "Puede irse al cargador. Recompensa inmediata: [ninguna|info].",
+            "Si miras solo el [instante|warn], [aspirar gana|good]."
+          ]
+        },
+        {
+          "activeActor": "charger",
+          "battery": 100,
+          "highlightLane": "charge",
+          "facts": [
+            { "identity": "robot", "label": "Si aspiras · batería", "value": "0 %", "tone": "bad" },
+            { "identity": "room", "label": "Si aspiras · limpias", "value": "1 habitación", "tone": "bad" },
+            { "identity": "charger", "label": "Si cargas · batería", "value": "100 %", "tone": "good" },
+            { "identity": "room", "label": "Si cargas · limpias", "value": "6 habitaciones", "tone": "good" }
+          ],
+          "narrator": [
+            "Al aspirar, la batería llega a [0 %|bad] y el robot se detiene: [1 habitación|bad].",
+            "Con la batería llena, vuelve y limpia [seis habitaciones|good].",
+            "Si miras la hora siguiente, [cargar gana|good]."
+          ]
+        }
+      ]
+    }
+    </script>
+  </lk-stage>
+</main>
+</body>
+</html>
