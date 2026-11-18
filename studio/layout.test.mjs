@@ -69,6 +69,9 @@ test("chat drawer creates and opens conversations and reuses the part chat", { s
   await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
   await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
   await page.locator(".tutor-pill").click();
+  // T2: on a phone group 3 is behind «Más»; the same rows keep their handlers and their place.
+  await page.locator(".drawer-more > summary").click();
+  await page.locator("#tutor-conversaciones > summary").click();
   const rows = page.locator(".chat-open");
   await rows.first().waitFor();
   const original = await rows.first().locator(".chat-name").innerText();
@@ -1604,12 +1607,24 @@ test("every tutor drawer target is 44px on a coarse pointer", { skip: browser ? 
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
   open.push(studio);
   const page = await coarsePage(t, browser, studio.url, "#/", async (p) => { await p.click(".tutor-pill"); await p.waitForTimeout(400); });
-  const small = await page.evaluate(() => [...document.querySelectorAll(".drawer button, .drawer summary, .drawer textarea, .drawer select, .drawer input, .drawer [role=separator], .drawer [role=button]")]
+  // T2: the rare controls live behind disclosures now. Measure every group instead of only the
+  // strip that happened to be visible, so regrouping cannot hide an undersized target.
+  const measure = () => page.evaluate(() => [...document.querySelectorAll(".drawer button, .drawer summary, .drawer textarea, .drawer select, .drawer input, .drawer [role=separator], .drawer [role=button]")]
     // The clipped file input is not a touch target: its 44px label is.
     .filter((el) => el.type !== "file" && getComputedStyle(el).clip !== "rect(0px, 0px, 0px, 0px)")
     .filter((el) => { const cs = getComputedStyle(el); const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none"; })
     .map((el) => { const r = el.getBoundingClientRect(); return { name: el.getAttribute("aria-label") || el.textContent.trim().slice(0, 28) || el.tagName, w: Math.round(r.width), h: Math.round(r.height) }; })
     .filter((c) => c.w < 44 || c.h < 44));
+  const small = [];
+  const more = page.locator(".drawer-more > summary");
+  if (await more.count() && !(await page.locator(".drawer-more").evaluate((n) => n.open))) await more.click();
+  small.push(...await measure());
+  for (const id of ["tutor-conversaciones", "tutor-aprender", "tutor-marco"]) {
+    const summary = page.locator(`#${id} > summary`);
+    await summary.click();
+    small.push(...await measure());
+    await summary.click();
+  }
   const picker = await page.locator(".drawer .learning-source-picker").first().boundingBox();
   console.log(`coarse drawer undersized: ${JSON.stringify(small)}, file label ${Math.round(picker.height)}px`);
   assert.ok(picker.height >= 44, `the file picker label is ${picker.height}px tall`);
@@ -3140,32 +3155,43 @@ test("the tutor can take the whole window and give the page back", { skip: brows
   assert.equal(restored.stage.width, 920);
 });
 
-test("the conversation list folds away and gives its room to the conversation", { skip: browser ? false : "playwright not installed" }, async (t) => {
+test("the conversation list folds away inside its disclosure and keeps the thread's room", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page } = await openedTutor(t, 1440, 900);
+  // T2: group 3 is behind «Conversaciones», not a band above the conversation.
+  const more = page.locator(".drawer-more > summary");
+  if (!(await page.locator(".drawer-more").evaluate((n) => n.open))) await more.click();
+  const conversations = page.locator("#tutor-conversaciones > summary");
+  await conversations.click();
   const before = await panelGeometry(page);
-  assert.ok(before.list.width > 0 && before.list.height > 0, "the list is shown when the panel opens");
+  assert.ok(before.list.width > 0 && before.list.height > 0, "the list is reachable inside the named disclosure");
   const hide = page.getByRole("button", { name: "Ocultar la lista de chats" });
   assert.equal(await hide.getAttribute("aria-expanded"), "true");
   assert.equal(await hide.getAttribute("aria-controls"), "tutor-chats");
   await hide.click();
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
   const after = await panelGeometry(page);
   assert.equal(after.list.width, 0, "a folded list takes no room");
   assert.equal(await page.locator(".chat-list").isVisible(), false);
   assert.equal(await page.locator(".chats").isVisible(), false, "no heading is left over an empty list");
-  // The list is a band above the conversation, so what it returns is room: the
-  // chat grows by the band's height and already owns the panel's whole width.
-  assert.ok(after.thread.height > before.thread.height + 40, `the conversation gets the room back: ${before.thread.height} → ${after.thread.height}`);
+  // The list no longer sits above the thread, so folding it cannot trade height with the chat:
+  // the disclosure keeps the rare band compact and the thread keeps the panel's body.
+  assert.equal(after.thread.height, before.thread.height, `folding the list does not resize the thread: ${before.thread.height} → ${after.thread.height}`);
+  console.log(`grouped drawer geometry: thread ${after.thread.height}px, drawer ${after.drawer.height}px, list ${after.list.width}x${after.list.height}, rare ${await page.locator(".drawer-more").evaluate((n) => Math.round(n.getBoundingClientRect().height))}px`);
+  assert.ok(after.thread.height > 300, `the conversation keeps a readable height: ${after.thread.height}`);
   assert.ok(after.thread.width >= after.drawer.width - 4, `the conversation spans the panel: ${after.thread.width} of ${after.drawer.width}`);
-  assert.ok(after.thread.width * after.thread.height > before.thread.width * before.thread.height, "the conversation has more room to read in");
   const show = page.getByRole("button", { name: "Mostrar la lista de chats" });
   assert.equal(await show.getAttribute("aria-expanded"), "false");
+  await show.click();
+  assert.equal(await page.locator(".chat-list").isVisible(), true, "the same toggle brings the list back");
+  await page.getByRole("button", { name: "Ocultar la lista de chats" }).click();
   // The conversation is still a conversation while the list is away.
   await page.locator(".composer textarea").fill("sigo leyendo");
   assert.equal(await page.locator(".composer textarea").inputValue(), "sigo leyendo");
   await page.reload({ waitUntil: "networkidle" });
   await page.locator(".tutor-pill").click();
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
+  if (!(await page.locator(".drawer-more").evaluate((n) => n.open))) await page.locator(".drawer-more > summary").click();
+  await page.locator("#tutor-conversaciones > summary").click();
   assert.equal(await page.locator(".chats").isVisible(), false, "the choice survives a reload");
   assert.equal((await panelGeometry(page)).list.width, 0);
 });
@@ -3226,4 +3252,387 @@ test("an interrupted turn shows in Spanish with the way back", { skip: browser ?
   await page.locator(".tasks-pill").click();
   assert.equal(await notice.count(), 1, "the main chat keeps its own card");
   assert.equal(await page.locator(".tasks-panel .next-cta.interrupted").count(), 0, "the task panel stays quiet");
+});
+
+// T2 — S3: the 37 controls of odd/tasks/tutor-panel.md are a DOM contract. Each definition site
+// carries its inventory id once (templates list their ids on the container that owns them); the
+// browser checks one home, one group, and the two mutually exclusive primaries.
+const TUTOR_INVENTORY = {
+  1: ["c01-composer", "c01-send", "c01-stop", "c01-chip"],
+  2: ["c02-head-note", "c02-next", "c02-note", "c02-interrupted"],
+  3: ["c03-toggle", "c03-new-chat", "c03-open", "c03-options", "c03-rename", "c03-delete", "c03-export", "c03-new-conversation"],
+  4: ["c04-summary", "c04-topic", "c04-modes", "c04-formats", "c04-practices", "c04-deduce", "c04-practice", "c04-file", "c04-remove", "c04-start"],
+  5: ["c05-option", "c05-confirm", "c05-answer", "c05-send-answer", "c05-later"],
+  6: ["c06-splitter", "c06-full", "c06-more", "c06-stop", "c06-restart", "c06-close"],
+};
+
+test("the 37 tutor controls keep one home each and Enviar/Detener follow the turn (S3, S4)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  process.env.FAKE_PI_WRITES = JSON.stringify([{ path: join(root, "rapidos", "hash.md") }]);
+  process.env.FAKE_PI_HISTORY = "1";
+  t.after(() => { delete process.env.FAKE_PI_WRITES; delete process.env.FAKE_PI_HISTORY; });
+  const stateDir = mkdtempSync(join(tmpdir(), "studio-inventory-"));
+  const chatId = "abc123abc123";
+  writeFileSync(join(stateDir, "chats.json"), JSON.stringify({
+    version: 1, activo: chatId,
+    chats: [{ id: chatId, nombre: "Chat general", ambito: null, piSession: null, agyConversation: null, creado: 1, usado: 1, contexto: null }],
+  }));
+  writeFileSync(join(stateDir, "conversacion.json"), JSON.stringify({
+    version: 1, chat: chatId, messages: [{ role: "user", text: "Explícame el turno" }], interrupted: { topic: "redes", at: 1 },
+  }));
+  const studio = await startStudio({
+    root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")],
+    enginePath: engine, openedFile: join(stateDir, "opened.json"),
+  });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1440, height: 900 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  const more = page.locator(".drawer-more > summary");
+  if (!(await page.locator(".drawer-more").evaluate((n) => n.open))) await more.click();
+  await page.locator("#tutor-conversaciones > summary").click();
+  await page.locator(".chat-open").first().waitFor();
+  await page.locator("#tutor-conversaciones > summary").click();
+  await page.locator(".next-cta.interrupted").waitFor();
+
+  const homes = new Map();
+  const snapshot = async () => {
+    const rows = await page.evaluate(() => [...document.querySelectorAll(".drawer [data-control], .drawer [data-controls]")].flatMap((node) => {
+      const group = Number(node.dataset.group);
+      const ids = node.dataset.control ? [node.dataset.control] : node.dataset.controls.trim().split(/\s+/);
+      return ids.map((id) => ({ id, group }));
+    }));
+    const names = rows.map((row) => row.id);
+    assert.equal(new Set(names).size, names.length, `a control has more than one home: ${JSON.stringify(names)}`);
+    for (const row of rows) {
+      if (homes.has(row.id)) assert.equal(homes.get(row.id), row.group, `${row.id} moved to another group`);
+      else homes.set(row.id, row.group);
+    }
+  };
+  await snapshot();
+  const openGroup = async (id) => {
+    const summary = page.locator(`#${id} > summary`);
+    await summary.click();
+    assert.equal(await page.locator(`#${id} > .group-body`).isVisible(), true, `${id} opens`);
+    await snapshot();
+    return summary;
+  };
+  await openGroup("tutor-conversaciones");
+  assert.equal(await page.locator("#tutor-marco").evaluate((n) => n.open), false, "one rare group at a time");
+  await page.locator(".drawer .chat-options > summary").first().click();
+  assert.deepEqual((await page.locator(".drawer .chat-menu button").allInnerTexts()).map((s) => s.trim().toLowerCase()), ["renombrar", "borrar", "exportar"]);
+  await snapshot();
+  const learning = await openGroup("tutor-aprender");
+  await page.locator(".drawer input[type=file]").setInputFiles({ name: "examen.png", mimeType: "image/png", buffer: Buffer.from("imagen") });
+  await page.locator(".drawer .learning-source-item").getByRole("button", { name: /Quitar/ }).waitFor();
+  await snapshot();
+  await learning.click();
+  const frame = await openGroup("tutor-marco");
+  await page.locator("#tutor-marco").getByRole("button", { name: "Más opciones" }).click();
+  assert.equal(await page.locator(".drawer .menu.open").isVisible(), true, "Más opciones opens the two frame actions");
+  await snapshot();
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator(".drawer .menu.open").count(), 0, "Escape closes the frame menu");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Más opciones", "Escape returns focus to its trigger");
+  await frame.click();
+  assert.equal(await page.locator("#tutor-marco").evaluate((n) => n.open), false, "the summary closes its own group");
+
+  assert.deepEqual(Object.values(TUTOR_INVENTORY).map((ids) => ids.length), [4, 4, 8, 10, 5, 6]);
+  assert.equal(Object.values(TUTOR_INVENTORY).flat().length, 37);
+  // The suggested-chip home only exists in a fresh conversation: reach it through group 3.
+  if (!(await page.locator("#tutor-conversaciones").evaluate((n) => n.open))) await page.locator("#tutor-conversaciones > summary").click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#tutor-conversaciones").getByRole("button", { name: "Nueva conversación" }).click();
+  await page.locator(".thread .chips").waitFor();
+  await snapshot();
+
+  const primaries = () => page.evaluate(() => {
+    const send = document.querySelector(".composer .send");
+    const stop = document.querySelector(".composer .stop");
+    return {
+      sendDisabled: send.disabled, stopDisabled: stop.disabled,
+      sendPrimary: send.classList.contains("is-primary"), stopPrimary: stop.classList.contains("is-primary"),
+      chips: [...document.querySelectorAll(".drawer .chips .chip")].map((n) => n.disabled),
+      blocked: [...document.querySelectorAll(".drawer [data-block-during-turn]")].map((n) => ({ tag: n.tagName, disabled: n.disabled, line: getComputedStyle(n).borderStyle })),
+    };
+  });
+  const idle = await primaries();
+  assert.deepEqual([idle.sendDisabled, idle.stopDisabled, idle.sendPrimary, idle.stopPrimary], [false, true, true, false], "Enviar is the idle primary");
+  assert.ok(idle.chips.length === 3 && idle.chips.every((v) => v === false), "the suggested chips are live at rest");
+
+  await page.getByLabel("Mensaje para el tutor").fill("Explícame este turno");
+  await page.getByLabel("Mensaje para el tutor").press("Enter");
+  await page.waitForFunction(() => document.querySelector(".composer .send")?.disabled === true, null, { timeout: 5000 });
+  const busy = await primaries();
+  assert.deepEqual([busy.sendDisabled, busy.stopDisabled, busy.sendPrimary, busy.stopPrimary], [true, false, false, true], "Detener is the working primary");
+  assert.ok(busy.chips.every((v) => v === true), "the chips cannot start a second turn");
+  assert.ok(busy.blocked.length >= 3 && busy.blocked.every((n) => n.disabled && n.line === "dashed"), `the blocked outputs look unavailable: ${JSON.stringify(busy.blocked)}`);
+  const card = page.locator(".drawer .ask-card");
+  await card.waitFor();
+  await snapshot();
+  assert.equal(await card.getByRole("button", { name: "Universitario" }).isVisible(), true);
+  assert.equal(await card.getByRole("button", { name: "Ahora no" }).isVisible(), true);
+  await card.getByRole("button", { name: "Universitario" }).click();
+  await page.waitForFunction(() => document.querySelector(".composer .send")?.disabled === false, null, { timeout: 10000 });
+  await page.locator(".thread .note-cta").waitFor();
+  const back = await primaries();
+  assert.deepEqual([back.sendDisabled, back.stopDisabled, back.sendPrimary, back.stopPrimary], [false, true, true, false], "Enviar is primary again when the turn closes");
+  assert.equal(await page.locator(".thread .note-cta button").isEnabled(), true, "the turn output is usable under the answer");
+  await snapshot();
+  const expected = Object.entries(TUTOR_INVENTORY).flatMap(([group, ids]) => ids.map((id) => [id, Number(group)]));
+  assert.deepEqual([...homes.entries()].sort(), expected.sort(), `one home and one group per control: ${JSON.stringify([...homes])}`);
+});
+
+test("the grouped drawer keeps the thread whole at 1440 and 390 in light and night (S2, S4)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  process.env.FAKE_PI_HISTORY = "1";
+  t.after(() => delete process.env.FAKE_PI_HISTORY);
+  const stateDir = mkdtempSync(join(tmpdir(), "studio-grouped-"));
+  const chatId = "abc123abc123";
+  writeFileSync(join(stateDir, "chats.json"), JSON.stringify({
+    version: 1, activo: chatId,
+    chats: [{ id: chatId, nombre: "Chat general", ambito: null, piSession: null, agyConversation: null, creado: 1, usado: 1, contexto: null }],
+  }));
+  writeFileSync(join(stateDir, "conversacion.json"), JSON.stringify({ version: 1, chat: chatId, messages: [] }));
+  const studio = await startStudio({
+    root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")],
+    enginePath: engine, openedFile: join(stateDir, "opened.json"),
+  });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1440, height: 900 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.locator(".thread .chips").waitFor();
+  const inspect = () => page.evaluate(() => {
+    const box = (selector) => {
+      const node = document.querySelector(selector);
+      const rect = node.getBoundingClientRect();
+      return { top: Math.round(rect.top), bottom: Math.round(rect.bottom), width: Math.round(rect.width), height: Math.round(rect.height) };
+    };
+    const thread = document.querySelector(".thread");
+    const chips = box(".thread .chips");
+    const more = document.querySelector(".drawer-more");
+    const palette = {
+      paper: getComputedStyle(document.querySelector(".drawer")).backgroundColor,
+      ink: getComputedStyle(document.querySelector(".drawer-head h2")).color,
+      accent: getComputedStyle(document.querySelector(".composer .send")).backgroundColor,
+    };
+    return {
+      drawer: box(".drawer"), thread: box(".thread"), chips, rare: box(".drawer-more"), composer: box(".composer"),
+      threadScroll: thread.scrollHeight - thread.clientHeight,
+      chipsInside: chips.top >= box(".thread").top - 1 && chips.bottom <= box(".thread").bottom + 1,
+      noOverlap: box(".drawer-more").top >= box(".thread").bottom - 1 && box(".composer").top >= box(".drawer-more").bottom - 1,
+      overflow: document.documentElement.scrollWidth - innerWidth,
+      moreOpen: more.open, moreLabel: more.querySelector("summary").innerText.trim(),
+      theme: document.documentElement.dataset.theme || "light", palette,
+    };
+  });
+  const theme = async (want) => {
+    for (let i = 0; i < 3 && (await page.evaluate(() => document.documentElement.dataset.theme || "light")) !== want; i++) {
+      await page.getByRole("button", { name: "Contexto" }).click();
+      await page.getByRole("menuitem", { name: /Cambiar a modo/ }).click();
+    }
+  };
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(500);
+    for (const mode of ["light", "dark"]) {
+      await theme(mode);
+      const seen = await inspect();
+      const shot = await page.screenshot();
+      console.log(`drawer ${width} ${mode}: drawer ${seen.drawer.width}px, thread ${seen.thread.height}px, scroll ${seen.threadScroll}px, chips ${seen.chips.top}-${seen.chips.bottom}, more «${seen.moreLabel}» ${seen.moreOpen}, overflow ${seen.overflow}, palette ${JSON.stringify(seen.palette)}, screenshot ${shot.length} bytes in memory`);
+      assert.equal(seen.drawer.width, width === 390 ? 390 : 520, `the drawer keeps its column at ${width}px and owns the phone`);
+      assert.equal(seen.threadScroll, 0, `the thread is cut by ${seen.threadScroll}px at ${width}px`);
+      assert.equal(seen.chipsInside, true, `the suggestion chips are sliced at ${width}px`);
+      assert.equal(seen.noOverlap, true, `the rare band overlaps the thread or composer at ${width}px`);
+      assert.equal(seen.overflow, 0, `the drawer scrolls sideways at ${width}px`);
+      assert.deepEqual(seen.palette, mode === "light"
+        ? { paper: "rgb(255, 255, 255)", ink: "rgb(15, 46, 61)", accent: "rgb(0, 66, 118)" }
+        : { paper: "rgb(13, 25, 31)", ink: "rgb(228, 237, 241)", accent: "rgb(143, 194, 227)" });
+      assert.ok(shot.length > 1000, "the browser drew the drawer");
+    }
+  }
+  const compact = await inspect();
+  assert.equal(compact.moreOpen, false, "on a phone the three rare groups collapse behind one menu");
+  assert.match(compact.moreLabel, /Más/, "the one menu is labelled Más");
+  await page.locator(".drawer-more > summary").click();
+  const headings = await page.locator(".drawer-more .drawer-group > summary").allInnerTexts();
+  assert.deepEqual(headings.map((s) => s.replace(/\s+/g, " ").trim()), [
+    "3 Conversaciones 8", "4 Aprender algo nuevo 10", "6 Marco del panel 6",
+  ], `the Más menu keeps three headings and their counts: ${JSON.stringify(headings)}`);
+  const group = page.locator("#tutor-aprender > summary");
+  await group.click();
+  assert.equal(await page.locator("#tutor-aprender > .group-body").isVisible(), true);
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#tutor-aprender").evaluate((n) => n.open), false);
+  assert.equal(await page.evaluate(() => document.activeElement?.parentElement?.id), "tutor-aprender", "Escape returns focus from the disclosure");
+});
+
+test("the approved board keeps its thread and suggestion chips uncut (S2)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const url = pathToFileURL(join(import.meta.dirname, "..", "design", "tutor-panel", "01-reagrupado.html")).href;
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1440, height: 900 } }));
+  t.after(() => page.context().browser().close());
+  await page.goto(url);
+  const inspect = () => page.evaluate(() => {
+    const box = (selector) => {
+      const rect = document.querySelector(selector).getBoundingClientRect();
+      return { top: Math.round(rect.top), bottom: Math.round(rect.bottom), height: Math.round(rect.height) };
+    };
+    const thread = document.querySelector(".thread");
+    return {
+      thread: box(".thread"), chips: box(".chips"), rare: box(".rare"), composer: box(".composer"),
+      scroll: thread.scrollHeight - thread.clientHeight,
+      groups: [...document.querySelectorAll(".rare .group > summary")].map((n) => n.innerText.replace(/\s+/g, " ").trim()),
+      map: document.querySelectorAll(".group-map li").length,
+      paper: getComputedStyle(document.querySelector(".drawer")).backgroundColor,
+      accent: getComputedStyle(document.querySelector("#send-btn")).backgroundColor,
+    };
+  });
+  for (const theme of ["light", "night"]) {
+    if (theme === "night") await page.locator("#theme-toggle").click();
+    const seen = await inspect();
+    const shot = await page.screenshot();
+    console.log(`board ${theme}: thread ${seen.thread.height}px, scroll ${seen.scroll}px, chips ${seen.chips.top}-${seen.chips.bottom}, rare ${seen.rare.top}-${seen.rare.bottom}, palette ${seen.paper}/${seen.accent}, screenshot ${shot.length} bytes in memory`);
+    assert.equal(seen.scroll, 0, `the board's thread is clipped by ${seen.scroll}px in ${theme}`);
+    assert.ok(seen.chips.top >= seen.thread.top - 1 && seen.chips.bottom <= seen.thread.bottom + 1, `the board's chips are sliced in ${theme}: ${JSON.stringify(seen)}`);
+    assert.ok(seen.rare.top >= seen.thread.bottom - 1 && seen.composer.top >= seen.rare.bottom - 1, `the board's bands overlap in ${theme}`);
+    assert.deepEqual(seen.groups, ["3 Conversaciones 8", "4 Aprender algo nuevo 10", "6 Marco del panel 6"]);
+    assert.deepEqual(await page.locator(".thread .group-inline > summary").allInnerTexts().then((s) => s.map((x) => x.replace(/\s+/g, " ").trim())), [
+      "2 Después de la respuesta 4", "5 Cuando el tutor pregunta 5",
+    ]);
+    assert.equal(seen.map, 6);
+    assert.deepEqual(seen.paper, theme === "light" ? "rgb(255, 255, 255)" : "rgb(13, 25, 31)");
+    assert.deepEqual(seen.accent, theme === "light" ? "rgb(0, 66, 118)" : "rgb(143, 194, 227)");
+    assert.ok(shot.length > 1000);
+  }
+});
+
+// ---- independent verification pass: four defects, each with a real-browser reproduction ----
+test("turn outputs are unavailable while another turn runs", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await tutorTurn(t, (root) => [{ path: join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), content: "# Parte 1\n" }]);
+  const step = page.locator(".thread .next-cta button");
+  const note = page.locator(".thread .note-cta button");
+  await step.waitFor({ timeout: 10000 });
+  await note.waitFor({ timeout: 10000 });
+  assert.equal(await step.count(), 1, "one next step under the answer");
+  assert.equal(await note.count(), 1, "one way to the note under the answer");
+  await page.getByLabel("Mensaje para el tutor").fill("Otra pregunta");
+  await page.getByLabel("Mensaje para el tutor").press("Enter");
+  await page.waitForFunction(() => document.querySelector(".composer .send")?.disabled === true, null, { timeout: 5000 });
+  const seen = await page.locator(".thread .next-cta button, .thread .note-cta button").evaluateAll((nodes) => nodes.map((n) => ({
+    text: n.textContent.trim(), disabled: n.disabled, aria: n.getAttribute("aria-disabled"),
+    background: getComputedStyle(n).backgroundColor, border: getComputedStyle(n).borderStyle,
+  })));
+  console.log(`busy turn outputs: ${JSON.stringify(seen)}`);
+  assert.equal(seen.length, 2);
+  for (const output of seen) {
+    assert.equal(output.disabled, true, `${output.text} is disabled while a turn runs`);
+    assert.equal(output.aria, "true", `${output.text} announces its unavailable state`);
+    assert.notEqual(output.background, "rgba(0, 0, 0, 0)", `${output.text} does not look runnable`);
+    assert.equal(output.border, "dashed", `${output.text} looks unavailable`);
+  }
+  const hash = await page.evaluate(() => location.hash);
+  await page.evaluate(() => document.querySelector(".thread .note-cta button")?.click());
+  await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(() => location.hash), hash, "a disabled output cannot navigate");
+  assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), true, "an unavailable output does not close the drawer");
+});
+
+test("Escape closes the innermost chat-options disclosure and then its parent", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page } = await openedTutor(t, 1440, 900);
+  await page.locator("#tutor-conversaciones > summary").click();
+  const options = page.locator(".drawer .chat-options").first();
+  await options.locator("> summary").focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await options.evaluate((n) => n.open), true, "chat options open from the keyboard");
+  await page.keyboard.press("Tab");
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent?.trim()), "Renombrar", "focus reaches the first menu action");
+  await page.keyboard.press("Escape");
+  assert.equal(await options.evaluate((n) => n.open), false, "Escape closes the innermost disclosure");
+  assert.equal(await page.locator("#tutor-conversaciones").evaluate((n) => n.open), true, "its parent stays open");
+  assert.match(await page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? ""), /^Opciones de /, "focus returns to that disclosure's own summary");
+  assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), true, "closing a nested disclosure does not close the drawer");
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#tutor-conversaciones").evaluate((n) => n.open), false, "a second Escape closes the parent");
+  assert.equal(await page.evaluate(() => document.activeElement?.parentElement?.id), "tutor-conversaciones", "and returns focus to its summary");
+});
+
+test("the drawer fills the 390px viewport and keeps its head reachable", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const context = await (browser.chromium ?? browser.default).launch().then((b) => b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }));
+  t.after(() => context.browser().close());
+  await context.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const page = await context.newPage();
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(500);
+  const seen = await page.evaluate(() => {
+    const r = document.querySelector(".drawer").getBoundingClientRect();
+    const head = document.querySelector(".drawer-head");
+    return {
+      box: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)],
+      padTop: getComputedStyle(head).paddingTop,
+      topbar: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar")),
+      buttons: [...head.querySelectorAll("button")].filter((b) => b.getBoundingClientRect().width > 0).map((b) => {
+        const q = b.getBoundingClientRect();
+        return { label: b.getAttribute("aria-label") || b.textContent.trim(), top: Math.round(q.top), bottom: Math.round(q.bottom), left: Math.round(q.left), right: Math.round(q.right) };
+      }),
+      coarse: matchMedia("(pointer: coarse)").matches,
+    };
+  });
+  console.log(`phone drawer: box ${JSON.stringify(seen.box)}, head padding-top ${seen.padTop}, controls ${JSON.stringify(seen.buttons)}, coarse ${seen.coarse}`);
+  assert.equal(seen.coarse, true, "the pointer is coarse");
+  assert.equal(await page.locator(".topbar").evaluate((n) => Math.round(n.getBoundingClientRect().bottom)), seen.topbar, "the bar still marks the safe area under the full-height drawer");
+  assert.deepEqual(seen.box, [0, 0, 390, 844], "the drawer owns the whole phone screen");
+  assert.ok(parseFloat(seen.padTop) >= seen.topbar, `the head clears the safe area: ${seen.padTop}`);
+  assert.ok(seen.buttons.length > 0, "the head keeps a reachable control");
+  for (const b of seen.buttons) assert.ok(b.top >= seen.topbar && b.bottom <= 844 && b.left >= 0 && b.right <= 390, `head control off screen or behind the safe area: ${JSON.stringify(b)}`);
+  await page.locator(".drawer-head").getByRole("button", { name: "Cerrar el tutor" }).click();
+  assert.equal(await page.evaluate(() => document.body.classList.contains("drawer-open")), false, "the head control still closes the drawer");
+});
+
+test("an answered turn's outputs appear once after an abort", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  process.env.FAKE_PI_WRITES = JSON.stringify([{ path: join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), content: "# Parte 1\n" }]);
+  t.after(() => delete process.env.FAKE_PI_WRITES);
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1440, height: 900 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  const ask = async (text) => {
+    await page.getByLabel("Mensaje para el tutor").fill(text);
+    await page.getByLabel("Mensaje para el tutor").press("Enter");
+    await page.locator(".drawer .ask-card").waitFor();
+  };
+  const idle = () => page.waitForFunction(() => /Listo/.test(document.querySelector(".drawer-head h2")?.textContent ?? ""), null, { timeout: 10000 });
+  await ask("Explícame las capas");
+  await page.locator(".drawer .ask-card").getByRole("button", { name: "Universitario" }).click();
+  await idle();
+  await page.waitForTimeout(200);
+  await ask("Otra pregunta sobre lo mismo");
+  await page.locator(".composer .stop").click();
+  await page.waitForTimeout(300);
+  if (await page.locator(".drawer .ask-card").count()) await page.locator(".drawer .ask-card").getByRole("button", { name: "Universitario" }).click();
+  await idle();
+  await page.waitForTimeout(300);
+  const counts = await page.evaluate(() => ({
+    next: [...document.querySelectorAll(".thread .next-cta button")].map((b) => b.textContent.trim()),
+    note: [...document.querySelectorAll(".thread .note-cta button")].map((b) => b.textContent.trim()),
+  }));
+  console.log(`outputs after a completed turn + an aborted one: ${JSON.stringify(counts)}`);
+  assert.equal(counts.next.filter((text) => /Responder el diagnóstico/i.test(text)).length, 1, `one next step, not ${counts.next.length}`);
+  assert.equal(counts.note.filter((text) => /Ir a la nota/i.test(text)).length, 1, `one note link, not ${counts.note.length}`);
+  assert.equal(counts.next.length, 1, `the next step is not duplicated: ${JSON.stringify(counts)}`);
+  assert.equal(counts.note.length, 1, `the note link is not duplicated: ${JSON.stringify(counts)}`);
 });

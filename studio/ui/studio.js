@@ -77,6 +77,10 @@
     return node;
   };
   const btn = (label, onclick, cls = "btn", iconName) => h("button", { class: cls, type: "button", onclick }, iconName && icon(iconName), label);
+  // T2 (#364): one anchor per definition site of the 37-control inventory. Templates mark the
+  // stable container that owns them, so a generated chat row or source still has exactly one home.
+  const control = (node, group, id) => { node.dataset.group = String(group); node.dataset.control = id; return node; };
+  const controls = (node, group, ids) => { node.dataset.group = String(group); node.dataset.controls = ids.join(" "); return node; };
   const markdown = (text) => {
     const node = h("div");
     if (window.DOMPurify && window.marked) node.append(DOMPurify.sanitize(marked.parse(text), { RETURN_DOM_FRAGMENT: true }));
@@ -772,8 +776,11 @@
    * «Aprender algo nuevo»: the learner writes what to learn and picks the mode before sending, so no
    * tutor asks it. Exam format and, when practical, the kind of practice are decided here too.
    */
-  function newLearningEntry() {
-    const input = h("textarea", { name: "topic", rows: "1", "aria-label": "¿Qué quieres aprender?", placeholder: "Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…", autocomplete: "off" });
+  function newLearningEntry(drawer = false) {
+    // The home page draws the same form; only the drawer's second mount belongs to the inventory.
+    const tag = (node, id) => (drawer ? control(node, 4, id) : node);
+    const tagGroup = (node, ids) => (drawer ? controls(node, 4, ids) : node);
+    const input = tag(h("textarea", { name: "topic", rows: "1", "aria-label": "¿Qué quieres aprender?", placeholder: "Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…", autocomplete: "off" }), "c04-topic");
     const sourceCount = h("span", { class: "learning-source-count", hidden: true });
     const sourceError = h("span", { class: "learning-source-error", hidden: true });
     const sourceHelp = h("p", { class: "learning-source-help", role: "status", "aria-live": "polite", hidden: true }, sourceCount, sourceError);
@@ -807,17 +814,17 @@
     );
     const deducirPick = h("button", { type: "button", class: "mode-pick", "data-formato": "deducir", "aria-pressed": "false", onclick: () => pickFormat("deducir") }, h("b", {}, "Que lo deduzca el tutor"));
     let formatButtons = formatPicks;
-    const formatPicksContainer = h("div", { class: "mode-picks" }, formatPicks);
-    const practiceInput = h("input", { type: "text", class: "exam-practice-other", maxlength: "120", "aria-label": "Describe el tipo de práctica", placeholder: "¿Qué práctica harás?", autocomplete: "off", hidden: true });
-    const fileInput = h("input", {
+    const formatPicksContainer = tagGroup(h("div", { class: "mode-picks" }, formatPicks), ["c04-formats", "c04-deduce"]);
+    const practiceInput = tag(h("input", { type: "text", class: "exam-practice-other", maxlength: "120", "aria-label": "Describe el tipo de práctica", placeholder: "¿Qué práctica harás?", autocomplete: "off", hidden: true }), "c04-practice");
+    const fileInput = tag(h("input", {
       type: "file",
       accept: ".pdf,image/png,image/jpeg,image/webp",
       multiple: true,
       "aria-label": "Adjuntar examen o documento",
       onchange: () => { void uploadSources(); },
-    });
+    }), "c04-file");
     const filePicker = h("label", { class: "learning-source-picker" }, h("span", {}, "Adjuntar examen o documento"), fileInput);
-    const sourceList = h("ul", { class: "learning-source-list", "aria-label": "Archivos adjuntos" });
+    const sourceList = tagGroup(h("ul", { class: "learning-source-list", "aria-label": "Archivos adjuntos" }), ["c04-remove"]);
     const sourceErrors = h("p", { class: "learning-source-errors", role: "status", "aria-live": "polite", hidden: true });
     const formatGroup = h(
       "div",
@@ -829,10 +836,10 @@
       "div",
       { class: "exam-choice-group", role: "group", "aria-label": "Tipo de práctica", hidden: true },
       h("p", { class: "exam-choice-question" }, "¿Qué tipo de práctica?"),
-      h("div", { class: "mode-picks" }, practicePicks),
+      tagGroup(h("div", { class: "mode-picks" }, practicePicks), ["c04-practices"]),
       practiceInput,
     );
-    const submit = h("button", { class: "btn primary", type: "submit", disabled: true }, icon("spark"), "Empezar");
+    const submit = tag(h("button", { class: "btn primary", type: "submit", disabled: true }, icon("spark"), "Empezar"), "c04-start");
     const resetPractice = () => {
       practica = "";
       practiceInput.value = "";
@@ -990,7 +997,7 @@
       h("p", { class: "learn-hint" }, "Al adjuntar, se selecciona Examen si no habías elegido modo y «Que lo deduzca el tutor» si el examen aún no tiene formato. Tus elecciones previas se conservan."),
       sourceHelp,
       h("div", { class: "learning-source-control" }, filePicker, sourceList, sourceErrors),
-      h("div", { class: "mode-picks", role: "group", "aria-label": "Modo de estudio" }, picks),
+      tagGroup(h("div", { class: "mode-picks", role: "group", "aria-label": "Modo de estudio" }, picks), ["c04-modes"]),
       formatGroup,
       practiceGroup,
     );
@@ -2399,6 +2406,7 @@
     chats = doc;
     chatRevision++;
     chatHeading.textContent = doc.chats.find((chat) => chat.id === doc.activo)?.nombre || "Chats";
+    controls(chatList, 3, ["c03-open", "c03-options", "c03-rename", "c03-delete", "c03-export"]);
     chatList.replaceChildren(...doc.chats.map((chat) => {
       const open = h("button", { type: "button", class: "chat-open", "aria-current": chat.id === doc.activo ? "true" : null, onclick: () => chatAction("api/chats/abrir", { id: chat.id }) },
         h("span", { class: "chat-name" }, chat.nombre), h("span", { class: "chat-used" }, relativeUse(chat.usado)),
@@ -2419,22 +2427,23 @@
     } catch (error) { toast(error.message); }
   }
   const createChat = () => { const nombre = prompt("Nombre de la conversación"); if (nombre !== null) chatAction("api/chats", { nombre }); };
-  const thread = h("div", { class: "thread", "aria-live": "polite" });
-  const composerText = h("textarea", { rows: "1", "aria-label": "Mensaje para el tutor", placeholder: "Escribe al tutor…" });
+  const thread = controls(h("div", { class: "thread", "aria-live": "polite" }), 2, ["c02-next", "c02-note"]);
+  const composerText = control(h("textarea", { rows: "1", "aria-label": "Mensaje para el tutor", placeholder: "Escribe al tutor…" }), 1, "c01-composer");
   const stateLine = h("span", { class: "state" }, "Conectando…");
   const pillWhat = h("span", { class: "what" }, "Tutor");
   const pillBadge = h("span", { class: "badge", hidden: true });
   const pill = h("button", { class: "tutor-pill", type: "button", "aria-controls": "drawer", "aria-expanded": "false", onclick: () => (document.body.classList.contains("drawer-open") ? closeDrawer() : openDrawer()) }, h("span", { class: "dot" }), pillWhat, pillBadge);
   const menu = h(
     "div",
-    { class: "menu", role: "menu" },
-    btn("Detener lo que está haciendo", () => { menu.classList.remove("open"); post("abort").catch((e) => toast(e.message)); }, "", "stop"),
-    btn("Nueva conversación", () => {
-      menu.classList.remove("open");
-      if (confirm("¿Empezar una conversación nueva con el tutor? La actual queda guardada en Pi.")) post("new-session").catch((e) => toast(e.message));
-    }, "", "fresh"),
-    btn("Reiniciar el tutor", () => { menu.classList.remove("open"); post("restart").catch((e) => toast(e.message)); }, "", "restart"),
+    { class: "menu", role: "menu", id: "tutor-mas-opciones" },
+    control(btn("Detener lo que está haciendo", () => { setMenuOpen(false); post("abort").catch((e) => toast(e.message)); }, "", "stop"), 6, "c06-stop"),
+    control(btn("Reiniciar el tutor", () => { setMenuOpen(false); post("restart").catch((e) => toast(e.message)); }, "", "restart"), 6, "c06-restart"),
   );
+  // «Nueva conversación» belongs to Conversaciones, not to the frame menu: the handler is kept.
+  const newConversation = control(btn("Nueva conversación", () => {
+    setMenuOpen(false);
+    if (confirm("¿Empezar una conversación nueva con el tutor? La actual queda guardada en Pi.")) post("new-session").catch((e) => toast(e.message));
+  }, "", "fresh"), 3, "c03-new-conversation");
   const asks = new Map();
   const assistant = new Map();
   const activities = new Map();
@@ -2445,11 +2454,14 @@
     { class: "intro" },
     h("h3", {}, "Tu tutor"),
     h("p", {}, "Trabaja de fondo con tu método de siempre. Pídele lo que necesites; cuando tenga que preguntarte algo verás aquí unos botones. Para empezar algo nuevo, usa «Aprender algo nuevo» y elige el modo ahí."),
-    h(
-      "div",
-      { class: "chips" },
-      ["¿Qué tengo pendiente en mis temas?", "Sigamos con mi último tema.", "Explícame de nuevo lo último que leí."].map((text) => h("button", { class: "chip", type: "button", onclick: () => say(text) }, text)),
-    ),
+      controls(
+        h(
+          "div",
+          { class: "chips", role: "group", "aria-label": "Preguntas sugeridas" },
+          ["¿Qué tengo pendiente en mis temas?", "Sigamos con mi último tema.", "Explícame de nuevo lo último que leí."].map((text) => h("button", { class: "chip", type: "button", "data-block-during-turn": "", onclick: () => say(text) }, text)),
+        ),
+        1, ["c01-chip"],
+      ),
   );
 
   function updatePill() {
@@ -2461,11 +2473,37 @@
     stateLine.textContent = !tutor.alive ? "Detenido · usa ⋯ para reiniciarlo" : asking ? "Esperando tu respuesta" : tutor.busy ? `Trabajando · ${tutor.activity || "pensando"}` : "Listo";
     pillBadge.hidden = !tutor.unread;
     pillBadge.textContent = String(tutor.unread);
+    paintTurnState();
+  }
+  // One primary per state: the server refuses a prompt while a turn is open, so the other
+  // ways to start one are disabled and drawn as unavailable, not left looking runnable.
+  function paintTurnState() {
+    const busy = Boolean(tutor.busy);
+    // The outputs are built after the idle state is painted, so they join the blocked set here:
+    // every way out of a finished turn is unavailable while the next one runs.
+    for (const node of document.querySelectorAll(".drawer [data-block-during-turn], .thread .next-cta button, .thread .note-cta button")) {
+      node.setAttribute("data-block-during-turn", "");
+      node.disabled = busy;
+      node.setAttribute("aria-disabled", String(busy));
+    }
+    const send = document.querySelector(".composer .send");
+    const stop = document.querySelector(".composer .stop");
+    if (!send || !stop) return;
+    send.classList.toggle("is-primary", !busy);
+    stop.classList.toggle("is-primary", busy);
+    stop.disabled = !busy;
+    stop.setAttribute("aria-disabled", String(!busy));
   }
   const atBottom = () => thread.scrollHeight - thread.scrollTop - thread.clientHeight < 80;
   function append(node) {
     const stick = atBottom();
-    intro.remove();
+    // The intro copy leaves once the chat starts, but its suggested prompts keep their place in
+    // the thread: while a turn runs they are visibly disabled instead of pretending to be usable.
+    if (intro.isConnected) {
+      intro.classList.add("compact");
+      intro.querySelector("h3")?.setAttribute("hidden", "");
+      intro.querySelector("p")?.setAttribute("hidden", "");
+    }
     thread.append(node);
     if (stick) thread.scrollTop = thread.scrollHeight;
   }
@@ -2569,9 +2607,10 @@
   /** The same question card serves the main chat and a topic task; only the route differs. */
   function dialogCard(dialog, answer) {
     const field = h("textarea", { rows: "3", placeholder: dialog.placeholder || "Tu respuesta" });
-    const card = h(
-      "section",
-      { class: "ask-card", "aria-label": "Pregunta del tutor" },
+    const card = controls(
+      h(
+        "section",
+        { class: "ask-card", "aria-label": "Pregunta del tutor" },
       h("span", { class: "label" }, "El tutor te pregunta"),
       h("h4", {}, dialog.title || "¿Cómo seguimos?"),
       dialog.message ? h("p", {}, dialog.message) : null,
@@ -2580,7 +2619,9 @@
         : dialog.method === "confirm"
           ? h("div", { class: "options" }, h("button", { type: "button", onclick: () => answer({ confirmed: true }, card) }, "Sí"), h("button", { type: "button", onclick: () => answer({ confirmed: false }, card) }, "No"))
           : h("div", { class: "options" }, field, h("button", { type: "button", onclick: () => answer({ value: field.value }, card) }, "Enviar respuesta")),
-      h("button", { class: "cancel", type: "button", onclick: () => answer({ cancelled: true }, card) }, "Ahora no"),
+        h("button", { class: "cancel", type: "button", onclick: () => answer({ cancelled: true }, card) }, "Ahora no"),
+      ),
+      5, ["c05-option", "c05-confirm", "c05-answer", "c05-send-answer", "c05-later"],
     );
     return card;
   }
@@ -2621,7 +2662,9 @@
       ? (name ? `Actualizamos el estudio y se interrumpió tu última petición sobre «${name}»; vuelve a enviarla.` : "Actualizamos el estudio y se interrumpió tu última petición; vuelve a enviarla.")
       : (name ? `El turno se interrumpió; el tutor puede seguir con ${name}.` : "El turno se interrumpió; el tutor puede seguir.");
     const resume = () => (topic ? say(`Sigamos con ${name} (carpeta ${topic}).`, topic, { deep: true }) : say("Sigamos."));
-    return h("div", { class: "next-cta interrupted" }, h("p", {}, text), btn(name ? `Seguir con ${name}` : "Seguir", resume, "btn small primary", "next"));
+    const back = control(btn(name ? `Seguir con ${name}` : "Seguir", resume, "btn small ghost turn-link", "next"), 2, "c02-interrupted");
+    back.setAttribute("data-block-during-turn", "");
+    return h("div", { class: "next-cta interrupted" }, h("p", {}, text), back);
   }
   on("history", ({ messages, note, interrupted }) => {
     thread.replaceChildren();
@@ -2676,6 +2719,14 @@
   };
   const noteLabel = (note) => note?.diagnosis ? "Ir al diagnóstico" : "Ir a la nota";
   const noteButton = (note) => (noteRoute(note) ? btn(noteLabel(note), () => openNote(note), "btn small ghost", "book") : null);
+  // A busy→idle transition can repeat when an aborted turn still answers a pending dialog.
+  // Keyed by what it offers, an answer's way out is appended once, however often it is repainted.
+  const appendTurnOutput = (node, key) => {
+    if ([...thread.querySelectorAll("[data-turn-output]")].some((old) => old.dataset.turnOutput === key)) return;
+    node.setAttribute("data-turn-output", key);
+    append(node);
+    paintTurnState();
+  };
   // A turn ends with what to do next, right under the explanation: the topic it worked on
   // offers its next step (the learner never has to guess it from the reply), and a turn that
   // wrote a note offers the way to it. The step comes from the engine's own report on the topic
@@ -2702,15 +2753,16 @@
         closeDrawer();
         action();
       };
-      append(h("div", { class: "next-cta" }, h("p", {}, h("strong", {}, `${step.label}: `), step.text), btn(label, run, "btn small primary", "next")));
+      appendTurnOutput(h("div", { class: "next-cta" }, h("p", {}, h("strong", {}, `${step.label}: `), step.text), btn(label, run, "btn small ghost turn-link", "next")), label);
     }
     if (!note || stepWins) return;
     showNote(note);
     const button = noteButton(note);
-    if (button) append(h("div", { class: "note-cta" }, button));
+    if (button) appendTurnOutput(h("div", { class: "note-cta" }, button), noteLabel(note));
   };
   // The head keeps the way back to the last note the tutor wrote, so a reloaded tab still has it.
-  const noteBtn = btn("Ir a la nota", () => openNote(tutor.note), "btn small ghost", "book");
+  const noteBtn = control(btn("Ir a la nota", () => openNote(tutor.note), "btn small ghost", "book"), 2, "c02-head-note");
+  noteBtn.setAttribute("data-block-during-turn", "");
   noteBtn.style.display = "none";
   const showNote = (note) => {
     tutor.note = noteRoute(note) ? note : null;
@@ -3050,7 +3102,7 @@
   if (!Number.isFinite(asked)) asked = WIDTH.default;
   asked = Math.max(WIDTH.min, Math.min(WIDTH.max, asked));
   const panelWidth = () => Math.max(WIDTH.min, Math.min(panelMax(), asked));
-  const splitter = h("div", {
+  const splitter = control(h("div", {
     class: "drawer-splitter",
     role: "separator",
     "aria-orientation": "vertical",
@@ -3059,7 +3111,7 @@
     "aria-valuemin": String(WIDTH.min),
     "aria-valuemax": String(panelMax()),
     "aria-valuenow": String(panelWidth()),
-  });
+  }), 6, "c06-splitter");
   function applyWidth(persist = false) {
     if (persist) keep(WIDTH_KEY, String(asked));
     // A phone gives the panel the window: there the stylesheet owns the width.
@@ -3103,7 +3155,7 @@
   splitter.addEventListener("dblclick", () => setWidth(WIDTH.default));
 
   let listOpen = kept(LIST_KEY) !== "cerrada";
-  const listBtn = h("button", { class: "icon-btn", type: "button", "aria-controls": "tutor-chats", onclick: () => setListOpen(!listOpen) }, icon("chat"));
+  const listBtn = control(h("button", { class: "icon-btn", type: "button", "aria-controls": "tutor-chats", onclick: () => setListOpen(!listOpen) }, icon("chat")), 3, "c03-toggle");
   function setListOpen(open) {
     listOpen = open;
     keep(LIST_KEY, open ? "abierta" : "cerrada");
@@ -3115,7 +3167,7 @@
   }
 
   let fullWindow = kept(FOCUS_KEY) === "si";
-  const focusBtn = h("button", { class: "icon-btn drawer-focus-btn", type: "button", onclick: () => setFullWindow(!fullWindow) }, icon("fit"));
+  const focusBtn = control(h("button", { class: "icon-btn drawer-focus-btn", type: "button", onclick: () => setFullWindow(!fullWindow) }, icon("fit")), 6, "c06-full");
   function setFullWindow(on) {
     fullWindow = on;
     keep(FOCUS_KEY, on ? "si" : "no");
@@ -3126,32 +3178,72 @@
     focusBtn.title = label;
   }
 
+  // Group 6 keeps its edge and header controls where their drag, focus and close handlers work;
+  // only the overflow itself moves into the named disclosure. Group 3 keeps its toggle with the
+  // list it controls, and group 4 keeps the whole form under one labelled summary.
+  const moreBtn = control(h("button", {
+    class: "icon-btn drawer-more-btn", type: "button", "aria-label": "Más opciones",
+    "aria-expanded": "false", "aria-controls": "tutor-mas-opciones",
+    onclick: () => setMenuOpen(!menu.classList.contains("open")),
+  }, icon("more")), 6, "c06-more");
+  function setMenuOpen(open, returnFocus = false) {
+    menu.classList.toggle("open", open);
+    moreBtn.setAttribute("aria-expanded", String(open));
+    if (open) menu.querySelector("button")?.focus();
+    else if (returnFocus) moreBtn.focus();
+  }
+  const closeBtn = control(h("button", { class: "icon-btn", type: "button", "aria-label": "Cerrar el tutor", onclick: closeDrawer }, icon("x")), 6, "c06-close");
+
+  const groupSummary = (num, label, count) => h("summary", {}, h("span", { class: "group-num", "aria-hidden": "true" }, String(num)), label, h("span", { class: "count" }, String(count)));
+  const chatsSection = h("section", { class: "chats", id: "tutor-chats", "aria-label": "Chats" },
+    h("div", { class: "chats-head" }, chatHeading, control(btn("＋ Chat", createChat, "btn small"), 3, "c03-new-chat")), chatList);
+  const conversationsGroup = h("details", { class: "drawer-group", id: "tutor-conversaciones" },
+    groupSummary(3, "Conversaciones", 8),
+    h("div", { class: "group-body" }, h("div", { class: "chats-tools" }, listBtn), chatsSection, newConversation));
+  const learningGroup = h("details", { class: "drawer-group", id: "tutor-aprender" },
+    control(groupSummary(4, "Aprender algo nuevo", 10), 4, "c04-summary"),
+    h("div", { class: "group-body" }, newLearningEntry(true)));
+  const frameGroup = h("details", { class: "drawer-group", id: "tutor-marco" },
+    groupSummary(6, "Marco del panel", 6),
+    h("div", { class: "group-body" },
+      moreBtn, menu,
+      h("p", { class: "frame-note" }, "Ancho del tutor: arrastra el borde o usa las flechas. Pantalla completa y Cerrar el tutor siguen en la cabecera.")));
+
+  const rareGroups = [conversationsGroup, learningGroup, frameGroup];
+  for (const group of rareGroups) group.addEventListener("toggle", () => {
+    if (!group.open) return;
+    for (const other of rareGroups) if (other !== group) other.open = false;
+  });
+  const compactDrawer = matchMedia("(max-width: 480px)");
+  const moreShell = h("details", { class: "drawer-more", id: "tutor-more", open: !compactDrawer.matches },
+    h("summary", { class: "more-summary" },
+      h("span", { class: "more-wide" }, "Agrupado bajo demanda"),
+      h("span", { class: "more-phone" }, "Más"),
+      h("span", { class: "more-count" }, "24")),
+    h("div", { class: "more-body" }, ...rareGroups));
+  const syncCompact = () => {
+    if (compactDrawer.matches) {
+      moreShell.open = false;
+      for (const group of rareGroups) group.open = false;
+    } else moreShell.open = true;
+  };
+  compactDrawer.addEventListener("change", syncCompact);
+
   const drawer = h(
     "aside",
     { class: "drawer", id: "drawer", "aria-label": "Tutor" },
     splitter,
-    h(
-      "div",
-      { class: "drawer-head" },
-      h("h2", {}, "Tutor", stateLine),
-      noteBtn,
-      listBtn,
-      focusBtn,
-      h("button", { class: "icon-btn", type: "button", "aria-label": "Más opciones", onclick: () => menu.classList.toggle("open") }, icon("more")),
-      h("button", { class: "icon-btn", type: "button", "aria-label": "Cerrar el tutor", onclick: closeDrawer }, icon("x")),
-      menu,
-    ),
-    h("section", { class: "chats", id: "tutor-chats", "aria-label": "Chats" },
-      h("div", { class: "chats-head" }, chatHeading, btn("＋ Chat", createChat, "btn small")), chatList),
+    h("div", { class: "drawer-head" }, h("h2", {}, "Tutor", stateLine), noteBtn, focusBtn, closeBtn),
     thread,
-    h("details", { class: "panel-learning" }, h("summary", {}, "Aprender algo nuevo"), newLearningEntry()),
+    moreShell,
     h(
       "div",
       { class: "composer" },
-      h("div", { class: "box" }, composerText, h("button", { class: "send", type: "button", "aria-label": "Enviar", onclick: sendComposer }, icon("send"))),
-      h("div", { class: "hint" }, h("span", {}, "Enter envía · Shift+Enter, nueva línea"), h("button", { class: "stop", type: "button", onclick: () => post("abort").catch((e) => toast(e.message)) }, "Detener")),
+      h("div", { class: "box" }, composerText, control(h("button", { class: "send is-primary", type: "button", "aria-label": "Enviar", "data-block-during-turn": "", onclick: sendComposer }, icon("send")), 1, "c01-send")),
+      h("div", { class: "hint" }, h("span", {}, "Enter envía · Shift+Enter, nueva línea"), control(h("button", { class: "stop", type: "button", onclick: () => post("abort").catch((e) => toast(e.message)) }, "Detener"), 1, "c01-stop")),
     ),
   );
+  syncCompact();
 
   // ---------- boot ----------
   /** #348: the same merged catalogue the reader uses, fetched after the shell paints. */
@@ -3213,7 +3305,17 @@
     if (event.key !== "Escape") return;
     // Escape closes the overflow first and gives the key back to its trigger.
     if (!contextMenu.hidden) { closeContextMenu(true); return; }
-    menu.classList.remove("open");
+    if (menu.classList.contains("open")) { setMenuOpen(false, true); return; }
+    // Escape closes the innermost open disclosure before it closes its parent (and then the
+    // drawer), and gives the key back to that disclosure's own summary. In DOM order Más wraps
+    // the three groups, and a chat's ⋯ menu sits inside Conversaciones.
+    const disclosures = [...drawer.querySelectorAll("details[open]")];
+    const innermost = disclosures[disclosures.length - 1];
+    if (innermost && document.body.classList.contains("drawer-open")) {
+      innermost.open = false;
+      innermost.querySelector(":scope > summary")?.focus();
+      return;
+    }
     // Escape leaves the tasks first, then the tutor, like their close buttons; a dialog on top owns the key.
     if (document.querySelector(".modal-backdrop")) return;
     if (document.body.classList.contains("tasks-open")) { closeTasks(); return; }

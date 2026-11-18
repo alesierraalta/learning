@@ -1,0 +1,14 @@
+{
+  "title": "Un rango por acción en el panel del tutor",
+  "brief": "Reagrupar los 37 controles reales del cajón sin perder ninguno: la conversación vuelve a ser la superficie, los rareos quedan tras disclosures con nombre y el hilo conserva sus respuestas y salidas de turno. Un solo primario por estado —Enviar en reposo, Detener con el turno en curso— sobre los tokens resueltos de design/system.md, con estados conmutables, comprobación del inventario al pie y degradación explícita a 390 px con objetivos de 44 × 44 px.",
+  "feature": "odd/tasks/tutor-panel.md",
+  "artboards": [
+    {
+      "file": "01-reagrupado.html",
+      "title": "Reagrupado",
+      "tradeoff": "Los controles poco frecuentes cuestan una apertura más que antes; se gana un hilo y un compositor que dejan de competir con diecinueve acciones visibles, y el primario cambia de mano según el estado del turno.",
+      "width": 1440,
+      "height": 900
+    }
+  ]
+}
