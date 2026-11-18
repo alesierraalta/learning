@@ -835,7 +835,9 @@ lk-explorer:fullscreen .lk-p, lk-explorer:-webkit-full-screen .lk-p { font-size:
     min-height: var(--ctl);
     border-radius: 0;
   }
+  /* kit.js appends the mini-quiz submit to the form, not to fieldset.lk-question. */
   .lk-question button,
+  lk-quiz form > button[type="submit"],
   .lk-qq-submit {
     min-height: var(--ctl);
     border-radius: 0;

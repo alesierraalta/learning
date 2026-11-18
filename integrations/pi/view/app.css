@@ -212,15 +212,19 @@ textarea.lk-code, textarea.code-editor { min-height: 0; }
     min-height: var(--ctl);
     border-radius: 0;
   }
-  /* A summary keeps its list-item marker: line-height centres the label without hiding the triangle. */
+  /* A summary keeps its list-item marker: line-height centres the label without hiding the triangle.
+     app.js puts the callout summary directly under details.callout, not under .quiz-question. */
   .quiz-question summary,
-  .runners-strip summary {
+  .runners-strip summary,
+  .prose details.callout > summary {
     min-height: var(--ctl);
     line-height: var(--ctl);
     border-radius: 0;
   }
+  /* app.js appends the submit to the form, a sibling of fieldset.quiz-question. */
   .quiz-question button,
-  .runners-strip button {
+  .runners-strip button,
+  form:has(> fieldset.quiz-question) > button[type="submit"] {
     min-height: var(--ctl);
     border-radius: 0;
   }

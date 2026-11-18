@@ -35,3 +35,5 @@ Son las tres hojas del puente del lector, no el Studio: `#44` (cerrada) cubrió 
 - La comprobación es sobre geometría calculada en navegador, a 390 px, en claro y nocturno.
 - El resto del lector no cambia: medida de lectura, índice y navegación quedan como están.
 ```
+
+- L2 (real-DOM recheck, #368): the independent review caught three controls the first pass missed — the reader quiz submit (`app.js` appends it to the parent form, not to `fieldset.quiz-question`), the kit mini-quiz submit (`kit.js` likewise appends it to the form), and the «Ver pistas» callout summary (`app.js` emits `details.callout > summary`, not `.callout details > summary`); the old test fixture hand-built those controls inside the wrong containers and probed only those containers, so its empty tally hid the defect — replaced by a bridge-served real reader part and a real `lk-quiz` page.
