@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reagrupado · panel del tutor · issue #364</title>
+<style>
+  :root {
+    /* Todos los colores y las tres pilas tipográficas están en design/system.md. */
+    --paper: #ffffff;
+    --ink: #0F2E3D;
+    --slate: #3F5B69;
+    --slate2: #5A7481;
+    --muted: rgba(15, 46, 61, .62);
+    --meta: #555555;
+    --line: rgba(15, 46, 61, .18);
+    --soft: #F6F7F7;
+    --soft2: #FAFBFB;
+    --blue: #004276;
+    --blue-s: #E7EDF2;
+    --green: #21594F;
+    --green-s: #E9F0EE;
+    --amber: #8A6B3F;
+    --amber-s: #F4EFE7;
+    --red: #DD4A68;
+    --red-s: #FBEAEE;
+    --on-ink: #ffffff;
+
+    --serif: "Liberation Serif", "DejaVu Serif", "Hoefler Text", Georgia, "Times New Roman", Times, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "Liberation Mono", "DejaVu Sans Mono", Consolas, monospace;
+
+    /* Resolución de «Ancladas»: radio 0, paso 8, gutter 48 y control 40/44. */
+    --radius: 0px;
+    --space: 8px;
+    --gutter: 48px;
+    --ctl: 40px;
+  }
+
+  * { box-sizing: border-box; }
+  html { background: var(--soft); }
+  body { margin: 0; }
+  h1, h2, h3, h4, p, ul, ol { margin: 0; }
+  ul, ol { padding: 0; list-style: none; }
+  h1, h2, h3, h4 { font: 400 var(--serif); }
+  button, textarea, input, summary { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  :focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+  .artboard {
+    width: 1440px;
+    height: 900px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-rows: 64px minmax(0, 1fr) 168px;
+    overflow: hidden;
+    background: var(--paper);
+    color: var(--ink);
+    font: 14px/1.45 var(--sans);
+    outline: 2px solid var(--line);
+    outline-offset: -2px;
+  }
+  .artboard[data-theme="dark"] {
+    --paper: #0D191F;
+    --ink: #E4EDF1;
+    --slate: #B7C9D1;
+    --slate2: #92A8B2;
+    --muted: rgba(228, 237, 241, .62);
+    --meta: #9AAFB8;
+    --line: rgba(228, 237, 241, .16);
+    --soft: #142228;
+    --soft2: #111E24;
+    --blue: #8FC2E3;
+    --blue-s: #12242F;
+    --green: #83C7B0;
+    --green-s: #11241E;
+    --amber: #DCBB8C;
+    --amber-s: #241E15;
+    --red: #EE8FA5;
+    --red-s: #2A151C;
+    --on-ink: #0D191F;
+    color-scheme: dark;
+  }
+
+  /* ---------- instrumentación del tablero (no es cromo del producto) ---------- */
+  .board-head {
+    display: grid;
+    grid-template-columns: 300px 240px minmax(0, 1fr);
+    align-items: center;
+    gap: var(--gutter);
+    padding: 0 24px;
+    border-bottom: 2px solid var(--ink);
+    background: var(--soft2);
+  }
+  .kicker { font: 700 10px/1.35 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--meta); }
+  .board-head h1 { font-size: 29px; line-height: 1.05; }
+  .seg { display: flex; border: 2px solid var(--ink); border-radius: var(--radius); }
+  .seg button {
+    min-height: var(--ctl);
+    min-width: 118px;
+    padding: 5px 14px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .seg button + button { border-left: 2px solid var(--ink); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+  .board-tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--space); }
+  .board-count { font: 700 11px/1.35 var(--sans); color: var(--slate); text-align: right; }
+  .toggle {
+    min-height: var(--ctl);
+    padding: 5px 12px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+    color: var(--slate);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  /* ---------- escenario: la página sigue siendo el contexto del chat ---------- */
+  .viewport { width: 1440px; height: 100%; }
+  .shell { display: flex; flex-direction: column; height: 100%; background: var(--paper); }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space);
+    min-height: 56px;
+    padding: 0 var(--gutter);
+    border-bottom: 2px solid var(--line);
+    background: var(--paper);
+  }
+  .brand { flex: none; font: 400 24px/1 var(--serif); }
+  .brand small { display: block; margin-top: 3px; font: 700 9px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--meta); }
+  .crumbs { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--slate); }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space);
+    min-height: var(--ctl);
+    padding: 5px 12px;
+    border: 2px solid var(--ink);
+    border-radius: var(--radius);
+    background: var(--soft2);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .status-pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); }
+  .artboard[data-state="working"] .status-pill .dot { background: var(--amber); }
+  .status-pill .badge { padding: 0 6px; background: var(--blue-s); color: var(--ink); font: 700 10px/1.5 var(--sans); }
+
+  .stage { display: flex; flex: 1; min-height: 0; min-width: 0; }
+  .page { flex: 1; min-width: 0; overflow: hidden; padding: 20px var(--gutter); background: var(--soft2); }
+  .sheet { height: 100%; overflow: hidden; padding: 22px 30px; border: 2px solid var(--line); border-radius: var(--radius); background: var(--paper); }
+  .sheet h2 { margin: 8px 0; font-size: 26px; }
+  .sheet h3 { margin: 14px 0 4px; font-size: 17px; }
+  .sheet p { margin-bottom: 8px; font: 14px/1.55 var(--serif); }
+  .sheet .callout { border-left: 3px solid var(--blue); background: var(--amber-s); padding: 8px 0 8px 14px; margin: 10px 0; }
+  .sheet .callout p { font: 12px/1.45 var(--sans); color: var(--ink); }
+  .sheet .callout strong { display: block; font: 700 10px/1.4 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--meta); }
+  .sheet code { font: 13px var(--mono); }
+
+  /* ---------- cajón del tutor ---------- */
+  .drawer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 520px;
+    flex: none;
+    border-left: 2px solid var(--ink);
+    background: var(--paper);
+  }
+  .splitter {
+    position: absolute;
+    z-index: 3;
+    left: -7px;
+    top: 0;
+    bottom: 0;
+    width: 14px;
+    cursor: col-resize;
+    background: transparent;
+  }
+  .splitter::after { content: ""; position: absolute; left: 6px; top: 0; bottom: 0; width: 2px; background: var(--line); }
+  .splitter:hover::after, .splitter:focus-visible::after { background: var(--blue); }
+  .splitter-label {
+    position: absolute;
+    left: 0;
+    top: 132px;
+    padding: 5px 2px;
+    border: 1px solid var(--line);
+    background: var(--soft2);
+    color: var(--slate);
+    font: 700 9px/1.1 var(--sans);
+    letter-spacing: .04em;
+    writing-mode: vertical-rl;
+    white-space: nowrap;
+  }
+
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space);
+    min-height: 56px;
+    padding: 0 14px 0 18px;
+    border-bottom: 2px solid var(--line);
+  }
+  .drawer-head .heading { flex: 1; min-width: 0; }
+  .drawer-head h2 { font-size: 22px; line-height: 1.1; }
+  .drawer-head .state { font: 700 10px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--green); }
+  .artboard[data-state="working"] .drawer-head .state { color: var(--amber); }
+  .icon-btn {
+    display: inline-grid;
+    place-items: center;
+    width: var(--ctl);
+    height: var(--ctl);
+    flex: none;
+    padding: 0;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--soft2);
+    color: var(--slate);
+  }
+  .icon-btn svg, .btn svg, .primary-btn svg { width: 16px; height: 16px; flex: none; }
+
+  /* El hilo manda: el cajón le cede el alto que dejan la banda y el compositor.
+     La conversación tiene su propio desplazamiento visible; los chips quedan fuera
+     de él, anclados en el hilo, para que ninguna métrica los pueda recortar. */
+  .thread {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 12px 18px 10px;
+    background: var(--paper);
+  }
+  .thread-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--slate2) var(--soft2);
+  }
+  .thread-scroll::-webkit-scrollbar { width: 8px; }
+  .thread-scroll::-webkit-scrollbar-thumb { background: var(--slate2); }
+  .thread-scroll::-webkit-scrollbar-track { background: var(--soft2); }
+  .msg { max-width: 92%; padding: 9px 12px; margin-bottom: var(--space); border: 2px solid var(--line); border-radius: var(--radius); font-size: 12px; }
+  .msg.user { margin-left: auto; background: var(--green-s); border-color: var(--green); color: var(--ink); }
+  .msg.tutor { background: var(--soft2); }
+  .msg .who { display: block; margin-bottom: 3px; font: 700 9px/1.2 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--meta); }
+  .msg p + p { margin-top: 5px; }
+
+  .group > summary, .group-inline > summary, .submenu > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space);
+    min-height: var(--ctl);
+    padding: 5px 10px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--soft2);
+    color: var(--ink);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    list-style: none;
+  }
+  .group > summary::-webkit-details-marker, .group-inline > summary::-webkit-details-marker, .submenu > summary::-webkit-details-marker { display: none; }
+  .group > summary::after, .group-inline > summary::after, .submenu > summary::after { content: "+"; margin-left: auto; font: 700 14px var(--mono); color: var(--slate); }
+  details[open] > summary::after { content: "−"; }
+  .num {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    flex: none;
+    border: 1px solid var(--ink);
+    border-radius: var(--radius);
+    color: var(--ink);
+    font: 700 10px/1 var(--mono);
+  }
+  .count { margin-left: auto; padding-right: 14px; color: var(--slate); font: 700 10px/1 var(--mono); }
+  .group > summary .count + *, .group-inline > summary .count + * { margin-left: 0; }
+  .group > summary::after { position: absolute; right: 12px; }
+  .group > summary, .group-inline > summary { position: relative; }
+  .group-body { padding: var(--space); border: 2px solid var(--line); border-top: 0; background: var(--paper); }
+  .group-body p { margin-bottom: 6px; font-size: 11px; color: var(--slate); }
+
+  .inline-group { margin: 4px 0 var(--space); }
+  .link-row { display: flex; flex-wrap: wrap; gap: 6px; padding: var(--space) 6px 2px; }
+  .text-action {
+    min-height: 30px;
+    padding: 4px 8px;
+    border: 0;
+    border-bottom: 2px solid var(--blue);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--blue);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .text-action:disabled { border-bottom-style: dashed; border-color: var(--slate2); color: var(--slate); }
+
+  .thread > .group-inline { flex: 0 1 auto; min-height: var(--ctl); overflow-y: auto; }
+  .chips { display: flex; flex: none; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip {
+    min-height: 30px;
+    padding: 5px 10px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--soft);
+    color: var(--ink);
+    font-size: 11px;
+    text-align: left;
+  }
+  .chip:disabled { border-style: dashed; background: var(--soft2); color: var(--slate); }
+
+  .question-card { margin-top: var(--space); padding: 10px; border: 2px solid var(--line); background: var(--soft2); }
+  .question-card h4 { margin-bottom: 4px; font: 700 11px/1.3 var(--sans); color: var(--ink); }
+  .question-card p { margin-bottom: 6px; font-size: 11px; color: var(--slate); }
+  .question-card textarea, .learning textarea, .learning input[type="text"] {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 11px;
+  }
+  .question-card .options { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  .mini-btn {
+    min-height: 30px;
+    padding: 4px 9px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  button:disabled, textarea:disabled, input:disabled { opacity: 1; }
+  .mini-btn:disabled, .mini-btn[disabled] { border-style: dashed; background: var(--soft); color: var(--slate); }
+  .unavailable { display: block; margin-top: 5px; font: 700 10px/1.3 var(--sans); color: var(--slate); }
+
+  /* La banda es una etiqueta compacta, no una losa: el hilo conserva su altura y los chips no se cortan.
+     Los cuerpos se abren como paneles sobre el hilo, sin quitarle sitio al mensaje. */
+  .rare {
+    position: relative;
+    flex: none;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 5px;
+    border-top: 2px solid var(--line);
+    background: var(--soft2);
+    padding: 2px 12px 4px;
+  }
+  .rare > .kicker { flex: 0 0 100%; display: block; padding: 0 4px 2px; }
+  .rare .group { position: relative; flex: 0 1 auto; min-width: 0; margin-bottom: 0; }
+  .rare .group > summary { min-height: var(--ctl); padding: 4px 6px; font-size: 10px; min-width: 0; white-space: normal; }
+  .rare .group > summary::after { position: static; margin-left: 4px; }
+  .rare .group > summary .count { margin-left: 4px; padding-right: 0; }
+  .rare .num { width: 16px; height: 16px; }
+  .rare > .group > .group-body {
+    position: absolute;
+    z-index: 6;
+    bottom: calc(100% + 4px);
+    left: 0;
+    width: 300px;
+    max-height: 220px;
+    overflow-y: auto;
+    border: 2px solid var(--ink);
+    background: var(--paper);
+    box-shadow: 8px 8px 0 var(--blue-s);
+  }
+  .chat-row { display: flex; align-items: stretch; gap: 6px; margin-bottom: 6px; }
+  .chat-open {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space);
+    min-height: var(--ctl);
+    padding: 5px 10px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: left;
+  }
+  .chat-open small { color: var(--slate); font-weight: 400; }
+  .submenu { flex: none; }
+  .submenu > summary { min-width: 44px; justify-content: center; padding: 5px 8px; }
+  .submenu > summary::after { display: none; }
+  .submenu > summary .num { display: none; }
+  .submenu .group-body { position: absolute; z-index: 5; width: 210px; right: 18px; max-height: none; border: 2px solid var(--ink); background: var(--paper); box-shadow: 8px 8px 0 var(--blue-s); }
+  .submenu { position: relative; }
+  .submenu .btn-stack { display: grid; gap: 4px; }
+  .btn-stack button, .learning-actions button {
+    min-height: 32px;
+    padding: 4px 9px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: left;
+  }
+  .learning { display: grid; gap: 6px; }
+  .learning .picks { display: flex; flex-wrap: wrap; gap: 5px; }
+  .learning .mode-pick {
+    min-height: 30px;
+    padding: 4px 8px;
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .learning .mode-pick[aria-pressed="true"] { border-color: var(--blue); background: var(--blue-s); color: var(--ink); }
+  .file-label {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 4px 8px;
+    border: 2px dashed var(--line);
+    color: var(--blue);
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .file-label input { width: 1px; height: 1px; opacity: 0; position: absolute; }
+  .file-label:focus-within { outline: 3px solid var(--blue); outline-offset: 2px; }
+  .learning-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* ---------- el compositor: la conversación es la superficie ---------- */
+  .composer { flex: none; padding: 10px 18px 12px; border-top: 2px solid var(--ink); background: var(--paper); }
+  .composer-row { display: flex; align-items: flex-end; gap: var(--space); border: 2px solid var(--ink); border-radius: var(--radius); padding: 6px 6px 6px 10px; }
+  .composer-row:focus-within { border-color: var(--blue); box-shadow: 0 0 0 4px var(--blue-s); }
+  .composer textarea { flex: 1; min-width: 0; min-height: 44px; max-height: 92px; padding: 5px 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--ink); font: 13px/1.35 var(--sans); }
+  .action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space);
+    min-height: var(--ctl);
+    padding: 5px 16px;
+    border: 2px solid var(--slate2);
+    border-radius: var(--radius);
+    background: var(--paper);
+    color: var(--slate);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .action-btn.is-primary { border-color: var(--blue); background: var(--blue); color: var(--on-ink); }
+  .action-btn.is-primary svg { color: var(--on-ink); }
+  .action-btn:disabled { border-style: dashed; background: var(--soft); color: var(--slate); }
+  .composer-hint { display: flex; align-items: center; justify-content: space-between; gap: var(--space); margin-top: 6px; font-size: 11px; color: var(--slate); }
+  .composer-hint .action-btn { min-height: 30px; padding: 4px 9px; border-width: 1px; font-size: 11px; }
+  .composer-hint .action-btn.is-primary { min-height: var(--ctl); padding: 5px 16px; border-width: 2px; font-size: 12px; }
+
+  /* El estado de trabajo no deja botones «presentes pero inútiles». */
+  .artboard[data-state="working"] [data-block-during-turn] { border-style: dashed; border-color: var(--slate2); background: var(--soft); color: var(--slate); }
+  .artboard[data-state="working"] [data-block-during-turn]:disabled { opacity: 1; }
+  .idle-only, .working-only { display: none; }
+  .artboard[data-state="idle"] .idle-only { display: inline; }
+  .artboard[data-state="working"] .working-only { display: inline; }
+  .turn-note { display: block; margin: 2px 0 var(--space); padding: 6px 8px; border-left: 3px solid var(--amber); background: var(--amber-s); color: var(--ink); font-size: 11px; }
+
+  /* ---------- pie: el mapa comprobable de los 37 controles ---------- */
+  .board-foot { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 24px; padding: 10px 24px; border-top: 2px solid var(--ink); background: var(--soft2); }
+  .board-foot h2 { margin-bottom: 5px; font: 700 10px/1.3 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--meta); }
+  .group-map { columns: 2; column-gap: 24px; }
+  .group-map li { break-inside: avoid; margin-bottom: 4px; font-size: 10px; line-height: 1.35; color: var(--slate); }
+  .group-map strong { color: var(--ink); }
+  .notes p { margin-bottom: 5px; font-size: 10px; line-height: 1.35; color: var(--slate); }
+  .notes strong { color: var(--ink); }
+
+  @media (pointer: coarse) {
+    .artboard { --ctl: 44px; }
+    .seg button, .toggle, .icon-btn, .chip, .text-action, .mini-btn, .mode-pick,
+    .chat-open, .submenu > summary, .btn-stack button, .learning-actions button,
+    .group > summary, .group-inline > summary, .submenu > summary, .file-label,
+    .composer textarea, .learning textarea, .learning input[type="text"] { min-height: 44px; }
+    .splitter { width: 44px; left: -22px; }
+    .splitter::after { left: 21px; }
+    .splitter-label { left: 18px; }
+    .mini-btn, .mode-pick, .chat-open { min-width: 44px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="artboard" data-state="idle" data-theme="light">
+
+  <header class="board-head">
+    <div>
+      <p class="kicker">Dirección de diseño · issue #364</p>
+      <h1>Reagrupado</h1>
+    </div>
+    <div class="seg" role="group" aria-label="Estado del tutor en la maqueta">
+      <button type="button" data-set-state="idle" aria-pressed="true">En reposo</button>
+      <button type="button" data-set-state="working" aria-pressed="false">Trabajando</button>
+    </div>
+    <div class="board-tools">
+      <p class="board-count">37 controles · 6 grupos · un primario por estado · página y cajón a 1440 × 900</p>
+      <button class="toggle" id="theme-toggle" type="button" aria-pressed="false">Noche</button>
+    </div>
+  </header>
+
+  <div class="viewport">
+    <div class="shell">
+      <header class="topbar">
+        <span class="brand">Estudio<small>Learnings</small></span>
+        <p class="crumbs">Inicio / Redes / Parte 1 · Capas</p>
+        <p class="status-pill"><span class="dot" aria-hidden="true"></span><span id="bar-state">Tutor listo</span><span class="badge" aria-hidden="true">2</span></p>
+      </header>
+
+      <main class="stage" id="stage">
+        <section class="page" aria-labelledby="page-title">
+          <article class="sheet">
+            <p class="kicker">Redes · explicación escrita por el tutor</p>
+            <h2 id="page-title">Parte 1 — Capas</h2>
+            <p>Una red en capas separa el transporte de la aplicación. La capa inferior mueve los paquetes; la superior decide qué hacer con ellos.</p>
+            <aside class="callout">
+              <strong>Conexión</strong>
+              <p>La misma idea vuelve cuando hablamos de <code>JOINs en SQL</code>: la forma de combinar datos cambia según la capa que los pide.</p>
+            </aside>
+            <h3>Las piezas</h3>
+            <p>Direcciones, protocols y puertos. Cada pieza resuelve una pregunta distinta y se puede estudiar por separado.</p>
+          </article>
+        </section>
+
+        <aside class="drawer" aria-labelledby="drawer-title">
+          <div class="splitter" role="separator" tabindex="0" aria-orientation="vertical"
+               aria-label="Ancho del tutor" aria-valuemin="360" aria-valuemax="1020" aria-valuenow="520">
+            <span class="splitter-label" aria-hidden="true">Ancho del tutor</span>
+          </div>
+
+          <header class="drawer-head">
+            <div class="heading">
+              <p class="kicker">Chats · Redes</p>
+              <h2 id="drawer-title">Tutor <span class="state" id="drawer-state">Listo</span></h2>
+            </div>
+            <button class="icon-btn" type="button" aria-label="Ver el tutor a pantalla completa" title="Ver el tutor a pantalla completa">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M8 21H3v-5m13 5h5v-5"/></svg>
+            </button>
+            <button class="icon-btn" type="button" aria-label="Cerrar el tutor" title="Cerrar el tutor">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </header>
+
+          <section class="thread" aria-label="Mensajes del tutor" aria-live="polite">
+            <div class="thread-scroll">
+              <div class="msg user"><span class="who">Tú</span>¿Qué tengo pendiente en mis temas?</div>
+              <div class="msg tutor">
+                <span class="who">Tutor</span>
+                <p>Tienes la Parte 2 de «Redes» pendiente. La Parte 1 ya está escrita: puedo continuar con las capas o repasar el mini-quiz antes de seguir.</p>
+              </div>
+
+              <span class="turn-note working-only">Trabajando en la Parte 2. «Enviar» y las respuestas se abren al terminar el turno; «Detener» manda.</span>
+
+              <details class="group-inline" id="group-2">
+                <summary><span class="num" aria-hidden="true">2</span> Después de la respuesta <span class="count">4</span></summary>
+                <div class="group-body link-row">
+                  <button class="text-action" type="button" data-block-during-turn disabled>Ir a la nota</button>
+                  <button class="text-action" type="button" data-block-during-turn disabled>Ir a Parte 2</button>
+                  <button class="text-action" type="button" data-block-during-turn disabled>Seguir con Redes</button>
+                  <button class="text-action" type="button" data-block-during-turn disabled>Ir al diagnóstico</button>
+                </div>
+              </details>
+            </div>
+
+            <div class="chips" role="group" aria-label="1 · Preguntas sugeridas">
+              <button class="chip" type="button" data-block-during-turn>¿Qué tengo pendiente en mis temas?</button>
+              <button class="chip" type="button" data-block-during-turn>Sigamos con mi último tema.</button>
+              <button class="chip" type="button" data-block-during-turn>Explícame de nuevo lo último que leí.</button>
+            </div>
+
+            <details class="group-inline" id="group-5">
+              <summary><span class="num" aria-hidden="true">5</span> Cuando el tutor pregunta <span class="count">5</span></summary>
+              <div class="group-body">
+                <div class="question-card">
+                  <h4>¿Cómo seguimos?</h4>
+                  <p>El tutor te pregunta · la tarjeta aparece en el hilo con la pregunta.</p>
+                  <div class="options">
+                    <button class="mini-btn" type="button" disabled>Continuar</button>
+                    <button class="mini-btn" type="button" disabled>Repasar</button>
+                    <button class="mini-btn" type="button" disabled>Sí</button>
+                    <button class="mini-btn" type="button" disabled>No</button>
+                  </div>
+                  <label class="sr-only" for="answer-preview">Tu respuesta</label>
+                  <textarea id="answer-preview" rows="1" placeholder="Tu respuesta" disabled></textarea>
+                  <div class="options">
+                    <button class="mini-btn" type="button" disabled>Enviar respuesta</button>
+                    <button class="mini-btn" type="button" disabled>Ahora no</button>
+                  </div>
+                </div>
+                <span class="unavailable">Sin pregunta abierta: los cinco controles vuelven a su sitio en el hilo cuando el tutor pregunta.</span>
+              </div>
+            </details>
+          </section>
+
+          <section class="rare" aria-label="Controles poco frecuentes, agrupados">
+            <span class="kicker">Agrupado bajo demanda · abre la etiqueta que necesitas</span>
+
+            <details class="group" id="group-3">
+              <summary><span class="num" aria-hidden="true">3</span> Conversaciones <span class="count">8</span></summary>
+              <div class="group-body">
+                <div class="chat-row">
+                  <button class="chat-open" type="button">Redes <small>Hace 2 min · 68 %</small></button>
+                  <details class="submenu" open>
+                    <summary aria-label="Opciones de Redes">⋯</summary>
+                    <div class="group-body btn-stack">
+                      <button type="button">Renombrar</button>
+                      <button type="button">Borrar</button>
+                      <button type="button">Exportar</button>
+                    </div>
+                  </details>
+                </div>
+                <div class="learning-actions">
+                  <button type="button">＋ Chat</button>
+                  <button type="button">Nueva conversación</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="group" id="group-4">
+              <summary><span class="num" aria-hidden="true">4</span> Aprender algo nuevo <span class="count">10</span></summary>
+              <div class="group-body learning">
+                <label class="sr-only" for="new-topic">¿Qué quieres aprender?</label>
+                <textarea id="new-topic" rows="1" placeholder="Por ejemplo: qué es una función hash, JOINs en SQL, el teorema de Bayes…"></textarea>
+                <div class="picks" role="group" aria-label="Modo de aprendizaje">
+                  <button class="mode-pick" type="button" aria-pressed="true">Universitario</button>
+                  <button class="mode-pick" type="button" aria-pressed="false">Rápido</button>
+                  <button class="mode-pick" type="button" aria-pressed="false">Examen</button>
+                </div>
+                <div class="picks" role="group" aria-label="Formato del examen">
+                  <button class="mode-pick" type="button" aria-pressed="false">Oral</button>
+                  <button class="mode-pick" type="button" aria-pressed="false">Escrito</button>
+                  <button class="mode-pick" type="button" aria-pressed="false">Práctico</button>
+                  <button class="mode-pick" type="button" aria-pressed="false">Que lo deduzca el tutor</button>
+                </div>
+                <div class="picks" role="group" aria-label="Tipo de práctica">
+                  <button class="mode-pick" type="button" aria-pressed="false">Laboratorios</button>
+                  <button class="mode-pick" type="button" aria-pressed="false">Construir una aplicación</button>
+                  <button class="mode-pick" type="button" aria-pressed="false">Ejercicios</button>
+                  <button class="mode-pick" type="button" aria-pressed="false">Otro</button>
+                </div>
+                <label class="sr-only" for="practice-other">Describe el tipo de práctica</label>
+                <input id="practice-other" type="text" placeholder="Describe el tipo de práctica">
+                <div class="learning-actions">
+                  <label class="file-label">Adjuntar examen o documento<input type="file"></label>
+                  <button type="button">Quitar</button>
+                  <button type="button" disabled>Empezar</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="group" id="group-6">
+              <summary><span class="num" aria-hidden="true">6</span> Marco del panel <span class="count">6</span></summary>
+              <div class="group-body">
+                <details class="submenu">
+                  <summary>Más opciones</summary>
+                  <div class="group-body btn-stack">
+                    <button type="button">Detener lo que está haciendo</button>
+                    <button type="button">Reiniciar el tutor</button>
+                  </div>
+                </details>
+                <p>Ancho del tutor: arrastra el borde o usa las flechas. Pantalla completa y Cerrar el tutor: iconos de la cabecera.</p>
+              </div>
+            </details>
+          </section>
+
+          <footer class="composer" aria-label="Escribir al tutor">
+            <div class="composer-row">
+              <label class="sr-only" for="composer-text">Mensaje para el tutor</label>
+              <textarea id="composer-text" rows="2" placeholder="Escribe al tutor…">Sigamos con la Parte 2 de Redes.</textarea>
+              <button class="action-btn is-primary" id="send-btn" type="button" aria-label="Enviar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 12 16-8-6 16-3-6-7-2Z"/></svg>
+                Enviar
+              </button>
+            </div>
+            <div class="composer-hint">
+              <span>Enter envía · Shift+Enter, nueva línea</span>
+              <button class="action-btn" id="stop-btn" type="button" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="7" y="7" width="10" height="10"/></svg>
+                Detener
+              </button>
+            </div>
+          </footer>
+        </aside>
+      </main>
+    </div>
+  </div>
+
+  <footer class="board-foot">
+    <div>
+      <h2>Inventario · 37 controles · un lugar y un rango por acción</h2>
+      <ol class="group-map">
+        <li><strong>1 · Conversación · 4</strong> — mensaje, Enviar, Detener y chip sugerido (<span class="idle-only">Enviar manda</span><span class="working-only">Detener manda</span>).</li>
+        <li><strong>2 · Salidas del turno · 4</strong> — Ir a la nota, CTA del paso, CTA de nota, CTA de turno interrumpido; enlaces bajo la respuesta.</li>
+        <li><strong>3 · Conversaciones · 8</strong> — lista, ＋ Chat, abrir chat, ⋯, Renombrar, Borrar, Exportar, Nueva conversación.</li>
+        <li><strong>4 · Aprender algo nuevo · 10</strong> — resumen y nueve controles del formulario (plantillas de modos, formatos y prácticas: una entrada cada una).</li>
+        <li><strong>5 · Preguntas del tutor · 5</strong> — opción, Sí/No, respuesta, Enviar respuesta, Ahora no; tarjeta del hilo.</li>
+        <li><strong>6 · Marco del panel · 6</strong> — ancho (borde), pantalla completa y cerrar (cabecera), Más opciones, Detener lo que está haciendo, Reiniciar el tutor.</li>
+      </ol>
+    </div>
+    <div class="notes">
+      <h2>Primario, límites y 390 px</h2>
+      <p><strong>Un primario por estado:</strong> <span class="idle-only">«Enviar» en reposo</span><span class="working-only">«Detener» con el turno en curso</span>; el otro queda deshabilitado. El servidor rechaza un prompt con turno abierto, y los CTAs del turno y las preguntas sin abrir se muestran inactivos, no como botones que parecen funcionar.</p>
+      <p><strong>A 390 px:</strong> el cajón ocupa la pantalla; los grupos 3, 4 y 6 se juntan en un único menú «Más» con tres encabezados. El 1 sigue en el compositor y los grupos 2 y 5 siguen en el hilo. En puntero grueso todos los objetivos, incluidos separador, resúmenes y chips, miden al menos 44 × 44 px.</p>
+      <p><strong>No se puede mover sin perder conducta:</strong> el hilo, la tarjeta de pregunta y los CTAs que emite el motor al cerrar el turno necesitan su contexto; cambian de rango, no de sitio. El separador se queda en el borde para conservar arrastre y teclado.</p>
+    </div>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var board = document.querySelector(".artboard");
+    var segButtons = [].slice.call(document.querySelectorAll("[data-set-state]"));
+    var send = document.getElementById("send-btn");
+    var stop = document.getElementById("stop-btn");
+    var blocked = [].slice.call(document.querySelectorAll("[data-block-during-turn]"));
+
+    function setState(state) {
+      var working = state === "working";
+      board.setAttribute("data-state", state);
+      segButtons.forEach(function (button) {
+        button.setAttribute("aria-pressed", String(button.getAttribute("data-set-state") === state));
+      });
+      document.getElementById("bar-state").textContent = working ? "Tutor trabajando" : "Tutor listo";
+      document.getElementById("drawer-state").textContent = working ? "Trabajando · Parte 2" : "Listo";
+      send.disabled = working;
+      send.setAttribute("aria-disabled", String(working));
+      send.classList.toggle("is-primary", !working);
+      stop.disabled = !working;
+      stop.setAttribute("aria-disabled", String(!working));
+      stop.classList.toggle("is-primary", working);
+      blocked.forEach(function (node) {
+        node.disabled = working;
+        node.setAttribute("aria-disabled", String(working));
+      });
+    }
+
+    segButtons.forEach(function (button) {
+      button.addEventListener("click", function () { setState(button.getAttribute("data-set-state")); });
+    });
+    var theme = document.getElementById("theme-toggle");
+    theme.addEventListener("click", function () {
+      var dark = board.getAttribute("data-theme") !== "dark";
+      board.setAttribute("data-theme", dark ? "dark" : "light");
+      theme.setAttribute("aria-pressed", String(dark));
+      theme.textContent = dark ? "Día" : "Noche";
+    });
+    setState("idle");
+  }());
+</script>
+</body>
+</html>
