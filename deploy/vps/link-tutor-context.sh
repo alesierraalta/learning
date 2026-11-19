@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Links the tutor's instructions to this repository: every skill each runtime
-# reads, and the Learnings `AGENTS.md` that frames a study session. The repo is
-# the only source; a live copy that is not a link is moved to a timestamped
-# backup first, never deleted, so a hand edit survives the deploy.
+# Links the tutor's instructions to this repository: every skill in every
+# directory declared by deploy/vps/tutor-skill-dirs.tsv (the single table of
+# where the supported agents discover skills), plus the Learnings `AGENTS.md`
+# that frames a study session. The repo is the only source; a live copy that
+# is not a link is moved to a timestamped backup first, never deleted, so a
+# hand edit survives the deploy.
 #
 #   bash deploy/vps/link-tutor-context.sh            link, then verify
 #   bash deploy/vps/link-tutor-context.sh --verify   verify only, change nothing
@@ -59,6 +61,29 @@ for file in "$repo"/skills/*/SKILL.md; do
 done
 [[ ${#skills[@]} -gt 0 ]] || die "no skills found under $repo/skills"
 
+# One table, read by this script and by studio/context.ts: every declared agent
+# has its skill directories here, so adding an agent cannot silently drop its
+# context. Only the two placeholders below are allowed, and both must be absolute.
+skill_dirs_file="$repo/deploy/vps/tutor-skill-dirs.tsv"
+[[ -f "$skill_dirs_file" ]] || die "missing $skill_dirs_file"
+skill_dir_templates=()
+while IFS=$'\t' read -r agent template extra || [[ -n "$agent" ]]; do
+  [[ -z "$agent" || "$agent" == \#* ]] && continue
+  [[ -n "$extra" && "$extra" != \#* ]] && die "too many columns in $skill_dirs_file: $agent"
+  [[ -n "$template" ]] || die "no skill directory for agent $agent in $skill_dirs_file"
+  skill_dir_templates+=("$template")
+done < "$skill_dirs_file"
+[[ ${#skill_dir_templates[@]} -gt 0 ]] || die "no skill directories declared in $skill_dirs_file"
+
+expand_dir() {
+  local template=$1
+  case "$template" in
+    '$HOME'/*) printf '%s' "$HOME/${template#'$HOME'/}" ;;
+    '$LEARNING_ROOT'/*) printf '%s' "$learnings_root/${template#'$LEARNING_ROOT'/}" ;;
+    *) die "unsupported skill directory '$template' in $skill_dirs_file" ;;
+  esac
+}
+
 # A real file or directory where a link belongs is kept, not deleted: it moves
 # to $backup_root/<stamp>/<path relative to $HOME>.
 kept=0
@@ -100,17 +125,19 @@ if [[ "$mode" == link ]]; then
   [[ -f "$agents_md" ]] || die "missing $agents_md"
   mkdir -p -- "$learnings_root"
   for name in "${skills[@]}"; do
-    for runtime in .claude .agents; do
-      link "$HOME/$runtime/skills/$name" "$repo/skills/$name"
+    for template in "${skill_dir_templates[@]}"; do
+      dir=$(expand_dir "$template")
+      link "$dir/$name" "$repo/skills/$name"
     done
   done
   link "$learnings_root/AGENTS.md" "$agents_md"
 fi
 
 for name in "${skills[@]}"; do
-  for runtime in .claude .agents; do
-    verify "$HOME/$runtime/skills/$name" "$repo/skills/$name"
+  for template in "${skill_dir_templates[@]}"; do
+    dir=$(expand_dir "$template")
+    verify "$dir/$name" "$repo/skills/$name"
   done
 done
 verify "$learnings_root/AGENTS.md" "$agents_md"
-echo "link-tutor-context: $(( ${#skills[@]} * 2 + 1 )) links resolve to $repo"
+echo "link-tutor-context: $(( ${#skills[@]} * ${#skill_dir_templates[@]} + 1 )) links resolve to $repo"

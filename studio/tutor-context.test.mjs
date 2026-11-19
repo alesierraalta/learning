@@ -6,13 +6,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
-import { checkTutorContext, driftMessage } from "./context.ts";
+import { checkTutorContext, declaredSkillDirs, driftMessage, tutorContextLinks } from "./context.ts";
+import { TUTOR_AGENTS } from "./tutor.ts";
 
 const SCRIPT = join(import.meta.dirname, "..", "deploy", "vps", "link-tutor-context.sh");
+const SKILL_DIRS = join(import.meta.dirname, "..", "deploy", "vps", "tutor-skill-dirs.tsv");
 const SKILL = "explicacion-interactiva";
 
 /** A repo-shaped tree: two skills, one directory that is not a skill, the Learnings AGENTS.md. */
@@ -31,11 +33,29 @@ function fixture() {
   writeFileSync(join(repo, "skills", "sin-skill", "notas.md"), "no es una skill\n");
   mkdirSync(join(repo, "deploy", "vps", "learnings"), { recursive: true });
   writeFileSync(join(repo, "deploy", "vps", "learnings", "AGENTS.md"), "# Learnings\n");
+  writeFileSync(join(repo, "deploy", "vps", "tutor-skill-dirs.tsv"), readFileSync(SKILL_DIRS, "utf8"));
   mkdirSync(learnings, { recursive: true });
   return { base, home, repo, learnings, backups, env: { HOME: home, LEARNING_REPO: repo, LEARNING_ROOT: learnings, LEARNING_BACKUP_DIR: backups } };
 }
 
 const run = (env, args = []) => spawnSync("bash", [SCRIPT, ...args], { env: { ...process.env, ...env }, encoding: "utf8" });
+
+test("every supported tutor agent declares a skill directory the studio verifies", () => {
+  const declared = declaredSkillDirs();
+  for (const agent of TUTOR_AGENTS) {
+    assert.ok(declared.some((dir) => dir.agent === agent), `${agent} has a declared skill directory`);
+  }
+  for (const dir of declared) {
+    assert.ok(TUTOR_AGENTS.includes(dir.agent), `${dir.agent} is a supported agent`);
+  }
+  const f = fixture();
+  const links = tutorContextLinks({ repo: f.repo, root: f.learnings, home: f.home });
+  for (const dir of declared) {
+    const base = dir.template.startsWith("$HOME/") ? f.home : f.learnings;
+    const path = join(base, dir.template.slice(dir.template.indexOf("/") + 1), SKILL);
+    assert.ok(links.some((link) => link.path === path), `the studio checks ${path}`);
+  }
+});
 
 /**
  * The studio's env file is shell-compatible, so the deploy must read it the way
@@ -131,10 +151,18 @@ test("the deploy links every skill and the Learnings AGENTS.md into a fresh home
     }
     assert.equal(existsSync(join(f.home, runtime, "skills", "sin-skill")), false, "a directory without SKILL.md is not a skill");
   }
+  // Antigravity runs in the Learnings root: only its workspace skills dir is on its path.
+  for (const name of [SKILL, "otra-skill"]) {
+    const link = join(f.learnings, ".agents", "skills", name);
+    assert.ok(lstatSync(link).isSymbolicLink(), `${link} is a link`);
+    assert.equal(realpathSync(link), realpathSync(join(f.repo, "skills", name)));
+  }
+  assert.equal(existsSync(join(f.learnings, ".agents", "skills", "sin-skill")), false, "a directory without SKILL.md is not a skill");
   const agents = join(f.learnings, "AGENTS.md");
   assert.ok(lstatSync(agents).isSymbolicLink());
   assert.equal(realpathSync(agents), realpathSync(join(f.repo, "deploy", "vps", "learnings", "AGENTS.md")));
   assert.equal(existsSync(f.backups), false, "a fresh home has nothing to keep");
+  assert.match(result.stdout, /7 links resolve to/, "the final message counts the workspace links too");
 });
 
 test("a real directory where a link belongs moves to a timestamped backup, never deleted", () => {
@@ -174,6 +202,29 @@ test("verification fails loudly when a link does not resolve to the repo", () =>
   assert.equal(run(f.env).status, 0);
   const after = run(f.env, ["--verify"]);
   assert.equal(after.status, 0, after.stderr);
+});
+
+test("a stale workspace skill link is replaced and verified, and the studio refuses a drifted turn", () => {
+  const f = fixture();
+  const workspace = join(f.learnings, ".agents", "skills", SKILL);
+  const decoy = join(f.base, "otra-copia", SKILL);
+  mkdirSync(decoy, { recursive: true });
+  mkdirSync(dirname(workspace), { recursive: true });
+  symlinkSync(decoy, workspace, "dir");
+  const before = run(f.env, ["--verify"]);
+  assert.notEqual(before.status, 0, "a workspace link to another copy must fail verification");
+  assert.match(before.stderr, new RegExp(SKILL));
+  const linked = run(f.env);
+  assert.equal(linked.status, 0, linked.stderr);
+  assert.equal(run(f.env, ["--verify"]).status, 0, "the deploy repaired the workspace link");
+  const input = { repo: f.repo, root: f.learnings, home: f.home };
+  assert.equal(checkTutorContext(input), null, "all four links resolve to the repo after the deploy");
+  unlinkSync(workspace);
+  symlinkSync(decoy, workspace, "dir");
+  const drift = checkTutorContext(input);
+  assert.ok(drift, "the studio stops a turn when Antigravity's workspace skill drifted");
+  assert.match(drift.path, /\.agents\/skills\/explicacion-interactiva$/);
+  assert.match(driftMessage(drift), /deploy\/vps\/update\.sh/);
 });
 
 test("a repo without skills is refused instead of linked", () => {

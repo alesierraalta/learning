@@ -43,6 +43,7 @@ import { readPreferences, savePreferences } from "./preferences.ts";
 import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
 import { createAgy, parseAgyModels } from "./agy.ts";
 import { checkTutorContext, driftMessage } from "./context.ts";
+import { VISUAL_CONTRACT_PROMPT, withVisualContract } from "../integrations/pi/contract.ts";
 import {
   busyActive,
   busyFile,
@@ -1279,7 +1280,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   /** The tutor's continuation once the page recorded the method: the instruction the push carried. */
   const methodPrompt = (metodo: string) =>
     `Learning engine: the learner chose the ${metodo} method. Plan the route now with that method (planificador.md and plan.json), ` +
-    "validate and advance planning, then continue to part 1. The plan is yours: never show it or list future parts to the learner.";
+    "validate and advance planning, then continue to part 1. The plan is yours: never show it or list future parts to the learner.\n\n" +
+    VISUAL_CONTRACT_PROMPT;
 
   /**
    * The engine's own report on a topic: the call the library makes, so the gate and the library can
@@ -1409,13 +1411,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 
   /** One prompt to the runtime. A refusal is the studio's log, never the learner's words. */
   const deliver = async (session: Session, text: string, started: Turn, reason: CallReason = "turn") => {
+    // Every runtime hears the same figure contract, once, whatever prompted the turn.
+    const prompt = withVisualContract(text);
     // From here until the runtime settles is this call's own time; the sizes are what it sends.
-    started.timing.startCall(reason, text.length);
+    started.timing.startCall(reason, prompt.length);
     try {
       if (session.agy) {
-        session.agy.prompt(text);
+        session.agy.prompt(prompt);
       } else {
-        const reply = await call(session, { type: "prompt", message: text });
+        const reply = await call(session, { type: "prompt", message: prompt });
         if (reply.success === false) throw new HttpError(409, String(reply.error ?? "el tutor rechazó el turno"));
       }
     } catch (error) {
@@ -1551,7 +1555,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * What the tools say about the parts a turn wrote. A tool that could not run is the studio's own
    * failure and goes to the log: it is never a finding the tutor is asked to fix.
    */
-  const checkParts = async (session: Session, settled: Turn): Promise<PartReport | null> => {
+  const checkParts = async (settled: Turn): Promise<PartReport | null> => {
     const files = partNotes(settled.parts);
     if (!files.length) return null;
     const checkPartsWithVerdicts = options.partChecks ?? ((paths: string[]) => runPartChecks(paths, { gateVerdictsFile: gateStoreFile, gateToolPath: options.gateToolPath }));
@@ -1603,7 +1607,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         }
         // The engine is done with this turn, so what it cannot measure is measured here: the part
         // the turn wrote still owes the scene and explanation checks before it reaches the learner.
-        const found = await settled.timing.measure("comprobaciones", () => checkParts(session, settled));
+        const found = await settled.timing.measure("comprobaciones", () => checkParts(settled));
         if (session.turn !== settled) return;
         if (found) {
           const verdict = session.settleGate.decideFindings(found);
@@ -1949,6 +1953,8 @@ ${scripts}
       trash ? `La versión anterior está guardada en ${trash} dentro del vault: no la borres.` : "",
       "Rehaz la página rica y la nota, y el mini-quiz de esta parte. Conserva el video y los adjuntos.",
       "El plan no cambia: es una regeneración de una parte que ya existe, no un tema nuevo.",
+      "",
+      VISUAL_CONTRACT_PROMPT,
       "",
       tutorContext(root, tema),
     ].filter((line) => line !== "").join("\n");

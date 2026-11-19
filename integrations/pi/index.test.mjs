@@ -52,7 +52,11 @@ test("a concept question in the chat is answered there, not redirected", async (
   assert.match(prompt, /«¿qué significa varianza finita\?»/);
   assert.match(prompt, /one line of definition/, "the answer is a definition, not a lesson");
   assert.match(prompt, /the topic's running example/, "the example the parts use");
-  assert.match(prompt, /one visual when it helps/, "a small scene or an annotated formula");
+  assert.match(prompt, /one visual when it helps/, "a visual when it helps");
+  // Figure guidance comes from the one shared contract, never from Pi's own contract (#361).
+  // The contract may name lk-scene as superseded; the old rule must not prescribe it.
+  assert.doesNotMatch(prompt, /a small lk-scene/, "no legacy figure is prescribed for a new answer");
+  assert.match(prompt, /Contrato visual/, "the shared figure contract is inherited instead");
   assert.match(prompt, /without creating files and without running commands/, "answering creates nothing");
 });
 

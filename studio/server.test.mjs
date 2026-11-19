@@ -16,6 +16,7 @@ import { entryUrl, idleMinutesFor, DEFAULT_IDLE_MINUTES, noteFromMessages, noteF
 import { busyFile, clearBusy, markBusy, pidAlive } from "./state.ts";
 import { runPartChecks } from "./checks.ts";
 import { stripLecciones } from "./sugerencias.ts";
+import { VISUAL_CONTRACT_PROMPT } from "./contract.ts";
 import extension from "../integrations/pi/index.ts";
 import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
@@ -280,6 +281,38 @@ test("the selected Antigravity tutor answers a conversation", async () => {
     assert.match(sent, /nunca copies archivos a mano/i);
   } finally { stream.close(); }
 });
+
+// Ambos motores reciben el mismo contrato de figuras, una sola vez, en el mensaje que el estudio
+// entrega. Ningún preámbulo propio puede seguir pidiendo las figuras antiguas para una parte nueva.
+for (const agente of ["pi", "agy"]) {
+  test(`the ${agente} tutor writes a part with the shared figure contract`, async () => {
+    const options = agente === "agy" ? { agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] } : {};
+    const { studio, root, received } = await setup(options);
+    const log = join(root, `agy-turns-${agente}.log`);
+    process.env.FAKE_AGY_TURNS = log;
+    const stream = sse(`${studio.url}events`);
+    try {
+      await stream.next("history");
+      await stream.next("state");
+      if (agente === "agy") {
+        const selected = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" });
+        assert.equal(selected.status, 200, selected.body);
+      }
+      assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1" })).status, 200);
+      if (agente === "agy") await stream.next("assistant_end");
+      const prompt = agente === "agy"
+        ? JSON.parse(readFileSync(log, "utf8").trim().split("\n")[0]).join(" ")
+        : received().find((command) => command.type === "prompt").message;
+      assert.equal(prompt.split(VISUAL_CONTRACT_PROMPT).length - 1, 1, `${agente} gets the shared contract once`);
+      assert.doesNotMatch(prompt, /recorrido de una parte nueva se escribe con el lenguaje de historia/);
+      assert.doesNotMatch(prompt, /<lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>/);
+      assert.doesNotMatch(prompt, /<lk-walkthrough> clásico no cuentan/);
+    } finally {
+      stream.close();
+      delete process.env.FAKE_AGY_TURNS;
+    }
+  });
+}
 
 test("an Antigravity write or edit reaches the chat as the note and topic it touched", async () => {
   const { studio } = await setup({ agyCommand: [process.execPath, join(HERE, "testdata", "writing-agy.mjs")] });
@@ -2849,6 +2882,18 @@ test("regenerating backs the part up, keeps its video and the plan, and asks for
   assert.match(result.prompt, /Demasiado texto/, "the reason reaches the tutor in the learner's words");
   assert.match(result.prompt, /más corto, por favor/);
   assert.match(result.prompt, /Conserva el video y los adjuntos/);
+  // The old «Plan visual» of the topic must not win over the current figure contract (#361).
+  assert.match(result.prompt, /Plan visual/);
+  assert.match(result.prompt, /Mermaid primero/);
+  assert.match(result.prompt, /skills\/explicacion-interactiva\/SKILL\.md/);
+  assert.match(result.prompt, /references\/visuales\.md/);
+  for (const element of ["lk-stage", "lk-codestep", "lk-tablestep", "lk-guided", "lk-lanes"]) {
+    assert.match(result.prompt, new RegExp(`<${element}>`), `${element} reaches the tutor`);
+  }
+  for (const old of ["lk-story", "lk-scene", "lk-walkthrough", "lk-cards", "lk-figure"]) {
+    assert.match(result.prompt, new RegExp(`<${old}>`), `${old} is named as superseded`);
+  }
+  assert.match(result.prompt, /node tools\/visuals\/audit-note\.mjs --note "<nota>"/);
 
   assert.equal(existsSync(page), false, "the old page left the topic");
   assert.equal(existsSync(quiz), false);
@@ -3176,6 +3221,7 @@ const trashed = (root) => (existsSync(join(root, ".papelera")) ? readdirSync(joi
 test("a regeneration refused by the tutor context leaves the part where it was and says why", async () => {
   const { home, repo } = linkedHome();
   const { studio, root, received } = await setup({ contextHome: home, skipContextCheck: false });
+  linkWorkspaceSkill(root, repo);
   symlinkSync(join(repo, "deploy", "vps", "learnings", "AGENTS.md"), join(root, "AGENTS.md"));
   const files = writePart(root);
   const before = bytesOf(files);
@@ -3498,6 +3544,13 @@ function linkedHome() {
   return { home, repo };
 }
 
+/** The workspace link the studio checks for every agent, from the same table the linker reads. */
+function linkWorkspaceSkill(root, repo) {
+  const link = join(root, ".agents", "skills", "explicacion-interactiva");
+  mkdirSync(dirname(link), { recursive: true });
+  symlinkSync(join(repo, "skills", "explicacion-interactiva"), link, "dir");
+}
+
 /** The drift the live VPS had: the link the deploy owns points at another standard. */
 function drift(home, runtime) {
   const decoy = join(home, "skills-registry", "explicacion-interactiva");
@@ -3511,6 +3564,7 @@ function drift(home, runtime) {
 test("a drifted tutor context refuses the Pi turn and names the path to fix", async () => {
   const { home, repo } = linkedHome();
   const { studio, root, received } = await setup({ contextHome: home, skipContextCheck: false });
+  linkWorkspaceSkill(root, repo);
   symlinkSync(join(repo, "deploy", "vps", "learnings", "AGENTS.md"), join(root, "AGENTS.md"));
   const prompts = () => received().filter((command) => command.type === "prompt");
   const stream = sse(`${studio.url}events`);
@@ -3542,6 +3596,7 @@ test("a drifted tutor context refuses the Antigravity turn and starts nothing", 
     contextHome: home,
     skipContextCheck: false,
   });
+  linkWorkspaceSkill(root, repo);
   symlinkSync(join(repo, "deploy", "vps", "learnings", "AGENTS.md"), join(root, "AGENTS.md"));
   const argv = join(root, "agy-argv.log");
   process.env.FAKE_AGY_ARGV = argv;

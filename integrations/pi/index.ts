@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { registerBridge } from "./bridge.ts";
+import { VISUAL_CONTRACT_PROMPT } from "./contract.ts";
 import { MAX_CORRECTIONS, PASS_STATUSES, failCheckIds } from "./gate-rules.ts";
 import { resolveContained, safeTopic } from "./paths.ts";
 
@@ -41,9 +42,10 @@ const ENROLLED_FILES = new Set(["plan.json", "quiz.json"]);
  */
 const STUDIO_MODE_RULE = [
   "Learnings studio: the learner chooses the study mode (rápido or universitario) in the page's «Aprender algo nuevo» entry, and the prompt of the turn carries that choice.",
-  "A concept question in the chat («¿qué es la varianza?», «¿qué significa varianza finita?») is answered right there: one line of definition, the topic's running example when the chat is about a part or a topic, and one visual when it helps (a small lk-scene or an annotated formula). Answer it without creating files and without running commands.",
+  "A concept question in the chat («¿qué es la varianza?», «¿qué significa varianza finita?») is answered right there: one line of definition, the topic's running example when the chat is about a part or a topic, and one visual when it helps. Answer it without creating files and without running commands.",
   "«Aprender algo nuevo» is offered only when the learner asks to study a whole new topic («quiero aprender X», «enséñame un tema nuevo»): then answer in one line pointing to that entry and create nothing.",
   "Never choose the mode yourself and never ask for it.",
+  VISUAL_CONTRACT_PROMPT,
 ].join(" ");
 
 export interface AdapterDeps {
