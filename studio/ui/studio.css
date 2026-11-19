@@ -1179,7 +1179,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .materia-drop { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; padding: 12px 14px; border: 2px dashed var(--line); border-radius: var(--ctl-radius); background: var(--paper); }
 .materia-drop.over { border-color: var(--blue); background: var(--blue-s); }
 .materia-drop .muted { min-width: 0; font: 13px/1.5 var(--sans); }
-.materia-file-input { max-width: 100%; font: 12px/1.4 var(--sans); }
+.materia-file-input { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.materia-drop:has(.materia-file-input:focus-visible) label { outline: 3px solid var(--blue); outline-offset: 2px; }
 .upload-status { grid-column: 1 / -1; margin: 12px 0 0; }
 .upload-status:empty { display: none; }
 .source-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; }

@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { addFuente, createMateria, deleteFuente, getMateria, linkTema, listMaterias, materiaForTopic, unlinkTema } from "./materias.ts";
 import { listTopics } from "../integrations/pi/bridge.ts";
-import { tinyDocx } from "./testdata/docx.mjs";
+import { bombDocx, tinyDocx } from "./testdata/docx.mjs";
 import { tinyPdf } from "./testdata/pdf.mjs";
 
 const root = () => realpathSync(mkdtempSync(join(tmpdir(), "materias-")));
@@ -154,6 +154,52 @@ test("two courses racing for one topic: exactly one owns it", async () => {
   const rejected = results.find((result) => result.status === "rejected");
   assert.equal(rejected.reason.status, 409);
   assert.equal(listMaterias(vault).filter((materia) => materia.temas.includes("redes")).length, 1);
+});
+
+test("a DOCX that expands past the upload limit is refused before it is stored", async () => {
+  const vault = root();
+  const { id } = createMateria(vault, "Bombas");
+  const content = bombDocx(24 * 1024 * 1024);
+  assert.ok(content.length < 20 * 1024 * 1024, "the compressed upload itself is within the 20 MiB bound");
+  await assert.rejects(
+    () => addFuente(vault, id, {
+      fileName: "bomba.docx",
+      contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      tipo: "documento",
+      content,
+    }),
+    (error) => { assert.equal(error.status, 413); return true; },
+  );
+  assert.deepEqual(getMateria(vault, id).fuentes, []);
+  const sources = join(courseDir(vault, id), "fuentes");
+  assert.ok(!existsSync(sources) || readdirSync(sources).length === 0, "no source directory is left by a refused DOCX");
+});
+
+ test("the longest safe name leaves room for extraction and PDF page files", async () => {
+  const vault = root();
+  const { id } = createMateria(vault, "Nombres largos");
+  const longStem = "a".repeat(400);
+  const text = await addFuente(vault, id, {
+    fileName: `${longStem}.txt`,
+    contentType: "text/plain",
+    tipo: "transcripcion",
+    content: Buffer.from("El profesor dice que la pila crece."),
+  });
+  assert.ok(Buffer.byteLength(text.nombre) + Buffer.byteLength(".txt") <= 255);
+  assert.match(readText(vault, id, text), /pila crece/);
+  if (pdfTools) {
+    const pdf = await addFuente(vault, id, {
+      fileName: `${longStem}.pdf`,
+      contentType: "application/pdf",
+      tipo: "examen",
+      content: tinyPdf(),
+    });
+    assert.ok(Buffer.byteLength(pdf.nombre) + Buffer.byteLength(".p20.png") <= 255);
+    for (let page = 1; page <= pdf.paginas; page++) {
+      assert.ok(existsSync(join(courseDir(vault, id), `${pdf.archivo}.p${page}.png`)));
+    }
+  }
+  assert.equal(getMateria(vault, id).fuentes.length, pdfTools ? 2 : 1);
 });
 
 test("a topic belongs to one course and listTopics reports the course on each topic", async () => {

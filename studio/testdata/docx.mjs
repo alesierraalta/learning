@@ -53,6 +53,17 @@ export function tinyDocx(text) {
     .map((line) => `<w:p><w:r><w:t xml:space="preserve">${xml(line)}</w:t></w:r></w:p>`)
     .join("");
   const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraphs}</w:body></w:document>`;
+  return docxOf(document);
+}
+
+/** A valid DOCX whose compressed body is small but whose text expands past the upload bound. */
+export function bombDocx(uncompressedBytes = 24 * 1024 * 1024) {
+  const paragraph = `<w:p><w:r><w:t>${"A".repeat(80)}</w:t></w:r></w:p>`;
+  const document = `<w:document><w:body>${paragraph.repeat(Math.ceil(uncompressedBytes / paragraph.length))}</w:body></w:document>`;
+  return docxOf(document);
+}
+
+function docxOf(document) {
   const types = '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>';
   return zip([
     { name: "[Content_Types].xml", data: Buffer.from(types, "utf8") },

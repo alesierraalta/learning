@@ -216,9 +216,12 @@ export function safeMateriaName(raw: string, extension: string): string {
     .replace(/\.{2,}/g, ".")
     .replace(/[^\p{L}\p{N} _.-]/gu, "")
     .replace(/^[.\s]+|[.\s]+$/g, "");
+  // Every source also gets an extracted .txt, and PDFs get up to .p20.png beside it.
+  const suffix = extension === ".pdf" ? ".p20.png" : ".txt";
+  const stemLimit = 255 - Buffer.byteLength(extension, "utf8") - Buffer.byteLength(suffix, "utf8");
   let safe = "";
   for (const character of stem) {
-    if (Buffer.byteLength(safe + character, "utf8") > 255 - Buffer.byteLength(extension, "utf8")) break;
+    if (Buffer.byteLength(safe + character, "utf8") > stemLimit) break;
     safe += character;
   }
   return `${safe.replace(/[.\s]+$/g, "") || "documento"}${extension}`;
@@ -273,6 +276,7 @@ function zipMember(archive: Buffer, wanted: string): Buffer {
   for (let index = 0; index < entries; index++) {
     if (cursor + 46 > archive.length || archive.readUInt32LE(cursor) !== 0x02014b50) bad(415, MATERIA_ERRORS.unsupported);
     const method = archive.readUInt16LE(cursor + 10);
+    const uncompressed = archive.readUInt32LE(cursor + 24);
     const compressed = archive.readUInt32LE(cursor + 20);
     const nameLength = archive.readUInt16LE(cursor + 28);
     const extraLength = archive.readUInt16LE(cursor + 30);
@@ -281,13 +285,20 @@ function zipMember(archive: Buffer, wanted: string): Buffer {
     const name = archive.subarray(cursor + 46, cursor + 46 + nameLength).toString("utf8");
     cursor += 46 + nameLength + extraLength + commentLength;
     if (name !== wanted) continue;
+    if (uncompressed > MAX_FUENTE_BYTES) bad(413, MATERIA_ERRORS.tooLarge);
     if (local + 30 > archive.length || archive.readUInt32LE(local) !== 0x04034b50) bad(415, MATERIA_ERRORS.unsupported);
     const start = local + 30 + archive.readUInt16LE(local + 26) + archive.readUInt16LE(local + 28);
     if (start + compressed > archive.length) bad(415, MATERIA_ERRORS.unsupported);
     const body = archive.subarray(start, start + compressed);
     if (method === 0) return body;
     if (method === 8) {
-      try { return inflateRawSync(body); } catch { bad(415, MATERIA_ERRORS.unsupported); }
+      // A small compressed member must not turn into an unbounded text extraction.
+      try {
+        return inflateRawSync(body, { maxOutputLength: MAX_FUENTE_BYTES });
+      } catch (error) {
+        if ((error as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") bad(413, MATERIA_ERRORS.tooLarge);
+        bad(415, MATERIA_ERRORS.unsupported);
+      }
     }
     bad(415, MATERIA_ERRORS.unsupported);
   }
@@ -307,7 +318,8 @@ function docxText(content: Buffer): string {
   let document: string;
   try {
     document = zipMember(content, "word/document.xml").toString("utf8");
-  } catch {
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
     bad(415, MATERIA_ERRORS.unsupported);
   }
   const texts = (xml: string) => [...xml.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)].map((match) => xmlText(match[1]));

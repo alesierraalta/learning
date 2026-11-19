@@ -232,6 +232,17 @@ test("linking a topic from a materia shows its course on the topic page, where i
   assert.deepEqual(data.topicLinks.map((l) => l.action).sort(), ["link", "link", "unlink"]);
 });
 
+test("the native file input stays behind the custom picker but still accepts files", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await fixture(t);
+  await page.goto(`${studio.url}#/materias/m1`, { waitUntil: "networkidle" });
+  const input = page.locator(".materia-file-input");
+  const nativeControl = await input.boundingBox();
+  assert.ok(nativeControl && nativeControl.width <= 2 && nativeControl.height <= 2, `only the custom Elegir archivos control should be painted; native picker was ${JSON.stringify(nativeControl)}`);
+  assert.equal(await page.getByText("Elegir archivos").isVisible(), true);
+  await input.setInputFiles({ name: "clase.txt", mimeType: "text/plain", buffer: Buffer.from("texto de clase") });
+  await page.locator(".source-row", { hasText: "clase.txt" }).waitFor();
+});
+
 test("the materias pages fit a 390 px phone", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { studio, page, data } = await fixture(t, {
     courses: [{
