@@ -100,6 +100,17 @@ import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGloba
 import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, tutorContext, validateSugerencia, withLecciones } from "./sugerencias.ts";
 import { buildEspera, partNotePath, writePartTarget } from "./espera.ts";
 import { createGlosario } from "./glosario.ts";
+import {
+  addFuente,
+  createMateria,
+  deleteFuente,
+  getMateria,
+  linkTema,
+  listMaterias,
+  readFuenteBody,
+  unlinkTema,
+  writePdfDerivatives,
+} from "./materias.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -107,7 +118,6 @@ const UI_DIR = join(HERE, "ui");
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const MAX_PDF_PAGES = 20;
-const PDF_PAGE_DPI = 150;
 const PDF_PAGE_INFO_FILE = "pages.json";
 const UPLOAD_TYPES = {
   "application/pdf": ".pdf",
@@ -2105,68 +2115,10 @@ ${scripts}
       const containedDirectory = resolveContained(root, directory);
       if (!containedDirectory.ok || containedDirectory.targetReal !== directory) throw new HttpError(500, UPLOAD_ERRORS.storage);
       const filePath = join(directory, nombre);
-      const textPath = uploadType === "application/pdf" ? `${filePath}.txt` : undefined;
       writeFileSync(filePath, content, { flag: "wx" });
       const containedFile = resolveContained(root, filePath);
       if (!containedFile.ok || containedFile.targetReal !== filePath) throw new HttpError(500, UPLOAD_ERRORS.storage);
-      if (textPath) {
-        const failure = await new Promise<Error | null>((resolveFailure) => {
-          execFile("pdftotext", [filePath, textPath], { timeout: 30_000 }, (error) => resolveFailure(error));
-        });
-        if (failure) throw new HttpError(500, UPLOAD_ERRORS.pdfText);
-        const containedText = resolveContained(root, textPath);
-        if (!containedText.ok || containedText.targetReal !== textPath || !statSync(textPath).isFile()) {
-          throw new HttpError(500, UPLOAD_ERRORS.pdfText);
-        }
-        const renderPrefix = join(directory, "render");
-        const renderFailure = await new Promise<Error | null>((resolveFailure) => {
-          execFile(
-            "pdftoppm",
-            ["-f", "1", "-l", String(MAX_PDF_PAGES), "-r", String(PDF_PAGE_DPI), "-png", "-forcenum", filePath, renderPrefix],
-            { timeout: 30_000 },
-            (error) => resolveFailure(error),
-          );
-        });
-        if (renderFailure) throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
-        const pageInfo = await new Promise<{ error: Error | null; stdout: string }>((resolveInfo) => {
-          execFile("pdfinfo", [filePath], { timeout: 30_000 }, (error, stdout) => resolveInfo({ error, stdout }));
-        });
-        const pageCount = /^Pages:\s+(\d+)\s*$/m.exec(pageInfo.stdout)?.[1];
-        if (pageInfo.error || !pageCount || Number(pageCount) < 1 || !Number.isSafeInteger(Number(pageCount))) {
-          throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
-        }
-        const totalPages = Number(pageCount);
-        const renderedPages = Math.min(totalPages, MAX_PDF_PAGES);
-        const renderedByPage = new Map<number, string>();
-        for (const name of readdirSync(directory)) {
-          const match = /^render-0*([1-9]\d*)\.png$/.exec(name);
-          if (!match) continue;
-          const page = Number(match[1]);
-          if (page > renderedPages || renderedByPage.has(page)) throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
-          renderedByPage.set(page, join(directory, name));
-        }
-        if (renderedByPage.size !== renderedPages) throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
-        for (let page = 1; page <= renderedPages; page++) {
-          const renderedPath = renderedByPage.get(page);
-          if (!renderedPath) throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
-          const containedRendered = resolveContained(root, renderedPath);
-          if (!containedRendered.ok || containedRendered.targetReal !== renderedPath || !statSync(renderedPath).isFile()) {
-            throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
-          }
-          const pagePath = `${filePath}.p${page}.png`;
-          renameSync(renderedPath, pagePath);
-          const containedPage = resolveContained(root, pagePath);
-          if (!containedPage.ok || containedPage.targetReal !== pagePath || !statSync(pagePath).isFile()) {
-            throw new HttpError(500, UPLOAD_ERRORS.pdfPages);
-          }
-        }
-        writeFileSync(join(directory, PDF_PAGE_INFO_FILE), JSON.stringify({
-          pdf: nombre,
-          totalPages,
-          renderedPages,
-          truncated: totalPages > MAX_PDF_PAGES,
-        }), { flag: "wx" });
-      }
+      if (uploadType === "application/pdf") await writePdfDerivatives(root, directory, filePath, nombre);
       return sendJson(res, 200, { id, nombre, tipo: uploadType });
     } catch (error) {
       cleanup();
@@ -2175,12 +2127,57 @@ ${scripts}
     }
   };
 
+  const materiaCreate = async (req: IncomingMessage, res: ServerResponse) => {
+    const body = await readBody(req);
+    if (!isRecord(body)) throw new HttpError(400, "No pude leer la materia.");
+    return sendJson(res, 201, createMateria(root, body.nombre));
+  };
+
+  const materiaFuente = async (req: IncomingMessage, res: ServerResponse, id: string) => {
+    const contentType = String(req.headers["content-type"] ?? "");
+    const tipo = String(req.headers["x-tipo"] ?? "");
+    const fileName = typeof req.headers["x-file-name"] === "string" ? req.headers["x-file-name"] : "";
+    const content = await readFuenteBody(req);
+    return sendJson(res, 201, await addFuente(root, id, { fileName, contentType, tipo, content }));
+  };
+
+  const materiaTema = async (req: IncomingMessage, res: ServerResponse, id: string) => {
+    const body = await readBody(req);
+    if (!isRecord(body) || typeof body.tema !== "string") throw new HttpError(400, "Indica el tema a vincular.");
+    return sendJson(res, 200, await linkTema(root, id, body.tema));
+  };
+
+  const materiaRemove = async (req: IncomingMessage, res: ServerResponse, action: string) => {
+    const match = /^api\/materias\/([a-f0-9]{32})\/(fuentes|temas)\/([^/]+)$/.exec(action);
+    if (!match) throw new HttpError(404, "not found");
+    const [, id, section, rawLeaf] = match;
+    let leaf: string;
+    try {
+      leaf = decodeURIComponent(rawLeaf);
+    } catch {
+      throw new HttpError(400, "Identificador no válido.");
+    }
+    if (section === "fuentes") {
+      await deleteFuente(root, id, leaf);
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    return sendJson(res, 200, await unlinkTema(root, id, leaf));
+  };
+
   const post = async (req: IncomingMessage, res: ServerResponse, action: string) => {
     const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...(publicOrigins ?? []).map((origin) => origin.origin)]);
     if (!allowed.has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
     // Raw uploads and audio are streamed; every other POST carries JSON.
     if (action === "api/subir") return upload(req, res);
     if (action === "api/transcribe") return transcribe(req, res);
+    if (action === "api/materias") return materiaCreate(req, res);
+    const materiaPost = /^api\/materias\/([a-f0-9]{32})\/(fuentes|temas)$/.exec(action);
+    if (materiaPost) {
+      if (materiaPost[2] === "fuentes") return materiaFuente(req, res, materiaPost[1]);
+      return materiaTema(req, res, materiaPost[1]);
+    }
     if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
     const bodyLimit = action === "api/aprender" ? MAX_LEARNING_SOURCE_BODY_BYTES : MAX_BODY_BYTES;
     const body = await readBody(req, bodyLimit);
@@ -2631,7 +2628,10 @@ ${scripts}
     if (!tokenMatches(first)) throw new HttpError(404, "not found");
     const path = rest.join("/");
     if (req.method === "POST") return post(req, res, path);
+    if (req.method === "DELETE") return materiaRemove(req, res, path);
     if (req.method !== "GET") throw new HttpError(405, "method not allowed");
+    const materiaDetail = /^api\/materias\/([a-f0-9]{32})$/.exec(path);
+    if (materiaDetail) return sendJson(res, 200, getMateria(root, materiaDetail[1]));
     switch (path) {
       case "":
         return send(res, 200, "text/html; charset=utf-8", shell(), { "content-security-policy": shellCsp() });
@@ -2662,6 +2662,8 @@ ${scripts}
         return taskEvents(res, taskFor(url.searchParams.get("task")));
       case "api/library":
         return sendJson(res, 200, await library());
+      case "api/materias":
+        return sendJson(res, 200, listMaterias(root));
       case "api/runners": {
         // The studio asks on its own after the shell paints: Docker never blocks a page,
         // and a cheap topic check never runs the engine status of every topic.

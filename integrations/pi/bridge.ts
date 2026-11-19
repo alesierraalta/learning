@@ -24,6 +24,7 @@ import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio, type Transcriber } f
 import { cachedRunnerList, CodeRunError, DockerDaemonError, ImageMissingError, loadCatalogue, loadRunners, pullRunnerImage, pullState, readExercise, publicExercise, forPage, runCode, runnerList, unavailableRun, type RunResult, type Runner, type RunnerCatalogue } from "./coderun.ts";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { gateVerdictsFile as defaultGateVerdictsFile, getGateVerdict, type GateVerdictOptions } from "./gate-verdicts.ts";
+import { materiaForTopic } from "../../studio/materias.ts";
 
 const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
 const KIT_DIR = join(dirname(fileURLToPath(import.meta.url)), "kit");
@@ -1198,6 +1199,8 @@ export interface TopicSummary {
   parts: PartSummary[];
   exercises: { id: string; titulo: string; lenguaje: string; mejor: string | null }[];
   gaps: TopicGaps;
+  /** Course grouping from T3: null until the learner links this topic to a materia. */
+  materia: { id: string; nombre: string } | null;
   exam?: { format: "oral" | "written" | "practical"; practice?: string };
 }
 
@@ -1522,9 +1525,10 @@ export function listTopics(rootReal: string, runners = loadRunners()): TopicSumm
           noQuiz: parts.filter((p) => p.written && !p.hasQuiz).map((p) => p.id),
         };
         const exam = readTopicExam(dir);
-        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts, exercises, gaps, ...(exam ? { exam } : {}) }];
+        const materia = materiaForTopic(rootReal, e.name);
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts, exercises, gaps, materia, ...(exam ? { exam } : {}) }];
       } catch {
-        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: false, parts: [], exercises: [], gaps: EMPTY_GAPS }];
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: false, parts: [], exercises: [], gaps: EMPTY_GAPS, materia: materiaForTopic(rootReal, e.name) }];
       }
     });
 }
