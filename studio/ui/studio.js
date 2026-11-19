@@ -49,6 +49,8 @@
     map: '<rect x="16" y="16" width="6" height="6" rx="1" /><rect x="2" y="16" width="6" height="6" rx="1" /><rect x="9" y="2" width="6" height="6" rx="1" /><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /><path d="M12 12V8" />',
     fit: '<path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" />',
     settings: '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /><circle cx="12" cy="12" r="3" />',
+    upload: '<path d="M12 3v12" /><path d="m7 8 5-5 5 5" /><path d="M5 21h14" />',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />',
     moon: '<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" />',
     sun: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />',
   };
@@ -596,6 +598,7 @@
     scrollAnchor = 0;
     window.scrollTo(0, 0);
     if (view === "tema" && a) return topicView(a);
+    if (view === "materias") return a ? materiaView(a) : materiasView();
     if (view === "panorama" && a) return panoramaView(a, b);
     if (view === "leer" && a) return readerView({ topicId: a, part: b, mode: "page" });
     if (view === "rapido" && a) return readerView({ quickId: a });
@@ -1115,6 +1118,12 @@
       h(
         "div",
         { class: "section-title has-action" },
+        h("div", { class: "section-heading" }, h("h2", {}, "Materias"), h("p", {}, "Exámenes, documentos y transcripciones, juntos")),
+        btn("Ver materias", () => go("#/materias"), "btn small", "book"),
+      ),
+      h(
+        "div",
+        { class: "section-title has-action" },
         h("div", { class: "section-heading" }, h("h2", {}, "Notas rápidas"), h("p", {}, "Explicaciones breves, sin plan")),
         btn("Nueva nota", () => go("#/editar"), "btn small", "fresh"),
       ),
@@ -1254,6 +1263,7 @@
             topicTag(topic, step.tone, true),
             h("h1", { class: "reveal", style: "--i:0" }, topic.title),
             catalogueNote,
+            topicMateriaCard(topic),
             h("div", { class: "reveal", style: "--i:1;max-width:520px" }, progress(topic)),
             // The plan and the map are one picture of the whole topic, not two
             // more notes: the entry sits with the progress it explains.
@@ -1313,6 +1323,329 @@
 );
   ensureEspera();
 }
+
+  // ---------- materias (T3 / S3) ----------
+  // The material belongs to the course, not to a topic: the three groups are the
+  // learner's own words from the spec, and every file keeps the type it was sent with.
+  const MATERIA_TIPOS = [
+    ["examen", "Exámenes"],
+    ["documento", "Documentos"],
+    ["transcripcion", "Transcripciones de clase"],
+  ];
+  const MATERIA_MIME = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+  };
+  const MATERIA_ACCEPT = [...Object.keys(MATERIA_MIME), ...new Set(Object.values(MATERIA_MIME))].join(",");
+  const MAX_MATERIA_FILE_BYTES = 20 * 1024 * 1024;
+  let materiaSeq = 0;
+  const materiaExtension = (file) => {
+    const dot = String(file?.name ?? "").lastIndexOf(".");
+    return dot < 0 ? "" : file.name.slice(dot).toLowerCase();
+  };
+  const materiaFileType = (file) => MATERIA_MIME[materiaExtension(file)] || file.type || "application/octet-stream";
+  const humanBytes = (bytes) => {
+    const size = Number(bytes) || 0;
+    return size >= 1024 * 1024
+      ? `${(size / (1024 * 1024)).toFixed(1)} MB`
+      : size >= 1024 ? `${Math.round(size / 1024)} KB` : `${size} B`;
+  };
+  const humanDate = (iso) => {
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("es", { dateStyle: "medium" });
+  };
+
+  /** The topic page names its course and can move the topic to another one. */
+  function topicMateriaCard(topic) {
+    const current = h("p", { class: "topic-materia-current" },
+      topic.materia ? `Este tema pertenece a «${topic.materia.nombre}».` : "Este tema todavía no pertenece a una materia.");
+    const select = h("select", { id: `topic-materia-${topic.id}`, "aria-label": "Materia del tema" }, h("option", { value: "" }, "Sin materia"));
+    const save = h("button", { class: "btn small primary", type: "button" }, icon("link"), "Guardar materia");
+    const open = h("a", { class: "btn small ghost", href: "#/", hidden: true }, "Ver la materia");
+    const status = h("p", { class: "topic-materia-status", role: "status", "aria-live": "polite" });
+    const showCurrent = (nombre, id) => {
+      current.textContent = nombre ? `Este tema pertenece a «${nombre}».` : "Este tema todavía no pertenece a una materia.";
+      open.hidden = !id;
+      if (id) open.href = `#/materias/${encodeURIComponent(id)}`;
+    };
+    showCurrent(topic.materia?.nombre, topic.materia?.id);
+    const restore = (previous) => {
+      if (!previous) return;
+      post(`api/materias/${encodeURIComponent(previous.id)}/temas`, { tema: topic.id }).then(() => loadLibrary()).catch(() => {});
+    };
+    save.addEventListener("click", async () => {
+      const chosen = select.value;
+      const previous = topic.materia || null;
+      if (chosen === (previous?.id || "")) {
+        status.textContent = chosen ? "El tema ya está en esa materia." : "El tema ya está sin materia.";
+        return;
+      }
+      save.disabled = true;
+      status.textContent = "Guardando…";
+      try {
+        // Unlink first: one topic can live in only one course.
+        if (previous) await request(`api/materias/${encodeURIComponent(previous.id)}/temas/${encodeURIComponent(topic.id)}`, { method: "DELETE" });
+        if (chosen) await post(`api/materias/${encodeURIComponent(chosen)}/temas`, { tema: topic.id });
+        save.disabled = false;
+        status.textContent = chosen ? "Listo: el tema ya está en esa materia." : "Listo: el tema quedó sin materia.";
+        await loadLibrary();
+      } catch (error) {
+        save.disabled = false;
+        status.textContent = `No se pudo guardar: ${error.message}`;
+        if (previous && chosen) restore(previous);
+      }
+    });
+    const card = h("section", { class: "topic-materia" },
+      h("h2", {}, "Materia"),
+      current,
+      h("div", { class: "topic-materia-controls" }, select, save, open),
+      status);
+    request("api/materias").then((items) => {
+      if (!card.isConnected) return;
+      const chosen = topic.materia?.id || "";
+      select.replaceChildren(
+        h("option", { value: "" }, "Sin materia"),
+        ...(chosen && !items.some((m) => m.id === chosen) ? [h("option", { value: chosen }, topic.materia.nombre)] : []),
+        ...items.map((m) => h("option", { value: m.id, selected: m.id === chosen }, m.nombre)),
+      );
+      select.value = chosen;
+    }).catch((error) => {
+      if (card.isConnected) status.textContent = `No pude cargar tus materias: ${error.message}`;
+    });
+    return card;
+  }
+
+  async function materiasView() {
+    const seq = ++materiaSeq;
+    setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Materias" }]);
+    const status = h("p", { class: "materia-status", role: "status", "aria-live": "polite" });
+    const name = h("input", { id: "materia-nombre", type: "text", maxlength: "120", autocomplete: "off", placeholder: "Por ejemplo: Teoría de la computación" });
+    const create = h("button", { class: "btn primary", type: "submit" }, icon("fresh"), "Crear materia");
+    const list = h("div", { class: "materia-list" });
+    const form = h("form", { class: "materia-create" }, h("label", { for: name.id }, "Nombre de la materia"), name, create);
+    const page = h("div", { class: "page materias-page" },
+      h("header", { class: "materias-head" },
+        h("p", { class: "eyebrow" }, "Tu biblioteca de estudio"),
+        h("h1", {}, "Materias"),
+        h("p", { class: "muted" }, "Junta los exámenes, los documentos y las transcripciones de clase de cada materia.")),
+      form, status, list);
+    stage.replaceChildren(page);
+    const paint = async (message) => {
+      try {
+        const items = await request("api/materias");
+        if (seq !== materiaSeq || !page.isConnected) return;
+        list.replaceChildren(...items.map((item) => h("article", { class: "materia-card reveal", style: "--i:0" },
+          h("a", { class: "materia-card-link", href: `#/materias/${encodeURIComponent(item.id)}` }, h("span", { class: "materia-card-icon" }, icon("book")), h("h2", {}, item.nombre)),
+          h("p", { class: "materia-card-count" }, `${item.fuentes} ${item.fuentes === 1 ? "archivo" : "archivos"} · ${item.temas} ${item.temas === 1 ? "tema" : "temas"}`),
+          h("ul", { class: "materia-types" }, MATERIA_TIPOS.map(([tipo, label]) => h("li", {}, `${item.porTipo?.[tipo] || 0} · ${label}`))))));
+        status.textContent = message ?? (items.length ? "" : "Todavía no tienes materias. Crea una para juntar sus archivos.");
+      } catch (error) {
+        if (seq === materiaSeq && page.isConnected) status.textContent = `No se pudieron cargar tus materias: ${error.message}`;
+      }
+    };
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!name.value.trim()) { status.textContent = "Escribe el nombre de la materia."; name.focus(); return; }
+      create.disabled = true;
+      status.textContent = "Creando la materia…";
+      try {
+        await post("api/materias", { nombre: name.value.trim() });
+        name.value = "";
+        await paint("Materia creada.");
+      } catch (error) {
+        status.textContent = `No se pudo crear la materia: ${error.message}`;
+      } finally { create.disabled = false; }
+    });
+    await paint();
+  }
+
+  async function materiaView(id) {
+    const seq = ++materiaSeq;
+    setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Materias", href: "#/materias" }, { text: "Materia" }]);
+    stage.replaceChildren(h("div", { class: "page materia-page" }, h("p", { class: "muted" }, "Abriendo la materia…")));
+    let materia;
+    try {
+      materia = await request(`api/materias/${encodeURIComponent(id)}`);
+    } catch (error) {
+      if (seq !== materiaSeq) return;
+      return stage.replaceChildren(h("div", { class: "page materia-page" },
+        h("a", { class: "materia-back", href: "#/materias" }, "← Todas las materias"),
+        h("h1", {}, "Materia"),
+        h("p", { class: "materia-status alert", role: "status" }, `No se pudo abrir la materia: ${error.message}`)));
+    }
+    if (seq !== materiaSeq) return;
+    setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Materias", href: "#/materias" }, { text: materia.nombre }]);
+    const groups = h("div", { class: "source-groups" });
+    const topics = h("div", { class: "materia-topics" });
+    const status = h("p", { class: "materia-status upload-status", role: "status", "aria-live": "polite" });
+
+    const renderSources = () => groups.replaceChildren(...MATERIA_TIPOS.map(([tipo, label]) => {
+      const sources = materia.fuentes.filter((source) => source.tipo === tipo);
+      return h("section", { class: "source-group", "data-tipo": tipo },
+        h("div", { class: "source-group-head" }, h("h2", {}, label), h("span", { class: "materia-count" }, String(sources.length))),
+        sources.length
+          ? h("ul", { class: "source-list" }, sources.map((source) => h("li", { class: "source-row", "data-id": source.id },
+              h("div", { class: "source-info" },
+                h("span", { class: "source-name" }, source.nombre),
+                h("span", { class: "source-meta" }, `${humanBytes(source.bytes)} · ${humanDate(source.subida)}`)),
+              (() => {
+                const remove = btn("Quitar", () => askRemoveSource(source), "btn small ghost", "x");
+                remove.setAttribute("aria-label", `Quitar ${source.nombre}`);
+                return remove;
+              })())))
+          : h("p", { class: "muted source-empty" }, "Todavía no hay archivos de este tipo."));
+    }));
+
+    const askRemoveSource = (source) => {
+      const note = h("p", { class: "modal-note" });
+      const cancel = btn("Cancelar", () => box.remove(), "btn ghost");
+      const accept = btn("Mover a la papelera", async () => {
+        accept.disabled = true;
+        try {
+          await request(`api/materias/${encodeURIComponent(id)}/fuentes/${encodeURIComponent(source.id)}`, { method: "DELETE" });
+          materia.fuentes = materia.fuentes.filter((item) => item.id !== source.id);
+          box.remove();
+          renderSources();
+          toast(`«${source.nombre}» está en la papelera`);
+        } catch (error) {
+          accept.disabled = false;
+          note.textContent = error.message;
+          note.classList.add("alert");
+        }
+      }, "btn danger");
+      const box = h("div", { class: "modal-backdrop" },
+        h("div", { class: "modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "materia-remove-title" },
+          h("h2", { id: "materia-remove-title" }, `¿Quitar «${source.nombre}» de la materia?`),
+          h("p", {}, "El archivo se mueve a la papelera de la materia: no se borra del todo."),
+          note,
+          h("div", { class: "modal-actions" }, cancel, accept)));
+      box.addEventListener("click", (event) => { if (event.target === box) box.remove(); });
+      box.addEventListener("keydown", (event) => { if (event.key === "Escape") box.remove(); });
+      document.body.append(box);
+      cancel.focus();
+    };
+
+    const uploadFiles = async (files) => {
+      const picked = Array.from(files || []);
+      if (!picked.length) return;
+      const errors = [];
+      const accepted = picked.filter((file) => {
+        if (!MATERIA_MIME[materiaExtension(file)]) { errors.push(`«${file.name}»: usa PDF, imagen, DOCX, TXT o MD.`); return false; }
+        if (file.size > MAX_MATERIA_FILE_BYTES) { errors.push(`«${file.name}»: el archivo supera los 20 MiB.`); return false; }
+        return true;
+      });
+      if (!accepted.length) { status.textContent = errors.join(" "); return; }
+      let done = 0;
+      let successes = 0;
+      for (const file of accepted) {
+        status.textContent = `Subiendo ${file.name} (${done + 1} de ${accepted.length})…`;
+        try {
+          const response = await fetch(`${base}api/materias/${encodeURIComponent(id)}/fuentes`, {
+            method: "POST",
+            headers: {
+              "content-type": materiaFileType(file),
+              "x-file-name": encodeURIComponent(file.name),
+              "x-tipo": tipo.value,
+            },
+            body: file,
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(body.error || `No se pudo subir el archivo (${response.status}).`);
+          materia.fuentes.push(body);
+          successes += 1;
+        } catch (error) {
+          errors.push(`«${file.name}»: ${error.message}`);
+        }
+        done += 1;
+      }
+      renderSources();
+      status.textContent = [
+        successes ? `${successes} ${successes === 1 ? "archivo subido" : "archivos subidos"}.` : "",
+        ...errors,
+      ].filter(Boolean).join(" ");
+    };
+
+    const tipo = h("select", { id: `materia-tipo-${id}`, "aria-label": "Tipo de archivo" },
+      ...MATERIA_TIPOS.map(([value, label]) => h("option", { value }, label)));
+    const fileInput = h("input", {
+      id: `materia-archivos-${id}`,
+      class: "materia-file-input",
+      type: "file",
+      multiple: true,
+      accept: MATERIA_ACCEPT,
+      "aria-label": "Archivos de la materia",
+    });
+    fileInput.addEventListener("change", () => { void uploadFiles(fileInput.files); fileInput.value = ""; });
+    const picker = h("label", { class: "btn small", for: fileInput.id }, icon("upload"), "Elegir archivos");
+    const drop = h("div", { class: "materia-drop" }, picker, h("span", { class: "muted" }, "o arrastra los archivos aquí"), fileInput);
+    drop.addEventListener("dragover", (event) => { event.preventDefault(); drop.classList.add("over"); });
+    drop.addEventListener("dragleave", (event) => { if (!drop.contains(event.relatedTarget)) drop.classList.remove("over"); });
+    drop.addEventListener("drop", (event) => {
+      event.preventDefault();
+      drop.classList.remove("over");
+      void uploadFiles(event.dataTransfer?.files);
+    });
+    const upload = h("form", { class: "materia-upload", onsubmit: (event) => event.preventDefault() },
+      h("div", { class: "upload-heading" }, h("h2", {}, "Añadir material"), h("p", { class: "muted" }, "Elige el tipo y añade uno o varios archivos: PDF, imágenes, DOCX, TXT o MD. Hasta 20 MiB por archivo.")),
+      h("div", { class: "upload-controls" },
+        h("div", { class: "upload-type" }, h("label", { for: tipo.id }, "Tipo de archivo"), tipo),
+        drop),
+      status);
+
+    const renderTopics = () => {
+      const all = library.topics || [];
+      if (!all.length) { topics.replaceChildren(h("p", { class: "muted" }, "Todavía no hay temas en tu biblioteca.")); return; }
+      topics.replaceChildren(...all.map((topic) => {
+        const mine = materia.temas.includes(topic.id) || topic.materia?.id === id;
+        const other = !mine && topic.materia ? topic.materia.nombre : "";
+        const button = mine
+          ? btn("Desvincular", () => unlinkTopic(topic), "btn small ghost")
+          : btn(`Vincular ${topic.title}`, () => linkTopic(topic), "btn small", "link");
+        return h("div", { class: "materia-topic-row", "data-topic": topic.id },
+          h("div", { class: "materia-topic-name" }, h("span", {}, topic.title), other ? h("small", { class: "muted" }, ` · en ${other}`) : null),
+          button);
+      }));
+    };
+    const linkTopic = async (topic) => {
+      status.textContent = `Vinculando ${topic.title}…`;
+      try {
+        await post(`api/materias/${encodeURIComponent(id)}/temas`, { tema: topic.id });
+        if (!materia.temas.includes(topic.id)) materia.temas.push(topic.id);
+        await loadLibrary();
+      } catch (error) { status.textContent = `No se pudo vincular ${topic.title}: ${error.message}`; }
+    };
+    const unlinkTopic = async (topic) => {
+      status.textContent = `Desvinculando ${topic.title}…`;
+      try {
+        await request(`api/materias/${encodeURIComponent(id)}/temas/${encodeURIComponent(topic.id)}`, { method: "DELETE" });
+        materia.temas = materia.temas.filter((linked) => linked !== topic.id);
+        await loadLibrary();
+      } catch (error) { status.textContent = `No se pudo desvincular ${topic.title}: ${error.message}`; }
+    };
+
+    const page = h("div", { class: "page materia-page" },
+      h("a", { class: "materia-back", href: "#/materias" }, "← Todas las materias"),
+      h("header", { class: "materia-head" },
+        h("p", { class: "eyebrow" }, "Material de estudio"),
+        h("h1", {}, materia.nombre),
+        h("p", { class: "muted" }, `Creada el ${humanDate(materia.creada)} · ${materia.fuentes.length} ${materia.fuentes.length === 1 ? "archivo" : "archivos"}`)),
+      upload,
+      h("section", { class: "materia-sources" },
+        h("div", { class: "section-title" }, h("h2", {}, "Tus fuentes"), h("p", {}, "Cada archivo, con su tipo")),
+        groups),
+      h("section", { class: "materia-topics-section" },
+        h("div", { class: "section-title" }, h("h2", {}, "Temas de esta materia"), h("p", {}, "Un tema pertenece a una sola materia")),
+        topics));
+    stage.replaceChildren(page);
+    renderSources();
+    renderTopics();
+  }
 
   // ---------- panorama ----------
   // The plan and the dependency map arrive from the server as one picture: it
