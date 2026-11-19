@@ -16,6 +16,8 @@ Branch `feat/370-fast-notes-course-materials` from `origin/main @ b1eaf3d`. Mile
 
 **S5 — Grounded parts.** Each part receives only the relevant chunks within a bounded budget, with their source and type, and cites where each example or claim comes from.
 
+**S6 — Useful waiting.** «para no tener al usuario ahí esperando sin cesar, podemos … darle una sección donde pueda esperar haciendo otra cosa respecto a ese tema … imagínate que puede leer … una lista de un temario o unas notas rápidas o definiciones de cosas … sin visuales. Algo que pueda estar haciendo que sea útil, evidentemente, mientras se genera la parte, el contenido real.» And: «tienes que ser coherente porque por lo menos imagínate que para la parte 1, ¿qué hacemos? No podemos decirle que haga un mini quiz de las partes anteriores.» Agreed design (by availability): always the part's map from the plan, live progress, and a quick preliminary glossary from one short call outside the tutor's loop; Part 1 or no answered quizzes: 2–3 ungraded questions before reading (from the diagnosis if present, else the short call), answers revealed when the part is ready; from Part 2: review of earlier mini-quizzes, wrong ones first; with course material: what the professor said, with its source. Nothing is shown where it does not apply.
+
 ## Tasks
 
 | ID | Spec | Issue | Route | Commit |
@@ -24,6 +26,7 @@ Branch `feat/370-fast-notes-course-materials` from `origin/main @ b1eaf3d`. Mile
 | T2a | S2 | #372 | worker: one part-check command with self-explaining findings | pending |
 | T2b | S2 | #372 | worker: part brief pre-loaded in the prompt | pending |
 | T2c | S2 | #372 | worker: real re-measure, same part | pending |
+| T6 | S6 | #376 | worker, after the speed PR | pending |
 | T3 | S3 | #371 | worker | pending |
 | T4 | S4 | #373 | worker, after T3 | pending |
 | T5 | S4, S5 | #374 | worker, after T4 | pending |
@@ -81,3 +84,5 @@ Branch `feat/370-fast-notes-course-materials` from `origin/main @ b1eaf3d`. Mile
 - Against L14 (high: 511.81 s and 595.29 s, median 553.55 s, both 8/8 gates with 0 findings): medium run 1 is +118.61 s (+23.2 %), run 2 +242.30 s (+40.7 %), median 734.01 s vs 553.55 s (+180.46 s, +32.6 %). Median tutor 716.39 s vs 535.71 s, model gap 603.48 s vs 468.41 s, tools 112.91 s / 83.5 executions vs 67.30 s / 71.5, comprobaciones 17.60 s vs 17.83 s, writes 1 vs 1, edits 4 vs 3.5. Quality did not drop: both medium notes end at 0 findings and 0 failures with all 8 gates measured by the independent rerun, and the notes are shorter (5143/4249 bytes, 166/162 register words) than L14's 7091/5650 bytes. No L14-era generated note remains on disk (its scratch vaults were removed earlier); only `/tmp/fast-notes-run/report-t2g-{1,2}.json` remain for comparison.
 
 **L16** — Decision from L15: gemini-3.8-flash-medium is not faster (median 734 s vs 554 s for high, same quality: both reach 0 findings and 8/8 gates). Production keeps gemini-3.8-flash-high; no model or thinking-level change ships. The speed levers that ship are T1 (measurement) and T2a–T2f; measured result L14: median 554 s vs 707 s same-skill baseline (−22 %), quality unchanged.
+
+**L17** — Learner, verbatim: «O mira, o no sé si también una opción es, obviamente vamos a seguir intentando maximizar el tiempo en el que se genera algo, pero para no tener al usuario ahí esperando sin cesar, podemos, no sé, hacer, o sea, darle una sección donde pueda esperar haciendo otra cosa respecto a ese tema. No lo sé, por ejemplo, imagínate que puede leer, no sé, una lista de un temario o unas notas rápidas o definiciones de cosas, no sé, o sea, sin visuales. Algo que pueda estar haciendo que sea útil, evidentemente, mientras se genera la parte, el contenido real. No sé qué se te ocurre a ti también.» Then, on the first proposal: «Claro, pero tienes que ser coherente porque por lo menos imagínate que para la parte 1, ¿qué hacemos? No podemos decirle que haga un mini quiz de las partes anteriores. Entonces, no sé, hay que pensarlo un poquito más acerca de todo eso.» Live progress: «Sí (Recomendado)». Availability design (S6): «Sí, así (Recomendado)». Issue #376.
