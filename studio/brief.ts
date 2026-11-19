@@ -85,10 +85,12 @@ function target(root: string, text: string): { topicId: string; plan: NonNullabl
   }
   if (!plan || plan.parts.length === 0) return undefined;
   const normal = (value: string) => value.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const index = id
-    ? plan.parts.findIndex((part) => part.id === id)
-    : plan.parts.findIndex((part) => normal(part.title) === normal(title ?? ""));
-  const chosen = index >= 0 ? index : number !== undefined && number >= 1 && number <= plan.parts.length ? number - 1 : -1;
+  // The composer names the part by number; a repeated title must not send the tutor to the
+  // wrong note. The title is only a fallback for an out-of-range number, and the hosted view
+  // names the part by id.
+  const numbered = number !== undefined && number >= 1 && number <= plan.parts.length ? number - 1 : -1;
+  const index = id ? plan.parts.findIndex((part) => part.id === id) : numbered;
+  const chosen = index >= 0 ? index : plan.parts.findIndex((part) => normal(part.title) === normal(title ?? ""));
   return chosen >= 0 ? { topicId, plan, index: chosen } : undefined;
 }
 

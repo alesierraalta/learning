@@ -779,6 +779,47 @@ for (const runtime of ["pi", "agy"]) {
     }
   });
 
+  test(`a measurement failure beside a finding is logged, never sent to the tutor: ${runtime}`, async () => {
+    let calls = 0;
+    const tutor = await checkingTutor(runtime, {
+      parts: [[{ name: "Parte 1 - Capas.md", content: BROKEN_PART }]],
+      partChecks: async () => {
+        calls += 1;
+        return calls === 1
+          ? {
+            kind: "findings",
+            tools: [{ file: join("redes", "explicaciones", "Parte 1 - Capas.md"), tool: "scene-lint.mjs", output: "  trazo-sobre-texto: encima", findings: ["trazo-sobre-texto: encima"] }],
+            count: 1,
+            first: "trazo-sobre-texto: encima",
+            failures: ["deck-gate.mjs no pudo medir Parte 1 - Capas.md (salida 2)"],
+          }
+          : { kind: "clean" };
+      },
+    });
+    const logged = [];
+    const write = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk, ...rest) => {
+      logged.push(String(chunk));
+      return write(chunk, ...rest);
+    };
+    try {
+      assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+      await until(() => tutor.turnsSoFar() === 1);
+      await tutor.endTurn();
+      await until(() => tutor.turnsSoFar() === 2, 120000);
+      assert.match(tutor.turnText(), /trazo-sobre-texto: encima/, "the finding still reaches the tutor");
+      assert.ok(
+        logged.some((line) => line.includes("estudio: comprobación fallida · deck-gate.mjs no pudo medir")),
+        `a gate that could not measure is logged even when another gate found something: ${logged.join("")}`,
+      );
+      await tutor.endTurn();
+      await until(() => settleIdle(tutor.stream), 120000);
+    } finally {
+      process.stderr.write = write;
+      tutor.close();
+    }
+  });
+
   test(`a turn that wrote no part runs no checks: ${runtime}`, async () => {
     let calls = 0;
     const tutor = await checkingTutor(runtime, {

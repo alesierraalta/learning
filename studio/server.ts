@@ -1564,8 +1564,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (!files.length) return null;
     const checkPartsWithVerdicts = options.partChecks ?? ((paths: string[]) => runPartChecks(paths, { gateVerdictsFile: gateStoreFile, gateToolPath: options.gateToolPath }));
     const checked = await checkPartsWithVerdicts(files);
+    // A gate that could not measure is the studio's own failure even when other gates found
+    // something: it never becomes a tutor finding, and it is never silently dropped (#372/T2a).
+    for (const failure of "failures" in checked ? checked.failures : []) {
+      process.stderr.write(`estudio: comprobación fallida · ${failure}\n`);
+    }
     if (checked.kind === "crashed") {
-      for (const failure of checked.failures) process.stderr.write(`estudio: comprobación fallida · ${failure}\n`);
       // A gate that could not measure did not pass: a regeneration keeps the previous version.
       if (settled.regeneration) settled.regeneration.reason ??= "una comprobación no pudo medir la parte";
       return null;

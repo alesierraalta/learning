@@ -135,6 +135,21 @@ test("a part chat that asks to write its part gets the brief", async () => {
   assert.ok(received()[0].includes(join(root, "redes", "explicaciones", "Parte 2 - TCP.md")));
 });
 
+test("the part number decides the destination when two parts share a title", () => {
+  const parts = [
+    { id: "p1", title: "Igual", slug: "Uno" },
+    { id: "p2", title: "Igual", slug: "Dos" },
+  ];
+  const { root } = makeRoot({ parts });
+  const brief = partBrief(root, "Escribe la Parte 2 «Igual» de Redes (carpeta redes): con sus visuales.");
+  const destination = brief.split("\n").find((line) => line.startsWith("Destino: "));
+  assert.equal(
+    destination,
+    `Destino: ${join(root, "redes", "explicaciones", "Parte 2 - Dos.md")}`,
+    `the numbered part is the target even when its title is repeated: ${destination}`,
+  );
+});
+
 test("the rule sheet is complete and stays within the brief's stated bound", () => {
   const { root } = makeRoot();
   const brief = partBrief(root, WRITE_TEXT);
