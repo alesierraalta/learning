@@ -4,7 +4,7 @@
 export const HINTS = {
   // Reglas de explain-check.
   'codigo-pagina': 'pon el código en una cerca cerrada con su lenguaje; ninguna cerca quede sin cerrar en la página.',
-  ruta: 'abre la parte con `## Ruta` y escribe de tres a cuatro líneas numeradas con lo que se va a entender.',
+  ruta: 'abre con una introducción de 4 a 6 frases en palabras llanas (la idea general y por qué importa), luego `## Ruta` con tres o cuatro líneas que digan qué se verá; ningún término que la parte explique después sin parafrasearlo ahí mismo.',
   'sin-resumen': 'borra el cierre con «En resumen», «En conclusión» o un gancho: la parte termina en contenido.',
   'falta-resumen': 'cierra el recorrido de tres o más pasos con `summary: {title, text?, metrics}` después del último paso.',
   secciones: 'reduce a dos secciones de contenido: junta la idea en una antes de dividir la parte.',
