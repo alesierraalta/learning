@@ -309,7 +309,7 @@ export default function learningPiExtension(pi: ExtensionAPI, overrides: Partial
     return { ok: true };
   };
 
-  const activate = (workspaceArg: string, ctx: { cwd: string; ui: { notify: (m: string, l?: string) => void } }): boolean => {
+  const activate = (workspaceArg: string, ctx: { cwd: string; ui: { notify: (m: string, l?: "error" | "info" | "warning") => void } }): boolean => {
     const enrolled = enrollWorkspace(workspaceArg || ctx.cwd, ctx.cwd);
     if (!enrolled.ok) {
       ctx.ui.notify(`Learning start rejected: ${enrolled.reason}`, "warning");
