@@ -86,6 +86,7 @@ credential exists in this repository.
 go test ./... && go test -race ./... && go vet ./...   # engine
 go build -o bin/learning ./cmd/learning
 rtk node --test integrations/pi/*.test.mjs             # adapter (fake ExtensionAPI + CLI stub)
+rtk npm --prefix integrations/pi exec tsc -- -p integrations/pi   # adapter types (Node strips them at runtime)
 ```
 
 The same commands run in CI (`.github/workflows/ci.yml`) on every pull request and push to

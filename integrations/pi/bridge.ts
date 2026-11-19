@@ -9,7 +9,7 @@
  * per-session token; the Host header must be loopback (DNS rebinding) and a
  * submit must come from this origin with a fixed-schema JSON body.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
@@ -977,8 +977,12 @@ const failedRunNotice = (language: string, error: unknown, runners: Record<strin
   return `No se puede ejecutar aquí: ${detail} Tu respuesta se guarda y se envía al tutor igualmente.`;
 };
 
-/** Listing for the learner: an unrunnable language is still an exercise with its own quiet notice. */
-function viewExercises(dir: string, runners: Record<string, Runner>) {
+/** Listing for the learner: an error item carries neither flag, an unrunnable one carries `ejecutable: false` and its quiet notice. */
+type ViewExercise = {
+  id: string; titulo: string; lenguaje: string; parte?: string; entregas: number; mejor: string | null; error?: string;
+  ejecutable?: boolean; aviso?: string;
+};
+function viewExercises(dir: string, runners: Record<string, Runner>): ViewExercise[] {
   return listExercises(dir, viewRunners(dir, runners)).map((item) => {
     if (item.error || !item.lenguaje) return item;
     const ejecutable = Object.hasOwn(runners, item.lenguaje);
@@ -2540,7 +2544,8 @@ ${scripts}
       return {
         content: [{ type: "text" as const, text: `Vista HTML: ${url}\nEjecutables aquí: ${runnable}` }],
         details: { url, runnable: list.runnable, warnings: list.warnings },
-        structuredContent: { url, base: base(), localBase: localBase(), runnable: list.runnable, runners: list.languages, warnings: list.warnings },
+        // SAFETY: a plain listing of records; every field is JSON as written.
+        structuredContent: { url, base: base(), localBase: localBase(), runnable: list.runnable, runners: list.languages, warnings: list.warnings } as unknown as AgentToolResult["structuredContent"],
         isError: false,
       };
     },
