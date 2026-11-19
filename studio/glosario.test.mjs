@@ -43,6 +43,39 @@ test("a malformed or short answer is not a glossary", () => {
   assert.equal(parsed.preguntas[0].respuesta, "B");
 });
 
+test("both runtimes' print wrappers are unwrapped before parsing", () => {
+  const glossary = {
+    terminos: Array.from({ length: 5 }, (_, i) => ({ termino: `t${i}`, definicion: `d${i}`, ejemplo: `e${i}` })),
+    preguntas: [{ enunciado: "¿Cuál?", opciones: { A: "uno", B: "otra" }, respuesta: "A" }],
+  };
+  const agy = JSON.stringify({ conversation_id: "c1", status: "SUCCESS", response: JSON.stringify(glossary), num_turns: 1 });
+  const pi = [
+    '{"type":"session","id":"s1"}',
+    `{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":${JSON.stringify(JSON.stringify(glossary))}}]}}`,
+    '{"type":"agent_end"}',
+  ].join("\n");
+  for (const stdout of [agy, pi]) {
+    const parsed = parseGlosario(stdout);
+    assert.equal(parsed.terminos.length, 5);
+    assert.equal(parsed.preguntas[0].respuesta, "A");
+  }
+});
+
+test("a reordered answer keeps the letter the model meant", () => {
+  const parsed = parseGlosario(JSON.stringify({
+    terminos: Array.from({ length: 5 }, (_, i) => ({ termino: `t${i}`, definicion: `d${i}`, ejemplo: `e${i}` })),
+    preguntas: [{ enunciado: "¿Cuál?", opciones: { B: "segunda", A: "primera" }, respuesta: "A" }],
+  }));
+  assert.deepEqual(parsed.preguntas[0].opciones, { A: "primera", B: "segunda" });
+  assert.equal(parsed.preguntas[0].respuesta, "A");
+  const withGap = parseGlosario(JSON.stringify({
+    terminos: Array.from({ length: 5 }, (_, i) => ({ termino: `t${i}`, definicion: `d${i}`, ejemplo: `e${i}` })),
+    preguntas: [{ enunciado: "¿Cuál?", opciones: { A: "uno", B: "   ", C: "tres" }, respuesta: "C" }],
+  }));
+  assert.deepEqual(withGap.preguntas[0].opciones, { A: "uno", B: "tres" });
+  assert.equal(withGap.preguntas[0].respuesta, "B");
+});
+
 test("a generated glossary is cached per topic and part outside the vault", async () => {
   const { root } = makeRoot();
   const stateDir = mkdtempSync(join(tmpdir(), "glosario-state-"));
@@ -87,6 +120,28 @@ test("a timeout becomes no-disponible, never an error page and never a vault wri
   assert.equal(filesBelow(stateDir).filter((path) => path.endsWith(".json")).length, 0, "a failed call is not cached");
   delete process.env.FAKE_GLOSARIO_DELAY_MS;
   delete process.env.FAKE_GLOSARIO_REPLY;
+});
+
+test("a failed short call stays no-disponible instead of restarting on every reader", async () => {
+  const { root } = makeRoot();
+  const stateDir = mkdtempSync(join(tmpdir(), "glosario-failed-"));
+  const log = join(stateDir, "argv.log");
+  process.env.FAKE_GLOSARIO_ARGV = log;
+  process.env.FAKE_GLOSARIO_REPLY = "not JSON";
+  const info = { topicTitle: "Redes", partTitle: "Capas", subtemas: ["1.1"] };
+  const g = createGlosario({ root, stateDir, config, command: [process.execPath, FAKE], timeoutMs: 5000, catalogTimeoutMs: 5000 });
+  try {
+    g.start("redes", "p1", info);
+    await g.whenSettled("redes", "p1");
+    assert.equal(g.view("redes", "p1").estado, "no-disponible");
+    const calls = readFileSync(log, "utf8").trim().split("\n").length;
+    g.start("redes", "p1", info);
+    assert.equal(g.view("redes", "p1").estado, "no-disponible", "another reader must not restart a failed call");
+    assert.equal(readFileSync(log, "utf8").trim().split("\n").length, calls, "no second process after a failure");
+  } finally {
+    delete process.env.FAKE_GLOSARIO_ARGV;
+    delete process.env.FAKE_GLOSARIO_REPLY;
+  }
 });
 
 test("the glossary does not take the topic writer lock", () => {

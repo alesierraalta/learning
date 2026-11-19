@@ -218,6 +218,31 @@ test("an unavailable glossary leaves no gap in the waiting section", { skip: bro
   assert.doesNotMatch(await section.innerText(), /glosario/i);
 });
 
+test("empty map sections are not shown where the plan has nothing", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await fixture(t);
+  await stubEspera(page, payload({ mapa: { aprende: ["El objetivo"], subtemas: [], dependeDe: [] } }));
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await writeTurn(page, 1, "Capas", "p1");
+  const section = page.locator(".espera");
+  await section.getByRole("heading", { name: "Mientras se escribe la Parte 1" }).waitFor();
+  await section.getByText("El objetivo").waitFor();
+  assert.equal(await section.getByRole("heading", { name: "Subtemas" }).count(), 0, "no empty subtemas block");
+  assert.equal(await section.getByRole("heading", { name: "Necesitas antes" }).count(), 0, "Part 1 has no previous parts");
+});
+
+test("the waiting questions can be answered from the keyboard", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await fixture(t);
+  await stubEspera(page, payload());
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await writeTurn(page, 1, "Capas", "p1");
+  const option = page.locator(".espera").getByRole("radio", { name: /Oculta los detalles/ });
+  await option.waitFor();
+  await option.focus();
+  await page.keyboard.press("Space");
+  assert.equal(await option.isChecked(), true);
+  assert.match(await page.locator(".espera").innerText(), /Anotado\. Podrás comparar cuando la parte esté lista\./);
+});
+
 test("clicking «Escribir esta parte» starts the section for that part", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { studio, page } = await fixture(t, { writeLaterParts: false });
   const requests = await stubEspera(page, payload({ part: { id: "p2", number: 2, title: "TCP" }, preguntas: null }));

@@ -2581,7 +2581,9 @@
     const label = at < 0 ? "Escribiendo" : fase.fase === "corrigiendo" && Number.isFinite(Number(fase.hallazgos))
       ? `Corrigiendo (${fase.hallazgos} hallazgos)`
       : ESPERA_FASES[at][1];
-    const block = (title, items) => h("div", { class: "espera-block" }, h("h4", {}, title), h("ul", {}, (items || []).map((item) => h("li", {}, String(item)))));
+    const block = (title, items) => (items || []).length
+      ? h("div", { class: "espera-block" }, h("h4", {}, title), h("ul", {}, items.map((item) => h("li", {}, String(item)))))
+      : null;
     const mapa = data?.mapa;
     const preguntas = data?.preguntas;
     const glosario = data?.glosario;

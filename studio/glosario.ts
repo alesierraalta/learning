@@ -91,13 +91,39 @@ export function glosarioPrompt(info: { topicTitle: string; partTitle: string; su
   );
 }
 
+/** Print mode wraps the answer: agy in one JSON envelope, Pi in NDJSON events. */
+function answerOf(stdout: string): string {
+  const trimmed = stdout.trim();
+  try {
+    const whole: unknown = JSON.parse(trimmed);
+    if (object(whole) && typeof whole.response === "string") return whole.response;
+  } catch { /* NDJSON or a fenced answer */ }
+  let answer = "";
+  for (const line of trimmed.split("\n")) {
+    let event: unknown;
+    try { event = JSON.parse(line); } catch { continue; }
+    if (!object(event)) continue;
+    const messages = event.type === "agent_end" && Array.isArray(event.messages)
+      ? event.messages
+      : [event.type === "message_end" ? event.message : undefined];
+    for (const message of messages) {
+      if (!object(message) || message.role !== "assistant" || !Array.isArray(message.content)) continue;
+      for (const part of message.content) {
+        if (object(part) && part.type === "text" && typeof part.text === "string") answer += part.text;
+      }
+    }
+  }
+  return answer || stdout;
+}
+
 /** Accept only a bounded, well-formed answer; a malformed one is the same as no call. */
 export function parseGlosario(text: string): { terminos: Termino[]; preguntas: SuggestedQuestion[] } {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
+  const answer = answerOf(text);
+  const start = answer.indexOf("{");
+  const end = answer.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("glosario sin JSON");
   let data: unknown;
-  try { data = JSON.parse(text.slice(start, end + 1)); } catch { throw new Error("glosario con JSON inválido"); }
+  try { data = JSON.parse(answer.slice(start, end + 1)); } catch { throw new Error("glosario con JSON inválido"); }
   if (!object(data) || !Array.isArray(data.terminos)) throw new Error("glosario sin términos");
   const terminos = data.terminos.filter((raw): raw is Termino => object(raw) &&
     ["termino", "definicion", "ejemplo"].every((key) => typeof raw[key] === "string" && (raw[key] as string).trim() !== ""),
@@ -107,10 +133,18 @@ export function parseGlosario(text: string): { terminos: Termino[]; preguntas: S
   if (Array.isArray(data.preguntas)) {
     for (const raw of data.preguntas) {
       if (!object(raw) || typeof raw.enunciado !== "string" || !object(raw.opciones)) continue;
-      const entries = Object.entries(raw.opciones).filter(([, value]) => typeof value === "string" && value.trim() !== "");
+      // A model may list the letters out of order; keep A…E attached to their own text.
+      const order = (letter: string) => {
+        const index = (LETTERS as readonly string[]).indexOf(letter);
+        return index < 0 ? LETTERS.length : index;
+      };
+      const entries = Object.entries(raw.opciones)
+        .filter(([, value]) => typeof value === "string" && value.trim() !== "")
+        .sort(([a], [b]) => order(a) - order(b));
       if (entries.length < 2 || entries.length > LETTERS.length) continue;
+      const letters = new Map(entries.map(([letter], index) => [letter, LETTERS[index]]));
       const opciones = Object.fromEntries(entries.map(([, value], index) => [LETTERS[index], value as string]));
-      const letter = typeof raw.respuesta === "string" ? Object.keys(opciones)[Object.keys(raw.opciones).indexOf(raw.respuesta)] : "";
+      const letter = typeof raw.respuesta === "string" ? letters.get(raw.respuesta) ?? "" : "";
       if (!letter || !Object.hasOwn(opciones, letter)) continue;
       preguntas.push({
         enunciado: raw.enunciado.trim(),
@@ -165,6 +199,7 @@ export function createGlosario(options: GlosarioOptions) {
   const catalogTimeoutMs = options.catalogTimeoutMs ?? CATALOG_TIMEOUT_MS;
   const directory = join(options.stateDir, "espera-glosario");
   const inflight = new Map<string, Promise<void>>();
+  const failed = new Set<string>();
   let model: Promise<string> | undefined;
   const key = (topic: string, part: string) => `${topic}__${part}`;
   const fileFor = (topic: string, part: string) => join(directory, `${key(topic, part)}.json`);
@@ -207,9 +242,11 @@ export function createGlosario(options: GlosarioOptions) {
     /** Fire and forget: the write-part turn must never wait for this call. */
     start(topic: string, part: string, info: { topicTitle: string; partTitle: string; subtemas: string[] }): void {
       const id = key(topic, part);
-      if (inflight.has(id) || readCache(fileFor(topic, part))) return;
+      if (failed.has(id) || inflight.has(id) || readCache(fileFor(topic, part))) return;
       const pending = generate(topic, part, info)
         .catch((error: unknown) => {
+          // A bad answer is a state, not a transient gap: another reader must not start another call.
+          failed.add(id);
           process.stderr.write(`estudio: glosario no disponible · ${(error as Error).message}\n`);
         })
         .finally(() => { inflight.delete(id); });
