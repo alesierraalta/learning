@@ -193,10 +193,17 @@ process.stdin.on("data", (chunk) => {
           },
         });
         break;
-      case "switch_session":
-        sessionFile = String(command.sessionPath ?? sessionFile);
-        out({ id: command.id, type: "response", command: "switch_session", success: true, data: { cancelled: false } });
+      case "switch_session": {
+        // FAKE_PI_SWITCH_DELAY_MS holds the answer so a test can change tutor while the
+        // studio is adopting the conversation Pi had at boot.
+        const delay = Number(process.env.FAKE_PI_SWITCH_DELAY_MS) || 0;
+        const answer = () => {
+          sessionFile = String(command.sessionPath ?? sessionFile);
+          out({ id: command.id, type: "response", command: "switch_session", success: true, data: { cancelled: false } });
+        };
+        if (delay > 0) setTimeout(answer, delay); else answer();
         break;
+      }
       case "set_session_name":
         out({ id: command.id, type: "response", command: "set_session_name", success: true, data: {} });
         break;

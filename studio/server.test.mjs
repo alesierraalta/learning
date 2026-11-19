@@ -649,7 +649,7 @@ const CLEAN_PART = BROKEN_PART.replace(
  * to measure. `parts` is one script per turn: a correction writes what the previous turn was told
  * to fix. `partChecks` replaces the studio's measurement when a test needs the verdict, not the tools.
  */
-async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE }, partChecks, state = {}, extra = {} } = {}) {
+async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE }, partChecks, state = {}, extra = {}, bootSwitch = false } = {}) {
   const { root, engine: enginePath, log } = makeRoot(engine);
   process.env.FAKE_PI_LOG = log;
   const turns = join(root, "agy-turns.log");
@@ -674,6 +674,8 @@ async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE 
   await stream.next("history");
   await stream.next("state");
   if (runtime === "agy") {
+    // A boot that is still adopting another Pi session is in flight before we switch tutors.
+    if (bootSwitch) await until(() => piLog(log).some((command) => command.type === "switch_session"), 15000);
     assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
     await stream.next("state");
   }
@@ -3933,12 +3935,21 @@ for (const runtime of ["pi", "agy"]) {
 
   test(`a regeneration whose part checks find a missing summary asks the tutor for a part-correction: ${runtime}`, async () => {
     let checks = 0;
+    // The studio adopts an active chat that still points at another Pi session at boot. Keep
+    // that switch in flight while the tutor changes to agy: the learner must hear no studio
+    // bookkeeping error, however the two overlap (#385).
+    const bootState = mkdtempSync(join(tmpdir(), "studio-boot-switch-"));
+    const chatsFile = join(bootState, "chats.json");
+    writeFileSync(chatsFile, JSON.stringify({ version: 1, activo: "chat1", chats: [{ id: "chat1", nombre: "Chat general", ambito: null, piSession: "/tmp/otra-sesion.jsonl", agyConversation: null, creado: 0, usado: 0, contexto: null }] }));
+    if (runtime === "agy") process.env.FAKE_PI_SWITCH_DELAY_MS = "3000";
     const tutor = await checkingTutor(runtime, {
       parts: [NEW_PART, CORRECTED_PART],
       engine: { status: ENGINE_METHOD },
       state: { method: "pareto" },
       // The first version has no summary; the corrected one passes the tools.
       partChecks: async () => (checks++ === 0 ? FALTA_RESUMEN : { kind: "clean" }),
+      extra: { chatsFile },
+      bootSwitch: runtime === "agy",
     });
     try {
       const note = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md");
@@ -3954,7 +3965,7 @@ for (const runtime of ["pi", "agy"]) {
       assert.equal(tutor.turnsSoFar(), 2, "one correction for one finding");
       assert.equal(readFileSync(note, "utf8"), "# LA VERSION CORREGIDA\n", "the corrected version passes and replaces the previous one");
       assert.equal(tutor.stream.events.filter((event) => event.name === "error").length, 0, "a part that passes says nothing to the learner");
-    } finally { tutor.close(); }
+    } finally { tutor.close(); delete process.env.FAKE_PI_SWITCH_DELAY_MS; }
   });
 
   test(`a regeneration the method guard refuses keeps its reason beside the quarantine: ${runtime}`, async () => {
