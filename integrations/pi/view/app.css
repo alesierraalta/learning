@@ -101,6 +101,36 @@ td { font-family: var(--serif); font-size: 16px; line-height: 1.45; font-variant
 pre { margin: 18px 0; padding: 0 0 0 1.2em; overflow-x: auto; background: none; border: 0; font-size: 15px; line-height: 1.55; }
 code { font-family: var(--mono); font-size: .85em; color: var(--warm); }
 pre code { color: var(--ink); }
+/* #386: un bloque de código cercado es un contenedor de código, no prosa
+   sangrada. La superficie se tiñe de la tinta sobre el papel de la página, el
+   filete rodea los cuatro lados (sin franja de acento) y la letra mono se lee.
+   El selector solo alcanza un `pre` que sostiene un `code`: la prosa, Mermaid
+   (pre.mermaid / .mermaid), .code-results pre y los campos de código quedan fuera. */
+.prose pre:has(> code:not(.language-mermaid)) {
+  margin: 24px 0; padding: 16px;
+  border: 1px solid var(--hair); border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 5%, var(--paper));
+  font: 14px/1.6 var(--mono);
+  white-space: pre; overflow-x: auto; tab-size: 2;
+}
+.prose pre:has(> code:not(.language-mermaid)) > code { font-size: 1em; color: var(--ink); }
+/* El lenguaje del cercado se nombra arriba del contenedor; un lenguaje sin
+   etiqueta conocida no deja un hueco en blanco. */
+.prose pre:has(> code:is(.language-sql, .language-plsql, .language-js, .language-javascript, .language-ts, .language-typescript, .language-py, .language-python, .language-sh, .language-bash, .language-shell, .language-json, .language-html, .language-css, .language-java, .language-yaml, .language-yml))::before {
+  display: block; margin: 0 0 9px;
+  color: var(--muted); font: 700 10px/1.4 var(--sans);
+  letter-spacing: .13em; text-transform: uppercase;
+}
+.prose pre:has(> code.language-sql)::before, .prose pre:has(> code.language-plsql)::before { content: "sql"; }
+.prose pre:has(> code.language-js)::before, .prose pre:has(> code.language-javascript)::before { content: "javascript"; }
+.prose pre:has(> code.language-ts)::before, .prose pre:has(> code.language-typescript)::before { content: "typescript"; }
+.prose pre:has(> code.language-py)::before, .prose pre:has(> code.language-python)::before { content: "python"; }
+.prose pre:has(> code.language-sh)::before, .prose pre:has(> code.language-bash)::before, .prose pre:has(> code.language-shell)::before { content: "bash"; }
+.prose pre:has(> code.language-json)::before { content: "json"; }
+.prose pre:has(> code.language-html)::before { content: "html"; }
+.prose pre:has(> code.language-css)::before { content: "css"; }
+.prose pre:has(> code.language-java)::before { content: "java"; }
+.prose pre:has(> code.language-yaml)::before, .prose pre:has(> code.language-yml)::before { content: "yaml"; }
 /* Un fragmento de código con espacios dentro no debe estirarse cuando el
    párrafo se justifica: como bloque en línea conserva su ancho natural. */
 :not(pre) > code { padding: 0; background: none; display: inline-block; max-width: 100%; vertical-align: baseline; }
