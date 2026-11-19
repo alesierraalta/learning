@@ -20,6 +20,7 @@ Presupuesto, medido, no estimado:
 | Prosa de la parte (sin código, tablas ni bloques visuales) | **450 palabras** |
 | Secciones de contenido además de `## Ruta` y del heading del mini-quiz | 2 |
 | Líneas de `## Ruta` | 4 |
+| Prelectura antes de `## Ruta` | Un párrafo de 2 o 3 frases, 70 palabras como máximo |
 | Figuras (Mermaid o una forma propia con pasos) | 1 |
 | Recorrido progresivo | 1, dentro de la figura del ejemplo; una idea por paso, sin tope para explicar una fórmula (S25) |
 | Preguntas del mini-quiz | 3 |
@@ -88,8 +89,11 @@ frase y el mini-quiz.
 
 ## 1. Arquitectura de una parte
 
-1. **`## Ruta` primero.** Tres o cuatro líneas numeradas (§0), cada una con un concepto y una
-   promesa de qué se va a entender. Una línea por punto, sin sub-bullets. Abre con
+1. **Prelectura y luego `## Ruta`.** Antes de la ruta, un párrafo corto de dos o tres frases
+   (70 palabras como máximo) con lo que cubre la parte, para acostumbrar al cerebro a lo que
+   viene. Después `## Ruta`: tres o cuatro líneas numeradas (§0), cada una con el paso y una
+   frase de qué se verá ahí, por ejemplo `1. Viabilidad comercial — qué preguntas responde el
+   estudio de mercado y por qué va primero.` Una línea por punto, sin sub-bullets. Abre con
    «Vamos a construirlo en este orden:».
 2. **Secciones de contenido.** Una idea por sección, en prosa. Los títulos numerados siguen
    la jerarquía del tema (`1.1`, `1.1.1`, …) y son frases, no etiquetas: «¿Por qué existe el
@@ -332,7 +336,7 @@ El quiz se responde en la página. Es parte de la explicación, no un examen fin
 
 ## 8. Chequeo antes de entregar
 
-1. ¿La parte abre con `## Ruta` y termina en contenido, sin resumen ni gancho?
+1. ¿La parte abre con una prelectura corta, sigue con `## Ruta` y termina en contenido, sin resumen ni gancho?
 2. ¿Hay un solo ejemplo conductor, y muta al menos cinco veces?
 3. ¿Cada fórmula llegó después del caso del ejemplo que la motiva, con sus símbolos nombrados?
 4. ¿La escena y el recorrido muestran el ejemplo mismo, con una flecha que dice dónde mirar?
