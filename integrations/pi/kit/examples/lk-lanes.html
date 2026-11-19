@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>lk-lanes · línea de tiempo con recurso compartido</title>
+  <script src="../theme.js"></script>
+  <link rel="stylesheet" href="../kit.css">
+  <link rel="stylesheet" href="../lanes.css">
+  <script src="../lanes.js" defer></script>
+  <style>main { max-width: none; margin: 0; padding: 22px 28px 32px; }</style>
+</head>
+<body>
+<main>
+  <p class="kicker">Recurso compartido · ejemplo de figura</p>
+  <lk-lanes>
+    <script type="application/json">
+    {
+      "form": "timeline",
+      "kicker": "FORMA GENÉRICA · LÍNEA DE TIEMPO",
+      "question": "Una mesa, tres estaciones y un solo horno: ¿quién lo usa y cuándo?",
+      "focus": "horno",
+      "timeUnit": "u.",
+      "timeMax": 15,
+      "lanes": [
+        { "id": "frios", "name": "Fríos", "role": "entradas", "color": "#165d94", "icon": "knife" },
+        { "id": "parrilla", "name": "Parrilla", "role": "corte y asado", "color": "#a15c00", "icon": "flame" },
+        { "id": "postres", "name": "Postres", "role": "repostería", "color": "#6d3a72", "icon": "cake-slice" }
+      ],
+      "items": [
+        { "id": "pedido", "lane": "frios", "label": "Pedido", "kind": "point", "start": 0 },
+        { "id": "ensalada", "lane": "frios", "label": "Ensalada", "kind": "bar", "start": 1, "end": 4 },
+        { "id": "corte", "lane": "parrilla", "label": "Corte", "kind": "bar", "start": 1, "end": 3 },
+        { "id": "asar", "lane": "parrilla", "label": "Asar", "kind": "bar", "start": 4, "end": 8, "resource": { "id": "horno" } },
+        { "id": "crema", "lane": "postres", "label": "Crema", "kind": "bar", "start": 1, "end": 4 },
+        { "id": "coulant", "lane": "postres", "label": "Coulant", "kind": "bar", "start": 8, "end": 10, "resource": { "id": "horno", "waitFrom": 4 } },
+        { "id": "emplatar", "lane": "frios", "label": "Emplatar", "kind": "bar", "start": 9, "end": 11 },
+        { "id": "servir", "lane": "frios", "label": "Servir", "kind": "bar", "start": 12, "end": 13 },
+        { "id": "listo", "lane": "frios", "label": "Listo", "kind": "milestone", "start": 15 }
+      ],
+      "links": [
+        { "id": "d1", "from": "pedido", "to": "corte", "kind": "dependency" },
+        { "id": "d2", "from": "pedido", "to": "ensalada", "kind": "dependency" },
+        { "id": "d3", "from": "pedido", "to": "crema", "kind": "dependency" },
+        { "id": "d4", "from": "corte", "to": "asar", "kind": "dependency" },
+        { "id": "d5", "from": "ensalada", "to": "emplatar", "kind": "dependency" },
+        { "id": "d6", "from": "asar", "to": "emplatar", "kind": "dependency" },
+        { "id": "d7", "from": "crema", "to": "coulant", "kind": "dependency" },
+        { "id": "d8", "from": "emplatar", "to": "servir", "kind": "dependency" },
+        { "id": "d9", "from": "coulant", "to": "servir", "kind": "dependency" },
+        { "id": "m1", "from": "asar", "to": "coulant", "kind": "message", "verb": "cede el horno", "tone": "info" },
+        { "id": "d10", "from": "servir", "to": "listo", "kind": "dependency" }
+      ],
+      "resources": [
+        { "id": "horno", "name": "Horno", "color": "#a15c00", "icon": "oven" }
+      ],
+      "steps": [
+        {
+          "title": "Pedido abierto",
+          "time": 0,
+          "reveal": ["pedido", "corte", "ensalada", "crema"],
+          "highlight": ["pedido"],
+          "links": ["d1", "d2", "d3"],
+          "facts": [],
+          "narrator": [
+            "El [pedido|frios] llega a la cocina y cada estación toma su parte: [corte|parrilla], [ensalada|frios] y [crema|postres]."
+          ]
+        },
+        {
+          "title": "Parrilla al horno",
+          "time": 4,
+          "reveal": ["pedido", "corte", "ensalada", "crema", "asar"],
+          "highlight": ["asar"],
+          "links": ["d4"],
+          "facts": [],
+          "narrator": [
+            "Cortar terminó en [3|parrilla]; [asar|parrilla] ocupa el [horno|parrilla] de [4 a 8|parrilla].",
+            "Ese tramo manda: si se retrasa, se retrasa toda la mesa."
+          ]
+        },
+        {
+          "title": "Dos peticiones",
+          "time": 6,
+          "reveal": ["pedido", "corte", "ensalada", "crema", "asar", "coulant"],
+          "highlight": ["asar", "coulant"],
+          "links": ["m1"],
+          "facts": ["conflict"],
+          "narrator": [
+            "Parrilla sigue con el horno, pero Postres ya pidió hacer el [coulant|postres].",
+            "Las peticiones se solapan entre [4 y 8|bad]: dos estaciones, un solo horno. Eso es un conflicto."
+          ]
+        },
+        {
+          "title": "Espera acordada",
+          "time": 4,
+          "reveal": ["pedido", "corte", "ensalada", "crema", "asar", "coulant"],
+          "highlight": ["coulant"],
+          "links": ["d7", "m1"],
+          "facts": ["wait"],
+          "narrator": [
+            "Postres espera de [4 a 8|warn]: la franja rayada es espera, no uso del horno.",
+            "Cuando Parrilla libera en [8|parrilla], el coulant entra de [8 a 10|postres]. El conflicto desaparece."
+          ]
+        },
+        {
+          "title": "El coulant entra",
+          "time": 8,
+          "reveal": ["pedido", "corte", "ensalada", "crema", "asar", "coulant", "emplatar", "servir", "listo"],
+          "highlight": ["coulant"],
+          "links": ["d9"],
+          "facts": ["wait"],
+          "narrator": [
+            "A las [8|postres], Parrilla suelta el horno y el [coulant|postres] entra sin esperar.",
+            "La espera terminó: la franja rayada ya no significa un solape, sino una entrega acordada."
+          ]
+        }
+      ]
+    }
+    </script>
+  </lk-lanes>
+  <p class="after">La unidad del eje está en la cabecera; las etiquetas viven dentro de su bloque y las flechas llegan al borde de su destino.</p>
+</main>
+</body>
+</html>
