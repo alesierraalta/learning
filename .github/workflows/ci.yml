@@ -106,6 +106,14 @@ jobs:
           module="$(npm root -g)/playwright/index.mjs"
           echo "PLAYWRIGHT_MODULE=$module" >> "$GITHUB_ENV"
 
+      # #381: Node strips types at runtime, so the TS sources are only checked
+      # here, with the tsconfig the project ships.
+      - name: Typecheck the Pi integration
+        run: |
+          cd integrations/pi
+          npm install --no-audit --no-fund
+          npm exec tsc -- -p .
+
       - name: Adapter and kit suites
         run: |
           node --test integrations/pi/*.test.mjs \
