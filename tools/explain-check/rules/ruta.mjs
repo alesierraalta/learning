@@ -1,6 +1,8 @@
+import { HINTS } from '../hints.mjs';
 // 1. La ruta: el mapa de la parte, tres o cuatro líneas.
 export default {
   id: 'ruta',
+  hint: HINTS['ruta'],
   check({ src }) {
     const ruta = src.match(/^##\s*Ruta\s*$([\s\S]*?)(?=^##\s|\Z)/m);
     const lineasRuta = ruta ? ruta[1].split('\n').filter((l) => /^\s*\d+[.)]/.test(l)).length : 0;

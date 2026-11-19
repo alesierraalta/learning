@@ -39,6 +39,8 @@ const STUDIO_CONTRACT = [
   "El recorrido de una parte nueva se escribe con el lenguaje de historia —<lk-story> (actores con estado, movimientos y marcas) o una pieza: <lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>—; una escena, un SVG o el <lk-walkthrough> clásico no cuentan: el motor rechaza la parte que no trae historia ni pieza. Ver la skill explicacion-interactiva, «Forma de parte» regla 4.",
   "No escribas un .html aparte para una parte: la nota de cada parte es lo que la persona lee; el lector sirve una página solo si pasa las mismas puertas que la nota y trae cada figura suya.",
   "Registro: técnico en el contenido, sencillo en la forma. Cada término se nombra, se explica en palabras llanas donde aparece y se ata al ejemplo; frases cortas, una idea por línea, un antes y un después, y la cuenta renglón a renglón. El checador mide esto con explain-check (reglas de registro). Ver la skill explicacion-interactiva, «Registro».",
+  "Antes de entregar una parte corre una sola puerta, `node <repo>/tools/part-check.mjs <nota>`, no los comandos separados de scene-gate, scene-lint, deck-gate, explain-check, page-gate, part-lint ni el barrido de ASCII; usa `--json` si necesitas el informe para máquinas. Corrígela y vuelve a correr hasta que salga 0.",
+  "No leas el código de las puertas ni del kit para aprender las reglas: cada hallazgo trae la regla, el elemento y la corrección en una línea. Los fallos de medición van aparte y no son hallazgos.",
   "Reply in neutral Spanish with tú, never voseo (escribe, responde, mira; never escribí, respondé, mirá, acá).",
 ].join("\n");
 

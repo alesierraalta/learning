@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7e. El personaje (#245): un actor es un personaje con su dibujo, no un
 // rectángulo con su nombre. El kit dibuja diez personajes con `kind` —el cilindro
 // de la base de datos, la fila, la sesión, el candado, el usuario, el servidor, el
@@ -28,6 +29,7 @@ const dibujaPersonaje = (a) => Boolean(a.kind || a.icon);
 
 export default {
   id: 'actor-sin-personaje',
+  hint: HINTS['actor-sin-personaje'],
   check({ historiasSpecs }) {
     const sinPersonaje = historiasSpecs
       .map((spec) => {

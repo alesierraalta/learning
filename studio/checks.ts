@@ -49,7 +49,7 @@ export type PartChecks =
   /** Every tool passed, or there was nothing to measure. */
   | { kind: "clean" }
   /** At least one tool named something to fix. */
-  | ({ kind: "findings" } & PartReport)
+  | ({ kind: "findings"; /** Gates that could not measure, even when other gates found something. */ failures: string[] } & PartReport)
   /**
    * A tool could not measure at all (missing, crashed, timed out, or it failed without naming a
    * finding). This is the studio's own problem, never the tutor's: it goes to the log.
@@ -103,11 +103,23 @@ const runHtmlGate = async (file: string, options: PartCheckOptions): Promise<Run
   }
 };
 
+/** One finding, read from a gate's own words: the rule, the element it names and the message. */
+export interface ParsedFinding {
+  rule: string;
+  where: string;
+  message: string;
+  /** The gate's finding line, unchanged: this is what the studio already gives the tutor. */
+  raw: string;
+}
+
+const row = (rule: string, where: string, message: string, raw: string): ParsedFinding => ({ rule, where, message, raw });
+
 /**
- * The finding lines of one tool, read in the tool's own vocabulary. A tool that fails without
- * naming anything is not a finding: it is a check that could not run.
+ * Read a gate's findings in its own vocabulary, keeping more than the line: `part-check` needs the
+ * rule and the offending element to print an actionable finding. `findingsOf` still returns exactly
+ * the same lines the studio has always handed the tutor.
  */
-export function findingsOf(tool: PartTool, output: string): string[] {
+export function parsedFindingsOf(tool: string, output: string): ParsedFinding[] {
   if (tool === "deck-gate.mjs") {
     // A single note is answered as one JSON report, followed by its own GATE line.
     const start = output.indexOf("{");
@@ -115,20 +127,37 @@ export function findingsOf(tool: PartTool, output: string): string[] {
     if (start >= 0 && end > start) {
       try {
         const report = JSON.parse(output.slice(start, end + 1)) as { bad?: Array<Record<string, unknown>> };
-        return (report.bad ?? [])
-          .map((item) => [item.kind, item.text].filter((part) => typeof part === "string" && part !== "").join(": "))
-          .filter(Boolean);
+        return (report.bad ?? []).map((item) => {
+          const rule = typeof item.kind === "string" ? item.kind : "";
+          const text = typeof item.text === "string" ? item.text : "";
+          const raw = [rule, text].filter((part) => part !== "").join(": ");
+          return row(rule, [item.deck ? `deck ${item.deck}` : "", item.step ? `paso ${item.step}` : ""].filter(Boolean).join(" · "), text, raw);
+        }).filter((found) => found.raw);
       } catch {
         // Not the report: fall through to the tool's own lines.
       }
     }
-    return output.split("\n").filter((line) => /^ {2}\{/.test(line)).map((line) => line.trim());
+    return output.split("\n").filter((line) => /^ {2}\{/.test(line)).map((line) => {
+      const raw = line.trim();
+      try {
+        const item = JSON.parse(raw) as Record<string, unknown>;
+        return row(String(item.kind ?? ""), `deck ${item.deck ?? "?"} · paso ${item.step ?? "?"}`, String(item.text ?? ""), raw);
+      } catch {
+        return row("", "", raw, raw);
+      }
+    });
   }
   const lines = output.split("\n");
   if (tool === "explain-check.mjs") {
     try {
-      const rows = (JSON.parse(output) as { rows?: Array<{ ok?: unknown; rule?: unknown; detail?: unknown }> }).rows;
-      if (Array.isArray(rows)) return rows.filter((row) => row.ok === false).map((row) => `FALLA ${String(row.rule ?? "")} ${String(row.detail ?? "")}`.trim());
+      const rows = (JSON.parse(output) as { rows?: Array<{ ok?: unknown; rule?: unknown; detail?: unknown; items?: Array<{ linea?: unknown }> }> }).rows;
+      if (Array.isArray(rows)) return rows.filter((entry) => entry.ok === false).map((entry) => {
+        const rule = String(entry.rule ?? "");
+        const detail = String(entry.detail ?? "").trim();
+        const first = entry.items?.find((item) => typeof item.linea === "string")?.linea ?? "";
+        const where = String(first).match(/[«"']([^»"']+)[»"']/)?.[1] ?? String(first).slice(0, 60) ?? "nota";
+        return row(rule, where || "nota", detail || String(first), `FALLA ${rule} ${detail}`.trim());
+      });
     } catch {
       // Markdown checks retain the tool's line-oriented output.
     }
@@ -136,16 +165,42 @@ export function findingsOf(tool: PartTool, output: string): string[] {
   if (tool === "scene-lint.mjs" || tool === "scene-gate.mjs" || tool === "page-gate.mjs") {
     // `<nota>: bloque N — <título>` / `<nota>: escena N — <título>` then one
     // `  <kind>: <texto>` per finding: the two geometry tools speak the same way.
-    return lines.filter((line) => /^ {2}[a-z][a-z-]*:/.test(line)).map((line) => line.trim());
+    const found: ParsedFinding[] = [];
+    let where = "";
+    for (const line of lines) {
+      if (/^ {2}[a-z][a-z-]*:/.test(line)) {
+        const raw = line.trim();
+        const match = raw.match(/^([a-z][a-z-]*):\s*(.*)$/);
+        found.push(row(match?.[1] ?? "", where, match?.[2] ?? "", raw));
+      } else if (line.trim() && !line.startsWith(" ")) {
+        where = line.replace(/^[^:]+:\s*/, "").trim();
+      }
+    }
+    return found;
   }
   // explain-check prints one row per rule: `FALLA <regla> <detalle>`.
-  return lines.filter((line) => /^FALLA\s/.test(line)).map((line) => line.trim());
+  return lines.filter((line) => /^FALLA\s/.test(line)).map((line) => {
+    const raw = line.trim();
+    const match = raw.match(/^FALLA\s+(\S+)\s*(.*)$/);
+    return row(match?.[1] ?? "", "nota", match?.[2] ?? "", raw);
+  });
+}
+
+/**
+ * The finding lines of one tool, read in the tool's own vocabulary. A tool that fails without
+ * naming anything is not a finding: it is a check that could not run.
+ */
+export function findingsOf(tool: PartTool, output: string): string[] {
+  return parsedFindingsOf(tool, output).map((found) => found.raw);
 }
 
 /** The first line of a tool's own error, for the log: never a stack trace. */
 const errorLine = (run: Run): string => {
-  const text = [run.stderr, run.stdout].join("\n");
-  const line = text.split("\n").find((candidate) => /error|Error|no está disponible|no such file/.test(candidate));
+  const lines = [run.stderr, run.stdout].join("\n").split("\n").map((candidate) => candidate.trim()).filter(Boolean);
+  const line = lines.find((candidate) => /error|Error|no está disponible|no such file/.test(candidate))
+    // A gate that fails without the word «error» still has something to say: its first line,
+    // never a stack trace. The one-command CLI shows it apart from the findings.
+    ?? lines[0];
   return (line ?? run.error ?? "").trim();
 };
 
@@ -176,7 +231,7 @@ export async function runPartChecks(files: string[], options: PartCheckOptions =
   }
   if (tools.length) {
     const count = tools.reduce((total, found) => total + found.findings.length, 0);
-    return { kind: "findings", tools, count, first: tools[0].findings[0] };
+    return { kind: "findings", tools, count, first: tools[0].findings[0], failures };
   }
   if (failures.length) return { kind: "crashed", failures };
   return { kind: "clean" };

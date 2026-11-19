@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7h (c). Las claves que el esquema no lee: un paso con `scene` al lado de `stage`
 // declara un dibujo que nadie dibuja. El escenario vive en `stage` y su dibujo en
 // `stage.scene`; lo demás es dato muerto que enseña mal el esquema al tutor.
@@ -10,6 +11,7 @@ const CLAVES_DE_LA_ESCENA = new Set(['actors', 'props', 'moves', 'tags', 'marks'
 
 export default {
   id: 'clave-muerta',
+  hint: HINTS['clave-muerta'],
   check({ historiasSpecs }) {
     const clavesMuertas = [];
     for (const spec of historiasSpecs) {

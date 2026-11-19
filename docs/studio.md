@@ -162,6 +162,24 @@ already names:
 | `tools/explain-check.mjs` | the whole standard, rule by rule (it measures the figure again through `scene-lint`) |
 | `tools/page-gate.mjs` | the whole page in the real reader: black × wide and light × phone, every `<lk-story>` step drawn, with visible ink inside its stage, its narrator and player visible, no box over the next block, nothing off the page and no page error |
 
+The tutor runs all of them, plus `part-lint`, the register measurement on the note's text and the
+skill's ASCII-arrow grep, with **one command**:
+
+```bash
+node tools/part-check.mjs "<tema>/explicaciones/Parte N - <slug>.md"        # human-readable
+node tools/part-check.mjs "<tema>/explicaciones/Parte N - <slug>.md" --json # machine output
+```
+
+It calls `runPartChecks` from `studio/checks.ts` (and its `PART_TOOLS`) for the five gates above,
+so the verdicts and gate order stay the studio's; the CLI only parses their output and adds the
+three checks the studio does not run. Findings are grouped per gate and each carries the rule id,
+where (line, element or scene), the gate's message and a one-line fix hint read from the rule
+definition (`tools/explain-check/hints.mjs` and the rules in `tools/explain-check/rules/`). The
+register row is reported as a measurement with no verdict. Gates that could not measure are
+printed apart from findings, on stderr as well as in the JSON's `failures`. Exit `0` means every
+gate passed, `1` means findings, `2` means a measurement failed; the tutor repairs and reruns until
+it gets `0`, without reading gate or kit source.
+
 `scene-gate` runs first: a figure drawn past the edge of its own canvas is clipped in the reader no
 matter how well its pieces live together, so the learner hears about that before the rest.
 `page-gate` runs last, after the four figure tools: it opens the part as the reader really serves

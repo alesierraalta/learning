@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 4. Una escena y como mucho un recorrido. El motor (`explanation-standard`,
 // `minScenes`) exige además que haya una escena y que su payload dibuje: eso
 // necesita leer el JSON, y el rechazo del motor nombra el arreglo («dibuja el
@@ -7,6 +8,7 @@
 // tope. El motor cuenta igual (`pieceOpenCount` en `internal/engine/pieces.go`).
 export default {
   id: 'escena',
+  hint: HINTS['escena'],
   check({ escenas }) {
     return { ok: escenas <= 1, detail: `${escenas} escena(s)` };
   },

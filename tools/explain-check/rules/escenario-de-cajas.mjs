@@ -4,6 +4,7 @@
 // un icono suelto (el de una caja es su adorno, #273), una curva, una fórmula o un
 // callout la salvan; el motor aplica la misma regla (`sceneStageFindings`).
 import { declara } from '../nota.mjs';
+import { HINTS } from '../hints.mjs';
 
 const VOCABULARIO = ['actors', 'props', 'moves', 'tags', 'icons', 'callouts', 'curves', 'paths', 'formulas', 'formula', 'grids', 'sheets', 'bars', 'stats', 'nodes', 'badges', 'dashed', 'policy', 'arrows'];
 const PIEZAS_DIBUJADAS = ['cards', 'memory', 'tables', 'venn', 'tree'];
@@ -32,6 +33,7 @@ const pasoDibujaAccion = (step) => {
 
 export default {
   id: 'escenario-de-cajas',
+  hint: HINTS['escenario-de-cajas'],
   check({ historiasSpecs, escenasSpecs }) {
     const soloCajas = historiasSpecs.filter((spec) => (spec.steps || []).length > 0 && (spec.steps || []).every((step) => !pasoDibujaAccion(step)));
     const escenasDeCajas = escenasSpecs.filter((spec) => {

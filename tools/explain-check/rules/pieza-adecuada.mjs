@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7g. La pieza que le toca a la idea (#245). Dos casos medibles: el código que
 // cambia filas guardadas (INSERT/UPDATE/DELETE/JOIN) se cuenta con `lk-tables` o
 // `lk-memory`, y el contraste entre el código que compila y el que falla se cuenta
@@ -5,6 +6,7 @@
 // puede medir sin juicio.
 export default {
   id: 'pieza-adecuada',
+  hint: HINTS['pieza-adecuada'],
   check({ src, sinCodigo }) {
     const bloquesCodigo = [...src.matchAll(/```[a-zA-Z]*\n([\s\S]*?)```/g)].map((m) => m[1]);
     const codigo = bloquesCodigo.join('\n');

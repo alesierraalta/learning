@@ -1,5 +1,7 @@
+import { HINTS } from '../hints.mjs';
 export default {
   id: 'codigo-pagina',
+  hint: HINTS['codigo-pagina'],
   authoringOnly: false,
   check({ lineasFencesMarkdown }) {
     return {

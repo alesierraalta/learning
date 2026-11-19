@@ -5,9 +5,11 @@
 import { hallazgosDeRegistro } from '../../register/hallazgos.mjs';
 import { umbralesDe } from '../../register/niveles.mjs';
 import { preferenciasDe } from '../../register/preferencias.mjs';
+import { HINTS } from '../hints.mjs';
 
 export default {
   id: 'registro',
+  hint: HINTS['registro'],
   check({ src, sinCodigo, esPagina }, { file }) {
     return hallazgosDeRegistro(esPagina ? sinCodigo : src, umbralesDe(preferenciasDe(file)));
   },

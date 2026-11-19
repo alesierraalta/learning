@@ -5,9 +5,11 @@
 // y un test cruza los dos veredictos. El código en un bloque cercado es un ejemplo
 // de marcado, no un dibujo: el motor lo ignora y aquí también.
 import { PIEZAS } from '../nota.mjs';
+import { HINTS } from '../hints.mjs';
 
 export default {
   id: 'historia',
+  hint: HINTS['historia'],
   check({ sinCodigo }) {
     const historias = (sinCodigo.match(/<lk-story[\s>]/g) || []).length;
     const piezasDibujadas = (sinCodigo.match(new RegExp(`<lk-(?:${PIEZAS})[\\s>]`, 'g')) || []).length;

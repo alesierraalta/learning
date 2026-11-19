@@ -1,9 +1,11 @@
+import { HINTS } from '../hints.mjs';
 // 6b. El ritmo: frases cortas. El estándar pide una idea por frase; una frase de 40
 // palabras no se lee, se atraviesa.
 const palabras = (t) => t.split(/\s+/).filter(Boolean).length;
 
 export default {
   id: 'frases',
+  hint: HINTS['frases'],
   check({ frases }) {
     const largas = frases.filter((f) => palabras(f) > 18);
     const media = frases.length ? Math.round(frases.reduce((a, f) => a + palabras(f), 0) / frases.length) : 0;

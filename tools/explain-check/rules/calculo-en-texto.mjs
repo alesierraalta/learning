@@ -11,6 +11,7 @@
 // `internal/engine/standard_calculo_en_texto.go`) y un test cruza los dos.
 import { isStepLine } from '../../register/measure.mjs';
 import { sinCercasPorRenglon } from '../../lib/explain-check-code.mjs';
+import { HINTS } from '../hints.mjs';
 
 // Lo que es código o dibujo y no una cuenta: los lenguajes de programación que mide el registro (`CODE_LANGS` en
 // `tools/register/measure.mjs`) y los formatos visuales del kit.
@@ -250,6 +251,7 @@ const formulas = (src) => {
 
 export default {
   id: 'calculo-en-texto',
+  hint: HINTS['calculo-en-texto'],
   authoringOnly: true,
   check({ src }) {
     const texto = src.replace(ESPACIOS, ' ');

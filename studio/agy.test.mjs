@@ -97,6 +97,35 @@ test("the studio preamble points at the story language, and names the classic wa
 
 // La nota es lo que la persona lee (#265): el preámbulo de cada turno dice que no se escribe un .html
 // aparte para una parte, y la página rica de #261 ya no se pide.
+// #372/T2a: the tutor runs one command and reads the findings, not the gates' source. Reading that
+// source was 34 of the 86 trajectory steps in L7, so the preamble says so explicitly.
+test("the studio preamble sends one part-check command and forbids reading gate or kit source", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agy-part-check-"));
+  const log = join(dir, "turns.log");
+  process.env.FAKE_AGY_TURNS = log;
+  let settled = 0;
+  const agy = createAgy({
+    command: [process.execPath, FAKE_AGY],
+    cwd: dir,
+    config: { version: 1, agente: "agy", modelo: "", pensamiento: "" },
+    onRecord: (record) => {
+      if (record.type === "agent_settled") settled += 1;
+    },
+    onError: (message) => assert.fail(message),
+  });
+  try {
+    agy.prompt("escribe la parte 1");
+    await until(() => settled === 1);
+    const prompt = turns(log)[0].join(" ");
+    assert.match(prompt, /node <repo>\/tools\/part-check\.mjs <nota>/);
+    assert.match(prompt, /--json/);
+    assert.match(prompt, /no leas el código de las puertas ni del kit/i);
+    assert.match(prompt, /cada hallazgo trae la regla, el elemento y la corrección/);
+  } finally {
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
 test("the studio preamble says the note is what the learner reads, with no separate page for a part", async () => {
   const dir = mkdtempSync(join(tmpdir(), "agy-nota-"));
   const log = join(dir, "turns.log");

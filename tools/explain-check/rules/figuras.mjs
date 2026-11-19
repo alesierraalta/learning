@@ -1,9 +1,11 @@
 // 8. Las figuras conviven: se delega en scene-lint, que abre un navegador.
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { HINTS } from '../hints.mjs';
 
 export default {
   id: 'figuras',
+  hint: HINTS['figuras'],
   check({ escenas, recorridos }, { file, tools }) {
     let figuras = { ok: true, detail: 'sin figuras' };
     if (escenas || recorridos) {  // `escenas` ya incluye las piezas

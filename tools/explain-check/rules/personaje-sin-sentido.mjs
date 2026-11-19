@@ -3,6 +3,7 @@
 // la etiqueta del actor de una historia y en la del grupo de un árbol; el motor aplica la misma regla
 // (`characterSenseFindings`) con la clave aditiva `characterSense`, y lee las mismas palabras.
 import { fichas } from '../nota.mjs';
+import { HINTS } from '../hints.mjs';
 
 const PERSONA_PALABRAS = new Set(['persona', 'personas', 'paciente', 'pacientes', 'enfermo', 'enfermos', 'sano', 'sanos', 'usuario', 'usuarios', 'alumno', 'alumnos', 'cliente', 'clientes', 'gente', 'poblacion', 'estudiante', 'estudiantes', 'ciudadano', 'ciudadanos', 'vecino', 'vecinos', 'individuo', 'individuos', 'habitante', 'habitantes']);
 const RESULTADO_PALABRAS = new Set(['positivo', 'positivos', 'negativo', 'negativos', 'resultado', 'resultados', 'diagnostico', 'diagnosticos', 'falso', 'falsos', 'verdadero', 'verdaderos', 'prueba', 'pruebas', 'test', 'tests']);
@@ -21,6 +22,7 @@ const contradice = (kind, tag) => {
 
 export default {
   id: 'personaje-sin-sentido',
+  hint: HINTS['personaje-sin-sentido'],
   check({ historiasSpecs, sinCodigo }) {
     const personajes = [];
     const revisa = (kind, tag, donde) => {
