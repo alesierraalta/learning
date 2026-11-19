@@ -48,6 +48,8 @@ para RL, PL/SQL, EXL3, administración de proyectos o inglés, con cualquier mod
    `howToReadLine` en `rules/deep.json`.
 9. Escribe el recorrido al nivel normal del texto: nunca dentro de una cita (`> `) ni detrás de
    un bloque de código en una lista anidada; el motor no lo leería bien.
+10. **Auditoría del kit**: ejecuta `node tools/visuals/audit-note.mjs --note "<ruta de la nota>"`
+    y corrige todas las violaciones antes de dar la parte por terminada.
 
 ## Tablas y datos
 
@@ -64,8 +66,8 @@ para RL, PL/SQL, EXL3, administración de proyectos o inglés, con cualquier mod
 2. Repasa el checklist de `visuales.md` §2c: Mermaid primero, claves exactas del contrato, un
    `<script type="application/json">` por elemento, foco ≤ 2, sin mandos ni franjas de color,
    fórmula símbolo por símbolo, línea `Cómo leerlo:`.
-3. **Engine legacy (T9)**: `progressiveProblems` (`internal/engine/decks.go`) y `demoElements`
-   (`rules/deep.json`) todavía solo reconocen `<lk-walkthrough>`/`<lk-story>`, y
-   `countVisualsAndGuides` no cuenta los elementos nuevos como visuales. Si el motor devuelve
-   `needs a progressive walkthrough` o un error de conteo con una nota que sigue el contrato
-   nuevo, reporta el gate a T9; no sustituyas la figura nueva por una antigua.
+3. El motor ya acepta los cinco elementos del contrato como recorrido progresivo, escena y
+   fórmula (`internal/engine/decks.go` y los gates `standard_*.go`): el contrato nuevo basta,
+   sin sustituir la figura nueva por una antigua.
+4. Ejecuta `node tools/visuals/audit-note.mjs --note "<ruta de la nota>"` y corrige **todas**
+   las violaciones; sin `0 violation(s)` la parte no se declara terminada.

@@ -39,26 +39,28 @@ rechaza eso también, con el arreglo escrito en el mensaje.
 Los mensajes, literales, para reconocerlos y corregir sin adivinar:
 
 ```text
-0 drawn <lk-scene> scene(s) (the part needs 1) — mensaje legacy del motor: exige la escena antigua
-needs a progressive walkthrough — mensaje legacy: progressiveProblems solo cuenta <lk-walkthrough>/<lk-story>
+0 drawn <lk-scene> scene(s) (the part needs 1) — el archivo legacy pide la escena antigua
+needs a progressive walkthrough — el archivo legacy pide <lk-walkthrough>/<lk-story>
 6 paragraph(s) with more than 2 sentences — the first opens «…»; split it: one idea per
 sentence and one beat per paragraph
 ```
 
-Los dos primeros mensajes los migra T9 (`rules/deep.json`, `internal/engine/checks.go`,
-`internal/engine/decks.go`): con el contrato nuevo, una nota puede ser rechazada por ellos aunque
-traiga todas sus figuras. **No se arreglan escribiendo figuras antiguas**: se reporta el gate a
-T9. El resto se corrige en la parte: la figura se dibuja con el contrato de `visuales.md` §0–2c
-(nunca una spec vacía para pasar el gate), el párrafo se parte en frases de una idea y la fórmula
-se explica símbolo a símbolo en `<lk-guided>` antes del ejemplo. La cuenta de párrafos es la misma
-que la de `node tools/explain-check.mjs` (`parrafos`), y un test cruza las dos; la medida exacta
-es la del motor (`explanation-standard`, `thresholds.partStandard` en `rules/deep.json`).
+El motor ya acepta `<lk-stage>`, `<lk-codestep>`, `<lk-tablestep>`, `<lk-guided>` y `<lk-lanes>`
+como escena, recorrido y fórmula (`internal/engine/decks.go` y los gates `standard_*.go`). Si
+aparecen los dos primeros mensajes, falta una figura nueva con spec válida: se corrige con el
+contrato de `visuales.md` §0–2c, nunca con figuras antiguas. El resto
+se corrige en la parte: la figura se dibuja con ese mismo contrato (nunca una spec vacía para
+pasar el gate), el párrafo se parte en frases de una idea y la fórmula se explica símbolo a
+símbolo en `<lk-guided>` antes del ejemplo. La cuenta de párrafos es la misma que la de
+`node tools/explain-check.mjs` (`parrafos`), y un test cruza las dos; la medida exacta es la del
+motor (`explanation-standard`, `thresholds.partStandard` en `rules/deep.json`).
 
 Se cuenta antes de entregar:
 
 ```bash
 sed '/^```/,/^```/d; /<lk-scene>/,/<\/lk-scene>/d; /<lk-walkthrough>/,/<\/lk-walkthrough>/d; /<lk-story>/,/<\/lk-story>/d' "Parte N.md" | wc -w
 node tools/explain-check.mjs "Parte N.md"   # el estándar entero: tamaño, forma, leyenda
+node tools/visuals/audit-note.mjs --note "Parte N.md"   # spec de cada elemento nuevo: 0 violaciones
 ```
 
 Esa cuenta es la estimación rápida en el baúl. La medida exacta es la del motor
@@ -337,9 +339,11 @@ El quiz se responde en la página. Es parte de la explicación, no un examen fin
 5. ¿Alguna idea importante vive solo dentro de un bloque de código o de un `plain text`?
    Si sí, es una escena que falta.
 6. ¿Se lee en voz alta sin trabarse? ¿Alguna frase tiene más de dos comas?
-0. ¿Pasan **las cuatro puertas** de «Parámetros mínimos de calidad» del `SKILL.md` (gate, lint,
-   part-lint y barrido de ASCII)? Sin las cuatro en verde, la parte no se entrega; el resultado se
-   cita en el mensaje, no se supone.
+0. ¿Pasan **las cinco puertas** de «Parámetros mínimos de calidad» del `SKILL.md` (gate, lint,
+   part-lint, barrido de ASCII y `audit-note`)? Corrige **todas** las violaciones que imprima
+   `node tools/visuals/audit-note.mjs --note "<ruta de la nota>"` antes de dar la parte por
+   terminada. Sin las cinco en verde, la parte no se entrega; el resultado se cita en el mensaje,
+   no se supone.
 7. ¿Cada pieza tiene su ficha de tres golpes (§2b), sin segunda definición, sin párrafo que
    explique la lista y sin explicación de las alternativas?
 8. ¿Quedó algún párrafo que explique que el concepto «es más general»? Se borra: esa frase la

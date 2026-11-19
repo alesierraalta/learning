@@ -322,6 +322,13 @@ es el diagrama CPM por defecto: para red de proyectos, Mermaid Gantt/flowchart.
 - [ ] Fórmula: símbolo por símbolo antes del ejemplo; todos los tokens explicados, sin tope de
       pasos.
 - [ ] Ancho ocupado, temas claro/oscuro/negro revisados y movimiento reducido respetado.
+- [ ] Antes de entregar: ejecuta `node tools/visuals/audit-note.mjs --note "<ruta de la nota>"` y
+      corrige **todas** las violaciones; sin `0 violation(s)` la parte no se declara terminada.
+
+El motor ya acepta `<lk-stage>`, `<lk-codestep>`, `<lk-tablestep>`, `<lk-guided>` y `<lk-lanes>`
+como recorrido progresivo, escena y fórmula (`internal/engine/decks.go` y los gates
+`standard_*.go`): el contrato nuevo basta, sin figuras antiguas.
+`rules/deep.json` no necesita cambiar.
 
 **Las secciones 3–9 de abajo son el archivo de las partes ya publicadas**: describen las figuras
 antiguas (`lk-scene`, `lk-story`, `lk-walkthrough`, SVG) que el lector sigue dibujando. No se
@@ -903,8 +910,8 @@ sistema y una lista de pasos que lo mueve.
 | Cuándo | Componente |
 |---|---|
 | Varios sistemas y un orden en el tiempo (DNS, TCP, HTTP, el dibujo) | `<lk-explorer>` |
-| Un concepto con estado: quién tiene qué y cuándo deja de valer | `<lk-story>` con actores y piezas (§8d) |
-| Un intercambio único, sin pasos | `<lk-scene>` con dos cajas y sus flechas |
+| Legado (partes publicadas): un concepto con estado | `<lk-story>` con actores y piezas (§8d) |
+| Legado (partes publicadas): un intercambio único, sin pasos | `<lk-scene>` con dos cajas y sus flechas |
 
 El explorador dibuja **cada sistema una vez** —su personaje (`kind`), su nombre y el detalle que lo identifica
 (`192.168.1.10`, `8.8.8.8`, `puerta de enlace`)—, une con trazos los que hablan y mueve el foco con
@@ -1004,11 +1011,13 @@ Los conteos de una probabilidad se dibujan como **árbol de frecuencias**: `<lk-
 ## 8i. La secuencia: quién dice qué, en qué orden (#353)
 
 Cuando la idea es un **proceso entre actores** y lo que importa es *quién habla con quién y en
-qué momento*, dibuja la pieza `sequence` en un paso de `<lk-story>` (o de `<lk-walkthrough>`
-legado). No la sustituyas por una fila de cajas con flechas: las cajas dicen quién existe, pero
-no dicen el orden, y el alumno acaba leyendo una lista en prosa para entender lo que el dibujo
-debería mostrar. Prefiere `<lk-explorer>` (§8f) cuando el tema sea un **mapa** que se recorre;
-prefiere `sequence` cuando el tema sea un **guion** que se desarrolla.
+qué momento*, escribe un `sequenceDiagram` de Mermaid (S16) o `<lk-lanes>` si hay recurso
+compartido, esperas o conflictos. No lo sustituyas por una fila de cajas con flechas: las cajas
+dicen quién existe, pero no dicen el orden. En el archivo legacy de las partes ya publicadas, la
+pieza `sequence` se dibujaba en un paso de `<lk-story>` (o de `<lk-walkthrough>`); ese ejemplo
+sigue abajo, pero no se estrena en material nuevo.
+
+Ejemplo legacy (solo para partes ya publicadas):
 
 ```html
 <lk-story>
@@ -1049,9 +1058,9 @@ de vida. `messages` declara `from`, `to`, `label`, `kind` (`blue`, `green`, `amb
 distancia y baja con el tiempo; dos mensajes con el mismo `at` comparten fila y no deben
 traslaparse. `phases` pone una banda por tramo, `notes` una aclaración al pie y `legend` el
 nombre de cada categoría. `flow: true` hace que el mensaje fluya (#300).
-- **Es estado**: la secuencia entera es una pieza con clave estable —el `id` si lo hay—, así que
-sigue al paso siguiente, destella cuando cambia un mensaje y la puedes nombrar con
-`ring: "<id>"`. Sus datos van con `facts` y la historia cierra con `summary` (#301). La
+- **Es estado (archivo legacy)**: la secuencia entera es una pieza con clave estable —el `id`
+si lo hay—, así que sigue al paso siguiente, destella cuando cambia un mensaje y la puedes
+nombrar con `ring: "<id>"`. Sus datos van con `facts` y la historia cierra con `summary` (#301). La
 estatura de la letra y la geometría asentada la miden `scene-gate` y `scene-lint`; `deck-gate`
 y `page-gate` la miden a 390 px, donde se desliza dentro de su marco sin reducir la letra.
 - **No se confunde con cajas**: usa `sequence` para un intercambio con tres o más actores; para
