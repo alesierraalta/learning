@@ -582,6 +582,19 @@ const mentions = (sentence, term) =>
   new RegExp(`(?:^|[^\\p{L}\\p{N}])${escape(term.replace(/[`*]/g, ''))}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(sentence);
 
 /**
+ * Dónde se nombra el término por primera vez, contado sobre el texto original: la prosa que se mide
+ * quita código, tablas y piezas, así que sus líneas no son las del archivo que corrige el tutor.
+ * Sólo localiza; lo que cuenta como explicado lo decide `explainedAtFirstUse`.
+ */
+function lineOfFirstUse(text, sentence, term) {
+  const lines = text.split('\n');
+  const needle = plain(sentence);
+  let at = lines.findIndex((line) => needle && plain(line).includes(needle));
+  if (at < 0) at = lines.findIndex((line) => mentions(plain(line), plain(term)));
+  return at < 0 ? 0 : at + 1;
+}
+
+/**
  * ¿El término se explica en palabras llanas en alguna de sus apariciones?
  *
  * No se exige la primera: la ruta del principio nombra los términos sin
@@ -742,6 +755,7 @@ export function measureText(text, { id = 'texto', corpus = 'our' } = {}) {
       explained: explainedAtFirstUse(term, sentences),
       bound: boundToExample(term, sentences),
       sentence,
+      line: lineOfFirstUse(text, sentence, term),
     };
   });
   const explained = termList.filter((t) => t.explained).length;

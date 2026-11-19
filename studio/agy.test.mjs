@@ -126,6 +126,43 @@ test("the studio preamble sends one part-check command and forbids reading gate 
   }
 });
 
+test("the studio preamble writes the whole part before checking, from the brief's rule sheet", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agy-write-first-"));
+  const log = join(dir, "turns.log");
+  process.env.FAKE_AGY_TURNS = log;
+  let settled = 0;
+  const agy = createAgy({
+    command: [process.execPath, FAKE_AGY],
+    cwd: dir,
+    config: { version: 1, agente: "agy", modelo: "", pensamiento: "" },
+    onRecord: (record) => {
+      if (record.type === "agent_settled") settled += 1;
+    },
+    onError: (message) => assert.fail(message),
+  });
+  try {
+    agy.prompt("escribe la parte 1");
+    await until(() => settled === 1);
+    const prompt = turns(log)[0].join(" ");
+    const at = (pattern) => {
+      const match = pattern.exec(prompt);
+      assert.ok(match, `missing in the contract: ${pattern}`);
+      return match.index;
+    };
+    const brief = at(/lee primero el \[PART BRIEF\]/);
+    const write = at(/escribe la parte entera de una sola vez/);
+    const check = at(/corre `node <repo>\/tools\/part-check\.mjs <nota>` una sola vez/);
+    const fix = at(/corrige solo lo que sus hallazgos nombren/);
+    const again = at(/vuelve a correr part-check/);
+    assert.ok(brief < write && write < check && check < fix && fix < again, "brief → write → check → fix → re-check");
+    assert.match(prompt, /no leas reglas de `tools\/explain-check\/rules\//i);
+    assert.match(prompt, /ni el registro `tools\/register\/measure\.mjs`/i);
+    assert.match(prompt, /no sondee el registro con `node -e`/i);
+  } finally {
+    delete process.env.FAKE_AGY_TURNS;
+  }
+});
+
 test("the studio preamble says the note is what the learner reads, with no separate page for a part", async () => {
   const dir = mkdtempSync(join(tmpdir(), "agy-nota-"));
   const log = join(dir, "turns.log");

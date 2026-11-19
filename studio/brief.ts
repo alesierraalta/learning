@@ -12,11 +12,17 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { listTopics, readPlan } from "../integrations/pi/bridge.ts";
+import { ruleSheetText } from "../tools/part-check.mjs";
 
 export const PART_BRIEF_MARK = "PART BRIEF";
-/** Hard ceiling for the block; the builder aims lower so a long title cannot push it over. */
-export const MAX_PART_BRIEF_BYTES = 4096;
-const SOFT_LIMIT = MAX_PART_BRIEF_BYTES - 128;
+/** Hard ceiling for the whole block, rule sheet included (#372/T2d): 12 KiB, no more. */
+export const MAX_PART_BRIEF_BYTES = 12288;
+/** The sheet comes from the rules themselves; the compact form is reserved so it always fits. */
+const RULES_FULL = `\n${ruleSheetText()}\n`;
+const RULES_COMPACT = `\n${ruleSheetText({ compact: true })}\n`;
+const FACTS_LIMIT = MAX_PART_BRIEF_BYTES - Buffer.byteLength(RULES_COMPACT, "utf8") - 64;
+/** Hard ceiling for the factual part; the builder aims lower so a long title cannot push it over. */
+const SOFT_LIMIT = FACTS_LIMIT - 128;
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CHECK_TOOL = join(REPO, "tools", "part-check.mjs");
 /** The composer's `writePromptOf` (studio/ui/studio.js): the canonical write-part request. */
@@ -139,13 +145,14 @@ export function partBrief(root: string, text: string): string {
   /** Rebuild the sibling lines with shorter titles (and only then shorter paths) until it fits. */
   let maxTitle = 64;
   let maxPath = Number.POSITIVE_INFINITY;
+  let facts = "";
   for (;;) {
     const lines = siblings.map((sibling) => {
       const status = sibling.written ? "escrita" : "pendiente";
       return `${sibling.number}. ${clip(sibling.title, maxTitle)} | ${status} | ${clipPath(sibling.path, maxPath)}`;
     });
     const brief = `${head}${[...fixed.slice(0, 4), ...lines, ...fixed.slice(4)].join("\n")}\n`;
-    if (bytes(brief) <= SOFT_LIMIT) return brief;
+    if (bytes(brief) <= SOFT_LIMIT) { facts = brief; break; }
     if (maxTitle > 8) {
       maxTitle = Math.max(8, maxTitle - 8);
       continue;
@@ -161,6 +168,9 @@ export function partBrief(root: string, text: string): string {
       if (bytes(keep.join("")) + bytes(`${line}\n`) > SOFT_LIMIT) break;
       keep.push(`${line}\n`);
     }
-    return keep.join("").slice(0, MAX_PART_BRIEF_BYTES - 1);
+    facts = keep.join("").slice(0, FACTS_LIMIT - 1);
+    break;
   }
+  const withFullSheet = `${facts}${RULES_FULL}`;
+  return bytes(withFullSheet) <= MAX_PART_BRIEF_BYTES ? withFullSheet : `${facts}${RULES_COMPACT}`;
 }

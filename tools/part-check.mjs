@@ -4,9 +4,11 @@
 // part-lint, la medida del registro, el barrido de ASCII de la skill y la presentación.
 //
 // Uso: node tools/part-check.mjs <nota.md> [--json]
+//       node tools/part-check.mjs --rules [--compact]
 // Sale 0 solo si todas pasan; 1 si hay hallazgos; 2 si alguna medición no pudo correr.
 // PART_CHECK_TOOLS_DIR permite aislar las herramientas en las pruebas.
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { PART_TOOLS, parsedFindingsOf, runPartChecks } from '../studio/checks.ts';
 import { HINTS } from './explain-check/hints.mjs';
 import { REGLAS } from './explain-check/reglas.mjs';
+import { REGLAS_DE_REGISTRO, REQUISITOS_DE_REGISTRO } from './register/hallazgos.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..');
@@ -23,6 +26,62 @@ const HINTS_BY_RULE = { ...HINTS, ...Object.fromEntries(REGLAS.filter((r) => r.h
 const FIX = /\b(dibuja|pon|mueve|quita|escribe|parte|reduce|acorta|ordena|reparte|nombra|sube|baja|separa|declara|cambia)\b[^.!]*[.!]?/i;
 
 const oneLine = (text) => String(text ?? '').replace(/\s+/g, ' ').trim();
+
+/* ------------------------------------------------------------------ */
+/* La ficha de reglas (#372/T2d)                                       */
+/* ------------------------------------------------------------------ */
+
+const RULES_DIR = join(HERE, 'explain-check', 'rules');
+const clip = (text, max = 132) => {
+  const clean = oneLine(text).replace(/\|/g, '/');
+  return clean.length <= max ? clean : `${clean.slice(0, max - 1).replace(/\s+\S*$/, '')}…`;
+};
+
+/**
+ * Lo que exige una regla de explain-check sale del comentario de su propio archivo: no hay una
+ * segunda lista que mantener. Si el archivo no lo dice, su propia corrección describe el requisito.
+ */
+function requirementOf(id, fallback) {
+  let source = '';
+  try { source = readFileSync(join(RULES_DIR, `${id}.mjs`), 'utf8'); } catch { return clip(fallback); }
+  const code = source.search(/^(?:export default|const |function |let )/m);
+  const head = code < 0 ? source : source.slice(0, code);
+  const comment = head.split('\n').filter((line) => /^\s*\/\//.test(line))
+    .map((line) => line.replace(/^\s*\/\/\s?/, '')).join(' ');
+  const text = oneLine(comment)
+    .replace(/^\d+[a-z]?(?:\s*\([^)]*\))?[.:]?\s*/, '')
+    .replace(/^#\d+\s*/, '');
+  return clip(text || fallback);
+}
+
+let sheet;
+/** Una fila por regla que part-check puede reportar: id, requisito y arreglo, sin listas paralelas. */
+export function ruleSheet() {
+  if (sheet) return sheet;
+  const rows = [];
+  const seen = new Set();
+  const add = (id, requirement) => {
+    if (seen.has(id) || !HINTS[id]) return;
+    seen.add(id);
+    rows.push({ id, requirement: clip(requirement), hint: oneLine(HINTS[id]) });
+  };
+  for (const rule of REGLAS) add(rule.id, requirementOf(rule.id, rule.hint));
+  for (const id of REGLAS_DE_REGISTRO) add(id, REQUISITOS_DE_REGISTRO[id] ?? HINTS[id]);
+  // Las reglas del kit viven en sus puertas; su definición pública aquí es la corrección.
+  for (const id of Object.keys(HINTS)) add(id, HINTS[id]);
+  sheet = rows;
+  return rows;
+}
+
+/** La misma ficha en texto, para el prompt del estudio (`--compact`: id + requisito). */
+export function ruleSheetText({ compact = false } = {}) {
+  const rows = ruleSheet();
+  return [
+    `RULE SHEET · ${rows.length} reglas · ${compact ? 'id | requisito' : 'id | requisito | arreglo'} · generada de las reglas`,
+    ...rows.map((row) => compact ? `${row.id} | ${row.requirement}` : `${row.id} | ${row.requirement} | ${row.hint}`),
+  ].join('\n');
+}
+
 /** La corrección vive en la definición de la regla; si una regla del kit no la trae, se lee del hallazgo. */
 function hintOf(rule, message) {
   const text = HINTS_BY_RULE[rule] ?? message.match(FIX)?.[0] ?? `sigue la regla «${rule}»: ${message}`;
@@ -79,13 +138,22 @@ export async function partCheck(file, options = {}) {
   if (lint.code !== 0 && !lintFindings.length) failures.push(failureOf('part-lint.mjs', file, lint));
   groups.push({ gate: 'part-lint', findings: lintFindings });
 
-  // El registro mide, no dicta: su fila viaja con el informe, pero no cuenta como hallazgo.
+  // El registro mide, no dicta: sus hallazgos viajan con el informe, pero no cuentan como hallazgos
+  // de puerta. Ahora nombran el término y la línea de su primera aparición (#372/T2d).
   const measured = await runNode([join(toolsDir, 'register', 'measure.mjs'), '--text', file, '--json']);
   let register = null;
   if (measured.code === 0) {
     try { register = JSON.parse(measured.stdout); } catch { register = null; }
   }
   if (measured.code !== 0 || register === null) failures.push(failureOf('register/measure.mjs', file, measured));
+  const unexplained = Array.isArray(register?.unexplained) ? register.unexplained : [];
+  const registerFindings = unexplained.map((term) => ({
+    rule: 'termino-sin-explicar',
+    where: term.line ? `línea ${term.line}` : oneLine(term.sentence) || 'nota',
+    message: `«${oneLine(term.term)}» no se explica en palabras llanas donde aparece`,
+    hint: hintOf('termino-sin-explicar', term.sentence),
+  }));
+  if (register) register = { ...register, findings: registerFindings };
   groups.push({ gate: 'register', findings: [] });
 
   // El barrido de la skill: una línea de ASCII o de flecha de texto es una escena que falta.
@@ -124,6 +192,7 @@ function print(report, asJson) {
     if (report.register) {
       const m = report.register;
       console.log(`\n[register] sin veredicto · ${m.words ?? '?'} palabras · ${m.wordsPerSentence?.mean?.toFixed?.(1) ?? '?'} palabras/frase · ${m.unexplained?.length ?? 0} término(s) sin explicar`);
+      for (const found of m.findings) console.log(`  ${found.rule} · ${found.where} · ${found.message}\n    arreglo: ${found.hint}`);
     }
   }
   // En --json el informe va a stdout y las medidas fallidas, aparte, a stderr: el machine output
@@ -134,18 +203,22 @@ function print(report, asJson) {
 const invokedDirectly = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invokedDirectly) {
   const args = process.argv.slice(2);
-  const asJson = args.includes('--json');
-  const [file, ...extra] = args.filter((arg) => !arg.startsWith('--'));
-  if (!file || extra.length) {
-    console.error('uso: node tools/part-check.mjs <nota.md> [--json]');
-    process.exit(2);
-  }
-  try {
-    const report = await partCheck(file);
-    print(report, asJson);
-    process.exitCode = report.count ? 1 : report.failures.length ? 2 : 0;
-  } catch (error) {
-    console.error(`part-check no pudo medir ${basename(file)}: ${error.message}`);
-    process.exitCode = 2;
+  if (args.includes('--rules')) {
+    console.log(ruleSheetText({ compact: args.includes('--compact') }));
+  } else {
+    const asJson = args.includes('--json');
+    const [file, ...extra] = args.filter((arg) => !arg.startsWith('--'));
+    if (!file || extra.length) {
+      console.error('uso: node tools/part-check.mjs <nota.md> [--json]');
+      process.exit(2);
+    }
+    try {
+      const report = await partCheck(file);
+      print(report, asJson);
+      process.exitCode = report.count ? 1 : report.failures.length ? 2 : 0;
+    } catch (error) {
+      console.error(`part-check no pudo medir ${basename(file)}: ${error.message}`);
+      process.exitCode = 2;
+    }
   }
 }

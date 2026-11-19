@@ -11,6 +11,9 @@ import { spawnSync } from 'node:child_process';
 
 import { findingsOf, PART_TOOLS } from '../studio/checks.ts';
 import { REGLAS } from './explain-check/reglas.mjs';
+import { REGLAS_DE_REGISTRO } from './register/hallazgos.mjs';
+import { HINTS } from './explain-check/hints.mjs';
+import { ruleSheet } from './part-check.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = join(HERE, 'part-check.mjs');
@@ -65,6 +68,42 @@ const run = (args, toolsDir, extra = {}) => spawnSync(process.execPath, [CLI, ..
   encoding: 'utf8',
   timeout: 60_000,
   env: { ...process.env, PART_CHECK_TOOLS_DIR: toolsDir, ...extra },
+});
+
+test('the rule sheet covers exactly the rules part-check can report, generated from their own metadata', () => {
+  const sheet = ruleSheet();
+  const expected = new Set([...REGLAS.map((rule) => rule.id), ...REGLAS_DE_REGISTRO, ...Object.keys(HINTS)]);
+  const ids = sheet.map((row) => row.id);
+  assert.deepEqual([...new Set(ids)].sort(), [...expected].sort(), 'no rule is missing and no stale id survives');
+  assert.equal(ids.length, expected.size, 'no rule is listed twice');
+  for (const row of sheet) {
+    assert.ok(row.requirement && row.hint, `${row.id} needs a requirement and a fix hint`);
+    assert.equal(row.hint, HINTS[row.id], `${row.id}'s fix comes from the rule's own hint`);
+    assert.equal(row.requirement.split('\n').length, 1, `${row.id}'s requirement is one line`);
+    assert.equal(row.hint.split('\n').length, 1, `${row.id}'s hint is one line`);
+  }
+  const all = run(['--rules']);
+  assert.equal(all.status, 0, all.stdout + all.stderr);
+  for (const id of expected) assert.match(all.stdout, new RegExp(`\\b${id}\\b`), `${id} appears in --rules`);
+});
+
+test('the register finding names the unexplained term and the line where it first appears', () => {
+  const note = file('registro.md', CLEAN);
+  const toolsDir = tools(false);
+  writeFileSync(join(toolsDir, 'register', 'measure.mjs'), `console.log(${JSON.stringify(JSON.stringify({
+    words: 120,
+    unexplained: [{ term: 'buffer', line: 4, sentence: 'El buffer guarda los cambios.' }],
+  }))});\n`);
+  const json = run([note, '--json'], toolsDir);
+  assert.equal(json.status, 0, json.stdout + json.stderr);
+  const report = JSON.parse(json.stdout);
+  const found = report.register.findings;
+  assert.equal(found.length, 1, 'one finding per unexplained term');
+  assert.equal(found[0].rule, 'termino-sin-explicar');
+  assert.match(found[0].where, /línea 4/);
+  assert.match(found[0].message, /buffer/);
+  assert.equal(found[0].hint, HINTS['termino-sin-explicar']);
+  assert.match(run([note], toolsDir).stdout, /buffer[^\n]*línea 4|línea 4[^\n]*buffer/, 'the plain report names it too');
 });
 
 test('every rule has a one-line hint at its definition', () => {

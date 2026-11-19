@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { partBrief, MAX_PART_BRIEF_BYTES, PART_BRIEF_MARK } from "./brief.ts";
+import { ruleSheet } from "../tools/part-check.mjs";
 import { startStudio } from "./server.ts";
 import { stripLecciones } from "./sugerencias.ts";
 import { makeRoot } from "./testdata/root.mjs";
@@ -92,6 +93,10 @@ function assertBrief(prompt, root) {
   assert.ok(prompt.includes(join(root, "redes", ".learning", "state.json")));
   assert.ok(prompt.includes(join(root, "tutor.json")));
   assert.ok(prompt.includes(join(root, "redes", "registro.jsonl")));
+  assert.match(prompt, /RULE SHEET/, "the generated rule sheet travels with the brief");
+  for (const id of ["ruta", "termino-sin-explicar", "letra-diminuta", "spill"]) {
+    assert.match(prompt, new RegExp(`\\b${id}\\b`), `${id} is already known before writing`);
+  }
 }
 
 for (const runtime of ["pi", "agy"]) {
@@ -126,6 +131,16 @@ test("a part chat that asks to write its part gets the brief", async () => {
   await until(() => received().length > 0);
   assert.ok(received()[0].includes(PART_BRIEF_MARK));
   assert.ok(received()[0].includes(join(root, "redes", "explicaciones", "Parte 2 - TCP.md")));
+});
+
+test("the rule sheet is complete and stays within the brief's stated bound", () => {
+  const { root } = makeRoot();
+  const brief = partBrief(root, WRITE_TEXT);
+  assert.ok(brief.includes(PART_BRIEF_MARK));
+  for (const row of ruleSheet()) assert.match(brief, new RegExp(`\\b${row.id}\\b`), `${row.id} is in the sheet`);
+  const size = Buffer.byteLength(brief, "utf8");
+  assert.ok(size <= MAX_PART_BRIEF_BYTES, `brief is ${size} bytes, bound is ${MAX_PART_BRIEF_BYTES}`);
+  assert.ok(MAX_PART_BRIEF_BYTES <= 12 * 1024, `the bound is ${MAX_PART_BRIEF_BYTES}, above ~12 KB`);
 });
 
 test("a 20-part topic keeps the brief under the byte bound", async () => {

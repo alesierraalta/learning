@@ -168,14 +168,28 @@ skill's ASCII-arrow grep, with **one command**:
 ```bash
 node tools/part-check.mjs "<tema>/explicaciones/Parte N - <slug>.md"        # human-readable
 node tools/part-check.mjs "<tema>/explicaciones/Parte N - <slug>.md" --json # machine output
+node tools/part-check.mjs --rules                                            # generated rule sheet
+node tools/part-check.mjs --rules --compact                                  # id + requirement only
 ```
+
+The rule sheet is generated from `tools/explain-check/rules/`, the register rules
+and `tools/explain-check/hints.mjs` — never from a hand-maintained list. A test
+compares its ids with those sources, so a rule cannot be added, removed or
+renamed without changing the sheet. The write-part prompt carries the sheet in
+its `PART BRIEF` (the compact form when the full one would exceed the brief's
+12288-byte bound), so the tutor's order is: read the brief → write the whole
+part → run part-check once → fix only what its findings name → re-run
+part-check. It does not read rule files, gate or kit source, or the register
+scorer before writing, and does not probe scorers with `node -e`.
 
 It calls `runPartChecks` from `studio/checks.ts` (and its `PART_TOOLS`) for the five gates above,
 so the verdicts and gate order stay the studio's; the CLI only parses their output and adds the
 three checks the studio does not run. Findings are grouped per gate and each carries the rule id,
 where (line, element or scene), the gate's message and a one-line fix hint read from the rule
 definition (`tools/explain-check/hints.mjs` and the rules in `tools/explain-check/rules/`). The
-register row is reported as a measurement with no verdict. Gates that could not measure are
+register row is reported as a measurement with no verdict; its findings now name
+each unexplained term and the line of its first appearance, without changing
+what counts as unexplained or the threshold. Gates that could not measure are
 printed apart from findings, on stderr as well as in the JSON's `failures`. Exit `0` means every
 gate passed, `1` means findings, `2` means a measurement failed; the tutor repairs and reruns until
 it gets `0`, without reading gate or kit source.
