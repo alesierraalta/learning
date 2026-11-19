@@ -4,15 +4,39 @@
   'use strict';
 
   const KINDS = ['robot', 'room', 'charger', 'block'];
-  const FACT_TONES = ['neutral', 'good', 'bad', 'warn'];
+  const SPRITE_PREFIX = 'sprite:';
+  const isSpriteKind = (kind) => typeof kind === 'string' && kind.startsWith(SPRITE_PREFIX) && kind.length > SPRITE_PREFIX.length;
+  const editDistance = (a, b) => {
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i += 1) {
+      const row = [i];
+      for (let j = 1; j <= b.length; j += 1) {
+        row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      prev = row;
+    }
+    return prev[b.length];
+  };
+  function checkSpriteKind(kind, path) {
+    const name = kind.slice(SPRITE_PREFIX.length);
+    if (!object(global.PK_VOCAB)) fail(path, `${shown(kind)} needs vocab/sprites.js to be loaded`);
+    try { global.PK_VOCAB.resolve(name); } catch {
+      const candidates = [...KINDS.map((k) => SPRITE_PREFIX + k), ...(global.PK_VOCAB.names || [])];
+      const closest = candidates.sort((a, b) => editDistance(name, a) - editDistance(name, b) || a.localeCompare(b)).slice(0, 3);
+      fail(path, `unknown sprite "${name}" (closest: ${closest.map((n) => `"${n}"`).join(', ')})`);
+    }
+  }
+  const FACT_TONES = ['neutral', 'good', 'bad', 'warn', 'info'];
   const CHIP_TONES = ['neutral', 'good', 'bad', 'warn', 'info'];
   const COLUMNS = ['A', 'B', 'C', 'D', 'E', 'F'];
   const ROWS = [1, 2, 3, 4, 5];
-  const ROOT_KEYS = ['title', 'question', 'focus', 'actors', 'lanes', 'steps'];
-  const ACTOR_KEYS = ['id', 'kind', 'cell', 'name', 'color'];
-  const LANE_KEYS = ['id', 'from', 'to', 'verb', 'identity'];
-  const STEP_KEYS = ['activeActor', 'highlightLane', 'battery', 'facts', 'narrator'];
+  const ROOT_KEYS = ['title', 'kicker', 'caption', 'question', 'focus', 'dirt', 'route', 'actors', 'lanes', 'steps'];
+  const ACTOR_KEYS = ['id', 'kind', 'cell', 'cells', 'labelCell', 'labelSide', 'name', 'color'];
+  const LANE_KEYS = ['id', 'from', 'to', 'verb', 'identity', 'labelT'];
+  const STEP_KEYS = ['activeActor', 'cell', 'cleaned', 'signal', 'highlightLane', 'battery', 'facts', 'narrator', 'focusOn'];
   const FACT_KEYS = ['identity', 'label', 'value', 'tone'];
+  const FOCUS_KEYS = ['target', 'tone'];
+  const FOCUS_TONES = ['look', 'right', 'wrong'];
   const WORLD = { w: 1200, h: 700 };
   const HALF = { w: 75, h: 39 };
   const ORIGIN = { x: 580, y: 170 };
@@ -51,6 +75,13 @@
     }
   }
 
+  const cellOf = (cell) => ({ c: COLUMNS.indexOf(cell?.[0]), r: ROWS.indexOf(Number(cell?.[1])) });
+  const isCell = (cell) => typeof cell === 'string' && /^[A-F][1-5]$/.test(cell);
+  const adjacent = (a, b) => {
+    const p = cellOf(a), q = cellOf(b);
+    return p.c >= 0 && q.c >= 0 && Math.abs(p.c - q.c) + Math.abs(p.r - q.r) === 1;
+  };
+
   function chipsOf(line, path) {
     const pattern = /\[([^\]|]+)\|([^\]]+)\]/g;
     let cursor = 0, match;
@@ -71,12 +102,34 @@
     if (!text(spec.question)) fail('question', 'expected a non-empty string');
     if (!text(spec.focus)) fail('focus', 'expected a non-empty string');
     if (spec.title !== undefined && !text(spec.title)) fail('title', 'expected a non-empty string');
+    for (const key of ['kicker', 'caption']) {
+      if (spec[key] !== undefined && !text(spec[key])) fail(key, 'expected a non-empty string');
+    }
     if (spec.question.toLowerCase().indexOf(spec.focus.toLowerCase()) < 0) {
       fail('focus', `${shown(spec.focus)} is not in the question`);
     }
     if (!Array.isArray(spec.actors) || spec.actors.length === 0) fail('actors', 'expected a non-empty array');
     if (!Array.isArray(spec.lanes)) fail('lanes', 'expected an array');
     if (!Array.isArray(spec.steps) || spec.steps.length === 0) fail('steps', 'expected a non-empty array');
+    if (spec.dirt !== undefined && !Array.isArray(spec.dirt)) fail('dirt', 'expected an array');
+    const dirt = (spec.dirt || []).map((cell, i) => {
+      if (!isCell(cell)) fail(`dirt[${i}]`, `${shown(cell)} is not a cell`);
+      return cell;
+    });
+    if (new Set(dirt).size !== dirt.length) fail('dirt', 'duplicate cells');
+    // Legacy step-only specs have no route: every frame keeps the protagonist
+    // on its declared cell. An authored route keeps the full adjacency gate.
+    const legacyRoute = spec.route === undefined;
+    const home = spec.actors.find((a) => a.kind === 'robot')?.cell || spec.actors[0].cell;
+    // Without an authored route the robot stays on its declared cell; the
+    // camera still follows the active actor of each step.
+    const route = legacyRoute ? spec.steps.map(() => home) : spec.route;
+    if (!Array.isArray(route) || route.length !== spec.steps.length) fail('route', 'expected one cell per step');
+    if (!legacyRoute) route.forEach((cell, i) => {
+      if (!isCell(cell)) fail(`route[${i}]`, `${shown(cell)} is not a cell`);
+      if (i && !adjacent(route[i - 1], cell)) fail(`route[${i}]`, `${shown(cell)} is not adjacent to ${shown(route[i - 1])}`);
+    });
+    if (!legacyRoute && new Set(route).size !== route.length) fail('route', 'duplicate cells');
 
     const actors = [], ids = new Set();
     for (const [i, raw] of spec.actors.entries()) {
@@ -85,12 +138,27 @@
       knownKeys(raw, ACTOR_KEYS, at);
       if (!text(raw.id)) fail(`${at}.id`, `${shown(raw.id)} is not an id`);
       if (ids.has(raw.id)) fail(`${at}.id`, `${shown(raw.id)} is a duplicate id`);
-      if (!KINDS.includes(raw.kind)) fail(`${at}.kind`, `${shown(raw.kind)} is not a kind`);
-      if (typeof raw.cell !== 'string' || !/^[A-F][1-5]$/.test(raw.cell)) fail(`${at}.cell`, `${shown(raw.cell)} is not a cell`);
+      if (!KINDS.includes(raw.kind) && !isSpriteKind(raw.kind)) fail(`${at}.kind`, `${shown(raw.kind)} is not a kind`);
+      if (isSpriteKind(raw.kind)) checkSpriteKind(raw.kind, `${at}.kind`);
+      if (!isCell(raw.cell)) fail(`${at}.cell`, `${shown(raw.cell)} is not a cell`);
+      let cells;
+      if (raw.labelSide !== undefined && !['above', 'right', 'left'].includes(raw.labelSide)) fail(`${at}.labelSide`, `${shown(raw.labelSide)} is not a label side`);
+      const declaredCells = raw.kind === 'room' && raw.cells === undefined ? [raw.cell] : raw.cells;
+      if (raw.kind === 'room') {
+        if (!Array.isArray(declaredCells) || declaredCells.length === 0) fail(`${at}.cells`, 'a room needs named tiles');
+        if (raw.labelCell !== undefined && !declaredCells.includes(raw.labelCell)) fail(`${at}.labelCell`, `${shown(raw.labelCell)} is not in the room`);
+        cells = declaredCells.map((cell, j) => {
+          if (!isCell(cell)) fail(`${at}.cells[${j}]`, `${shown(cell)} is not a cell`);
+          return cell;
+        });
+        if (!cells.includes(raw.cell)) fail(`${at}.cells`, `${shown(raw.cell)} is not in the room`);
+      } else if (raw.cells !== undefined) {
+        fail(`${at}.cells`, `only a room can declare cells`);
+      }
       if (!text(raw.name)) fail(`${at}.name`, `${shown(raw.name)} is not a name`);
       if (typeof raw.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(raw.color)) fail(`${at}.color`, `${shown(raw.color)} is not a colour`);
       ids.add(raw.id);
-      actors.push({ ...raw });
+      actors.push({ ...raw, cells });
     }
     const actor = (value, at) => {
       if (!ids.has(value)) fail(at, `${shown(value)} is not an actor`);
@@ -107,6 +175,7 @@
       actor(raw.from, `${at}.from`);
       actor(raw.to, `${at}.to`);
       if (!text(raw.verb)) fail(`${at}.verb`, `${shown(raw.verb)} is not a verb`);
+      if (raw.labelT !== undefined && (typeof raw.labelT !== 'number' || raw.labelT < 0 || raw.labelT > 1)) fail(`${at}.labelT`, `${shown(raw.labelT)} is not a path fraction`);
       actor(raw.identity, `${at}.identity`);
       laneIds.add(raw.id);
       lanes.push({ ...raw });
@@ -122,6 +191,15 @@
       if (!object(raw)) fail(at, 'expected an object');
       knownKeys(raw, STEP_KEYS, at);
       actor(raw.activeActor, `${at}.activeActor`);
+      const cell = raw.cell === undefined ? route[i] : raw.cell;
+      if (!isCell(cell)) fail(`${at}.cell`, `${shown(cell)} is not a cell`);
+      if (cell !== route[i]) fail(`${at}.cell`, `${shown(cell)} is not route[${i}] (${shown(route[i])})`);
+      const cleaned = raw.cleaned === undefined ? [] : raw.cleaned.map((cell, j) => {
+        if (!isCell(cell)) fail(`${at}.cleaned[${j}]`, `${shown(cell)} is not a cell`);
+        if (!dirt.includes(cell)) fail(`${at}.cleaned[${j}]`, `${shown(cell)} is not dirty in the spec`);
+        return cell;
+      });
+      if (raw.signal !== undefined && !text(raw.signal)) fail(`${at}.signal`, `${shown(raw.signal)} is not a signal`);
       lane(raw.highlightLane === undefined ? null : raw.highlightLane, `${at}.highlightLane`);
       if (raw.battery !== undefined && (typeof raw.battery !== 'number' || !Number.isFinite(raw.battery) || raw.battery < 0 || raw.battery > 100)) {
         fail(`${at}.battery`, `${shown(raw.battery)} is not a battery level`);
@@ -146,9 +224,34 @@
         chipsOf(line, where);
         return line;
       });
-      steps.push({ ...raw, highlightLane: raw.highlightLane ?? null, facts, narrator });
+      const declaredFocus = raw.focusOn === undefined
+        ? [{ target: 'actor:' + raw.activeActor, tone: 'look' }] : raw.focusOn;
+      if (!Array.isArray(declaredFocus) || declaredFocus.length < 1 || declaredFocus.length > 2) {
+        fail(`${at}.focusOn`, 'expected one or two focus targets');
+      }
+      const focusOn = declaredFocus.map((rawFocus, j) => {
+        const where = `${at}.focusOn[${j}]`;
+        if (!object(rawFocus)) fail(where, 'expected an object');
+        knownKeys(rawFocus, FOCUS_KEYS, where);
+        if (!text(rawFocus.target)) fail(`${where}.target`, 'expected a target');
+        const [prefix, ...parts] = rawFocus.target.split(':');
+        const value = parts.join(':');
+        if (!['actor', 'tag', 'lane', 'fact'].includes(prefix) || !value) {
+          fail(`${where}.target`, `${shown(rawFocus.target)} must be actor:, tag:, lane: or fact:`);
+        }
+        if (prefix === 'actor' || prefix === 'tag') actor(value, `${where}.target`);
+        if (prefix === 'lane') lane(value, `${where}.target`);
+        if (prefix === 'fact' && (!/^\d+$/.test(value) || Number(value) >= facts.length)) {
+          fail(`${where}.target`, `${shown(rawFocus.target)} is not a fact of this step`);
+        }
+        if (!FOCUS_TONES.includes(rawFocus.tone)) fail(`${where}.tone`, `${shown(rawFocus.tone)} is not a focus tone`);
+        return { target: rawFocus.target, tone: rawFocus.tone };
+      });
+      if (new Set(focusOn.map((focus) => focus.target)).size !== focusOn.length) fail(`${at}.focusOn`, 'duplicate focus target');
+      steps.push({ ...raw, cell, cleaned, highlightLane: raw.highlightLane ?? null, facts, narrator, focusOn });
     }
-    return { title: spec.title || '', question: spec.question, focus: spec.focus, actors, lanes, steps };
+    return { title: spec.title || '', kicker: spec.kicker || '', caption: spec.caption || '',
+      question: spec.question, focus: spec.focus, dirt, route: [...route], actors, lanes, steps };
   }
 
   // ---------- Drawing helpers ----------
@@ -194,12 +297,13 @@
     return [{ x: cx, y: cy - h }, { x: cx + w, y: cy }, { x: cx, y: cy + h }, { x: cx - w, y: cy }];
   }
   function prism(parent, options) {
-    const { cx, cy, scale, height, color, rounded = false } = options;
+    const { cx, cy, scale, height, color, rounded = false, surface = false } = options;
     const base = diamond(cx, cy, scale), top = base.map((p) => ({ x: p.x, y: p.y - height }));
     const stroke = 'rgba(12,24,38,.32)';
-    const left = graphic('path', { d: polygon([top[3], top[2], base[2], base[3]]), fill: color, stroke, 'stroke-width': 1, 'data-prism': '1' });
-    const right = graphic('path', { d: polygon([top[2], top[1], base[1], base[2]]), fill: dark(color), stroke, 'stroke-width': 1, 'data-prism': '1' });
-    const crown = graphic('path', { d: polygon(top, rounded ? 0.16 : 0), fill: light(color), stroke: 'rgba(255,255,255,.24)', 'stroke-width': 1, 'data-prism': '1' });
+    const mark = surface ? 'floor' : '1';
+    const left = graphic('path', { d: polygon([top[3], top[2], base[2], base[3]]), fill: color, stroke, 'stroke-width': 1, 'data-prism': mark });
+    const right = graphic('path', { d: polygon([top[2], top[1], base[1], base[2]]), fill: dark(color), stroke, 'stroke-width': 1, 'data-prism': mark });
+    const crown = graphic('path', { d: polygon(top, rounded ? 0.16 : 0), fill: light(color), stroke: 'rgba(255,255,255,.24)', 'stroke-width': 1, 'data-prism': mark });
     parent.append(left, right, crown);
     return { base, top };
   }
@@ -227,13 +331,54 @@
     }));
   }
 
-  const LIFT = { robot: 90, room: 48, charger: 124, block: 92 };
+  const LIFT = { robot: 170, room: 48, charger: 124, block: 92, sprite: 82 };
+  const liftOf = (kind) => LIFT[kind] || (isSpriteKind(kind) ? LIFT.sprite : 92);
 
-  function drawKind(wrapper, actor, uid, defs) {
+  // A room is a floor plan: named tiles with a low wall on its outside edges.
+  // All coordinates are computed from cell names, never authored.
+  function drawLowWalls(parent, cells, anchor, color) {
+    const names = new Set(cells);
+    const origin = center(anchor);
+    const w = HALF.w * 0.97, h = HALF.h * 0.97, rise = 11;
+    for (const cell of cells) {
+      const { c, r } = cellOf(cell), at = center(cell);
+      const ox = at.x - origin.x, oy = at.y - origin.y;
+      const T = { x: ox, y: oy - h }, R = { x: ox + w, y: oy };
+      const B = { x: ox, y: oy + h }, L = { x: ox - w, y: oy };
+      const edges = [];
+      if (!names.has(`${COLUMNS[c + 1]}${r}`)) edges.push([R, B]);
+      if (!names.has(`${COLUMNS[c - 1]}${r}`)) edges.push([L, T]);
+      if (!names.has(`${COLUMNS[c]}${r + 1}`)) edges.push([L, B]);
+      if (!names.has(`${COLUMNS[c]}${r - 1}`)) edges.push([T, R]);
+      for (const [p, q] of edges) {
+        const top1 = { x: p.x, y: p.y - rise }, top2 = { x: q.x, y: q.y - rise };
+        parent.append(graphic('path', {
+          d: polygon([top1, top2, q, p]), fill: dark(color),
+          stroke: 'rgba(12,24,38,.28)', 'stroke-width': 0.8, 'data-prism': 'wall',
+        }));
+        parent.append(graphic('path', {
+          d: `M${fmt(top1)} L${fmt(top2)}`, stroke: light(color),
+          'stroke-width': 2.1, 'stroke-linecap': 'round', 'data-prism': 'wall',
+        }));
+      }
+    }
+  }
+
+  function drawKind(wrapper, actor, uid, _defs) {
     const color = actor.color;
+    if (isSpriteKind(actor.kind)) {
+      // Upright billboard on its own tile: same shadow, same tag placement as a prism.
+      shadow(wrapper, uid + '-shadow', 0.62);
+      const sprite = global.PK_VOCAB.render(actor.kind.slice(SPRITE_PREFIX.length), 3);
+      sprite.setAttribute('x', '-36');
+      sprite.setAttribute('y', '-74');
+      sprite.setAttribute('data-vocab-sprite', actor.kind);
+      wrapper.append(sprite);
+      return;
+    }
     if (actor.kind === 'robot') {
-      shadow(wrapper, uid + '-shadow', 0.7);
-      const faces = prism(wrapper, { cx: 0, cy: 0, scale: 0.56, height: 46, color, rounded: true });
+      shadow(wrapper, uid + '-shadow', 0.82);
+      const faces = prism(wrapper, { cx: 0, cy: 0, scale: 0.74, height: 58, color, rounded: true });
       wrapper.append(graphic('path', {
         d: facePolygon(faces, [[0.16, 0.3], [0.82, 0.3], [0.82, 0.76], [0.16, 0.76]]),
         fill: '#102435', stroke: light(color), 'stroke-width': 1.4,
@@ -260,17 +405,12 @@
       return;
     }
     if (actor.kind === 'room') {
-      shadow(wrapper, uid + '-shadow', 0.95);
-      const faces = prism(wrapper, { cx: 0, cy: 0, scale: 0.92, height: 10, color });
-      const clipId = uid + '-dirt';
-      const clip = graphic('clipPath', { id: clipId }, polygon(faces.top));
-      defs.append(clip);
-      const dirt = graphic('g', { 'clip-path': `url(#${clipId})`, class: 'lk-stage-dirt' }, undefined);
-      [[-0.5, 0.1, 7, 3.4], [-0.24, -0.34, 5, 2.6], [0.16, 0.34, 8, 3.6], [0.46, -0.12, 6, 2.8], [0.66, 0.26, 4.5, 2.2], [-0.02, -0.05, 4, 2]].forEach(([u, v, rx, ry], i) => {
-        const spot = topPoint(faces, u, v);
-        dirt.append(graphic('ellipse', { cx: spot.x.toFixed(1), cy: spot.y.toFixed(1), rx, ry, fill: i % 2 ? '#8C5B2C' : '#795024', opacity: 0.62 }));
-      });
-      wrapper.append(dirt);
+      const anchor = center(actor.cell);
+      for (const cell of actor.cells || [actor.cell]) {
+        const at = center(cell);
+        prism(wrapper, { cx: at.x - anchor.x, cy: at.y - anchor.y, scale: 0.97, height: 7, color, surface: true });
+      }
+      drawLowWalls(wrapper, actor.cells || [actor.cell], actor.cell, color);
       return;
     }
     if (actor.kind === 'charger') {
@@ -297,73 +437,143 @@
   const hits = (a, b, gap = 0) => a.x < b.x + b.w + gap && b.x < a.x + a.w + gap
     && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
   const inside = (r) => r.x >= 12 && r.y >= 12 && r.x + r.w <= WORLD.w - 12 && r.y + r.h <= WORLD.h - 12;
-  function clearOf(rect, obstacles) {
-    for (let attempt = 0; attempt < 24; attempt += 1) {
-      const hit = obstacles.find((other) => hits(rect, other, 8));
-      if (!hit) break;
-      const moves = [
-        { x: rect.x, y: hit.y - rect.h - 10 }, { x: rect.x, y: hit.y + hit.h + 10 },
-        { x: hit.x - rect.w - 10, y: rect.y }, { x: hit.x + hit.w + 10, y: rect.y },
-      ].filter((move) => move.x >= 12 && move.y >= 12 && move.x + rect.w <= WORLD.w - 12 && move.y + rect.h <= WORLD.h - 12);
-      if (!moves.length) break;
-      moves.sort((a, b) => Math.hypot(a.x - rect.x, a.y - rect.y) - Math.hypot(b.x - rect.x, b.y - rect.y));
-      rect.x = moves[0].x; rect.y = moves[0].y;
-    }
-    rect.x = clamp(rect.x, 12, WORLD.w - rect.w - 12);
-    rect.y = clamp(rect.y, 12, WORLD.h - rect.h - 12);
-    return rect;
-  }
-
-  function buildActors(actorGroup, labelGroup, actors, uid, defs, labels) {
-    const placedTags = [], silhouettes = [], byId = new Map();
-    for (const actor of [...actors].sort((a, b) => center(a.cell).y - center(b.cell).y)) {
+  function buildActors(actorGroup, labelGroup, actors, route, uid, defs, labels) {
+    const placedTags = [], silhouettes = [], byId = new Map(), made = [];
+    // First pass: draw every object, then measure all silhouettes in world
+    // space. A room is a whole zone, so its tag must clear every other zone.
+    // Rooms first, props next, robot last: the protagonist is never buried
+    // under a floor prism or its own signal.
+    const drawOrder = [...actors].sort((a, b) => {
+      if (a.kind === 'robot') return 1;
+      if (b.kind === 'robot') return -1;
+      return center(a.cell).y - center(b.cell).y;
+    });
+    for (const actor of drawOrder) {
       const at = center(actor.cell);
-      const wrapper = graphic('g', { class: 'lk-stage-actor', transform: `translate(${fmt(at)})`, 'data-actor': actor.id });
+      const wrapper = graphic('g', { class: 'lk-stage-actor', transform: `translate(${fmt(at)})`, 'data-actor': actor.id, 'data-kind': actor.kind });
       const ring = graphic('ellipse', { class: 'lk-stage-ring', cx: 0, cy: 2, rx: HALF.w * 0.72, ry: HALF.h * 0.72, fill: 'none', stroke: actor.color, 'stroke-width': 2, opacity: 0 });
       wrapper.append(ring);
       drawKind(wrapper, actor, uid, defs);
+      let signal;
+      if (actor.kind === 'robot') {
+        signal = graphic('g', { class: 'lk-stage-signal', 'data-signal': '' });
+        signal.append(graphic('rect', { x: 56, y: -98, width: 92, height: 34, rx: 17 }));
+        signal.append(graphic('text', { x: 102, y: -75, 'text-anchor': 'middle', 'font-size': 14, 'font-weight': 700 }, ''));
+        wrapper.append(signal);
+      }
       actorGroup.append(wrapper);
-      // getBBox() is local to the translated wrapper: move it into world space.
       const box = wrapper.getBBox();
-      silhouettes.push({ x: box.x + at.x, y: box.y + at.y, w: box.width, h: box.height });
-
-      const width = Math.max(80, actor.name.length * 6.2 + 26);
-      const lift = LIFT[actor.kind];
-      const tag = graphic('g', { class: 'lk-stage-tag', 'data-tag': actor.id });
-      tag.append(graphic('rect', { x: (-width / 2).toFixed(1), y: -13, width: width.toFixed(1), height: 26, rx: 13, stroke: actor.color, 'stroke-width': 1.2 }));
-      tag.append(graphic('circle', { cx: (-width / 2 + 13).toFixed(1), cy: 0, r: 3, fill: actor.color }));
-      tag.append(graphic('text', { x: (-width / 2 + 23).toFixed(1), y: 4.5, 'font-size': 12.5, 'font-weight': 650, 'text-anchor': 'start' }, actor.name));
-      const obstacles = [...silhouettes, ...placedTags];
+      const silhouette = { x: box.x + at.x, y: box.y + at.y, w: box.width, h: box.height };
+      silhouettes.push(silhouette);
+      made.push({ actor, at, wrapper, ring, signal, silhouette });
+    }
+    // The robot visits several cells: every tag must clear every future
+    // position, not just the first frame, or a label lands on a moving prism.
+    const routeSilhouettes = [];
+    const robot = made.find((item) => item.actor.kind === 'robot');
+    if (robot) {
+      const first = center(route[0]);
+      for (const cell of route) {
+        const at = center(cell);
+        const s = robot.silhouette;
+        routeSilhouettes.push({ x: s.x + at.x - first.x, y: s.y + at.y - first.y, w: s.w, h: s.h, tight: true });
+      }
+    }
+    const wallRects = [];
+    const objectSilhouettes = [];
+    for (const item of made) {
+      if (item.actor.kind !== 'room') objectSilhouettes.push(item.silhouette);
+      for (const wall of item.wrapper.querySelectorAll('[data-prism="wall"]')) {
+        const b = wall.getBBox();
+        wallRects.push({ x: b.x + item.at.x, y: b.y + item.at.y, w: b.width, h: b.height, owner: item.actor.id, tight: true });
+      }
+    }
+    const robotTagRects = [];
+    // Second pass: tags live in their own last layer, above every prism.
+    // The robot is placed first so every other label can avoid its whole path.
+    const tagOrder = [...made].sort((a, b) => (a.actor.kind === 'robot' ? -1 : 0) - (b.actor.kind === 'robot' ? -1 : 0));
+    for (const item of tagOrder) {
+      const { actor, at, silhouette, wrapper, ring, signal } = item;
+      const cells = actor.cells || [actor.cell];
+      const roomWidth = Math.max(64, actor.name.length * 4.8 + 18);
+      const width = actor.kind === 'room' ? roomWidth : Math.max(108, actor.name.length * 9.2 + 36);
+      const centroid = cells.reduce((sum, cell) => {
+        const p = center(cell);
+        return { x: sum.x + p.x / cells.length, y: sum.y + p.y / cells.length };
+      }, { x: 0, y: 0 });
+      // Flat room names sit on a declared tile. Prefer the tile furthest from
+      // the route and the props, so the word never becomes a badge on a prism.
+      const propCells = made.filter((m) => m.actor.kind !== 'room').map((m) => m.actor.cell);
+      const far = (cell) => Math.min(...route.concat(propCells).map((other) => {
+        const a = cellOf(cell), b = cellOf(other);
+        return Math.abs(a.c - b.c) + Math.abs(a.r - b.r);
+      }));
+      const rest = cells.filter((cell) => cell !== actor.labelCell).sort((a, b) => far(b) - far(a));
+      const roomCells = actor.labelCell ? [actor.labelCell, ...rest] : rest;
+      const roomHomes = roomCells.map((cell) => center(cell));
+      const homes = actor.kind === 'room'
+        ? [...roomHomes, centroid]
+        : [{ x: at.x + (actor.labelSide === 'right' ? 70 : actor.labelSide === 'left' ? -70 : 0),
+            y: at.y - liftOf(actor.kind) - (actor.labelSide === 'above' ? 0 : 18) }];
+      const tag = graphic('g', { class: 'lk-stage-tag' + (actor.kind === 'room' ? ' lk-stage-room-name' : ''), 'data-tag': actor.id });
+      tag.append(graphic('rect', { x: (-width / 2).toFixed(1), y: -17, width: width.toFixed(1), height: 34, rx: 17, stroke: actor.color, 'stroke-width': 1.2 }));
+      tag.append(graphic('circle', { cx: (-width / 2 + 14).toFixed(1), cy: 0, r: 3, fill: actor.color }));
+      const tagText = graphic('text', { x: (-width / 2 + (actor.kind === 'room' ? 16 : 25)).toFixed(1), y: 5, 'font-size': 14.5, 'font-weight': 650, 'text-anchor': 'start' }, actor.name);
+      tag.append(tagText);
+      if (actor.kind === 'room') {
+        tagText.setAttribute('textLength', (width - 26).toFixed(1));
+        tagText.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+      }
+      // A room's axis-aligned zone box overlaps its neighbours in an isometric
+      // projection; floor labels use raised objects and walls, not those boxes.
+      const obstacles = actor.kind === 'room'
+        ? [...placedTags, ...robotTagRects, ...objectSilhouettes, ...routeSilhouettes]
+        : [...objectSilhouettes.filter((s) => s !== item.silhouette),
+          ...routeSilhouettes, ...wallRects.filter((w) => w.owner !== actor.id), ...placedTags];
+      const first = center(route[0]);
+      const shifts = actor.kind === 'robot'
+        ? route.map((cell) => { const p = center(cell); return { dx: p.x - first.x, dy: p.y - first.y }; })
+        : [{ dx: 0, dy: 0 }];
       let chosen = null;
-      // A tag belongs to its object: keep it directly above it, never off in a
-      // corner of the stage. Height, not horizontal distance, resolves clashes.
-      // A small sideways step is still attached to the object; a far corner
-      // of the stage is not. Both offsets stay within the reader's tile scale.
-      for (const dx of [0, -64, 64]) {
-        for (const dy of [-lift, -lift - 24, -lift - 48, -lift - 72, -lift + 22]) {
-          const rect = { x: at.x + dx - width / 2, y: at.y + dy - 13, w: width, h: 26 };
-          const clear = obstacles.every((other, k) => !hits(rect, other, k < silhouettes.length ? 8 : 24));
-          if (!inside(rect) || !clear) continue;
-          chosen = { dx, dy, rect }; break;
+      const dxs = actor.kind === 'room' ? [0, -14, 14] : [0, -26, 26, -52, 52, -78, 78];
+      const dys = actor.kind === 'room' ? [0, -10, 10] : [0, -20, -40, -60, 20];
+      for (const home of homes) {
+        for (const dx of dxs) {
+          for (const dy of dys) {
+            const rects = shifts.map((shift) => ({
+              x: home.x + dx + shift.dx - width / 2, y: home.y + dy + shift.dy - 17, w: width, h: 34,
+            }));
+            if (rects.some((rect) => !inside(rect) || obstacles.some((other) => hits(rect, other, other.tight ? 4 : other.w > 200 ? 6 : 18)))) continue;
+            chosen = { x: home.x + dx, y: home.y + dy, rect: rects[0] };
+            break;
+          }
+          if (chosen) break;
         }
         if (chosen) break;
       }
       if (!chosen) {
-        chosen = { dx: 0, dy: -lift, rect: { x: at.x - width / 2, y: at.y - lift - 13, w: width, h: 26 } };
-        clearOf(chosen.rect, obstacles);
-        chosen.dx = chosen.rect.x + width / 2 - at.x;
-        chosen.dy = chosen.rect.y + 13 - at.y;
+        // Never push a tag into a prism just to find free space: staying on
+        // its object is more important than an arbitrary collision-free spot.
+        const home = homes[0];
+        chosen = { x: home.x, y: home.y, rect: { x: home.x - width / 2, y: home.y - 17, w: width, h: 34 } };
       }
-      // Labels live in their own last layer: even a future placement mistake
-      // cannot hide a word behind a prism again.
-      const tagX = at.x + chosen.dx, tagY = at.y + chosen.dy;
-      tag.setAttribute('transform', `translate(${tagX.toFixed(1)},${tagY.toFixed(1)})`);
+      if (actor.kind === 'robot') {
+        const start = center(route[0]);
+        for (const cell of route) {
+          const p = center(cell);
+          robotTagRects.push({ x: chosen.rect.x + p.x - start.x, y: chosen.rect.y + p.y - start.y, w: width, h: 34 });
+        }
+      }
+      tag.setAttribute('transform', `translate(${chosen.x.toFixed(1)},${chosen.y.toFixed(1)})`);
       labelGroup.append(tag);
-      labels.push({ node: tag, x: tagX, y: tagY });
+      labels.push({ node: tag, id: actor.id, x: chosen.x, y: chosen.y, baseX: chosen.x, baseY: chosen.y });
       placedTags.push(chosen.rect);
-      byId.set(actor.id, { wrapper, ring, center: at });
+      byId.set(actor.id, {
+        wrapper, ring, signal, center: at, silhouette,
+        kind: actor.kind,
+      });
     }
-    return { byId, tagRects: placedTags, silhouettes };
+    return { byId, tagRects: placedTags, silhouettes, routeSilhouettes, wallRects, objectSilhouettes, robotTagRects };
   }
 
   function bezier(a, control, b, t) {
@@ -373,7 +583,7 @@
     };
   }
 
-  function buildLanes(laneGroup, labelGroup, defs, spec, byId, tagRects, silhouettes, uid, labels) {
+  function buildLanes(laneGroup, labelGroup, defs, spec, byId, tagRects, _wallRects, objectSilhouettes, routeSilhouettes, robotTagRects, uid, labels) {
     const placed = [], lanes = new Map();
     for (const [index, lane] of spec.lanes.entries()) {
       const from = byId.get(lane.from).center, to = byId.get(lane.to).center;
@@ -381,28 +591,32 @@
       const mid = point(from, to, 0.5), dx = to.x - from.x, dy = to.y - from.y;
       const length = Math.hypot(dx, dy) || 1;
       // Two possible bows: one of them leaves a clear lane for the verb pill.
-      const bends = [90, -90, 140, -140, 190, -190].map((bend) => ({
+      const bends = [80, -80, 120, -120, 160, -160, 200, -200, 240, -240, 320, -320, 400, -400].map((bend) => ({
         x: mid.x - (dy / length) * bend, y: mid.y + (dx / length) * bend,
       }));
-      const width = Math.max(54, lane.verb.length * 6.4 + 22), height = 26;
-      const obstacles = [...silhouettes, ...tagRects, ...placed];
-      let chosen = null, control = bends[0];
+      const width = Math.max(72, lane.verb.length * 8.2 + 30), height = 30;
+      const obstacles = [...objectSilhouettes, ...routeSilhouettes, ...tagRects, ...robotTagRects, ...placed];
+      const raisedCount = objectSilhouettes.length + routeSilhouettes.length + robotTagRects.length;
+      let chosen = null, control = bends[0], best = null, bestOverlap = Infinity;
+      const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
+        * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+      const ts = lane.labelT === undefined ? [] : [lane.labelT];
+      for (let s = 4; s <= 20; s += 1) ts.push(s / 20);
       search: for (const bow of bends) {
-        for (const t of [0.5, 0.44, 0.56, 0.38, 0.62, 0.32, 0.68, 0.26, 0.74]) {
-          for (const offset of [0, 10, -10]) {
+        for (const t of ts) {
+          for (const offset of [0]) {
             const p = bezier(from, bow, to, t);
             const x = p.x - (dy / length) * offset, y = p.y + (dx / length) * offset;
             const rect = { x: x - width / 2, y: y - height / 2, w: width, h: height };
-            const clear = obstacles.every((other, k) => !hits(rect, other, k < silhouettes.length ? 10 : 24));
+            const score = obstacles.reduce((sum, other) => sum + overlap(rect, other), 0);
+            if (score < bestOverlap && inside(rect)) { bestOverlap = score; best = { x, y, rect }; control = bow; }
+            const clear = obstacles.every((other, k) => !hits(rect, other, k < raisedCount ? 8 : 18));
             if (!inside(rect) || !clear) continue;
             chosen = { x, y, rect }; control = bow; break search;
           }
         }
       }
-      if (!chosen) {
-        const p = bezier(from, control, to, 0.5);
-        chosen = { x: p.x, y: p.y, rect: { x: p.x - width / 2, y: p.y - height / 2, w: width, h: height } };
-      }
+      if (!chosen) chosen = best || (() => { const p = bezier(from, control, to, 0.5); return { x: p.x, y: p.y, rect: { x: p.x - width / 2, y: p.y - height / 2, w: width, h: height } }; })();
       const path = `M${fmt(from)} Q${fmt(control)} ${fmt(to)}`;
       const markerId = `${uid}-arrow-${index}`;
       const marker = graphic('marker', { id: markerId, viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' });
@@ -414,9 +628,9 @@
       wrapper.append(graphic('path', { d: path, class: 'lk-stage-lane-flow', 'marker-end': `url(#${markerId})` }));
       const label = graphic('g', { class: 'lk-stage-lane-label', 'data-lane': lane.id, transform: `translate(${chosen.x.toFixed(1)},${chosen.y.toFixed(1)})` });
       label.append(graphic('rect', { x: (-width / 2).toFixed(1), y: -height / 2, width: width.toFixed(1), height, rx: 14, stroke: color, 'stroke-width': 1.2 }));
-      label.append(graphic('text', { x: 0, y: 4.5, fill: light(color), 'font-size': 12.5, 'font-weight': 650, 'text-anchor': 'middle' }, lane.verb));
+      label.append(graphic('text', { x: 0, y: 5, 'font-size': 14.5, 'font-weight': 650, 'text-anchor': 'middle' }, lane.verb));
       labelGroup.append(label);
-      labels.push({ node: label, x: chosen.x, y: chosen.y });
+      labels.push({ node: label, id: lane.id, x: chosen.x, y: chosen.y, baseX: chosen.x, baseY: chosen.y });
       laneGroup.append(wrapper);
       placed.push(chosen.rect);
       lanes.set(lane.id, wrapper);
@@ -426,12 +640,10 @@
 
   function buildFacts(host, step, spec) {
     host.replaceChildren();
-    const heading = element('div', undefined, { class: 'lk-stage-panel-head' });
-    heading.append(element('span', 'Datos del paso', { class: 'lk-stage-eyebrow' }));
-    host.append(heading);
-    for (const fact of step.facts) {
+    if (spec.caption) host.append(element('p', spec.caption, { class: 'lk-stage-caption' }));
+    for (const [index, fact] of step.facts.entries()) {
       const color = spec.actors.find((actor) => actor.id === fact.identity).color;
-      const card = element('div', undefined, { class: `lk-stage-fact tone-${fact.tone}` });
+      const card = element('div', undefined, { class: `lk-stage-fact tone-${fact.tone}`, 'data-fact': String(index) });
       card.style.setProperty('--lk-stage-fact', color);
       card.append(element('span', fact.label, { class: 'lk-stage-fact-label' }), element('strong', String(fact.value), { class: 'lk-stage-fact-value' }));
       host.append(card);
@@ -483,16 +695,16 @@
   function overviewFor(content) {
     // Even margins around the declared actors and their labels, not around a
     // fixed 1200x700 canvas whose lower half the prototype left empty.
-    const ratio = WORLD.w / WORLD.h, pad = 60;
+    const ratio = WORLD.w / WORLD.h, pad = 14;
     const w = Math.max(content.w + pad * 2, (content.h + pad * 2) * ratio);
     const h = w / ratio;
     return { x: content.x + content.w / 2 - w / 2, y: content.y + content.h / 2 - h / 2, w, h };
   }
-  function cameraFor(step, byId, content, overview) {
-    const ratio = WORLD.w / WORLD.h, margin = 48;
+  function cameraFor(focus, content, overview) {
+    const ratio = WORLD.w / WORLD.h, margin = 10;
     const left = content.x - margin, right = content.x + content.w + margin;
     const top = content.y - margin, bottom = content.y + content.h + margin;
-    const at = byId.get(step.activeActor).center;
+    const at = focus;
     // Widen the frame only as much as centring this actor needs. The camera
     // never crops a label to make an actor bigger; type is counter-scaled so
     // a wider frame does not shrink what the reader reads.
@@ -514,10 +726,10 @@
     const uid = `lk-stage-${++stageId}`;
     if (!host.hasAttribute('tabindex')) host.setAttribute('tabindex', '0');
     host.setAttribute('role', 'group');
-    host.setAttribute('aria-label', spec.title || 'Escenario isométrico');
+    if (spec.title || spec.kicker) host.setAttribute('aria-label', spec.title || spec.kicker);
 
     const head = element('header', undefined, { class: 'lk-stage-head' });
-    head.append(element('span', 'Escenario isométrico', { class: 'lk-stage-kicker' }));
+    if (spec.kicker) head.append(element('span', spec.kicker, { class: 'lk-stage-kicker' }));
     const question = element('h1', undefined, { class: 'lk-stage-question' });
     const at = spec.question.toLowerCase().indexOf(spec.focus.toLowerCase());
     if (at >= 0) {
@@ -531,7 +743,8 @@
 
     const body = element('div', undefined, { class: 'lk-stage-body' });
     const surface = element('div', undefined, { class: 'lk-stage-surface' });
-    const svg = graphic('svg', { viewBox: `0 0 ${WORLD.w} ${WORLD.h}`, preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': 'Escenario isométrico con los actores declarados' });
+    const svg = graphic('svg', { viewBox: `0 0 ${WORLD.w} ${WORLD.h}`, preserveAspectRatio: 'xMidYMid meet', role: 'img',
+      ...(spec.kicker ? { 'aria-label': spec.kicker } : {}) });
     const defs = graphic('defs', {});
     const gradient = graphic('radialGradient', { id: `${uid}-shadow` });
     gradient.append(graphic('stop', { offset: '0%', 'stop-color': '#000814', 'stop-opacity': 0.48 }));
@@ -547,29 +760,57 @@
       }
     }
     svg.append(floor);
+
+    const dirtLayer = graphic('g', { class: 'lk-stage-dirt-layer' });
+    for (const cell of spec.dirt) {
+      const at = center(cell);
+      const patch = graphic('g', { class: 'lk-stage-dirt', 'data-dirt': cell, transform: `translate(${fmt(at)})` });
+      [[-13, 4, 7, 3.4], [3, -6, 5, 2.6], [14, 8, 8, 3.6], [24, -2, 4.5, 2.2]].forEach(([dx, dy, rx, ry], i) => {
+        patch.append(graphic('ellipse', { cx: dx, cy: dy, rx, ry, fill: i % 2 ? '#8A6B3F' : '#6E532F', opacity: 0.62 }));
+      });
+      dirtLayer.append(patch);
+    }
+    svg.append(dirtLayer);
+
+    const routePoints = spec.route.map((cell) => center(cell));
+    const routePath = 'M' + routePoints.map(fmt).join(' L');
+    const routeLayer = graphic('g', { class: 'lk-stage-route', 'data-route': '1' });
+    routeLayer.append(graphic('path', { d: routePath, class: 'lk-stage-route-bed' }));
+    const progress = graphic('path', { d: routePath, class: 'lk-stage-route-progress', 'data-route-progress': '1' });
+    routeLayer.append(progress);
+    routePoints.forEach((p, i) => routeLayer.append(graphic('circle', {
+      cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: i === 0 ? 4 : 3,
+      class: 'lk-stage-route-stop', 'data-stop': i,
+    })));
+    svg.append(routeLayer);
+
     const laneLayer = graphic('g', { class: 'lk-stage-lane-layer' });
     const actorLayer = graphic('g', { class: 'lk-stage-actor-layer' });
     const labelLayer = graphic('g', { class: 'lk-stage-label-layer' });
     svg.append(laneLayer, actorLayer, labelLayer);
     surface.append(svg);
-    const facts = element('aside', undefined, { class: 'lk-stage-facts', 'aria-label': 'Datos del paso' });
+    const facts = element('aside', undefined, { class: 'lk-stage-facts',
+      ...(spec.caption ? { 'aria-label': spec.caption } : {}) });
     body.append(surface, facts);
 
-    const narrator = element('section', undefined, { class: 'lk-stage-narrator', 'aria-label': 'Narrador', 'aria-live': 'polite' });
+    const narrator = element('section', undefined, { class: 'lk-stage-explain', 'aria-live': 'polite' });
     const player = element('div', undefined, { class: 'lk-stage-player' });
     const controls = element('div', undefined, { class: 'lk-stage-controls' });
-    const prev = element('button', '← Anterior', { type: 'button', 'aria-label': 'Paso anterior' });
-    const next = element('button', 'Siguiente →', { type: 'button', 'aria-label': 'Paso siguiente' });
-    controls.append(prev, next);
-    const dots = element('div', undefined, { class: 'lk-stage-dots', 'aria-label': 'Pasos' });
+    const prev = element('button', '←', { type: 'button', 'aria-label': 'Paso anterior' });
+    const next = element('button', '→', { type: 'button', 'aria-label': 'Paso siguiente' });
+    const play = element('button', '▶', { type: 'button', 'aria-label': 'Reproducir pasos', 'aria-pressed': 'false' });
+    controls.append(prev, next, play);
+    const dots = element('div', undefined, { class: 'lk-stage-dots', 'aria-label': 'Progreso de pasos' });
     const counter = element('span', '', { class: 'lk-stage-count' });
     player.append(controls, dots, counter);
-    host.append(head, body, narrator, player);
+    const focusLayer = element('div', undefined, { class: 'lk-stage-focus-layer', 'aria-hidden': 'true' });
+    host.append(head, body, narrator, player, focusLayer);
 
     const labels = [];
-    const { byId, tagRects, silhouettes } = buildActors(actorLayer, labelLayer, spec.actors, uid, defs, labels);
-    const lanes = buildLanes(laneLayer, labelLayer, defs, spec, byId, tagRects, silhouettes, uid, labels);
-    const content = unionBoxes(boxOf(actorLayer.getBBox()), boxOf(labelLayer.getBBox()));
+    const { byId, tagRects, routeSilhouettes, wallRects, objectSilhouettes, robotTagRects } =
+      buildActors(actorLayer, labelLayer, spec.actors, spec.route, uid, defs, labels);
+    const lanes = buildLanes(laneLayer, labelLayer, defs, spec, byId, tagRects, wallRects, objectSilhouettes, routeSilhouettes, robotTagRects, uid, labels);
+    const content = unionBoxes(boxOf(actorLayer.getBBox()), boxOf(labelLayer.getBBox()), boxOf(routeLayer.getBBox()));
     const overview = overviewFor(content);
     // Type is authored at the overview scale and counter-scaled on every
     // camera frame: a zoom changes the scene, never the size of a word.
@@ -581,7 +822,23 @@
     scaleLabels(1);
     svg.setAttribute('viewBox', viewText(overview));
     const reduce = global.matchMedia?.('(prefers-reduced-motion: reduce)') || { matches: false };
-    let index = 0, animation = 0;
+    const robotId = spec.actors.find((actor) => actor.kind === 'robot')?.id;
+    const robotActor = robotId ? byId.get(robotId) : null;
+    const robotAt0 = center(spec.route[0]);
+    let robotAt = robotAt0;
+    let index = 0, animation = 0, playing = false, playTimer = 0;
+    const stopPlay = () => {
+      playing = false;
+      clearInterval(playTimer);
+      play.setAttribute('aria-pressed', 'false');
+    };
+    const setRobot = (p) => robotActor?.wrapper.setAttribute('transform', `translate(${fmt(p)})`);
+    const robotTag = labels.find((label) => label.id === robotId);
+    const moveRobotTag = (at) => {
+      if (!robotTag) return;
+      robotTag.x = robotTag.baseX + at.x - robotAt0.x;
+      robotTag.y = robotTag.baseY + at.y - robotAt0.y;
+    };
 
     function battery(level) {
       const filled = clamp(Math.ceil((level / 100) * 4), 1, 4);
@@ -594,6 +851,46 @@
       svg.querySelectorAll('circle[r="2.4"]').forEach((eye) => eye.setAttribute('fill', level === 0 ? '#5A6B80' : '#E4F4FF'));
     }
 
+    const FOCUS_COLOR = { look: '#004276', right: '#21594F', wrong: '#DD4A68' };
+    let focused = [];
+    function syncFocus() {
+      const hostBox = host.getBoundingClientRect();
+      focusLayer.replaceChildren();
+      for (const item of focused) {
+        if (item.target.startsWith('fact:')) continue; // the card's own border is the focus outline
+        const targetBox = item.el.getBoundingClientRect();
+        if (!targetBox.width || !targetBox.height) continue;
+        const outline = element('div', undefined, {
+          class: 'lk-stage-focus',
+          'data-tone': item.tone,
+          'data-target': item.target,
+        });
+        outline.style.setProperty('--lk-stage-focus', FOCUS_COLOR[item.tone]);
+        outline.style.left = `${Math.round(clamp(targetBox.left - hostBox.left - 5, 3, hostBox.width - 6))}px`;
+        outline.style.top = `${Math.round(clamp(targetBox.top - hostBox.top - 5, 3, hostBox.height - 6))}px`;
+        outline.style.width = `${Math.round(Math.min(targetBox.width + 10, hostBox.width - 6))}px`;
+        outline.style.height = `${Math.round(Math.min(targetBox.height + 10, hostBox.height - 6))}px`;
+        focusLayer.append(outline);
+      }
+    }
+    function focusTargets(step) {
+      for (const el of host.querySelectorAll('[data-focused]')) el.removeAttribute('data-focused');
+      for (const el of host.querySelectorAll('.is-focused')) el.classList.remove('is-focused');
+      focused = [];
+      for (const item of step.focusOn) {
+        const [prefix, value] = item.target.split(':');
+        let el = null;
+        if (prefix === 'actor') el = byId.get(value)?.wrapper;
+        if (prefix === 'tag') el = labelLayer.querySelector(`.lk-stage-tag[data-tag="${value}"]`);
+        if (prefix === 'lane') el = labelLayer.querySelector(`.lk-stage-lane-label[data-lane="${value}"]`);
+        if (prefix === 'fact') el = facts.querySelector(`[data-fact="${value}"]`);
+        if (!el) continue;
+        el.classList.add('is-focused');
+        el.setAttribute('data-focused', item.tone);
+        if (prefix === 'fact') el.style.setProperty('--lk-stage-focus', FOCUS_COLOR[item.tone]);
+        focused.push({ ...item, el });
+      }
+    }
     function draw(animate) {
       const step = spec.steps[index];
       host.dataset.step = String(index + 1);
@@ -603,9 +900,21 @@
         actor.ring.setAttribute('opacity', active ? 0.8 : 0);
       }
       for (const [id, lane] of lanes) lane.setAttribute('class', `lk-stage-lane ${id === step.highlightLane ? 'is-primary' : 'is-dim'}`);
+      const cellAt = center(step.cell);
+      moveRobotTag(cellAt);
+      host.dataset.cell = step.cell;
+      robotActor?.wrapper.setAttribute('data-cell', step.cell);
+      progress.setAttribute('d', 'M' + routePoints.slice(0, index + 1).map(fmt).join(' L'));
+      routeLayer.querySelectorAll('.lk-stage-route-stop').forEach((stop, i) => stop.classList.toggle('is-reached', i <= index));
+      dirtLayer.querySelectorAll('[data-dirt]').forEach((patch) => patch.classList.toggle('is-clean', step.cleaned.includes(patch.getAttribute('data-dirt'))));
+      if (robotActor?.signal) {
+        robotActor.signal.setAttribute('data-signal', step.signal || '');
+        robotActor.signal.querySelector('text').textContent = step.signal || '';
+      }
       battery(typeof step.battery === 'number' ? step.battery : 100);
       buildFacts(facts, step, spec);
       buildNarrator(narrator, step.narrator);
+      focusTargets(step);
       counter.textContent = `${index + 1}/${spec.steps.length}`;
       prev.disabled = index === 0;
       next.disabled = index === spec.steps.length - 1;
@@ -614,12 +923,16 @@
         dot.setAttribute('aria-current', i === index ? 'step' : 'false');
       });
 
-      const from = viewBoxOf(svg), target = cameraFor(step, byId, content, overview);
+      const from = viewBoxOf(svg), cameraAt = byId.get(step.activeActor)?.center || cellAt;
+      const target = cameraFor(cameraAt, content, overview);
+      const robotFrom = robotAt;
       cancelAnimationFrame(animation);
       if (!animate || reduce.matches) {
+        setRobot(cellAt); robotAt = cellAt;
         svg.setAttribute('viewBox', viewText(target));
         scaleLabels(target.w / overview.w);
         host.dataset.settled = 'true';
+        syncFocus();
       } else {
         host.dataset.settled = 'false';
         const start = global.performance.now();
@@ -629,31 +942,47 @@
             x: lerp(from.x, target.x, e), y: lerp(from.y, target.y, e),
             w: lerp(from.w, target.w, e), h: lerp(from.h, target.h, e),
           };
+          setRobot(point(robotFrom, cellAt, e));
           svg.setAttribute('viewBox', viewText(current));
           scaleLabels(current.w / overview.w);
+          syncFocus();
           if (t < 1) animation = requestAnimationFrame(frame);
-          else host.dataset.settled = 'true';
+          else { setRobot(cellAt); robotAt = cellAt; host.dataset.settled = 'true'; syncFocus(); }
         };
         animation = requestAnimationFrame(frame);
       }
     }
 
     function go(nextIndex, animate = true) {
+      stopPlay();
       index = clamp(nextIndex, 0, spec.steps.length - 1);
       draw(animate);
     }
     spec.steps.forEach((_, i) => {
-      const dot = element('button', '', { type: 'button', 'aria-label': `Ir al paso ${i + 1}` });
-      dot.addEventListener('click', () => go(i));
+      const dot = element('span', '', { class: 'lk-stage-dot', 'data-step': String(i + 1) });
       dots.append(dot);
     });
     prev.addEventListener('click', () => go(index - 1));
     next.addEventListener('click', () => go(index + 1));
+    play.addEventListener('click', () => {
+      if (playing) { stopPlay(); return; }
+      if (index >= spec.steps.length - 1) go(0, false);
+      playing = true;
+      play.setAttribute('aria-pressed', 'true');
+      playTimer = setInterval(() => {
+        if (index >= spec.steps.length - 1) { stopPlay(); return; }
+        index += 1;
+        draw(false);
+      }, 1200);
+    });
+    global.addEventListener?.('resize', syncFocus);
     host.addEventListener('keydown', (event) => {
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       if (event.key === 'ArrowRight') { event.preventDefault(); go(index + 1); }
       if (event.key === 'ArrowLeft') { event.preventDefault(); go(index - 1); }
     });
+    host.go = go;
+    host.stepCount = spec.steps.length;
     draw(false);
   }
   let stageId = 0;
@@ -676,6 +1005,7 @@
           mount(this, validate(raw));
           this.dataset.ready = 'true';
         }).catch((error) => {
+          console.error('lk-stage:', error);
           this.replaceChildren(element('p', error.message, { class: 'lk-stage-error', role: 'alert' }));
           this.dataset.ready = 'error';
         });

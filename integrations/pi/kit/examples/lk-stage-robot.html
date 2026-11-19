@@ -19,17 +19,18 @@
     <script type="application/json">
     {
       "title": "Recompensa diferida",
+      "caption": "Sigue el recorrido del robot y lee qué cambia en cada paso.",
       "question": "¿Qué acciones elijo a lo largo del tiempo para maximizar la recompensa total?",
       "focus": "acciones",
       "actors": [
-        { "id": "robot", "kind": "robot", "cell": "B3", "name": "Robot", "color": "#5AB0FF" },
+        { "id": "robot", "kind": "robot", "cell": "A3", "name": "Robot", "color": "#5AB0FF" },
         { "id": "room", "kind": "room", "cell": "D2", "name": "Habitación sucia", "color": "#F2B45C" },
-        { "id": "charger", "kind": "charger", "cell": "E4", "name": "Cargador", "color": "#5FD6A4" },
+        { "id": "charger", "kind": "charger", "cell": "E5", "name": "Cargador", "color": "#5FD6A4" },
         { "id": "battery", "kind": "block", "cell": "A5", "name": "Batería", "color": "#9AA7BD" }
       ],
       "lanes": [
-        { "id": "sweep", "from": "robot", "to": "room", "verb": "aspirar", "identity": "robot" },
-        { "id": "charge", "from": "robot", "to": "charger", "verb": "cargar", "identity": "charger" }
+        { "id": "sweep", "from": "robot", "to": "room", "verb": "aspirar", "identity": "robot", "labelT": 0.3 },
+        { "id": "charge", "from": "robot", "to": "charger", "verb": "cargar", "identity": "charger", "labelT": 0.7 }
       ],
       "steps": [
         {
@@ -44,6 +45,10 @@
           "narrator": [
             "El robot está en una habitación sucia.",
             "Le queda [4 % de batería|warn]."
+          ],
+          "focusOn": [
+            { "target": "actor:robot", "tone": "look" },
+            { "target": "fact:0", "tone": "look" }
           ]
         },
         {
@@ -59,6 +64,10 @@
             "Puede aspirar. Recompensa inmediata: [alta|good].",
             "Puede irse al cargador. Recompensa inmediata: [ninguna|info].",
             "Si miras solo el [instante|warn], [aspirar gana|good]."
+          ],
+          "focusOn": [
+            { "target": "lane:sweep", "tone": "look" },
+            { "target": "fact:0", "tone": "right" }
           ]
         },
         {
@@ -75,6 +84,10 @@
             "Al aspirar, la batería llega a [0 %|bad] y el robot se detiene: [1 habitación|bad].",
             "Con la batería llena, vuelve y limpia [seis habitaciones|good].",
             "Si miras la hora siguiente, [cargar gana|good]."
+          ],
+          "focusOn": [
+            { "target": "actor:charger", "tone": "look" },
+            { "target": "fact:2", "tone": "right" }
           ]
         }
       ]

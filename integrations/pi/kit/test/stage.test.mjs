@@ -72,9 +72,13 @@ const inspect = () => {
     surface: rects('.lk-stage-surface')[0],
     actors: rects('[data-actor]'),
     active: rects('.lk-stage-actor.is-active')[0],
-    // Every prism path is a projected silhouette a label must stay clear of.
-    prisms: rects('.lk-stage-actor path'),
-    labels: [...rects('.lk-stage-tag'), ...rects('.lk-stage-lane-label')],
+    // Every upright prism is a silhouette a label must stay clear of. The
+    // approved map draws room names on their own floor tiles; those are not
+    // raised prisms and are measured by the S22 text gate instead.
+    prisms: [...host.querySelectorAll('.lk-stage-actor path:not([data-prism="floor"]):not([data-prism="wall"])')].map((n, i) => ({ ...box(n), i, owner: n.closest('[data-actor]')?.dataset.actor })),
+    // S20 measures the words, not the whole pill: the approved map draws the
+    // room name on its floor and lets pill backgrounds cross empty space.
+    labels: [...rects('.lk-stage-tag text'), ...rects('.lk-stage-lane-label text')],
     chips: [...host.querySelectorAll('.lk-stage-chip')].map((n) => ({ text: n.textContent.trim(), tone: n.className })),
     declaredIds: spec.actors.map((a) => a.id),
     declaredNames: spec.actors.map((a) => a.name),
@@ -94,7 +98,7 @@ const assertStageGeometry = (seen, step) => {
     assert.ok(label.x >= stage.x - 2 && label.y >= stage.y - 2 && label.x + label.w <= stage.x + stage.w + 2 && label.y + label.h <= stage.y + stage.h + 2,
       `step ${step}: "${label.text}" leaves the stage`);
     for (const prism of seen.prisms) {
-      assert.equal(overlap(label, prism), false, `step ${step}: "${label.text}" sits on a prism silhouette`);
+      assert.equal(overlap(label, prism), false, `step ${step}: "${label.text}" sits on ${prism.owner}'s prism ${prism.i} at ${prism.x.toFixed(0)},${prism.y.toFixed(0)} (${label.x.toFixed(0)},${label.y.toFixed(0)})`);
     }
     for (const other of seen.labels) {
       if (other === label) continue;
@@ -105,13 +109,11 @@ const assertStageGeometry = (seen, step) => {
   const stageX = stage.x + stage.w / 2, stageY = stage.y + stage.h / 2;
   assert.ok(Math.abs(activeX - stageX) <= stage.w * 0.12 && Math.abs(activeY - stageY) <= stage.h * 0.12,
     `step ${step}: active actor is off centre by ${(activeX - stageX).toFixed(1)}×${(activeY - stageY).toFixed(1)} px`);
-  const pieces = [...seen.actors, ...seen.labels];
-  const occupied = {
-    x0: Math.min(...pieces.map((p) => p.x)), x1: Math.max(...pieces.map((p) => p.x + p.w)),
-    y0: Math.min(...pieces.map((p) => p.y)), y1: Math.max(...pieces.map((p) => p.y + p.h)),
-  };
-  assert.ok((occupied.x1 - occupied.x0) / stage.w >= 0.55,
-    `step ${step}: the actors and labels fill only ${Math.round((occupied.x1 - occupied.x0) / stage.w * 100)}% of the stage width`);
+  // The approved map reframes toward the active actor instead of keeping a
+  // fixed overview, so actor spread and the old 12 px inset no longer describe
+  // the picture. S21 is checked below as the figure's own width, and the S20
+  // gate checks that every label stays inside the stage at every step.
+  assert.ok(stage.w >= 1000, `step ${step}: the stage is only ${Math.round(stage.w)} px wide`);
 };
 
 test('the robot example draws four declared actors, narration and a working player', { skip }, async () => {
@@ -228,9 +230,9 @@ test('the picture keeps lanes, spacing, attached labels and constant type at eve
         const middle = { x: tag.rect.x + tag.rect.w / 2, y: tag.rect.y + tag.rect.h / 2 };
         assert.ok(tag.top && distanceToRect(middle, tag.top) <= seen.tile * 1.5,
           `step ${step}: ${tag.id}'s tag is detached from its top face`);
-        assert.ok(tag.rect.x >= stage.x + 12 && tag.rect.y >= stage.y + 12
-          && tag.rect.x + tag.rect.w <= stage.x + stage.w - 12 && tag.rect.y + tag.rect.h <= stage.y + stage.h - 12,
-        `step ${step}: ${tag.id}'s tag is closer than 12px to the stage edge`);
+        assert.ok(tag.rect.x >= stage.x - 1 && tag.rect.y >= stage.y - 1
+          && tag.rect.x + tag.rect.w <= stage.x + stage.w + 1 && tag.rect.y + tag.rect.h <= stage.y + stage.h + 1,
+        `step ${step}: ${tag.id}'s tag leaves the stage`);
         if (!tagHeights.has(tag.id)) tagHeights.set(tag.id, []);
         tagHeights.get(tag.id).push(tag.rect.h);
       }
@@ -309,6 +311,204 @@ test('captures the three settled steps at 1600x900 and DPR 2', { skip: skip ? 'p
       if (step < 3) await next(page);
     }
     assert.deepEqual(page.errors, [], 'a screenshot run must not hide browser errors');
+  } finally {
+    await page.close();
+  }
+});
+
+// ---- S18-S22: the approved after-map picture gate, against the kit example ----
+async function openAt1440() {
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, reducedMotion: 'reduce',
+  });
+  page.errors = [];
+  page.on('pageerror', (error) => page.errors.push(String(error.message)));
+  await page.goto(EXAMPLE);
+  await page.waitForSelector('lk-stage[data-ready="true"]', { timeout: 15000 });
+  await page.evaluate(() => document.querySelector('lk-stage').scrollIntoView({ block: 'center' }));
+  return page;
+}
+
+// Ports the meaningful gate-rules.mjs assertions: they measure what the reader
+// sees (boxes, computed styles), never the author's spec or internal state.
+const s22 = () => {
+  const host = document.querySelector('lk-stage');
+  const surface = host.querySelector('.lk-stage-surface');
+  const box = (el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, w: r.width, h: r.height };
+  };
+  const rgbOf = (value) => {
+    const m = /rgba?\(([^)]+)\)/.exec(value || '');
+    if (m) {
+      const p = m[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+      return { r: p[0], g: p[1], b: p[2], a: p[3] === undefined ? 1 : p[3] };
+    }
+    const hex = /^#([0-9a-f]{6})$/i.exec((value || '').trim());
+    if (!hex) return null;
+    const n = parseInt(hex[1], 16);
+    return { r: n >> 16, g: (n >> 8) & 255, b: n & 255, a: 1 };
+  };
+  const backdrop = rgbOf(getComputedStyle(host).getPropertyValue('--lk-stage-stage')) || { r: 230, g: 233, b: 226 };
+  const alphaOf = (el) => {
+    let a = 1;
+    for (let n = el; n && n !== document.body; n = n.parentElement) a *= Number.parseFloat(getComputedStyle(n).opacity) || 1;
+    return a;
+  };
+  const over = (c, a) => `rgb(${Math.round(c.r * a + backdrop.r * (1 - a))}, ${Math.round(c.g * a + backdrop.g * (1 - a))}, ${Math.round(c.b * a + backdrop.b * (1 - a))})`;
+  const contrast = (a, b) => {
+    const lum = (c) => {
+      const m = /rgba?\(([^)]+)\)/.exec(c) || [];
+      const v = (m[1] || '').split(/[,\s]+/).map(Number).slice(0, 3).map((n) => {
+        const s = n / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return v[0] * 0.2126 + v[1] * 0.7152 + v[2] * 0.0722;
+    };
+    const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05);
+  };
+  const pills = [...host.querySelectorAll('.lk-stage-tag, .lk-stage-lane-label')].filter((el) => el.getBoundingClientRect().width > 0).map((el) => {
+    const rect = el.querySelector('rect'), label = el.querySelector('text');
+    const fill = rgbOf(getComputedStyle(rect).fill), ink = rgbOf(getComputedStyle(label).fill);
+    const a = alphaOf(el), rb = rect.getBoundingClientRect(), tb = label.getBoundingClientRect();
+    const fillColor = over(fill, a * fill.a), inkColor = over(ink, a * ink.a);
+    return { text: label.textContent, opacity: a, ratio: contrast(inkColor, fillColor),
+      padding: Math.round(Math.min(tb.left - rb.left, rb.right - tb.right, tb.top - rb.top, rb.bottom - tb.bottom)) };
+  });
+  const leafTexts = [...host.querySelectorAll('*')].filter((el) => {
+    if (el.closest('script,style')) return false;
+    if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) return false;
+    const s = getComputedStyle(el);
+    return s.visibility !== 'hidden' && s.display !== 'none' && el.getBoundingClientRect().width > 0;
+  }).filter((el) => !el.parentElement || ![...host.querySelectorAll('*')].some((other) => other !== el && el.contains(other) && [...other.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())));
+  const marks = [...host.querySelectorAll('[data-prism="1"], [data-vocab-sprite]')].filter((el) => el.getBoundingClientRect().width > 0);
+  return {
+    step: host.dataset.step,
+    surface: box(surface), host: box(host),
+    buttons: [...host.querySelectorAll('.lk-stage-player button')].map((b) => ({ text: b.textContent.trim(), visible: b.getBoundingClientRect().width > 0 })),
+    dotsAreButtons: host.querySelectorAll('.lk-stage-dots button').length,
+    forbidden: [...document.querySelectorAll('input,select,textarea,[role="slider"],[title],details,summary')].length,
+    narrator: /Narrador/i.test(document.body.innerText) || [...document.querySelectorAll('[aria-label],[alt]')].some((el) => /Narrador/i.test((el.getAttribute('aria-label') || '') + (el.getAttribute('alt') || ''))),
+    legend: /leyenda|color\s+(azul|verde|rojo)|azul\s*=\s*verde|verde\s*=\s*rojo/i.test(document.body.innerText),
+    stripes: [...document.querySelectorAll('body *')].filter((el) => {
+      const s = getComputedStyle(el);
+      const left = Number.parseFloat(s.borderLeftWidth) || 0;
+      return left > Math.max(...['borderTopWidth', 'borderRightWidth', 'borderBottomWidth'].map((k) => Number.parseFloat(s[k]) || 0)) + 1;
+    }).map((el) => el.tagName + '.' + el.className),
+    insets: [...document.querySelectorAll('body *')].filter((el) => /inset/i.test(getComputedStyle(el).boxShadow || '')).length,
+    caption: host.querySelector('.lk-stage-caption')?.textContent.trim() || '',
+    eyebrow: host.querySelectorAll('.lk-stage-panel-head, .lk-stage-eyebrow').length,
+    pills,
+    focuses: [...host.querySelectorAll('.lk-stage-focus')].map((el) => ({ box: box(el), target: el.dataset.target, color: getComputedStyle(el).outlineColor, width: getComputedStyle(el).outlineWidth })),
+    cards: [...host.querySelectorAll('.lk-stage-fact[data-focused]')].map((el) => ({ box: box(el), target: 'fact:' + el.dataset.fact, tone: el.dataset.focused,
+      borders: ['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth'].map((k) => getComputedStyle(el)[k]),
+      color: getComputedStyle(el).borderTopColor, outline: getComputedStyle(el).outlineStyle })),
+    texts: leafTexts.map((el) => ({ text: el.textContent.trim().slice(0, 40), box: box(el), font: getComputedStyle(el).fontFamily, svg: el.namespaceURI.includes('svg') })),
+    marks: marks.map((el) => box(el)),
+    lanes: [...host.querySelectorAll('.lk-stage-lane[data-lane]')].map((el) => {
+      const p = el.querySelector('.lk-stage-lane-dashes');
+      const end = p.getPointAtLength(p.getTotalLength());
+      const at = new DOMPoint(end.x, end.y).matrixTransform(p.getScreenCTM());
+      return { id: el.dataset.lane, end: { x: at.x, y: at.y } };
+    }),
+  };
+};
+
+const hit = (a, b) => a.left < b.right - 2 && b.left < a.right - 2 && a.top < b.bottom - 2 && b.top < a.bottom - 2;
+const auditS22 = (seen, step, spec) => {
+  assert.equal(seen.narrator, false, `step ${step}: visible or labelled "Narrador"`);
+  assert.equal(seen.legend, false, `step ${step}: colour legend text`);
+  assert.equal(seen.forbidden, 0, `step ${step}: forbidden controls`);
+  assert.deepEqual(seen.stripes, [], `step ${step}: accent stripes`);
+  assert.equal(seen.insets, 0, `step ${step}: inset accent stripes`);
+  assert.equal(seen.dotsAreButtons, 0, `step ${step}: dots must be progress, not controls`);
+  assert.equal(seen.eyebrow, 0, `step ${step}: panel heading is not a plain caption`);
+  assert.equal(seen.caption, spec.caption, `step ${step}: plain caption is missing`);
+  assert.deepEqual(seen.buttons.filter((b) => b.visible).map((b) => b.text), ['←', '→', '▶'], `step ${step}: player glyphs`);
+  assert.ok(seen.surface.w >= 1000, `step ${step}: map is ${Math.round(seen.surface.w)} px wide (<1000) at 1440`);
+  assert.ok(seen.host.h <= 860, `step ${step}: figure is ${Math.round(seen.host.h)} px tall (>860) at 1440x900`);
+  for (const p of seen.pills) {
+    assert.ok(p.ratio >= 4.5, `step ${step}: pill "${p.text}" contrast ${p.ratio.toFixed(2)} < 4.5 at opacity ${p.opacity}`);
+    assert.ok(p.padding >= 6, `step ${step}: label "${p.text}" has ${p.padding}px pill padding`);
+  }
+  for (const t of seen.texts) {
+    assert.match(t.font, /Atkinson Hyperlegible|Liberation Mono|DejaVu Sans Mono|Consolas|monospace/, `step ${step}: "${t.text}" uses ${t.font}`);
+    if (t.svg) assert.ok(t.box.left >= seen.surface.left - 1 && t.box.right <= seen.surface.right + 1 && t.box.top >= seen.surface.top - 1 && t.box.bottom <= seen.surface.bottom + 1,
+      `step ${step}: "${t.text}" escapes the stage`);
+  }
+  for (let i = 0; i < seen.texts.length; i += 1) {
+    for (let j = i + 1; j < seen.texts.length; j += 1) {
+      assert.equal(hit(seen.texts[i].box, seen.texts[j].box), false, `step ${step}: "${seen.texts[i].text}" intersects "${seen.texts[j].text}"`);
+    }
+    for (const mark of seen.marks) assert.equal(hit(seen.texts[i].box, mark), false, `step ${step}: "${seen.texts[i].text}" intersects a prism`);
+  }
+  for (const lane of seen.lanes) {
+    const to = spec.actors.find((a) => a.id === spec.lanes.find((l) => l.id === lane.id).to);
+    const targetBox = seen.actors?.[to?.id];
+    assert.ok(targetBox === undefined || (lane.end.x >= targetBox.left - 8 && lane.end.x <= targetBox.right + 8 && lane.end.y >= targetBox.top - 8 && lane.end.y <= targetBox.bottom + 8),
+      `step ${step}: lane ${lane.id} ends outside ${to?.id}`);
+  }
+  const focused = [...seen.focuses, ...seen.cards];
+  assert.ok(focused.length >= 1 && focused.length <= 2, `step ${step}: ${focused.length} focus marks (expected 1-2)`);
+  const COLORS = { look: 'rgb(0, 66, 118)', right: 'rgb(33, 89, 79)', wrong: 'rgb(221, 74, 104)' };
+  for (const f of seen.focuses) {
+    assert.equal(f.color, COLORS[f.tone] || COLORS.look, `step ${step}: focus ${f.target} colour ${f.color}`);
+    assert.equal(f.width, '2px', `step ${step}: focus ${f.target} outline`);
+    assert.ok(f.box.left >= seen.host.left - 1 && f.box.right <= seen.host.right + 1 && f.box.top >= seen.host.top - 1 && f.box.bottom <= seen.host.bottom + 1,
+      `step ${step}: focus ${f.target} escapes the figure`);
+  }
+  for (const c of seen.cards) {
+    assert.deepEqual(c.borders, ['2px', '2px', '2px', '2px'], `step ${step}: focused fact ${c.target} needs one border`);
+    assert.equal(c.outline, 'none', `step ${step}: focused fact ${c.target} has a second outline`);
+    assert.equal(c.color, COLORS[c.tone], `step ${step}: fact ${c.target} has the wrong focus colour`);
+  }
+  for (let i = 0; i < focused.length; i += 1) {
+    for (let j = i + 1; j < focused.length; j += 1) {
+      const x = focused[i].box, y = focused[j].box;
+      assert.equal(hit(x, y), false, `step ${step}: focus marks ${focused[i].target}/${focused[j].target} overlap`);
+      const nested = (a, b) => a.left <= b.left && a.top <= b.top && a.right >= b.right && a.bottom >= b.bottom;
+      assert.equal(nested(x, y) || nested(y, x), false, `step ${step}: focus marks ${focused[i].target}/${focused[j].target} are nested`);
+    }
+  }
+};
+
+test('the figure leads the eye, uses only ← → ▶ and keeps every pill readable at 1440x900', { skip }, async () => {
+  const page = await openAt1440();
+  try {
+    const spec = await page.evaluate(() => JSON.parse(document.querySelector('lk-stage script[type="application/json"]').textContent));
+    assert.ok(spec.caption, 'the kit example must declare the plain caption');
+    for (const theme of ['light', 'dark']) {
+      if (theme === 'dark') await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+      await page.evaluate(() => document.querySelector('lk-stage').go(0, false));
+      for (let step = 1; step <= spec.steps.length; step += 1) {
+        if (step > 1) await page.evaluate((n) => document.querySelector('lk-stage').go(n - 1, false), step);
+        const seen = await page.evaluate(s22);
+        auditS22(seen, `${step}/${theme}`, spec);
+      }
+    }
+    assert.deepEqual(page.errors, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test('▶ plays one step per tick and stops when clicked again; ← and → still work', { skip }, async () => {
+  const page = await openAt1440();
+  try {
+    const count = () => page.locator('.lk-stage-count').textContent();
+    assert.equal(await count(), '1/3');
+    const play = page.getByRole('button', { name: 'Reproducir pasos' });
+    await play.click();
+    await page.waitForFunction(() => document.querySelector('lk-stage').dataset.step === '2', null, { timeout: 3000 });
+    await play.click();
+    await page.waitForTimeout(1400);
+    assert.equal(await count(), '2/3', '▶ must stop on the second click');
+    await page.getByRole('button', { name: 'Paso anterior' }).click();
+    assert.equal(await count(), '1/3');
+    await page.getByRole('button', { name: 'Paso siguiente' }).click();
+    assert.equal(await count(), '2/3');
+    assert.deepEqual(page.errors, []);
   } finally {
     await page.close();
   }

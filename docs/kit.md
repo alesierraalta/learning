@@ -698,29 +698,39 @@ TCP handshake (SYN, SYN-ACK, ACK), the HTTP request and its 200 OK, and the brow
 
 ### `<lk-stage>` — a declared isometric stage
 
-A new figure base (#358), chosen over the old `lk-scene` look: actors sit in named cells of an
-isometric grid and the renderer computes their prisms, their labels, the lane verbs and the camera.
-It does not draw `lk-scene` primitives. The element reads one inline JSON payload and needs no
-build step or npm dependency; `manifest.json` and the reader's page ship `stage.css` and `stage.js`
-beside `kit.css`/`kit.js`, and the same file works in light, dark and black themes.
+A new figure base (#358), chosen over the old `lk-scene` look and brought up to the approved
+isometric map: actors sit in named cells of an isometric grid and the renderer computes their
+prisms, their labels, the lane verbs, the step focus and the camera. It does not draw `lk-scene`
+primitives. The element reads one inline JSON payload and needs no build step or npm dependency;
+`manifest.json` and the reader's page ship `stage.css` and `stage.js` beside `kit.css`/`kit.js`,
+and the same file works in light, dark and black themes. The whole figure is laid out to fit a
+1440×900 screen: the stage breaks out of the reading column and stays at least 1000 px wide.
 
 **Spec vocabulary (S4).** The payload is one object; every listed key is required unless marked
 optional, and nothing else is accepted at any level.
 
 | Level | Keys |
 | --- | --- |
-| root | `title` (optional), `question`, `focus`, `actors[]`, `lanes[]`, `steps[]` |
-| `actors[]` | `id`, `kind`, `cell`, `name`, `color` (`#RRGGBB`) |
-| `lanes[]` | `id`, `from`, `to`, `verb`, `identity` |
-| `steps[]` | `activeActor`, `highlightLane`, `battery` (optional, 0–100), `facts[]`, `narrator[]` |
+| root | `title`, `kicker`, `caption`, `dirt[]`, `route[]` (all optional), `question`, `focus`, `actors[]`, `lanes[]`, `steps[]` |
+| `actors[]` | `id`, `kind`, `cell`, `name`, `color` (`#RRGGBB`); a `room` may add `cells[]` and `labelCell`; any actor may add `labelSide` |
+| `lanes[]` | `id`, `from`, `to`, `verb`, `identity`, `labelT` (optional path fraction 0–1) |
+| `steps[]` | `activeActor`, `highlightLane`, `facts[]`, `narrator[]`, `focusOn[]`; optional `cell`, `cleaned[]`, `signal`, `battery` (0–100) |
 | `facts[]` | `identity`, `label`, `value`, `tone` |
 | `narrator[]` | a Spanish line, optionally with inline chips `[text\|tone]` |
+| `focusOn[]` | one or two `{ "target": "actor:id\|tag:id\|lane:id\|fact:N", "tone": "look\|right\|wrong" }` |
 
 - `cell` is `A1`–`F5` (six columns, five rows). There are **no x/y coordinates anywhere**; placement,
   label placement and camera framing are derived from the cell names.
 - `from`, `to`, `identity`, `activeActor` and `fact.identity` are actor ids; `highlightLane` is a lane
   id or `null`. `focus` is one word copied from `question`, highlighted in the heading.
-- `fact.tone` ∈ `neutral | good | bad | warn`; a chip tone ∈ `neutral | good | bad | warn | info`.
+- `fact.tone` ∈ `neutral | good | bad | warn | info`; a chip tone uses the same five values.
+- `focusOn` targets resolve against the declared actors, lanes and the facts of that same step;
+  `fact:N` is zero-based. `look` outlines in blue, `right` in green and `wrong` in red. A focused
+  fact card uses its own single 2 px border; there is no second outline over it. There are at most
+  two focus marks per step and they may not overlap or nest; everything else is quieted to ~55 %.
+- An authored `route` is a chain of adjacent cells the robot walks; `dirt`/`cleaned`/`signal`
+  drive the floor patches and the robot's readout. Step-only specs from before the map keep working:
+  the renderer derives a static route from the robot's cell and follows `activeActor` with the camera.
 - Kinds (v1): `robot` (blue screen and battery), `room` (flat dirt-spotted floor), `charger` (tall
   prism with a bolt) and `block` (generic prism). Every kind is an isometric prism with a light top,
   mid left face, dark right face and a soft shadow; no kind is invented by the renderer.
@@ -728,18 +738,23 @@ optional, and nothing else is accepted at any level.
   line of a multi-line step reads as the conclusion.
 
 The stage shows a question with its focus word marked, prisms and shadows on a subtle grid, dashed
-lanes that flow and carry their verb pill, a facts panel, and a player with previous / next, dots and
-`N/M`. Arrow keys move the steps while the element has focus. Labels are painted in a top layer and
-placed against the projected prism silhouettes and the other labels: a verb pill never hides behind
-a prism or covers a name tag, and no cell code is printed. The camera fits the declared actors and
-their labels with even margins, then eases closer to the active actor step by step. One easing curve
-(`cubic-bezier(.2,.8,.2,1)`, 150–420 ms) covers the camera, the lanes and the narrator;
-`prefers-reduced-motion` settles every step at once.
+lanes that flow and carry their verb pill, a plain caption above the fact cards, and a player with
+**only** `←`, `→` and `▶`, step dots and `N/M`. Dots are progress indicators, not buttons; there are
+no sliders, inputs, hover-only content or colour legend. The step lines are plain text with inline
+chips — no visible «Narrador» label — and no card carries an accent stripe. Dark pills keep ≥ 4.5:1
+text contrast even when quieted and leave ≥ 6 px of padding around their labels. Arrow keys move the
+steps while the element has focus. Labels are painted in a top layer and placed against the projected
+prism silhouettes and the other labels: a verb never covers a name tag, and no cell code is printed.
+The camera fits the declared actors and their labels with even margins, then eases toward the active
+actor step by step. One easing curve (`cubic-bezier(.2,.8,.2,1)`, 150–420 ms) covers the camera, the
+lanes and the step lines; `prefers-reduced-motion` settles every step at once. `▶` advances one step
+per tick and stops on a second click.
 
 ```html
 <lk-stage>
 <script type="application/json">
 {
+  "caption": "Sigue el recorrido y lee qué cambia en cada paso.",
   "question": "¿Qué acciones elijo para maximizar la recompensa total?",
   "focus": "acciones",
   "actors": [
@@ -753,7 +768,8 @@ their labels with even margins, then eases closer to the active actor step by st
     {
       "activeActor": "robot", "battery": 4, "highlightLane": null,
       "facts": [{ "identity": "robot", "label": "Batería", "value": "4 %", "tone": "warn" }],
-      "narrator": ["Le queda [4 % de batería|warn]."]
+      "narrator": ["Le queda [4 % de batería|warn]."],
+      "focusOn": [{ "target": "actor:robot", "tone": "look" }]
     }
   ]
 }
@@ -763,9 +779,12 @@ their labels with even margins, then eases closer to the active actor step by st
 
 Invalid specs fail loudly at authoring time: the error names the offending value and the path it was
 written at, for example `actors[0].cell: "Z9" is not a cell`,
-`steps[1].activeActor: "robo" is not an actor` or `actors[0].x: unknown key "x"`. A page that
-still renders an invalid payload shows that message inside the element (`role="alert"`) instead of a
-broken figure. Worked, gated example: `integrations/pi/kit/examples/lk-stage-robot.html`.
+`steps[1].activeActor: "robo" is not an actor`, `actors[0].x: unknown key "x"`,
+`steps[0].focusOn[0].target: "nope:robot" must be actor:, tag:, lane: or fact:`, or
+`steps[0].focusOn[0].tone: "loud" is not a focus tone`. A page that still renders an invalid payload
+shows that message inside the element (`role="alert"`) instead of a broken figure. Worked, gated
+example: `integrations/pi/kit/examples/lk-stage-robot.html`; the real-browser S18–S22 gate is
+`integrations/pi/kit/test/stage.test.mjs`.
 
 ## Injected config
 
