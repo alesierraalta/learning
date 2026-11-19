@@ -292,8 +292,17 @@ button.secondary { background: transparent; color: var(--ink); }
      en su lugar. Un deck es una figura con controles, y se trata igual. Una pieza
      (tarjetas, memoria, tablas, conjuntos, árbol) es una figura también: partida,
      su dibujo quedaba en una columna y su pie en la otra (#287, #296). */
-  body.wide .prose > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, lk-story, lk-cards, lk-memory, lk-tables, lk-venn, lk-tree, .mermaid),
-  body.wide .prose > section > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, lk-story, lk-cards, lk-memory, lk-tables, lk-venn, lk-tree, .mermaid) { column-span: all; }
+  body.wide .prose > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, lk-story, lk-cards, lk-memory, lk-tables, lk-venn, lk-tree, lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes, .mermaid),
+  body.wide .prose > section > :is(h1, h2, h3, table, pre, iframe, .part-kicker, .video-block, .audio-block, figure, lk-scene, lk-figure, lk-walkthrough, lk-story, lk-cards, lk-memory, lk-tables, lk-venn, lk-tree, lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes, .mermaid) { column-span: all; }
+  /* S21: a step-by-step figure uses the screen, not half a reading column. */
+  /* marked wraps an inline custom tag in a <p>: the figure still owns the
+     width even when its parent is that paragraph. */
+  body.wide .prose > :is(p:has(> :is(lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes)), lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes) { column-span: all; }
+  body.wide .prose > :is(lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes),
+  body.wide .prose > section > :is(lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes),
+  body.wide .prose > p:has(> :is(lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes)) > :is(lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes) {
+    display: block; width: min(1280px, 100vw - 64px); max-width: none; margin-inline: auto;
+  }
   body.wide .prose > h1 { max-width: 30em; }
   body.wide figure:has(svg), body.wide .mermaid { width: 100%; margin-left: 0; transform: none; }
   body.wide .note-pair { display: block; }

@@ -786,6 +786,26 @@ shows that message inside the element (`role="alert"`) instead of a broken figur
 example: `integrations/pi/kit/examples/lk-stage-robot.html`; the real-browser S18–S22 gate is
 `integrations/pi/kit/test/stage.test.mjs`.
 
+### The other four step figures and Mermaid (T9)
+
+`lk-codestep`, `lk-tablestep`, `lk-guided` and `lk-lanes` join `lk-stage` in
+`manifest.json` and in every page the bridge builds: each classic script is loaded with its CSS,
+and each reads one `<script type="application/json">` child. DOMPurify's allow-list in
+`view/app.js` keeps those five names and their JSON children. On a wide page all five break out of
+the two-column prose into a centred `min(1280px, 100vw - 64px)` figure.
+
+Mermaid diagrams (`mermaid`, `flowchart`, `sequence`, Gantt and the other structural families) keep
+using Mermaid, now themed by `kit/mermaid-theme.js`: the reader calls `LkMermaidTheme.initialize()`
+before `mermaid.run()`. The night variant reads `--paper`, `--ink` and the accent tokens from the
+kit, so `black` stays neutral black instead of a navy white-paper island. The old white-paper CSS
+rule was removed.
+
+The visual counters (`bridge.ts` `countVisuals` and the Go engine), the browser gate and
+`tools/visuals/audit-note.mjs` recognise all five elements. The authoring gate runs each element's
+DOM-free validator on its JSON child and names the element, its index in the note, the failing path
+and the offending value. Old figures (`lk-figure`, `lk-scene`, `lk-story`, `lk-walkthrough`) still
+render and still count; the `Cómo leerlo` guide line is still required for every new figure.
+
 ## Injected config
 
 The bridge injects this **first in head**; builders must not hardcode tokens:

@@ -11,7 +11,7 @@ import (
 // with a `summary` card. A walkthrough of two steps does not ask for one. A rules snapshot that does not declare
 // `storySummary` keeps accepting the parts it accepted.
 func faltaResumenFindings(text string, th rules.PartStandardThresholds) []string {
-	if !th.StorySummary {
+	if !th.StorySummary || usesStepFigures(text) {
 		return nil
 	}
 	var missing []string

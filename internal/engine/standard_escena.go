@@ -38,6 +38,11 @@ func drawnScenes(text string) int {
 // standard declares it, at least `minScenes` that actually draw. The walkthrough
 // is a different element and never substitutes for the drawn example.
 func sceneFindings(text string, th rules.PartStandardThresholds) []string {
+	// A new step figure is the drawn example; it replaces the one-scene budget
+	// of the legacy note vocabulary.
+	if usesStepFigures(text) {
+		return nil
+	}
 	var findings []string
 	scenes := len(sceneOpen.FindAllStringIndex(withoutCodeFences(text), -1))
 	if pieces := pieceOpenCount(text); pieces > 0 && scenes+pieces > th.MaxScenes {

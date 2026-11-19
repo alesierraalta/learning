@@ -42,7 +42,16 @@ const staticVersion = (() => {
     join(VIEW_DIR, "book.js"),
     join(KIT_DIR, "kit.css"),
     join(KIT_DIR, "stage.css"),
+    join(KIT_DIR, "codestep.css"),
+    join(KIT_DIR, "tablestep.css"),
+    join(KIT_DIR, "guided.css"),
+    join(KIT_DIR, "lanes.css"),
     join(KIT_DIR, "stage.js"),
+    join(KIT_DIR, "codestep.js"),
+    join(KIT_DIR, "tablestep.js"),
+    join(KIT_DIR, "guided.js"),
+    join(KIT_DIR, "lanes.js"),
+    join(KIT_DIR, "mermaid-theme.js"),
     join(KIT_DIR, "kit.js"),
     join(KIT_DIR, "question.js"),
     join(KIT_DIR, "code-field.js"),
@@ -1298,6 +1307,15 @@ const VISUAL_ELEMENTS = /<\s*(?:svg|figure|canvas)\b/gi;
 const FIGURE_LISTS = ["grids", "sheets", "panels", "dashed", "boxes", "arrows", "paths", "labels"];
 const FIGURE_BLOCK = /<lk-figure\b[^>]*>([\s\S]*?)<\/lk-figure>/gi;
 const FIGURE_JSON = /<script\b[^>]*type\s*=\s*["']application\/json["'][^>]*>([\s\S]*?)<\/script>/i;
+/** The five step figures draw from one JSON child, like lk-figure does. */
+const NEW_FIGURE_BLOCK = /<(lk-(?:stage|codestep|tablestep|guided|lanes))\b[^>]*>([\s\S]*?)<\/\1>/gi;
+const NEW_FIGURE_FIELDS: Record<string, string[]> = {
+  "lk-stage": ["actors", "steps"],
+  "lk-codestep": ["code", "steps"],
+  "lk-tablestep": ["tables", "steps"],
+  "lk-guided": ["steps"],
+  "lk-lanes": ["items", "steps"],
+};
 const FIGURE_CELL_KINDS = ["free", "policy", "value", "exit", "wall", "hazard", "robot", "start"];
 const FIGURE_DIRECTIONS = ["up", "down", "left", "right"];
 const FIGURE_TONES = ["ink", "slate", "line", "soft", "blue", "green", "amber", "red", "muted", "paper"];
@@ -1401,6 +1419,24 @@ function figureDraws(block: string): boolean {
   }
 }
 
+/** A step figure counts only when its JSON payload has something to show. */
+function newFigureDraws(tag: string, block: string): boolean {
+  const payload = FIGURE_JSON.exec(block)?.[1];
+  if (payload === undefined) return false;
+  try {
+    const spec = JSON.parse(payload);
+    if (!isRecord(spec)) return false;
+    for (const field of NEW_FIGURE_FIELDS[tag] ?? []) {
+      const value = spec[field];
+      if (!Array.isArray(value) && !isRecord(value)) return false;
+      if (Array.isArray(value) && value.length === 0) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function countVisuals(markdown: string): number {
   let fenced = 0;
   // Strip every fenced block first: an <svg> inside a ```text sample is a sample, not a figure.
@@ -1412,11 +1448,17 @@ export function countVisuals(markdown: string): number {
   // A note figure is the JSON scene the reader draws; only a scene with
   // something in it counts, and its own markup is not counted twice.
   let figures = 0;
-  const rest = outside.replace(FIGURE_BLOCK, (block) => {
-    if (figureDraws(block)) figures += 1;
-    return "";
-  });
-  return fenced + figures + (rest.match(VISUAL_ELEMENTS)?.length ?? 0);
+  let stepFigures = 0;
+  const rest = outside
+    .replace(FIGURE_BLOCK, (block) => {
+      if (figureDraws(block)) figures += 1;
+      return "";
+    })
+    .replace(NEW_FIGURE_BLOCK, (_block, tag: string, inner: string) => {
+      if (newFigureDraws(tag, inner)) stepFigures += 1;
+      return "";
+    });
+  return fenced + figures + stepFigures + (rest.match(VISUAL_ELEMENTS)?.length ?? 0);
 }
 
 const EMPTY_GAPS: TopicGaps = { missing: [], noVisuals: [], noQuiz: [] };
@@ -1653,10 +1695,15 @@ export function registerBridge(pi: ExtensionAPI, options: BridgeOptions): void {
 <link rel="icon" href="${prefix}favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="${prefix}kit/kit.css?v=${staticVersion}">
 <link rel="stylesheet" href="${prefix}kit/stage.css?v=${staticVersion}">
+<link rel="stylesheet" href="${prefix}kit/codestep.css?v=${staticVersion}">
+<link rel="stylesheet" href="${prefix}kit/tablestep.css?v=${staticVersion}">
+<link rel="stylesheet" href="${prefix}kit/guided.css?v=${staticVersion}">
+<link rel="stylesheet" href="${prefix}kit/lanes.css?v=${staticVersion}">
 <link rel="stylesheet" href="${prefix}app.css?v=${staticVersion}">
 <link rel="stylesheet" href="${prefix}book.css?v=${staticVersion}">
 ${scripts}
 <script src="${prefix}kit/theme.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/mermaid-theme.js?v=${staticVersion}"></script>
 </head>
 <body>
 <main id="app"></main>
@@ -1665,6 +1712,10 @@ ${scripts}
 <script src="${prefix}kit/visuals/draw.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/scene.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/stage.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/codestep.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/tablestep.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/guided.js?v=${staticVersion}"></script>
+<script src="${prefix}kit/lanes.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/question.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/code-field.js?v=${staticVersion}"></script>
 <script src="${prefix}kit/kit.js?v=${staticVersion}"></script>

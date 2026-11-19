@@ -134,6 +134,9 @@ func unnamedSymbols(text string) []string {
 // `<lk-math>` draws a clean equation with no arrows, so it is the fix for a
 // calculation, never for explaining a formula (#200).
 func legendFindings(text string, th rules.PartStandardThresholds) []string {
+	if usesStepFigures(text) {
+		return nil
+	}
 	unnamed := unnamedSymbols(text)
 	if len(unnamed) == 0 {
 		return nil
