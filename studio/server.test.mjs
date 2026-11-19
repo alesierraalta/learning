@@ -3093,6 +3093,95 @@ test("a failed regeneration with no previous version leaves the studio's error c
   } finally { tutor.close(); }
 });
 
+
+// ---- #393: a regeneration that does not land says so, and gets one chance first -------
+
+const taskConversation = () => join(process.env.XDG_STATE_HOME, "learning-studio", "conversaciones-tareas", "redes.json");
+
+for (const runtime of ["pi", "agy"]) {
+  test(`a regeneration that writes nothing gets one correction with the path, then rolls back and says so: ${runtime}`, async () => {
+    const tutor = await checkingTutor(runtime, { parts: [[], []], partChecks: async () => ({ kind: "clean" }) });
+    try {
+      const note = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md");
+      const page = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.html");
+      writeFileSync(note, "LA VERSION ANTERIOR\n");
+      writeFileSync(page, "<p>LA PAGINA ANTERIOR</p>");
+
+      assert.equal((await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
+      await until(() => tutor.turnsSoFar() === 1, 15000);
+      await tutor.endTaskTurn();
+
+      // One explicit correction, naming the exact file that is missing.
+      await until(() => tutor.turnsSoFar() === 2, 15000);
+      assert.match(tutor.turnText(), /Falta escribir la Parte 1 «Capas»/);
+      assert.match(tutor.turnText(), /redes[\\/]explicaciones[\\/]Parte 1 - Capas\.md/);
+      await tutor.endTaskTurn();
+
+      const verdict = await tutor.taskStream.next("studio", (data) => /NO se regeneró/.test(data.text), 15000);
+      assert.match(verdict.text, /Se mantiene la versión anterior/);
+      assert.match(verdict.text, /no escribió la parte/);
+      assert.equal(verdict.text.includes("La la"), false, verdict.text);
+      assert.ok(verdict.text.startsWith("La Parte 1 «Capas» NO se regeneró: "), verdict.text);
+      assert.equal(tutor.turnsSoFar(), 2, "one correction and no more");
+      assert.equal(readFileSync(note, "utf8"), "LA VERSION ANTERIOR\n");
+      assert.equal(readFileSync(page, "utf8"), "<p>LA PAGINA ANTERIOR</p>");
+
+      // The verdict is part of the task conversation, so a reload still shows it.
+      const saved = JSON.parse(readFileSync(taskConversation(), "utf8"));
+      const studio = saved.messages.filter((message) => message.role === "studio");
+      assert.equal(studio.length, 1, JSON.stringify(saved.messages));
+      assert.match(studio[0].text, /NO se regeneró/);
+
+      // And the topic view knows that part's last regeneration did not land.
+      const library = JSON.parse((await http(`${tutor.studio.url}api/library`)).body);
+      assert.equal(library.topics.find((topic) => topic.id === "redes").parts.find((part) => part.id === "p1").rolledBack, true);
+    } finally { tutor.close(); }
+  });
+
+  test(`a regeneration that writes on the explicit correction succeeds without rollback: ${runtime}`, async () => {
+    const newPart = [
+      { name: "Parte 1 - Capas.md", content: "# LA VERSION NUEVA\n" },
+      { name: "Parte 1 - Capas.html", content: "<p>LA PAGINA NUEVA</p>" },
+    ];
+    const tutor = await checkingTutor(runtime, { parts: [[], newPart], partChecks: async () => ({ kind: "clean" }) });
+    try {
+      const note = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md");
+      writeFileSync(note, "LA VERSION ANTERIOR\n");
+      assert.equal((await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
+      await until(() => tutor.turnsSoFar() === 1, 15000);
+      await tutor.endTaskTurn();
+      await until(() => tutor.turnsSoFar() === 2, 15000);
+      await tutor.endTaskTurn();
+      await taskIdle(tutor.studio);
+      assert.equal(readFileSync(note, "utf8"), "# LA VERSION NUEVA\n", "the corrected version replaces the old one");
+      assert.equal(tutor.turnsSoFar(), 2, "the correction was the only extra attempt");
+      assert.equal(tutor.taskStream.events.filter((event) => event.name === "error").length, 0, "nothing was rolled back");
+      const done = await tutor.taskStream.next("studio", (data) => /sí se completó/.test(data.text), 15000);
+      assert.match(done.text, /versión nueva/);
+      const library = JSON.parse((await http(`${tutor.studio.url}api/library`)).body);
+      assert.equal(library.topics.find((topic) => topic.id === "redes").parts.find((part) => part.id === "p1").rolledBack, false);
+    } finally { tutor.close(); }
+  });
+
+  test(`an aborted regeneration rolls back at once and asks for no correction: ${runtime}`, async () => {
+    const tutor = await checkingTutor(runtime, {
+      parts: [[{ name: "Parte 1 - Capas.md", content: "# LA VERSION NUEVA\n" }]],
+      engine: { ...CLEARED_STAGE, delayMs: 500 },
+      partChecks: async () => ({ kind: "clean" }),
+    });
+    try {
+      const note = join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md");
+      writeFileSync(note, "LA VERSION ANTERIOR\n");
+      assert.equal((await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
+      await until(() => tutor.turnsSoFar() === 1, 15000);
+      assert.equal((await post(tutor.studio, "api/tareas/abortar", { task: "redes" })).status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(tutor.turnsSoFar(), 1, "an abort never starts a correction");
+      assert.equal(readFileSync(note, "utf8"), "LA VERSION ANTERIOR\n", "the previous version is back at once");
+    } finally { tutor.close(); }
+  });
+}
+
 // ---- the learner's lessons reach every turn of every topic -----------------
 
 /** A second, enrolled topic: a lesson recorded on one topic has to reach a turn on this one. */

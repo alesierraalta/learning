@@ -18,8 +18,12 @@ export const TURN_TIMEOUT_MS = 60 * 60 * 1000;
 /** What the studio writes while it holds a tutor turn; `busy` is always true. */
 export type BusyMark = { busy: true; pid: number; startedAt: number; topic: string | null };
 
-/** One message of the conversation the studio keeps for itself. */
-export type ChatMessage = { role: "user" | "assistant"; text: string };
+/**
+ * One message of the conversation the studio keeps for itself. A `studio` message is the studio's own
+ * notice (a verdict, never the tutor's or the learner's words): it is shown and saved, and it is never
+ * sent to a runtime as a turn (#393).
+ */
+export type ChatMessage = { role: "user" | "assistant" | "studio"; text: string };
 
 /** The turn a process was holding when it went away; `cause: "update"` marks a turn a deploy ended on purpose. */
 export type InterruptedTurn = { topic: string | null; at: number; cause?: "update" };
@@ -184,7 +188,7 @@ export function saveSnapshot(file: string, snapshot: ChatSnapshot): void {
 }
 
 function messageOf(value: unknown): ChatMessage | null {
-  if (!isRecord(value) || (value.role !== "user" && value.role !== "assistant") || typeof value.text !== "string") return null;
+  if (!isRecord(value) || (value.role !== "user" && value.role !== "assistant" && value.role !== "studio") || typeof value.text !== "string") return null;
   return { role: value.role, text: value.text };
 }
 
@@ -217,6 +221,30 @@ export function readRestartSnapshot(file: string, chat: string): ChatSnapshot | 
   if (copied === null || copied.chat !== chat) return null;
   if (copied.pid !== null && pidAlive(copied.pid)) return null;
   return copied;
+}
+
+/**
+ * The runtime's thread with the studio's own notices put back where they were said: a notice comes after
+ * the same number of tutor and learner messages it followed in the saved copy. A notice the thread already
+ * carries is dropped first, so the result is the same whichever copy is passed, and no runtime ever sees one (#393).
+ */
+export function withStudioNotices<T extends { role: unknown; text: string }>(thread: T[], saved: ChatMessage[]): Array<T | ChatMessage> {
+  const notices = new Map<number, ChatMessage[]>();
+  let spoken = 0;
+  for (const message of saved) {
+    if (message.role === "studio") notices.set(spoken, [...(notices.get(spoken) ?? []), message]);
+    else spoken += 1;
+  }
+  const merged: Array<T | ChatMessage> = [];
+  let index = 0;
+  for (const message of thread) {
+    if (message.role === "studio") continue;
+    merged.push(...(notices.get(index) ?? []), message);
+    index += 1;
+  }
+  // A thread that lost its last messages keeps the notices that came after them.
+  for (const [at, list] of notices) if (at >= index) merged.push(...list);
+  return merged;
 }
 
 /**

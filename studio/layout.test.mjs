@@ -1099,6 +1099,26 @@ test("the reader bar is one row and its overflow menu holds the part actions (S1
   assert.match(page.url(), /#\/leer\/redes\/p1/);
 });
 
+test("a part whose last regeneration was rolled back says so in the topic and the reader", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const state = join(root, ".studio-state");
+  const openedFile = join(state, "opened.json");
+  mkdirSync(state, { recursive: true });
+  writeFileSync(join(state, "regeneraciones.json"), JSON.stringify({
+    "redes/p1": { at: new Date().toISOString(), reason: "el tutor no escribió la parte" },
+  }));
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine, openedFile });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 800 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  const notice = "La última regeneración no se completó: se mantiene la versión anterior";
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await page.locator("li.part-row .part-rolledback").filter({ hasText: notice }).waitFor();
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.locator(".reader .part-rolledback").filter({ hasText: notice }).waitFor();
+});
+
 // S3-S5: wide or narrow, the reader keeps four controls and one overflow; the
 // board's actions live in that single menu, never in a second row; Preguntar stays in the bar.
 test("the reader bar keeps four controls and one labelled overflow on a desktop (S3, S4, S5)", { skip: browser ? false : "playwright not installed" }, async (t) => {

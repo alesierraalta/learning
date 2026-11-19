@@ -19,6 +19,7 @@ import {
   readSnapshot,
   saveSnapshot,
   snapshotFile,
+  withStudioNotices,
 } from "./state.ts";
 
 const roots = [];
@@ -88,6 +89,30 @@ test("the conversation copy round-trips and a damaged one is ignored", () => {
   writeFileSync(file, "{ not json");
   assert.equal(readSnapshot(file), null);
   assert.equal(readSnapshot(join(dir, "missing.json")), null);
+});
+
+test("a studio verdict survives a restart: it is read back from disk with the studio's own role", () => {
+  const dir = stateDir();
+  const file = snapshotFile(join(dir, "opened.json"));
+  const messages = [
+    { role: "user", text: "Regenera la parte 1" },
+    { role: "studio", text: "La Parte 1 «Capas» NO se regeneró: el tutor no escribió la parte. Se mantiene la versión anterior." },
+  ];
+  // The writer has exited, so the restart takes its copy; a pid above Linux's pid_max is never alive.
+  saveSnapshot(file, { version: 1, chat: "abc123", pid: 2 ** 22 + 12345, messages, interrupted: null });
+  assert.deepEqual(readRestartSnapshot(file, "abc123")?.messages, messages);
+});
+
+test("a studio notice goes back where it was said, and a runtime thread never gets one", () => {
+  const notice = { role: "studio", text: "La Parte 1 «Capas» NO se regeneró." };
+  const saved = [{ role: "user", text: "Regenera la parte 1" }, notice, { role: "assistant", text: "Listo." }];
+  const runtime = [{ role: "user", text: "Regenera la parte 1" }, { role: "assistant", text: "Listo." }];
+  // The runtime's own thread has no studio entry, so the notice returns after the message it followed.
+  assert.deepEqual(withStudioNotices(runtime, saved), saved);
+  // A thread that already holds the notice gets exactly one copy of it.
+  assert.deepEqual(withStudioNotices(saved, saved), saved);
+  // A runtime that lost its last message keeps the notice at the end instead of dropping it.
+  assert.deepEqual(withStudioNotices([runtime[0]], saved), [runtime[0], notice]);
 });
 
 test("two sessions sharing a state dir keep the aggregate until the last one clears", () => {
