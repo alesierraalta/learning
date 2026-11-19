@@ -2,57 +2,331 @@
 
 Una explicación muestra lo que dice. Cuando una idea tiene forma —dos actores que se
 intercambian algo, tres pasos, una comparación, un peso que cae—, esa forma se dibuja. No se
-escribe con caracteres.
+escribe con caracteres. Esta referencia manda para **toda materia, con cualquier modelo** (Pi,
+Antigravity…): el vocabulario vive en la nota, nunca en código por tema. Es la versión del
+tutor del contrato aprobado `scratch/showcase/CONTRACT.md` (#358/#360, S15–S25).
+
+## 0. Decisión primero: Mermaid o una forma propia (S16, L11)
+
+**Si un diagrama estándar puede decirlo, se escribe Mermaid.** El lector renderiza los bloques
+`mermaid` con el tema del kit en papel claro y oscuro. No se redibuja a mano lo que Mermaid ya
+dice bien.
+
+| Tipo Mermaid | Cuándo encaja | Ejemplo mínimo |
+|---|---|---|
+| `flowchart` / `graph` | cajas y flechas: arquitectura, algoritmo, dependencias, ruta crítica | `flowchart LR; A["tarea"] --> B["entrega"]` |
+| `sequenceDiagram` | quién habla con quién y en qué orden; mensajes y bloqueos | `sequenceDiagram; A->>B: lock; B-->>A: ok` |
+| `stateDiagram-v2` | estados finitos y transiciones | `stateDiagram-v2; [*] --> todo; todo --> done` |
+| `gantt` | plan fechado, barras, solapes y ruta crítica; texto dentro de la barra | `gantt; title Plan; dateFormat YYYY-MM-DD; section S; Tarea :a1, 2026-03-02, 3d` |
+| `classDiagram` | clases/objetos, relaciones y cardinalidad | `classDiagram; A "1" --> "*" B : has` |
+| `erDiagram` | entidades, claves y cardinalidad de un modelo de datos | `erDiagram; A ||--o{ B : has` |
+| `mindmap` | forma de un temario o árbol de temas | `mindmap; root((Examen)); Bloque; Tema` |
+| `pie` | partes de un todo (presupuesto, tiempo, composición) | `pie showData; "A": 45; "B": 55` |
+| `quadrantChart` | dos ejes: valor frente a esfuerzo, urgencia frente a importancia | `quadrantChart; x-axis low --> high; y-axis low --> high; Tarea : [0.2, 0.8]` |
+| `xychart-beta` | línea o barras sobre un eje numérico | `xychart-beta; x-axis [1,2]; y-axis "y" 0 --> 10; line [3,5]` |
+| `sankey-beta` | cantidades que fluyen de origen a destino | `sankey-beta; Repaso,Datos,5` |
+| `block-beta` | piezas independientes de un sistema y su agrupación | `block-beta; columns 2;lector puente` |
+
+`gitGraph` y `journey` no se recomiendan (el alumno rechazó esos ejemplos): solo si pide
+explícitamente un historial de commits o un itinerario literal. En `sequenceDiagram`, las
+etiquetas de mensaje van **sobre** la línea, no encima; en `gantt` y `mindmap`, el texto se lee
+sobre su relleno en los dos temas. La explicación va en la prosa y en un `figcaption` con la
+acción concreta, nunca en una leyenda de colores.
+
+Una forma propia **solo** cuando el diagrama no puede llevar de la mano: un espacio que un
+actor recorre (`<lk-stage>`), una ventana de código con su estado (`<lk-codestep>`), filas que
+cambian de forma (`<lk-tablestep>`), una fórmula explicada símbolo a símbolo o un ejemplo con
+valores en su casilla (`<lk-guided>`), o varios carriles que comparten un recurso en el tiempo
+(`<lk-lanes>`). Si ninguna encaja, se escribe prosa: nunca se inventa una forma, un SVG a mano,
+una clave ni una coordenada. Un CPM es Mermaid; su fórmula y su ejemplo, si hacen falta, son
+figuras `<lk-guided>` separadas.
 
 ## 1. La regla
 
-**La escena dibuja la cosa de la que se está hablando, no la frase que la acompaña.**
+**La figura dibuja la cosa de la que se está hablando, no la frase que la acompaña.**
 
 Una caja que contiene la misma frase del párrafo anterior no es un visual: es texto con
-borde. Antes de dibujar, pregúntate qué se puede *ver* aquí que no se pueda leer: una
-dirección, una proporción, una posición, un antes y un después, una cantidad que se reparte.
+borde. Una idea por paso; si caben diez cosas, se añaden pasos, no contenido. Si el paso
+cuesto, se parte. Nada de coordenadas `x`/`y`, ni SVG escrito a mano: las formas y la cámara las
+calcula el render a partir de celdas, ids e índices con nombre.
 
-**Una escena, una idea, seis elementos como máximo.** Si hacen falta diez, son dos escenas.
+## 2. Reglas compartidas (S18–S25)
 
-**La escena dibuja la cosa misma.** Una distribución o una función se dibuja como su curva,
-con sus ejes y la región que importa marcada; un objeto que actúa o cambia se dibuja con
-`scene.icons` suelto, fuera de las cajas: el que va sobre una caja es su adorno y no cuenta.
-Una caja con una palabra dentro no es ninguna de las dos cosas: dice el nombre
-de lo que debería estar dibujado. «Evolución de la curva gaussiana de latencia» con una caja y
-una flecha por paso no muestra ninguna curva — no hay campana, no hay eje, no hay banda ±σ, y
-quien lee no puede ver lo único que la parte venía a explicar.
+1. **Interacción: solo `←`, `→` y `▶`** (más puntos de progreso y flechas de teclado si el
+   render las da). Prohibidos deslizadores, `input`, `number`, `range`, controles de redondeo,
+   recálculo en vivo, simulaciones con fórmulas y contenido que solo aparezca al pasar el ratón.
+   El plegado de código es maquetación, no un mando.
+2. **Una idea por paso.** Si hace falta otra explicación, se añade un paso; se calla lo que ese
+   paso no necesita.
+3. **La mirada se lleva de la mano (S19).** Azul = mira aquí / línea o columna activa; verde =
+   correcto, conservado o recién cambiado bien; rojo = incorrecto, descartado o eliminado. Una
+   sola marca por tramo contiguo de celdas o líneas del mismo concepto, **máximo dos por paso**,
+   sin anidar y sin cubrir texto que no describan. Un tinte sin contorno no es una leyenda: nunca
+   se escribe «Azul: mira aquí».
+4. **Sin cableado «Narrador».** `narrator` es una clave del JSON, no un rótulo visible. El pie
+   (`caption` / `figcaption`) explica la idea con palabras llanas y sin código de colores.
+5. **Sin tarjetas con franja de color** (rayita azul lateral, sombra de franja, estilo terminal).
+6. **Ocupar el ancho (S21).** En pantallas anchas la figura rompe el ancho de la columna de texto
+   (≈ 1280 px); nada se corta ni obliga a desplazarse para leer código, números o flechas.
+7. **Cualquier tema, cualquier asunto (S15/S24).** Palabras, símbolos, unidades y números
+   exactos del contenido (`γ` ≠ `Γ`, `x` ≠ `x′`). Una identidad, un color, repetido en la figura,
+   los hechos y el chip de esa id. Los temas claro, oscuro y negro funcionan y se respeta
+   `prefers-reduced-motion`.
+8. **Nada se pisa ni se sale (S20).** Un texto no cruza otro texto ni una marca ajena; los
+   números caben en su caja; las flechas llegan al borde de su destino; las etiquetas de carril
+   y de verbo no tapan nombres.
+9. **La línea «Cómo leerlo:» sigue siendo obligatoria en la nota** mientras el motor cuente los
+   visuales con `countVisualsAndGuides` (`internal/engine/checks.go`) y exija
+   `howToReadLine: "Cómo leerlo"` en `rules/deep.json`: va como primera línea no vacía tras el
+   visual (bloque `mermaid` o elemento), en prosa, con la acción de lectura. Un visual con
+   `caption` propio puede bastar en el contador de escenas antiguo, pero no desactives la regla
+   del motor: escríbela siempre.
 
-## 2. Qué componente
+Cada elemento del kit lleva **un único hijo** `<script type="application/json">` con su spec;
+no se reparte el JSON entre atributos, ni se dibuja nada a mano alrededor. Cada spec declara sus
+claves exactas: las desconocidas fallan, no se ignoran.
 
-| Lo que quieres mostrar | Componente |
-|---|---|
-| Una figura que se mira (actores, flujo, contraste, tabla de decisión) | `<lk-scene>` |
-| Lo mismo, pero el lector tiene que recorrerlo paso a paso | `<lk-story>` (§8b y §8c) |
-| Material viejo: un recorrido de cajas y flechas libres | `<lk-walkthrough>` — **legado**, no se usa en material nuevo |
-| Una fórmula que se explica, símbolo por símbolo | escena de **fórmula anotada** (§8) |
-| Una distribución o una función | su **curva**, con ejes y la región marcada (§9) |
-| Una cuenta de una línea | `<lk-math>` (KaTeX), nunca un bloque de código |
-| Una cuenta de dos renglones o más | historia de derivación (§8c), nunca `<lk-math>` renglón a renglón |
-| Datos que se comparan celda a celda | tabla Markdown |
-| Un matiz, una advertencia, un límite | `<lk-callout>` |
-| Un objeto que se mueve o cambia de estado (robot, casa, documento, persona) | `scene.icons` |
-| Código que compila / no compila, correcto / error, en 2 a 4 casos | `<lk-cards>` (§8e) |
-| El estado de la memoria (stack, heap, punteros), paso a paso | `<lk-memory>` (§8e) |
-| Dos tablas unidas por una clave, o filas que se agrupan | `<lk-tables>` (§8e) |
-| Qué región de dos o tres conjuntos responde (INNER / LEFT / FULL JOIN) | `<lk-venn>` (§8e) |
-| Un proceso entre varios sistemas a lo largo del tiempo (abrir una página, un handshake, una petición que cruza tres servicios) | `<lk-explorer>` (§8f), o `sequence` dentro de una historia cuando importa el orden de los mensajes (§8i) |
-| Código que el lector podría ejecutar | bloque de código con su lenguaje |
+### 2b. Formas con sus claves exactas
 
-`lk-diagram` existe todavía para diagramas de arquitectura viejos. No se usa en material
-nuevo.
+Las listas siguientes son cerradas: `?` = opcional, `[]` = array, `{...}` = objeto. Copiar los
+ejemplos mínimos como plantilla; nunca añadir claves.
 
-**El lenguaje de historia es obligatorio en material nuevo.** Toda parte nueva trae al menos una
-`<lk-story>` —actores con estado, movimientos y marcas, o una fórmula por símbolos— o una pieza
-(`<lk-cards>`, `<lk-memory>`, `<lk-tables>`, `<lk-venn>`). Una escena, un SVG o el
-`<lk-walkthrough>` clásico no cuentan: el walkthrough es **legado** (sus cajas y flechas libres
-se dibujan mal) y la parte que solo tiene eso —o solo una escena— se rechaza (`the part carries no story and no piece`).
-Cuando una etiqueta de una flecha no cabe entre las cajas a un tamaño legible, sube por
-encima de la figura; nunca se comprime con `textLength` ni se aplasta hasta lo ilegible.
+#### `<lk-stage>` — escena/isométrica, mapa y cámara (#358)
+
+```text
+root     : title?, kicker?, caption?, question, focus, dirt[]?, route[]?, actors[], lanes[], steps[]
+actor    : id, kind, cell, name, color; room → cells[], labelCell?; cualquiera → labelSide?
+lane     : id, from, to, verb, identity, labelT?
+step     : activeActor, highlightLane, facts[], narrator[], focusOn[]?;
+           cell?, cleaned[]?, signal?, battery?
+fact     : identity, label, value, tone
+focusOn  : target ("actor:id" | "tag:id" | "lane:id" | "fact:N"), tone ("look" | "right" | "wrong")
+```
+
+`kind = robot|room|charger|block|sprite:<nombre>`; celdas `A1`–`F5`; `identity`, `from`, `to`,
+`activeActor` y `fact.identity` son ids declarados; `focus` es una palabra de `question`; tonos
+`neutral|good|bad|warn|info`; `labelSide = above|right|left`; `labelT ∈ [0,1]`;
+`battery ∈ [0,100]`. `focusOn` tiene una o dos marcas y por omisión apunta al actor activo en
+azul (`look`). `route` es una cadena de celdas ortogonalmente adyacentes, una por paso; sin
+`route`, cada paso conserva la celda del robot y la cámara sigue a `activeActor`.
+
+```html
+<lk-stage>
+<script type="application/json">
+{
+  "caption": "Sigue el recorrido y lee qué cambia en cada paso.",
+  "question": "¿Qué acciones elijo para maximizar la recompensa total?",
+  "focus": "acciones",
+  "actors": [
+    { "id": "robot", "kind": "robot", "cell": "B3", "name": "Robot", "color": "#5AB0FF" },
+    { "id": "charger", "kind": "charger", "cell": "E4", "name": "Cargador", "color": "#5FD6A4" }
+  ],
+  "lanes": [
+    { "id": "charge", "from": "robot", "to": "charger", "verb": "cargar", "identity": "charger" }
+  ],
+  "steps": [
+    {
+      "activeActor": "robot", "battery": 4, "highlightLane": null,
+      "facts": [{ "identity": "robot", "label": "Batería", "value": "4 %", "tone": "warn" }],
+      "narrator": ["Le queda [4 % de batería|warn]."],
+      "focusOn": [{ "target": "actor:robot", "tone": "look" }]
+    }
+  ]
+}
+</script>
+</lk-stage>
+```
+
+#### `<lk-codestep>` — código con su estado (#360)
+
+```text
+root  : title, language, code[], window?, regions?, steps[]
+regions : [{ name, from, to }, …] | { name: { from, to }, … }
+step  : line (entero o enteros 1..code.length), state, narrator[], focus?
+state : vars? { nombre: string|number|boolean|null }, stack?[], output?[], queue?[], flags? { nombre: boolean }
+```
+
+`language = python|c|plsql` (otro valor se trata como texto plano). `window` 1–24 (por omisión
+12); `regions` dentro de `1..code.length` con `from <= to`. Los chips de `narrator` usan
+`[texto|tono]` con tono `good|bad|warn|info|neutral`. La línea activa se marca en azul; una
+variable o flag cambiada en verde (un flag que pasa a `false`, en rojo); una entrada nueva de
+`stack`/`queue`/`output`, en verde. `focus` nombra líneas, variables o flags como pista extra.
+
+```html
+<lk-codestep>
+<script type="application/json">
+{
+  "title": "Retorno inmediato", "language": "c",
+  "code": ["int main(void) {", "  return 0;", "}"], "window": 3,
+  "steps": [
+    { "line": 2, "focus": "2", "state": {},
+      "narrator": ["[return 0|good] termina la función."] }
+  ]
+}
+</script>
+</lk-codestep>
+```
+
+#### `<lk-tablestep>` — filas que se filtran, unen, derivan, agrupan u ordenan
+
+```text
+root      : title, subtitle?, tables, steps[]
+tables.<nombre> : label?, columns[], rows[]
+columna   : "<id>" | { id, label?, key?, fk? }
+fila      : id, cells { columna: valor }
+paso      : op = filter | join | derive | select | group | sort (las claves de cada opción abajo)
+filter    : op, table, condition { column, op (==|!=|>|>=|<|<=|contains), value }, narrator[], focus?
+join      : op, left, right, on { fk, key }, as, project[] { from, column }, narrator[], focus?
+derive    : op, table, column { id, label?, compute { op, args[] } }, narrator[], focus?
+select    : op, table, columns[], narrator[], focus?
+group     : op, table, as, by, count, narrator[], focus?
+sort      : op, table, by, direction (asc|desc), narrator[], focus?
+```
+
+`compute.op = +|-|×|÷|days_between|concat`; los `args` son ids de columna o `{ value: … }`. Los
+ids de fila son estables, nunca índices; `key: true` y `fk: "otra.id"` declaran las uniones.
+Proyecciones de cinco columnas como máximo. Los chips de `narrator` usan los cinco tonos ya
+nombrados. El foco lo deriva la operación (filas conservadas en verde, descartadas en rojo,
+columna de la unión en azul…), con `focus` como pista extra.
+
+```html
+<lk-tablestep>
+<script type="application/json">
+{
+  "title": "Pedidos caros",
+  "tables": {
+    "pedidos": {
+      "columns": ["id", "total"],
+      "rows": [
+        { "id": "p1", "cells": { "id": 101, "total": 120 } },
+        { "id": "p2", "cells": { "id": 102, "total": 80 } }
+      ]
+    }
+  },
+  "steps": [
+    { "op": "filter", "table": "pedidos",
+      "condition": { "column": "total", "op": ">=", "value": 100 },
+      "narrator": ["Sólo queda [p1|good]: su total pasa de 100."] }
+  ]
+}
+</script>
+</lk-tablestep>
+```
+
+#### `<lk-guided>` — fórmula, ejemplo resuelto y números (S25)
+
+```text
+root     : form (formula|example|numbers), kicker, question, caption?, steps[]
+step     : title?, label?, caption?, blocks[]
+bloque   : formula { kind, tokens[] { text }, focus?, tone? }
+          cards   { kind, cards[] { label, value, note?, wrong?, wrongTone? }, focus?, tone? }
+          rows    { kind, headings[], rows[] { label, cells[] }, focus?, tone? }
+          numbers { kind, values[] { label, value, old? }, focusList[], tone? }
+          note    { kind, text, focus?, tone? }
+tono     : blue | green | red
+```
+
+Todo step lleva al menos un bloque con foco (`focus`, `focusList` o una tarjeta `wrong`).
+El foco saca un contorno azul/verde/rojo; verde es el valor correcto o conservado, rojo el
+erróneo o eliminado. **`formula` (S25): la fórmula se reparte en un token por símbolo o
+subexpresión; cada token distinto tiene su propio paso en azul, y su pie dice qué es y cuánto
+vale en el ejemplo. No hay límite de pasos. Solo después llegan la sustitución, el cálculo y el
+resultado.** Un `example` o `numbers` usa `cards`, `rows`, `numbers` y `note` con la misma
+gramática; sin deslizadores, sin recálculo y sin工具 hover.
+
+```html
+<lk-guided>
+<script type="application/json">
+{
+  "form": "formula", "kicker": "FINANZAS", "question": "¿Qué significa C = 100 · 1,10⁵?",
+  "caption": "La tasa se aplica una vez por periodo.",
+  "steps": [
+    { "label": "1 · Fórmula", "title": "Usamos esta fórmula",
+      "caption": "La abrimos pieza a pieza.",
+      "blocks": [{ "kind": "formula", "focus": 0, "tone": "blue",
+        "tokens": [{ "text": "C" }, { "text": "=" }, { "text": "100 · 1,10⁵" }] }] },
+    { "label": "2 · C", "title": "El capital final",
+      "caption": "C es el capital final: 100 € al empezar.",
+      "blocks": [{ "kind": "formula", "focus": 0, "tone": "blue",
+        "tokens": [{ "text": "C" }, { "text": "=" }, { "text": "100 · 1,10⁵" }] }] },
+    { "label": "3 · Resultado", "title": "Resultado",
+      "blocks": [{ "kind": "formula", "focus": 0, "tone": "green",
+        "tokens": [{ "text": "C = 161,05" }] }] }
+  ]
+}
+</script>
+</lk-guided>
+```
+
+#### `<lk-lanes>` — recurso compartido a lo largo del tiempo
+
+```text
+root     : form ("timeline"), kicker, question, focus, timeUnit, timeMax,
+           lanes[], items[], links[], resources?[], steps[]
+lane     : id, name, role?, color, icon?
+item     : id, lane, label, kind (bar|point|milestone), start, end? (sólo bar), resource? { id, waitFrom? }, note?
+link     : id, from, to, kind (dependency|message), verb? (message), tone?
+resource : id, name, color?, icon?
+step     : title, time, reveal[], highlight[], links[], facts[], narrator[]
+```
+
+`timeMax` entero 1–1000; los tiempos son unidades abstractas en `[0,timeMax]`; `waitFrom <
+start`. Ids únicos; `focus` aparece en `question`; `tone = neutral|good|bad|warn|info` o un id
+de carril; `facts = critical|slack|conflict|wait`; iconos `knife|flame|cake-slice|oven|clock|arrow|alert|route`.
+**`links[]` de cada paso es obligatorio y lleva ids de enlaces**: solo esas flechas se dibujan
+y sus verbos se leen fuera de la línea. `highlight[]` nombra hasta dos items; `reveal[]`, los
+visibles; el render deriva crítico, holgura, conflicto y espera para la tira de hechos. Esto no
+es el diagrama CPM por defecto: para red de proyectos, Mermaid Gantt/flowchart.
+
+```html
+<lk-lanes>
+<script type="application/json">
+{
+  "form": "timeline", "kicker": "DOS LANES",
+  "question": "¿Quién habla primero y quién responde?", "focus": "primero",
+  "timeUnit": "u.", "timeMax": 4,
+  "lanes": [
+    { "id": "a", "name": "A", "color": "#165d94", "icon": "arrow" },
+    { "id": "b", "name": "B", "color": "#a15c00", "icon": "clock" }
+  ],
+  "items": [
+    { "id": "q", "lane": "a", "label": "Pregunta", "kind": "bar", "start": 0, "end": 2, "resource": { "id": "mic" } },
+    { "id": "r", "lane": "b", "label": "Respuesta", "kind": "bar", "start": 2, "end": 4, "resource": { "id": "mic", "waitFrom": 1 } }
+  ],
+  "links": [{ "id": "turno", "from": "q", "to": "r", "kind": "message", "verb": "responde", "tone": "info" }],
+  "resources": [{ "id": "mic", "name": "Mic", "color": "#8A6B3F", "icon": "clock" }],
+  "steps": [
+    { "title": "Turno", "time": 2, "reveal": ["q", "r"], "highlight": ["r"],
+      "links": ["turno"], "facts": ["wait"],
+      "narrator": ["[A|a] termina y [B|b] [responde|info]."] }
+  ]
+}
+</script>
+</lk-lanes>
+```
+
+### 2c. Checklist antes de escribir la nota
+
+- [ ] ¿Lo puede decir un diagrama estándar? Entonces escribe Mermaid, con el tema del kit; ni
+      `gitGraph` ni `journey` sin petición explícita.
+- [ ] Si es forma propia: ¿es escena/map (`lk-stage`), código/estado (`lk-codestep`), filas
+      (`lk-tablestep`), fórmula/example/números (`lk-guided`) o recurso compartido (`lk-lanes`)?
+      Nada de `<lk-story>`, `<lk-walkthrough>`, `<lk-scene>`, SVG a mano ni claves nuevas en
+      material nuevo; esas figuras siguen renderizando en partes ya publicadas (S10).
+- [ ] Un `<script type="application/json">` por elemento, con claves, ids, tonos, celdas e
+      iconos del vocabulario cerrado; cero coordenadas.
+- [ ] Una idea por paso, sin mandos ni contenido hover; `caption` llano, sin «Narrador» ni
+      leyenda de colores; línea `Cómo leerlo:` tras cada visual.
+- [ ] Foco azul/verde/rojo: una marca por tramo contiguo, ≤ 2 por paso, sin anidar; nada se pisa
+      ni se sale; sin franjas de color.
+- [ ] Fórmula: símbolo por símbolo antes del ejemplo; todos los tokens explicados, sin tope de
+      pasos.
+- [ ] Ancho ocupado, temas claro/oscuro/negro revisados y movimiento reducido respetado.
+
+**Las secciones 3–9 de abajo son el archivo de las partes ya publicadas**: describen las figuras
+antiguas (`lk-scene`, `lk-story`, `lk-walkthrough`, SVG) que el lector sigue dibujando. No se
+usa ninguna para escribir material nuevo; para eso mandan las secciones 0–2c y
+`recorridos-progresivos.md`.
 
 ## 3. Geometría
 
@@ -229,6 +503,8 @@ Markdown de tres columnas: estado actual, evento, estado nuevo.
 
 ## 8. Fórmula anotada
 
+> LEGADO: solo para partes ya publicadas. En material nuevo, una fórmula se explica con `<lk-guided form="formula">` (§2b).
+
 **Toda fórmula que la parte explica se dibuja como fórmula anotada**: dentro de `<lk-scene>` o
 de un paso del `lk-walkthrough`, la fórmula se escribe símbolo por símbolo y **cada símbolo
 lleva un callout numerado con su flecha y su nombre corto**. La fórmula se lee en la figura, no
@@ -304,6 +580,8 @@ se escribe dos veces la misma fórmula: se anota una vez y, si hay cuenta, se es
 
 ## 8b. Recorrido de fórmula (`<lk-story kind="formula">`)
 
+> LEGADO: solo para partes ya publicadas. En material nuevo, usa `<lk-guided form="formula">` (§2b).
+
 **La primera vez que la parte explica una fórmula, la enseña con su recorrido de fórmula.** El
 mueble es el mismo para la fórmula y para el ejercicio: una **cabecera** con la fórmula (el token
 del paso, resaltado; el resto normal), un **escenario** donde pasa la acción (la curva, el icono
@@ -352,6 +630,8 @@ Ejemplo aprobado y completo, con la campana, μ, σ y los iconos de petición y 
 `integrations/pi/kit/examples/formula-gaussiana.md`.
 
 ## 8c. Recorrido de derivación (`<lk-story kind="derivation">`)
+
+> LEGADO: solo para partes ya publicadas. El ejercicio resuelto pasa a `<lk-guided form="example">` (§2b).
 
 **Todo ejercicio resuelto se enseña con su recorrido de derivación.** Cada paso es una
 **ecuación** en la cabecera; el escenario muestra la acción: los actores (los términos) con su
@@ -782,6 +1062,8 @@ fórmula (§8b).
 - **El ejemplo gated**: `integrations/pi/kit/examples/secuencia-peticion.md`, una petición que cruza cliente, API y base, revisada en tema negro a 1500 px y en teléfono a 390 px.
 
 ## 9. La curva, no la caja
+
+> El principio sigue vigente; el SVG dibujado a mano es legado. En material nuevo, dibuja la curva con Mermaid (`xychart-beta`) o con la spec del elemento que corresponda (§2b).
 
 Una distribución, una función, una serie temporal o una relación entre dos variables **se
 dibujan como lo que son**: la curva, con su eje, su escala y la región marcada. Una caja que

@@ -20,8 +20,8 @@ Presupuesto, medido, no estimado:
 | Prosa de la parte (sin código, tablas ni bloques visuales) | **450 palabras** |
 | Secciones de contenido además de `## Ruta` y del heading del mini-quiz | 2 |
 | Líneas de `## Ruta` | 4 |
-| Escenas | 1 |
-| Recorridos (`lk-walkthrough` o `lk-story` de fórmula) | 1; una `lk-story` de derivación es un cálculo y no cuenta (#324) |
+| Figuras (Mermaid o una forma propia con pasos) | 1 |
+| Recorrido progresivo | 1, dentro de la figura del ejemplo; una idea por paso, sin tope para explicar una fórmula (S25) |
 | Preguntas del mini-quiz | 3 |
 
 La forma también se mide, y caber no es cumplir: una parte de 411 palabras con dos secciones
@@ -30,37 +30,29 @@ rechaza eso también, con el arreglo escrito en el mensaje.
 
 | Qué | Regla |
 |---|---|
-| Escena dibujada | Al menos un `<lk-scene` cuyo payload dibuje algo (cajas, flechas, nodos, barras). El `<lk-walkthrough>` **no** la sustituye |
+| Figura dibujada | Si un diagrama estándar lo dice, bloque `mermaid`. Si no: `<lk-stage>` (escena/map con cámara), `<lk-codestep>` (código + estado), `<lk-tablestep>` (filas), `<lk-guided>` (fórmula, ejemplo, números) o `<lk-lanes>` (recurso compartido). Cada elemento lleva un `<script type="application/json">` con claves cerradas; nada de `<lk-scene>`, `<lk-story>`, `<lk-walkthrough>` ni SVG a mano en material nuevo (S10) |
 | Ritmo de los párrafos | Dos frases por párrafo como máximo; una viñeta es su propia unidad |
-| Fórmula | Se dibuja como **fórmula anotada**: un callout numerado por símbolo, con su flecha y su nombre en la línea de `labels` («① μ: el centro»). `<lk-math>` queda para una cuenta de una línea, nunca para explicar una fórmula; dos renglones o más de cuenta son una historia de derivación (`calculo-en-texto`, #324) |
-| Recorrido de fórmula | La **primera fórmula** de la parte se enseña con `<lk-story kind="formula">`: paso 1 la fórmula entera, un paso por símbolo con qué es, para qué se usa y cuánto vale en el ejemplo, y el último con los números sustituidos y su resultado. Un `<lk-math>` suelto o una escena quieta no lo sustituyen |
-| Recorrido de derivación | Todo **ejercicio resuelto** se enseña con `<lk-story kind="derivation">`: una ecuación por paso, el término que cambia de lado con su flecha medida y su verbo, los términos que se combinan marcados y reemplazados por su resultado, y la respuesta enmarcada en el último paso; una cuenta escrita como texto, o como fórmulas seguidas (de display o `<lk-math>` sueltos en su línea, dos o más que sustituyen números y operan; o dos renglones o más dentro de una fórmula), no se enseña así (`calculo-en-texto`, #324) |
+| Fórmula | Toda fórmula se enseña con `<lk-guided form="formula">`: primero partida en un token por símbolo o subexpresión, después un paso por token con qué es, para qué sirve y cuánto vale en el ejemplo; solo al final sustitución, cálculo y resultado. Sin límite de pasos (S25) |
+| Ejercicio resuelto y números | `<lk-guided form="example">` o `form="numbers"`: `cards`, `rows`, `numbers`, `note`; una idea por paso, sin mandos, sin hover y sin simulación (S18) |
+| Cuenta de una línea | `<lk-math>` (KaTeX) para el resultado suelto; nunca para explicar una fórmula ni para partir una cuenta en pasos |
 
 Los mensajes, literales, para reconocerlos y corregir sin adivinar:
 
 ```text
-0 drawn <lk-scene> scene(s) (the part needs 1) — dibuja el ejemplo con <lk-scene>: a JSON
-payload with boxes, arrows, nodes, bars or formulas the reader draws; a <lk-walkthrough> does
-not substitute for it, and the scene vocabulary is in
-skills/explicacion-interactiva/references/visuales.md
+0 drawn <lk-scene> scene(s) (the part needs 1) — mensaje legacy del motor: exige la escena antigua
+needs a progressive walkthrough — mensaje legacy: progressiveProblems solo cuenta <lk-walkthrough>/<lk-story>
 6 paragraph(s) with more than 2 sentences — the first opens «…»; split it: one idea per
 sentence and one beat per paragraph
-formula symbol(s) sigma, f never named — draw the formula as an annotated formula scene: one
-numbered callout per symbol, each named in its labels line («① sigma: …»)
-the first formula in the part is not taught by a formula walkthrough — draw it as
-<lk-story kind="formula">: step 1 the whole formula, then one step per symbol with what it is,
-what it is used for and its value in the example, and the last step with the example's numbers
-substituted and its result
 ```
 
-Se corrige la parte, no el mensaje: la escena se dibuja con el vocabulario de `visuales.md`
-(nunca se declara una escena vacía para pasar el gate), el párrafo se parte en frases de una
-idea, y la fórmula se anota símbolo por símbolo con su callout y su nombre (§8 de
-`visuales.md`), y se recorre con su recorrido de fórmula (§8b) o de derivación (§8c). La cuenta
-de párrafos es la misma que la de `node tools/explain-check.mjs` (`parrafos`), y un test cruza
-las dos; la leyenda es la misma en el motor y en la herramienta, y otro test cruza las dos; el
-recorrido de fórmula es el mismo en el motor (`formulaWalkthrough`) y en la herramienta
-(`formula-walkthrough`), y un tercer test cruza los dos veredictos.
+Los dos primeros mensajes los migra T9 (`rules/deep.json`, `internal/engine/checks.go`,
+`internal/engine/decks.go`): con el contrato nuevo, una nota puede ser rechazada por ellos aunque
+traiga todas sus figuras. **No se arreglan escribiendo figuras antiguas**: se reporta el gate a
+T9. El resto se corrige en la parte: la figura se dibuja con el contrato de `visuales.md` §0–2c
+(nunca una spec vacía para pasar el gate), el párrafo se parte en frases de una idea y la fórmula
+se explica símbolo a símbolo en `<lk-guided>` antes del ejemplo. La cuenta de párrafos es la misma
+que la de `node tools/explain-check.mjs` (`parrafos`), y un test cruza las dos; la medida exacta
+es la del motor (`explanation-standard`, `thresholds.partStandard` en `rules/deep.json`).
 
 Se cuenta antes de entregar:
 
@@ -244,8 +236,9 @@ la conclusión habla de esa batería, no de «el agente».
 
 La geometría no se escribe en el texto. Ni `──►`, ni cajas `┌─┐`, ni barras de `████`, ni
 diagramas en `plain text`. Esas ideas se dibujan con los componentes del kit, siguiendo
-`references/visuales.md`: escena para lo que se mira, `lk-walkthrough` para lo que se recorre
-paso a paso, `lk-math` para una cuenta de una línea (dos renglones o más, historia de derivación), tabla para lo que se compara celda a celda.
+`references/visuales.md` §0–2c: Mermaid para diagramas estándar; `<lk-stage>`, `<lk-codestep>`,
+`<lk-tablestep>`, `<lk-guided>` o `<lk-lanes>` para lo que requiere llevar de la mano; `lk-math`
+para una cuenta de una línea; tabla Markdown para lo que se compara celda a celda.
 
 Un bloque de código solo se usa para lo que de verdad es código.
 
@@ -266,19 +259,20 @@ carrera horizontal va **después** de la punta, no antes, y el patrón solo caza
 punta), `-->` de Mermaid, la tabla Markdown `| a | b |` y las flechas `→` dentro de una frase.
 Lo que se persigue es la caja y la barra dibujadas con caracteres, no el símbolo suelto.
 
-**Cómo se migra, en tres pasos.** (1) Se identifica la familia en `visuales.md` §6: dos actores,
-cadena, caja negra, contraste, reparto, balanza o mapa de decisión. (2) Se declara la escena con
-`<lk-scene>` en `viewBox` de 760. (3) Si lo que había era una secuencia de estados, cada paso
-pasa a `lk-walkthrough` y la tabla suelta se convierte en tabla Markdown. Caso canónico
-resuelto: «El semáforo, migrado», en `visuales.md` §6b. Si una notación ya es la idea
-(`S = {VERDE, AMARILLO, ROJO}`), se queda como texto: no hay nada que dibujar.
+**Cómo se escribe, en tres pasos.** (1) Decide si basta un diagrama Mermaid (`flowchart`,
+`sequenceDiagram`, `gantt`, …). (2) Si no, elige la forma de `visuales.md` §2b según lo que se
+vea: celdas y actores → `<lk-stage>`, líneas de código y estado → `<lk-codestep>`, filas →
+`<lk-tablestep>`, símbolos y valores → `<lk-guided>`, carriles y recurso → `<lk-lanes>`. (3)
+Escribe un paso por idea con su foco y su pie llana, y la línea `Cómo leerlo:` tras la figura.
+Las figuras antiguas de `visuales.md` §3–9 solo se conservan en partes ya publicadas (S10). Si
+una notación ya es la idea (`S = {VERDE, AMARILLO, ROJO}`), se queda como texto.
 
-**Un recorrido solo si cada paso cambia algo visible.** `<lk-walkthrough>` sirve cuando el lector
-ve *ocurrir* la diferencia: la caja que se mueve, el número que sube, la flecha que cambia de
-sitio. Un paso que solo cambia una etiqueta —una caja suelta en un lienzo ancho, repetida tres
-veces— no es un recorrido: es una escena estática con prosa numerada `T0`, `T1`, `T2`. Regla
-práctica: si al pasar de paso no se puede señalar **qué cambió en el dibujo**, no va como
-recorrido.
+**Un recorrido solo si cada paso cambia algo visible.** La figura sirve cuando el lector ve
+*ocurrir* la diferencia: el actor que cambia de celda, el número que entra en su casilla, la
+fila que sobrevive, el símbolo que se explica. Un paso que solo cambia una etiqueta —una caja
+suelta repetida tres veces— no es un recorrido: es una escena estática con prosa numerada `T0`,
+`T1`, `T2`. Regla práctica: si al pasar de paso no se puede señalar **qué cambió en el dibujo**,
+o añade un paso con ese cambio o no va como recorrido.
 
 **Una flecha sale y llega a algo.** Sus dos extremos tocan una caja, un icono, un texto o un
 trazo; una punta en el vacío se lee como un error de dibujo. `scene-lint` lo mide
@@ -301,11 +295,10 @@ caja destino, con unos pocos unidades de aire. Los dos defectos se detectan sin 
 muestrea el trazo de cada flecha contra las cajas y contra los textos de la escena, y tiene que
 dar cero.
 
-**Claro y oscuro: se mira, no se supone.** Toda escena se revisa en los dos temas antes de
-entregarla. La convención del kit es que la figura vive sobre papel claro, igual que ya hacen
-`lk-walkthrough` y `pre.mermaid`: si en tema oscuro una caja, un rótulo o una etiqueta de flecha
-pierde contraste, la escena se envuelve en papel claro y se fuerza la paleta clara dentro de la
-figura. Una escena que solo se lee en un tema es un defecto de entrega, no una preferencia.
+**Claro, oscuro y negro: se miran, no se suponen.** Toda figura se revisa en los temas del kit
+antes de entregarla. Los elementos nuevos y el tema Mermaid del kit usan los tokens del lector;
+no se escribe una copia oscura de un diagrama ni se fuerza papel claro para esconder un problema
+de contraste. Una figura que solo se lee en un tema es un defecto de entrega, no una preferencia.
 
 **Alcance del barrido.** Aplica a toda nota que se entrega (Obsidian, página, rápida), no a los
 archivos de `references/`, que son especificación. Ojo con `ejemplo-aprobado.md`: se imita por
