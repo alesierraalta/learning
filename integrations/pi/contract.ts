@@ -7,6 +7,7 @@
 export const VISUAL_CONTRACT_PROMPT = [
   "Contrato visual (manda sobre el «Plan visual» del tema y cualquier nota antigua): lee `skills/explicacion-interactiva/SKILL.md` y `skills/explicacion-interactiva/references/visuales.md` antes de dibujar.",
   "Los diagramas estándar —arquitectura, flujo, secuencia y parecidos— van en Mermaid primero.",
+  "Antes de `## Ruta`, escribe un resumen corto (2 o 3 frases llanas, 70 palabras como máximo) de lo que cubre la parte; cada línea de la ruta nombra el paso y dice qué se verá ahí.",
   "Las figuras paso a paso usan `<lk-stage>`, `<lk-codestep>`, `<lk-tablestep>`, `<lk-guided>` o `<lk-lanes>`.",
   "Si el «Plan visual» o notas anteriores piden `<lk-story>`, `<lk-scene>`, `<lk-walkthrough>`, `<lk-cards>`, `<lk-figure>` o un SVG a mano, sustitúyelos por esos elementos nuevos; las partes ya publicadas no se tocan.",
   "Antes de dar la parte por terminada ejecuta `node tools/visuals/audit-note.mjs --note \"<nota>\"` y corrige hasta que no quede ninguna violación.",

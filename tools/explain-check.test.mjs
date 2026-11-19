@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { leerNota } from './explain-check/nota.mjs';
 import { notaDeHtml } from './register/nota-html.mjs';
+import ruta from './explain-check/rules/ruta.mjs';
 
 const TOOLS = dirname(fileURLToPath(import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'explain-check-'));
@@ -132,6 +133,49 @@ test('rechaza una parte sin ruta', () => {
   const r = run(f);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALLA ruta/);
+});
+
+// La prelectura (S27): una parte escrita al contrato nuevo abre con un resumen corto
+// de lo que va a cubrir antes de `## Ruta`, y cada línea numerada de la ruta nombra el
+// paso y añade una frase de lo que se verá ahí. Una parte antigua sigue pasando igual (S10).
+const RUTA_ETAPA = `<lk-stage>
+<script type="application/json">
+{"actors":[],"steps":[]}
+</script>
+</lk-stage>`;
+const RUTA_PRELECTURA = 'Esta parte trata del robot que aprende a limpiar sin que nadie le diga cómo. '
+  + 'Verás qué mira antes de decidir y por qué el premio llega tarde.';
+const RUTA_DETALLADA = `1. El robot y la sala — qué mira el robot antes de decidir cada acción.
+2. El premio tardío — por qué la recompensa llega muchos pasos después.
+3. La política — qué acción elige en cada casilla del mapa.`;
+const RUTA_PELADA = `1. El robot y la sala
+2. El premio tardío
+3. La política`;
+const rutaNota = (prelectura, lineas, figura = RUTA_ETAPA) => ['# Parte 1', prelectura, '## Ruta', lineas,
+  '## 1. El robot', 'El robot mira la sala y elige.', figura].filter(Boolean).join('\n\n');
+const rutaRow = (src) => ruta.check(leerNota(src, false));
+
+test('la ruta nueva pide la prelectura antes de ## Ruta', () => {
+  const row = rutaRow(rutaNota('', RUTA_DETALLADA));
+  assert.equal(row.ok, false);
+  assert.match(row.detail, /prelectura/);
+});
+
+test('la ruta nueva pide una frase descriptiva en cada línea', () => {
+  const row = rutaRow(rutaNota(RUTA_PRELECTURA, RUTA_PELADA));
+  assert.equal(row.ok, false);
+  assert.match(row.detail, /línea 1/);
+  assert.match(row.detail, /línea 3/);
+});
+
+test('la ruta nueva pasa con prelectura y descripciones', () => {
+  const row = rutaRow(rutaNota(RUTA_PRELECTURA, RUTA_DETALLADA));
+  assert.equal(row.ok, true, row.detail);
+});
+
+test('la parte antigua conserva su ruta sin prelectura (S10)', () => {
+  const row = rutaRow(rutaNota('', RUTA_PELADA, '<lk-scene>\n<script type="application/json">\n{"viewBox":"0 0 760 200","scene":{}}\n</script>\n</lk-scene>'));
+  assert.equal(row.ok, true, row.detail);
 });
 
 test('rechaza una parte que cierra con resumen', () => {
@@ -498,11 +542,13 @@ const notaDelContratoNuevo = () => {
   ];
   return `# Parte 1
 
+Esta parte muestra al robot que elige entre limpiar y cargar. Verás su recorrido, su código y la fórmula que lo explica.
+
 ## Ruta
 
-1. Recorrer el escenario
-2. Seguir el código y las filas
-3. Leer la fórmula y los carriles
+1. Recorrer el escenario — qué mira el robot. Elige antes de limpiar.
+2. Seguir el código y las filas — cómo cambia el estado. Mira cada paso del cálculo.
+3. Leer la fórmula y los carriles — qué símbolo vale qué. Mira cuándo se comparte el recurso.
 
 ## 1. El recorrido
 

@@ -24,6 +24,7 @@ lk-lanes {
   --lk-ln-lane-h: 72px;
   --lk-ln-res-h: 62px;
   display: block;
+  container-type: inline-size;
   max-width: 1180px;
   margin: 22px auto;
   padding: 14px 16px 12px;
@@ -52,7 +53,31 @@ lk-lanes {
   --lk-ln-focus-wrong: #ee93a4;
   box-shadow: none;
 }
+/* S26 — the black paper is neutral: the timeline's paper and stage follow it in
+   greys instead of keeping the navy of the night skin. */
+:root[data-theme="black"] lk-lanes {
+  --lk-ln-paper: #000000;
+  --lk-ln-surface: #0A0A0A;
+  --lk-ln-panel: #121212;
+  --lk-ln-stage: #141414;
+  --lk-ln-hair: rgba(235, 235, 235, .2);
+}
 lk-lanes *, lk-lanes *::before, lk-lanes *::after { box-sizing: border-box; }
+
+/* #361 — the reader's prose rules stop at the figure's edge: app.css justifies and
+   hyphenates every paragraph in .prose, breaks words anywhere, and prints every
+   button in uppercase with .13em of tracking. Undone here, inside the element
+   only; the class rules below keep priority over these resets. */
+lk-lanes :is(p, span, div, b, strong, em, small, h1, h2, h3, h4) {
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  hyphens: manual;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+lk-lanes p, .prose lk-lanes p { margin: 0; text-align: left; hyphens: manual; overflow-wrap: break-word; }
+lk-lanes h1, lk-lanes h2, lk-lanes h3, lk-lanes h4 { font-style: normal; font-weight: 700; }
 lk-lanes:focus-visible { outline: 3px solid var(--lk-ln-accent); outline-offset: 4px; }
 lk-lanes > .lk-ln-error {
   margin: 0; padding: 14px; border: 1px solid var(--lk-ln-bad); border-radius: 8px;
@@ -274,22 +299,35 @@ lk-lanes > .lk-ln-error {
 .lk-ln-player { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 10px; }
 .lk-ln-controls { display: flex; gap: 6px; }
 .lk-ln-player button {
-  border: 1px solid var(--lk-ln-hair); border-radius: 8px; padding: 5px 9px;
-  background: var(--lk-ln-paper); color: var(--lk-ln-ink); font: 700 10px/1.2 var(--lk-ln-sans);
+  min-width: 34px; min-height: 28px; flex: 0 0 auto;
+  border: 1px solid var(--lk-ln-hair); border-radius: 8px; padding: 5px 10px;
+  background: var(--lk-ln-paper); color: var(--lk-ln-ink); font: 700 11px/1.2 var(--lk-ln-sans);
+  letter-spacing: normal; text-transform: none; white-space: nowrap; overflow-wrap: normal;
   transition: background 180ms var(--lk-ln-ease), border-color 180ms var(--lk-ln-ease);
 }
-.lk-ln-player button:hover:not(:disabled) { border-color: var(--lk-ln-accent); background: var(--lk-ln-stage); }
+.lk-ln-player button:hover:not(:disabled) { border-color: var(--lk-ln-accent); background: var(--lk-ln-stage); color: var(--lk-ln-ink); }
 .lk-ln-player button:disabled { opacity: .36; cursor: default; }
 .lk-ln-player button.lk-ln-play { background: var(--lk-ln-accent); border-color: var(--lk-ln-accent); color: var(--lk-ln-paper); }
 :root:is([data-theme="dark"], [data-theme="black"]) lk-lanes .lk-ln-player button.lk-ln-play { color: #0e1a20; }
-.lk-ln-segments { display: flex; gap: 5px; }
+.lk-ln-segments { display: flex; flex-wrap: nowrap; min-width: 0; gap: 5px; }
 .lk-ln-seg {
   flex: 1 1 0; height: 8px; padding: 0 !important; border: 0 !important; border-radius: 999px !important;
   background: color-mix(in srgb, var(--lk-ln-accent) 14%, var(--lk-ln-paper)) !important;
 }
 .lk-ln-seg.is-done { background: color-mix(in srgb, var(--lk-ln-warm) 72%, var(--lk-ln-paper)) !important; }
 .lk-ln-seg.is-current { background: var(--lk-ln-accent) !important; }
-.lk-ln-count { color: var(--lk-ln-muted); font: 11px/1 var(--lk-ln-mono); }
+.lk-ln-count { flex: 0 0 auto; color: var(--lk-ln-muted); font: 11px/1 var(--lk-ln-mono); white-space: nowrap; }
+
+/* Narrow figure: the three controls keep one row and turn into the glyphs the
+   stage already speaks, with their authored words left in the accessible name. */
+@container (max-width: 719px) {
+  .lk-ln-controls > .lk-ln-btn { width: 34px; min-width: 34px; padding: 0; font-size: 0; letter-spacing: 0; }
+  .lk-ln-controls > .lk-ln-btn::before { font-size: 14px; line-height: 1; letter-spacing: 0; }
+  .lk-ln-controls > .lk-ln-btn:nth-child(1)::before { content: "←"; }
+  .lk-ln-controls > .lk-ln-btn:nth-child(3)::before { content: "→"; }
+  .lk-ln-controls > .lk-ln-play::before { content: "▶"; }
+  .lk-ln-controls > .lk-ln-play[aria-label^="Pausar"]::before { content: "❚❚"; }
+}
 
 @media (min-width: 900px) {
   lk-lanes { max-width: none; }
@@ -299,8 +337,7 @@ lk-lanes > .lk-ln-error {
   lk-lanes { --lk-ln-lane-w: 96px; padding: 12px 10px 10px; }
   .lk-ln-surface { padding: 8px 6px 6px; }
   .lk-ln-lane-role, .lk-ln-lane-title { font-size: 9px; }
-  .lk-ln-player { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .lk-ln-count { text-align: right; }
+  .lk-ln-player { gap: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   lk-lanes *, lk-lanes *::before, lk-lanes *::after { animation: none !important; transition: none !important; }

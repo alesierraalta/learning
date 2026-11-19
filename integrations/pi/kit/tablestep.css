@@ -27,6 +27,7 @@ lk-tablestep {
   --lk-ts-pair-3: #DD4A68;
   --lk-ts-pair-4: #6B5CA5;
   display: block;
+  container-type: inline-size;
   max-width: 1120px;
   margin: 30px auto;
   padding: 12px;
@@ -61,8 +62,37 @@ lk-tablestep {
   --lk-ts-pair-3: #EC93A8;
   --lk-ts-pair-4: #B7A6E8;
 }
+/* S26 — the black paper is neutral: the figure's surfaces follow it in greys
+   instead of keeping the navy of the night skin. */
+:root[data-theme="black"] lk-tablestep {
+  --lk-ts-paper: #000000;
+  --lk-ts-surface: #0A0A0A;
+  --lk-ts-panel: #121212;
+  --lk-ts-panel-2: #171717;
+  --lk-ts-hair: rgba(235, 235, 235, .18);
+}
 lk-tablestep:focus-visible { outline: 3px solid var(--lk-ts-accent); outline-offset: 4px; }
 .lk-ts-figure { min-width: 0; }
+
+/* #361 — the reader's prose rules stop at the figure's edge: app.css prints every
+   button in uppercase with .13em of tracking, and turns every table into a
+   block-level booktabs table with serif 16 px cells and ink rules. A table figure
+   is a grid of values, so both are answered here; the class rules below win. */
+lk-tablestep :is(p, span, div, b, strong, em, small, h1, h2, h3, h4) {
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  hyphens: manual;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+lk-tablestep p, .prose lk-tablestep p { margin: 0; text-align: left; hyphens: manual; overflow-wrap: break-word; }
+lk-tablestep h1, lk-tablestep h2, lk-tablestep h3, lk-tablestep h4 { font-style: normal; font-weight: 700; }
+lk-tablestep table { display: table; width: 100%; margin: 0; border: 0; overflow: visible; }
+lk-tablestep th, lk-tablestep td {
+  padding: 0; border: 0; background: none; text-align: left; vertical-align: top;
+  font: inherit; color: inherit; overflow-wrap: normal;
+}
 
 .lk-ts-head { padding: 2px 4px 10px; }
 .lk-ts-head-top { display: flex; align-items: center; gap: 8px; font: 700 12px/1.4 var(--lk-ts-sans); letter-spacing: .04em; }
@@ -193,15 +223,16 @@ lk-tablestep:focus-visible { outline: 3px solid var(--lk-ts-accent); outline-off
 }
 .lk-ts-result-more { color: var(--lk-ts-muted); font: 12px/1.6 var(--lk-ts-mono); }
 
-.lk-ts-player { display: flex; align-items: center; gap: 12px; padding: 4px 2px 0; }
-.lk-ts-buttons { display: flex; gap: 7px; }
+.lk-ts-player { display: flex; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 4px 2px 0; }
+.lk-ts-buttons { display: flex; flex: 0 0 auto; gap: 7px; }
 .lk-ts-btn {
-  width: 34px; height: 30px; padding: 0; border: 1px solid var(--lk-ts-hair); border-radius: 8px;
-  background: var(--lk-ts-panel); color: var(--lk-ts-accent); font: 700 15px/1 var(--lk-ts-sans); cursor: pointer;
+  min-width: 34px; height: 30px; padding: 0; border: 1px solid var(--lk-ts-hair); border-radius: 8px;
+  background: var(--lk-ts-panel); color: var(--lk-ts-accent); font: 700 15px/1 var(--lk-ts-sans);
+  letter-spacing: normal; text-transform: none; white-space: nowrap; cursor: pointer;
   transition: background 180ms var(--lk-ts-ease), border-color 180ms var(--lk-ts-ease);
 }
 .lk-ts-btn.is-play {
-  width: 84px; font: 700 12px/1 var(--lk-ts-sans); letter-spacing: .03em;
+  width: 84px; padding: 0 10px; font: 700 12px/1 var(--lk-ts-sans); letter-spacing: .03em;
   background: var(--lk-ts-accent); border-color: var(--lk-ts-accent); color: var(--lk-ts-paper);
 }
 .lk-ts-btn:hover:not(:disabled) { border-color: var(--lk-ts-accent); background: var(--lk-ts-panel-2); }
@@ -213,7 +244,15 @@ lk-tablestep:focus-visible { outline: 3px solid var(--lk-ts-accent); outline-off
 }
 .lk-ts-segment.is-past { background: var(--lk-ts-warm); border-color: var(--lk-ts-warm); }
 .lk-ts-segment.is-current { background: var(--lk-ts-accent); border-color: var(--lk-ts-accent); }
-.lk-ts-count { min-width: 42px; color: var(--lk-ts-muted); font: 12px/1.4 var(--lk-ts-mono); text-align: right; }
+.lk-ts-count { flex: 0 0 auto; min-width: 42px; color: var(--lk-ts-muted); font: 12px/1.4 var(--lk-ts-mono); text-align: right; white-space: nowrap; }
+
+/* Narrow figure: «SIGUIENTE» is the one word a table stepper shows outside a
+   row, and at 700 px it belongs to the glyph language of the arrows. The button
+   keeps its accessible name and its action. */
+@container (max-width: 719px) {
+  .lk-ts-btn.is-play { width: 34px; padding: 0; font-size: 0; letter-spacing: 0; }
+  .lk-ts-btn.is-play::before { content: "▶"; font-size: 14px; line-height: 1; }
+}
 
 .lk-ts-error {
   padding: 14px; border: 1px solid var(--lk-ts-bad); border-radius: 10px;
