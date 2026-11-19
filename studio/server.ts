@@ -644,6 +644,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   if (options.token !== undefined && !TOKEN_SHAPE.test(options.token)) throw new Error("token must be 64 lowercase hex characters");
   const root = contained.rootReal;
   let tutor = readTutor(root);
+  /** Bumped on every tutor change so work started for an old runtime cannot speak for the new one. */
+  let tutorGeneration = 0;
   /** Every task gets its own Pi session id; the main chat keeps the one it always had. */
   const piCommand = (topic?: string | null): string[] => {
     const base = options.piCommand ?? ["pi", "--mode", "rpc"];
@@ -1248,8 +1250,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * a later boot returns to the active chat's own session instead of the boot one.
    */
   const adoptBoot = async () => {
+    // A tutor change settles this runtime's pending calls with "Tutor restarted". That is the
+    // studio replacing its own runtime, never a failure the learner asked to hear about (#385).
+    const generation = tutorGeneration;
     if (main.agy) return;
     const stats = await piStats(main);
+    if (generation !== tutorGeneration) return;
     if (!main.alive) return;
     const current = activeChat();
     if (!current) return;
@@ -1257,17 +1263,24 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const switched = Boolean(current.piSession && stats.file && current.piSession !== stats.file);
     if (!current.piSession && stats.file) persist(setPiSession(chats, current.id, stats.file));
     else if (switched) {
-      try { await switchTo(current); } catch (error) { emit("error", { message: (error as Error).message }); }
+      try {
+        await switchTo(current);
+      } catch (error) {
+        if (generation !== tutorGeneration) return;
+        emit("error", { message: (error as Error).message });
+      }
     }
     // The studio's own copy follows what the runtime serves, so a restart comes back to the
     // whole thread even when the runtime's session is gone.
     const shown = await rememberHistory();
+    if (generation !== tutorGeneration) return;
     if (switched) emit("history", shown);
     emit("chats", chats);
   };
 
   /** Changing tutor never kills a task that is working: its next turn uses the new settings. */
   const startTutor = (config: TutorConfig) => {
+    tutorGeneration += 1;
     releaseTurn(main);
     main.settleGate.reset();
     stopRuntime(main);
