@@ -3265,7 +3265,7 @@
   // only the overflow itself moves into the named disclosure. Group 3 keeps its toggle with the
   // list it controls, and group 4 keeps the whole form under one labelled summary.
   const moreBtn = control(h("button", {
-    class: "icon-btn drawer-more-btn", type: "button", "aria-label": "Más opciones",
+    class: "icon-btn drawer-more-btn", type: "button", "aria-label": "Más acciones del panel",
     "aria-expanded": "false", "aria-controls": "tutor-mas-opciones",
     onclick: () => setMenuOpen(!menu.classList.contains("open")),
   }, icon("more")), 6, "c06-more");
@@ -3277,17 +3277,17 @@
   }
   const closeBtn = control(h("button", { class: "icon-btn", type: "button", "aria-label": "Cerrar el tutor", onclick: closeDrawer }, icon("x")), 6, "c06-close");
 
-  const groupSummary = (num, label, count) => h("summary", {}, h("span", { class: "group-num", "aria-hidden": "true" }, String(num)), label, h("span", { class: "count" }, String(count)));
+  const groupSummary = (num, label) => h("summary", {}, h("span", { class: "group-num", "aria-hidden": "true" }, String(num)), label);
   const chatsSection = h("section", { class: "chats", id: "tutor-chats", "aria-label": "Chats" },
     h("div", { class: "chats-head" }, chatHeading, control(btn("＋ Chat", createChat, "btn small"), 3, "c03-new-chat")), chatList);
   const conversationsGroup = h("details", { class: "drawer-group", id: "tutor-conversaciones" },
-    groupSummary(3, "Conversaciones", 8),
+    groupSummary(3, "Conversaciones"),
     h("div", { class: "group-body" }, h("div", { class: "chats-tools" }, listBtn), chatsSection, newConversation));
   const learningGroup = h("details", { class: "drawer-group", id: "tutor-aprender" },
-    control(groupSummary(4, "Aprender algo nuevo", 10), 4, "c04-summary"),
+    control(groupSummary(4, "Aprender algo nuevo"), 4, "c04-summary"),
     h("div", { class: "group-body" }, newLearningEntry(true)));
   const frameGroup = h("details", { class: "drawer-group", id: "tutor-marco" },
-    groupSummary(6, "Marco del panel", 6),
+    groupSummary(6, "Marco del panel"),
     h("div", { class: "group-body" },
       moreBtn, menu,
       h("p", { class: "frame-note" }, "Ancho del tutor: arrastra el borde o usa las flechas. Pantalla completa y Cerrar el tutor siguen en la cabecera.")));
@@ -3297,20 +3297,10 @@
     if (!group.open) return;
     for (const other of rareGroups) if (other !== group) other.open = false;
   });
-  const compactDrawer = matchMedia("(max-width: 480px)");
-  const moreShell = h("details", { class: "drawer-more", id: "tutor-more", open: !compactDrawer.matches },
-    h("summary", { class: "more-summary" },
-      h("span", { class: "more-wide" }, "Agrupado bajo demanda"),
-      h("span", { class: "more-phone" }, "Más"),
-      h("span", { class: "more-count" }, "24")),
+  // #377: one quiet chip, closed by default on every size; the groups appear only on demand.
+  const moreShell = h("details", { class: "drawer-more", id: "tutor-more" },
+    h("summary", { class: "more-summary" }, "Más opciones"),
     h("div", { class: "more-body" }, ...rareGroups));
-  const syncCompact = () => {
-    if (compactDrawer.matches) {
-      moreShell.open = false;
-      for (const group of rareGroups) group.open = false;
-    } else moreShell.open = true;
-  };
-  compactDrawer.addEventListener("change", syncCompact);
 
   const drawer = h(
     "aside",
@@ -3326,7 +3316,6 @@
       h("div", { class: "hint" }, h("span", {}, "Enter envía · Shift+Enter, nueva línea"), control(h("button", { class: "stop", type: "button", onclick: () => post("abort").catch((e) => toast(e.message)) }, "Detener"), 1, "c01-stop")),
     ),
   );
-  syncCompact();
 
   // ---------- boot ----------
   /** #348: the same merged catalogue the reader uses, fetched after the shell paints. */
