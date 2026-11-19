@@ -19,6 +19,7 @@ lk-guided {
   --lk-gd-ease: cubic-bezier(.2, .8, .2, 1);
   display: block;
   box-sizing: border-box;
+  container-type: inline-size;
   width: 100%;
   max-width: 1180px;
   margin: 22px auto;
@@ -47,7 +48,34 @@ lk-guided {
   --lk-gd-bg-red: #4A2231;
   --lk-gd-shadow: 0 8px 22px rgba(0, 0, 0, .28);
 }
+/* S26 — on the black paper the figure's own paper is black too; the panels are
+   neutral greys of the night lightness, never a navy island inside the page. */
+:root[data-theme="black"] lk-guided {
+  --lk-gd-paper: #000000;
+  --lk-gd-panel: #111111;
+  --lk-gd-line: #333333;
+  --lk-gd-bg-blue: #16222A;
+  --lk-gd-bg-green: #14231E;
+  --lk-gd-bg-red: #2A161C;
+}
 lk-guided *, lk-guided *::before, lk-guided *::after { box-sizing: border-box; }
+
+/* #361 — the figure's own voice, not the reader's prose. app.css justifies and
+   hyphenates every paragraph inside .prose, breaks long words anywhere, gives
+   h3 an italic 20 px body face and prints every button in uppercase with .13em
+   of tracking. Those rules are right for prose and wrong for a stepper whose
+   labels are read at a glance, so each one is answered here, inside the element.
+   Class rules below still win: these resets only undo what comes from outside. */
+lk-guided :is(p, span, div, b, strong, em, small, h1, h2, h3, h4, td, th) {
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  hyphens: manual;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+lk-guided p, .prose lk-guided p { margin: 0; text-align: left; hyphens: manual; overflow-wrap: break-word; }
+lk-guided h1, lk-guided h2, lk-guided h3, lk-guided h4 { font-style: normal; font-weight: 700; }
 lk-guided:focus-visible { outline: 3px solid var(--lk-gd-blue); outline-offset: 4px; }
 lk-guided > .lk-gd-error {
   margin: 0; padding: 14px 16px; border: 1px solid var(--lk-gd-red); border-radius: 8px;
@@ -152,17 +180,37 @@ lk-guided > .lk-gd-error {
   padding: 10px 20px 14px; border-top: 1px solid var(--lk-gd-line);
 }
 .lk-gd-player button {
-  font: inherit; color: var(--lk-gd-ink); background: var(--lk-gd-panel);
+  font-family: var(--lk-gd-sans); font-size: 13px; font-weight: 600;
+  line-height: 1.25; letter-spacing: normal; text-transform: none;
+  white-space: nowrap; overflow-wrap: normal;
+  color: var(--lk-gd-ink); background: var(--lk-gd-panel);
   border: 1px solid var(--lk-gd-line); border-radius: 8px;
-  padding: 5px 13px; cursor: pointer;
+  padding: 6px 13px; min-height: 34px; flex: 0 0 auto; cursor: pointer;
   transition: border-color 180ms var(--lk-gd-ease), background 180ms var(--lk-gd-ease);
 }
+.lk-gd-player button:hover:not(:disabled) { background: var(--lk-gd-bg-blue); color: var(--lk-gd-ink); }
 .lk-gd-player button:focus-visible { outline: 2px solid var(--lk-gd-blue); outline-offset: 3px; }
-.lk-gd-player button[disabled] { opacity: .45; cursor: default; }
-.lk-gd-dots { display: flex; gap: 6px; margin: 0 auto; flex-wrap: wrap; }
-.lk-gd-dot { width: 26px; height: 26px; padding: 0; border-radius: 50%; font-size: .75rem; }
+.lk-gd-player button[disabled] { opacity: .45; cursor: default; background: var(--lk-gd-panel); color: var(--lk-gd-ink); }
+.lk-gd-dots { display: flex; gap: 6px; margin: 0 auto; flex-wrap: nowrap; }
+.lk-gd-dot { width: 26px; height: 26px; min-height: 26px; padding: 0; border-radius: 50%; font-size: .75rem; line-height: 1; }
 .lk-gd-dot[aria-current="step"] { background: var(--lk-gd-bg-blue); border-color: var(--lk-gd-blue); font-weight: 700; }
-.lk-gd-count { font-size: .8rem; color: var(--lk-gd-muted); font-variant-numeric: tabular-nums; }
+.lk-gd-count { flex: 0 0 auto; font-size: .8rem; color: var(--lk-gd-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Narrow figure: the words of the three controls become the three glyphs the
+   stage already uses, and keep their aria-labels. Measured against the figure,
+   not the window: a 700 px column in a 1440 px window still needs the icons. */
+@container (max-width: 719px) {
+  .lk-gd-player > .lk-gd-btn {
+    width: 38px; min-width: 38px; padding: 0; font-size: 0; letter-spacing: 0;
+  }
+  .lk-gd-player > .lk-gd-btn::before { font-size: 15px; line-height: 1; letter-spacing: 0; }
+  .lk-gd-player > .lk-gd-btn:nth-child(1)::before { content: "←"; }
+  .lk-gd-player > .lk-gd-btn:nth-child(3)::before { content: "→"; }
+  .lk-gd-player > .lk-gd-play::before { content: "▶"; }
+  .lk-gd-player > .lk-gd-play[aria-label^="Pausar"]::before { content: "❚❚"; }
+  .lk-gd-dots { gap: 4px; }
+  .lk-gd-dot { width: 22px; height: 22px; min-height: 22px; }
+}
 
 @media (min-width: 900px) {
   lk-guided { max-width: none; }
@@ -174,7 +222,6 @@ lk-guided > .lk-gd-error {
 @media (max-width: 640px) {
   .lk-gd-stage { padding: 16px; min-height: 300px; }
   .lk-gd-token { font-size: 1.2rem; padding: 4px 8px; }
-  .lk-gd-player { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) {
   lk-guided *, lk-guided *::before, lk-guided *::after { animation: none !important; transition: none !important; }

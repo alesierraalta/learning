@@ -53,7 +53,32 @@ lk-codestep {
   --lk-cs-red: #EC93A8;
   --lk-cs-shadow: 0 18px 44px rgba(0, 0, 0, .28);
 }
+/* S26 — the black paper is neutral: the figure's surfaces follow it in greys
+   instead of keeping the navy of the night skin. */
+:root[data-theme="black"] lk-codestep {
+  --lk-cs-paper: #000000;
+  --lk-cs-surface: #0A0A0A;
+  --lk-cs-panel: #121212;
+  --lk-cs-panel-2: #171717;
+  --lk-cs-hair: rgba(235, 235, 235, .18);
+}
 lk-codestep:focus-visible { outline: 3px solid var(--lk-cs-accent); outline-offset: 4px; }
+
+/* #361 — the reader's prose rules stop at the figure's edge: app.css justifies and
+   hyphenates every paragraph in .prose, prints every button in uppercase with .13em
+   of tracking, and puts a «–» marker on every list item (the code lines are a list).
+   Undone here, inside the element only; the class rules below keep priority. */
+lk-codestep :is(p, span, div, li, dt, dd, b, strong, em, small, h1, h2, h3, h4) {
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  hyphens: manual;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+lk-codestep p, .prose lk-codestep p { margin: 0; text-align: left; hyphens: manual; overflow-wrap: break-word; }
+lk-codestep ul > li::before { content: none; }
+lk-codestep h1, lk-codestep h2, lk-codestep h3, lk-codestep h4 { font-style: normal; font-weight: 700; }
 lk-codestep > .lk-cs-error {
   margin: 0; padding: 14px 16px; border: 1px solid var(--lk-cs-bad); border-radius: 8px;
   background: var(--lk-cs-panel); color: var(--lk-cs-bad);
@@ -94,7 +119,7 @@ lk-codestep > .lk-cs-error {
 .lk-cs-fold {
   display: inline-block; padding: 1px 9px; border: 1px dashed var(--lk-cs-hair); border-radius: 999px;
   background: transparent; color: var(--lk-cs-rail);
-  font: 700 12px/1.5 var(--lk-cs-sans); cursor: pointer;
+  font: 700 12px/1.5 var(--lk-cs-sans); text-transform: none; letter-spacing: normal; white-space: nowrap; cursor: pointer;
   transition: border-color 180ms var(--lk-cs-ease), color 180ms var(--lk-cs-ease);
 }
 .lk-cs-fold:hover { border-color: var(--lk-cs-accent); color: var(--lk-cs-accent); }
@@ -179,7 +204,8 @@ lk-codestep .lk-cs-tok-plain { color: var(--lk-cs-ink); }
 .lk-cs-buttons { display: flex; gap: 7px; }
 .lk-cs-btn {
   width: 34px; height: 30px; padding: 0; border: 1px solid var(--lk-cs-hair); border-radius: 8px;
-  background: var(--lk-cs-panel); color: var(--lk-cs-accent); font: 700 16px/1 var(--lk-cs-sans); cursor: pointer;
+  background: var(--lk-cs-panel); color: var(--lk-cs-accent); font: 700 16px/1 var(--lk-cs-sans);
+  text-transform: none; letter-spacing: normal; white-space: nowrap; cursor: pointer;
   transition: background 180ms var(--lk-cs-ease), border-color 180ms var(--lk-cs-ease);
 }
 .lk-cs-btn:hover:not(:disabled) { border-color: var(--lk-cs-accent); background: var(--lk-cs-panel-2); }
@@ -191,7 +217,7 @@ lk-codestep .lk-cs-tok-plain { color: var(--lk-cs-ink); }
 }
 .lk-cs-dot.is-past { background: var(--lk-cs-warm); border-color: var(--lk-cs-warm); }
 .lk-cs-dot.is-current { background: var(--lk-cs-accent); border-color: var(--lk-cs-accent); }
-.lk-cs-count { min-width: 42px; color: var(--lk-cs-muted); font: 12px/1.4 var(--lk-cs-mono); text-align: right; }
+.lk-cs-count { min-width: 42px; flex: 0 0 auto; color: var(--lk-cs-muted); font: 12px/1.4 var(--lk-cs-mono); text-align: right; white-space: nowrap; }
 
 /* Wide reading: code and state sit together, explanation below. */
 @media (min-width: 900px) {

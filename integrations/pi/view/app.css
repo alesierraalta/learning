@@ -121,7 +121,34 @@ figure:has(svg), .mermaid {
   margin-left: 50%;
   transform: translateX(-50%);
 }
-.mermaid svg { display: block; margin-inline: auto; height: auto; }
+.mermaid svg { display: block; margin-inline: auto; height: auto; max-width: none; }
+
+/* #361: a diagram wider than the figure keeps its authored size — mermaid-theme.js
+   marks it `data-overflow` only when scaling it would print its words under 12 px —
+   and the figure scrolls. The hint is the affordance: without it the crop looks
+   like a bug, which is exactly how the learner read it. */
+.mermaid[data-overflow] { overflow-x: auto; }
+.mermaid[data-overflow]::after {
+  content: "El diagrama es más ancho que la columna: desliza para verlo entero →";
+  position: sticky; left: 0; display: block; width: fit-content; max-width: 100%;
+  margin: 10px auto 0; padding: 3px 10px;
+  border: 1px solid var(--hair); border-radius: 999px; background: var(--paper);
+  color: var(--muted); font: 12px/1.5 var(--sans); text-align: center;
+}
+
+/* #361: the five step-by-step figures are wide figures at every viewport, not
+   only in wide mode. Squeezed into the 648 px measure their control row broke
+   into two lines, «ANTERIOR» into two pieces, and «2/2» into three. They leave
+   the measure like a figure does — up to 1280 px — and never wider than the
+   screen minus its margins, so the page still never scrolls sideways. */
+.prose > :is(lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes),
+.prose > section > :is(lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes),
+.prose > p > :is(lk-stage, lk-codestep, lk-tablestep, lk-guided, lk-lanes) {
+  width: min(1280px, 100vw - 64px);
+  max-width: none;
+  margin-left: calc((100% - min(1280px, 100vw - 64px)) / 2);
+  margin-right: 0;
+}
 
 /* Margin note: opt-in markup <aside class="note"> next to the paragraph it
    qualifies. Aligned to the top of that paragraph, never below its section. */

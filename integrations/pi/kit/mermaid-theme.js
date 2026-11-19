@@ -261,6 +261,29 @@
       background: ${v.edgeLabelBackground} !important;
       fill: ${v.edgeLabelBackground} !important;
     }
+    /* #361: every Mermaid label is a <p> in a foreignObject. The reader's prose
+       rules — 20 px below every paragraph, justified lines, hyphens — made a
+       subgraph title taller than the space Mermaid reserved for it (so it printed
+       over its own first node) and stretched its words apart. Inside a diagram a
+       label is one centred block with no margin of its own. */
+    .nodeLabel p, .cluster-label p, .edgeLabel p, .labelBkg p,
+    .nodeLabel div, .cluster-label div {
+      margin: 0 !important;
+      text-align: center !important;
+      hyphens: manual !important;
+      word-break: normal !important;
+      overflow-wrap: break-word !important;
+    }
+    /* A subgraph title is measured once, at 200 px, and the cluster reserves a
+       single line for it; a title that wraps to three lines therefore printed
+       over the first node. The title keeps one line and is allowed to spill out
+       of the box Mermaid reserved, which sits centred over its own cluster. */
+    .cluster-label foreignObject { overflow: visible !important; }
+    .cluster-label div {
+      width: max-content !important;
+      max-width: none !important;
+      white-space: nowrap !important;
+    }
     /* ER attribute stripes and edge-label pills keep Mermaid's light default. */
     path[fill^="hsl("], path[fill="white"] { fill: ${v.attrFill} !important; }
     .nodeLabel, .nodeLabel div, .nodeLabel span,
@@ -420,16 +443,166 @@
     theme: "base",
     themeVariables: themes[current()].themeVariables,
     themeCSS: themes[current()].themeCSS,
-    flowchart: { curve: "basis", nodeSpacing: 44, rankSpacing: 56, padding: 14 },
+    flowchart: {
+      curve: "basis", nodeSpacing: 44, rankSpacing: 56, padding: 14,
+      // #361: a subgraph title wraps at 200 px and the cluster reserves one line
+      // for it, so a wrapped title used to land on the first node. The themeCSS
+      // below keeps the label to the height Mermaid measured; these margins keep
+      // a clear band above and below the title inside the cluster it names.
+      subGraphTitleMargin: { top: 4, bottom: 10 },
+      // #361: two unconnected subgraphs are laid out side by side, 1800 px of
+      // drawing for a 912 px figure. Scaled to fit, the words printed at 7 px.
+      // The diagram keeps its authored size and its figure scrolls instead —
+      // the same bargain app.css already makes for .diagram on a narrow screen.
+      useMaxWidth: false,
+    },
     sequence: { diagramMarginX: 12, diagramMarginY: 12, actorMargin: 48, messageMargin: 38, useMaxWidth: true },
     gantt: { sectionFontSize: "13px", fontSize: 13, barHeight: 26, barGap: 9, leftPadding: 96, rightPadding: 28, topPadding: 54 },
   });
 
+  /* #361 — a diagram is never clipped. Mermaid draws a flowchart at the width its
+     own layout needs; two unconnected LR subgraphs reach 1800 px, far past the
+     712–1304 px the reader gives a figure. Three outcomes, in order:
+       1. it fits the figure as drawn: it fills the column;
+       2. it does not fit but can still be read at 12 px of type (a 15 px label
+          scaled by FIT): it is scaled down to the figure, never cropped;
+       3. it cannot be read at 12 px scaled down: it keeps its authored size and
+          the figure scrolls, with `data-overflow` turning on the visible hint
+          that app.css draws. Nothing is ever silently cut off. */
+  const FIT = 0.8;
+  // A diagram narrower than the column is not blown up into a poster: 16 px of
+  // type on a 547 px drawing is already 25 px at 1.6x, and past that the figure
+  // reads as a slide, not as a diagram.
+  const MAX_UPSCALE = 1.6;
+  const naturalWidth = (svg) => (svg.viewBox && svg.viewBox.baseVal ? svg.viewBox.baseVal.width : svg.getBoundingClientRect().width);
+  const fit = (container) => {
+    const svg = container.querySelector("svg");
+    if (!svg) return;
+    const natural = naturalWidth(svg);
+    const available = container.clientWidth;
+    if (!natural || !available) return;
+    if (available / natural >= FIT) {
+      svg.style.width = `${Math.round(Math.min(available, natural * MAX_UPSCALE))}px`;
+      svg.style.height = "auto";
+      container.dataset.fit = "true";
+      delete container.dataset.overflow;
+    } else {
+      svg.style.width = `${natural}px`;
+      svg.style.height = "auto";
+      container.dataset.overflow = "true";
+      delete container.dataset.fit;
+    }
+  };
+  /* #361 — a left-to-right flowchart is as wide as its longest row, and two
+     unconnected subgraphs put both rows side by side: 1802 px for a study note
+     read in a 912 px figure. Scrolling sideways to see the second half is not
+     studying, so before the scroll fallback the same source is rendered once more
+     with the flow turned top-to-bottom — by then the two clusters stack, the
+     drawing is as wide as its widest node, and the whole diagram fits. Only if
+     TB still does not fit does the figure fall back to scrolling. */
+  const HEADER = /^(\s*)(flowchart|graph)(\s+)(LR|RL|TD|TB|BT)\b/;
+  const CLUSTER_DIR = /^(\s*)direction\s+(LR|RL|TD|TB|BT)\s*$/gm;
+  const directionOf = (source) => {
+    const found = HEADER.exec(source);
+    return found ? found[4] : "";
+  };
+  // Only the direction tokens are rewritten: every node, label, class and edge of
+  // the tutor's source reaches the page exactly as written.
+  const horizontal = (source) =>
+    /^(\s*)(flowchart|graph)\s+(LR|RL)\b/m.test(source) || /^(\s*)direction\s+(LR|RL)\s*$/m.test(source);
+  const turnedTB = (source) => source
+    .replace(HEADER, (all, lead, kind, space, direction) => (/^(LR|RL)$/.test(direction) ? `${lead}${kind}${space}TB` : all))
+    .replace(CLUSTER_DIR, (all, lead, direction) => (/^(LR|RL)$/.test(direction) ? `${lead}direction TB` : all));
+  let renders = 0;
+  // Mermaid hands back markup; it is parsed and imported as a node, never written
+  // through innerHTML, like every other figure in this kit.
+  const swap = (container, markup) => {
+    const parsed = new window.DOMParser().parseFromString(markup, "image/svg+xml");
+    const svg = parsed && parsed.documentElement;
+    if (!svg || String(svg.nodeName).toLowerCase() !== "svg") return false;
+    container.replaceChildren(window.document.importNode(svg, true));
+    return true;
+  };
+  const keep = (container) => [...container.childNodes].map((node) => node.cloneNode(true));
+  const restore = (container, nodes) => container.replaceChildren(...nodes.map((node) => node.cloneNode(true)));
+  const relayout = async (container) => {
+    const source = container.dataset.source || "";
+    // Only a horizontal flow has something to gain: a flow already drawn downwards
+    // is as narrow as it gets and falls straight through to the scroll fallback.
+    if (!horizontal(source)) return;
+    if (container.dataset.relayout === "busy" || container.dataset.direction === "TB") return;
+    container.dataset.relayout = "busy";
+    const authored = keep(container);
+    try {
+      const drawn = await window.mermaid.render(`lk-flow-tb-${(renders += 1)}`, turnedTB(source));
+      if (!swap(container, drawn.svg)) return;
+      const svg = container.querySelector("svg");
+      const natural = svg ? naturalWidth(svg) : 0;
+      if (natural && container.clientWidth / natural >= FIT) {
+        container.dataset.direction = "TB";
+        fit(container);
+        return;
+      }
+      // TB is no narrower here: keep the direction the tutor wrote.
+      restore(container, authored);
+    } catch {
+      restore(container, authored);
+    } finally {
+      delete container.dataset.relayout;
+    }
+  };
+  const watch = (container) => {
+    fit(container);
+    if (!container.dataset.direction) container.dataset.direction = directionOf(container.dataset.source || "") || "TB";
+    // The width the page gave it decides between fit and scroll; a flow that only
+    // fits when stacked is re-rendered once, then read from the DOM for good. The
+    // swap is awaited by the caller so the FIRST paint is already the readable one.
+    const pending = container.dataset.overflow && container.dataset.direction !== "TB" ? relayout(container) : null;
+    if (!window.ResizeObserver || container.dataset.fitWatched) return pending;
+    container.dataset.fitWatched = "true";
+    container.dataset.fitWidth = String(container.clientWidth);
+    // The figure must re-decide when the reader toggles wide mode or the window
+    // changes width. Only a width change counts: fitting changes the height.
+    new window.ResizeObserver(() => {
+      const width = container.clientWidth;
+      if (!width || Math.abs(width - Number(container.dataset.fitWidth)) < 1) return;
+      container.dataset.fitWidth = String(width);
+      fit(container);
+    }).observe(container);
+    return pending;
+  };
+  const watchAll = (nodes) => {
+    const hosts = nodes && nodes.length ? [...nodes] : [...document.querySelectorAll(".mermaid")];
+    const pending = [];
+    for (const host of hosts) if (host && host.querySelector("svg")) pending.push(watch(host));
+    return Promise.all(pending);
+  };
+
   const initialize = () => {
     if (!window.mermaid) throw new Error("Mermaid must be loaded before LkMermaidTheme.initialize()");
     window.mermaid.initialize(config());
+    // The reader and the embedded pages call mermaid.run() and never us again,
+    // so fitting rides on the render they already await.
+    if (!window.mermaid.run.lkFitted) {
+      const run = window.mermaid.run.bind(window.mermaid);
+      const fitted = async (options) => {
+        const nodes = [...((options && options.nodes) || [])];
+        for (const node of nodes) {
+          // The source stays on the element across re-renders (theme switch, resize,
+          // a second fit): Mermaid overwrites innerHTML with the SVG it drew.
+          if (!node.dataset.source) node.dataset.source = node.textContent;
+          else node.textContent = node.dataset.source;
+          delete node.dataset.direction;
+        }
+        const result = await run(options);
+        await watchAll(nodes.length ? nodes : null);
+        return result;
+      };
+      fitted.lkFitted = true;
+      window.mermaid.run = fitted;
+    }
     return config();
   };
 
-  globalThis.LkMermaidTheme = { themes, identity, current, config, initialize };
+  globalThis.LkMermaidTheme = { themes, identity, current, config, initialize, fit, watchAll };
 })();

@@ -44,6 +44,14 @@ lk-stage {
   --lk-stage-info: #8FC0E0;
   box-shadow: none;
 }
+/* S26 — the black paper is neutral, so the stage floor is a grey, not a navy
+   island: the same lightness as the night floor, without the blue. */
+:root[data-theme="black"] lk-stage {
+  --lk-stage-stage: #111111;
+  --lk-stage-stage-2: #0A0A0A;
+  --lk-stage-tile: rgba(235, 235, 235, .045);
+  --lk-stage-tile-line: rgba(235, 235, 235, .15);
+}
 lk-stage:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
 
 .lk-stage-head { margin-bottom: 14px; }
@@ -141,24 +149,41 @@ lk-stage .lk-stage-tag.lk-stage-room-name text { fill: var(--lk-stage-tag-ink); 
 .lk-stage-explain.is-entering .lk-stage-line:nth-child(3) { animation-delay: 90ms; }
 @keyframes lk-stage-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+/* #361 — the reader's prose rules stop at the figure's edge: app.css justifies and
+   hyphenates every paragraph in .prose, prints every button in uppercase with .13em
+   of tracking, and gives h1 a 34 px light body face. Undone here, inside the
+   element only; the class rules below keep priority over these resets. */
+lk-stage :is(p, span, div, b, strong, em, small, h1, h2, h3, h4) {
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  hyphens: manual;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+lk-stage p, .prose lk-stage p { margin: 0; text-align: left; hyphens: manual; overflow-wrap: break-word; }
+lk-stage h1, lk-stage h2, lk-stage h3, lk-stage h4 { font-style: normal; font-weight: 700; }
+
 .lk-stage-player { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; margin-top: 12px; }
 .lk-stage-controls { display: flex; gap: 8px; }
 .lk-stage-player button {
+  min-width: 34px; min-height: 30px; flex: 0 0 auto;
   border: 1px solid var(--hair); border-radius: 8px; padding: 6px 12px; background: var(--paper);
-  color: var(--ink); font-family: var(--sans); font-size: 11px; letter-spacing: .02em;
+  color: var(--ink); font-family: var(--sans); font-size: 12px; font-weight: 600; line-height: 1.2;
+  letter-spacing: normal; text-transform: none; white-space: nowrap; overflow-wrap: normal;
   transition: background 180ms var(--lk-stage-ease), border-color 180ms var(--lk-stage-ease), opacity 180ms var(--lk-stage-ease);
 }
-.lk-stage-player button:hover:not(:disabled) { border-color: var(--accent); background: var(--lk-stage-stage); }
-.lk-stage-player button:disabled { opacity: .38; cursor: default; }
-.lk-stage-dots { display: flex; justify-content: center; gap: 9px; }
-.lk-stage-dot { width: 9px; height: 9px; border: 1px solid var(--hair); border-radius: 50%; }
+.lk-stage-player button:hover:not(:disabled) { border-color: var(--accent); background: var(--lk-stage-stage); color: var(--ink); }
+.lk-stage-player button:disabled { opacity: .38; cursor: default; background: var(--paper); color: var(--ink); }
+.lk-stage-dots { display: flex; justify-content: center; gap: 9px; flex-wrap: nowrap; }
+.lk-stage-dot { width: 9px; height: 9px; padding: 0; border: 1px solid var(--hair); border-radius: 50%; }
 .lk-stage-dot.is-current { background: var(--accent); border-color: var(--accent); }
 .lk-stage-focus-layer { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
 .lk-stage-focus {
   position: absolute; outline: 2px solid var(--lk-stage-focus); outline-offset: 2px;
   border-radius: 8px; pointer-events: none;
 }
-.lk-stage-count { color: var(--muted); font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; letter-spacing: .08em; }
+.lk-stage-count { flex: 0 0 auto; color: var(--muted); font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; letter-spacing: .08em; white-space: nowrap; }
 .lk-stage-error { margin: 0; padding: 14px 16px; border: 1px solid var(--lk-stage-bad); border-radius: 8px; color: var(--lk-stage-bad); font-family: var(--mono); font-size: 13px; }
 
 @media (max-width: 800px) {
