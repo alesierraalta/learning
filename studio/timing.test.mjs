@@ -258,7 +258,7 @@ test("a generation writes the timing of every phase, and the page it produced is
 
 test("each call records its tools, engine round-trips and the model time that completes it", async () => {
   process.env.FAKE_PI_TOOLS = JSON.stringify([[
-    { name: "read", args: { path: "redes/plan.json" }, ms: 20 },
+    { name: "read", args: { path: "redes/plan.json" }, ms: 300 },
     { name: "bash", args: { command: "cd redes && ./bin/learning status" }, ms: 25 },
     { name: "learning_stage", args: { action: "validate", stage: "explicacion" }, ms: 15 },
     { name: "write", args: { path: "redes/explicaciones/Parte 1 - Capas.md" }, ms: 10, isError: true },
@@ -283,7 +283,8 @@ test("each call records its tools, engine round-trips and the model time that co
     assert.equal(report.toolCount, call.tools.length);
     assert.equal(report.modelGapMs, call.modelMs);
     assert.ok(accountsForCall(call), `tools plus gaps account for the call: ${JSON.stringify(call)}`);
-    assert.ok(call.tools[1].ms >= 18, `the tool actually spent its time: ${call.tools[1].ms}`);
+    // Half the scripted wait tolerates stdout scheduling jitter without accepting an unmeasured duration.
+    assert.ok(call.tools[1].ms >= 150 && call.tools[1].ms <= call.ms, `the tool's measured time is real and within its call: ${call.tools[1].ms} of ${call.ms}`);
     for (let i = 1; i < call.tools.length; i += 1) {
       assert.ok(call.tools[i].startMs >= call.tools[i - 1].startMs, "tools are in the order they ran");
     }
