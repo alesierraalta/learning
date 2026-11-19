@@ -15,7 +15,8 @@ const icons = Object.fromEntries(entries.map(([, key, markup]) => [key, markup])
 
 const KEYS = [
   "back", "next", "book", "play", "app", "chat", "pencil", "refresh", "send", "check", "x", "more",
-  "stop", "fresh", "restart", "quiz", "doc", "deck", "spark", "map", "fit", "settings", "moon", "sun",
+  "stop", "fresh", "restart", "quiz", "doc", "deck", "spark", "map", "fit", "settings", "upload", "link",
+  "moon", "sun",
 ];
 
 // Lucide's sparkles, the closest official icon to the old eight-ray burst without a centre.
@@ -46,6 +47,22 @@ test("the icons are stroke primitives that inherit currentColor", () => {
   }
 });
 
+// Lucide's link and upload (lucide-static v1.74.0), used by the Materias UI.
+const LINK =
+  '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />' +
+  '<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />';
+const UPLOAD =
+  '<path d="M12 3v12" /><path d="m17 8-5-5-5 5" />' +
+  '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />';
+
 test("spark is Lucide's sparkles", () => {
   assert.equal(icons.spark, SPARKLES);
+});
+
+test("link is Lucide's link", () => {
+  assert.equal(icons.link, LINK);
+});
+
+test("upload is Lucide's upload", () => {
+  assert.equal(icons.upload, UPLOAD);
 });
