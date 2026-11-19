@@ -68,15 +68,154 @@
     }
     return renderCode.call(this, token);
   };
+  // #392: the tutor writes formulas inline in prose (`\(S_t\)`, `\[ … \]`,
+  // `$$ … $$`). marked eats the backslash of `\(`, so a formula written in prose
+  // cannot survive to the DOM as written. Each one is lifted to a token before the
+  // markdown is parsed and put back afterwards as KaTeX, in the prose text nodes
+  // only: code, Mermaid, script, style, textarea and the kit's own steps keep
+  // their words. A single `$` is money and stays.
+  const PROSE_MATH = /LKPROSEMATH([DS])(\d+)LKEND/g;
+  const proseMath = (text) => {
+    const blocks = [];
+    const token = (display, tex) => {
+      const at = blocks.length;
+      blocks.push({ display, tex });
+      return `LKPROSEMATH${display ? "D" : "S"}${at}LKEND`;
+    };
+    const close = (from, mark) => {
+      const end = text.indexOf(mark, from);
+      return end === -1 ? null : { end, tex: text.slice(from, end).trim() };
+    };
+    let out = "";
+    let i = 0;
+    let fence = "";
+    while (i < text.length) {
+      // A fence opens or closes on a line of its own; everything between is code.
+      if (i === 0 || text[i - 1] === "\n") {
+        const end = text.indexOf("\n", i);
+        const line = text.slice(i, end === -1 ? text.length : end);
+        const open = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line);
+        if ((open && !fence) || (fence && /^[ \t]{0,3}(`{3,}|~{3,})[ \t]*$/.test(line))) {
+          fence = fence ? "" : open[1];
+          out += line;
+          i += line.length;
+          continue;
+        }
+        // Four indented spaces are an indented code block, not prose either.
+        if (!fence && /^( {4}|\t)/.test(line)) {
+          out += line;
+          i += line.length;
+          continue;
+        }
+      }
+      if (fence) { out += text[i]; i += 1; continue; }
+      // A raw HTML block written in the note is not prose either: a kit payload's
+      // JSON and a hand-written <code> keep their words, delimiters included.
+      const raw = /^<(script|style|pre|code)\b[^>]*>/i.exec(text.slice(i));
+      if (raw) {
+        const close = `</${raw[1]}>`.toLowerCase();
+        const end = text.toLowerCase().indexOf(close, i + raw[0].length);
+        const stop = end === -1 ? text.length : end + close.length;
+        out += text.slice(i, stop);
+        i = stop;
+        continue;
+      }
+      if (text[i] === "`") {
+        // An inline code span pairs with a run of the same length.
+        const run = /^`+/.exec(text.slice(i))[0];
+        const end = text.indexOf(run, i + run.length);
+        const stop = end === -1 ? text.length : end + run.length;
+        out += text.slice(i, stop);
+        i = stop;
+        continue;
+      }
+      if (text[i] === "\\" && (text[i + 1] === "(" || text[i + 1] === "[")) {
+        const display = text[i + 1] === "[";
+        const hit = close(i + 2, display ? "\\]" : "\\)");
+        if (hit && hit.tex) {
+          out += token(display, hit.tex);
+          i = hit.end + 2;
+          continue;
+        }
+      }
+      if (text.startsWith("$$", i)) {
+        const hit = close(i + 2, "$$");
+        if (hit && hit.tex) {
+          out += token(true, hit.tex);
+          i = hit.end + 2;
+          continue;
+        }
+      }
+      out += text[i];
+      i += 1;
+    }
+    return { text: out, blocks };
+  };
+  // Where a formula may never be lifted: code, diagrams, inert payloads and the kit's steps.
+  const MATH_SKIP = "code, pre, .mermaid, script, style, textarea, .katex, lk-math";
+  const mathHost = (node) => {
+    if (node.parentElement?.closest(MATH_SKIP)) return true;
+    for (let el = node.parentElement; el; el = el.parentElement) {
+      if (el.tagName.startsWith("LK-")) return true;
+    }
+    return false;
+  };
+  // The kit loads one pinned KaTeX for `<lk-math>`; prose reuses that loader and its SRI.
+  const katexOnce = () => {
+    if (globalThis.katex) return Promise.resolve(globalThis.katex);
+    if (globalThis.lkQuestion?.katex) return globalThis.lkQuestion.katex();
+    return Promise.reject(new Error("katex unavailable"));
+  };
+  const formulaNode = (block, katex) => {
+    const source = `${block.display ? "\\[" : "\\("}${block.tex}${block.display ? "\\]" : "\\)"}`;
+    if (!katex) return document.createTextNode(source);
+    const host = element(block.display ? "div" : "span", undefined, block.display ? "math-display" : "math-inline");
+    try {
+      katex.render(block.tex, host, { displayMode: block.display, throwOnError: false });
+    } catch {
+      return document.createTextNode(source);
+    }
+    return host;
+  };
+  const drawFormulas = (node, blocks, katex) => {
+    const carriers = [];
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const text = walker.currentNode;
+      PROSE_MATH.lastIndex = 0;
+      if (PROSE_MATH.test(text.data) && !mathHost(text)) carriers.push(text);
+    }
+    for (const carrier of carriers) {
+      const fragment = document.createDocumentFragment();
+      let end = 0;
+      // matchAll starts at the regex's lastIndex, so it is cleared before each carrier.
+      PROSE_MATH.lastIndex = 0;
+      for (const match of carrier.data.matchAll(PROSE_MATH)) {
+        fragment.append(document.createTextNode(carrier.data.slice(end, match.index)));
+        fragment.append(formulaNode(blocks[Number(match[2])], katex));
+        end = match.index + match[0].length;
+      }
+      fragment.append(document.createTextNode(carrier.data.slice(end)));
+      carrier.replaceWith(fragment);
+    }
+  };
+  const renderFormulas = (node, blocks) => {
+    if (!blocks.length) return;
+    katexOnce().then(
+      (katex) => drawFormulas(node, blocks, katex),
+      () => drawFormulas(node, blocks, null),
+    );
+  };
   const markdown = (text, inline = false) => {
     const node = element(inline ? "span" : "div");
     const math = globalThis.lkMath?.extract(text) ?? { text, blocks: [] };
+    const prose = proseMath(math.text);
     // The kit vocabulary written inside a note IS the lesson: walkthrough decks and
     // their JSON payload scripts must survive marked + DOMPurify, then kit.js (loaded
     // in the page head) upgrades them on connect. Diagrams come written as inline
     // SVG or svg fences, which need the svg profile; nothing a note writes may load from outside
     // the document, so image, use and foreignObject stay out.
-    const clean = DOMPurify.sanitize(inline ? marked.parseInline(math.text) : marked.parse(math.text, { renderer }), {
+    const clean = DOMPurify.sanitize(inline ? marked.parseInline(prose.text) : marked.parse(prose.text, { renderer }), {
       USE_PROFILES: { html: true, svg: true },
       ADD_TAGS: ["video", "audio", "source", "details", "summary", "script",
         "lk-quick-quiz",
@@ -107,6 +246,7 @@
       box.append(svg);
     }
     globalThis.lkMath?.render(node, math.blocks);
+    renderFormulas(node, prose.blocks);
     return node;
   };
   // A question's own words (stem, options, exercise statements) go through the shared renderer: code and formulas
