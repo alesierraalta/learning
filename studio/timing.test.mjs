@@ -3,17 +3,21 @@
 // would be without the measurement. A fake Pi writes the part, a fake engine clears the turn.
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startStudio as startStudioChecked } from "./server.ts";
 import { stripLecciones } from "./sugerencias.ts";
+import { isEngineTool } from "./timing.ts";
 import { makeRoot } from "./testdata/root.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
+const SUMMARY = join(HERE, "timing-summary.mjs");
 const startStudio = (options) => startStudioChecked({ skipContextCheck: true, ...options });
 
 /** The part the tutor writes, byte for byte: the page under test. */
@@ -118,6 +122,10 @@ const settles = (stream, mark) =>
 const piLog = (log) =>
   existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
 
+/** A call's tool time plus its model gaps must give back the call's own measured time. */
+const accountsForCall = (call) =>
+  Math.abs(call.tools.reduce((total, tool) => total + tool.ms, 0) + call.modelMs - call.ms) <= Math.max(1, call.ms * 0.01);
+
 function http(url, { method = "GET", headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
     const req = request(url, { method, headers }, (res) => {
@@ -187,7 +195,7 @@ test("a generation writes the timing of every phase, and the page it produced is
     assert.equal(written.length, 1, `one report per generation, got ${JSON.stringify(written.map((w) => w.name))}`);
     const { report } = written[0];
 
-    assert.equal(report.version, 1, "the report has a version, so a reader knows its shape");
+    assert.equal(report.version, 2, "the report has a version, so a reader knows its shape");
     assert.equal(report.tutor, "pi", "the runtime is recorded by its own name");
     assert.match(report.startedAt, /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/, "the generation says when it happened");
     assert.ok(report.finishedAt >= report.startedAt, "and when it ended");
@@ -212,6 +220,22 @@ test("a generation writes the timing of every phase, and the page it produced is
     assert.equal(report.calls[0].inputChars, tutor.prompts()[0].message.length, "the input is the prompt the tutor received");
     assert.equal(report.calls[0].outputChars, "Hola, elegiste Universitario.".length, "the output is what the tutor said");
 
+    // The tools inside each call are part of the call, not another phase.
+    for (const call of report.calls) {
+      assert.ok(Array.isArray(call.tools), `the call lists its tools: ${JSON.stringify(call)}`);
+      assert.ok(accountsForCall(call), `tools ${call.tools.reduce((n, t) => n + t.ms, 0)} + gaps ${call.modelMs} = call ${call.ms}`);
+      for (const tool of call.tools) {
+        assert.deepEqual(Object.keys(tool).sort(), ["engine", "ms", "name", "ok", "startMs"]);
+        assert.ok(tool.startMs >= 0 && tool.ms >= 0 && tool.startMs + tool.ms <= call.ms + 1);
+      }
+    }
+    assert.equal(report.calls[0].tools.length, 1, "the fake tutor's write is the one tool in the call");
+    assert.equal(report.calls[0].tools[0].name, "write");
+    assert.equal(report.calls[0].tools[0].ok, true);
+    assert.equal(report.engineRoundTrips, 0, "a file write is not an engine round-trip");
+    assert.equal(report.toolCount, 1);
+    assert.equal(report.modelGapMs, report.calls.reduce((total, call) => total + call.modelMs, 0));
+
     // The save and the references are not phases of a generation: they are named, not invented.
     assert.deepEqual(report.absent.map((phase) => phase.name).sort(), ["guardado", "referencias"]);
     for (const phase of report.absent) assert.ok(phase.reason.length > 20, `${phase.name} says why it cannot be timed`);
@@ -230,6 +254,57 @@ test("a generation writes the timing of every phase, and the page it produced is
   } finally {
     tutor.close();
   }
+});
+
+test("each call records its tools, engine round-trips and the model time that completes it", async () => {
+  process.env.FAKE_PI_TOOLS = JSON.stringify([[
+    { name: "read", args: { path: "redes/plan.json" }, ms: 20 },
+    { name: "bash", args: { command: "cd redes && ./bin/learning status" }, ms: 25 },
+    { name: "learning_stage", args: { action: "validate", stage: "explicacion" }, ms: 15 },
+    { name: "write", args: { path: "redes/explicaciones/Parte 1 - Capas.md" }, ms: 10, isError: true },
+  ]]);
+  const tutor = await generation([[{ name: "Parte 1 - Capas.md", content: PART }]]);
+  try {
+    const before = reports().length;
+    const { answer, mark } = await begin(tutor.stream, () => post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" }));
+    assert.equal(answer.status, 200);
+    await until(() => tutor.prompts().length === 1);
+    await tutor.endTurn();
+    await settles(tutor.stream, mark);
+
+    const written = reports().slice(before);
+    assert.equal(written.length, 1);
+    const { report } = written[0];
+    const call = report.calls[0];
+    assert.deepEqual(call.tools.map((tool) => tool.name), ["write", "read", "bash", "learning_stage", "write"]);
+    assert.deepEqual(call.tools.map((tool) => tool.ok), [true, true, true, true, false]);
+    assert.deepEqual(call.tools.filter((tool) => tool.engine).map((tool) => tool.name), ["bash", "learning_stage"]);
+    assert.equal(report.engineRoundTrips, 2, "only the shell engine command and the bridge tool are round-trips");
+    assert.equal(report.toolCount, call.tools.length);
+    assert.equal(report.modelGapMs, call.modelMs);
+    assert.ok(accountsForCall(call), `tools plus gaps account for the call: ${JSON.stringify(call)}`);
+    assert.ok(call.tools[1].ms >= 18, `the tool actually spent its time: ${call.tools[1].ms}`);
+    for (let i = 1; i < call.tools.length; i += 1) {
+      assert.ok(call.tools[i].startMs >= call.tools[i - 1].startMs, "tools are in the order they ran");
+    }
+  } finally {
+    delete process.env.FAKE_PI_TOOLS;
+    tutor.close();
+  }
+});
+
+test("only a named engine tool or a shell command that invokes the engine counts as a round-trip", () => {
+  assert.equal(isEngineTool("learning_stage", { action: "status" }), true);
+  assert.equal(isEngineTool("learning_view", {}), true);
+  assert.equal(isEngineTool("bash", { command: "bin/learning status" }), true);
+  assert.equal(isEngineTool("exec", { cmd: "cd /root && ./bin/learning status" }), true);
+  assert.equal(isEngineTool("bash", { command: "sudo /usr/local/bin/learning status" }), true);
+  assert.equal(isEngineTool("Bash", { Command: "bin/learning status" }), true, "Antigravity's capitalised tool and argument shapes count too");
+  assert.equal(isEngineTool("run_command", { CommandLine: "./bin/learning status" }), true);
+  assert.equal(isEngineTool("write", { path: "bin/learning" }), false);
+  assert.equal(isEngineTool("bash", { command: "echo bin/learning" }), false);
+  assert.equal(isEngineTool("bash", { command: "grep -r learning ." }), false);
+  assert.equal(isEngineTool("read", { command: "learning status" }), false);
 });
 
 test("a generation counts every model call it makes, the engine's correction included", async () => {
@@ -260,6 +335,11 @@ test("a generation counts every model call it makes, the engine's correction inc
     const phases = Object.fromEntries(report.phases.map((phase) => [phase.name, phase]));
     assert.equal(phases.motor.times, 2, "one engine verdict per settle");
     assert.equal(phases.comprobaciones.times, 1, "the part is measured once the engine clears the turn");
+    for (const call of report.calls) {
+      assert.equal(call.tools.length, 1, "each prompt carries the tool events of its own call");
+      assert.ok(call.tools[0].startMs < call.ms);
+      assert.ok(accountsForCall(call));
+    }
   } finally {
     tutor.close();
   }
@@ -327,12 +407,49 @@ test("an Antigravity generation is measured with its own runtime and its own siz
     assert.equal(report.modelCalls, 1);
     assert.ok(report.calls[0].inputChars > "Escribe la Parte 1".length, "the prompt the studio sent, lessons included");
     assert.equal(report.calls[0].outputChars, "Escribí la parte".length, "what Antigravity answered");
+    assert.ok(report.calls[0].tools.length >= 1, "Antigravity's own tool steps are timed too");
+    assert.equal(report.calls[0].tools[0].name, "write", "its file tool keeps the studio's name");
+    assert.ok(accountsForCall(report.calls[0]));
     assert.deepEqual(report.parts.map((part) => part.bytes), [Buffer.byteLength(PART)]);
   } finally {
     stream.close();
     delete process.env.FAKE_AGY_WRITES;
     delete process.env.FAKE_AGY_TURNS;
   }
+});
+
+test("a summary reads a directory of reports and prints each one and the aggregate", () => {
+  const dir = mkdtempSync(join(tmpdir(), "timing-summary-"));
+  const report = (n, totalMs, tutorMs, toolMs, gapMs, engine) => ({
+    version: 2,
+    startedAt: `2026-11-1${n}T00:00:00.000Z`,
+    finishedAt: `2026-11-1${n}T00:00:01.000Z`,
+    tutor: n === 1 ? "pi" : "agy",
+    model: "m",
+    topic: "redes",
+    modelCalls: 1,
+    calls: [{ n: 1, reason: "turn", inputChars: 10, outputChars: 10, ms: tutorMs, ok: true, tools: [
+      { name: "write", startMs: 1, ms: toolMs, ok: true, engine: false },
+      ...(engine ? [{ name: "learning_stage", startMs: 10, ms: 4, ok: true, engine: true }] : []),
+    ], modelMs: gapMs }],
+    phases: [{ name: "tutor", ms: tutorMs, times: 1 }],
+    absent: [],
+    parts: [],
+    totalMs,
+    toolMs: toolMs + (engine ? 4 : 0),
+    modelGapMs: gapMs,
+    toolCount: engine ? 2 : 1,
+    engineRoundTrips: engine ? 1 : 0,
+  });
+  writeFileSync(join(dir, "a.json"), JSON.stringify(report(1, 1000, 900, 30, 870, false)));
+  writeFileSync(join(dir, "b.json"), JSON.stringify(report(2, 2000, 1800, 20, 1776, true)));
+  writeFileSync(join(dir, "old.json"), JSON.stringify({ version: 1, totalMs: 500, modelCalls: 1, phases: [{ name: "tutor", ms: 400 }] }));
+
+  const output = execFileSync(process.execPath, [SUMMARY, dir], { encoding: "utf8" });
+  for (const word of ["report", "total", "tutor", "top tools", "tool count", "model gap", "engine round-trips", "write", "pi", "agy", "aggregate"]) {
+    assert.match(output, new RegExp(word, "i"), `the summary says ${word}: ${output}`);
+  }
+  assert.match(output, /v1/, `old reports are named, not silently counted: ${output}`);
 });
 
 test("a turn that wrote no part leaves no report", async () => {

@@ -86,7 +86,6 @@ import { gateVerdictsFile, warmGateVerdicts } from "../integrations/pi/gate-verd
 import { PASS_STATUSES, gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
 import {
   STUDY_MODES,
-  createPageTiming,
   createSettleGate,
   isStudioPrompt,
   fuentesLine,
@@ -94,9 +93,8 @@ import {
   type CallReason,
   type ExamChoice,
   type ExamFormat,
-  type PageTiming,
-  type PageTimingReport,
 } from "./runtime.ts";
+import { createPageTiming, type PageTiming, type PageTimingReport } from "./timing.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, tutorContext, validateSugerencia, withLecciones } from "./sugerencias.ts";
@@ -903,6 +901,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       case "tool_execution_start": {
         const name = String(record.toolName);
         const id = String(record.toolCallId);
+        // The tool is part of the call in flight, whether the runtime is Pi or Antigravity.
+        session.turn?.timing.startTool(id, name, record.args);
         session.toolArgs.set(id, record.args);
         const note = toolNote(name, record.args, root);
         const topic = toolTopic(name, record.args, root);
@@ -916,6 +916,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         const id = String(record.toolCallId);
         const args = record.args ?? session.toolArgs.get(id);
         session.toolArgs.delete(id);
+        session.turn?.timing.endTool(id, record.isError !== true);
         const note = toolNote(name, args, root);
         const topic = toolTopic(name, args, root);
         // The part notes the turn wrote are measured at its settle: the studio knows them from the
