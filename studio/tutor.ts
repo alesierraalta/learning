@@ -4,13 +4,18 @@ import { join } from "node:path";
 import { HttpError } from "../integrations/pi/bridge.ts";
 import { resolveContained } from "../integrations/pi/paths.ts";
 
-export type TutorConfig = { version: 1; agente: "pi" | "agy"; modelo: string; pensamiento: string };
+/** The supported agents, declared once: every one must have skill dirs in deploy/vps/tutor-skill-dirs.tsv. */
+export const TUTOR_AGENTS = ["pi", "agy"] as const;
+export type TutorAgent = (typeof TUTOR_AGENTS)[number];
+export type TutorConfig = { version: 1; agente: TutorAgent; modelo: string; pensamiento: string };
 const DEFAULT: TutorConfig = { version: 1, agente: "pi", modelo: "", pensamiento: "" };
 const LEVELS = ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"];
 /** What Antigravity's `--effort` accepts; a level outside this list would be dropped, so it is refused. */
 export const AGY_LEVELS = ["low", "medium", "high", "xhigh", "max"];
 
-function supported(agente: "pi" | "agy", pensamiento: string): boolean {
+const isAgent = (value: unknown): value is TutorAgent => typeof value === "string" && (TUTOR_AGENTS as readonly string[]).includes(value);
+
+function supported(agente: TutorAgent, pensamiento: string): boolean {
   if (agente !== "agy" || pensamiento === "") return LEVELS.includes(pensamiento);
   return AGY_LEVELS.includes(pensamiento);
 }
@@ -19,7 +24,7 @@ function validate(input: unknown): TutorConfig {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new HttpError(400, "invalid tutor settings");
   const data = input as Record<string, unknown>;
   if (Object.keys(data).sort().join(",") !== "agente,modelo,pensamiento,version" || data.version !== 1 ||
-      (data.agente !== "pi" && data.agente !== "agy") || typeof data.modelo !== "string" ||
+      !isAgent(data.agente) || typeof data.modelo !== "string" ||
       (data.modelo !== "" && !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,119}$/.test(data.modelo)) ||
       typeof data.pensamiento !== "string" || !LEVELS.includes(data.pensamiento)) {
     throw new HttpError(400, "invalid tutor settings");

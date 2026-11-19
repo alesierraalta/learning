@@ -52,8 +52,40 @@ test("a concept question in the chat is answered there, not redirected", async (
   assert.match(prompt, /«¿qué significa varianza finita\?»/);
   assert.match(prompt, /one line of definition/, "the answer is a definition, not a lesson");
   assert.match(prompt, /the topic's running example/, "the example the parts use");
-  assert.match(prompt, /one visual when it helps/, "a small scene or an annotated formula");
+  assert.match(prompt, /one visual when it helps/, "a visual when it helps");
+  // Figure guidance comes from the one shared contract, never from Pi's own contract (#361).
+  // The contract may name lk-scene as superseded; the old rule must not prescribe it.
+  assert.doesNotMatch(prompt, /a small lk-scene/, "no legacy figure is prescribed for a new answer");
+  assert.match(prompt, /Contrato visual/, "the shared figure contract is inherited instead");
   assert.match(prompt, /without creating files and without running commands/, "answering creates nothing");
+});
+
+// The workflow rules are not Antigravity-only (#372/T2a–T2f): Pi inherits the same shared
+// contract, so it too is told to read the brief first, run one part-check, and fix only findings.
+test("the shared part workflow reaches Pi: brief first, one part-check, targeted fixes", async () => {
+  const prompt = await studioSystemPrompt("studio");
+  const at = (pattern) => {
+    const match = pattern.exec(prompt);
+    assert.ok(match, `missing in Pi's shared contract: ${pattern}`);
+    return match.index;
+  };
+  assert.match(prompt, /node <repo>\/tools\/part-check\.mjs <nota>/, "one part-check command");
+  assert.match(prompt, /--json/, "a machine-readable report when needed");
+  assert.match(prompt, /no leas el código de las puertas ni del kit/i, "no reading gate or kit source");
+  assert.match(prompt, /cada hallazgo trae la regla, el elemento y la corrección/, "findings carry the fix");
+  const brief = at(/lee primero la ficha de la parte que el estudio pone al principio del prompt/);
+  const write = at(/escribe la parte entera de una sola vez/);
+  const check = at(/corre `node <repo>\/tools\/part-check\.mjs <nota>` una sola vez/);
+  const fix = at(/corrige solo lo que sus hallazgos nombren/);
+  const edit = at(/edit_file`\/`replace`/);
+  const spans = at(/exactamente las líneas o bloques que nombra cada hallazgo/);
+  const noRewrite = at(/nunca reescribas la nota entera/);
+  const structural = at(/reescritura completa solo se permite si part-check da un hallazgo estructural que abarque toda la nota/i);
+  const again = at(/vuelve a correr part-check/);
+  assert.ok(brief < write && write < check && check < fix && fix < edit && edit < spans && spans < noRewrite && noRewrite < structural && structural < again, "brief → write → check → targeted edits → re-check");
+  assert.match(prompt, /no leas reglas de `tools\/explain-check\/rules\//i);
+  assert.match(prompt, /ni el registro `tools\/register\/measure\.mjs`/i);
+  assert.match(prompt, /no sondee el registro con `node -e`/i);
 });
 
 test("«Aprender algo nuevo» is offered only for a whole new topic", async () => {

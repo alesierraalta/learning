@@ -1,0 +1,5 @@
+# agente	directorio donde descubre skills
+# $HOME y $LEARNING_ROOT se sustituyen al usar la tabla; el enlazador y el estudio leen este mismo archivo.
+pi	$HOME/.claude/skills
+pi	$HOME/.agents/skills
+agy	$LEARNING_ROOT/.agents/skills
