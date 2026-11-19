@@ -1,7 +1,9 @@
 // Una sola puerta para una parte: todas las mediciones que manda la skill, juntas y con la regla,
 // el elemento y el arreglo de cada hallazgo (#372/T2a). Las cinco puertas del estudio se corren
 // con su agregador (`studio/checks.ts`), no con una copia de sus reglas; aquí solo se añaden
-// part-lint, la medida del registro, el barrido de ASCII de la skill y la presentación.
+// part-lint, la medida del registro, audit-note (la spec de los elementos nuevos) y el barrido de
+// ASCII de la skill, además de la presentación. Las cinco puertas del estudio siguen decidiendo sus
+// propios veredictos: aquí solo se añaden las otras cuatro mediciones.
 //
 // Uso: node tools/part-check.mjs <nota.md> [--json]
 //       node tools/part-check.mjs --rules [--compact]
@@ -24,8 +26,37 @@ const REPO = join(HERE, '..');
 const ASCII = /[┌┐└┘├┤┬┴┼│╔╗╚╝║█▓▒░]|─+[►▶▸]|-{2,}>|={2,}>|-{2,}\[/;
 const HINTS_BY_RULE = { ...HINTS, ...Object.fromEntries(REGLAS.filter((r) => r.hint).map((r) => [r.id, r.hint])) };
 const FIX = /\b(dibuja|pon|mueve|quita|escribe|parte|reduce|acorta|ordena|reparte|nombra|sube|baja|separa|declara|cambia)\b[^.!]*[.!]?/i;
+const AUDIT_VIOLATION = /^(.+?):(\d+)\s+(.+)$/;
 
 const oneLine = (text) => String(text ?? '').replace(/\s+/g, ' ').trim();
+
+/** Cada clase de violación de audit-note tiene un id estable: la puerta no los nombra, la ficha sí. */
+export function auditRuleOf(message) {
+  if (/hand-written <svg>/.test(message)) return 'svg-a-mano';
+  if (/rgba\(/.test(message)) return 'color-sobre-fondo';
+  if (/has no direct application\/json script child/.test(message)) return 'spec-sin-json';
+  if (/spec is not valid JSON/.test(message)) return 'spec-json-invalido';
+  if (/names ".*" which the engine cannot draw/.test(message)) return 'clave-no-dibujable';
+  if (/spells its meaning as the character/.test(message)) return 'simbolo-como-caracter';
+  if (/has a cell kind the engine does not have/.test(message)) return 'celda-tipo-desconocido';
+  if (/has a policy with no direction/.test(message)) return 'politica-sin-direccion';
+  if (/figure \d+ is not valid JSON/.test(message)) return 'figura-json-invalida';
+  if (/must be a JSON object/.test(message)) return 'figura-no-objeto';
+  if (/figure \d+/.test(message)) return 'figura-sin-dibujo';
+  if (/—/.test(message)) return 'spec-invalida';
+  return 'audit-note';
+}
+
+/** audit-note imprime cada violación en stderr como `<nota>:<línea> <mensaje>`. */
+export function auditFindingsOf(output) {
+  return String(output ?? '').split('\n').map((line) => line.trim())
+    .filter((line) => AUDIT_VIOLATION.test(line) && !/violation\(s\) in /.test(line))
+    .map((line) => {
+      const [, , at, message] = line.match(AUDIT_VIOLATION);
+      const rule = auditRuleOf(message);
+      return finding('audit-note', rule, `línea ${at}`, message, line);
+    });
+}
 
 /* ------------------------------------------------------------------ */
 /* La ficha de reglas (#372/T2d)                                       */
@@ -83,7 +114,9 @@ export function ruleSheet() {
 /** La misma ficha en texto, para el prompt del estudio (`--compact`: id + requisito). */
 export function ruleSheetText({ compact = false } = {}) {
   const rows = ruleSheet();
-  const line = (row) => compact ? `${row.id} | ${row.requirement}` : `${row.id} | ${row.requirement} | ${row.hint}`;
+  // The compact sheet is embedded in every part brief: keep the id and enough of the requirement
+  // to be useful, but bound its size so a 20-part topic still fits under the brief's hard ceiling.
+  const line = (row) => compact ? `${row.id} | ${clip(row.requirement, 72)}` : `${row.id} | ${row.requirement} | ${row.hint}`;
   const frequent = rows.filter((row) => FREQUENT_RANK.has(row.id));
   const other = rows.filter((row) => !FREQUENT_RANK.has(row.id));
   return [
@@ -176,6 +209,14 @@ export async function partCheck(file, options = {}) {
     ? [finding('ascii', 'ascii', `línea ${i + 1}`, oneLine(line) || '(carácter de dibujo)', line.trim())]
     : []);
   groups.push({ gate: 'ascii', findings: asciiFindings });
+
+  // audit-note es la puerta que valida la spec de los cinco elementos nuevos antes de entregar.
+  // Corre como el resto, por subproceso, y sus violaciones viajan como hallazgos de su propia
+  // grupo; si no pudo medir, el fallo va aparte (nunca como un pasaporte limpio).
+  const audit = await runNode([join(toolsDir, 'visuals', 'audit-note.mjs'), '--note', file]);
+  const auditFindings = auditFindingsOf(`${audit.stderr}\n${audit.stdout}`);
+  if (audit.code !== 0 && !auditFindings.length) failures.push(failureOf('visuals/audit-note.mjs', file, audit));
+  groups.push({ gate: 'audit-note', findings: auditFindings });
 
   const findings = groups.flatMap((group) => group.findings);
   return {

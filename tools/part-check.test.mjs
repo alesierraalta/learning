@@ -46,6 +46,7 @@ const file = (name, text) => {
 function tools(broken) {
   const root = join(dir, broken ? 'tools-broken' : 'tools-clean');
   mkdirSync(join(root, 'register'), { recursive: true });
+  mkdirSync(join(root, 'visuals'), { recursive: true });
   const stub = (name, body) => writeFileSync(join(root, name), body);
   const quiet = broken ? '' : '';
   stub('scene-gate.mjs', broken ? `console.log(${JSON.stringify(`parte.md: escena 1 — La caja en el borde
@@ -63,6 +64,7 @@ parte.md: pieza s0 — El rotulo
   stub('page-gate.mjs', 'process.exit(0);\n');
   stub('part-lint.mjs', broken ? `console.log('PASA  520 palabras (tope 450) · parte.md');\nprocess.exit(1);\n` : `console.log('ok    120 palabras (tope 450) · parte.md');\nprocess.exit(0);\n`);
   writeFileSync(join(root, 'register', 'measure.mjs'), `console.log(${JSON.stringify(JSON.stringify({ words: 120, unexplained: 0 }))});\n`);
+  stub(join('visuals', 'audit-note.mjs'), `console.log('parte.md: 0 figure(s), all drawn by the engine');\n`);
   void quiet;
   return root;
 }
@@ -168,6 +170,37 @@ test('a note with violations from several gates reports all of them, with rule, 
   }
   assert.equal(report.findings.find((f) => f.rule === 'ruta').hint, REGLAS.find((r) => r.id === 'ruta').hint);
   assert.match(report.findings.find((f) => f.gate === 'ascii' && f.rule === 'ascii').where, /línea 9/);
+});
+
+test('audit-note runs as one more part-check group, with rule, where, message and fix', () => {
+  const note = file('audit.md', BROKEN);
+  const toolsDir = tools(true);
+  writeFileSync(join(toolsDir, 'visuals', 'audit-note.mjs'), `console.error('parte.md:11 lk-stage 1: steps[0].focus = 3 — la spec no dibuja');\nconsole.error('1 violation(s) in parte.md');\nprocess.exit(1);\n`);
+  const json = run([note, '--json'], toolsDir);
+  assert.equal(json.status, 1, json.stdout + json.stderr);
+  const report = JSON.parse(json.stdout);
+  const group = report.groups.find((g) => g.gate === 'audit-note');
+  assert.ok(group, `audit-note group is missing from ${report.groups.map((g) => g.gate).join(', ')}`);
+  assert.equal(group.findings.length, 1, JSON.stringify(group));
+  const [found] = group.findings;
+  assert.equal(found.rule, 'spec-invalida');
+  assert.match(found.where, /línea 11/);
+  assert.match(found.message, /steps\[0\]\.focus/);
+  assert.equal(found.hint, HINTS['spec-invalida']);
+  assert.match(run([note], toolsDir).stdout, /\[audit-note\]/);
+  assert.match(run(['--rules'], toolsDir).stdout, /\bspec-invalida\b/, 'the sheet covers the new id');
+});
+
+test('a broken audit-note measurement is a failure, not a clean pass', () => {
+  const note = file('audit-crash.md', CLEAN);
+  const toolsDir = tools(false);
+  writeFileSync(join(toolsDir, 'visuals', 'audit-note.mjs'), "console.error('boom');\nprocess.exit(2);\n");
+  const json = run([note, '--json'], toolsDir);
+  assert.equal(json.status, 2, json.stdout + json.stderr);
+  const report = JSON.parse(json.stdout);
+  assert.deepEqual(report.findings, []);
+  assert.ok(report.failures.some((failure) => failure.includes('audit-note')), JSON.stringify(report.failures));
+  assert.match(json.stderr, /boom/);
 });
 
 test('a clean note passes every gate with exit 0', () => {

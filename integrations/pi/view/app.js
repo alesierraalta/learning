@@ -80,7 +80,8 @@
       USE_PROFILES: { html: true, svg: true },
       ADD_TAGS: ["video", "audio", "source", "details", "summary", "script",
         "lk-quick-quiz",
-        "lk-walkthrough", "lk-story", "lk-callout", "lk-quiz", "lk-widget", "lk-diagram", "lk-scene", "lk-figure", "lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-tree", "lk-explorer", "lk-math", "lk-steps", "lk-ask", "lk-step"],
+        "lk-walkthrough", "lk-story", "lk-callout", "lk-quiz", "lk-widget", "lk-diagram", "lk-scene", "lk-figure", "lk-cards", "lk-memory", "lk-tables", "lk-venn", "lk-tree", "lk-explorer", "lk-math", "lk-steps", "lk-ask", "lk-step",
+        "lk-stage", "lk-codestep", "lk-tablestep", "lk-guided", "lk-lanes"],
       ADD_ATTR: ["controls", "preload", "type", "title", "point", "categoria", "tag"],
       FORBID_TAGS: ["foreignObject", "image", "use"],
     });
@@ -221,11 +222,9 @@
       return diagram;
     });
     if (nodes.length) {
-      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "base", themeVariables: {
-        fontFamily: '"DejaVu Sans", Arial, sans-serif', fontSize: "18px",
-        primaryColor: "#ffffff", primaryTextColor: "#0f172a", primaryBorderColor: "#0f172a",
-        lineColor: "#475569", secondaryColor: "#f8fafc", tertiaryColor: "#ffffff",
-      } });
+      // The kit owns the Mermaid palette, including the night paper; the theme
+      // script is loaded before this one, so it reads the paper the reader chose.
+      LkMermaidTheme.initialize();
       mermaid.run({ nodes }).catch(() => {
         root.append(element("p", "No se pudo dibujar un diagrama.", "error"));
       });

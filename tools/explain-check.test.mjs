@@ -449,22 +449,127 @@ test('una historia por pasos pasa la historia', () => {
   assert.match(r.stdout, /ok\s+recorrido\s+0 recorrido/);
 });
 
-// Las instrucciones que lee el modelo dicen lo mismo que la puerta: una parte
-// nueva usa el lenguaje de historia y el `<lk-walkthrough>` clásico es legado. Si
-// la skill y el AGENTS.md no lo dicen, el modelo sigue tomando el camino viejo.
-test('la skill, los visuales y el AGENTS.md de Learnings dicen que el walkthrough clásico es legado', () => {
+// Las instrucciones que lee el modelo dicen lo mismo que la puerta: el contrato
+// aprobado es Mermaid primero y, para lo que un diagrama no puede llevar de la
+// mano, los cinco elementos nuevos. Las figuras antiguas son legado de las partes
+// ya publicadas. Si el AGENTS.md del vault sigue pidiendo historias, el tutor
+// vuelve a tomar el camino viejo (S10, S15, S16, S24).
+const ElementosNuevos = ['<lk-stage>', '<lk-codestep>', '<lk-tablestep>', '<lk-guided>', '<lk-lanes>'];
+const ElementosLegado = ['<lk-story>', '<lk-walkthrough>', '<lk-scene>', '<lk-figure>'];
+
+test('la skill, los visuales y el AGENTS.md de Learnings describen el contrato nuevo', () => {
   const repo = join(TOOLS, '..');
   const skill = readFileSync(join(repo, 'skills', 'explicacion-interactiva', 'SKILL.md'), 'utf8');
   const visuales = readFileSync(join(repo, 'skills', 'explicacion-interactiva', 'references', 'visuales.md'), 'utf8');
   const agents = readFileSync(join(repo, 'deploy', 'vps', 'learnings', 'AGENTS.md'), 'utf8');
   for (const [name, text] of [['SKILL.md', skill], ['visuales.md', visuales], ['AGENTS.md', agents]]) {
-    assert.match(text, /lenguaje de historia/i, `${name} no nombra el lenguaje de historia`);
-    assert.match(text, /<lk-walkthrough>[^.\n]*legado|legado[^.\n]*<lk-walkthrough>|walkthrough clásico es \*\*legado\*\*|clásico es \*\*legado\*\*/i, `${name} no dice que el walkthrough clásico es legado`);
-    assert.match(text, /<lk-story>/, `${name} no nombra <lk-story>`);
+    for (const el of ElementosNuevos) assert.ok(text.includes(el), `${name} no nombra ${el}`);
+    assert.match(text, /mermaid/i, `${name} no manda usar Mermaid`);
+    assert.match(text, /diagrama estándar|diagrama pued/i, `${name} no da prioridad al diagrama estándar`);
+    assert.match(text, /legado|legacy|partes (ya )?publicadas/i, `${name} no dice que las figuras antiguas son legado`);
+    for (const el of ElementosLegado.slice(0, 3)) assert.ok(text.includes(el), `${name} no nombra ${el} como legado`);
+    assert.doesNotMatch(text, /usa una historia por pasos <lk-story> o una pieza/, `${name} sigue pidiendo historias para material nuevo`);
   }
-  // La regla medida vive en la skill, con el mensaje que el motor devuelve.
+  // El mensaje del motor para una nota sin recorrido sigue vivo como diagnóstico,
+  // pero el arreglo que manda la skill son los elementos nuevos.
   assert.match(skill, /the part carries no story and no piece/);
-  assert.match(skill, /usa una historia por pasos <lk-story> o una pieza/);
+  assert.match(skill, /el recorrido es un `<lk-stage>`, `<lk-guided>`, `<lk-codestep>`, `<lk-tablestep>` o `<lk-lanes>`/);
+});
+
+// La puerta tiene que aceptar una nota escrita solo con el contrato nuevo: los
+// cinco ejemplos canónicos del kit, sin copiarlos aquí, más un Mermaid. Antes del
+// contrato los JSON contaban como prosa y las reglas de historia exigían un
+// `<lk-story>`: la nota ni se leía ni pasaba.
+const EJEMPLOS = join(TOOLS, '..', 'integrations', 'pi', 'kit', 'examples');
+const ejemploDe = (archivo, etiqueta) => {
+  const html = readFileSync(join(EJEMPLOS, archivo), 'utf8');
+  const bloque = html.match(new RegExp(`<${etiqueta}[\\s\\S]*?</${etiqueta}>`));
+  assert.ok(bloque, `falta el ejemplo ${etiqueta} en ${archivo}`);
+  return bloque[0];
+};
+
+const notaDelContratoNuevo = () => {
+  const figuras = [
+    ejemploDe('lk-stage-robot.html', 'lk-stage'),
+    ejemploDe('lk-codestep.html', 'lk-codestep'),
+    ejemploDe('lk-tablestep.html', 'lk-tablestep'),
+    ejemploDe('lk-guided.html', 'lk-guided'),
+    ejemploDe('lk-lanes.html', 'lk-lanes'),
+  ];
+  return `# Parte 1
+
+## Ruta
+
+1. Recorrer el escenario
+2. Seguir el código y las filas
+3. Leer la fórmula y los carriles
+
+## 1. El recorrido
+
+Imagina un robot. Elige entre limpiar y cargar.
+
+${figuras[0]}
+
+**Recompensa**: es lo que gana al elegir. Mira su valor en cada paso.
+
+Cómo leerlo: sigue al robot. Mira cada paso.
+
+## 2. El cálculo
+
+El código cambia. Las filas también.
+
+${figuras[1]}
+
+Cómo leerlo: mira la línea activa. Mira sus variables.
+
+${figuras[2]}
+
+Cómo leerlo: compara las filas. Mira las vivas.
+
+${figuras[3]}
+
+Cómo leerlo: lee cada símbolo. Después, ve los números.
+
+La estructura se ve de un vistazo.
+
+\`\`\`mermaid
+flowchart LR; Pedido --> Preparacion --> Servicio;
+\`\`\`
+
+Cómo leerlo: recorre las flechas. Ve de izquierda a derecha.
+
+${figuras[4]}
+
+Cómo leerlo: sigue el recurso. Mira el tiempo.
+
+<lk-quiz>{"id":"q1"}</lk-quiz>
+`;
+};
+
+const ESCENA_ROTA = `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 200 80","scene":{"boxes":[{"x":10,"y":10,"w":40,"h":20,"label":"antes"},{"x":140,"y":10,"w":40,"h":20,"label":"despu\u00e9s"}],"arrows":[{"x1":50,"y1":20,"x2":140,"y2":20}]}}
+</script>
+</lk-scene>`;
+
+const ETAPA_NUEVA = ejemploDe('lk-stage-robot.html', 'lk-stage');
+
+test('pasa una nota con Mermaid y los cinco ejemplos canónicos', () => {
+  const file = join(dir, 'contrato-nuevo.md');
+  writeFileSync(file, notaDelContratoNuevo());
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  for (const regla of ['historia', 'escena', 'formula-walkthrough', 'leyenda', 'tama\u00f1o', 'frases']) {
+    assert.match(r.stdout, new RegExp(`ok\\s+${regla}`), `${regla} fall\u00f3: ${r.stdout}`);
+  }
+});
+
+test('una escena legada rota sigue fallando aunque la nota traiga un elemento nuevo', () => {
+  const file = join(dir, 'escena-legacy-con-elemento-nuevo.md');
+  writeFileSync(file, CUMPLE_SIN_HISTORIA.replace(ESCENA, `${ESCENA_ROTA}\n\n${ETAPA_NUEVA}`));
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA escenario-de-cajas/);
 });
 
 // Una parte con solo una escena (o un SVG) no trae historia ni pieza: el lenguaje

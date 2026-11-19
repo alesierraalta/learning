@@ -12,7 +12,7 @@ import (
 // to use. A rules snapshot that does not declare `storyStage` keeps accepting
 // the parts it accepted.
 func storyStageFindings(text string, th rules.PartStandardThresholds) []string {
-	if !th.StoryStage {
+	if !th.StoryStage || usesStepFigures(text) {
 		return nil
 	}
 	for _, doc := range storyQualityDocs(text) {

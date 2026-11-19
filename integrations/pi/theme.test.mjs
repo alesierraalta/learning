@@ -8,6 +8,27 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const SOURCE = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "kit", "theme.js"), "utf8");
+const MERMAID_THEME = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "kit", "mermaid-theme.js"), "utf8");
+
+// The kit's Mermaid theme takes its night paper from the reader's CSS tokens.
+// Run the classic script with each theme's tokens so a white (or navy) island
+// baked into the theme fails here, just as it would in the page.
+function mermaidNight(css, theme) {
+  const base = css.match(/:root\[data-theme="dark"\] \{([^}]*)\}/)[1];
+  const override = theme === "black" ? css.match(/:root\[data-theme="black"\] \{([^}]*)\}/)[1] : "";
+  const tokens = Object.fromEntries(
+    [...`${base} ${override}`.matchAll(/--([\w-]+):\s*([^;]+);/g)].map(([, name, value]) => [`--${name}`, value.trim()]),
+  );
+  const sandbox = {
+    window: null,
+    document: { documentElement: { dataset: { theme } } },
+    getComputedStyle: () => ({ getPropertyValue: (name) => tokens[name] ?? "" }),
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(MERMAID_THEME, sandbox);
+  return { tokens, config: sandbox.LkMermaidTheme.config() };
+}
 
 function boot({ search = "", stored = null, system = "light" } = {}) {
   const root = { dataset: {} };
@@ -95,7 +116,7 @@ test("a frame follows the studio by message, and the storage key follows another
   assert.equal(root.dataset.theme, "light", "with nothing stored, the system decides again");
 });
 
-test("the dark paper keeps its figures legible: the deck follows the page, only mermaid keeps its own sheet", () => {
+test("the dark paper keeps its figures legible: the deck and mermaid follow the page", () => {
   const css = readFileSync(join(import.meta.dirname, "kit", "kit.css"), "utf8");
   // #222: the classic deck is no longer a white island in the night themes.
   assert.equal(/:root\[data-theme="(?:dark|black)"\] \.lk-walkthrough \{[^}]*background: #fff/.test(css), false, "the deck keeps no white island in the dark page");
@@ -103,11 +124,18 @@ test("the dark paper keeps its figures legible: the deck follows the page, only 
   assert.ok(night, "the deck has a night rule for both night themes");
   assert.match(night[0], /background: var\(--paper\)/, "the deck paints the page paper");
   assert.match(night[0], /color: var\(--ink\)/, "the deck takes the night ink");
-  const mermaid = css.match(/:root:is\(\[data-theme="dark"\], \[data-theme="black"\]\) pre\.mermaid \{[^}]*\}/);
-  assert.ok(mermaid && /color: var\(--ink\)/.test(mermaid[0]), "a mermaid diagram is drawn on its own light paper");
+  assert.equal(/:root:is\(\[data-theme="dark"\], \[data-theme="black"\]\) pre\.mermaid \{/.test(css), false, "no night rule gives a mermaid diagram its own light paper");
+  const sheets = [...css.matchAll(/pre\.mermaid \{([^}]*)\}/g)].map(([, body]) => body);
+  assert.match(sheets.at(-1), /background:\s*(?:none|var\(--paper\))/, "the mermaid container has no separate sheet");
+  assert.doesNotMatch(sheets.at(-1), /background:\s*(?:white|#fff(?:ffff)?)/i, "the mermaid container is not white");
+  for (const theme of ["dark", "black"]) {
+    const { tokens, config } = mermaidNight(css, theme);
+    assert.equal(config.themeVariables.background, tokens["--paper"], `${theme} mermaid draws on the page paper`);
+    assert.equal(config.themeVariables.textColor, tokens["--ink"], `${theme} mermaid text reads on its fill`);
+  }
 });
 
-test("interactive components use legible theme surfaces and light islands", () => {
+test("interactive components use legible theme surfaces, with no light islands", () => {
   const kit = readFileSync(join(import.meta.dirname, "kit/kit.css"), "utf8");
   const studio = readFileSync(join(import.meta.dirname, "../../studio/ui/studio.css"), "utf8");
   const sandbox = { window: null };
@@ -129,7 +157,13 @@ test("interactive components use legible theme surfaces and light islands", () =
   const primary = studio.match(/\.deck-controls \.btn\.primary, \.deck > \.finale \.btn\.primary \{[^}]*background: (#\w+); color: (#\w+)/);
   assert.ok(primary);
   assert.ok(contrast(primary[1] === "#fff" ? "#ffffff" : primary[1], primary[2]) >= 4.5);
-  assert.match(kit, /pre\.mermaid \{ --ink: #0F2E3D; background: #fff; color: var\(--ink\)/);
+  const app = readFileSync(join(import.meta.dirname, "view/app.js"), "utf8");
+  assert.match(app, /LkMermaidTheme\.initialize\(\)/, "the reader themes mermaid with the kit, not with a CSS white paper");
+  const { tokens, config } = mermaidNight(kit, "black");
+  assert.equal(config.themeVariables.background, "#000000", "the mermaid night paper is neutral black");
+  assert.equal(config.themeVariables.background, tokens["--paper"], "the black paper comes from the page token");
+  assert.equal(config.themeVariables.primaryTextColor, tokens["--ink"], "night text reads on its fill");
+  assert.notEqual(config.themeVariables.background.toLowerCase(), "#ffffff", "no white mermaid island");
 });
 
 // A reader figure is drawn from the note's scene by the visual engine. The
@@ -151,7 +185,8 @@ test("the figure renderer runs as a classic script and names tones, not colours"
 // #207: the learner read the annotated formula on the black paper and the figure
 // had no sheet at all — dark ink on black. The two night themes were written as
 // one selector list, so each rule applied to only half of them: `lk-scene` got
-// its paper in dark and lost it in black.
+// its paper in dark and lost it in black. Mermaid no longer keeps a light
+// sheet: the kit theme paints it with the same night paper.
 const ruleBody = (css, head) => {
   const at = css.indexOf(head);
   return at === -1 ? null : css.slice(at + head.length, css.indexOf("}", at));
@@ -160,8 +195,8 @@ const ruleBody = (css, head) => {
 // #209: the story followed the night paper while a still scene stayed a white island
 // right above it. A scene is one surface with the page: in both night themes its stage
 // paints with the page paper and its tones are remapped for contrast, and the remap is
-// one selector list so neither night theme is left without it. A mermaid diagram keeps
-// its own light sheet.
+// one selector list so neither night theme is left without it. A mermaid diagram
+// follows the page's night paper through the kit theme.
 test("a scene follows both night papers: remapped tones, no white island", () => {
   const css = readFileSync(join(import.meta.dirname, "kit", "kit.css"), "utf8");
   const night = ':root:is([data-theme="dark"], [data-theme="black"])';
@@ -174,6 +209,12 @@ test("a scene follows both night papers: remapped tones, no white island", () =>
     assert.ok(remap.some((rule) => rule.includes(tone) && /fill:var\(--k-/.test(rule)), `el tono ${tone} se remapea`);
     assert.match(css, new RegExp(`--k-[a-z]+:${ink}`, "i"), `${ink} es la tinta de noche de ${tone}`);
   }
-  const mermaid = ruleBody(css, `${night} pre.mermaid {`);
-  assert.ok(mermaid && /background: #fff/.test(mermaid) && /color: var\(--ink\)/.test(mermaid), "el diagrama de mermaid conserva su hoja clara");
+  assert.equal(ruleBody(css, `${night} pre.mermaid {`), null, "el diagrama de mermaid ya no conserva su hoja clara");
+  const sheets = [...css.matchAll(/pre\.mermaid \{([^}]*)\}/g)].map(([, body]) => body);
+  assert.doesNotMatch(sheets.at(-1), /background:\s*(?:white|#fff(?:ffff)?)/i, "el contenedor de mermaid no pinta una hoja blanca");
+  for (const theme of ["dark", "black"]) {
+    const { tokens, config } = mermaidNight(css, theme);
+    assert.equal(config.themeVariables.background, tokens["--paper"], `mermaid usa el papel de la página en ${theme}`);
+    assert.equal(config.themeVariables.primaryTextColor, tokens["--ink"], `la tinta de mermaid lee sobre el papel de ${theme}`);
+  }
 });

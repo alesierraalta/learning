@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 4b. El lenguaje de historia: la parte dibuja su recorrido con `<lk-story>` o con
 // una pieza, nunca solo con el `<lk-walkthrough>` clásico, cuyas cajas y flechas
 // libres se dibujan mal (#237). Una escena o un SVG no lo sustituyen. El motor
@@ -5,12 +6,15 @@
 // y un test cruza los dos veredictos. El código en un bloque cercado es un ejemplo
 // de marcado, no un dibujo: el motor lo ignora y aquí también.
 import { PIEZAS } from '../nota.mjs';
-import { HINTS } from '../hints.mjs';
 
 export default {
   id: 'historia',
   hint: HINTS['historia'],
-  check({ sinCodigo }) {
+  check({ sinCodigo, usaFigurasDePaso }) {
+    // Un elemento nuevo es el recorrido de la parte: el motor devuelve nil en
+    // `storyLanguageFindings` cuando no hay ninguna figura antigua a la que
+    // seguirle la regla (`usesStepFigures`).
+    if (usaFigurasDePaso) return { ok: true, detail: '' };
     const historias = (sinCodigo.match(/<lk-story[\s>]/g) || []).length;
     const piezasDibujadas = (sinCodigo.match(new RegExp(`<lk-(?:${PIEZAS})[\\s>]`, 'g')) || []).length;
     const lenguajeDeHistoria = historias + piezasDibujadas > 0;

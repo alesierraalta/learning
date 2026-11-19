@@ -3283,6 +3283,24 @@ test("visuals count an lk-figure scene with content, never an empty one", () => 
   assert.equal(countVisuals(`<svg><circle cx="1" cy="1" r="1"/></svg>${compact}`), 2);
 });
 
+test("the new step figures count as visuals without losing the old ones", () => {
+  const block = (tag, payload) => `<${tag}>\n<script type="application/json">${payload}</script>\n</${tag}>\n`;
+  const cases = [
+    ["lk-stage", '{"question":"¿Qué pasa?","focus":"pasa","actors":[{"id":"a","kind":"block","cell":"A1","name":"A","color":"#123456"}],"lanes":[],"steps":[{}]}'],
+    ["lk-codestep", '{"title":"Bucle","language":"python","code":["x = 1"],"steps":[{"line":1,"state":{},"narrator":["Empieza."]}]}'],
+    ["lk-tablestep", '{"title":"Filas","tables":{"t":{"columns":["id"],"rows":[{"id":"r1","cells":{"id":"r1"}}]}},"steps":[{"op":"select","table":"t","columns":["id"]}]}'],
+    ["lk-guided", '{"form":"formula","kicker":"K","question":"¿Cuánto?","steps":[{"blocks":[{"kind":"note","text":"Respuesta."}]}]}'],
+    ["lk-lanes", '{"form":"timeline","kicker":"K","question":"¿Cuándo?","timeUnit":"día","timeMax":4,"lanes":[{"id":"a","name":"A"}],"items":[{"id":"i","lane":"a","label":"Paso","start":0,"end":2}],"steps":[{}]}'],
+  ];
+  for (const [tag, payload] of cases) {
+    assert.equal(countVisuals(block(tag, payload)), 1, `${tag} draws a figure`);
+    assert.equal(countVisuals(block(tag, '{"title":"vacío"}')), 0, `${tag} without its payload is not a visual`);
+    assert.equal(countVisuals(`\`\`\`text\n${block(tag, payload)}\n\`\`\``), 0, `${tag} in a sample is not a visual`);
+  }
+  assert.equal(countVisuals(cases.map(([tag, payload]) => block(tag, payload)).join("\n")), cases.length);
+  assert.equal(countVisuals(block("lk-figure", '{"grids":[{"cols":1,"rows":1,"w":9,"h":9,"cells":[{"c":0,"r":0}]}]}')), 1, "the old figure still counts");
+});
+
 test("a topic reports what it still owes: missing parts, promised visuals and missing quiz", () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "gaps-")));
   const topic = join(root, "tema");
@@ -3566,6 +3584,8 @@ test("the part page ships the kit stylesheet and scripts for the note's own elem
   assert.match(page.body, /<link rel="stylesheet" href="[^"]*kit\/kit\.css\?v=\d+">/, "kit.css must load before app.css");
   assert.match(page.body, /kit\/scene\.js\?v=\d+/, "scene.js must load so a deck can be drawn");
   assert.match(page.body, /kit\/kit\.js\?v=\d+/, "kit.js must load so the custom elements upgrade");
+  assert.match(page.body, /kit\/stage\.css\?v=\d+/, "stage.css must load with the kit stylesheet");
+  assert.match(page.body, /kit\/stage\.js\?v=\d+/, "stage.js must load so lk-stage upgrades");
   const kitAt = page.body.indexOf("kit/kit.css");
   const appAt = page.body.indexOf("app.css");
   assert.ok(kitAt !== -1 && appAt !== -1 && kitAt < appAt, "kit.css comes first, app.css refines it");
@@ -4364,7 +4384,11 @@ const PIECE_ASSERTS = {
 const PIECE_EXAMPLES = [["bayes-mil-personas", "bayes-mil-personas.md"], ["prestamos-rust", "prestamos-rust.md"], ["memoria-string-rust", "memoria-string-rust.md"], ["sql-join-videojuegos", "sql-join-videojuegos.md"], ["sql-group-by", "sql-group-by.md"], ["sql-venn-joins", "sql-venn-joins.md"], ["plsql-parte-1-v3", "../test/fixtures/plsql-parte-1-v3.md"]];
 // Every kit example that draws lk-tables is in the matrix, so a new one cannot skip the phone width.
 test("every kit example that draws lk-tables is in the visual matrix", () => {
-  const drawn = readdirSync(KIT_EXAMPLES).filter((file) => example(file).includes("lk-tables"));
+  const drawn = readdirSync(KIT_EXAMPLES, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    // `lk-tablestep` is a different element: match the whole tag name.
+    .filter((file) => /<lk-tables[\s>]/.test(example(file)));
   assert.ok(drawn.length >= 1, "no kit example draws lk-tables");
   for (const file of drawn) assert.ok(PIECE_EXAMPLES.some(([, owner]) => owner === file), `${file} draws lk-tables but is not in the piece matrix`);
 });

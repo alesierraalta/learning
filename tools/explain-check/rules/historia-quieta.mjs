@@ -34,7 +34,10 @@ const senalesDeLaHistoria = (steps) => {
 export default {
   id: 'historia-quieta',
   hint: HINTS['historia-quieta'],
-  check({ historiasSpecs }) {
+  check({ historiasSpecs, usaFigurasDePaso }) {
+    // El motor salta `storyMotionFindings` cuando la parte es solo de elementos
+    // nuevos: cada uno trae su propio avance en la spec.
+    if (usaFigurasDePaso) return { ok: true, detail: '' };
     const historiasQuietas = historiasSpecs.filter((spec) => {
       const steps = spec.steps || [];
       if ((spec.kind || '') !== 'derivation' || steps.length < 2) return false;

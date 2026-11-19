@@ -13,7 +13,8 @@ export default {
   id: 'falta-foco',
   hint: HINTS['falta-foco'],
   authoringOnly: true,
-  check({ bloquesDeRecorrido }) {
+  check({ bloquesDeRecorrido, usaFigurasDePaso }) {
+    if (usaFigurasDePaso) return { ok: true, detail: '', items: [] };
     const sinAnillo = bloquesDeRecorrido.filter((b) => b.pasos.filter((paso) => pasoGrafico(b, paso)).length >= 3 && !conAnillo(b.pasos));
     return {
       ok: sinAnillo.length === 0,

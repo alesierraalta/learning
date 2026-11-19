@@ -12,7 +12,10 @@ const cabeceraDe = (spec, step) => ((spec.kind === 'derivation' ? step?.equation
 export default {
   id: 'historia-cabecera',
   hint: HINTS['historia-cabecera'],
-  check({ src, formulas, dibujadas, planas, historiasSpecs }) {
+  check({ src, formulas, dibujadas, planas, historiasSpecs, usaFigurasDePaso }) {
+    // El motor salta `storyHeaderFindings` en las partes escritas solo con los
+    // elementos nuevos: la línea activa va en la spec de cada paso.
+    if (usaFigurasDePaso) return { ok: true, detail: '' };
     // La parte muestra código o una fórmula: un bloque cercado, una fórmula dibujada,
     // `<lk-math>` o LaTeX plano. Es lo que la cabecera del recorrido tiene que llevar.
     const muestraCodigoOFormula = /```[\s\S]*?```/.test(src) || formulas.length + dibujadas.length + planas.length > 0;

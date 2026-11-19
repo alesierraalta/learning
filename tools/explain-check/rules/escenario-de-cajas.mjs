@@ -1,10 +1,10 @@
+import { HINTS } from '../hints.mjs';
 // 7f. La escena quieta se mide con el mismo rasero que el escenario del recorrido
 // (#245): una `<lk-scene>` que solo dibuja cajas con su texto y flechas es «dos
 // cajas y una flecha», el defecto que el alumno rechazó. Una pieza, un personaje,
 // un icono suelto (el de una caja es su adorno, #273), una curva, una fórmula o un
 // callout la salvan; el motor aplica la misma regla (`sceneStageFindings`).
 import { declara } from '../nota.mjs';
-import { HINTS } from '../hints.mjs';
 
 const VOCABULARIO = ['actors', 'props', 'moves', 'tags', 'icons', 'callouts', 'curves', 'paths', 'formulas', 'formula', 'grids', 'sheets', 'bars', 'stats', 'nodes', 'badges', 'dashed', 'policy', 'arrows'];
 const PIEZAS_DIBUJADAS = ['cards', 'memory', 'tables', 'venn', 'tree'];
@@ -34,7 +34,10 @@ const pasoDibujaAccion = (step) => {
 export default {
   id: 'escenario-de-cajas',
   hint: HINTS['escenario-de-cajas'],
-  check({ historiasSpecs, escenasSpecs }) {
+  check({ historiasSpecs, escenasSpecs, usaFigurasDePaso }) {
+    // Solo se salta el archivo legacy de historias: una `<lk-scene>` presente
+    // sigue medida por `sceneStageFindings`, como en el motor.
+    if (usaFigurasDePaso) return { ok: true, detail: '' };
     const soloCajas = historiasSpecs.filter((spec) => (spec.steps || []).length > 0 && (spec.steps || []).every((step) => !pasoDibujaAccion(step)));
     const escenasDeCajas = escenasSpecs.filter((spec) => {
       const scene = spec.scene || {};

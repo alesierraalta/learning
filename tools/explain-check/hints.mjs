@@ -83,4 +83,19 @@ export const HINTS = {
   'text-over-arrow': 'mueve la etiqueta fuera del trazo de la flecha.',
   'text-over-text': 'separa los dos textos que se pisan en el paso del mazo.',
   'fact-over-box': 'acorta o mueve el dato para que quepa en su caja.',
+
+  // Reglas que audit-note (#358) introduce al validar la spec de los elementos nuevos.
+  'svg-a-mano': 'borra el SVG escrito a mano y dibuja la figura con Mermaid o con el elemento del contrato que le toca.',
+  'color-sobre-fondo': 'sustituye el rgba por un tono con nombre: el tema del kit lo mezcla con su propio papel.',
+  'spec-sin-json': 'pon un único `<script type="application/json">` directo dentro del elemento con su spec.',
+  'spec-json-invalido': 'corrige la sintaxis del JSON de la spec: el lector no puede dibujar un payload roto.',
+  'spec-invalida': 'corrige la ruta de la spec que nombra el hallazgo con el valor que espera el validador del elemento.',
+  'clave-no-dibujable': 'quita la clave que el motor no conoce y usa solo las del contrato del elemento.',
+  'simbolo-como-caracter': 'sustituye el carácter por la dibujo del motor: `kind: "policy"` con dirección en las celdas, una flecha en las etiquetas.',
+  'celda-tipo-desconocido': 'cambia el `kind` de la celda por uno de los que el motor sabe dibujar.',
+  'politica-sin-direccion': 'da a la celda de política su `dir` (up, down, left o right).',
+  'figura-json-invalida': 'corrige el JSON de la figura para que el motor pueda dibujarla.',
+  'figura-no-objeto': 'escribe la figura como un objeto JSON, no como una lista ni un valor suelto.',
+  'figura-sin-dibujo': 'añade a la figura algo que el motor dibuje: una celda, una flecha, una caja, una etiqueta o una barra.',
+  'audit-note': 'corrige la violación que imprime audit-note en la línea que nombra y vuelve a correr part-check.',
 };
