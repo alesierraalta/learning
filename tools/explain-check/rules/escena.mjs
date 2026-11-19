@@ -7,7 +7,10 @@
 // tope. El motor cuenta igual (`pieceOpenCount` en `internal/engine/pieces.go`).
 export default {
   id: 'escena',
-  check({ escenas }) {
+  check({ escenas, usaFigurasDePaso }) {
+    // `sceneFindings` no aplica el presupuesto de una escena a una parte escrita
+    // solo con los elementos nuevos; cada uno es su propia escena dibujada.
+    if (usaFigurasDePaso) return { ok: true, detail: `${escenas} escena(s) legada(s)` };
     return { ok: escenas <= 1, detail: `${escenas} escena(s)` };
   },
 };

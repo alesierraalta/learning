@@ -7,7 +7,8 @@ const tieneResumen = (spec) => Boolean(spec.summary) && typeof spec.summary === 
 export default {
   id: 'falta-resumen',
   authoringOnly: true,
-  check({ bloquesDeRecorrido }) {
+  check({ bloquesDeRecorrido, usaFigurasDePaso }) {
+    if (usaFigurasDePaso) return { ok: true, detail: '', items: [] };
     const sinResumen = bloquesDeRecorrido.filter((b) => b.pasos.length >= 3 && !tieneResumen(b.spec));
     return {
       ok: sinResumen.length === 0,

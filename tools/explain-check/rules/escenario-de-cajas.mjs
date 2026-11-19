@@ -32,7 +32,10 @@ const pasoDibujaAccion = (step) => {
 
 export default {
   id: 'escenario-de-cajas',
-  check({ historiasSpecs, escenasSpecs }) {
+  check({ historiasSpecs, escenasSpecs, usaFigurasDePaso }) {
+    // Solo se salta el archivo legacy de historias: una `<lk-scene>` presente
+    // sigue medida por `sceneStageFindings`, como en el motor.
+    if (usaFigurasDePaso) return { ok: true, detail: '' };
     const soloCajas = historiasSpecs.filter((spec) => (spec.steps || []).length > 0 && (spec.steps || []).every((step) => !pasoDibujaAccion(step)));
     const escenasDeCajas = escenasSpecs.filter((spec) => {
       const scene = spec.scene || {};

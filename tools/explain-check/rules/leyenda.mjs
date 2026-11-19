@@ -20,7 +20,10 @@ const LETRAS_CONSTANTES = new Set(['π', 'Π', 'ϖ']);
 
 export default {
   id: 'leyenda',
-  check({ src, formulas, dibujadas, planas }) {
+  check({ src, formulas, dibujadas, planas, usaFigurasDePaso }) {
+    // `legendFindings` calla con los elementos nuevos: cada símbolo se nombra
+    // dentro de su propia spec, no en una leyenda de la prosa.
+    if (usaFigurasDePaso) return { ok: true, detail: '' };
     const simbolos = new Set();
     for (const f of formulas.concat(dibujadas).concat(planas)) {
       for (const m of f.match(/\\[A-Za-z]+/g) || []) {

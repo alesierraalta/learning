@@ -8,7 +8,9 @@ import { preferenciasDe } from '../../register/preferencias.mjs';
 
 export default {
   id: 'registro',
-  check({ src, sinCodigo, esPagina }, { file }) {
-    return hallazgosDeRegistro(esPagina ? sinCodigo : src, umbralesDe(preferenciasDe(file)));
+  check({ sinFiguras }, { file }) {
+    // La spec de un elemento nuevo se mira, no se lee; contarla como prosa
+    // hacía que el registro midiera las palabras del JSON como términos nuevos.
+    return hallazgosDeRegistro(sinFiguras, umbralesDe(preferenciasDe(file)));
   },
 };
