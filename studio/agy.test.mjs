@@ -61,10 +61,9 @@ test("a second turn resumes the conversation the first one opened", async () => 
   }
 });
 
-// El preámbulo del estudio es lo único que Antigravity recibe en cada turno: si el
-// lenguaje de historia no está ahí, el modelo vuelve al `<lk-walkthrough>` clásico
-// y el motor rechaza la parte (#237). La línea apunta a la regla, no la repite.
-test("the studio preamble points at the story language, and names the classic walkthrough as legacy", async () => {
+// El contrato de figuras no vive en el preámbulo de un runtime: cada agente lo hereda
+// del mismo mensaje del estudio, y aquí solo viajan las reglas de Antigravity (#361).
+test("the Antigravity preamble prescribes no legacy figures and no authoring standard", async () => {
   const dir = mkdtempSync(join(tmpdir(), "agy-preamble-"));
   const log = join(dir, "turns.log");
   process.env.FAKE_AGY_TURNS = log;
@@ -82,22 +81,20 @@ test("the studio preamble points at the story language, and names the classic wa
     agy.prompt("escribe la parte 1");
     await until(() => settled === 1);
     const prompt = turns(log)[0].join(" ");
-    assert.match(prompt, /lenguaje de historia/);
-    assert.match(prompt, /<lk-story>/);
-    assert.match(prompt, /<lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>/);
-    assert.match(prompt, /<lk-walkthrough> clásico no cuentan/);
-    assert.match(prompt, /el motor rechaza la parte que no trae historia ni pieza/);
-    assert.match(prompt, /explicacion-interactiva/);
-    assert.match(prompt, /técnico en el contenido, sencillo en la forma/);
-    assert.match(prompt, /se explica en palabras llanas donde aparece/);
+    assert.doesNotMatch(prompt, /lenguaje de historia/);
+    assert.doesNotMatch(prompt, /<lk-story>/);
+    assert.doesNotMatch(prompt, /<lk-cards>, <lk-memory>, <lk-tables>, <lk-venn>/);
+    assert.doesNotMatch(prompt, /<lk-walkthrough> clásico no cuentan/);
+    assert.doesNotMatch(prompt, /el motor rechaza la parte que no trae historia ni pieza/);
+    assert.doesNotMatch(prompt, /técnico en el contenido, sencillo en la forma/);
   } finally {
     delete process.env.FAKE_AGY_TURNS;
   }
 });
 
-// La nota es lo que la persona lee (#265): el preámbulo de cada turno dice que no se escribe un .html
-// aparte para una parte, y la página rica de #261 ya no se pide.
-test("the studio preamble says the note is what the learner reads, with no separate page for a part", async () => {
+// La nota es lo que la persona lee (#265): esa regla vive en el AGENTS.md del vault,
+// no en el preámbulo de un runtime, que solo lleva lo específico de Antigravity.
+test("the Antigravity preamble leaves the note rule to the shared vault context", async () => {
   const dir = mkdtempSync(join(tmpdir(), "agy-nota-"));
   const log = join(dir, "turns.log");
   process.env.FAKE_AGY_TURNS = log;
@@ -115,8 +112,7 @@ test("the studio preamble says the note is what the learner reads, with no separ
     agy.prompt("escribe la parte 1");
     await until(() => settled === 1);
     const prompt = turns(log)[0].join(" ");
-    assert.match(prompt, /la nota[^.]*lo que la persona lee/i);
-    assert.match(prompt, /no escribas un \.html aparte para una parte/i);
+    assert.doesNotMatch(prompt, /no escribas un \.html aparte para una parte/i);
     assert.doesNotMatch(prompt, /página rica/i);
   } finally {
     delete process.env.FAKE_AGY_TURNS;
