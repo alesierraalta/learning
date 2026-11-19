@@ -38,6 +38,7 @@ import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio } from "../integratio
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { ROOT_UNSET, resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
+import { partBrief } from "./brief.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
@@ -1517,7 +1518,13 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       holdTurn(session, started);
       try {
         if (spec.backup) started.regeneration = spec.backup();
-        const prompt = await started.timing.measure("contexto", () => withLecciones(namedPart(text), root));
+        // The learner's words stay first; a write-part turn also carries the facts the
+        // tutor would otherwise discover with ls/find/reads. Both runtimes get the same prompt.
+        const prompt = await started.timing.measure("contexto", () => {
+          const base = withLecciones(namedPart(text), root);
+          const brief = partBrief(root, text);
+          return brief ? `${base}\n\n${brief}` : base;
+        });
         await deliver(session, prompt, started);
       } catch (error) {
         releaseTurn(session, started);
