@@ -78,6 +78,21 @@ const notices = () => {
 };
 const spoken = notices();
 
+/** Extra tool events a timing test scripts, as a flat list or one list per turn. */
+const scriptedTools = () => {
+  if (!process.env.FAKE_PI_TOOLS) return [];
+  try {
+    const parsed = JSON.parse(process.env.FAKE_PI_TOOLS);
+    return Array.isArray(parsed[0]) ? parsed : [parsed];
+  } catch (error) {
+    process.stderr.write(`FAKE_PI_TOOLS is not JSON: ${error.message}\n`);
+    process.exit(2);
+  }
+};
+const tools = scriptedTools();
+/** Tool durations are real waits, so a report can be checked against a clock instead of a guess. */
+const wait = (ms) => { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+
 const run = (message) => {  out({ type: "agent_start" });
   out({ type: "message_start", message: { role: "user", content: message } });
   out({ type: "message_start", message: { role: "assistant", content: [] } });
@@ -91,6 +106,14 @@ const run = (message) => {  out({ type: "agent_start" });
       writeFileSync(path, content);
     }
     out({ type: "tool_execution_end", toolCallId: `t${i + 1}`, toolName: "write", isError });
+  });
+  (tools[Math.min(turn - 1, tools.length - 1)] ?? []).forEach((tool, i) => {
+    const id = `x${turn}-${i + 1}`;
+    const name = String(tool.name);
+    wait(Number(tool.leadMs) || 0);
+    out({ type: "tool_execution_start", toolCallId: id, toolName: name, args: tool.args ?? {} });
+    wait(Number(tool.ms) || 0);
+    out({ type: "tool_execution_end", toolCallId: id, toolName: name, isError: tool.isError === true });
   });
   out({ type: "extension_ui_request", id: "set-status", method: "setStatus", statusKey: "x", statusText: "y" });
   spoken.forEach((message, i) => out({ type: "extension_ui_request", id: `n${i + 1}`, method: "notify", message, notifyType: "info" }));

@@ -1,8 +1,10 @@
 // 7h (b). La cabecera es la línea de código o la fórmula, nunca un esquema de flechas.
 import { FLECHAS_DE_TEXTO } from '../nota.mjs';
+import { HINTS } from '../hints.mjs';
 
 export default {
   id: 'cabecera-con-flechas',
+  hint: HINTS['cabecera-con-flechas'],
   check({ historiasSpecs, escenasSpecs }) {
     const conFlechas = [];
     for (const spec of historiasSpecs) {

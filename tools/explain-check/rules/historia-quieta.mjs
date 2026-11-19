@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7h (a). El recorrido se mueve: una historia de derivación cuyos pasos no mueven
 // nada —ni un `moves`, ni un cambio de estado, ni una pieza que cambie, ni un
 // puntero— es la misma foto tres veces. Una historia de fórmula no entra: su
@@ -32,6 +33,7 @@ const senalesDeLaHistoria = (steps) => {
 
 export default {
   id: 'historia-quieta',
+  hint: HINTS['historia-quieta'],
   check({ historiasSpecs, usaFigurasDePaso }) {
     // El motor salta `storyMotionFindings` cuando la parte es solo de elementos
     // nuevos: cada uno trae su propio avance en la spec.

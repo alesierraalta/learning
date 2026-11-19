@@ -172,3 +172,17 @@ test('extractProse: una línea de fuente no es prosa, pero una frase que empieza
   assert.match(prose, /Fuente de datos es la tabla que consultas\./, 'una frase que empieza por «Fuente» sigue siendo prosa');
   assert.equal(measureText(text).sentences, 2, 'la fuente no cuenta como frase');
 });
+
+test('un término sin explicar se localiza: nombre y línea de su primera aparición en prosa', () => {
+  const text = [
+    'Imagina un robot en la sala.',
+    'La sesión ejecuta código secuencial en el buffer de la memoria.',
+    'Después el motor los escribe en disco.',
+  ].join('\n');
+  const m = measureText(text);
+  const term = m.unexplained.find((item) => item.term.toLowerCase() === 'buffer');
+  assert.ok(term, 'el buffer es un término sin explicar');
+  assert.equal(term.line, 2, 'la línea se cuenta desde el principio del texto, no desde la prosa recortada');
+  assert.match(term.sentence, /buffer/, 'el hallazgo nombra la frase donde aparece');
+  assert.equal(m.words, measureText(text).words, 'localizar no cambia la medida');
+});

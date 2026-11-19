@@ -37,6 +37,7 @@ const STUDIO_CONTRACT = [
   "El método (pareto o preferencias) es la pregunta de la página del tema: nunca lo registres tú (no corras `learning method` ni `learning_stage` con action method) ni sigas a la Parte 1 en el mismo turno. Si el motor pide el método, dile a la persona que elija en la página del tema y termina el turno.",
   "Cuando señales una parte, usa su nombre en el estudio («Ir a Parte N»), nunca un enlace `file://` ni una ruta del sistema de archivos: en el estudio no abren nada.",
   "Reply in neutral Spanish with tú, never voseo (escribe, responde, mira; never escribí, respondé, mirá, acá).",
+
 ].join("\n");
 
 /** agy's file tools under the names the studio offers notes and topics from. */

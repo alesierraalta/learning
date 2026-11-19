@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7c. La primera fórmula de la parte se enseña con un recorrido de fórmula: paso
 // 1 la fórmula entera, un paso por símbolo con qué es, para qué se usa y cuánto
 // vale en el ejemplo, y el último con los números sustituidos y su resultado. Un
@@ -39,6 +40,7 @@ const primeraFormula = (plain) => {
 
 export default {
   id: 'formula-walkthrough',
+  hint: HINTS['formula-walkthrough'],
   check({ sinCodigo, usaFigurasDePaso }) {
     // El motor salta `formulaWalkthroughFindings` cuando la parte trae solo
     // elementos nuevos: la fórmula se enseña en la spec de `<lk-guided>`.

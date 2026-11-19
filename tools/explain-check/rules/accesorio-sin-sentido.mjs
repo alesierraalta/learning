@@ -1,11 +1,13 @@
 // 7i (c). El icono de leer o escribir (#261): el ojo y el lápiz dicen algo solo si el texto de
 // la tarjeta habla de leer o de escribir. Un icono sin esa palabra es un adorno.
 import { normaTexto } from '../nota.mjs';
+import { HINTS } from '../hints.mjs';
 
 const LEER_O_ESCRIBIR = /\b(leer|lee|leen|lectura|lector\w*|escrib\w*|escritura|escritor\w*|modific\w*|read\w*|write\w*)\b/;
 
 export default {
   id: 'accesorio-sin-sentido',
+  hint: HINTS['accesorio-sin-sentido'],
   check({ tarjetas }) {
     const iconoSinSentido = tarjetas.map((c) => {
       const icono = (c?.draw?.refs || []).find((r) => r?.icon === 'read' || r?.icon === 'write');

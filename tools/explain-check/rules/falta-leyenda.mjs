@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7j (#305). Una fórmula o una derivación (`lk-story` de `kind` formula o derivation) trae `facts` en algún
 // paso: es su leyenda de símbolos, la que dice qué es cada símbolo. Es una regla de autoría (`authoringOnly`).
 // El motor aplica la misma regla (`faltaLeyendaFindings` en `internal/engine/standard_falta_leyenda.go`).
@@ -6,6 +7,7 @@ const conLeyenda = (pasos) => pasos.some((paso) => Array.isArray(paso?.facts) &&
 
 export default {
   id: 'falta-leyenda',
+  hint: HINTS['falta-leyenda'],
   authoringOnly: true,
   check({ bloquesDeRecorrido }) {
     const sinLeyenda = bloquesDeRecorrido.filter((b) => esFormula(b) && !conLeyenda(b.pasos));

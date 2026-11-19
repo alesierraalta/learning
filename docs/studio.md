@@ -162,6 +162,38 @@ already names:
 | `tools/explain-check.mjs` | the whole standard, rule by rule (it measures the figure again through `scene-lint`) |
 | `tools/page-gate.mjs` | the whole page in the real reader: black × wide and light × phone, every `<lk-story>` step drawn, with visible ink inside its stage, its narrator and player visible, no box over the next block, nothing off the page and no page error |
 
+The tutor runs all of them, plus `part-lint`, the register measurement on the note's text and the
+skill's ASCII-arrow grep, with **one command**:
+
+```bash
+node tools/part-check.mjs "<tema>/explicaciones/Parte N - <slug>.md"        # human-readable
+node tools/part-check.mjs "<tema>/explicaciones/Parte N - <slug>.md" --json # machine output
+node tools/part-check.mjs --rules                                            # generated rule sheet
+node tools/part-check.mjs --rules --compact                                  # id + requirement only
+```
+
+The rule sheet is generated from `tools/explain-check/rules/`, the register rules
+and `tools/explain-check/hints.mjs` — never from a hand-maintained list. A test
+compares its ids with those sources, so a rule cannot be added, removed or
+renamed without changing the sheet. The write-part prompt carries the sheet in
+its `PART BRIEF` (the compact form when the full one would exceed the brief's
+12288-byte bound), so the tutor's order is: read the brief → write the whole
+part → run part-check once → fix only what its findings name → re-run
+part-check. It does not read rule files, gate or kit source, or the register
+scorer before writing, and does not probe scorers with `node -e`.
+
+It calls `runPartChecks` from `studio/checks.ts` (and its `PART_TOOLS`) for the five gates above,
+so the verdicts and gate order stay the studio's; the CLI only parses their output and adds the
+three checks the studio does not run. Findings are grouped per gate and each carries the rule id,
+where (line, element or scene), the gate's message and a one-line fix hint read from the rule
+definition (`tools/explain-check/hints.mjs` and the rules in `tools/explain-check/rules/`). The
+register row is reported as a measurement with no verdict; its findings now name
+each unexplained term and the line of its first appearance, without changing
+what counts as unexplained or the threshold. Gates that could not measure are
+printed apart from findings, on stderr as well as in the JSON's `failures`. Exit `0` means every
+gate passed, `1` means findings, `2` means a measurement failed; the tutor repairs and reruns until
+it gets `0`, without reading gate or kit source.
+
 `scene-gate` runs first: a figure drawn past the edge of its own canvas is clipped in the reader no
 matter how well its pieces live together, so the learner hears about that before the rest.
 `page-gate` runs last, after the four figure tools: it opens the part as the reader really serves
@@ -203,7 +235,7 @@ JSON document with the same shape every time, so two generations are compared by
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,                                // the added tool detail; the v1 fields keep their meaning
   "startedAt": "2026-11-12T18:27:31.112Z",   // the accepted turn, ISO-8601
   "finishedAt": "2026-11-12T18:27:31.165Z",
   "tutor": "pi",                              // or "agy": the runtime that ran the turn
@@ -211,8 +243,15 @@ JSON document with the same shape every time, so two generations are compared by
   "topic": "redes",
   "modelCalls": 2,                            // how many prompts the studio sent
   "calls": [
-    { "n": 1, "reason": "turn", "inputChars": 753, "outputChars": 29, "ms": 26, "ok": true },
-    { "n": 2, "reason": "engine-correction", "inputChars": 334, "outputChars": 29, "ms": 14, "ok": true }
+    { "n": 1, "reason": "turn", "inputChars": 753, "outputChars": 29, "ms": 26, "ok": true,
+      "tools": [
+        { "name": "bash", "startMs": 2, "ms": 12, "ok": true, "engine": true },
+        { "name": "write", "startMs": 17, "ms": 3, "ok": true, "engine": false }
+      ],
+      "modelMs": 11 },
+    { "n": 2, "reason": "engine-correction", "inputChars": 334, "outputChars": 29, "ms": 14, "ok": true,
+      "tools": [ { "name": "write", "startMs": 1, "ms": 9, "ok": true, "engine": false } ],
+      "modelMs": 5 }
   ],
   "phases": [                                  // ms and times, the code's own phases
     { "name": "contexto", "ms": 2, "times": 1 },
@@ -222,6 +261,10 @@ JSON document with the same shape every time, so two generations are compared by
   ],
   "absent": [ /* phases a generation does not have, each with its reason */ ],
   "parts": [ { "path": "redes/explicaciones/Parte 1 - Capas.md", "bytes": 5 } ],
+  "toolCount": 3,                              // executions, not distinct tools
+  "toolMs": 24,                                // total time inside tools
+  "modelGapMs": 16,                            // total time outside tools, inside the calls
+  "engineRoundTrips": 1,
   "totalMs": 53
 }
 ```
@@ -238,6 +281,37 @@ The phases are the ones the code really has, and nothing else is invented:
 `tutor` aparece cuando hubo al menos una llamada, y `times` es exactamente `modelCalls`. El motor se
 pregunta una vez por settle; las comprobaciones de la parte se corren una sola vez, en el settle que
 el motor da por cerrado. Un turno que escribió ninguna parte no deja reporte: no hubo página.
+
+Cada `calls[]` lleva ahora `tools[]`: una entrada por ejecución de herramienta que el runtime informó
+(`tool_execution_start` / `tool_execution_end`, tanto en Pi como en Antigravity), con su `name`, su
+`startMs` desde el comienzo de esa llamada, su `ms` de duración y su `ok`. `modelMs` es el tiempo de
+la llamada en que **ninguna** herramienta estaba corriendo: incluye el tramo anterior a la primera,
+los intervalos entre herramientas y el posterior a la última. Por eso `sum(tools[].ms) + modelMs`
+es el `ms` de la llamada, y `modelGapMs` suma esos huecos de todas las llamadas. `toolCount`,
+`toolMs` y `engineRoundTrips` son los totales del reporte. Ningún campo anterior cambió de nombre ni
+de significado; solo se subió `version` a 2 porque el documento creció.
+
+`engine: true` no se adivina: se cuenta una ida y vuelta al motor solo cuando la herramienta lo
+identifica por su nombre (`learning_stage` o `learning_view`, las herramientas del bridge) o cuando
+una herramienta de shell (`bash`, `sh`, `shell`, `exec`, `exec_command`, `run_command`,
+`execute_command`, `terminal`, `cmd`) lleva en `command`, `cmd`, `commandLine` o `command_line` un
+comando que **invoca** `learning` o una ruta que termina en `bin/learning` al principio de un comando
+(o tras `;`, `&&`, `||`, `|`, `$()` o una comilla invertida, con `sudo`/`env` opcionales). Nombres y
+claves de argumento se comparan sin distinción de mayúsculas, porque Antigravity los escribe con su
+propia convención. Un `write`
+cuya ruta mencione `bin/learning`, un `echo bin/learning` o la palabra `learning` en otro argumento
+no cuentan: el conteo sale del nombre y los argumentos de la herramienta, nunca del prompt ni de la
+página.
+
+Para leer un directorio de reportes, por reporte y agregado —total, parte del tutor, herramientas
+con más tiempo, número de ejecuciones, tiempo de hueco del modelo e idas y vueltas al motor—:
+
+```bash
+node studio/timing-summary.mjs ~/.local/state/learning-studio/page-timings
+```
+
+Sin argumento usa `$XDG_STATE_HOME/learning-studio/page-timings`. Los reportes v1 se muestran con
+`n/a` en los datos por herramienta, que no tenían, en lugar de inventarlos.
 
 `absent` nombra las dos fases que la medición pidió y que una generación **no** tiene, con su razón
 en el código (`ABSENT_PHASES`, `studio/runtime.ts`): **`referencias`** — el estudio nunca reescribe la

@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7k (#305). Un recorrido o una historia de tres pasos gráficos (escena SVG, no pieza) tiene un `ring` de
 // texto en algún paso: el id de una pieza de ese paso, que el kit rodea con un anillo. Las historias de piezas
 // (tarjetas, memoria, tablas, conjuntos) no tienen pasos gráficos. Un `focus` no cuenta: en una historia es la
@@ -10,6 +11,7 @@ const conAnillo = (pasos) => pasos.some((paso) => typeof paso?.ring === 'string'
 
 export default {
   id: 'falta-foco',
+  hint: HINTS['falta-foco'],
   authoringOnly: true,
   check({ bloquesDeRecorrido, usaFigurasDePaso }) {
     if (usaFigurasDePaso) return { ok: true, detail: '', items: [] };

@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7i (#305). Un recorrido o una historia de tres pasos o más cierra con su `summary`: la tarjeta de
 // resultados después del último paso. Un recorrido de dos pasos no la pide. Es una regla de autoría
 // (`authoringOnly`): mide lo que el tutor escribe, no lo que el lector ya ve. El motor aplica la misma
@@ -6,6 +7,7 @@ const tieneResumen = (spec) => Boolean(spec.summary) && typeof spec.summary === 
 
 export default {
   id: 'falta-resumen',
+  hint: HINTS['falta-resumen'],
   authoringOnly: true,
   check({ bloquesDeRecorrido, usaFigurasDePaso }) {
     if (usaFigurasDePaso) return { ok: true, detail: '', items: [] };

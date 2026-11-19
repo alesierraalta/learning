@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7f. La escena quieta se mide con el mismo rasero que el escenario del recorrido
 // (#245): una `<lk-scene>` que solo dibuja cajas con su texto y flechas es «dos
 // cajas y una flecha», el defecto que el alumno rechazó. Una pieza, un personaje,
@@ -32,6 +33,7 @@ const pasoDibujaAccion = (step) => {
 
 export default {
   id: 'escenario-de-cajas',
+  hint: HINTS['escenario-de-cajas'],
   check({ historiasSpecs, escenasSpecs, usaFigurasDePaso }) {
     // Solo se salta el archivo legacy de historias: una `<lk-scene>` presente
     // sigue medida por `sceneStageFindings`, como en el motor.

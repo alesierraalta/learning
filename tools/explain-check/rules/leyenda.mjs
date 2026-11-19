@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7b. La leyenda: una fórmula que no nombra sus símbolos no se entiende. Cada símbolo
 // que aparece en una fórmula (latino de una letra o griega) se nombra en las líneas
 // siguientes, en la forma `x` es ... o «x → ...». La fórmula también puede venir
@@ -20,6 +21,7 @@ const LETRAS_CONSTANTES = new Set(['π', 'Π', 'ϖ']);
 
 export default {
   id: 'leyenda',
+  hint: HINTS['leyenda'],
   check({ src, formulas, dibujadas, planas, usaFigurasDePaso }) {
     // `legendFindings` calla con los elementos nuevos: cada símbolo se nombra
     // dentro de su propia spec, no en una leyenda de la prosa.

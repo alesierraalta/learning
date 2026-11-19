@@ -5,6 +5,7 @@
 // JSON, sin navegador, y el motor aplica las mismas reglas con las claves aditivas
 // `markEcho`, `verdictError` y `accessorySense`.
 import { fichas } from '../nota.mjs';
+import { HINTS } from '../hints.mjs';
 
 // Una marca repite una etiqueta cuando sus palabras son las de la etiqueta, o un tramo
 // seguido suyo: «SYN» repite «SYN-ACK» y «servidor» repite «Servidor».
@@ -17,6 +18,7 @@ const repiteEtiqueta = (marca, etiqueta) => {
 
 export default {
   id: 'marca-eco',
+  hint: HINTS['marca-eco'],
   check({ historiasSpecs }) {
     const marcaEco = [];
     for (const spec of historiasSpecs) {

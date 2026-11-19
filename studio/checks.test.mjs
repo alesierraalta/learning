@@ -9,7 +9,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import { findingsOf, runPartChecks } from "./checks.ts";
+import { findingsOf, parsedFindingsOf, runPartChecks } from "./checks.ts";
 
 /** `scene-lint` opens a browser; without one there is nothing to measure and nothing to prove. */
 const browser = await (async () => {
@@ -275,6 +275,43 @@ test("a rich page the turn wrote is measured as a file of its own, with the same
 
 // Un turno que escribe la parte y su página puede nombrar la nota dos veces: cada herramienta la mide
 // una sola vez, y el lector no recibe el mismo hallazgo dos veces (#261).
+// The one-command CLI needs the rule and the offending element, not just the tool's line: the
+// parser below reads the same words `findingsOf` reads, so no verdict is reinterpreted.
+test("a finding is read with its rule, its scene and its own message", () => {
+  const output = `nota.md: escena 2 — La caja en el borde\n  al-borde: rect (a 0u del borde)\nnota.md: pieza s0 — El rotulo\n  letra-diminuta: \"x\" (12px)\n`;
+  assert.deepEqual(parsedFindingsOf("scene-gate.mjs", output).map(({ rule, where, message }) => ({ rule, where, message })), [
+    { rule: "al-borde", where: "escena 2 — La caja en el borde", message: "rect (a 0u del borde)" },
+    { rule: "letra-diminuta", where: "pieza s0 — El rotulo", message: '"x" (12px)' },
+  ]);
+  assert.deepEqual(parsedFindingsOf("scene-gate.mjs", output).map((f) => f.raw), findingsOf("scene-gate.mjs", output));
+});
+
+// The one-command parser reads the detail for its message, but the line handed to the tutor must
+// stay the studio's old line byte for byte: three spaces here are one separator plus two in the
+// gate's own detail. Trimming the message may not trim that line.
+test("an explain-check finding with padded detail keeps the studio's raw line", () => {
+  const output = JSON.stringify({
+    rows: [{ ok: false, rule: "termino-sin-explicar", detail: "  usa  la capa  ", items: [{ linea: 'La «capa» oculta detalles.' }] }],
+  });
+  const raw = "FALLA termino-sin-explicar   usa  la capa";
+  assert.deepEqual(findingsOf("explain-check.mjs", output), [raw]);
+  const [found] = parsedFindingsOf("explain-check.mjs", output);
+  assert.equal(found.raw, raw, "the studio's line is unchanged");
+  assert.equal(found.message, "usa  la capa", "only the parsed message is trimmed");
+});
+
+test("a crash beside findings is kept apart for the one-command report", async () => {
+  const fake = mkdtempSync(join(tmpdir(), "crash-with-findings-"));
+  writeFileSync(join(fake, "scene-gate.mjs"), `console.log(${JSON.stringify("nota.md: escena 1 — X\n  al-borde: rect\n")}); process.exit(1);\n`);
+  writeFileSync(join(fake, "scene-lint.mjs"), "console.error('boom'); process.exit(2);\n");
+  for (const tool of ["deck-gate.mjs", "explain-check.mjs", "page-gate.mjs"]) writeFileSync(join(fake, tool), "process.exit(0);\n");
+  const checked = await runPartChecks([note("con-crash.md", BROKEN)], { toolsDir: fake });
+  assert.equal(checked.kind, "findings");
+  assert.equal(checked.tools[0].findings.length, 1, JSON.stringify(checked));
+  assert.equal(checked.failures.length, 1, JSON.stringify(checked));
+  assert.match(checked.failures[0], /scene-lint\.mjs no pudo medir con-crash\.md/);
+});
+
 test("a note named twice is measured once by each tool", async () => {
   const { runPartChecks } = await import("./checks.ts");
   const { readFileSync } = await import("node:fs");

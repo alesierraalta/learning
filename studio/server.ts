@@ -38,6 +38,7 @@ import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio } from "../integratio
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { ROOT_UNSET, resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
+import { partBrief } from "./brief.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
@@ -87,7 +88,6 @@ import { gateVerdictsFile, warmGateVerdicts } from "../integrations/pi/gate-verd
 import { PASS_STATUSES, gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
 import {
   STUDY_MODES,
-  createPageTiming,
   createSettleGate,
   isStudioPrompt,
   fuentesLine,
@@ -95,9 +95,8 @@ import {
   type CallReason,
   type ExamChoice,
   type ExamFormat,
-  type PageTiming,
-  type PageTimingReport,
 } from "./runtime.ts";
+import { createPageTiming, type PageTiming, type PageTimingReport } from "./timing.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, tutorContext, validateSugerencia, withLecciones } from "./sugerencias.ts";
@@ -904,6 +903,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       case "tool_execution_start": {
         const name = String(record.toolName);
         const id = String(record.toolCallId);
+        // The tool is part of the call in flight, whether the runtime is Pi or Antigravity.
+        session.turn?.timing.startTool(id, name, record.args);
         session.toolArgs.set(id, record.args);
         const note = toolNote(name, record.args, root);
         const topic = toolTopic(name, record.args, root);
@@ -917,6 +918,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         const id = String(record.toolCallId);
         const args = record.args ?? session.toolArgs.get(id);
         session.toolArgs.delete(id);
+        session.turn?.timing.endTool(id, record.isError !== true);
         const note = toolNote(name, args, root);
         const topic = toolTopic(name, args, root);
         // The part notes the turn wrote are measured at its settle: the studio knows them from the
@@ -1520,7 +1522,13 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       holdTurn(session, started);
       try {
         if (spec.backup) started.regeneration = spec.backup();
-        const prompt = await started.timing.measure("contexto", () => withLecciones(namedPart(text), root));
+        // The learner's words stay first; a write-part turn also carries the facts the
+        // tutor would otherwise discover with ls/find/reads. Both runtimes get the same prompt.
+        const prompt = await started.timing.measure("contexto", () => {
+          const base = withLecciones(namedPart(text), root);
+          const brief = partBrief(root, text);
+          return brief ? `${base}\n\n${brief}` : base;
+        });
         await deliver(session, prompt, started);
       } catch (error) {
         releaseTurn(session, started);
@@ -1560,8 +1568,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (!files.length) return null;
     const checkPartsWithVerdicts = options.partChecks ?? ((paths: string[]) => runPartChecks(paths, { gateVerdictsFile: gateStoreFile, gateToolPath: options.gateToolPath }));
     const checked = await checkPartsWithVerdicts(files);
+    // A gate that could not measure is the studio's own failure even when other gates found
+    // something: it never becomes a tutor finding, and it is never silently dropped (#372/T2a).
+    for (const failure of "failures" in checked ? checked.failures : []) {
+      process.stderr.write(`estudio: comprobación fallida · ${failure}\n`);
+    }
     if (checked.kind === "crashed") {
-      for (const failure of checked.failures) process.stderr.write(`estudio: comprobación fallida · ${failure}\n`);
       // A gate that could not measure did not pass: a regeneration keeps the previous version.
       if (settled.regeneration) settled.regeneration.reason ??= "una comprobación no pudo medir la parte";
       return null;

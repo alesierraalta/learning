@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 9. El registro: seis reglas que separan la referencia de lo nuestro (`tools/register/`). Cada una
 // mide con el umbral del nivel que el alumno eligió en sus preferencias; sin preferencias, «más» en
 // los dos ejes, que son los valores de la referencia. Un hallazgo cita la frase y dice cómo reescribirla.
@@ -8,6 +9,7 @@ import { preferenciasDe } from '../../register/preferencias.mjs';
 
 export default {
   id: 'registro',
+  hint: HINTS['registro'],
   check({ sinFiguras }, { file }) {
     // La spec de un elemento nuevo se mira, no se lee; contarla como prosa
     // hacía que el registro midiera las palabras del JSON como términos nuevos.

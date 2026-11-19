@@ -23,6 +23,17 @@ export const REGLAS_DE_REGISTRO = [
   'glosario-en-bloque',
 ];
 
+/** Lo que exige cada regla, junto a su definición: la ficha de reglas se genera de aquí (#372/T2d). */
+export const REQUISITOS_DE_REGISTRO = {
+  'termino-sin-explicar': 'cada término técnico se define en palabras llanas donde aparece y se ata al ejemplo',
+  'frases-largas': 'las frases son cortas: una idea por frase, sin pasar el tope de palabras',
+  'sin-negritas': 'cada término técnico se nombra en negrita la primera vez y se define',
+  'sin-escena-antes': 'el ejemplo concreto va antes de las definiciones que explica',
+  'sin-contraste': 'la explicación compara un antes y un después con marcadores explícitos',
+  'cuentas-sin-pasos': 'las cuentas van renglón a renglón, con el resultado al final',
+  'glosario-en-bloque': 'las definiciones se reparten con frases del ejemplo, nunca tres seguidas',
+};
+
 // Tres definiciones seguidas son un glosario en bloque (#265). La referencia del alumno nunca pone dos
 // seguidas: su explicación de RL reparte cada definición con una frase del ejemplo. El banco de #264 pone
 // cinco; el umbral es el primero que la referencia no alcanza.

@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 6b (cont.). Un párrafo que no sea un muro: más de dos frases en un mismo bloque.
 // El rechazo cita el primer muro: sin sus primeras palabras el tutor no sabe cuál
 // de los párrafos partir. El motor cuenta igual (`wallParagraphs` en
@@ -6,6 +7,7 @@ const abre = (b) => b.split(/\s+/).slice(0, 8).join(' ');
 
 export default {
   id: 'parrafos',
+  hint: HINTS['parrafos'],
   check({ parrafos }) {
     const muros = parrafos.filter((b) => (b.match(/[.!?](\s|$)/g) || []).length > 2);
     return {

@@ -1,3 +1,4 @@
+import { HINTS } from '../hints.mjs';
 // 7d. La historia se lee, no solo existe (#243): la parte que enseña código o una
 // fórmula pone esa línea en la cabecera del recorrido, y sus pasos dibujan la
 // acción. Las dos se leen del JSON, sin navegador, y el motor aplica las mismas
@@ -10,6 +11,7 @@ const cabeceraDe = (spec, step) => ((spec.kind === 'derivation' ? step?.equation
 
 export default {
   id: 'historia-cabecera',
+  hint: HINTS['historia-cabecera'],
   check({ src, formulas, dibujadas, planas, historiasSpecs, usaFigurasDePaso }) {
     // El motor salta `storyHeaderFindings` en las partes escritas solo con los
     // elementos nuevos: la línea activa va en la spec de cada paso.
