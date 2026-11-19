@@ -46,10 +46,8 @@ import { createAgy, parseAgyModels } from "./agy.ts";
 import { checkTutorContext, driftMessage } from "./context.ts";
 import { VISUAL_CONTRACT_PROMPT, withVisualContract } from "../integrations/pi/contract.ts";
 import {
-  busyActive,
   busyFile,
   createBusyTracker,
-  readBusy,
   readRestartSnapshot,
   saveSnapshot as saveSnapshotFile,
   sessionSnapshotFile,
@@ -100,6 +98,8 @@ import { createPageTiming, type PageTiming, type PageTimingReport } from "./timi
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, tutorContext, validateSugerencia, withLecciones } from "./sugerencias.ts";
+import { buildEspera, partNotePath, writePartTarget } from "./espera.ts";
+import { createGlosario } from "./glosario.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -262,6 +262,10 @@ export interface StudioOptions {
   chatsFile?: string;
   /** Where the CDN libraries of saved parts are kept after the first download. Default: the user's cache directory. */
   offlineCacheDir?: string;
+  /** Base command of the one-shot preliminary-glossary call; default: the configured tutor's CLI. */
+  glosarioCommand?: string[];
+  /** Bound of that one call; default: 60 s. It never holds a turn or a topic lock. */
+  glosarioTimeoutMs?: number;
   /**
    * Skip the check that the tutor's deployed instructions are this repo's own.
    * Only for tests that do not exercise it: the check is what keeps a drifted
@@ -379,6 +383,14 @@ type Turn = {
   lockPromise?: Promise<{ release: () => void }>;
   /** An aborted turn ends as failed, whatever the runtime reports afterwards. */
   aborted?: boolean;
+  /** The write-part turn the waiting section follows, with the clock its phase events use. */
+  espera?: {
+    topic: string;
+    part: string;
+    note: string | null;
+    startedAt: number;
+    emitted: Set<string>;
+  };
 };
 
 /** One main-chat Session plus one per topic task: each owns its process and its in-flight turn. */
@@ -649,6 +661,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const rulesPath = options.rulesPath ?? join(REPO, "rules", "deep.json");
   const token = options.token ?? randomBytes(32).toString("hex");
   const openedFile = options.openedFile ?? join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "learning-studio", "opened.json");
+  /** Outside the vault, beside `opened.json`: the glossary cache and its one short call. */
+  const newGlosario = () => createGlosario({
+    root, stateDir: dirname(openedFile), config: tutor,
+    command: options.glosarioCommand, timeoutMs: options.glosarioTimeoutMs,
+  });
+  let glosario = newGlosario();
   const gateStoreFile = gateVerdictsFile(root);
   const chatsFile = options.chatsFile ?? join(dirname(openedFile), "chats.json");
   /** The learner's conversations; the active one is the session the tutor talks in. */
@@ -697,6 +715,26 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     for (const res of group ?? []) res.write(frame);
     // A topic stream is in both sets: the global set is only for streams with no topic filter.
     for (const res of allTaskClients) if (!group?.has(res)) res.write(frame);
+  };
+
+  /**
+   * Live progress of a write-part turn, derived from the tool events the studio
+   * already receives. `t` is milliseconds since the turn began.
+   */
+  const emitFase = (session: Session, turn: Turn, fase: string, hallazgos?: number, once = false) => {
+    const target = turn.espera;
+    // `lista` is emitted from releaseTurn, after the turn has already been let go.
+    if (!target || (session.turn !== turn && fase !== "lista")) return;
+    if (once && target.emitted.has(fase)) return;
+    target.emitted.add(fase);
+    session.emit("fase", {
+      type: "fase",
+      topic: target.topic,
+      part: target.part,
+      fase,
+      ...(hallazgos === undefined ? {} : { hallazgos }),
+      t: Math.max(0, Date.now() - target.startedAt),
+    });
   };
 
   const taskState = (session: Session): TaskState => {
@@ -929,6 +967,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
             // A part's note and its page are two files: each is listed once and measured on its own (#265).
             const file = resolve(root, path);
             if (!session.turn.parts.includes(file)) session.turn.parts.push(file);
+            // The first write of the part note is what the waiting section calls «escribiendo».
+            if (session.turn.espera?.note === file) emitFase(session, session.turn, "escribiendo", undefined, true);
           }
         }
         // A Universitario request creates the topic its own writes name: the first folder the tutor
@@ -1234,6 +1274,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     for (const resolve of main.waiting.values()) resolve({ success: false, error: "Tutor restarted" });
     main.waiting.clear();
     tutor = config;
+    glosario = newGlosario();
     for (const session of tasks.values()) {
       // A running task finishes on this runtime; the next turn replaces it with the new one.
       session.stale = true;
@@ -1404,6 +1445,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     // A turn that wrote a part generated a page: its timings are on disk before the page hears
     // the turn is over, so a reader can compare this generation with the next one.
     if (ended.parts.length > 0) savePageTiming(ended.timing, ended.parts);
+    if (!ended.aborted && ended.espera?.note && existsSync(ended.espera.note) &&
+        !(ended.regeneration && !ended.regeneration.passed)) {
+      emitFase(session, ended, "lista", undefined, true);
+    }
     session.saveSnapshot();
     session.emit("state", session.state());
     emitTareas();
@@ -1520,6 +1565,20 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         lock: spec.lock ?? null,
       };
       holdTurn(session, started);
+      // A write-part turn starts the quick glossary without waiting for it: no topic lock,
+      // no vault write and no place in the tutor's tool loop.
+      const target = writePartTarget(root, spec.topic, text);
+      if (target) {
+        started.espera = { ...target, note: partNotePath(root, target.topic, target.part), startedAt: Date.now(), emitted: new Set() };
+        try {
+          const plan = readPlan(join(root, target.topic));
+          glosario.start(target.topic, target.part, {
+            topicTitle: plan?.topic || target.topic,
+            partTitle: plan?.parts[target.number - 1]?.title || target.part,
+            subtemas: plan?.parts.map((part) => part.subtema).filter((subtema) => subtema !== "") ?? [],
+          });
+        } catch { /* a topic the plan cannot describe still gets its phase events */ }
+      }
       try {
         if (spec.backup) started.regeneration = spec.backup();
         // The learner's words stay first; a write-part turn also carries the facts the
@@ -1619,9 +1678,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         }
         // The engine is done with this turn, so what it cannot measure is measured here: the part
         // the turn wrote still owes the scene and explanation checks before it reaches the learner.
+        emitFase(session, settled, "comprobando");
         const found = await settled.timing.measure("comprobaciones", () => checkParts(settled));
         if (session.turn !== settled) return;
         if (found) {
+          emitFase(session, settled, "corrigiendo", found.count);
           const verdict = session.settleGate.decideFindings(found);
           if (verdict.action === "ask") {
             try {
@@ -2633,6 +2694,25 @@ ${scripts}
       case "api/contexto":
         // The lines a writing prompt carries: preferences, weak spots and the learner's words.
         return sendJson(res, 200, { texto: tutorContext(root, url.searchParams.get("tema") ?? undefined) });
+      case "api/espera": {
+        // Useful waiting: the map is always from plan.json; the questions come only from the
+        // diagnosis or answered mini-quizzes, and the glossary from its own bounded short call.
+        const topic = url.searchParams.get("topic") ?? "";
+        const part = url.searchParams.get("part") ?? "";
+        if (!/^[\w-]+$/.test(topic) || !/^p\d+$/.test(part)) throw new HttpError(400, "invalid topic or part");
+        const plan = readPlan(join(root, topic));
+        if (!plan?.parts.some((entry) => entry.id === part)) throw new HttpError(404, `part ${part} is not in plan.json`);
+        glosario.start(topic, part, {
+          topicTitle: plan.topic || topic,
+          partTitle: plan.parts.find((entry) => entry.id === part)!.title,
+          subtemas: plan.parts.map((entry) => entry.subtema).filter((subtema) => subtema !== ""),
+        });
+        return sendJson(res, 200, buildEspera(root, topic, part, {
+          revelar: url.searchParams.get("revelar") === "1",
+          glosario: glosario.view(topic, part),
+          preguntasGlosario: glosario.questions(topic, part),
+        }));
+      }
       case "api/telemetry": {
         const topic = url.searchParams.get("topic");
         if (topic) {
@@ -2795,6 +2875,7 @@ ${scripts}
     // SIGTERM from a deploy lands here: the conversation and the turn it was holding are
     // written before the process goes, so the next boot can say what was interrupted.
     main.saveSnapshot();
+    glosario.stop();
     busyTracker.clearAll();
     for (const res of clients) res.end();
     clients.clear();

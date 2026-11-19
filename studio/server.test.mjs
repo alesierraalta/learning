@@ -649,7 +649,7 @@ const CLEAN_PART = BROKEN_PART.replace(
  * to measure. `parts` is one script per turn: a correction writes what the previous turn was told
  * to fix. `partChecks` replaces the studio's measurement when a test needs the verdict, not the tools.
  */
-async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE }, partChecks, state = {} } = {}) {
+async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE }, partChecks, state = {}, extra = {} } = {}) {
   const { root, engine: enginePath, log } = makeRoot(engine);
   process.env.FAKE_PI_LOG = log;
   const turns = join(root, "agy-turns.log");
@@ -665,6 +665,7 @@ async function checkingTutor(runtime, { parts, engine = { status: CLEARED_STAGE 
     enginePath,
     agyCommand: [process.execPath, join(HERE, "testdata", "checking-agy.mjs")],
     ...(partChecks ? { partChecks } : {}),
+    ...extra,
   });
   open.push(studio);
   // The engine's own state: a method in it was recorded before any turn of the test.
@@ -4209,3 +4210,118 @@ test("the studio command exits 0 when its window passes", async () => {
   rmSync(dir, { recursive: true, force: true });
   assert.equal(status, 0, `the studio command must leave by itself; it said: ${said}`);
 });
+
+// ---- Useful waiting (#376/S6) ------------------------------------------------
+
+const GLOSARIO_FAKE = join(HERE, "testdata", "fake-glosario.mjs");
+const waitingQuestion = (id, enunciado, answer) => ({ id, enunciado, options: { A: "uno", B: "dos", C: "tres" }, answer });
+const seedWaiting = (root) => {
+  const topic = join(root, "redes");
+  writeFileSync(join(topic, "quiz.json"), JSON.stringify({ questions: [
+    waitingQuestion("d1", "¿Qué es una capa?", "A"),
+    waitingQuestion("d2", "¿Qué encapsula?", "B"),
+  ] }));
+  mkdirSync(join(topic, "mini-quiz"), { recursive: true });
+  writeFileSync(join(topic, "mini-quiz", "p1.json"), JSON.stringify({ questions: [
+    waitingQuestion("q1", "Pregunta uno", "A"),
+    waitingQuestion("q2", "Pregunta dos", "B"),
+  ] }));
+  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), JSON.stringify({ answers: { q1: "C", q2: "B" }, razonamientos: {} }));
+};
+
+test("GET api/espera serves the diagnosis before writing and hides its answers", async () => {
+  const { studio, root } = await setup({ agentDisabled: true });
+  seedWaiting(root);
+  const get = async (query) => JSON.parse((await http(`${studio.url}api/espera?${query}`)).body);
+  const first = await get("topic=redes&part=p1");
+  assert.deepEqual(first.part, { id: "p1", number: 1, title: "Capas" });
+  assert.deepEqual(first.mapa.dependeDe, []);
+  assert.deepEqual(first.mapa.subtemas, ["1.1", "1.2.1"]);
+  assert.equal(first.preguntas.tipo, "antes");
+  assert.deepEqual(first.preguntas.items.map((item) => item.origen), ["diagnostico", "diagnostico"]);
+  assert.ok(first.preguntas.items.every((item) => !Object.hasOwn(item, "respuesta")));
+  assert.equal(first.profesor, null);
+  const revealed = await get("topic=redes&part=p1&revelar=1");
+  assert.deepEqual(revealed.preguntas.items.map((item) => item.respuesta), ["A", "B"], "a written part can reveal the diagnosis answers");
+  const answersFile = join(root, "redes", "mini-quiz", "p1.answers.json");
+  writeFileSync(answersFile, JSON.stringify({ answers: {}, razonamientos: {} }));
+  const hidden = await get("topic=redes&part=p2&revelar=1");
+  assert.equal(hidden.preguntas.tipo, "antes");
+  assert.ok(hidden.preguntas.items.every((item) => !Object.hasOwn(item, "respuesta")), "a written part is required to reveal");
+  seedWaiting(root);
+  const next = await get("topic=redes&part=p2");
+  assert.equal(next.preguntas.tipo, "repaso", "Part 2 reviews the answered quiz of the written Part 1");
+  assert.deepEqual(next.preguntas.items.map((item) => item.id), ["q1", "q2"]);
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 2 - TCP.md"), "# Parte 2\n");
+  const shown = await get("topic=redes&part=p2&revelar=1");
+  assert.deepEqual(shown.preguntas.items.map((item) => item.respuesta), ["A", "B"]);
+  const review = await get("topic=redes&part=p2");
+  assert.equal(review.preguntas.tipo, "repaso");
+  assert.deepEqual(review.preguntas.items.map((item) => item.respuesta), ["A", "B"]);
+  assert.deepEqual(review.mapa.dependeDe, [{ number: 1, title: "Capas", written: true }]);
+  assert.equal((await http(`${studio.url}api/espera?topic=otro&part=p1`)).status, 404);
+});
+
+test("api/espera starts the quick glossary lazily and caches it outside the vault", async () => {
+  const state = mkdtempSync(join(tmpdir(), "espera-state-"));
+  const openedFile = join(state, "opened.json");
+  const argv = join(state, "argv.log");
+  process.env.FAKE_GLOSARIO_ARGV = argv;
+  const { studio, root } = await setup({ agentDisabled: true, openedFile, glosarioCommand: [process.execPath, GLOSARIO_FAKE] });
+  const before = readdirSync(root).sort();
+  const get = async () => JSON.parse((await http(`${studio.url}api/espera?topic=redes&part=p1`)).body);
+  const first = await get();
+  assert.ok(["generando", "listo"].includes(first.glosario.estado));
+  assert.equal(first.glosario.preliminar, true);
+  await until(() => existsSync(join(state, "espera-glosario", "redes__p1.json")), 10000);
+  const ready = await get();
+  assert.equal(ready.glosario.estado, "listo");
+  assert.equal(ready.glosario.terminos.length, 6);
+  assert.equal(ready.preguntas.tipo, "antes", "the vault has no diagnosis questions here");
+  assert.equal(ready.preguntas.items[0].origen, "glosario");
+  assert.ok(!Object.hasOwn(ready.preguntas.items[0], "respuesta"));
+  assert.deepEqual(readdirSync(root).sort(), before, "the cache and the short call never touch the vault");
+  const calls = readFileSync(argv, "utf8").trim().split("\n").filter(Boolean);
+  assert.equal(calls.length, 2, "one model catalogue and one short call, then the cache");
+  await get();
+  assert.equal(readFileSync(argv, "utf8").trim().split("\n").filter(Boolean).length, 2, "a cache hit makes no new call");
+  delete process.env.FAKE_GLOSARIO_ARGV;
+});
+
+for (const runtime of ["pi", "agy"]) {
+  test(`a write-part turn reports its phases over SSE: ${runtime}`, async () => {
+    const state = mkdtempSync(join(tmpdir(), "espera-fases-"));
+    const finding = {
+      kind: "findings",
+      tools: [{ file: "Parte 1 - Capas.md", tool: "scene-lint.mjs", output: "trazo-sobre-texto: encima", findings: ["trazo-sobre-texto: encima"] }],
+      count: 1,
+      first: "trazo-sobre-texto: encima",
+    };
+    let checks = 0;
+    const tutor = await checkingTutor(runtime, {
+      parts: [[{ name: "Parte 1 - Capas.md", content: "# Parte 1\\n" }]],
+      partChecks: async () => (checks++ === 0 ? finding : { kind: "clean" }),
+      extra: { openedFile: join(state, "opened.json"), glosarioCommand: [process.execPath, GLOSARIO_FAKE] },
+    });
+    const phases = () => tutor.stream.events.filter((event) => event.name === "fase").map((event) => event.data);
+    try {
+      assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+      if (runtime === "pi") {
+        const first = await tutor.stream.next("dialog");
+        assert.equal((await post(tutor.studio, "dialog", { id: first.id, value: "Universitario" })).status, 200);
+      }
+      await until(() => phases().some((phase) => phase.fase === "corrigiendo"), 30000);
+      if (runtime === "pi") {
+        const second = await tutor.stream.next("dialog");
+        assert.equal((await post(tutor.studio, "dialog", { id: second.id, value: "Universitario" })).status, 200);
+      }
+      await until(() => phases().some((phase) => phase.fase === "lista"), 30000);
+      const seen = phases();
+      assert.deepEqual(seen.map((phase) => phase.fase), ["escribiendo", "comprobando", "corrigiendo", "comprobando", "lista"]);
+      assert.equal(seen[2].hallazgos, 1, "the finding count travels with corrigiendo");
+      assert.deepEqual(seen.slice(0, 3).map((phase) => [phase.topic, phase.part]), [["redes", "p1"], ["redes", "p1"], ["redes", "p1"]]);
+      assert.equal(seen[0].type, "fase");
+      assert.ok(seen.every((phase, i) => i === 0 || phase.t >= seen[i - 1].t), "relative times never go backwards");
+    } finally { tutor.close(); }
+  });
+}
