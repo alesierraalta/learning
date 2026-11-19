@@ -442,7 +442,66 @@ func withoutCodeFences(text string) string {
 func progressiveProblems(markup string) (int, []string) {
 	count, problems := walkthroughProgressiveProblems(markup)
 	stories, storyProblems := storyProgressiveProblems(markup)
-	return count + stories, append(problems, storyProblems...)
+	figures, figureProblems := stepFigureProgressiveProblems(markup)
+	return count + stories + figures, append(append(problems, storyProblems...), figureProblems...)
+}
+
+// stepFigureProgressiveProblems reads the new step figures as the part's
+// progressive walkthrough. They carry their own JSON spec and their own focus
+// marks; the legacy scene/story shape does not apply to them. A figure with no
+// steps, or with a step that carries no words at all, is not a walkthrough.
+func stepFigureProgressiveProblems(markup string) (int, []string) {
+	var problems []string
+	count := 0
+	for _, el := range stepFigureElements {
+		rest := markup
+		for {
+			at := strings.Index(rest, "<"+el)
+			if at < 0 {
+				break
+			}
+			after := at + len(el) + 1
+			if after < len(rest) && !strings.ContainsRune(" \t\n/>\r", rune(rest[after])) {
+				rest = rest[after:]
+				continue
+			}
+			count++
+			end := strings.Index(rest, "</"+el+">")
+			name := el + " " + itoa(count)
+			if end < 0 {
+				problems = append(problems, name+" is not closed")
+				break
+			}
+			block := rest[:end]
+			rest = rest[end+len(el)+3:]
+			payload, ok := jsonPayload(block)
+			if !ok {
+				problems = append(problems, name+" has no JSON payload")
+				continue
+			}
+			var doc struct {
+				Steps []map[string]json.RawMessage `json:"steps"`
+			}
+			if json.Unmarshal([]byte(payload), &doc) != nil {
+				problems = append(problems, name+" has a payload that is not valid JSON")
+				continue
+			}
+			// S18/S25: a worked example may take as many steps as it needs —
+			// add steps instead of crowding one. The legacy 3–6 deck cap is
+			// not a limit on the new elements; their own validators set the
+			// minimum (all of them require at least one step).
+			if len(doc.Steps) == 0 {
+				problems = append(problems, name+" has no steps")
+				continue
+			}
+			for i, step := range doc.Steps {
+				if len(step) == 0 {
+					problems = append(problems, fmt.Sprintf("%s step %d has no content", name, i+1))
+				}
+			}
+		}
+	}
+	return count, problems
 }
 
 // walkthroughProgressiveProblems checks the scene decks (`<lk-walkthrough>`).

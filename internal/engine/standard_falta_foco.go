@@ -12,7 +12,7 @@ import (
 // pieces draws no drawn step, so it asks for no ring. A rules snapshot that does not declare `storyFocus` keeps
 // accepting the parts it accepted.
 func faltaFocoFindings(text string, th rules.PartStandardThresholds) []string {
-	if !th.StoryFocus {
+	if !th.StoryFocus || usesStepFigures(text) {
 		return nil
 	}
 	var missing []string

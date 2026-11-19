@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>lk-guided · fórmula explicada y ejemplo paso a paso</title>
+  <script src="../theme.js"></script>
+  <link rel="stylesheet" href="../kit.css">
+  <link rel="stylesheet" href="../guided.css">
+  <script src="../guided.js" defer></script>
+  <style>main { max-width: none; margin: 0; padding: 22px 28px 32px; }</style>
+</head>
+<body>
+<main>
+  <p class="kicker">Interés compuesto · ejemplo de figura</p>
+  <lk-guided>
+    <script type="application/json">
+    {
+      "form": "formula",
+      "kicker": "FINANZAS · INTERÉS COMPUESTO",
+      "question": "¿Cómo crece un capital cuando la tasa se reinvierte?",
+      "steps": [
+        {
+          "title": "Usamos esta fórmula",
+          "label": "1 · Fórmula",
+          "caption": "C es el capital final: esta es la fórmula completa y la abriremos pieza a pieza.",
+          "blocks": [
+            { "kind": "formula", "tokens": [
+              { "text": "C" }, { "text": "=" }, { "text": "C₀" }, { "text": "(" },
+              { "text": "1 + r" }, { "text": ")ⁿ" }
+            ], "focus": 0, "tone": "blue" },
+            { "kind": "note", "text": "En el ejemplo: C₀ = 100 €, r = 10 % y n = 5 años." }
+          ]
+        },
+        {
+          "title": "El signo igual",
+          "label": "2 · El =",
+          "caption": "El signo = significa «es igual a»: a la izquierda queda C y a la derecha su cálculo.",
+          "blocks": [
+            { "kind": "formula", "tokens": [
+              { "text": "C" }, { "text": "=" }, { "text": "C₀" }, { "text": "(" },
+              { "text": "1 + r" }, { "text": ")ⁿ" }
+            ], "focus": 1, "tone": "blue" },
+            { "kind": "note", "text": "No es una flecha ni una resta: es una igualdad." }
+          ]
+        },
+        {
+          "title": "C₀: el depósito",
+          "label": "3 · C₀",
+          "caption": "C₀ es el dinero con el que empiezas: 100 € en este ejemplo.",
+          "blocks": [
+            { "kind": "formula", "tokens": [
+              { "text": "C" }, { "text": "=" }, { "text": "C₀" }, { "text": "(" },
+              { "text": "1 + r" }, { "text": ")ⁿ" }
+            ], "focus": 2, "tone": "blue" },
+            { "kind": "note", "text": "Todo el crecimiento parte de esa cantidad." }
+          ]
+        },
+        {
+          "title": "El 1 se conserva",
+          "label": "4 · El 1",
+          "caption": "El 1 de 1 + r conserva el capital: por cada euro que tengas, ese euro sigue ahí.",
+          "blocks": [
+            { "kind": "formula", "tokens": [
+              { "text": "C" }, { "text": "=" }, { "text": "C₀" }, { "text": "1 + r" }, { "text": ")ⁿ" }
+            ], "focus": 3, "tone": "blue" },
+            { "kind": "note", "text": "La tasa se añade encima de ese 1." }
+          ]
+        },
+        {
+          "title": "r: la tasa",
+          "label": "5 · La r",
+          "caption": "r es la tasa por periodo: 10 % = 0,10; dentro de 1 + r da 1 + 0,10 = 1,10.",
+          "blocks": [
+            { "kind": "formula", "tokens": [
+              { "text": "C" }, { "text": "=" }, { "text": "C₀" }, { "text": "1 + r" }, { "text": ")ⁿ" }
+            ], "focus": 3, "tone": "green" },
+            { "kind": "note", "text": "Es la misma tasa una y otra vez, sobre el saldo ya crecido." }
+          ]
+        },
+        {
+          "title": "El exponente",
+          "label": "6 · La ⁿ",
+          "caption": "El exponente n de )ⁿ cuenta los periodos: aquí n = 5 años.",
+          "blocks": [
+            { "kind": "formula", "tokens": [
+              { "text": "C" }, { "text": "=" }, { "text": "C₀" }, { "text": "1 + r" }, { "text": ")ⁿ" }
+            ], "focus": 4, "tone": "blue" },
+            { "kind": "note", "text": "No multiplica la tasa por cinco: la aplica cinco veces." }
+          ]
+        },
+        {
+          "title": "Sustituimos",
+          "label": "7 · Sustitución",
+          "caption": "Con los datos puestos, la cuenta es 100 × 1,10⁵.",
+          "blocks": [
+            { "kind": "formula", "tokens": [{ "text": "C = 100 × 1,10⁵" }], "focus": 0, "tone": "green" },
+            { "kind": "note", "text": "Cada símbolo ya tiene su número: faltaba calcular." }
+          ]
+        },
+        {
+          "title": "Resultado",
+          "label": "8 · Resultado",
+          "caption": "Cinco años de interés compuesto dan 161,05 €.",
+          "blocks": [
+            { "kind": "formula", "tokens": [{ "text": "C = 161,05 €" }], "focus": 0, "tone": "green" },
+            { "kind": "note", "text": "Con interés simple serían 150 €: la diferencia son los intereses de los intereses." }
+          ]
+        }
+      ]
+    }
+    </script>
+  </lk-guided>
+  <p class="after">Cada símbolo se explica en su propio paso antes de usar los números del ejercicio.</p>
+</main>
+</body>
+</html>

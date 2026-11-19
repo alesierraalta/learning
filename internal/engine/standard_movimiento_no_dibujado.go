@@ -59,7 +59,7 @@ func (m storyMove) hasPoint() bool { return m.ToX != nil && m.ToY != nil }
 // refuse the same step. A rules snapshot that does not declare
 // `storyMoveDrawable` keeps accepting the parts it accepted.
 func moveUndrawnFindings(text string, th rules.PartStandardThresholds) []string {
-	if !th.StoryMoveDrawable {
+	if !th.StoryMoveDrawable || usesStepFigures(text) {
 		return nil
 	}
 	var out []string

@@ -780,6 +780,95 @@ const figureElement = "lk-figure"
 // "second" visual.
 const sceneElement = "lk-scene"
 
+// The five step figures are visuals too. They are declared in Go rather than
+// rules/deep.json: changing the rules invalidates the hash recorded when a
+// learner's topic was initialised, and there is no rehash path. Recognising
+// them here keeps every existing topic current (S10).
+var stepFigureElements = []string{"lk-stage", "lk-codestep", "lk-tablestep", "lk-guided", "lk-lanes"}
+
+// hasElement reports a real opening tag, never a name that merely starts the
+// same way (`<lk-tablestep>` is not an `<lk-tables>` piece).
+func hasElement(lower, el string) bool {
+	for at := 0; ; {
+		start := strings.Index(lower[at:], "<"+el)
+		if start < 0 {
+			return false
+		}
+		start += at
+		after := start + len(el) + 1
+		if after >= len(lower) || strings.ContainsRune(" \t\n/>\r", rune(lower[after])) {
+			return true
+		}
+		at = after
+	}
+}
+
+// usesStepFigures reports whether a note is written only with the new step
+// figures. A new figure can satisfy a "needs a scene/walkthrough/formula"
+// rule, but it must never switch off the gate of a legacy figure that is
+// actually present: every figure in the note stays answerable for itself.
+func usesStepFigures(text string) bool {
+	lower := asciiLower(withoutCodeFences(text))
+	newFigure := false
+	for _, el := range stepFigureElements {
+		if hasElement(lower, el) {
+			newFigure = true
+			break
+		}
+	}
+	if !newFigure {
+		return false
+	}
+	legacy := append([]string{"lk-figure", sceneElement, "lk-walkthrough", "lk-story"}, pieceElements...)
+	for _, el := range legacy {
+		if hasElement(lower, el) {
+			return false
+		}
+	}
+	return true
+}
+
+var stepFigureFields = map[string][]string{
+	"lk-stage":     {"actors", "steps"},
+	"lk-codestep":  {"code", "steps"},
+	"lk-tablestep": {"tables", "steps"},
+	"lk-guided":    {"steps"},
+	"lk-lanes":     {"items", "steps"},
+}
+
+// visualElements is the full set the counter judges by their JSON payload.
+func visualElements() []string {
+	return append(sceneLikeElements(), stepFigureElements...)
+}
+
+// stepFigureDraws reports whether a step element carries a payload with enough
+// content for the reader to draw. Its own DOM-free validator is stricter: the
+// engine only asks whether this is a figure, never whether every word is legal.
+func stepFigureDraws(el, block string) bool {
+	payload, ok := jsonPayload(block)
+	if !ok {
+		return false
+	}
+	var spec map[string]json.RawMessage
+	if json.Unmarshal([]byte(payload), &spec) != nil {
+		return false
+	}
+	for _, field := range stepFigureFields[el] {
+		var list []json.RawMessage
+		if json.Unmarshal(spec[field], &list) == nil {
+			if len(list) == 0 {
+				return false
+			}
+			continue
+		}
+		var object map[string]json.RawMessage
+		if json.Unmarshal(spec[field], &object) != nil || len(object) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // sceneElementDraws reports whether a closed scene element draws something and
 // whether it carries its own reading guide. A figure is its scene; a scene is
 // its payload, and the reader draws its `caption` under the drawing, so a
@@ -793,6 +882,9 @@ func sceneElementDraws(el, block string) (draws, selfGuided bool) {
 	}
 	if isPieceElement(el) {
 		return pieceDraws(el, block)
+	}
+	if slices.Contains(stepFigureElements, el) {
+		return stepFigureDraws(el, block), false
 	}
 	return false, false
 }
@@ -1152,7 +1244,7 @@ func asciiLower(text string) string {
 // themselves.
 func sceneElementsOnLine(line string) (count, selfGuided int) {
 	lower := asciiLower(line)
-	for _, el := range sceneLikeElements() {
+	for _, el := range visualElements() {
 		from := 0
 		for from < len(lower) {
 			start := strings.Index(lower[from:], "<"+el)
@@ -1160,6 +1252,13 @@ func sceneElementsOnLine(line string) (count, selfGuided int) {
 				break
 			}
 			start += from
+			// `<lk-tablestep>` is not an `<lk-tables>` piece: compare the
+			// whole name, not just its prefix.
+			after := start + len(el) + 1
+			if after < len(lower) && !strings.ContainsRune(" \t\n/>\r", rune(lower[after])) {
+				from = after
+				continue
+			}
 			end := strings.Index(lower[start:], "</"+el+">")
 			if end < 0 {
 				break
@@ -1180,17 +1279,23 @@ func sceneElementsOnLine(line string) (count, selfGuided int) {
 // openingElement names the multiline element that starts on this line, if any.
 func openingElement(line string, elements []string) string {
 	lower := asciiLower(line)
-	for _, el := range elements {
-		if strings.Contains(lower, "<"+el) && !strings.Contains(lower, "</"+el+">") {
-			return el
+	best := ""
+	for _, el := range append(slices.Clone(elements), visualElements()...) {
+		at := strings.Index(lower, "<"+el)
+		if at < 0 || strings.Contains(lower, "</"+el+">") {
+			continue
+		}
+		// A longer element name wins over a prefix that happens to match,
+		// as `lk-tablestep` does for `lk-tables`.
+		after := at + len(el) + 1
+		if after < len(lower) && !strings.ContainsRune(" \t\n/>\r", rune(lower[after])) {
+			continue
+		}
+		if len(el) > len(best) {
+			best = el
 		}
 	}
-	for _, el := range sceneLikeElements() {
-		if strings.Contains(lower, "<"+el) && !strings.Contains(lower, "</"+el+">") {
-			return el
-		}
-	}
-	return ""
+	return best
 }
 
 // countVisuals returns how many visuals the text contains: embeds, nonempty
@@ -1220,7 +1325,7 @@ func countVisualsAndGuides(text string, blocks, elements []string, marker string
 	// A scene element is counted by its payload, never as a generic
 	// child-bearing element.
 	elements = slices.DeleteFunc(slices.Clone(elements), func(el string) bool {
-		return slices.ContainsFunc(sceneLikeElements(), func(like string) bool { return strings.EqualFold(el, like) })
+		return slices.ContainsFunc(visualElements(), func(like string) bool { return strings.EqualFold(el, like) })
 	})
 	open := func(el, line string) {
 		openEl = el
@@ -1277,7 +1382,7 @@ func countVisualsAndGuides(text string, blocks, elements []string, marker string
 				// A declared element counts when it has a child; a scene element
 				// is its payload, so an empty or unparsable scene is not a visual.
 				selfGuided := false
-				if slices.Contains(sceneLikeElements(), closed) {
+				if slices.Contains(visualElements(), closed) {
 					draws, guided := sceneElementDraws(closed, body)
 					if !draws {
 						counted = 0

@@ -8,7 +8,11 @@ import { PIEZAS } from '../nota.mjs';
 
 export default {
   id: 'historia',
-  check({ sinCodigo }) {
+  check({ sinCodigo, usaFigurasDePaso }) {
+    // Un elemento nuevo es el recorrido de la parte: el motor devuelve nil en
+    // `storyLanguageFindings` cuando no hay ninguna figura antigua a la que
+    // seguirle la regla (`usesStepFigures`).
+    if (usaFigurasDePaso) return { ok: true, detail: '' };
     const historias = (sinCodigo.match(/<lk-story[\s>]/g) || []).length;
     const piezasDibujadas = (sinCodigo.match(new RegExp(`<lk-(?:${PIEZAS})[\\s>]`, 'g')) || []).length;
     const lenguajeDeHistoria = historias + piezasDibujadas > 0;

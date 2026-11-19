@@ -39,7 +39,10 @@ const primeraFormula = (plain) => {
 
 export default {
   id: 'formula-walkthrough',
-  check({ sinCodigo }) {
+  check({ sinCodigo, usaFigurasDePaso }) {
+    // El motor salta `formulaWalkthroughFindings` cuando la parte trae solo
+    // elementos nuevos: la fórmula se enseña en la spec de `<lk-guided>`.
+    if (usaFigurasDePaso) return { ok: true, detail: '' };
     const primera = primeraFormula(sinCodigo);
     return {
       ok: primera === null,

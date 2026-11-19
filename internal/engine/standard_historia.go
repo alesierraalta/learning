@@ -14,7 +14,7 @@ import (
 // inline SVG is not a substitute. A rules snapshot that does not declare
 // `storyLanguage` keeps accepting the parts it accepted.
 func storyLanguageFindings(text string, th rules.PartStandardThresholds) []string {
-	if !th.StoryLanguage {
+	if !th.StoryLanguage || usesStepFigures(text) {
 		return nil
 	}
 	stories := len(storyOpen.FindAllStringIndex(withoutCodeFences(text), -1))

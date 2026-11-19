@@ -1,37 +1,73 @@
-# Recorridos progresivos (`<lk-walkthrough>`)
+# Recorridos progresivos (figuras de material nuevo)
 
-Cada parte enseña su ejemplo con un recorrido a pasos, como el tutorial del estudio: **se dibuja la cosa misma** (el robot, el almacén, la red, la consulta) y **una flecha dice dónde mirar** en cada paso. La persona lo pidió así: «Quiero algo que me muestre visualmente, que me muestre la flecha, dónde tengo que ver». El motor lo exige en toda parte nueva (`explanation-content`) y, en los temas nuevos, la revisión `walkthrough-progression` juzga si los pasos enseñan.
+Toda parte nueva enseña su ejemplo **paso a paso**, con una idea por paso y una marca que lleva
+la mirada. El contrato completo está en `visuales.md` §0–2c (traducción del contrato aprobado
+`scratch/showcase/CONTRACT.md`, S15–S25). La forma la decide la idea, no el tema: funciona igual
+para RL, PL/SQL, EXL3, administración de proyectos o inglés, con cualquier modelo.
 
-## Cuándo
+## Cuándo y con qué elemento
 
-- **Siempre** en la sección donde aparece el ejemplo que acompaña la parte, antes de pedirle a la persona que lo imagine.
-- **Una vez por parte**: «Tamaño de parte» fija 1 recorrido. Si la otra sección cambia de estado (un movimiento, una cuenta que se propaga, una decisión, un antes/después), ese cambio es un paso del mismo recorrido, no un segundo recorrido.
-- Una app aparte (`explicaciones/apps/`) o un `lk-widget` no sustituyen al recorrido.
+- **Siempre** en la sección donde aparece el ejemplo, antes de pedirle a la persona que lo
+  imagine. **Una vez por parte**: si otra sección cambia de estado, ese cambio es un paso del
+  mismo recorrido, no un segundo recorrido.
+- Si un **diagrama estándar** lo dice, se escribe `mermaid`: `flowchart`, `sequenceDiagram`,
+  `stateDiagram-v2`, `gantt`, `classDiagram`, `erDiagram`, `mindmap`, `pie`, `quadrantChart`,
+  `xychart-beta`, `sankey-beta`, `block-beta`. Ni `gitGraph` ni `journey` sin petición explícita.
+- Si hace falta llevar de la mano:
+  - un espacio con actores, celdas, carriles y cámara → `<lk-stage>`;
+  - código con su ventana activa y el estado de sus variables → `<lk-codestep>`;
+  - filas que se filtran, unen, derivan, agrupan u ordenan → `<lk-tablestep>`;
+  - fórmula explicada símbolo a símbolo, ejercicio resuelto o números → `<lk-guided>`;
+  - carriles que comparten un recurso en el tiempo, con esperas y mensajes → `<lk-lanes>`.
+- Nada de `<lk-story>`, `<lk-walkthrough>`, `<lk-scene>`, SVG dibujado a mano ni claves nuevas en
+  material nuevo. Esas figuras siguen renderizando en **partes ya publicadas** (S10): no se
+  reescriben, pero no se estrenan.
 
-## Receta (primera versión correcta)
+## Receta
 
-1. **Elige la escena**: los objetos del ejemplo como figuras. Rejilla o mapa → una caja por casilla; agente → la casilla o un nodo que lo lleva; red → nodos; flujo → cajas en orden.
-2. **Un cambio por paso** (3 a 6 pasos): el paso 1 presenta la escena; cada paso siguiente añade o mueve **una** cosa y la resalta con su color (`blue` foco, `green` meta/bueno, `red` peligro/error, `amber` coste).
-3. **Una flecha con etiqueta en cada paso**, que señala lo nuevo: el movimiento, la causa, la casilla que importa. La etiqueta dice qué pasa (`sube`, `−0,04`, `choca`, `0,9 · V`).
-4. **Coordenadas fijas** entre pasos: la escena no salta; solo cambia su estado.
-5. **El texto del paso** (`text`, una frase) explica lo que la flecha muestra; el número exacto puede ir ahí.
-6. **Compacto para móvil**: `class="lk-wt-compact"`, `viewBox` de ancho ≤ 360. Etiquetas cortas: dentro de una casilla, el efecto (`+1`, `−1`, `×`, `R`, `0,86`); el nombre largo va en la flecha que la presenta (`puerta`, `charco`).
-7. **Deja hueco entre figuras** (≈ 30–45 px): la etiqueta de una flecha se dibuja al lado, en el hueco, nunca encima de una caja.
-8. Línea `Cómo leerlo:` justo después del recorrido.
-9. Escribe el recorrido al nivel normal del texto: nunca dentro de una cita (`> `) ni después de un bloque de código dentro de una lista anidada. El motor no los lee bien y rechazaría un recorrido válido (límite aceptado).
+1. **Di primero si basta Mermaid.** Un CPM es un `flowchart`/`gantt` con la ruta crítica marcada;
+   la fórmula del CPM, si se explica, es otro `<lk-guided>`.
+2. **Un cambio por paso.** Presenta la escena y añade o mueve una sola cosa. Si el paso explica
+   dos ideas, añade un paso. No hay tope de pasos para una fórmula.
+3. **Elige la clave de foco del elemento y ponla en la spec**: `focusOn` con
+   `actor:`/`tag:`/`lane:`/`fact:N` en `lk-stage`; `focus` en `lk-codestep`/`lk-tablestep`;
+   `focus`/`focusList`/`wrong` en los bloques de `lk-guided`; `highlight[]` y `links[]` en
+   `lk-lanes`. Azul = mira aquí, verde = correcto o conservado, rojo = error o eliminado; una
+   marca por tramo contiguo, ≤ 2 por paso, sin anidar.
+4. **Explica en la pie, no en una leyenda.** `narrator[]`/`caption`/`figcaption` dicen qué pasa
+   con palabras llanas; nunca «Narrador:» ni «Azul: mira aquí».
+5. **Sin mandos**: solo `←`, `→` y `▶` del reproductor, puntos de progreso y `N/M`. No hay
+   deslizadores, campos, control de redondeo, recálculo en vivo ni hover como única vía de leer
+   un dato. Una animación, una curva `cubic-bezier(.2,.8,.2,1)` y `prefers-reduced-motion`.
+6. **Cero coordenadas**: celdas con nombre, ids, índices y tiempo abstracto. El renderer calcula
+   prisms, etiquetas, flechas y cámara; una etiqueta nunca tapa un nombre ni se sale del marco.
+7. **Ancho y papeles**: en pantallas anchas la figura ocupa el ancho disponible; revisa claro,
+   oscuro y negro antes de entregar.
+8. **Línea `Cómo leerlo:`** como primera línea no vacía tras la figura, mientras el motor siga
+   contando los visuales con `countVisualsAndGuides` (`internal/engine/checks.go`) y exigiendo
+   `howToReadLine` en `rules/deep.json`.
+9. Escribe el recorrido al nivel normal del texto: nunca dentro de una cita (`> `) ni detrás de
+   un bloque de código en una lista anidada; el motor no lo leería bien.
+10. **Auditoría del kit**: ejecuta `node tools/visuals/audit-note.mjs --note "<ruta de la nota>"`
+    y corrige todas las violaciones antes de dar la parte por terminada.
 
-## Tablas: complemento, no escena
+## Tablas y datos
 
-- **Mal** (rechazado por la persona y por el motor): una tabla arriba con iconos que cambian y cajas-leyenda abajo unidas por una flecha que no toca la tabla. La explicación ocurre fuera del dibujo.
-- **Bien**: el almacén dibujado casilla a casilla, el robot en su casilla y la flecha del movimiento entre casillas.
-- Excepción legítima: cuando **los datos son el ejemplo** (filas de una tabla SQL), la tabla puede ser la escena, pero una flecha **apunta dentro** de ella, a la fila o celda que importa.
+- Una tabla con iconos y leyendas debajo no es un recorrido: la explicación ocurre fuera del
+  dibujo. Si los datos son el ejemplo, usa `<lk-tablestep>`: cada paso es una operación (`filter`,
+  `join`, `derive`, `select`, `group`, `sort`) con su foco derivado y su tira de filas vivas.
+- Un mapa o rejilla no se dibuja a mano: `<lk-stage>` coloca los actores en celdas `A1`–`F5` y
+  mueve la cámara con `activeActor`.
 
 ## Antes de entregar
 
-1. `node tools/deck-gate.mjs <nota.md>` desde el repositorio learning (navegador real): corrige lo que nombre (palabra que no cabe → etiqueta más corta o caja más ancha; etiqueta sobre una caja → más hueco o flecha en otro lado).
-2. Recorre los pasos en el lector (o capturas) y pregúntate: ¿alguien que solo mire las figuras sigue la idea en orden? Si no, falta una figura o una flecha.
-3. Si el motor responde `needs a progressive walkthrough`, lee el paso y la corrección que nombra y arréglalo; no lo sustituyas por un SVG estático.
-
-## Referencia
-
-`assets/recorrido_rejilla.py` genera los seis recorridos del almacén de la Parte 3 de aprendizaje por refuerzo (ejemplo, recompensa frente a valor, política, trayecto, valor hacia atrás, modelo) con las funciones `tiles()` y `arrow()`; sirve de plantilla para cualquier ejemplo en rejilla: `python3 assets/recorrido_rejilla.py example`.
+1. Recorre la figura en el lector y pregunta: ¿alguien que solo vea los pasos sigue la idea?
+   ¿Señala cada paso qué cambió? ¿Caben los números en su caja? ¿Llegan las flechas a su destino?
+2. Repasa el checklist de `visuales.md` §2c: Mermaid primero, claves exactas del contrato, un
+   `<script type="application/json">` por elemento, foco ≤ 2, sin mandos ni franjas de color,
+   fórmula símbolo por símbolo, línea `Cómo leerlo:`.
+3. El motor ya acepta los cinco elementos del contrato como recorrido progresivo, escena y
+   fórmula (`internal/engine/decks.go` y los gates `standard_*.go`): el contrato nuevo basta,
+   sin sustituir la figura nueva por una antigua.
+4. Ejecuta `node tools/visuals/audit-note.mjs --note "<ruta de la nota>"` y corrige **todas**
+   las violaciones; sin `0 violation(s)` la parte no se declara terminada.

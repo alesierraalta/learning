@@ -9,6 +9,29 @@ import { lineasConFencesMarkdown, sinCodigo as sinCodigoDeBloques } from '../lib
 // escenario y el árbol) son figuras como la escena: ocupan su lugar en la parte.
 export const PIEZAS = 'cards|memory|tables|venn|explorer|tree';
 
+// Los cinco elementos del contrato aprobado (#358/#360, T10). El motor los declara
+// en `internal/engine/checks.go` (`stepFigureElements`) porque `rules/deep.json`
+// está sellado por el hash del tema; aquí van en el mismo orden. Una parte escrita
+// solo con ellos no debe las reglas de las figuras antiguas, pero cualquier figura
+// antigua presente sigue respondiendo por sí misma (`usesStepFigures`).
+export const FIGURAS_DE_PASO = ['lk-stage', 'lk-codestep', 'lk-tablestep', 'lk-guided', 'lk-lanes'];
+const FIGURAS_LEGADO = ['lk-figure', 'lk-scene', 'lk-walkthrough', 'lk-story',
+  ...PIEZAS.split('|').map((pieza) => `lk-${pieza}`)];
+
+// Una etiqueta real, no un nombre que solo empieza igual: `<lk-tablestep>` no es
+// `<lk-tables>`. El motor compara el carácter siguiente con espacio, `/` o `>`.
+const tieneEtiqueta = (texto, etiqueta) =>
+  new RegExp(`<${etiqueta}(?=[ \\t\\n/>\\r])`, 'i').test(texto);
+
+export const usaFigurasDePaso = (sinCodigo) =>
+  FIGURAS_DE_PASO.some((el) => tieneEtiqueta(sinCodigo, el)) &&
+  !FIGURAS_LEGADO.some((el) => tieneEtiqueta(sinCodigo, el));
+
+// La spec de estos elementos se mira, no se lee: no es prosa ni del párrafo ni
+// del presupuesto de palabras, igual que el JSON de una escena o de un recorrido.
+export const sinFigurasDePaso = (texto) => texto.replace(
+  new RegExp(`<lk-(${FIGURAS_DE_PASO.map((el) => el.slice(3)).join('|')})[^>]*>[\\s\\S]*?<\\/lk-\\1>`, 'g'), ' ');
+
 // Un flujo escrito con guiones es geometría escrita, no dibujada: `--->`, `---[`,
 // `-->`, `==>`, `<--`. La regla de ASCII de la prosa y la de la cabecera usan el
 // mismo patrón (#246).
@@ -49,6 +72,7 @@ export function leerNota(src, esPagina, fuenteHtml = src) {
   const sinCodigo = esPagina
     ? notaDeHtml(sinCodigoDeBloques(fuenteHtml, true))
     : sinCodigoDeBloques(src);
+  const sinFiguras = sinFigurasDePaso(sinCodigo);
   const lineasFencesMarkdown = esPagina ? lineasConFencesMarkdown(fuenteHtml) : [];
 
   // Escenas y recorridos (reglas 4 y 5): se cuentan en el texto entero.
@@ -109,7 +133,7 @@ export function leerNota(src, esPagina, fuenteHtml = src) {
   }
 
   // El ritmo: los párrafos de prosa y sus frases. Las reglas `frases` y `parrafos` leen estas.
-  const lineasProsa = sinCodigo
+  const lineasProsa = sinFiguras
     .replace(new RegExp(`<lk-(scene|walkthrough|story|${PIEZAS}|quiz|quick-quiz)[\\s\\S]*?<\\/lk-\\1>`, 'g'), '\n\n')
     .split('\n')
     // Títulos, tablas y etiquetas no son prosa; las citas y las viñetas sí: una ficha
@@ -148,5 +172,5 @@ export function leerNota(src, esPagina, fuenteHtml = src) {
     bloquesDeRecorrido.push({ tag: m[1], spec, pasos, linea: `${m[1]} ${bloquesDeRecorrido.length + 1} (${pasos.length} pasos)` });
   }
 
-  return { src, esPagina, sinCodigo, lineasFencesMarkdown, escenas, recorridos, recorridosTope, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
+  return { src, esPagina, sinCodigo, sinFiguras, usaFigurasDePaso: usaFigurasDePaso(sinCodigo), lineasFencesMarkdown, escenas, recorridos, recorridosTope, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
 }

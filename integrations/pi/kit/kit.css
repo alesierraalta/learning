@@ -435,8 +435,8 @@ textarea.lk-code { font-family: var(--mono); font-size: 15px; line-height: 1.55;
    de noche, en una sola lista para los dos papeles. Antes era una isla blanca entre
    dos bandas negras. */
 
-/* Un diagrama de mermaid se dibuja con su propio tema claro: se le deja el papel. */
-:root:is([data-theme="dark"], [data-theme="black"]) pre.mermaid { --ink: #0F2E3D; background: #fff; color: var(--ink); padding: 14px; color-scheme: light; }
+/* Mermaid now paints with the kit's own theme (kit/mermaid-theme.js): a white
+   paper here left black text on a light island in the middle of the night page. */
 :root[data-theme="black"] [class*="wall"],
 :root[data-theme="black"] .wall,
 :root[data-theme="black"] .inert,

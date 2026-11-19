@@ -13,7 +13,7 @@ import (
 // fill it. A rules snapshot that does not declare `storyHeader` keeps accepting
 // the parts it accepted.
 func storyHeaderFindings(text string, th rules.PartStandardThresholds) []string {
-	if !th.StoryHeader || !showsCode(text) {
+	if !th.StoryHeader || !showsCode(text) || usesStepFigures(text) {
 		return nil
 	}
 	for _, doc := range storyQualityDocs(text) {

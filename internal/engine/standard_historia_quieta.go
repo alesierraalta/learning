@@ -99,7 +99,7 @@ func storyMotion(steps []map[string]json.RawMessage) bool {
 // its progression is the token the header highlights. A rules snapshot that does
 // not declare `storyMotion` keeps accepting the parts it accepted.
 func storyMotionFindings(text string, th rules.PartStandardThresholds) []string {
-	if !th.StoryMotion {
+	if !th.StoryMotion || usesStepFigures(text) {
 		return nil
 	}
 	for _, doc := range storyRawDocs(text) {

@@ -129,7 +129,7 @@ func blockFormulaBodies(block string) []string {
 // the fix names the deck the tutor has to write. A rules snapshot that does not
 // declare `formulaWalkthrough` keeps accepting the parts it accepted.
 func formulaWalkthroughFindings(text string, th rules.PartStandardThresholds) []string {
-	if !th.FormulaWalkthrough {
+	if !th.FormulaWalkthrough || usesStepFigures(text) {
 		return nil
 	}
 	plain := withoutCodeFences(text)
