@@ -15,6 +15,8 @@ import { makeRoot } from "./testdata/root.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
+const FREQUENT_FILE = join(REPO, "tools", "part-check-frequent.json");
+const FREQUENT_HEADING = "Most frequent first-draft findings";
 const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
 const FAKE_AGY = join(HERE, "testdata", "fake-agy.mjs");
 const PARTS = [
@@ -141,6 +143,22 @@ test("the rule sheet is complete and stays within the brief's stated bound", () 
   const size = Buffer.byteLength(brief, "utf8");
   assert.ok(size <= MAX_PART_BRIEF_BYTES, `brief is ${size} bytes, bound is ${MAX_PART_BRIEF_BYTES}`);
   assert.ok(MAX_PART_BRIEF_BYTES <= 12 * 1024, `the bound is ${MAX_PART_BRIEF_BYTES}, above ~12 KB`);
+});
+
+test("the brief's rule sheet leads with the frequent first-draft findings and stays bounded", () => {
+  const frequentIds = JSON.parse(readFileSync(FREQUENT_FILE, "utf8"));
+  const { root } = makeRoot();
+  const brief = partBrief(root, WRITE_TEXT);
+  const heading = brief.indexOf(FREQUENT_HEADING);
+  assert.ok(heading >= 0, "the frequent heading travels with the brief");
+  const positions = frequentIds.map((id) => {
+    const at = brief.indexOf(`\n${id} |`, heading);
+    assert.ok(at > heading, `${id} is under the heading in the brief`);
+    return at;
+  });
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b), "the brief keeps the checked-in order");
+  const size = Buffer.byteLength(brief, "utf8");
+  assert.ok(size <= MAX_PART_BRIEF_BYTES, `brief is ${size} bytes, bound is ${MAX_PART_BRIEF_BYTES}`);
 });
 
 test("a 20-part topic keeps the brief under the byte bound", async () => {

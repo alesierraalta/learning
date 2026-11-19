@@ -32,6 +32,11 @@ const oneLine = (text) => String(text ?? '').replace(/\s+/g, ' ').trim();
 /* ------------------------------------------------------------------ */
 
 const RULES_DIR = join(HERE, 'explain-check', 'rules');
+/** T2f: the ids that fired in the first real draft, most frequent first. This only reorders the
+ * sheet: no rule is added, removed or weakened, and no gate threshold or verdict is touched. */
+const FREQUENT_RULE_IDS = JSON.parse(readFileSync(join(HERE, 'part-check-frequent.json'), 'utf8'));
+const FREQUENT_RANK = new Map(FREQUENT_RULE_IDS.map((id, index) => [id, index]));
+const FREQUENT_HEADING = 'Most frequent first-draft findings';
 const clip = (text, max = 132) => {
   const clean = oneLine(text).replace(/\|/g, '/');
   return clean.length <= max ? clean : `${clean.slice(0, max - 1).replace(/\s+\S*$/, '')}…`;
@@ -69,16 +74,24 @@ export function ruleSheet() {
   for (const id of REGLAS_DE_REGISTRO) add(id, REQUISITOS_DE_REGISTRO[id] ?? HINTS[id]);
   // Las reglas del kit viven en sus puertas; su definición pública aquí es la corrección.
   for (const id of Object.keys(HINTS)) add(id, HINTS[id]);
-  sheet = rows;
+  // Stable sort: the frequent ids lead in the checked-in order, every other rule keeps its place.
+  const rank = (id) => FREQUENT_RANK.get(id) ?? FREQUENT_RULE_IDS.length;
+  sheet = rows.sort((a, b) => rank(a.id) - rank(b.id));
   return rows;
 }
 
 /** La misma ficha en texto, para el prompt del estudio (`--compact`: id + requisito). */
 export function ruleSheetText({ compact = false } = {}) {
   const rows = ruleSheet();
+  const line = (row) => compact ? `${row.id} | ${row.requirement}` : `${row.id} | ${row.requirement} | ${row.hint}`;
+  const frequent = rows.filter((row) => FREQUENT_RANK.has(row.id));
+  const other = rows.filter((row) => !FREQUENT_RANK.has(row.id));
   return [
     `RULE SHEET · ${rows.length} reglas · ${compact ? 'id | requisito' : 'id | requisito | arreglo'} · generada de las reglas`,
-    ...rows.map((row) => compact ? `${row.id} | ${row.requirement}` : `${row.id} | ${row.requirement} | ${row.hint}`),
+    `${FREQUENT_HEADING}:`,
+    ...frequent.map(line),
+    'Otras reglas de primera entrega:',
+    ...other.map(line),
   ].join('\n');
 }
 

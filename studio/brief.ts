@@ -17,7 +17,8 @@ import { ruleSheetText } from "../tools/part-check.mjs";
 export const PART_BRIEF_MARK = "PART BRIEF";
 /** Hard ceiling for the whole block, rule sheet included (#372/T2d): 12 KiB, no more. */
 export const MAX_PART_BRIEF_BYTES = 12288;
-/** The sheet comes from the rules themselves; the compact form is reserved so it always fits. */
+/** The sheet comes from the rules themselves; frequent first-draft findings lead, then the rest.
+ * The compact form is reserved so it always fits. */
 const RULES_FULL = `\n${ruleSheetText()}\n`;
 const RULES_COMPACT = `\n${ruleSheetText({ compact: true })}\n`;
 const FACTS_LIMIT = MAX_PART_BRIEF_BYTES - Buffer.byteLength(RULES_COMPACT, "utf8") - 64;

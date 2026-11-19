@@ -3,7 +3,7 @@
 // studio's own reader of those outputs, not with a second copy of the gate logic.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,10 +13,13 @@ import { findingsOf, PART_TOOLS } from '../studio/checks.ts';
 import { REGLAS } from './explain-check/reglas.mjs';
 import { REGLAS_DE_REGISTRO } from './register/hallazgos.mjs';
 import { HINTS } from './explain-check/hints.mjs';
-import { ruleSheet } from './part-check.mjs';
+import { ruleSheet, ruleSheetText } from './part-check.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = join(HERE, 'part-check.mjs');
+const FREQUENT_FILE = join(HERE, 'part-check-frequent.json');
+const frequentIds = () => JSON.parse(readFileSync(FREQUENT_FILE, 'utf8'));
+const FREQUENT_HEADING = 'Most frequent first-draft findings';
 const dir = mkdtempSync(join(tmpdir(), 'part-check-'));
 
 const BROKEN = `# Parte 1 — Las capas
@@ -85,6 +88,36 @@ test('the rule sheet covers exactly the rules part-check can report, generated f
   const all = run(['--rules']);
   assert.equal(all.status, 0, all.stdout + all.stderr);
   for (const id of expected) assert.match(all.stdout, new RegExp(`\\b${id}\\b`), `${id} appears in --rules`);
+});
+
+test('the frequent first-draft ids are a small checked-in list and every id is in the rule sheet', () => {
+  const ids = frequentIds();
+  assert.ok(Array.isArray(ids) && ids.length > 0 && ids.length <= 10, `expected a small list, got ${JSON.stringify(ids)}`);
+  assert.ok(ids.every((id) => typeof id === 'string' && id.length > 0), 'every entry is a rule id');
+  assert.equal(new Set(ids).size, ids.length, 'no id is listed twice');
+  const sheetIds = ruleSheet().map((row) => row.id);
+  for (const id of ids) assert.ok(sheetIds.includes(id), `${id} is not a rule the sheet can report`);
+});
+
+test('the rule sheet puts the frequent first-draft findings first, under their own heading', () => {
+  const ids = frequentIds();
+  const rows = ruleSheet();
+  assert.deepEqual(rows.slice(0, ids.length).map((row) => row.id), ids, 'the checked-in order is the sheet order');
+  for (const text of [ruleSheetText(), ruleSheetText({ compact: true })]) {
+    const heading = text.indexOf(FREQUENT_HEADING);
+    assert.ok(heading >= 0, `missing heading in ${text.slice(0, 80)}`);
+    const positions = ids.map((id) => {
+      const at = text.indexOf(`\n${id} |`, heading);
+      assert.ok(at > heading, `${id} is not under the frequent heading`);
+      return at;
+    });
+    assert.deepEqual(positions, [...positions].sort((a, b) => a - b), 'the frequent rows keep the checked-in order');
+    const firstOther = rows.find((row) => !ids.includes(row.id)).id;
+    assert.ok(text.indexOf(`\n${firstOther} |`) > positions.at(-1), 'the other rules come after the frequent ones');
+  }
+  const cli = run(['--rules']);
+  assert.equal(cli.status, 0, cli.stdout + cli.stderr);
+  assert.match(cli.stdout, new RegExp(FREQUENT_HEADING));
 });
 
 test('the register finding names the unexplained term and the line where it first appears', () => {

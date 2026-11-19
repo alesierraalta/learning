@@ -153,8 +153,12 @@ test("the studio preamble writes the whole part before checking, from the brief'
     const write = at(/escribe la parte entera de una sola vez/);
     const check = at(/corre `node <repo>\/tools\/part-check\.mjs <nota>` una sola vez/);
     const fix = at(/corrige solo lo que sus hallazgos nombren/);
+    const edit = at(/edit_file`\/`replace`/);
+    const spans = at(/exactamente las líneas o bloques que nombra cada hallazgo/);
+    const noRewrite = at(/nunca reescribas la nota entera/);
+    const structural = at(/reescritura completa solo se permite si part-check da un hallazgo estructural que abarque toda la nota/i);
     const again = at(/vuelve a correr part-check/);
-    assert.ok(brief < write && write < check && check < fix && fix < again, "brief → write → check → fix → re-check");
+    assert.ok(brief < write && write < check && check < fix && fix < edit && edit < spans && spans < noRewrite && noRewrite < structural && structural < again, "brief → write → check → targeted edits → re-check");
     assert.match(prompt, /no leas reglas de `tools\/explain-check\/rules\//i);
     assert.match(prompt, /ni el registro `tools\/register\/measure\.mjs`/i);
     assert.match(prompt, /no sondee el registro con `node -e`/i);
