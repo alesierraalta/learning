@@ -486,8 +486,12 @@ func stepFigureProgressiveProblems(markup string) (int, []string) {
 				problems = append(problems, name+" has a payload that is not valid JSON")
 				continue
 			}
-			if len(doc.Steps) < progressiveMinSteps || len(doc.Steps) > progressiveMaxSteps {
-				problems = append(problems, fmt.Sprintf("%s has %d steps; build the example in %d to %d steps", name, len(doc.Steps), progressiveMinSteps, progressiveMaxSteps))
+			// S18/S25: a worked example may take as many steps as it needs —
+			// add steps instead of crowding one. The legacy 3–6 deck cap is
+			// not a limit on the new elements; their own validators set the
+			// minimum (all of them require at least one step).
+			if len(doc.Steps) == 0 {
+				problems = append(problems, name+" has no steps")
 				continue
 			}
 			for i, step := range doc.Steps {

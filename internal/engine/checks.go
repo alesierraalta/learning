@@ -786,26 +786,46 @@ const sceneElement = "lk-scene"
 // them here keeps every existing topic current (S10).
 var stepFigureElements = []string{"lk-stage", "lk-codestep", "lk-tablestep", "lk-guided", "lk-lanes"}
 
-// usesStepFigures reports whether a note is written with the new step figures.
-// Those figures replace the legacy story/deck gates, so a note that uses one
-// is not also asked to carry an <lk-story> beside it.
+// hasElement reports a real opening tag, never a name that merely starts the
+// same way (`<lk-tablestep>` is not an `<lk-tables>` piece).
+func hasElement(lower, el string) bool {
+	for at := 0; ; {
+		start := strings.Index(lower[at:], "<"+el)
+		if start < 0 {
+			return false
+		}
+		start += at
+		after := start + len(el) + 1
+		if after >= len(lower) || strings.ContainsRune(" \t\n/>\r", rune(lower[after])) {
+			return true
+		}
+		at = after
+	}
+}
+
+// usesStepFigures reports whether a note is written only with the new step
+// figures. A new figure can satisfy a "needs a scene/walkthrough/formula"
+// rule, but it must never switch off the gate of a legacy figure that is
+// actually present: every figure in the note stays answerable for itself.
 func usesStepFigures(text string) bool {
 	lower := asciiLower(withoutCodeFences(text))
+	newFigure := false
 	for _, el := range stepFigureElements {
-		for at := 0; ; {
-			start := strings.Index(lower[at:], "<"+el)
-			if start < 0 {
-				break
-			}
-			start += at
-			after := start + len(el) + 1
-			if after >= len(lower) || strings.ContainsRune(" \t\n/>\r", rune(lower[after])) {
-				return true
-			}
-			at = after
+		if hasElement(lower, el) {
+			newFigure = true
+			break
 		}
 	}
-	return false
+	if !newFigure {
+		return false
+	}
+	legacy := append([]string{"lk-figure", sceneElement, "lk-walkthrough", "lk-story"}, pieceElements...)
+	for _, el := range legacy {
+		if hasElement(lower, el) {
+			return false
+		}
+	}
+	return true
 }
 
 var stepFigureFields = map[string][]string{
