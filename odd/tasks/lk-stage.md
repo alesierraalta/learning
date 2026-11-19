@@ -59,15 +59,14 @@ Branch `feat/358-lk-stage` from `origin/main @ cbaf699`. Prototypes the learner 
 
 ## Tasks
 
-- T0d S15 — generality: a topic-neutral visual vocabulary (generic hand-drawn actors/props + Lucide fallback in the scene style); new forms code stepper, table transform, timeline, numeric before/after, each built with a neutral example; one authoring contract for every form; then a blind tutor writes figures for semáforos en C, PL/SQL, administración de proyectos and EXL3 — writers + parent — in progress
-- T0c S2,S12-S14 — showcase v3: Parte 1 scene in our own identity; Parte 3 on the isometric map; Partes 2/4/5 and the step-by-step redone per the learner's answers; formula back to v1 plus the v2 simulation — writers + parent — in progress
-- T0b S2,S12-S14 — showcase v2 for the mixed direction: art-directed scene prototype with an own pixel-art sprite library; clean formula/example and diagrams with the defects the parent listed fixed; delivered with before/after/references — writers + parent — in progress
-- T0 S12-S14 — showcase before any more engine work: reference captures + «before» gallery of the current kit per content type; «after» prototypes for formulas, worked example/step-by-step, and diagrams in general, raised to the reference bar; one reading page with a recorded interaction; delivered to the PC — writers + parent — in progress
-- T1 S1-S6,S8 — `<lk-stage>` element: spec validation + isometric renderer + narration + player, with the prototype's four kinds (`robot`, `room`, `charger`, `block`); docs in `docs/kit.md` — writer — done, commit f5af3ad
-- T2 S7 — real-browser label gate for `lk-stage` — writer — pending (after T1)
-- T3 S9 — object library v1 + reference screenshots (#359) — writer — pending (after T1)
-- T4 S10 — tutor contract + explain-check/engine standard (#360) — writer + independent verify (Risk: item 3) — pending (after T3)
-- T5 S11 — live real run and side-by-side on the PC (#361) — parent — pending (after T4)
+- T0–T0d S2,S12-S15 — showcase rounds (scenes, map, formulas, code, table, timeline, numbers, Mermaid theme, blind tutor test, contract) in `scratch/showcase/` — writers + parent — done, design approved (L14)
+- T1 S1-S6,S8 — `<lk-stage>` element: spec validation + isometric renderer + narration + player — writer — done, commit f698633
+- T6 S18-S22 — `<lk-stage>` brought to the approved map (`scratch/showcase/after-map/stage.js`): focus outlines, ▶, no «Narrador», readable pills, fits one screen; keeps its tests green — writer — pending
+- T7 S17-S22 — `<lk-codestep>` and `<lk-tablestep>` kit elements ported from `scratch/showcase/form-code` and `form-table` — writer — pending
+- T8 S18-S22,S25 — `<lk-guided>` (formula, worked example, numbers) and `<lk-lanes>` (shared-resource timeline) kit elements ported from `scratch/showcase/after-math/shared/guided.*` and `form-timeline` — writer — pending
+- T9 S16,S21,S23,S26 — registration and reader: manifest, DOMPurify allow-list, wide figures, kit Mermaid theme in the reader (no white paper in dark), visual counting in `bridge.ts`, `rules/deep.json` and the Go engine recognise the new elements — writer — pending (after T6-T8), Risk: item 3
+- T10 S10,S15,S16,S24,S25 — tutor contract: `skills/explicacion-interactiva` (SKILL.md + references/visuales.md) from `scratch/showcase/CONTRACT.md` with the real element names; authoring gate validates the new specs — writer + independent verify — pending (after T9), Risk: item 3
+- T11 S11,L15-L16 — merge to main; regenerate the written parts of fundamentos-aprendizaje-por-refuerzo (p2, p3) and paradigma-relacional-sql-transacciones (p1-p3); before/after to the PC — parent — pending (after T10)
 
 ## Log
 
