@@ -135,24 +135,42 @@ test('rechaza una parte sin ruta', () => {
   assert.match(r.stdout, /FALLA ruta/);
 });
 
-// La prelectura (S27): una parte escrita al contrato nuevo abre con un resumen corto
-// de lo que va a cubrir antes de `## Ruta`, y cada línea numerada de la ruta nombra el
-// paso y añade una frase de lo que se verá ahí. Una parte antigua sigue pasando igual (S10).
+// La prelectura (S27, S28): una parte escrita al contrato nuevo abre con una
+// introducción en palabras llanas antes de `## Ruta` (cuatro a seis frases, unas 60 a 160
+// palabras, en párrafos cortos), y cada línea numerada de la ruta nombra el paso y añade
+// una frase de diez palabras o más con lo que se verá ahí. Ni el resumen ni la ruta
+// nombran un término que la parte explica después sin parafrasearlo. Una parte antigua
+// sigue pasando igual (S10).
 const RUTA_ETAPA = `<lk-stage>
 <script type="application/json">
 {"actors":[],"steps":[]}
 </script>
 </lk-stage>`;
-const RUTA_PRELECTURA = 'Esta parte trata del robot que aprende a limpiar sin que nadie le diga cómo. '
+const RUTA_PRELECTURA = 'Antes de entrar en materia, imagina un robot que limpia una sala sin que nadie le diga cómo hacerlo. '
+  + 'Al principio prueba al azar y casi todo le sale mal. '
+  + 'Poco a poco descubre qué le conviene hacer en cada momento y lo repite. '
+  + 'En esta parte vas a ver qué mira antes de moverse y por qué el premio que recibe llega tarde. '
+  + 'Al terminar, podrás contar con tus palabras cómo aprende algo tan simple como limpiar.';
+const RUTA_CORTA = 'Esta parte trata del robot que aprende a limpiar sin que nadie le diga cómo. '
   + 'Verás qué mira antes de decidir y por qué el premio llega tarde.';
-const RUTA_DETALLADA = `1. El robot y la sala — qué mira el robot antes de decidir cada acción.
-2. El premio tardío — por qué la recompensa llega muchos pasos después.
-3. La política — qué acción elige en cada casilla del mapa.`;
+const RUTA_CON_TERMINO = RUTA_PRELECTURA.replace('qué mira antes de moverse',
+  'cómo la especificación se conecta con lo que el robot debe hacer');
+const RUTA_DETALLADA = `1. El robot y la sala — qué mira el robot antes de decidir cada movimiento que hace.
+2. El premio tardío — por qué la recompensa llega muchos pasos después de la acción.
+3. La política — qué acción elige el robot en cada casilla del mapa que recorre.`;
+// La misma ruta con descripciones de menos de diez palabras: se quedan cortas.
+const RUTA_BREVE = `1. El robot y la sala — lo que mira antes de elegir.
+2. El premio tardío — lo que espera después de actuar.
+3. La política — lo que elige en cada casilla.`;
 const RUTA_PELADA = `1. El robot y la sala
 2. El premio tardío
 3. La política`;
-const rutaNota = (prelectura, lineas, figura = RUTA_ETAPA) => ['# Parte 1', prelectura, '## Ruta', lineas,
-  '## 1. El robot', 'El robot mira la sala y elige.', figura].filter(Boolean).join('\n\n');
+const RUTA_CUERPO = '**Especificación**: es el documento que dice qué debe hacer el sistema.';
+const rutaNotaConCuerpo = (prelectura, lineas, cuerpo, figura = RUTA_ETAPA) =>
+  ['# Parte 1', prelectura, '## Ruta', lineas, '## 1. El robot', cuerpo, figura]
+    .filter(Boolean).join('\n\n');
+const rutaNota = (prelectura, lineas, figura = RUTA_ETAPA) =>
+  rutaNotaConCuerpo(prelectura, lineas, 'El robot mira la sala y elige.', figura);
 const rutaRow = (src) => ruta.check(leerNota(src, false));
 
 test('la ruta nueva pide la prelectura antes de ## Ruta', () => {
@@ -161,8 +179,8 @@ test('la ruta nueva pide la prelectura antes de ## Ruta', () => {
   assert.match(row.detail, /prelectura/);
 });
 
-test('la ruta nueva pide una frase descriptiva en cada línea', () => {
-  const row = rutaRow(rutaNota(RUTA_PRELECTURA, RUTA_PELADA));
+test('la ruta nueva pide una frase descriptiva de diez palabras en cada línea', () => {
+  const row = rutaRow(rutaNota(RUTA_PRELECTURA, RUTA_BREVE));
   assert.equal(row.ok, false);
   assert.match(row.detail, /línea 1/);
   assert.match(row.detail, /línea 3/);
@@ -170,6 +188,39 @@ test('la ruta nueva pide una frase descriptiva en cada línea', () => {
 
 test('la ruta nueva pasa con prelectura y descripciones', () => {
   const row = rutaRow(rutaNota(RUTA_PRELECTURA, RUTA_DETALLADA));
+  assert.equal(row.ok, true, row.detail);
+});
+
+test('la prelectura de dos frases se queda corta (S28)', () => {
+  const row = rutaRow(rutaNota(RUTA_CORTA, RUTA_DETALLADA));
+  assert.equal(row.ok, false);
+  assert.match(row.detail, /prelectura/);
+});
+
+test('la prelectura no nombra un término que la parte explica después', () => {
+  const row = rutaRow(rutaNotaConCuerpo(RUTA_CON_TERMINO, RUTA_DETALLADA, RUTA_CUERPO));
+  assert.equal(row.ok, false);
+  assert.match(row.detail, /especificación/i);
+});
+
+test('la prelectura pasa si parafrasea el término entre paréntesis', () => {
+  const parafrasis = RUTA_CON_TERMINO.replace('la especificación',
+    'la especificación (el documento que dice qué debe hacer el sistema)');
+  const row = rutaRow(rutaNotaConCuerpo(parafrasis, RUTA_DETALLADA, RUTA_CUERPO));
+  assert.equal(row.ok, true, row.detail);
+});
+
+test('la línea de ruta no nombra un término que la parte explica después', () => {
+  const lineas = RUTA_DETALLADA.replace('antes de decidir cada movimiento que hace',
+    'antes de decidir según la especificación del ejercicio');
+  const row = rutaRow(rutaNotaConCuerpo(RUTA_PRELECTURA, lineas, RUTA_CUERPO));
+  assert.equal(row.ok, false);
+  assert.match(row.detail, /línea 1/);
+  assert.match(row.detail, /especificación/i);
+});
+
+test('una nota completa al contrato nuevo pasa entera', () => {
+  const row = rutaRow(rutaNotaConCuerpo(RUTA_PRELECTURA, RUTA_DETALLADA, RUTA_CUERPO));
   assert.equal(row.ok, true, row.detail);
 });
 
@@ -542,13 +593,17 @@ const notaDelContratoNuevo = () => {
   ];
   return `# Parte 1
 
-Esta parte muestra al robot que elige entre limpiar y cargar. Verás su recorrido, su código y la fórmula que lo explica.
+Imagina un robot en una sala con dos tareas: limpiar y cargar. El robot elige una y aprende de lo que pasa después.
+
+En esta parte verás cómo se mueve y qué gana en cada paso. Su código y sus filas dicen qué cambia cuando elige.
+
+Una fórmula resume al final todo lo que el robot gana. Al terminar, podrás contarlo con tus propias palabras.
 
 ## Ruta
 
-1. Recorrer el escenario — qué mira el robot. Elige antes de limpiar.
-2. Seguir el código y las filas — cómo cambia el estado. Mira cada paso del cálculo.
-3. Leer la fórmula y los carriles — qué símbolo vale qué. Mira cuándo se comparte el recurso.
+1. Recorrido — qué mira el robot antes de elegir entre limpiar o cargar.
+2. Código — cómo cambia el estado del robot en cada paso del cálculo.
+3. Fórmula — qué símbolo vale qué y cuándo se comparte el recurso.
 
 ## 1. El recorrido
 

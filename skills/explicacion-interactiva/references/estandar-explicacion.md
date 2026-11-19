@@ -20,7 +20,7 @@ Presupuesto, medido, no estimado:
 | Prosa de la parte (sin código, tablas ni bloques visuales) | **450 palabras** |
 | Secciones de contenido además de `## Ruta` y del heading del mini-quiz | 2 |
 | Líneas de `## Ruta` | 4 |
-| Prelectura antes de `## Ruta` | Un párrafo de 2 o 3 frases, 70 palabras como máximo |
+| Prelectura antes de `## Ruta` | Una introducción de 4 a 6 frases, unas 60 a 160 palabras, en párrafos cortos de dos frases |
 | Figuras (Mermaid o una forma propia con pasos) | 1 |
 | Recorrido progresivo | 1, dentro de la figura del ejemplo; una idea por paso, sin tope para explicar una fórmula (S25) |
 | Preguntas del mini-quiz | 3 |
@@ -89,12 +89,25 @@ frase y el mini-quiz.
 
 ## 1. Arquitectura de una parte
 
-1. **Prelectura y luego `## Ruta`.** Antes de la ruta, un párrafo corto de dos o tres frases
-   (70 palabras como máximo) con lo que cubre la parte, para acostumbrar al cerebro a lo que
-   viene. Después `## Ruta`: tres o cuatro líneas numeradas (§0), cada una con el paso y una
-   frase de qué se verá ahí, por ejemplo `1. Viabilidad comercial — qué preguntas responde el
-   estudio de mercado y por qué va primero.` Una línea por punto, sin sub-bullets. Abre con
-   «Vamos a construirlo en este orden:».
+1. **Prelectura y luego `## Ruta`.** Antes de la ruta va una introducción de cuatro a seis
+   frases (unas 60 a 160 palabras, en párrafos cortos de dos frases), en palabras que el lector ya
+   entiende: la idea general de la parte y por qué importa, para que el cerebro entre en calor
+   con lo que viene. No es un resumen comprimido ni un adelanto de vocabulario técnico.
+   Después `## Ruta`: tres o cuatro líneas numeradas (§0), cada una con el paso y una frase de
+   diez palabras o más que diga de qué va, en lenguaje llano, por ejemplo
+   `1. Viabilidad comercial — qué preguntas responde el estudio de mercado y por qué va primero.`
+   Una línea por punto, sin sub-bullets. Abre con «Vamos a construirlo en este orden:».
+
+   **Ningún término antes de su explicación.** Si la parte define un término más adelante
+   (una etiqueta en negrita con su definición), la prelectura y la ruta no lo nombran como si
+   el lector ya lo supiera: se dice en palabras de todos los días, o se parafrasea ahí mismo.
+
+   Buen ejemplo: «Antes de entrar, imagina el trámite de dar de alta una empresa. Hay que
+   reunir papeles, presentarlos y esperar una respuesta. En esta parte vas a ver qué documentos
+   hacen falta y por qué cada uno importa. Al terminar, podrás preparar tu propio expediente.»
+
+   Mal ejemplo: «En esta parte vas a ver cómo la especificación se conecta con el contrato.»
+   El lector todavía no sabe qué es una especificación: la frase no prepara nada.
 2. **Secciones de contenido.** Una idea por sección, en prosa. Los títulos numerados siguen
    la jerarquía del tema (`1.1`, `1.1.1`, …) y son frases, no etiquetas: «¿Por qué existe el
    aprendizaje por refuerzo?» antes que «Introducción».
@@ -336,25 +349,26 @@ El quiz se responde en la página. Es parte de la explicación, no un examen fin
 
 ## 8. Chequeo antes de entregar
 
-1. ¿La parte abre con una prelectura corta, sigue con `## Ruta` y termina en contenido, sin resumen ni gancho?
-2. ¿Hay un solo ejemplo conductor, y muta al menos cinco veces?
-3. ¿Cada fórmula llegó después del caso del ejemplo que la motiva, con sus símbolos nombrados?
-4. ¿La escena y el recorrido muestran el ejemplo mismo, con una flecha que dice dónde mirar?
-5. ¿Alguna idea importante vive solo dentro de un bloque de código o de un `plain text`?
+1. ¿La parte abre con una introducción en palabras llanas —4 a 6 frases, la idea general y por qué importa—, sigue con `## Ruta` y termina en contenido, sin resumen ni gancho?
+2. ¿La prelectura y la ruta evitan nombrar un término que la parte solo explica después, o lo parafrasean ahí mismo?
+3. ¿Hay un solo ejemplo conductor, y muta al menos cinco veces?
+4. ¿Cada fórmula llegó después del caso del ejemplo que la motiva, con sus símbolos nombrados?
+5. ¿La escena y el recorrido muestran el ejemplo mismo, con una flecha que dice dónde mirar?
+6. ¿Alguna idea importante vive solo dentro de un bloque de código o de un `plain text`?
    Si sí, es una escena que falta.
-6. ¿Se lee en voz alta sin trabarse? ¿Alguna frase tiene más de dos comas?
-0. ¿Pasan **las cinco puertas** de «Parámetros mínimos de calidad» del `SKILL.md` (gate, lint,
+7. ¿Se lee en voz alta sin trabarse? ¿Alguna frase tiene más de dos comas?
+8. ¿Pasan **las cinco puertas** de «Parámetros mínimos de calidad» del `SKILL.md` (gate, lint,
    part-lint, barrido de ASCII y `audit-note`)? Corrige **todas** las violaciones que imprima
    `node tools/visuals/audit-note.mjs --note "<ruta de la nota>"` antes de dar la parte por
    terminada. Sin las cinco en verde, la parte no se entrega; el resultado se cita en el mensaje,
    no se supone.
-7. ¿Cada pieza tiene su ficha de tres golpes (§2b), sin segunda definición, sin párrafo que
+9. ¿Cada pieza tiene su ficha de tres golpes (§2b), sin segunda definición, sin párrafo que
    explique la lista y sin explicación de las alternativas?
-8. ¿Quedó algún párrafo que explique que el concepto «es más general»? Se borra: esa frase la
+10. ¿Quedó algún párrafo que explique que el concepto «es más general»? Se borra: esa frase la
    ocupaba la lista de alternativas.
 11. ¿La prosa de la parte queda en 450 palabras o menos (§0)? Si no, ¿se dividió en dos partes
-    en lugar de comprimirse?
+   en lugar de comprimirse?
 12. ¿Se puede contestar el quiz y escribir el vuelco **sin releer** la parte?
-9. ¿El barrido de §5 (cajas y barras dibujadas con caracteres) da cero líneas?
-10. ¿Alguna frase afirma que «lo mismo puede dar resultados distintos» sin mostrar el segundo
-    caso? Se muestra el segundo caso o se borra la frase.
+13. ¿El barrido de §5 (cajas y barras dibujadas con caracteres) da cero líneas?
+14. ¿Alguna frase afirma que «lo mismo puede dar resultados distintos» sin mostrar el segundo
+   caso? Se muestra el segundo caso o se borra la frase.
