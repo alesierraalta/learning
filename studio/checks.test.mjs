@@ -286,6 +286,20 @@ test("a finding is read with its rule, its scene and its own message", () => {
   assert.deepEqual(parsedFindingsOf("scene-gate.mjs", output).map((f) => f.raw), findingsOf("scene-gate.mjs", output));
 });
 
+// The one-command parser reads the detail for its message, but the line handed to the tutor must
+// stay the studio's old line byte for byte: three spaces here are one separator plus two in the
+// gate's own detail. Trimming the message may not trim that line.
+test("an explain-check finding with padded detail keeps the studio's raw line", () => {
+  const output = JSON.stringify({
+    rows: [{ ok: false, rule: "termino-sin-explicar", detail: "  usa  la capa  ", items: [{ linea: 'La «capa» oculta detalles.' }] }],
+  });
+  const raw = "FALLA termino-sin-explicar   usa  la capa";
+  assert.deepEqual(findingsOf("explain-check.mjs", output), [raw]);
+  const [found] = parsedFindingsOf("explain-check.mjs", output);
+  assert.equal(found.raw, raw, "the studio's line is unchanged");
+  assert.equal(found.message, "usa  la capa", "only the parsed message is trimmed");
+});
+
 test("a crash beside findings is kept apart for the one-command report", async () => {
   const fake = mkdtempSync(join(tmpdir(), "crash-with-findings-"));
   writeFileSync(join(fake, "scene-gate.mjs"), `console.log(${JSON.stringify("nota.md: escena 1 — X\n  al-borde: rect\n")}); process.exit(1);\n`);

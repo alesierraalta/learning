@@ -153,10 +153,11 @@ export function parsedFindingsOf(tool: string, output: string): ParsedFinding[] 
       const rows = (JSON.parse(output) as { rows?: Array<{ ok?: unknown; rule?: unknown; detail?: unknown; items?: Array<{ linea?: unknown }> }> }).rows;
       if (Array.isArray(rows)) return rows.filter((entry) => entry.ok === false).map((entry) => {
         const rule = String(entry.rule ?? "");
-        const detail = String(entry.detail ?? "").trim();
+        const detail = String(entry.detail ?? "");
+        const message = detail.trim();
         const first = entry.items?.find((item) => typeof item.linea === "string")?.linea ?? "";
         const where = String(first).match(/[«"']([^»"']+)[»"']/)?.[1] ?? String(first).slice(0, 60) ?? "nota";
-        return row(rule, where || "nota", detail || String(first), `FALLA ${rule} ${detail}`.trim());
+        return row(rule, where || "nota", message || String(first), `FALLA ${rule} ${detail}`.trim());
       });
     } catch {
       // Markdown checks retain the tool's line-oriented output.
