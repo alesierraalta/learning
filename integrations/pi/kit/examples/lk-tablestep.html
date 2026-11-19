@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>lk-tablestep · transformación de tablas</title>
+  <script src="../theme.js"></script>
+  <link rel="stylesheet" href="../kit.css">
+  <link rel="stylesheet" href="../tablestep.css">
+  <script src="../tablestep.js" defer></script>
+  <style>main { max-width: none; margin: 0; padding: 22px 28px 32px; }</style>
+</head>
+<body>
+<main>
+  <p class="kicker">Pedidos y socios · ejemplo de figura</p>
+  <lk-tablestep>
+    <script type="application/json">
+    {
+      "title": "Pedidos y socios",
+      "subtitle": "Tres transformaciones sobre las mismas tablas",
+      "tables": {
+        "socios": {
+          "columns": [{ "id": "id", "key": true }, "nombre", "ciudad"],
+          "rows": [
+            { "id": "s1", "cells": { "id": 1, "nombre": "Ada", "ciudad": "Madrid" } },
+            { "id": "s2", "cells": { "id": 2, "nombre": "Bo", "ciudad": "Lima" } },
+            { "id": "s3", "cells": { "id": 3, "nombre": "Cy", "ciudad": "Madrid" } },
+            { "id": "s4", "cells": { "id": 4, "nombre": "Di", "ciudad": "Bogotá" } }
+          ]
+        },
+        "pedidos": {
+          "columns": ["id", { "id": "socio_id", "fk": "socios.id" }, "total"],
+          "rows": [
+            { "id": "p1", "cells": { "id": 101, "socio_id": 1, "total": 120 } },
+            { "id": "p2", "cells": { "id": 102, "socio_id": 2, "total": 200 } },
+            { "id": "p3", "cells": { "id": 103, "socio_id": 1, "total": 80 } },
+            { "id": "p4", "cells": { "id": 104, "socio_id": 3, "total": 150 } },
+            { "id": "p5", "cells": { "id": 105, "socio_id": 4, "total": 50 } }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "filter", "table": "pedidos",
+          "condition": { "column": "total", "op": ">=", "value": 100 },
+          "narrator": ["Sólo nos quedamos con los pedidos de [100 o más|good]."]
+        },
+        {
+          "op": "join", "left": "pedidos", "right": "socios",
+          "on": { "fk": "socio_id", "key": "id" }, "as": "pedidos_socios",
+          "project": [{ "from": "socios", "column": "nombre" }],
+          "narrator": ["Cada [socio_id|info] encuentra su [id|info] y su nombre."]
+        },
+        {
+          "op": "group", "table": "socios", "by": "ciudad", "count": "n", "as": "por_ciudad",
+          "narrator": ["Agrupamos por [ciudad|info] y contamos los socios de cada grupo."]
+        }
+      ]
+    }
+    </script>
+  </lk-tablestep>
+  <p class="after">El pie dice cuántas filas quedan vivas; las filas descartadas permanecen atenuadas.</p>
+</main>
+</body>
+</html>

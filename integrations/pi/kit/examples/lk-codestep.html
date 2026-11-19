@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>lk-codestep · ventana de código</title>
+  <script src="../theme.js"></script>
+  <link rel="stylesheet" href="../kit.css">
+  <link rel="stylesheet" href="../codestep.css">
+  <script src="../codestep.js" defer></script>
+  <style>main { max-width: none; margin: 0; padding: 22px 28px 32px; }</style>
+</head>
+<body>
+<main>
+  <p class="kicker">Media de una lista · ejemplo de figura</p>
+  <lk-codestep>
+    <script type="application/json">
+    {
+      "title": "Media de una lista",
+      "language": "python",
+      "code": [
+        "def media(valores):",
+        "    total = 0",
+        "    n = 0",
+        "    for valor in valores:",
+        "        total = total + valor",
+        "        n = n + 1",
+        "        if n == len(valores):",
+        "            break",
+        "    # la media usa todos los valores",
+        "    resultado = total / n",
+        "    print(resultado)",
+        "    return resultado",
+        "",
+        "valores = [6, 4, 2]",
+        "media(valores)"
+      ],
+      "window": 6,
+      "regions": { "media": { "from": 1, "to": 13 } },
+      "steps": [
+        {
+          "line": 2,
+          "focus": "total",
+          "state": { "vars": { "total": 0, "n": 0 }, "flags": { "listo": false } },
+          "narrator": ["Empezamos con [cero|info] y recorremos la lista."]
+        },
+        {
+          "line": [5, 6],
+          "focus": ["total", "n"],
+          "state": {
+            "vars": { "total": 10, "n": 2 }, "flags": { "listo": false },
+            "stack": ["6", "4"]
+          },
+          "narrator": ["Sumamos [6|good] y [4|good]: ya llevamos dos valores."]
+        },
+        {
+          "line": 10,
+          "focus": "listo",
+          "state": {
+            "vars": { "total": 12, "n": 3 }, "flags": { "listo": true },
+            "output": ["4.0"]
+          },
+          "narrator": ["Dividimos [12 entre 3|good] y obtenemos [4.0|good]."]
+        }
+      ]
+    }
+    </script>
+  </lk-codestep>
+  <p class="after">Cada paso deja el código y el estado a la vista; el pliegue revela el resto del archivo.</p>
+</main>
+</body>
+</html>
