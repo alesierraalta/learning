@@ -408,6 +408,12 @@
   const writePromptOf = (topic, number, title) =>
     `Escribe la Parte ${number} «${title}» de ${topic.title} (carpeta ${topic.id}): con sus visuales, sus ejemplos y su mini-quiz.`;
   const writePrompt = (topic, part) => writePromptOf(topic, partNumber(topic, part), part.title);
+  /** The same request the composer sends, read back from a turn or from the chat history. */
+  const WRITE_REQUEST = /^Escribe la Parte (\d+) «([^»\n]+)» de .+? \(carpeta ([\w-]+)\)/;
+  const writePartOf = (text) => {
+    const found = WRITE_REQUEST.exec(String(text ?? ""));
+    return found ? { number: Number(found[1]), title: found[2], topic: found[3] } : null;
+  };
   /** The panorama is built from two files the tutor writes: the plan and the map. */
   const planPrompt = (topic) =>
     `Escribe la planificación de ${topic.title} (carpeta ${topic.id}) en planificador.md: el diagnóstico, la tabla de plan por subtema, la ruta numerada y el mapa de dependencias.`;
@@ -1257,6 +1263,7 @@
               btn("Panorama del tema", () => openPanorama(topic.id, `#/tema/${topic.id}`), "btn small soft", "map"),
               h("span", { class: "pano-entry-note" }, "La planificación y el mapa de dependencias, en una vista completa"),
             ),
+            currentEspera() ? esperaMount(currentEspera()) : null,
             gaps.missing.length > 0
               ? h(
                   "div",
@@ -1304,6 +1311,7 @@
         ),
 ),
 );
+  ensureEspera();
 }
 
   // ---------- panorama ----------
@@ -1996,7 +2004,10 @@
     const pageNext = h("button", { class: "icon-btn", type: "button", "aria-label": "Página siguiente", title: "Página siguiente", onclick: () => turnPage(1) }, icon("next"));
     const pageBar = h("div", { class: "reader-pages", hidden: true }, pagePrev, pageLabel, pageNext);
     const reader = h("div", { class: "reader" }, h("div", { class: "reader-head" }, bar, menu), h("div", { class: "sheet-wrap" }, frame, pageBar));
+    const waiting = currentEspera();
+    if (waiting && waiting.topic === topicId && waiting.part === part) reader.insertBefore(esperaMount(waiting), reader.querySelector(".sheet-wrap"));
     stage.replaceChildren(topic ? h("div", { class: "reader-layout" }, reader, studyRail(topic, part, title)) : reader);
+    ensureEspera();
     function applyMode(id) {
       readingMode = id;
       try { localStorage.setItem(READING_MODE_KEY, id); } catch { /* private mode */ }
@@ -2389,8 +2400,254 @@
     }
   }
 
+  // ---------- useful waiting (S6) ----------
+  /** The waiting section reads only what the server publishes; no tutor code runs in the page. */
+  const ESPERA_FASES = [
+    ["escribiendo", "Escribiendo"],
+    ["comprobando", "Comprobando"],
+    ["corrigiendo", "Corrigiendo"],
+    ["lista", "Lista"],
+  ];
+  const esperaState = { key: "", data: null, fase: null, started: 0, loading: "", revealed: false, answers: new Map(), clock: 0 };
+  const esperaKey = (topic, part) => `${topic}/${part}`;
+  const elapsedText = () => {
+    const fromEvent = Number(esperaState.fase?.t);
+    // A short `t` is the server's elapsed milliseconds; an epoch or a missing value is not.
+    const ms = Number.isFinite(fromEvent) && fromEvent >= 0 && fromEvent < 86_400_000
+      ? fromEvent
+      : Math.max(0, Date.now() - (esperaState.started || Date.now()));
+    const seconds = Math.floor(ms / 1000);
+    return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+  function startEsperaClock() {
+    if (esperaState.clock) return;
+    esperaState.clock = setInterval(() => {
+      for (const node of document.querySelectorAll(".espera-elapsed")) node.textContent = elapsedText();
+    }, 1000);
+  }
+  function clearWritePart() {
+    const part = tutor.writePart;
+    if (!part) return;
+    const key = esperaKey(part.topic, part.part);
+    for (const mount of stage.querySelectorAll(".espera-mount")) if (mount.dataset.esperaMount === key) mount.remove();
+    tutor.writePart = null;
+    esperaState.key = "";
+    esperaState.data = null;
+    esperaState.fase = null;
+    esperaState.revealed = false;
+    esperaState.answers.clear();
+    esperaState.loading = "";
+  }
+  function setWritePart(text) {
+    const found = writePartOf(text);
+    const topic = found ? topicById(found.topic) : null;
+    const part = topic?.parts[found.number - 1];
+    if (!topic || !part) return false;
+    const key = esperaKey(topic.id, part.id);
+    tutor.writePart = { topic: topic.id, part: part.id, number: found.number };
+    if (esperaState.key !== key) {
+      esperaState.key = key;
+      esperaState.data = null;
+      esperaState.fase = null;
+      esperaState.revealed = false;
+      esperaState.answers.clear();
+      esperaState.started = Date.now();
+      esperaState.loading = "";
+    }
+    startEsperaClock();
+    return true;
+  }
+  /** The section belongs to the topic or to the part the learner is looking at, not to the chat. */
+  function currentEspera() {
+    const part = tutor.writePart;
+    if (!part) return null;
+    const [, view, a, b] = location.hash.split("/").map(decodeURIComponent);
+    if (view === "tema" && a === part.topic) return part;
+    if (view === "leer" && a === part.topic && b === part.part) return part;
+    return null;
+  }
+  function esperaMount(part) {
+    return h("div", { class: "espera-mount", "data-espera-mount": esperaKey(part.topic, part.part) }, esperaCard(part));
+  }
+  function repaintEspera() {
+    const part = currentEspera();
+    if (!part) return;
+    const key = esperaKey(part.topic, part.part);
+    let mount = [...stage.querySelectorAll(".espera-mount")].find((node) => node.dataset.esperaMount === key);
+    if (!mount) {
+      // A turn can start while the learner is already on the page: the section has to
+      // appear where they are, not wait for a hash change to draw it.
+      const [, view] = location.hash.split("/");
+      const host = view === "tema" ? stage.querySelector(".topic-head > div") : stage.querySelector(".reader");
+      if (!host) return;
+      mount = esperaMount(part);
+      const before = view === "tema" ? host.querySelector(".topic-route-heading") : host.querySelector(".sheet-wrap");
+      if (before) host.insertBefore(mount, before);
+      else host.append(mount);
+    }
+    mount.replaceChildren(esperaCard(part));
+  }
+  async function loadEspera(reveal = false) {
+    const part = tutor.writePart;
+    if (!part) return;
+    const key = esperaKey(part.topic, part.part);
+    if (esperaState.key !== key) return;
+    if (!reveal && (esperaState.data || esperaState.loading === key)) return;
+    if (reveal && esperaState.revealed) return;
+    esperaState.loading = key;
+    if (reveal) esperaState.revealed = true;
+    try {
+      const query = new URLSearchParams({ topic: part.topic, part: part.part, ...(reveal ? { revelar: "1" } : {}) });
+      const data = await request(`api/espera?${query}`);
+      if (esperaState.key !== key) return;
+      esperaState.data = reveal && esperaState.data
+        ? { ...esperaState.data, preguntas: data.preguntas ?? esperaState.data.preguntas, profesor: data.profesor ?? null }
+        : data;
+    } catch {
+      // The endpoint may still be starting: progress and the map placeholder stay quiet.
+      if (reveal) esperaState.revealed = false;
+    } finally {
+      esperaState.loading = "";
+      repaintEspera();
+    }
+  }
+  function ensureEspera() {
+    if (!currentEspera()) return;
+    startEsperaClock();
+    if (!esperaState.data && !esperaState.loading) void loadEspera(false);
+  }
+  const answerLetter = (item, choice) => {
+    const expected = String(item?.respuesta ?? "").trim();
+    return Boolean(expected) && (expected.toUpperCase() === choice || expected === item?.opciones?.[choice] || expected.toUpperCase().startsWith(`${choice}.`));
+  };
+  function revealFeedback(node, item) {
+    const expected = String(item.respuesta ?? "").trim();
+    const letter = expected.toUpperCase()[0];
+    node.className = "espera-feedback";
+    node.replaceChildren(
+      h("strong", {}, `Respuesta: ${letter || expected}`),
+      expected.length > 1 && expected.toUpperCase() !== letter ? ` · ${expected.slice(letter.length).replace(/^\.\s*/, "")}` : null,
+      item.explicacion ? h("span", {}, ` ${item.explicacion}`) : null,
+    );
+  }
+  function choiceFeedback(node, item, tipo, choice) {
+    if (tipo === "repaso") {
+      const correct = answerLetter(item, choice);
+      node.className = `espera-feedback ${correct ? "good" : "bad"}`;
+      node.replaceChildren(document.createTextNode(correct ? "Correcto" : "Incorrecto"), item.explicacion ? h("span", {}, ` ${item.explicacion}`) : null);
+      return;
+    }
+    if (item.respuesta) {
+      revealFeedback(node, item);
+      node.append(document.createTextNode(` Habías elegido ${choice}.`));
+      return;
+    }
+    node.className = "espera-feedback";
+    node.textContent = "Anotado. Podrás comparar cuando la parte esté lista.";
+  }
+  function questionCard(item, tipo) {
+    const choices = item.opciones && typeof item.opciones === "object" ? Object.entries(item.opciones) : [];
+    const name = `espera-${String(item.id ?? "q").replace(/[^\w-]/g, "")}`;
+    const chosen = esperaState.answers.get(item.id);
+    const card = h("fieldset", { class: "espera-q", "data-qid": item.id }, h("legend", {}, item.enunciado));
+    for (const [letter, text] of choices) {
+      const id = `${name}-${letter}`;
+      card.append(
+        h(
+          "div",
+          { class: `espera-option${chosen === letter ? " chosen" : ""}` },
+          h("input", {
+            type: "radio", id, name, value: letter, checked: chosen === letter,
+            onchange: () => {
+              esperaState.answers.set(item.id, letter);
+              for (const option of card.querySelectorAll(".espera-option")) option.classList.toggle("chosen", option.querySelector("input").value === letter);
+              choiceFeedback(card.querySelector(".espera-feedback"), item, tipo, letter);
+            },
+          }),
+          h("label", { for: id }, `${letter}. ${text}`),
+        ),
+      );
+    }
+    const feedback = h("p", { class: "espera-feedback", "aria-live": "polite", "aria-atomic": "true" });
+    if (chosen) choiceFeedback(feedback, item, tipo, chosen);
+    else if (tipo === "antes" && item.respuesta) revealFeedback(feedback, item);
+    card.append(feedback);
+    return card;
+  }
+  function esperaCard(part) {
+    const data = esperaState.key === esperaKey(part.topic, part.part) ? esperaState.data : null;
+    const fase = esperaState.fase;
+    const at = ESPERA_FASES.findIndex(([id]) => id === fase?.fase);
+    const label = at < 0 ? "Escribiendo" : fase.fase === "corrigiendo" && Number.isFinite(Number(fase.hallazgos))
+      ? `Corrigiendo (${fase.hallazgos} hallazgos)`
+      : ESPERA_FASES[at][1];
+    const block = (title, items) => h("div", { class: "espera-block" }, h("h4", {}, title), h("ul", {}, (items || []).map((item) => h("li", {}, String(item)))));
+    const mapa = data?.mapa;
+    const preguntas = data?.preguntas;
+    const glosario = data?.glosario;
+    return h(
+      "section",
+      { class: "espera", "aria-labelledby": "espera-title" },
+      h(
+        "header",
+        { class: "espera-head" },
+        h("h2", { id: "espera-title" }, `Mientras se escribe la Parte ${part.number}`),
+        h("p", { class: "espera-progreso", role: "status", "aria-live": "polite", "aria-atomic": "true" }, label, " · ", h("span", { class: "espera-elapsed" }, elapsedText())),
+        h("ol", { class: "espera-fases", "aria-label": "Fases de la escritura" }, ESPERA_FASES.map(([, text], i) =>
+          h("li", { class: i < at ? "done" : null, ...(i === at ? { "aria-current": "step" } : {}) }, text),
+        )),
+        fase?.fase === "lista" ? btn(`Abrir la Parte ${part.number}`, () => { closeDrawer(); go(`#/leer/${part.topic}/${part.part}`); }, "btn small primary", "book") : null,
+      ),
+      h(
+        "div",
+        { class: "espera-grid" },
+        h(
+          "div",
+          { class: "espera-block" },
+          h("h3", {}, "El mapa de esta parte"),
+          mapa
+            ? h(
+                "div",
+                { class: "espera-grid" },
+                block("Aprenderás", mapa.aprende),
+                block("Subtemas", mapa.subtemas),
+                block("Necesitas antes", (mapa.dependeDe || []).map((dep) => `${dep.number ? `${dep.number} · ` : ""}${dep.title || ""}${dep.written ? " · ya escrita" : ""}`.trim())),
+              )
+            : h("p", { class: "espera-quiet" }, "Preparando el mapa de esta parte…"),
+        ),
+        preguntas
+          ? h(
+              "div",
+              { class: "espera-block" },
+              h("h3", {}, preguntas.tipo === "repaso" ? "Repaso" : "Antes de leer"),
+              preguntas.tipo === "repaso"
+                ? h("p", { class: "espera-quiet" }, "De tus mini-quizzes anteriores: las que fallaste van primero.")
+                : h("p", { class: "espera-quiet" }, "No es un examen: elige lo que creas y compruébalo cuando la parte esté lista."),
+              (preguntas.items || []).map((item) => questionCard(item, preguntas.tipo)),
+            )
+          : null,
+        glosario?.estado === "listo"
+          ? h(
+              "div",
+              { class: "espera-block" },
+              h("h3", {}, "Glosario"),
+              glosario.preliminar ? h("p", { class: "espera-quiet" }, "Preliminar: se afinará al escribir la parte.") : null,
+              h("ul", {}, (glosario.terminos || []).map((term) =>
+                h("li", {}, h("b", {}, term.termino), ` · ${term.definicion || ""}`, term.ejemplo ? h("em", {}, ` p. ej. ${term.ejemplo}`) : null),
+              )),
+            )
+          : glosario?.estado === "generando"
+            ? h("p", { class: "espera-quiet" }, "preparando glosario…")
+            : null,
+        data?.profesor
+          ? h("div", { class: "espera-profesor" }, h("h3", {}, "Lo que dijo el profesor"), h("p", {}, JSON.stringify(data.profesor)))
+          : null,
+      ),
+    );
+  }
+
   // ---------- tutor ----------
-  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null, turnNote: null, turnTopic: null, turnTema: null };
+  const tutor = { busy: false, alive: true, activity: "", unread: 0, note: null, turnNote: null, turnTopic: null, turnTema: null, writePart: null };
   let chats = { activo: "", chats: [] };
   let chatRevision = 0;
   const chatHeading = h("strong", {}, "Chats");
@@ -2552,6 +2809,7 @@
       // Deep tutoring names the topic so the engine checks that topic, never a guess.
       if (deep && tema) body.tema = tema;
       await post("prompt", body);
+      if (setWritePart(text)) { ensureEspera(); repaintEspera(); }
       return true;
     } catch (error) {
       append(h("div", { class: "notice error" }, `No se pudo enviar: ${error.message}`));
@@ -2688,13 +2946,27 @@
     if (tutor.busy && !s.busy) offerTurnEnd();
     tutor.busy = s.busy;
     tutor.alive = s.alive;
-    if (!s.busy) tutor.activity = "";
+    if (!s.busy) {
+      tutor.activity = "";
+      // A turn without a `lista` event leaves nothing to study; the open button keeps it alive.
+      if (tutor.writePart && esperaState.fase?.fase !== "lista") clearWritePart();
+    }
     updatePill();
   });
   on("user", ({ text }) => {
     tutor.turnNote = null;
     tutor.turnTopic = null;
+    if (!setWritePart(text)) clearWritePart();
+    else { ensureEspera(); repaintEspera(); }
     append(h("div", { class: "msg user" }, text));
+  });
+  on("fase", (event) => {
+    const part = tutor.writePart;
+    if (!part || !event || (event.topic && event.topic !== part.topic) || (event.part && event.part !== part.part)) return;
+    if (!ESPERA_FASES.some(([id]) => id === event.fase)) return;
+    esperaState.fase = { fase: event.fase, hallazgos: event.hallazgos, t: event.t };
+    if (event.fase === "lista") void loadEspera(true);
+    repaintEspera();
   });
   on("assistant_delta", ({ id, delta }) => {
     const entry = assistantEntry(id);

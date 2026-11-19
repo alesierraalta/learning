@@ -1112,3 +1112,37 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .feedback-part summary { cursor: pointer; color: var(--ink); overflow-wrap: anywhere; }
 .feedback-part details[open] summary { margin-bottom: 8px; color: var(--muted); }
 .feedback-more { color: var(--blue); white-space: nowrap; }
+
+/* S6 (#376): useful waiting. Text, quiet panels and the controls the studio already has. */
+.espera { margin: 24px 0 0; padding: 20px 22px; border: 1px solid var(--line); border-radius: var(--ctl-radius); background: var(--soft2); }
+.espera h2 { margin: 0 0 6px; font-size: 1.4rem; line-height: 1.2; overflow-wrap: anywhere; }
+.espera h3 { margin: 20px 0 8px; color: var(--meta); font: 700 11px/1.4 var(--sans); letter-spacing: .11em; text-transform: uppercase; }
+.espera h4 { margin: 0 0 4px; font: 700 13px/1.4 var(--sans); }
+.espera p { margin: 0; font: 14px/1.5 var(--sans); }
+.espera .espera-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 18px; }
+.espera-progreso { color: var(--ink); font-variant-numeric: tabular-nums; }
+.espera-fases { display: flex; flex-wrap: wrap; gap: 4px 14px; width: 100%; margin: 0; padding: 0; list-style: none; }
+.espera-fases li { color: var(--muted); font: 12px/1.5 var(--sans); }
+.espera-fases li.done { color: var(--green); }
+.espera-fases li[aria-current="step"] { color: var(--ink); font-weight: 700; }
+.espera .btn { margin-left: auto; }
+.espera-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 4px 28px; }
+.espera-block { min-width: 0; }
+.espera-block > .espera-grid { grid-column: 1 / -1; }
+.espera ul { margin: 0; padding-left: 18px; }
+.espera li { font: 14px/1.55 var(--sans); overflow-wrap: anywhere; }
+.espera-quiet { color: var(--muted); font-style: italic; }
+.espera fieldset { min-width: 0; margin: 12px 0 0; padding: 0; border: 0; }
+.espera legend { padding: 0; font: 600 15px/1.5 var(--sans); }
+.espera-option { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; font: 14px/1.5 var(--sans); }
+.espera-option input { flex: none; margin: 5px 0 0; accent-color: var(--blue); }
+.espera-option.chosen label { font-weight: 700; }
+.espera-feedback { min-height: 1.5em; margin-top: 6px !important; }
+.espera-feedback.good { color: var(--green); }
+.espera-feedback.bad { color: var(--red); }
+.espera-profesor { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 720px) {
+  .espera { padding: 14px 16px; }
+  .espera-grid { grid-template-columns: minmax(0, 1fr); }
+  .espera .btn { margin-left: 0; }
+}
