@@ -141,6 +141,7 @@ export function validateGlobalTelemetry(value: unknown): GlobalTelemetry {
   if (!Array.isArray(value.directrices_tutor) || !Array.isArray(value.historial_reciente)) {
     throw new HttpError(400, "invalid telemetry: malformed directrices or history");
   }
+  // SAFETY: every field the guards above checked is exactly the GlobalTelemetry shape.
   return value as unknown as GlobalTelemetry;
 }
 
@@ -167,6 +168,7 @@ export function readTopicTelemetry(root: string, topic: string): TopicTelemetry 
   if (text !== undefined) {
     const raw = JSON.parse(text);
     if (record(raw) && typeof raw.tema === "string" && Array.isArray(raw.quizzes)) {
+      // SAFETY: record + tema string + quizzes array is the whole stored TopicTelemetry.
       return raw as unknown as TopicTelemetry;
     }
   }

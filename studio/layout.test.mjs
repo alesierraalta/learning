@@ -3331,12 +3331,12 @@ test("the 37 tutor controls keep one home each and Enviar/Detener follow the tur
   await snapshot();
   await learning.click();
   const frame = await openGroup("tutor-marco");
-  await page.locator("#tutor-marco").getByRole("button", { name: "Más opciones" }).click();
-  assert.equal(await page.locator(".drawer .menu.open").isVisible(), true, "Más opciones opens the two frame actions");
+  await page.locator("#tutor-marco").getByRole("button", { name: "Más acciones del panel" }).click();
+  assert.equal(await page.locator(".drawer .menu.open").isVisible(), true, "Más acciones del panel opens the two frame actions");
   await snapshot();
   await page.keyboard.press("Escape");
   assert.equal(await page.locator(".drawer .menu.open").count(), 0, "Escape closes the frame menu");
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Más opciones", "Escape returns focus to its trigger");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Más acciones del panel", "Escape returns focus to its trigger");
   await frame.click();
   assert.equal(await page.locator("#tutor-marco").evaluate((n) => n.open), false, "the summary closes its own group");
 
@@ -3408,6 +3408,18 @@ test("the grouped drawer keeps the thread whole at 1440 and 390 in light and nig
   await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
   await page.locator(".tutor-pill").click();
   await page.locator(".thread .chips").waitFor();
+  // #377: the drawer carries one quiet chip, closed by default on every size.
+  const rest = await page.evaluate(() => {
+    const more = document.querySelector(".drawer-more");
+    const cs = getComputedStyle(more);
+    const row = getComputedStyle(more.querySelector("summary"));
+    return { open: more.open, label: more.querySelector("summary").innerText.trim(), bg: cs.backgroundColor, borderTop: cs.borderTopWidth, rowPad: parseFloat(row.paddingTop) };
+  });
+  assert.equal(rest.open, false, "the rare chip is closed by default on the desktop");
+  assert.equal(rest.label, "Más opciones", `the chip is labelled Más opciones: ${rest.label}`);
+  assert.equal(rest.bg, "rgba(0, 0, 0, 0)", "the chip carries no gray band");
+  assert.equal(rest.borderTop, "1px", "a single hairline separates the chip from the thread");
+  assert.ok(rest.rowPad >= 6, `the chip row keeps its air: ${rest.rowPad}px padding`);
   const inspect = () => page.evaluate(() => {
     const box = (selector) => {
       const node = document.querySelector(selector);
@@ -3463,8 +3475,8 @@ test("the grouped drawer keeps the thread whole at 1440 and 390 in light and nig
   await page.locator(".drawer-more > summary").click();
   const headings = await page.locator(".drawer-more .drawer-group > summary").allInnerTexts();
   assert.deepEqual(headings.map((s) => s.replace(/\s+/g, " ").trim()), [
-    "3 Conversaciones 8", "4 Aprender algo nuevo 10", "6 Marco del panel 6",
-  ], `the Más menu keeps three headings and their counts: ${JSON.stringify(headings)}`);
+    "3 Conversaciones", "4 Aprender algo nuevo", "6 Marco del panel",
+  ], `the Más menu keeps three headings and no fake counts: ${JSON.stringify(headings)}`);
   const group = page.locator("#tutor-aprender > summary");
   await group.click();
   assert.equal(await page.locator("#tutor-aprender > .group-body").isVisible(), true);
@@ -3588,6 +3600,8 @@ test("turn outputs are unavailable while another turn runs", { skip: browser ? f
 
 test("Escape closes the innermost chat-options disclosure and then its parent", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page } = await openedTutor(t, 1440, 900);
+  // #377: the rare groups live behind the closed chip, so open it first.
+  await page.locator(".drawer-more > summary").click();
   await page.locator("#tutor-conversaciones > summary").click();
   const options = page.locator(".drawer .chat-options").first();
   await options.locator("> summary").focus();

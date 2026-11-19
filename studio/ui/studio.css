@@ -479,23 +479,22 @@ body.tutor-list-hidden .chats { display: none; }
 /* Turn outputs are links in the thread, not a second row of primaries. */
 .turn-link.btn.small { background: transparent; border: 0; border-bottom: 2px solid var(--blue); border-radius: var(--ctl-radius); color: var(--blue); padding: 2px 0; }
 .turn-link.btn.small:hover { background: var(--blue-s); color: var(--blue); }
-.drawer-more { flex: none; max-height: min(28vh, 224px); overflow-y: auto; border-top: 2px solid var(--line); background: var(--soft2); }
+/* #377: one quiet chip between the thread and the composer — no gray band, no stacked
+   headers at rest. A hairline and the chip's own padding carry the separation. */
+.drawer-more { flex: none; max-height: min(28vh, 224px); overflow-y: auto; border-top: 1px solid var(--line); }
 .drawer-more > summary, .drawer-group > summary {
   display: flex; align-items: center; gap: var(--space); min-height: var(--ctl);
-  padding: 4px var(--space); border: 0; cursor: pointer; list-style: none;
+  padding: 6px var(--space); border: 0; cursor: pointer; list-style: none;
   font: 700 .92rem/1.3 var(--sans); color: var(--ink);
 }
 .drawer-more > summary::-webkit-details-marker, .drawer-group > summary::-webkit-details-marker { display: none; }
 .drawer-more > summary::after, .drawer-group > summary::after { content: "+"; margin-left: auto; font: 700 1rem/1 var(--mono); color: var(--slate); }
 .drawer-more[open] > summary::after, .drawer-group[open] > summary::after { content: "−"; }
-.drawer-more > summary { border-bottom: 2px solid var(--line); color: var(--slate); font-size: .82rem; letter-spacing: .04em; }
-.more-phone { display: none; }
-.group-num, .more-count, .drawer-group .count {
+.drawer-more > summary { color: var(--slate); font-size: .82rem; letter-spacing: .04em; }
+.group-num {
   display: inline-grid; place-items: center; min-width: 20px; min-height: 20px; flex: none;
   border: 1px solid var(--line); color: var(--slate); font: 700 .72rem/1 var(--mono);
 }
-.drawer-group .count, .more-count { margin-left: auto; }
-.drawer-group .count + *, .drawer-more .more-count + * { margin-left: 0; }
 .drawer-group { border-bottom: 1px solid var(--line); }
 .drawer-group:last-child { border-bottom: 0; }
 .drawer-group > .group-body { padding: var(--space); border-top: 1px solid var(--line); }
@@ -504,8 +503,6 @@ body.tutor-list-hidden .chats { display: none; }
 .drawer-group .menu.open { display: block; }
 .frame-note { margin: var(--space) 0 0; font: .85rem/1.4 var(--sans); color: var(--slate); }
 @media (max-width: 480px) {
-  .more-wide { display: none; }
-  .more-phone { display: inline; }
   /* On a phone the panel is the screen: the drawer covers the bar and carries its safe area
      in its own head, so a full-height panel also keeps every head control reachable. */
   .drawer { top: 0; }
