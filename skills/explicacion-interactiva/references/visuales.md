@@ -114,22 +114,41 @@ azul (`look`). `route` es una cadena de celdas ortogonalmente adyacentes, una po
 <lk-stage>
 <script type="application/json">
 {
-  "caption": "Sigue el recorrido y lee qué cambia en cada paso.",
-  "question": "¿Qué acciones elijo para maximizar la recompensa total?",
-  "focus": "acciones",
+  "caption": "Sigue la ruta del robot hasta el cargador y lee qué cambia en cada paso.",
+  "question": "¿Cómo llega el robot al cargador antes de quedarse sin batería?",
+  "focus": "cargador",
   "actors": [
     { "id": "robot", "kind": "robot", "cell": "B3", "name": "Robot", "color": "#5AB0FF" },
-    { "id": "charger", "kind": "charger", "cell": "E4", "name": "Cargador", "color": "#5FD6A4" }
+    { "id": "charger", "kind": "charger", "cell": "E3", "name": "Cargador", "color": "#5FD6A4" }
   ],
   "lanes": [
     { "id": "charge", "from": "robot", "to": "charger", "verb": "cargar", "identity": "charger" }
   ],
+  "route": ["B3", "C3", "D3", "E3"],
   "steps": [
     {
       "activeActor": "robot", "battery": 4, "highlightLane": null,
       "facts": [{ "identity": "robot", "label": "Batería", "value": "4 %", "tone": "warn" }],
       "narrator": ["Le queda [4 % de batería|warn]."],
       "focusOn": [{ "target": "actor:robot", "tone": "look" }]
+    },
+    {
+      "activeActor": "robot", "battery": 20, "highlightLane": null,
+      "facts": [{ "identity": "robot", "label": "Batería", "value": "20 %", "tone": "bad" }],
+      "narrator": ["Avanza una celda y gasta [16 puntos|bad]."],
+      "focusOn": [{ "target": "actor:robot", "tone": "look" }]
+    },
+    {
+      "activeActor": "robot", "battery": 30, "highlightLane": null,
+      "facts": [{ "identity": "robot", "label": "Batería", "value": "30 %", "tone": "info" }],
+      "narrator": ["Ya ve el cargador a [una celda|info]."],
+      "focusOn": [{ "target": "actor:charger", "tone": "look" }]
+    },
+    {
+      "activeActor": "robot", "battery": 100, "highlightLane": "charge",
+      "facts": [{ "identity": "charger", "label": "Carga", "value": "100 %", "tone": "good" }],
+      "narrator": ["Conecta el cargador y sube a [100 %|good]."],
+      "focusOn": [{ "target": "lane:charge", "tone": "right" }]
     }
   ]
 }
@@ -156,11 +175,20 @@ variable o flag cambiada en verde (un flag que pasa a `false`, en rojo); una ent
 <lk-codestep>
 <script type="application/json">
 {
-  "title": "Retorno inmediato", "language": "c",
-  "code": ["int main(void) {", "  return 0;", "}"], "window": 3,
+  "title": "Suma los tres primeros números", "language": "c",
+  "code": ["int total = 0;", "for (int i = 1; i <= 3; i++) {", "  total += i;", "}", "return total;"],
+  "window": 5,
   "steps": [
-    { "line": 2, "focus": "2", "state": {},
-      "narrator": ["[return 0|good] termina la función."] }
+    { "line": 1, "state": { "vars": { "total": 0 } },
+      "narrator": ["[total|info] empieza en cero."] },
+    { "line": 2, "state": { "vars": { "total": 0, "i": 1 } },
+      "narrator": ["Entra el primer [i|good]."] },
+    { "line": 3, "state": { "vars": { "total": 1, "i": 1 } },
+      "narrator": ["[total|good] suma el uno."] },
+    { "line": 2, "state": { "vars": { "total": 1, "i": 3 } },
+      "narrator": ["El bucle llega al [tercer i|info]."] },
+    { "line": 5, "state": { "vars": { "total": 6, "i": 4 } },
+      "narrator": ["Devuelve [6|good]."] }
   ]
 }
 </script>
@@ -193,20 +221,27 @@ columna de la unión en azul…), con `focus` como pista extra.
 <lk-tablestep>
 <script type="application/json">
 {
-  "title": "Pedidos caros",
+  "title": "Pedidos caros, con su IVA",
   "tables": {
     "pedidos": {
       "columns": ["id", "total"],
       "rows": [
         { "id": "p1", "cells": { "id": 101, "total": 120 } },
-        { "id": "p2", "cells": { "id": 102, "total": 80 } }
+        { "id": "p2", "cells": { "id": 102, "total": 80 } },
+        { "id": "p3", "cells": { "id": 103, "total": 250 } }
       ]
     }
   },
   "steps": [
     { "op": "filter", "table": "pedidos",
       "condition": { "column": "total", "op": ">=", "value": 100 },
-      "narrator": ["Sólo queda [p1|good]: su total pasa de 100."] }
+      "narrator": ["Sólo quedan [p1 y p3|good]: pasan de 100."] },
+    { "op": "select", "table": "pedidos", "columns": ["id", "total"],
+      "narrator": ["Nos quedamos con [id y total|info]."] },
+    { "op": "derive", "table": "pedidos", "column": { "id": "iva", "label": "IVA", "compute": { "op": "×", "args": ["total", { "value": 0.21 }] } },
+      "narrator": ["Añade el [IVA|good] de cada pedido."] },
+    { "op": "sort", "table": "pedidos", "by": "iva", "direction": "desc",
+      "narrator": ["Ordena por [IVA|info]: primero el pedido mayor."] }
   ]
 }
 </script>
@@ -244,12 +279,25 @@ gramática; sin deslizadores, sin recálculo y sin工具 hover.
     { "label": "1 · Fórmula", "title": "Usamos esta fórmula",
       "caption": "La abrimos pieza a pieza.",
       "blocks": [{ "kind": "formula", "focus": 0, "tone": "blue",
-        "tokens": [{ "text": "C" }, { "text": "=" }, { "text": "100 · 1,10⁵" }] }] },
+        "tokens": [{ "text": "C" }, { "text": " = " }, { "text": "100" }, { "text": " · " }, { "text": "1,10⁵" }] }] },
     { "label": "2 · C", "title": "El capital final",
-      "caption": "C es el capital final: 100 € al empezar.",
+      "caption": "C es el capital final: lo que tendrás al final.",
       "blocks": [{ "kind": "formula", "focus": 0, "tone": "blue",
-        "tokens": [{ "text": "C" }, { "text": "=" }, { "text": "100 · 1,10⁵" }] }] },
-    { "label": "3 · Resultado", "title": "Resultado",
+        "tokens": [{ "text": "C" }, { "text": " = " }, { "text": "100" }, { "text": " · " }, { "text": "1,10⁵" }] }] },
+    { "label": "3 · 100", "title": "El capital inicial",
+      "caption": "100 son los euros con los que empiezas.",
+      "blocks": [{ "kind": "formula", "focus": 2, "tone": "blue",
+        "tokens": [{ "text": "C" }, { "text": " = " }, { "text": "100" }, { "text": " · " }, { "text": "1,10⁵" }] }] },
+    { "label": "4 · 1,10⁵", "title": "El factor de cinco periodos",
+      "caption": "1,10⁵ es 1,10 multiplicado cinco veces: un 10 % por periodo.",
+      "blocks": [{ "kind": "formula", "focus": 4, "tone": "blue",
+        "tokens": [{ "text": "C" }, { "text": " = " }, { "text": "100" }, { "text": " · " }, { "text": "1,10⁵" }] }] },
+    { "label": "5 · Sustitución", "title": "Los números en su sitio",
+      "caption": "Ya podemos multiplicar.",
+      "blocks": [{ "kind": "formula", "focus": 0, "tone": "blue",
+        "tokens": [{ "text": "C = 100 · 1,61051" }] }] },
+    { "label": "6 · Resultado", "title": "Resultado",
+      "caption": "Al cabo de cinco periodos tienes 161,05 €.",
       "blocks": [{ "kind": "formula", "focus": 0, "tone": "green",
         "tokens": [{ "text": "C = 161,05" }] }] }
   ]
@@ -296,9 +344,18 @@ es el diagrama CPM por defecto: para red de proyectos, Mermaid Gantt/flowchart.
   "links": [{ "id": "turno", "from": "q", "to": "r", "kind": "message", "verb": "responde", "tone": "info" }],
   "resources": [{ "id": "mic", "name": "Mic", "color": "#8A6B3F", "icon": "clock" }],
   "steps": [
+    { "title": "Empieza A", "time": 0, "reveal": ["q"], "highlight": ["q"],
+      "links": [], "facts": ["wait"],
+      "narrator": ["[A|a] tiene el [mic|info]."] },
+    { "title": "B espera", "time": 1, "reveal": ["q", "r"], "highlight": ["r"],
+      "links": [], "facts": ["wait"],
+      "narrator": ["[B|b] espera su [turno|info]."] },
     { "title": "Turno", "time": 2, "reveal": ["q", "r"], "highlight": ["r"],
       "links": ["turno"], "facts": ["wait"],
-      "narrator": ["[A|a] termina y [B|b] [responde|info]."] }
+      "narrator": ["[A|a] termina y [B|b] [responde|info]."] },
+    { "title": "Cierre", "time": 4, "reveal": ["q", "r"], "highlight": ["q"],
+      "links": ["turno"], "facts": [],
+      "narrator": ["Las dos [barras|good] quedan visibles."] }
   ]
 }
 </script>
@@ -317,6 +374,10 @@ es el diagrama CPM por defecto: para red de proyectos, Mermaid Gantt/flowchart.
       iconos del vocabulario cerrado; cero coordenadas.
 - [ ] Una idea por paso, sin mandos ni contenido hover; `caption` llano, sin «Narrador» ni
       leyenda de colores; línea `Cómo leerlo:` tras cada visual.
+- [ ] Cada figura de paso (`lk-stage`, `lk-codestep`, `lk-tablestep`, `lk-guided`, `lk-lanes`)
+      lleva **al menos cuatro pasos**; si la idea no cabe, se añaden pasos, no contenido.
+- [ ] Cada sección de contenido (`##`, sin contar `Ruta` ni el mini-quiz) lleva **al menos una
+      figura**: un bloque `mermaid` o una figura de pasos.
 - [ ] Foco azul/verde/rojo: una marca por tramo contiguo, ≤ 2 por paso, sin anidar; nada se pisa
       ni se sale; sin franjas de color.
 - [ ] Fórmula: símbolo por símbolo antes del ejemplo; todos los tokens explicados, sin tope de

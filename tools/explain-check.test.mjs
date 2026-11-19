@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { leerNota } from './explain-check/nota.mjs';
 import { notaDeHtml } from './register/nota-html.mjs';
 import ruta from './explain-check/rules/ruta.mjs';
+import figuras from './explain-check/rules/figuras.mjs';
 
 const TOOLS = dirname(fileURLToPath(import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'explain-check-'));
@@ -26,6 +27,12 @@ const STORY_SIMPLE = `<lk-story>
 </lk-story>`;
 
 const run = (file) => spawnSync(process.execPath, [join(TOOLS, 'explain-check.mjs'), file], { encoding: 'utf8' });
+
+// S29: las dos reglas nuevas de figuras, medidas sin abrir un navegador.
+const etapaDePasos = (n) => `<lk-stage>\n<script type="application/json">\n{"steps":[${Array.from({ length: n }, () => '{}').join(',')}]}\n</script>\n</lk-stage>`;
+const notaConSecciones = (secciones) => '# Parte 1\n\n' +
+  secciones.map(([titulo, cuerpo]) => `## ${titulo}\n\n${cuerpo}`).join('\n\n');
+const figurasRow = (src) => figuras.check(leerNota(src, false), { file: 'figuras.md', tools: TOOLS });
 
 // El lenguaje de historia (#237): el recorrido de la parte se dibuja con
 // `<lk-story>` (actores con estado, movimientos y marcas) o con una pieza. Un
@@ -583,6 +590,18 @@ const ejemploDe = (archivo, etiqueta) => {
   return bloque[0];
 };
 
+// Los ejemplos canónicos del kit se escribieron con tres pasos; S29 ya pide
+// cuatro. El fixture del test los completa con una copia real de su último paso
+// (no se toca el ejemplo del kit, que es otra superficie).
+const conCuatroPasos = (bloque) => bloque.replace(/<script type="application\/json">([\s\S]*?)<\/script>/,
+  (todo, json) => {
+    const spec = JSON.parse(json);
+    if (Array.isArray(spec.steps) && spec.steps.length) {
+      while (spec.steps.length < 4) spec.steps.push(structuredClone(spec.steps[spec.steps.length - 1]));
+    }
+    return `<script type="application/json">${JSON.stringify(spec)}</script>`;
+  });
+
 const notaDelContratoNuevo = () => {
   const figuras = [
     ejemploDe('lk-stage-robot.html', 'lk-stage'),
@@ -590,7 +609,7 @@ const notaDelContratoNuevo = () => {
     ejemploDe('lk-tablestep.html', 'lk-tablestep'),
     ejemploDe('lk-guided.html', 'lk-guided'),
     ejemploDe('lk-lanes.html', 'lk-lanes'),
-  ];
+  ].map(conCuatroPasos);
   return `# Parte 1
 
 Imagina un robot en una sala con dos tareas: limpiar y cargar. El robot elige una y aprende de lo que pasa después.
@@ -692,6 +711,47 @@ test('una parte con solo un SVG falla la historia', () => {
   const r = run(file);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALLA historia/);
+});
+
+// ── S29: más pasos y una figura por sección ─────────────────────────────────
+// El alumno: «en todos los visuales … los que son paso a paso, solamente tiene 2
+// pasos, en todos». Una figura del contrato nuevo lleva al menos cuatro pasos y
+// cada sección de contenido lleva al menos una figura; una nota antigua no se mide.
+
+test('una figura de paso con dos pasos falla y nombra el elemento, su índice y los pasos', () => {
+  const row = figurasRow(notaConSecciones([['1. El robot', etapaDePasos(2)]]));
+  assert.equal(row.ok, false);
+  assert.match(row.detail, /lk-stage 1 has 2 steps \(minimum 4\)/);
+});
+
+test('una figura de paso con cuatro pasos pasa', () => {
+  const row = figurasRow(notaConSecciones([['1. El robot', etapaDePasos(4)]]));
+  assert.equal(row.ok, true, row.detail);
+});
+
+test('una sección de contenido sin figura falla y nombra la sección', () => {
+  const row = figurasRow(notaConSecciones([
+    ['1. El robot', etapaDePasos(4)],
+    ['2. La acción', 'Sólo hay prosa en esta sección.'],
+  ]));
+  assert.equal(row.ok, false);
+  assert.match(row.detail, /La acción/);
+});
+
+test('todas las secciones con figura pasan', () => {
+  const row = figurasRow(notaConSecciones([
+    ['1. El robot', etapaDePasos(4)],
+    ['2. La acción', '```mermaid\nflowchart LR; A --> B;\n```'],
+  ]));
+  assert.equal(row.ok, true, row.detail);
+});
+
+test('una nota antigua sigue pasando las reglas de figuras', () => {
+  const row = figurasRow(notaConSecciones([
+    ['1. El robot', '<lk-figure><script type="application/json">{"boxes":[{"label":"robot"}]}</script></lk-figure>'],
+    ['2. La acción', 'Sólo prosa, como en las partes publicadas.'],
+  ]));
+  assert.equal(row.ok, true, row.detail);
 });
 
 // ── Story quality (#243) ─────────────────────────────────────────────────────
