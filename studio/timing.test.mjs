@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 import { startStudio as startStudioChecked } from "./server.ts";
 import { stripLecciones } from "./sugerencias.ts";
-import { isEngineTool } from "./timing.ts";
+import { createPageTiming, isEngineTool } from "./timing.ts";
 import { makeRoot } from "./testdata/root.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -291,6 +291,31 @@ test("each call records its tools, engine round-trips and the model time that co
     delete process.env.FAKE_PI_TOOLS;
     tutor.close();
   }
+});
+
+test("overlapping tools are counted once: the model gap is the time no tool was running", () => {
+  let now = 0;
+  const timing = createPageTiming({ runtime: "pi", model: "m", topic: "redes", now: () => now });
+  timing.startCall("turn", 10);
+  timing.startTool("a", "read", { path: "redes/plan.json" });
+  now = 10;
+  timing.startTool("b", "bash", { command: "echo hola" });
+  now = 20;
+  timing.endTool("b", true);
+  now = 30;
+  timing.endTool("a", true);
+  now = 40;
+  timing.endCall(true);
+
+  const report = timing.report([]);
+  const call = report.calls[0];
+  // a ran 0–30 and b ran 10–20: the union is 30 ms, not the 40 ms of added durations.
+  assert.equal(report.toolCount, 2, "both executions are counted");
+  assert.equal(report.toolMs, 30, `the time inside tools counts the overlap once: ${report.toolMs}`);
+  assert.equal(call.modelMs, 10, `only the last 10 ms had no tool running: ${call.modelMs}`);
+  assert.equal(report.modelGapMs, 10);
+  assert.equal(report.toolMs + report.modelGapMs, call.ms, "union plus gaps give back the call");
+  assert.deepEqual(call.tools.map((tool) => tool.ms), [10, 30], "each tool still reports its own duration");
 });
 
 test("only a named engine tool or a shell command that invokes the engine counts as a round-trip", () => {

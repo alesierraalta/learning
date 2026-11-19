@@ -63,6 +63,26 @@ const ENGINE_COMMAND = new RegExp(
   String.raw`(?:^|[;&|]{1,2}\s*|\$\(\s*|\x60\s*)(?:(?:sudo|env(?:\s+[A-Za-z_][\w.-]*=[^\s;&|]+)*)\s+)?(?:(?:\.?[/\\])?(?:[\w.~-]+[/\\])*bin[/\\]|\.?[/\\]?)learning(?=$|[\s;&|)])`,
 );
 
+/**
+ * Time covered by tool executions, counting an overlap once and clipping to the call. Two tools
+ * running together cost the call the longer span, not the sum of their durations; the rest of the
+ * call is model time with no tool running.
+ */
+function toolUnionMs(tools: ToolTiming[], callMs: number): number {
+  const spans = tools
+    .map((tool) => [Math.max(0, tool.startMs), Math.max(0, Math.min(tool.startMs + tool.ms, callMs))] as const)
+    .filter(([start, end]) => end > start)
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let covered = 0;
+  let end = 0;
+  for (const [start, stop] of spans) {
+    if (stop <= end) continue;
+    covered += stop - Math.max(start, end);
+    end = stop;
+  }
+  return covered;
+}
+
 /** Count an engine round-trip only for a named engine tool or an explicit shell invocation. */
 export function isEngineTool(name: string, args: unknown): boolean {
   const tool = name.toLowerCase();
@@ -146,12 +166,12 @@ export function createPageTiming(start: {
       const baseReport = base.report(parts);
       const calls: CallTiming[] = baseReport.calls.map((call, index) => {
         const tools = (byCall[index] ?? []).map((tool) => ({ ...tool }));
-        const toolMs = tools.reduce((total, tool) => total + tool.ms, 0);
-        // The gap is the complement of the tools, so the two always add back up to the call.
-        return { ...call, tools, modelMs: Math.max(0, call.ms - toolMs) };
+        const covered = toolUnionMs(tools, call.ms);
+        // The gap is the complement of the covered time, so the two always add back up to the call.
+        return { ...call, tools, modelMs: Math.max(0, call.ms - covered) };
       });
       const toolCount = calls.reduce((total, call) => total + call.tools.length, 0);
-      const toolMs = calls.reduce((total, call) => total + call.tools.reduce((sum, tool) => sum + tool.ms, 0), 0);
+      const toolMs = calls.reduce((total, call) => total + toolUnionMs(call.tools, call.ms), 0);
       const modelGapMs = calls.reduce((total, call) => total + call.modelMs, 0);
       const engineRoundTrips = calls.reduce((total, call) => total + call.tools.filter((tool) => tool.engine).length, 0);
       return { ...baseReport, version: 2, calls, toolCount, toolMs, modelGapMs, engineRoundTrips };

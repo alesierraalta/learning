@@ -673,8 +673,25 @@ const measuring = (measured) => async (files) => {
   return runPartChecks(files);
 };
 
+// Literal names let `tsp findings` map each runtime's witness back to this file; only the names
+// are spelled out, the assertions and the runtime loop are unchanged.
+const CHECK_WITNESSES = {
+  correction: {
+    pi: "a part with a scene-lint finding asks for exactly one correction: pi",
+    agy: "a part with a scene-lint finding asks for exactly one correction: agy",
+  },
+  passes: {
+    pi: "a part that passes the checks asks for no correction: pi",
+    agy: "a part that passes the checks asks for no correction: agy",
+  },
+  failure: {
+    pi: "a measurement failure beside a finding is logged, never sent to the tutor: pi",
+    agy: "a measurement failure beside a finding is logged, never sent to the tutor: agy",
+  },
+};
+
 for (const runtime of ["pi", "agy"]) {
-  test(`a part with a scene-lint finding asks for exactly one correction: ${runtime}`, { skip: browser ? false : "playwright not installed" }, async () => {
+  test(CHECK_WITNESSES.correction[runtime], { skip: browser ? false : "playwright not installed" }, async () => {
     // The first turn writes the broken part; the correction writes the fixed one, so the second
     // settle is clean and the budget is never reached.
     const measured = [];
@@ -705,7 +722,7 @@ for (const runtime of ["pi", "agy"]) {
     } finally { tutor.close(); }
   });
 
-  test(`a part that passes the checks asks for no correction: ${runtime}`, { skip: browser ? false : "playwright not installed" }, async () => {
+  test(CHECK_WITNESSES.passes[runtime], { skip: browser ? false : "playwright not installed" }, async () => {
     const measured = [];
     const tutor = await checkingTutor(runtime, {
       parts: [[{ name: "Parte 1 - Capas.md", content: CLEAN_PART }, PAGINA_RICA]],
@@ -779,7 +796,7 @@ for (const runtime of ["pi", "agy"]) {
     }
   });
 
-  test(`a measurement failure beside a finding is logged, never sent to the tutor: ${runtime}`, async () => {
+  test(CHECK_WITNESSES.failure[runtime], async () => {
     let calls = 0;
     const tutor = await checkingTutor(runtime, {
       parts: [[{ name: "Parte 1 - Capas.md", content: BROKEN_PART }]],
