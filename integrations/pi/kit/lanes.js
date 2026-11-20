@@ -348,8 +348,8 @@
     const axisPlot = el('div', 'lk-ln-axis-plot');
     const ticks = [...new Set([...Array.from({ length: Math.ceil(spec.timeMax / 2) }, (_, i) => i * 2), spec.timeMax].filter((tick) => tick <= spec.timeMax))];
     for (const tick of ticks) {
-      axisPlot.append(el('span', String(tick), {
-        class: 'lk-ln-tick', 'data-first': tick === 0 ? 'true' : 'false',
+      axisPlot.append(el('span', 'lk-ln-tick', String(tick), {
+        'data-first': tick === 0 ? 'true' : 'false',
         'data-last': tick === spec.timeMax ? 'true' : 'false',
         style: `left:${pct(tick, spec.timeMax)}%`,
       }));
