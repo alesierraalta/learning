@@ -72,7 +72,10 @@ build_embed() {
     echo 'Rust is absent; course search stays keyword-only' >&2
     return 0
   fi
-  (cd "$repo/tools/embed" && cargo build --release --locked -j 2)
+  if ! (cd "$repo/tools/embed" && cargo build --release --locked -j 2); then
+    echo 'Rust build failed; course search stays keyword-only' >&2
+    return 0
+  fi
   install -m 755 "$repo/tools/embed/target/release/embed" "$repo/bin/embed"
   [[ -x "$repo/bin/embed" ]] || { echo "Missing executable: $repo/bin/embed" >&2; exit 1; }
 }

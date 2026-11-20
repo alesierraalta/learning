@@ -2827,7 +2827,9 @@ ${scripts}
       const tipos = url.searchParams.getAll("tipo");
       const validos = new Set(["examen", "documento", "transcripcion"]);
       if (tipos.some((tipo) => !validos.has(tipo))) throw new HttpError(400, "tipo debe ser examen, documento o transcripcion.");
-      return sendJson(res, 200, await buscar(root, id, consulta, { k, tipos }));
+      const modo = url.searchParams.get("modo") ?? "hibrido";
+      if (modo !== "hibrido" && modo !== "claves" && modo !== "semantico") throw new HttpError(400, "modo debe ser hibrido, claves o semantico.");
+      return sendJson(res, 200, await buscar(root, id, consulta, { k, tipos, modo }));
     }
     const indiceEstado = /^api\/materias\/([a-f0-9]{32})\/indice$/.exec(path);
     if (indiceEstado) {

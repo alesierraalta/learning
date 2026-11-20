@@ -4783,7 +4783,7 @@ test("course search routes index uploads, track embeddings and drop deleted sour
     assert.equal(listo.pendiente, 0);
     assert.equal(listo.conVector, 1);
 
-    const found = await http(`${studio.url}api/materias/${id}/buscar?q=funcion&k=5&tipo=documento`);
+    const found = await http(`${studio.url}api/materias/${id}/buscar?q=${encodeURIComponent("El profesor explica la función de la mitosis.")}&k=5&tipo=documento`);
     assert.equal(found.status, 200, found.body);
     const resultados = JSON.parse(found.body);
     assert.equal(resultados.length, 1);
@@ -4792,6 +4792,8 @@ test("course search routes index uploads, track embeddings and drop deleted sour
     assert.equal(resultados[0].ubicacion, "líneas 1–1");
     assert.ok(resultados[0].score > 0);
     assert.deepEqual(resultados[0].senales, ["keyword", "semantic"]);
+    const corto = await http(`${studio.url}api/materias/${id}/buscar?q=funcion`);
+    assert.deepEqual(JSON.parse(corto.body)[0].senales, ["keyword"], "a one-word query stays below the cosine floor");
     assert.deepEqual((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis&tipo=examen`)).body, "[]");
 
     assert.equal((await http(`${studio.url}api/materias/${id}/buscar`)).status, 400);
@@ -4806,6 +4808,31 @@ test("course search routes index uploads, track embeddings and drop deleted sour
     assert.equal(despues.chunks, 0);
     assert.equal(despues.conVector, 0);
     assert.deepEqual(JSON.parse((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis`)).body), []);
+  } finally {
+    configurarIndice({});
+  }
+});
+
+test("course search exposes keyword, semantic and hybrid modes over HTTP", async () => {
+  configurarIndice({ embedCommand: [process.execPath, join(HERE, "testdata", "fake-embed.mjs")] });
+  try {
+    const { studio } = await setup();
+    const { id } = JSON.parse((await post(studio, "api/materias", { nombre: "Modos" })).body);
+    await materiaUpload(studio, id, {
+      fileName: "clase.txt", contentType: "text/plain", tipo: "documento",
+      content: Buffer.from("La mitosis produce dos células hijas idénticas.", "utf8"),
+    });
+    await esperarIndice();
+    const consulta = encodeURIComponent("La mitosis produce dos células hijas idénticas.");
+    const buscarModo = async (modo) => {
+      const respuesta = await http(`${studio.url}api/materias/${id}/buscar?q=${consulta}&modo=${modo}`);
+      assert.equal(respuesta.status, 200, respuesta.body);
+      return JSON.parse(respuesta.body);
+    };
+    assert.deepEqual((await buscarModo("claves"))[0].senales, ["keyword"]);
+    assert.deepEqual((await buscarModo("semantico"))[0].senales, ["semantic"]);
+    assert.deepEqual((await buscarModo("hibrido"))[0].senales, ["keyword", "semantic"]);
+    assert.equal((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis&modo=otro`)).status, 400);
   } finally {
     configurarIndice({});
   }

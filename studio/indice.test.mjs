@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,6 +61,11 @@ test("chunking keeps word boundaries and reports PDF pages", () => {
   }
   assert.ok(words(segmentos[0].texto).length >= 200);
   assert.equal(words(segmentos[1].texto).slice(0, 40).join(" "), words(segmentos[0].texto).slice(-40).join(" "), "40-word overlap");
+});
+
+test("a blank PDF page keeps its physical number in later citations", () => {
+  const segmentos = segmentarTexto("primera pagina\f\fsegunda pagina", { nombre: "examen.pdf", tipo: "examen" });
+  assert.deepEqual(segmentos.map((segmento) => segmento.ubicacion), ["página 1", "página 3"]);
 });
 
 test("chunking reports paragraphs, lines and speaker turns according to the source", () => {
@@ -213,6 +218,68 @@ test("concurrent uploads queue every embedding job without losing a vector", asy
   assert.equal(chunks, total);
   assert.equal(vectors, total, "every queued source got its vectors");
   assert.equal(estadoIndice(vault, id).pendiente, 0);
+});
+
+test("fetch.sh refuses a foreign architecture before downloading the x86_64 runtime", () => {
+  const vault = root();
+  const bin = join(vault, "bin");
+  const target = join(vault, "assets");
+  const log = join(vault, "curl.log");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "uname"), "#!/bin/sh\necho aarch64\n");
+  writeFileSync(join(bin, "curl"), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(log)}\nexit 22\n`);
+  chmodSync(join(bin, "uname"), 0o755);
+  chmodSync(join(bin, "curl"), 0o755);
+  const salida = spawnSync("bash", [join(HERE, "..", "tools", "embed", "fetch.sh"), target], {
+    encoding: "utf8", timeout: 20_000,
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
+  assert.notEqual(salida.status, 0);
+  assert.equal(existsSync(log), false, "no download is attempted for an unsupported architecture");
+  assert.match(`${salida.stdout}${salida.stderr}`, /aarch64|x86_64|arquitectura|architecture/i);
+});
+
+test("a deploy survives an offline cargo build and an unavailable model download", () => {
+  const vault = root();
+  const repo = join(vault, "repo");
+  const fakebin = join(vault, "fakebin");
+  for (const directory of ["bin", "tools/embed", "deploy/vps"]) mkdirSync(join(repo, directory), { recursive: true });
+  mkdirSync(fakebin, { recursive: true });
+  copyFileSync(join(HERE, "..", "deploy", "vps", "update.sh"), join(repo, "deploy", "vps", "update.sh"));
+  const stub = (name, body) => {
+    const path = join(fakebin, name);
+    writeFileSync(path, `#!/bin/sh\n${body}\n`);
+    chmodSync(path, 0o755);
+  };
+  stub("git", 'case "$*" in *"rev-parse --abbrev-ref HEAD"*) echo main ;; *"rev-parse"*) echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeef ;; *) exit 0 ;; esac');
+  stub("go", 'mkdir -p bin; printf "#!/bin/sh\\nexit 0\\n" > bin/learning; chmod +x bin/learning');
+  stub("cargo", "echo 'failed to download crates (offline)' >&2; exit 101");
+  stub("systemctl", "exit 0");
+  const helper = (name, body) => {
+    const path = join(repo, "deploy", "vps", name);
+    writeFileSync(path, `#!/bin/sh\n${body}\n`);
+    chmodSync(path, 0o755);
+  };
+  helper("link-tutor-context.sh", "exit 0");
+  helper("wait-for-idle.sh", "exit 0");
+  helper("health.sh", "exit 0");
+  const fetch = join(repo, "tools", "embed", "fetch.sh");
+  writeFileSync(fetch, "#!/bin/sh\necho 'network absent' >&2\nexit 1\n");
+  chmodSync(fetch, 0o755);
+  const salida = spawnSync("bash", [join(repo, "deploy", "vps", "update.sh")], {
+    cwd: repo, encoding: "utf8", timeout: 30_000,
+    env: {
+      ...process.env,
+      LEARNING_REPO: repo,
+      LEARNING_UPDATE_REEXEC: "1",
+      LEARNING_STUDIO_STATE_DIR: join(vault, "state"),
+      SYSTEMCTL: join(fakebin, "systemctl"),
+      PATH: `${fakebin}:${process.env.PATH}`,
+    },
+  });
+  const salidaCompleta = `${salida.stdout}${salida.stderr}`;
+  assert.equal(salida.status, 0, salidaCompleta);
+  assert.match(salidaCompleta, /Deployed|keyword-only/);
 });
 
 test("the embedder is launched lazily and restarted once after a crash", async () => {

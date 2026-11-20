@@ -144,6 +144,8 @@ function atomos(texto: string, nombre: string | undefined, tipo: string | undefi
   let turno = "";
 
   for (const [indicePagina, pagina] of paginas.entries()) {
+    // A blank PDF page is still a physical page: it advances the citation number.
+    const paginaNumero = indicePagina + 1;
     for (const crudo of pagina.split("\n")) {
       linea++;
       const textoLinea = crudo.trim();
@@ -157,7 +159,6 @@ function atomos(texto: string, nombre: string | undefined, tipo: string | undefi
       const cabecera = transcripcion && (HORA.test(textoLinea) || PONENTE.test(textoLinea)) ? textoLinea : undefined;
       if (cabecera) turno = cabecera;
       const palabrasLinea = textoLinea.split(/\s+/).filter(Boolean);
-      const paginaNumero = indicePagina + 1;
       // Transcripts are cut only between lines (a speaker/timestamp line is
       // never broken); every other source is cut between words. Both stay
       // inside a word, and both remember where a new line begins.
@@ -239,6 +240,8 @@ export function segmentarTexto(texto: string, opciones: { nombre?: string; tipo?
       texto: textoDe(slice, transcripcion),
     });
     if (fin >= lista.length) break;
+    // Overlap never reaches back across a page break: a chunk cites one page.
+    if (lista[fin].pagina !== lista[fin - 1].pagina) { inicio = fin; continue; }
     let atras = 0;
     let siguiente = fin;
     while (siguiente > inicio && atras < solape) {

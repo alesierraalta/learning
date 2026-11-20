@@ -17,6 +17,12 @@ for tool in curl sha256sum unzip; do
   command -v "$tool" >/dev/null 2>&1 || { echo "Missing prerequisite: $tool" >&2; exit 1; }
 done
 
+arch=$(uname -m)
+case "$arch" in
+  x86_64|amd64) ;;
+  *) echo "Unsupported architecture $arch: the pinned ONNX Runtime is linux-x64" >&2; exit 1 ;;
+esac
+
 target=${1:-${LEARNING_EMBED_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/learning/embed}}
 mkdir -p -- "$target"
 dir=$(cd -- "$target" && pwd -P)
