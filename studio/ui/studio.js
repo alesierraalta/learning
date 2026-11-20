@@ -3095,6 +3095,14 @@
     stop.setAttribute("aria-disabled", String(!busy));
   }
   const atBottom = () => thread.scrollHeight - thread.scrollTop - thread.clientHeight < 80;
+  /** A verdict about a turn sits above that turn's first tutor text; without one it goes last (#393). */
+  function appendAbove(node, before) {
+    const tutorNode = before ? assistant.get(String(before))?.node : undefined;
+    if (!tutorNode?.isConnected) return append(node);
+    const stick = atBottom();
+    tutorNode.before(node);
+    if (stick) thread.scrollTop = thread.scrollHeight;
+  }
   function append(node) {
     const stick = atBottom();
     // The intro copy leaves once the chat starts, but its suggested prompts keep their place in
@@ -3328,7 +3336,7 @@
     noteUnread();
   });
   // The studio's own verdict, never the tutor's: a system notice in the conversation (#393).
-  on("studio", ({ text }) => { append(h("div", { class: "msg studio" }, String(text ?? ""))); noteUnread(); });
+  on("studio", ({ text, before }) => { appendAbove(h("div", { class: "msg studio" }, String(text ?? "")), before); noteUnread(); });
   // The tutor writes notes inside the vault: the chat hands back the way to the one it wrote.
   const noteRoute = (note) => {
     if (note?.quick) return library.quick.some((q) => q.id === note.quick) ? `#/rapido/${encodeURIComponent(note.quick)}` : null;
@@ -3430,7 +3438,7 @@
     updatePill();
   });
   on("notice", ({ message }) => append(h("div", { class: "notice" }, message)));
-  on("error", ({ message }) => append(h("div", { class: "notice error" }, message)));
+  on("error", ({ message, before }) => appendAbove(h("div", { class: "notice error" }, message), before));
   on("library_changed", () => loadLibrary());
   events.onerror = () => {
     stateLine.textContent = "Reconectando…";
@@ -3677,6 +3685,12 @@
     updateTasksPill();
     watchResults();
   }
+  /** A verdict about a turn sits above that turn's first tutor text; without one it goes last (#393). */
+  function appendTaskAbove(record, node, before) {
+    const tutorNode = before ? record.messages.get(String(before))?.node : undefined;
+    if (!tutorNode?.isConnected) return appendTask(record, node);
+    tutorNode.before(node);
+  }
   function appendTask(record, node) {
     record.transcript.querySelector(".tasks-empty")?.remove();
     record.transcript.append(node);
@@ -3769,7 +3783,7 @@
       entry.text = String(text ?? "");
       paintTaskAssistant(entry);
     });
-    onTask("studio", ({ text }) => appendTask(record, h("div", { class: "msg studio" }, String(text ?? ""))));
+    onTask("studio", ({ text, before }) => appendTaskAbove(record, h("div", { class: "msg studio" }, String(text ?? "")), before));
     onTask("tool", (data) => taskTool(record, data));
     onTask("dialog", (dialog) => taskDialog(record, dialog));
     onTask("dialog_closed", ({ id }) => {
@@ -3779,7 +3793,7 @@
       updateTasksPill();
     });
     onTask("notice", ({ message }) => appendTask(record, h("div", { class: "notice" }, String(message ?? ""))));
-    onTask("error", ({ message }) => appendTask(record, h("div", { class: "notice error" }, String(message ?? ""))));
+    onTask("error", ({ message, before }) => appendTaskAbove(record, h("div", { class: "notice error" }, String(message ?? "")), before));
     onTask("tareas", ({ tareas }) => setTaskViews(tareas));
     onTask("library_changed", () => loadLibrary());
   }
