@@ -22,6 +22,7 @@ import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
 import { stored, writeDoc } from "./testdata/stored.mjs";
 import { tinyDocx } from "./testdata/docx.mjs";
+import { configurarIndice, esperarIndice } from "./indice.ts";
 
 test("studio startup warms existing rich pages serially in the background", async () => {
   const { root, engine } = makeRoot();
@@ -4757,3 +4758,55 @@ function materiaUpload(studio, id, { fileName, contentType, tipo, content }) {
     body: content,
   });
 }
+
+// ---- Local hybrid index (issue #373/T4) -------------------------------------
+
+test("course search routes index uploads, track embeddings and drop deleted sources", async () => {
+  configurarIndice({ embedCommand: [process.execPath, join(HERE, "testdata", "fake-embed.mjs")] });
+  try {
+    const { studio } = await setup();
+    const { id } = JSON.parse((await post(studio, "api/materias", { nombre: "Biología" })).body);
+    const upload = await materiaUpload(studio, id, {
+      fileName: "clase.txt", contentType: "text/plain", tipo: "documento",
+      content: Buffer.from("El profesor explica la función de la mitosis.", "utf8"),
+    });
+    assert.equal(upload.status, 201, upload.body);
+    const fuente = JSON.parse(upload.body);
+
+    const antes = await http(`${studio.url}api/materias/${id}/indice`);
+    assert.equal(antes.status, 200);
+    assert.deepEqual(Object.keys(JSON.parse(antes.body)).sort(), ["chunks", "conVector", "fuentes", "pendiente", "semantica"]);
+    assert.equal(JSON.parse(antes.body).chunks, 1, "keyword rows are indexed before the 201 returns");
+    assert.equal(JSON.parse(antes.body).semantica, true);
+    await esperarIndice();
+    const listo = JSON.parse((await http(`${studio.url}api/materias/${id}/indice`)).body);
+    assert.equal(listo.pendiente, 0);
+    assert.equal(listo.conVector, 1);
+
+    const found = await http(`${studio.url}api/materias/${id}/buscar?q=funcion&k=5&tipo=documento`);
+    assert.equal(found.status, 200, found.body);
+    const resultados = JSON.parse(found.body);
+    assert.equal(resultados.length, 1);
+    assert.equal(resultados[0].fuente, fuente.id);
+    assert.equal(resultados[0].tipo, "documento");
+    assert.equal(resultados[0].ubicacion, "líneas 1–1");
+    assert.ok(resultados[0].score > 0);
+    assert.deepEqual(resultados[0].senales, ["keyword", "semantic"]);
+    assert.deepEqual((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis&tipo=examen`)).body, "[]");
+
+    assert.equal((await http(`${studio.url}api/materias/${id}/buscar`)).status, 400);
+    assert.equal((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis&k=99`)).status, 400);
+    assert.equal((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis&tipo=otro`)).status, 400);
+    assert.equal((await http(`${studio.url}api/materias/${'f'.repeat(32)}/indice`)).status, 404);
+    assert.equal((await http(`${studio.url}api/materias/${'f'.repeat(32)}/buscar?q=x`)).status, 404);
+
+    const removed = await http(`${studio.url}api/materias/${id}/fuentes/${fuente.id}`, { method: "DELETE", headers: { origin: new URL(studio.url).origin } });
+    assert.equal(removed.status, 204);
+    const despues = JSON.parse((await http(`${studio.url}api/materias/${id}/indice`)).body);
+    assert.equal(despues.chunks, 0);
+    assert.equal(despues.conVector, 0);
+    assert.deepEqual(JSON.parse((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis`)).body), []);
+  } finally {
+    configurarIndice({});
+  }
+});

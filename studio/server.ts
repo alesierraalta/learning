@@ -112,6 +112,7 @@ import {
   unlinkTema,
   writePdfDerivatives,
 } from "./materias.ts";
+import { buscar, cerrarIndice, desindizarFuente, indizarFuente, progresoIndice, estadoIndice } from "./indice.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -782,6 +783,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const res of clients) res.write(frame);
   };
+  // Background embeddings publish their progress on the same stream as the turns.
+  progresoIndice((evento) => emit("indice", evento));
   /** Task frames are written to a task stream and always name the topic; main frames never do. */
   const emitTask = (topic: string, event: string, data: unknown) => {
     const frame = `event: ${event}\ndata: ${JSON.stringify({ ...(isRecord(data) ? data : {}), task: topic })}\n\n`;
@@ -2310,7 +2313,11 @@ ${scripts}
     const tipo = String(req.headers["x-tipo"] ?? "");
     const fileName = typeof req.headers["x-file-name"] === "string" ? req.headers["x-file-name"] : "";
     const content = await readFuenteBody(req);
-    return sendJson(res, 201, await addFuente(root, id, { fileName, contentType, tipo, content }));
+    const fuente = await addFuente(root, id, { fileName, contentType, tipo, content });
+    // The keyword rows are committed before the 201; embeddings are a queue on
+    // purpose, so a slow model never holds the upload's HTTP response (#373).
+    try { indizarFuente(root, id, fuente); } catch { /* a rebuild can recover the index later */ }
+    return sendJson(res, 201, fuente);
   };
 
   const materiaTema = async (req: IncomingMessage, res: ServerResponse, id: string) => {
@@ -2331,6 +2338,7 @@ ${scripts}
     }
     if (section === "fuentes") {
       await deleteFuente(root, id, leaf);
+      try { desindizarFuente(root, id, leaf); } catch { /* the source is already in the trash */ }
       res.writeHead(204);
       res.end();
       return;
@@ -2807,6 +2815,25 @@ ${scripts}
     if (req.method !== "GET") throw new HttpError(405, "method not allowed");
     const materiaDetail = /^api\/materias\/([a-f0-9]{32})$/.exec(path);
     if (materiaDetail) return sendJson(res, 200, getMateria(root, materiaDetail[1]));
+    const indiceBuscar = /^api\/materias\/([a-f0-9]{32})\/buscar$/.exec(path);
+    if (indiceBuscar) {
+      const id = indiceBuscar[1];
+      getMateria(root, id);
+      const consulta = (url.searchParams.get("q") ?? "").trim();
+      if (!consulta) throw new HttpError(400, "Incluye una consulta en q.");
+      const rawK = url.searchParams.get("k");
+      const k = rawK === null ? 8 : Number(rawK);
+      if (!Number.isSafeInteger(k) || k < 1 || k > 50) throw new HttpError(400, "k debe estar entre 1 y 50.");
+      const tipos = url.searchParams.getAll("tipo");
+      const validos = new Set(["examen", "documento", "transcripcion"]);
+      if (tipos.some((tipo) => !validos.has(tipo))) throw new HttpError(400, "tipo debe ser examen, documento o transcripcion.");
+      return sendJson(res, 200, await buscar(root, id, consulta, { k, tipos }));
+    }
+    const indiceEstado = /^api\/materias\/([a-f0-9]{32})\/indice$/.exec(path);
+    if (indiceEstado) {
+      getMateria(root, indiceEstado[1]);
+      return sendJson(res, 200, estadoIndice(root, indiceEstado[1]));
+    }
     switch (path) {
       case "":
         return send(res, 200, "text/html; charset=utf-8", shell(), { "content-security-policy": shellCsp() });
@@ -3080,6 +3107,7 @@ ${scripts}
       if (proc) await stopChild(proc);
     }
     for (const handler of shutdownHandlers) await handler();
+    await cerrarIndice();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   };
