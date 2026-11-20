@@ -21,6 +21,7 @@ import extension from "../integrations/pi/index.ts";
 import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
 import { stored, writeDoc } from "./testdata/stored.mjs";
+import { tinyDocx } from "./testdata/docx.mjs";
 
 test("studio startup warms existing rich pages serially in the background", async () => {
   const { root, engine } = makeRoot();
@@ -4334,5 +4335,162 @@ for (const runtime of ["pi", "agy"]) {
       assert.equal(seen[0].type, "fase");
       assert.ok(seen.every((phase, i) => i === 0 || phase.t >= seen[i - 1].t), "relative times never go backwards");
     } finally { tutor.close(); }
+  });
+}
+
+// ---- Course materials (issue #371) -----------------------------------------
+
+test("course routes create, list and get a materia with counts by type", async () => {
+  const { studio, root } = await setup();
+  const created = await post(studio, "api/materias", { nombre: "  Análisis de redes  " });
+  assert.equal(created.status, 201, created.body);
+  const materia = JSON.parse(created.body);
+  assert.match(materia.id, /^[a-f0-9]{32}$/);
+  assert.equal(materia.nombre, "Análisis de redes");
+  assert.deepEqual(materia.temas, []);
+  assert.deepEqual(materia.fuentes, []);
+  assert.ok(existsSync(join(root, ".materias", materia.id, "materia.json")));
+
+  const list = await http(`${studio.url}api/materias`);
+  assert.equal(list.status, 200);
+  assert.deepEqual(JSON.parse(list.body), [{
+    id: materia.id, nombre: materia.nombre, temas: [], fuentes: 0,
+    porTipo: { examen: 0, documento: 0, transcripcion: 0 },
+  }]);
+  const detail = await http(`${studio.url}api/materias/${materia.id}`);
+  assert.deepEqual(JSON.parse(detail.body), materia);
+  assert.equal((await http(`${studio.url}api/materias/${"f".repeat(32)}`)).status, 404);
+  assert.equal((await http(`${studio.url}api/materias/../nope`)).status, 404);
+  assert.equal((await post(studio, "api/materias", { nombre: "   " })).status, 400);
+  assert.equal((await post(studio, "api/materias", { nombre: 7 })).status, 400);
+});
+
+test("course uploads store the original and the extracted text for every accepted type", async () => {
+  const { studio, root } = await setup();
+  const { id } = JSON.parse((await post(studio, "api/materias", { nombre: "Redes" })).body);
+  const files = [
+    { fileName: "clase.txt", contentType: "text/plain", tipo: "transcripcion", content: Buffer.from("El profesor habla de personas."), phrase: "personas" },
+    { fileName: "resumen.md", contentType: "text/markdown", tipo: "documento", content: Buffer.from("# Resumen\n\nConclusión del profesor.", "utf8"), phrase: "Conclusión" },
+    { fileName: "clase.docx", contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", tipo: "transcripcion", content: tinyDocx("Dijo <el profesor> & sus notas."), phrase: "el profesor" },
+    { fileName: "captura.png", contentType: "image/png", tipo: "documento", content: tinyImage, phrase: null },
+  ];
+  for (const file of files) {
+    const response = await materiaUpload(studio, id, file);
+    assert.equal(response.status, 201, response.body);
+    const fuente = JSON.parse(response.body);
+    assert.match(fuente.id, /^[a-f0-9]{32}$/);
+    assert.equal(fuente.nombre, file.fileName);
+    assert.equal(fuente.tipo, file.tipo);
+    const courseDir = join(root, ".materias", id);
+    assert.deepEqual(readFileSync(join(courseDir, fuente.archivo)), file.content);
+    const text = readFileSync(join(courseDir, fuente.texto), "utf8");
+    if (file.phrase) assert.ok(text.includes(file.phrase), `extracted text: ${text}`);
+  }
+  const detail = JSON.parse((await http(`${studio.url}api/materias/${id}`)).body);
+  assert.equal(detail.fuentes.length, files.length);
+  const list = JSON.parse((await http(`${studio.url}api/materias`)).body)[0];
+  assert.deepEqual(list.porTipo, { examen: 0, documento: 2, transcripcion: 2 });
+});
+
+test("a course PDF keeps pdftotext text and page images", { skip: pdfToolsAvailable ? false : "PDF utilities are not installed" }, async () => {
+  const { studio, root } = await setup();
+  const { id } = JSON.parse((await post(studio, "api/materias", { nombre: "Exámenes" })).body);
+  const response = await materiaUpload(studio, id, {
+    fileName: "parcial.pdf", contentType: "application/pdf", tipo: "examen", content: tinyPdf(),
+  });
+  assert.equal(response.status, 201, response.body);
+  const fuente = JSON.parse(response.body);
+  const courseDir = join(root, ".materias", id);
+  assert.equal(fuente.paginas, 1);
+  assert.match(readFileSync(join(courseDir, fuente.texto), "utf8"), /Examen real de redes/);
+  assert.ok(existsSync(join(courseDir, fuente.archivo + ".p1.png")));
+});
+
+test("course uploads reject unsupported types, oversize bodies, traversal and unknown courses", async () => {
+  const { studio, root } = await setup();
+  const { id } = JSON.parse((await post(studio, "api/materias", { nombre: "Redes" })).body);
+  const valid = { fileName: "clase.txt", contentType: "text/plain", tipo: "transcripcion", content: Buffer.from("texto") };
+  const cases = [
+    [{ ...valid, contentType: "application/octet-stream" }, 415],
+    [{ ...valid, fileName: "clase.exe" }, 415],
+    [{ ...valid, tipo: "otro" }, 400],
+    [{ ...valid, fileName: "../../secreto.txt" }, 400],
+    [{ ...valid, fileName: "..\\secreto.txt" }, 400],
+    [{ ...valid, content: Buffer.alloc(20 * 1024 * 1024 + 1) }, 413],
+    [{ ...valid, content: Buffer.alloc(0) }, 400],
+  ];
+  for (const [input, status] of cases) {
+    const response = await materiaUpload(studio, id, input);
+    assert.equal(response.status, status, `${input.fileName} ${input.contentType}: ${response.body}`);
+    assert.ok(JSON.parse(response.body).error);
+  }
+  const unknown = await materiaUpload(studio, "f".repeat(32), valid);
+  assert.equal(unknown.status, 404, unknown.body);
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/materias/${id}`)).body).fuentes, []);
+  assert.equal(existsSync(join(root, ".materias", id, "fuentes")), false);
+});
+
+test("deleting a course source moves its files to the course trash", async () => {
+  const { studio, root } = await setup();
+  const { id } = JSON.parse((await post(studio, "api/materias", { nombre: "Redes" })).body);
+  const fuente = JSON.parse((await materiaUpload(studio, id, {
+    fileName: "viejo.txt", contentType: "text/plain", tipo: "documento", content: Buffer.from("viejo"),
+  })).body);
+  const removed = await http(`${studio.url}api/materias/${id}/fuentes/${fuente.id}`, { method: "DELETE", headers: { origin: new URL(studio.url).origin } });
+  assert.equal(removed.status, 204);
+  assert.equal(removed.body, "");
+  const courseDir = join(root, ".materias", id);
+  assert.deepEqual(JSON.parse(readFileSync(join(courseDir, "materia.json"), "utf8")).fuentes, []);
+  const trash = readdirSync(join(courseDir, ".papelera"));
+  assert.equal(trash.length, 1);
+  assert.match(trash[0], new RegExp(`^${fuente.id}-`));
+  assert.ok(existsSync(join(courseDir, ".papelera", trash[0], fuente.archivo.split("/").at(-1))));
+  assert.equal((await http(`${studio.url}api/materias/${id}/fuentes/${fuente.id}`, { method: "DELETE" })).status, 404);
+});
+
+test("two concurrent course uploads both stay in the course index", async () => {
+  const { studio } = await setup();
+  const { id } = JSON.parse((await post(studio, "api/materias", { nombre: "Redes" })).body);
+  const responses = await Promise.all([
+    materiaUpload(studio, id, { fileName: "uno.txt", contentType: "text/plain", tipo: "documento", content: Buffer.from("uno") }),
+    materiaUpload(studio, id, { fileName: "dos.md", contentType: "text/markdown", tipo: "transcripcion", content: Buffer.from("# dos") }),
+  ]);
+  assert.deepEqual(responses.map((response) => response.status), [201, 201]);
+  const detail = JSON.parse((await http(`${studio.url}api/materias/${id}`)).body);
+  assert.deepEqual(detail.fuentes.map((fuente) => fuente.nombre), ["uno.txt", "dos.md"]);
+});
+
+test("a topic links to one course, is refused by the next, and reports its course in the library", async () => {
+  const { studio } = await setup();
+  const first = JSON.parse((await post(studio, "api/materias", { nombre: "Grado A" })).body);
+  const second = JSON.parse((await post(studio, "api/materias", { nombre: "Grado B" })).body);
+  const libraryTopic = async () => JSON.parse((await http(`${studio.url}api/library`)).body).topics.find((entry) => entry.id === "redes");
+  assert.equal((await libraryTopic()).materia, null);
+  const linked = await post(studio, `api/materias/${first.id}/temas`, { tema: "redes" });
+  assert.equal(linked.status, 200, linked.body);
+  assert.deepEqual(JSON.parse(linked.body).temas, ["redes"]);
+  assert.deepEqual((await libraryTopic()).materia, { id: first.id, nombre: "Grado A" });
+  const conflict = await post(studio, `api/materias/${second.id}/temas`, { tema: "redes" });
+  assert.equal(conflict.status, 409, conflict.body);
+  assert.ok(JSON.parse(conflict.body).error);
+  assert.equal((await post(studio, `api/materias/${first.id}/temas`, { tema: "no-existe" })).status, 404);
+  assert.equal((await post(studio, `api/materias/${first.id}/temas`, { tema: "../escape" })).status, 400);
+  const unlinked = await http(`${studio.url}api/materias/${first.id}/temas/redes`, { method: "DELETE", headers: { origin: new URL(studio.url).origin } });
+  assert.equal(unlinked.status, 200, unlinked.body);
+  assert.deepEqual(JSON.parse(unlinked.body).temas, []);
+  assert.equal((await libraryTopic()).materia, null);
+  assert.equal((await post(studio, `api/materias/${second.id}/temas`, { tema: "redes" })).status, 200);
+});
+
+function materiaUpload(studio, id, { fileName, contentType, tipo, content }) {
+  return http(`${studio.url}api/materias/${id}/fuentes`, {
+    method: "POST",
+    headers: {
+      "content-type": contentType,
+      "x-file-name": encodeURIComponent(fileName),
+      "x-tipo": tipo,
+      origin: new URL(studio.url).origin,
+    },
+    body: content,
   });
 }
