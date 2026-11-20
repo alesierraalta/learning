@@ -54,6 +54,7 @@ import {
   snapshotFile,
   type ChatMessage,
   type InterruptedTurn,
+  withStudioNotices,
 } from "./state.ts";
 import {
   createTopicLocks,
@@ -393,6 +394,19 @@ type Turn = {
   lockPromise?: Promise<{ release: () => void }>;
   /** An aborted turn ends as failed, whatever the runtime reports afterwards. */
   aborted?: boolean;
+  /**
+   * This turn already used its one explicit correction for a part that was not written or that
+   * the gates rejected; a second failure rolls back instead of asking again (#393).
+   */
+  partCorrectionSent?: boolean;
+  /** Corrections this turn has received so far, from the engine, the gates or the explicit one (#393). */
+  correctionsSent?: number;
+  /**
+   * The first text the tutor wrote this turn and the id the page knows it by. A studio verdict about the
+   * turn is placed above it, live and in the saved thread (#393).
+   */
+  tutorMessage?: ChatMessage;
+  tutorId?: string;
   /** The write-part turn the waiting section follows, with the clock its phase events use. */
   espera?: {
     topic: string;
@@ -449,6 +463,9 @@ const insideVault = (root: string, file: string): boolean => {
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 };
 
+/** Where a verdict about a turn goes: above the first text the tutor wrote that turn, or last when it wrote none (#393). */
+const aboveTutor = (turn: Turn | null | undefined): { before?: string } => (turn?.tutorId ? { before: turn.tutorId } : {});
+
 /**
  * Moves what a failed regeneration wrote out of the library without deleting it: it waits in the
  * trash beside the previous version, so a hand can still read what the tutor produced. The reason it
@@ -487,6 +504,49 @@ function restoreRegeneration(root: string, regeneration: NonNullable<Turn["regen
     restored = true;
   }
   return restored;
+}
+
+/**
+ * The last regeneration of each part, in the studio's own state directory (never in the vault):
+ * a part that was rolled back says so until a later regeneration replaces it (#393).
+ */
+type RegenerationMarks = Record<string, { at: string; reason: string }>;
+
+function readRegenerationMarks(file: string): RegenerationMarks {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const marks: RegenerationMarks = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
+      const entry = value as Record<string, unknown>;
+      if (typeof entry.at === "string" && typeof entry.reason === "string") marks[key] = { at: entry.at, reason: entry.reason };
+    }
+    return marks;
+  } catch {
+    return {};
+  }
+}
+
+/** One part's last regeneration: a failure is remembered, a success forgets the failure. */
+function markRegeneration(file: string, topic: string, part: string, reason: string | null): void {
+  const key = `${topic}/${part}`;
+  const marks = readRegenerationMarks(file);
+  if (reason === null) {
+    if (!(key in marks)) return;
+    delete marks[key];
+  } else {
+    marks[key] = { at: new Date().toISOString(), reason };
+  }
+  mkdirSync(dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(marks, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    renameSync(temporary, file);
+  } catch (error) {
+    try { rmSync(temporary, { force: true }); } catch { /* nothing to clean */ }
+    process.stderr.write(`estudio: no se pudo guardar el estado de la regeneración · ${(error as Error).message}\n`);
+  }
 }
 
 /** A note the studio can open: a part, diagnosis, or quick note. */
@@ -695,6 +755,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const busyTracker = createBusyTracker(openedFile);
   const locks = createTopicLocks();
   const taskConversationFile = taskConversationsFile(chatsFile);
+  /** The last regeneration verdict per part, outside the vault: the topic view reads it (#393). */
+  const regenerationMarksFile = join(dirname(openedFile), "regeneraciones.json");
   /** One Session for the main chat, one per topic: a map, never a global limit. */
   const tasks = new Map<string, Session>();
   const taskClients = new Map<string, Set<ServerResponse>>();
@@ -801,13 +863,14 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       saveSnapshot: () => {},
       remember: (_message) => {},
     };
-    if (spec.kind === "main") {
-      // Only a copy whose writer is gone: a studio that is still running keeps its own.
-      const copied = readRestartSnapshot(file, chats.activo);
-      if (copied) {
-        session.transcript = copied.messages;
-        session.interrupted = copied.interrupted;
-      }
+    // Only a copy whose writer is gone: a studio that is still running keeps its own. A topic's copy comes
+    // back as well, so the verdict its regeneration left survives a restart (#393).
+    const copied = readRestartSnapshot(file, spec.kind === "main" ? chats.activo : `tarea:${spec.id}`);
+    if (copied) {
+      session.transcript = copied.messages;
+      if (spec.kind === "main") session.interrupted = copied.interrupted;
+      // Antigravity's thread is built from the studio's own turns, so a topic's copy rebuilds those too.
+      else session.agyTurns = copied.messages.flatMap((message) => (message.role === "studio" ? [] : [{ role: message.role, text: message.text }]));
     }
     session.emit = (event, data) => {
       if (session.kind === "main") emit(event, data);
@@ -946,7 +1009,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           if (raw && session.turn) session.turn.timing.addOutput(raw.length);
           if (text) session.emit("assistant_end", { id: session.assistantId, text });
           if (session.agy && text) session.agyTurns.push({ role: "assistant", text });
-          if (text) session.remember({ role: "assistant", text });
+          if (text) {
+            const tutorMessage: ChatMessage = { role: "assistant", text };
+            // The first words the tutor writes this turn: a verdict about the turn is placed above them (#393).
+            if (session.turn && !session.turn.tutorMessage) {
+              session.turn.tutorMessage = tutorMessage;
+              session.turn.tutorId = session.assistantId;
+            }
+            session.remember(tutorMessage);
+          }
         }
         return;
       }
@@ -1452,18 +1523,40 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       } catch (error) {
         process.stderr.write(`estudio: no se pudo apartar la versión rechazada · ${(error as Error).message}\n`);
       }
+      // A copy back that throws is not a missing previous version: the chat says which one happened (#393).
       let restored = false;
+      let restoreFailure: string | null = null;
       try {
         restored = restoreRegeneration(root, regeneration);
       } catch (error) {
-        process.stderr.write(`estudio: no se pudo restaurar la versión anterior · ${(error as Error).message}\n`);
+        restoreFailure = (error as Error).message;
+        process.stderr.write(`estudio: no se pudo restaurar la versión anterior · ${restoreFailure}\n`);
       }
       const sentence = /[.!?]$/.test(why) ? why : `${why}.`;
-      session.emit("error", {
-        message: restored
-          ? `La versión nueva no pasó: ${sentence} Sigues leyendo la versión anterior.`
-          : `La versión nueva no pasó: ${sentence} Esta parte no tenía una versión anterior: no hay nada que mostrar.`,
-      });
+      const expected = partExpected(ended);
+      // An unknown part reads as "La parte" on its own; a known one is named the way the plan names it.
+      const subject = expected ? `La Parte ${expected.number} «${expected.title}»` : "La parte";
+      const verdict = restored
+        ? `${subject} NO se regeneró: ${sentence} Se mantiene la versión anterior.`
+        : restoreFailure !== null
+          ? `${subject} NO se regeneró: ${sentence} No se pudo restaurar la versión anterior: sigue guardada en la papelera.`
+          : `${subject} NO se regeneró: ${sentence} Esta parte no tenía una versión anterior: no hay nada que mostrar.`;
+      if (ended.topic) {
+        // The topic view says the previous version is kept only when it is back; otherwise no rollback mark stays (#393).
+        try { markRegeneration(regenerationMarksFile, ended.topic, regeneration.part ?? "parte", restored ? why : null); }
+        catch (error) { process.stderr.write(`estudio: no se pudo guardar la regeneración fallida · ${(error as Error).message}\n`); }
+      }
+      session.emit("error", { message: verdict, ...aboveTutor(ended) });
+      studioVerdict(session, verdict, ended);
+    } else if (ended.regeneration?.passed) {
+      const part = ended.regeneration.part ?? "parte";
+      // The explicit correction worked: say it in one short sentence instead of leaving only the tutor's claim.
+      if (ended.partCorrectionSent) studioVerdict(session, "La regeneración sí se completó: ya se sirve la versión nueva.", ended);
+      // A regeneration that lands forgets an earlier rollback, on the first try as well as after a correction (#393).
+      if (ended.topic) {
+        try { markRegeneration(regenerationMarksFile, ended.topic, part, null); }
+        catch (error) { process.stderr.write(`estudio: no se pudo guardar la regeneración · ${(error as Error).message}\n`); }
+      }
     }
     // A turn that wrote a part generated a page: its timings are on disk before the page hears
     // the turn is over, so a reader can compare this generation with the next one.
@@ -1492,6 +1585,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         const reply = await call(session, { type: "prompt", message: prompt });
         if (reply.success === false) throw new HttpError(409, String(reply.error ?? "el tutor rechazó el turno"));
       }
+      // A correction counts against the turn's budget once it has reached the tutor, whichever gate asked for it (#393).
+      if (reason === "engine-correction" || reason === "part-correction") started.correctionsSent = (started.correctionsSent ?? 0) + 1;
     } catch (error) {
       // A prompt that never reached the tutor is a call that produced nothing.
       started.timing.endCall(false);
@@ -1664,6 +1759,62 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   /**
+   * The studio's own words in the conversation, kept in the transcript so a reload still shows what
+   * really happened (#393). A verdict about a turn goes above that turn's first tutor text, live and saved alike.
+   */
+  const studioVerdict = (session: Session, text: string, turn?: Turn | null) => {
+    const notice: ChatMessage = { role: "studio", text };
+    const at = turn?.tutorMessage ? session.transcript.indexOf(turn.tutorMessage) : -1;
+    if (at >= 0) {
+      session.transcript.splice(at, 0, notice);
+      session.saveSnapshot();
+    } else session.remember(notice);
+    session.emit("studio", { text, ...aboveTutor(turn) });
+  };
+
+  /** The part this turn had to produce: a regeneration's part, or the part a write request named. */
+  const partExpected = (settled: Turn): { file: string; part: string; title: string; number: number } | null => {
+    const topic = settled.topic;
+    const part = settled.regeneration?.part ?? settled.espera?.part;
+    if (!topic || !part) return null;
+    let plan;
+    try { plan = readPlan(join(root, topic)); } catch { return null; }
+    const index = plan?.parts.findIndex((entry) => entry.id === part) ?? -1;
+    if (!plan || index < 0) return null;
+    const file = partNotePath(root, topic, part);
+    if (!file) return null;
+    return { file, part, title: plan.parts[index].title, number: index + 1 };
+  };
+
+  /**
+   * One last, explicit chance before a part-producing turn is given up: the studio says which file
+   * is missing, or which checks rejected the part, and the tutor fixes exactly that. It is the turn's
+   * first and only correction: once any correction was delivered, a further failure reports at once (#393).
+   */
+  const askForMissingPart = async (session: Session, settled: Turn, why?: string): Promise<boolean> => {
+    if (settled.partCorrectionSent || (settled.correctionsSent ?? 0) > 0) return false;
+    const expected = partExpected(settled);
+    if (!expected) return false;
+    settled.partCorrectionSent = true;
+    const name = `Parte ${expected.number} «${expected.title}»`;
+    const rel = relative(root, expected.file);
+    const missing = !existsSync(expected.file);
+    const prompt = missing
+      ? `Falta escribir la ${name}: el archivo «${rel}» no existe. Escríbela ahora en ese archivo y no la des por terminada hasta que exista.`
+      : `La ${name} no pasó las comprobaciones:\n${(why ?? "el motor no la dio por buena").trim()}\nCorrige eso en «${rel}» y vuelve a escribir la parte. No la des por terminada hasta que pase.`;
+    // A fresh verdict follows the correction; the old one must not survive a second failure.
+    if (settled.regeneration) delete settled.regeneration.reason;
+    try {
+      await deliver(session, prompt, settled, "part-correction");
+      return true;
+    } catch {
+      if (settled.regeneration) settled.regeneration.reason ??= "el tutor no pudo retomar la corrección";
+      correctionRefused(session, settled.topic ?? "el tema");
+      return false;
+    }
+  };
+
+  /**
    * What a settled turn still owes, for every runtime and every Session. Every path out releases
    * only its own turn; only a correction that was sent keeps it.
    */
@@ -1694,7 +1845,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           correctionRefused(session, topic);
         }
       } else if (decision.action === "stop") {
-        session.emit("error", { message: decision.text });
+        if (await askForMissingPart(session, settled, decision.text)) corrected = true;
+        else session.emit("error", { message: decision.text });
       } else {
         if (decision.action === "unreadable") {
           session.emit("notice", { level: "warning", message: `El motor no pudo revisar «${topic}»: el turno termina sin comprobarlo.` });
@@ -1716,14 +1868,31 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
               correctionRefused(session, topic);
             }
           } else if (verdict.action === "stop") {
-            if (settled.regeneration) settled.regeneration.reason = verdict.text;
+            if (await askForMissingPart(session, settled, verdict.text)) corrected = true;
+            else if (settled.regeneration) settled.regeneration.reason = verdict.text;
             else session.emit("error", { message: verdict.text });
           }
-        } else if (settled.regeneration && !settled.regeneration.passed && !settled.regeneration.reason) {
-          // The engine cleared the turn and the tools found nothing: the new version is what the
-          // learner can read from now on. A regeneration that wrote no part never replaces one.
-          if (settled.parts.some((file) => existsSync(file))) settled.regeneration.passed = true;
-          else settled.regeneration.reason ??= "el tutor no escribió la parte";
+        } else {
+          // The engine cleared the turn: a part-producing turn still owes its file. Before giving
+          // up, the tutor gets one explicit correction saying exactly what is missing (#393).
+          const expected = partExpected(settled);
+          const missing = expected !== null && !existsSync(expected.file);
+          if (missing) {
+            if (await askForMissingPart(session, settled)) corrected = true;
+            else {
+              const message = `La Parte ${expected.number} «${expected.title}» no se escribió: el archivo «${relative(root, expected.file)}» sigue sin existir.`;
+              if (settled.regeneration) settled.regeneration.reason ??= "el tutor no escribió la parte";
+              else {
+                session.emit("error", { message, ...aboveTutor(settled) });
+                studioVerdict(session, message, settled);
+              }
+            }
+          } else if (settled.regeneration && !settled.regeneration.passed && !settled.regeneration.reason) {
+            // The engine cleared the turn and the tools found nothing: the new version is what the
+            // learner can read from now on. A regeneration that wrote no part never replaces one.
+            if (settled.parts.some((file) => existsSync(file))) settled.regeneration.passed = true;
+            else settled.regeneration.reason ??= "el tutor no escribió la parte";
+          }
         }
       }
     } catch (error) {
@@ -1906,10 +2075,13 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 
   const library = async () => {
     const opened = readOpened();
+    const marks = readRegenerationMarks(regenerationMarksFile);
     const topics = await Promise.all(
       listTopics(root).map(async (t) => {
         const report = await engineStatus(join(root, t.id));
-        return { ...t, status: report.status ?? "", stage: report.stage ?? "", nextStage: report.nextStage ?? "", part: report.part ?? "", method: report.method ?? "", opened: opened[t.id] ?? 0 };
+        // A part whose last regeneration was rolled back says so until a later one succeeds (#393).
+        const parts = t.parts.map((part) => ({ ...part, rolledBack: marks[`${t.id}/${part.id}`] !== undefined }));
+        return { ...t, parts, status: report.status ?? "", stage: report.stage ?? "", nextStage: report.nextStage ?? "", part: report.part ?? "", method: report.method ?? "", opened: opened[t.id] ?? 0 };
       }),
     );
     const quickDir = join(root, "rapidos");
@@ -2513,9 +2685,12 @@ ${scripts}
     // A task's own copy is authoritative: Pi's `get_messages` reports the one session it is in,
     // which belongs to the main chat, not to a topic's separate process. Its interruption is kept
     // on disk for the next turn, but the learner only reads the task's state and activity line.
-    if (session.kind === "task") return { messages: session.agy ? [...session.agyTurns] : copy, note: null, interrupted: null };
+    // The studio's notices go back into the runtime's thread, which never carries them (#393). An empty
+    // thread stays empty, so a restart's saved copy is never replaced by the notices alone.
+    const agyThread = () => (session.agyTurns.length ? withStudioNotices([...session.agyTurns], session.transcript) : []);
+    if (session.kind === "task") return { messages: session.agy ? agyThread() : copy, note: null, interrupted: null };
     const shown = interruptedView(session);
-    if (!session.alive || session.agy) return { messages: session.agy ? [...session.agyTurns] : copy, note: null, interrupted: shown };
+    if (!session.alive || session.agy) return { messages: session.agy ? agyThread() : copy, note: null, interrupted: shown };
     try {
       const reply = await call(session, { type: "get_messages" }, 10000);
       const raw = isRecord(reply.data) && Array.isArray(reply.data.messages) ? reply.data.messages : [];
@@ -2527,7 +2702,7 @@ ${scripts}
         // The gate's instruction is the studio's own prompt: the thread keeps the learner's words.
         .filter((m) => m.text && !(m.role === "user" && isStudioPrompt(m.text)));
       // A runtime that lost the conversation still has the studio's own copy of the turn.
-      return { messages: messages.length ? messages : copy, note: noteFromMessages(raw, root), interrupted: shown };
+      return { messages: messages.length ? withStudioNotices(messages, session.transcript) : copy, note: noteFromMessages(raw, root), interrupted: shown };
     } catch {
       return { messages: copy, note: null, interrupted: shown };
     }

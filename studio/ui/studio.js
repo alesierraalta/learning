@@ -397,6 +397,8 @@
     final: "cierre",
   };
   const TONE = { you: "var(--amber)", tutor: "var(--blue)", alert: "var(--red)", done: "var(--green)", test: "var(--muted)" };
+  /** The same words the topic view and the reader show when a regeneration was rolled back (#393). */
+  const ROLLBACK_NOTICE = "La última regeneración no se completó: se mantiene la versión anterior";
   const partIndex = (topic, id) => topic.parts.findIndex((p) => p.id === id);
   const partName = (topic, id) => (partIndex(topic, id) >= 0 ? `la Parte ${partIndex(topic, id) + 1}` : "la parte actual");
   const written = (topic) => topic.parts.filter((p) => p.written).length;
@@ -1234,7 +1236,7 @@
           "li",
           { class: `part-row reveal ${state}`, style: `--i:${i + 3}` },
           h("span", { class: "node" }, state === "done" ? icon("check") : String(i + 1)),
-          h("div", {}, h("h3", {}, p.title), h("div", { class: "meta" }, `Parte ${i + 1} · ${metaText}`)),
+          h("div", {}, h("h3", {}, p.title), h("div", { class: "meta" }, `Parte ${i + 1} · ${metaText}`), p.rolledBack ? h("div", { class: "meta part-rolledback" }, ROLLBACK_NOTICE) : null),
           h(
             "div",
             { class: "row-actions" },
@@ -2342,7 +2344,7 @@
     const pagePrev = h("button", { class: "icon-btn", type: "button", "aria-label": "Página anterior", title: "Página anterior", onclick: () => turnPage(-1) }, icon("back"));
     const pageNext = h("button", { class: "icon-btn", type: "button", "aria-label": "Página siguiente", title: "Página siguiente", onclick: () => turnPage(1) }, icon("next"));
     const pageBar = h("div", { class: "reader-pages", hidden: true }, pagePrev, pageLabel, pageNext);
-    const reader = h("div", { class: "reader" }, h("div", { class: "reader-head" }, bar, menu), h("div", { class: "sheet-wrap" }, frame, pageBar));
+    const reader = h("div", { class: "reader" }, h("div", { class: "reader-head" }, bar, menu), info?.rolledBack ? h("p", { class: "part-rolledback", role: "status" }, ROLLBACK_NOTICE) : null, h("div", { class: "sheet-wrap" }, frame, pageBar));
     const waiting = currentEspera();
     if (waiting && waiting.topic === topicId && waiting.part === part) reader.insertBefore(esperaMount(waiting), reader.querySelector(".sheet-wrap"));
     stage.replaceChildren(topic ? h("div", { class: "reader-layout" }, reader, studyRail(topic, part, title)) : reader);
@@ -3093,6 +3095,14 @@
     stop.setAttribute("aria-disabled", String(!busy));
   }
   const atBottom = () => thread.scrollHeight - thread.scrollTop - thread.clientHeight < 80;
+  /** A verdict about a turn sits above that turn's first tutor text; without one it goes last (#393). */
+  function appendAbove(node, before) {
+    const tutorNode = before ? assistant.get(String(before))?.node : undefined;
+    if (!tutorNode?.isConnected) return append(node);
+    const stick = atBottom();
+    tutorNode.before(node);
+    if (stick) thread.scrollTop = thread.scrollHeight;
+  }
   function append(node) {
     const stick = atBottom();
     // The intro copy leaves once the chat starts, but its suggested prompts keep their place in
@@ -3276,7 +3286,11 @@
     activities.clear();
     showNote(note);
     if (!messages.length) thread.append(intro);
-    for (const m of messages) thread.append(m.role === "user" ? h("div", { class: "msg user" }, m.text) : h("div", { class: "msg assistant" }, ...markdown(m.text).childNodes));
+    for (const m of messages) {
+      if (m.role === "user") thread.append(h("div", { class: "msg user" }, m.text));
+      else if (m.role === "studio") thread.append(h("div", { class: "msg studio" }, m.text));
+      else thread.append(h("div", { class: "msg assistant" }, ...markdown(m.text).childNodes));
+    }
     if (interrupted) append(interruptedCard(interrupted));
     thread.scrollTop = thread.scrollHeight;
   });
@@ -3321,6 +3335,8 @@
     renderAssistant(id);
     noteUnread();
   });
+  // The studio's own verdict, never the tutor's: a system notice in the conversation (#393).
+  on("studio", ({ text, before }) => { appendAbove(h("div", { class: "msg studio" }, String(text ?? "")), before); noteUnread(); });
   // The tutor writes notes inside the vault: the chat hands back the way to the one it wrote.
   const noteRoute = (note) => {
     if (note?.quick) return library.quick.some((q) => q.id === note.quick) ? `#/rapido/${encodeURIComponent(note.quick)}` : null;
@@ -3422,7 +3438,7 @@
     updatePill();
   });
   on("notice", ({ message }) => append(h("div", { class: "notice" }, message)));
-  on("error", ({ message }) => append(h("div", { class: "notice error" }, message)));
+  on("error", ({ message, before }) => appendAbove(h("div", { class: "notice error" }, message), before));
   on("library_changed", () => loadLibrary());
   events.onerror = () => {
     stateLine.textContent = "Reconectando…";
@@ -3669,6 +3685,12 @@
     updateTasksPill();
     watchResults();
   }
+  /** A verdict about a turn sits above that turn's first tutor text; without one it goes last (#393). */
+  function appendTaskAbove(record, node, before) {
+    const tutorNode = before ? record.messages.get(String(before))?.node : undefined;
+    if (!tutorNode?.isConnected) return appendTask(record, node);
+    tutorNode.before(node);
+  }
   function appendTask(record, node) {
     record.transcript.querySelector(".tasks-empty")?.remove();
     record.transcript.append(node);
@@ -3681,6 +3703,7 @@
     for (const message of messages) {
       const text = String(message?.text ?? "");
       if (message?.role === "user") appendTask(record, h("div", { class: "msg user" }, text));
+      else if (message?.role === "studio") appendTask(record, h("div", { class: "msg studio" }, text));
       else if (message?.role === "assistant") appendTask(record, h("div", { class: "msg assistant" }, ...markdown(text).childNodes));
     }
     if (!messages.length) record.transcript.append(h("p", { class: "tasks-empty muted" }, "Todavía no ha dicho nada."));
@@ -3760,6 +3783,7 @@
       entry.text = String(text ?? "");
       paintTaskAssistant(entry);
     });
+    onTask("studio", ({ text, before }) => appendTaskAbove(record, h("div", { class: "msg studio" }, String(text ?? "")), before));
     onTask("tool", (data) => taskTool(record, data));
     onTask("dialog", (dialog) => taskDialog(record, dialog));
     onTask("dialog_closed", ({ id }) => {
@@ -3769,7 +3793,7 @@
       updateTasksPill();
     });
     onTask("notice", ({ message }) => appendTask(record, h("div", { class: "notice" }, String(message ?? ""))));
-    onTask("error", ({ message }) => appendTask(record, h("div", { class: "notice error" }, String(message ?? ""))));
+    onTask("error", ({ message, before }) => appendTaskAbove(record, h("div", { class: "notice error" }, String(message ?? "")), before));
     onTask("tareas", ({ tareas }) => setTaskViews(tareas));
     onTask("library_changed", () => loadLibrary());
   }

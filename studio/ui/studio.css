@@ -306,6 +306,8 @@ h3 { font-weight: 700; }
 .part-row .node svg { width: 22px; height: 22px; }
 .part-row h3 { font-size: 1.2rem; line-height: 1.25; }
 .part-row .meta { font-size: .98rem; color: var(--muted); font-style: italic; margin-top: 2px; }
+.part-row .part-rolledback { color: var(--amber); font-style: normal; }
+.part-rolledback { margin: 10px 16px 0; padding: 8px 12px; border: 2px solid var(--amber); background: var(--amber-s); color: var(--ink); font: .9rem/1.45 var(--sans); }
 .part-row.pending h3 { color: var(--muted); font-weight: 400; }
 .part-row .row-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .side-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
@@ -425,6 +427,8 @@ body.tutor-list-hidden .chats { display: none; }
 .msg { max-width: min(92%, 68ch); padding: 10px 16px; border-radius: var(--ctl-radius); font-size: 1.02rem; line-height: 1.45; overflow-wrap: anywhere; }
 .msg.user { align-self: flex-end; background: var(--green-s); white-space: pre-wrap; }
 .msg.assistant { align-self: flex-start; background: var(--blue-s); }
+/* The studio's own verdict: a system notice beside the tutor, never one more tutor bubble. */
+.msg.studio { align-self: center; max-width: min(92%, 68ch); background: var(--amber-s); border: 2px solid var(--amber); color: var(--ink); font: .95rem/1.45 var(--sans); text-align: left; }
 .msg.assistant p { margin: 0 0 .55em; } .msg.assistant p:last-child { margin: 0; }
 .msg.assistant code { font: .86em var(--mono); background: var(--soft); padding: 0 4px; border-radius: var(--ctl-radius); }
 .msg.assistant pre { background: var(--soft); padding: 8px; border-radius: var(--ctl-radius); overflow-x: auto; }
