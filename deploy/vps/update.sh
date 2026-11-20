@@ -10,6 +10,11 @@ mkdir -p "$state_dir"
 if ! command -v go >/dev/null 2>&1 && [[ -x /usr/local/go/bin/go ]]; then
   export PATH="/usr/local/go/bin:$PATH"
 fi
+# rustup installs its binaries under ~/.cargo, which a non-login deploy shell
+# does not have in PATH either.
+if ! command -v cargo >/dev/null 2>&1 && [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+  export PATH="$HOME/.cargo/bin:$PATH"
+fi
 
 branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD)
 if [[ "$branch" != main ]]; then
@@ -61,6 +66,24 @@ build_engine() {
 }
 build_engine
 
+# T4's semantic search is optional: a host without Rust keeps the keyword index.
+build_embed() {
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo 'Rust is absent; course search stays keyword-only' >&2
+    return 0
+  fi
+  (cd "$repo/tools/embed" && cargo build --release --locked -j 2)
+  install -m 755 "$repo/tools/embed/target/release/embed" "$repo/bin/embed"
+  [[ -x "$repo/bin/embed" ]] || { echo "Missing executable: $repo/bin/embed" >&2; exit 1; }
+}
+build_embed
+
+# A missing model or runtime is not fatal either: the studio still searches
+# course material by keyword and fills vectors on a later deploy.
+if ! bash "$repo/tools/embed/fetch.sh"; then
+  echo 'Embedding assets could not be provisioned; course search stays keyword-only' >&2
+fi
+
 # The tutor reads its skill and the Learnings `AGENTS.md` from links this repo
 # owns: a link left pointing at an older copy would teach with another standard,
 # so the deploy links them and refuses to restart when a link does not resolve.
@@ -105,6 +128,7 @@ fi
 echo "Deploy of $commit failed its health check; rolling back to ${previous:0:7}" >&2
 git -C "$repo" reset --quiet --hard "$previous"
 ( build_engine ) || { echo "Rollback to ${previous:0:7} could not be built; the studio is still on $commit" >&2; exit 1; }
+( build_embed ) || { echo "Rollback to ${previous:0:7} could not rebuild embeds; the studio is still on $commit" >&2; exit 1; }
 bash "$repo/deploy/vps/link-tutor-context.sh" --env-file "$HOME/.config/learning-studio.env"
 "$systemctl_bin" --user restart learning-studio
 if bash "$repo/deploy/vps/health.sh"; then
