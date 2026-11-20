@@ -18,12 +18,14 @@ const minStepFigureSteps = 4
 // mermaidFence reconoce el bloque que el lector dibuja como diagrama estándar.
 var mermaidFence = regexp.MustCompile("(?m)^[ \\t]*```mermaid\\b")
 
-// figurasFindings mide las dos reglas de figuras del contrato nuevo (S29).
+// figurasFindings mide las reglas de figuras del contrato nuevo: los pasos (S29),
+// los pasos de solo tarjetas (#399) y una figura por sección (S29).
 func figurasFindings(text string, _ rules.PartStandardThresholds) []string {
 	if !usesStepFigures(text) {
 		return nil
 	}
 	findings := stepFigureStepFindings(text)
+	findings = append(findings, textCardsExampleFindings(text)...)
 	return append(findings, contentSectionFigureFindings(text)...)
 }
 
@@ -72,6 +74,82 @@ func stepFigureStepCount(block string) (int, bool) {
 		return 0, false
 	}
 	return len(spec.Steps), true
+}
+
+// textCardsExampleFindings mide, paso a paso, un ejemplo resuelto (#399): cada paso
+// con `cards` lleva en ese mismo paso un bloque rows, numbers o formula con el estado
+// o los datos que cambian. Un paso de solo tarjetas falla aunque otro paso traiga
+// datos, y el aviso nombra sus pasos. Solo mira que el bloque exista; no juzga los datos.
+func textCardsExampleFindings(text string) []string {
+	var findings []string
+	index := 0
+	for _, block := range figureBlocks(withoutCodeFences(text)) {
+		if block.tag != "lk-guided" {
+			continue
+		}
+		index++
+		steps := cardsOnlySteps(block.text)
+		if len(steps) == 0 {
+			continue
+		}
+		names := make([]string, len(steps))
+		for i, step := range steps {
+			names[i] = fmt.Sprint(step)
+		}
+		word := "paso"
+		if len(steps) > 1 {
+			word = "pasos"
+		}
+		findings = append(findings, fmt.Sprintf(
+			"lk-guided %d: %s %s solo con tarjetas de texto (sin rows, numbers ni formula en ese paso); añade en ese mismo paso el estado o los datos que cambian",
+			index, word, strings.Join(names, ", ")))
+	}
+	return findings
+}
+
+// cardsOnlySteps devuelve los pasos (desde 1) de un `example` cuyo bloque de paso
+// trae tarjetas y ningún rows, numbers ni formula. Una nota (`note`) es texto, no dato.
+// Otras formas no entran en esta regla, y un payload que no se parsea no se mide.
+func cardsOnlySteps(block string) []int {
+	payload, ok := jsonPayload(block)
+	if !ok {
+		return nil
+	}
+	var spec struct {
+		Form  string            `json:"form"`
+		Steps []json.RawMessage `json:"steps"`
+	}
+	if json.Unmarshal([]byte(payload), &spec) != nil || spec.Form != "example" {
+		return nil
+	}
+	var offending []int
+	for i, raw := range spec.Steps {
+		var step struct {
+			Blocks []json.RawMessage `json:"blocks"`
+		}
+		if json.Unmarshal(raw, &step) != nil {
+			continue
+		}
+		cards, data := false, false
+		for _, rawBlock := range step.Blocks {
+			var b struct {
+				Kind string `json:"kind"`
+			}
+			if json.Unmarshal(rawBlock, &b) != nil {
+				continue
+			}
+			switch b.Kind {
+			case "cards":
+				cards = true
+			case "rows", "numbers", "formula":
+				data = true
+			}
+		}
+		if cards && !data {
+			offending = append(offending, i+1)
+		}
+	}
+	return offending
 }
 
 // contentSectionFigureFindings exige al menos una figura (Mermaid o de pasos)

@@ -34,7 +34,7 @@ rechaza eso también, con el arreglo escrito en el mensaje.
 | Figura dibujada | Si un diagrama estándar lo dice, bloque `mermaid`. Si no: `<lk-stage>` (escena/map con cámara), `<lk-codestep>` (código + estado), `<lk-tablestep>` (filas), `<lk-guided>` (fórmula, ejemplo, números) o `<lk-lanes>` (recurso compartido). Cada elemento lleva un `<script type="application/json">` con claves cerradas; nada de `<lk-scene>`, `<lk-story>`, `<lk-walkthrough>` ni SVG a mano en material nuevo (S10) |
 | Ritmo de los párrafos | Dos frases por párrafo como máximo; una viñeta es su propia unidad |
 | Fórmula | Toda fórmula se enseña con `<lk-guided form="formula">`: primero partida en un token por símbolo o subexpresión, después un paso por token con qué es, para qué sirve y cuánto vale en el ejemplo; solo al final sustitución, cálculo y resultado. Sin límite de pasos (S25) |
-| Ejercicio resuelto y números | `<lk-guided form="example">` o `form="numbers"`: `cards`, `rows`, `numbers`, `note`; una idea por paso, sin mandos, sin hover y sin simulación (S18) |
+| Ejercicio resuelto y números | `<lk-guided form="example">` o `form="numbers"`: `cards`, `rows`, `numbers`, `note`; en un `example`, cada paso con `cards` lleva en ese mismo paso un bloque `rows`, `numbers` o `formula` (#399); una idea por paso, sin mandos, sin hover y sin simulación (S18) |
 | Cuenta de una línea | `<lk-math>` (KaTeX) para el resultado suelto; nunca para explicar una fórmula ni para partir una cuenta en pasos |
 
 Los mensajes, literales, para reconocerlos y corregir sin adivinar:

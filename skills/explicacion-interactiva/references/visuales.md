@@ -306,6 +306,8 @@ gramática; sin deslizadores, sin recálculo y sin工具 hover.
 </lk-guided>
 ```
 
+**Ejemplo resuelto (#399): cada paso con tarjetas lleva sus datos.** En un `example`, un paso que trae `cards` necesita, en ese mismo paso, un bloque `rows`, `numbers` o `formula` con el estado o los datos que cambian. Un paso de solo tarjetas falla aunque otro paso traiga datos, y el aviso nombra sus pasos. Lo mide `figurasFindings` (`internal/engine/standard_figuras.go`) y su espejo `tools/explain-check/rules/figuras.mjs`; `part-check` lo ejecuta. El gate solo mira que el bloque exista, no si los datos son correctos. Las notas (`note`) son texto y no cuentan como datos. Las demás formas no entran en esta regla.
+
 #### `<lk-lanes>` — recurso compartido a lo largo del tiempo
 
 ```text
@@ -382,9 +384,12 @@ es el diagrama CPM por defecto: para red de proyectos, Mermaid Gantt/flowchart.
       ni se sale; sin franjas de color.
 - [ ] Fórmula: símbolo por símbolo antes del ejemplo; todos los tokens explicados, sin tope de
       pasos.
+- [ ] Ejemplo resuelto (`form: example`): cada paso con `cards` lleva, en ese mismo paso, un
+      bloque `rows`, `numbers` o `formula`. Un paso de solo tarjetas falla aunque otro traiga datos (#399).
 - [ ] Ancho ocupado, temas claro/oscuro/negro revisados y movimiento reducido respetado.
-- [ ] Antes de entregar: ejecuta `node tools/visuals/audit-note.mjs --note "<ruta de la nota>"` y
-      corrige **todas** las violaciones; sin `0 violation(s)` la parte no se declara terminada.
+- [ ] Antes de entregar: ejecuta `node tools/part-check.mjs <ruta de la nota>` y corrige **todos**
+      los hallazgos; sale con 0 solo si todas las mediciones pasan (las puertas del estudio, la de
+      figuras incluida, y `audit-note` para la gramática de los elementos nuevos).
 
 El motor ya acepta `<lk-stage>`, `<lk-codestep>`, `<lk-tablestep>`, `<lk-guided>` y `<lk-lanes>`
 como recorrido progresivo, escena y fórmula (`internal/engine/decks.go` y los gates
