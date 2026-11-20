@@ -70,7 +70,12 @@ async function stubMaterias(page, data) {
     const path = new URL(request.url()).pathname.split("/api/materias")[1] || "/";
     const parts = path.split("/").filter(Boolean);
     const json = (status, body) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
-    if (parts.length === 0 && request.method() === "GET") return json(200, listOf(data));
+    if (parts.length === 0 && request.method() === "GET") {
+      // The topic card re-renders after a link changes; a slow course list must
+      // not leave it showing a course whose selector is still empty.
+      if (data.materiasDelay) await new Promise((resolve) => setTimeout(resolve, data.materiasDelay));
+      return json(200, listOf(data));
+    }
     if (parts.length === 0 && request.method() === "POST") {
       const { nombre } = JSON.parse(request.postData() || "{}");
       const course = { id: `m${data.courses.length + 1}`, nombre: String(nombre ?? ""), creada: new Date().toISOString(), temas: [], fuentes: [] };
@@ -218,12 +223,13 @@ test("several files upload at once with the chosen type, including DOCX and MD",
 
 test("linking a topic from a materia shows its course on the topic page, where it can be changed", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { studio, page, data } = await fixture(t);
+  data.materiasDelay = 1000;
   await page.goto(`${studio.url}#/materias/m1`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Vincular Redes" }).click();
   await page.waitForFunction(() => document.querySelector(".materia-topics")?.textContent.includes("Redes"));
   await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
   const card = page.locator(".topic-materia");
-  await card.getByText("Teoría de la computación").waitFor();
+  await card.locator(".topic-materia-current").getByText("Teoría de la computación").waitFor();
   assert.equal(data.topics[0].materia.id, "m1");
   await card.getByLabel("Materia del tema").selectOption("m2");
   await card.getByRole("button", { name: "Guardar materia" }).click();

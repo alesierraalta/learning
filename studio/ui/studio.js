@@ -1365,7 +1365,14 @@
   function topicMateriaCard(topic) {
     const current = h("p", { class: "topic-materia-current" },
       topic.materia ? `Este tema pertenece a «${topic.materia.nombre}».` : "Este tema todavía no pertenece a una materia.");
-    const select = h("select", { id: `topic-materia-${topic.id}`, "aria-label": "Materia del tema" }, h("option", { value: "" }, "Sin materia"));
+    const chosen = topic.materia?.id || "";
+    // Keep the current course selectable from the first paint: the full list
+    // arrives asynchronously, and until then "Sin materia" must not look like
+    // the state of a topic that does belong to a course.
+    const select = h("select", { id: `topic-materia-${topic.id}`, "aria-label": "Materia del tema" },
+      h("option", { value: "" }, "Sin materia"),
+      ...(chosen ? [h("option", { value: chosen }, topic.materia.nombre)] : []));
+    select.value = chosen;
     const save = h("button", { class: "btn small primary", type: "button" }, icon("link"), "Guardar materia");
     const open = h("a", { class: "btn small ghost", href: "#/", hidden: true }, "Ver la materia");
     const status = h("p", { class: "topic-materia-status", role: "status", "aria-live": "polite" });
@@ -1408,7 +1415,6 @@
       status);
     request("api/materias").then((items) => {
       if (!card.isConnected) return;
-      const chosen = topic.materia?.id || "";
       select.replaceChildren(
         h("option", { value: "" }, "Sin materia"),
         ...(chosen && !items.some((m) => m.id === chosen) ? [h("option", { value: chosen }, topic.materia.nombre)] : []),
