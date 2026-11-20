@@ -44,6 +44,7 @@ var standardRules = []standardRule{
 	{"falta-resumen", faltaResumenFindings},
 	{"falta-leyenda", faltaLeyendaFindings},
 	{"falta-foco", faltaFocoFindings},
+	{"figuras", figurasFindings},
 }
 
 // standardFindings returns one finding per rule the part misses, each naming the
