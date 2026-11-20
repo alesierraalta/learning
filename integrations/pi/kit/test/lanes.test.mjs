@@ -191,3 +191,12 @@ test('an invalid spec shows its path inside the element, without a page error', 
     assert.deepEqual(page.errors, []);
   } finally { await page.close(); }
 });
+
+test('the axis shows each tick as its number, not [object Object]', { skip }, async () => {
+  const page = await open();
+  try {
+    const labels = await page.evaluate(() => [...document.querySelectorAll('.lk-ln-axis-plot > *')].map((tick) => tick.textContent));
+    assert.deepEqual(labels, ['0', '2', '4', '6', '8', '10', '12', '14', '15']);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.close(); }
+});
