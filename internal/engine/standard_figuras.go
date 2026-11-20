@@ -1,11 +1,113 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"learning/internal/rules"
 )
+
+// S29: una figura de paso enseña el ejemplo con al menos cuatro pasos, y cada
+// sección de contenido lleva una figura. Las dos reglas se miden solo en las
+// partes escritas con el contrato nuevo; una parte antigua conserva su veredicto
+// (S10), porque su figura no es de pasos y sus secciones ya se publicaron.
+const minStepFigureSteps = 4
+
+// mermaidFence reconoce el bloque que el lector dibuja como diagrama estándar.
+var mermaidFence = regexp.MustCompile("(?m)^[ \\t]*```mermaid\\b")
+
+// figurasFindings mide las dos reglas de figuras del contrato nuevo (S29).
+func figurasFindings(text string, _ rules.PartStandardThresholds) []string {
+	if !usesStepFigures(text) {
+		return nil
+	}
+	findings := stepFigureStepFindings(text)
+	return append(findings, contentSectionFigureFindings(text)...)
+}
+
+// stepFigureStepFindings exige cuatro pasos en cada figura de paso y nombra el
+// elemento, su índice entre los de su clase y el número de pasos que trae.
+func stepFigureStepFindings(text string) []string {
+	var findings []string
+	index := map[string]int{}
+	for _, block := range figureBlocks(withoutCodeFences(text)) {
+		if !isStepFigureElement(block.tag) {
+			continue
+		}
+		index[block.tag]++
+		steps, ok := stepFigureStepCount(block.text)
+		if !ok {
+			continue
+		}
+		if steps < minStepFigureSteps {
+			findings = append(findings, fmt.Sprintf(
+				"%s %d has %d steps (minimum %d) — split the idea into one step per idea so the figure carries the explanation",
+				block.tag, index[block.tag], steps, minStepFigureSteps))
+		}
+	}
+	return findings
+}
+
+func isStepFigureElement(tag string) bool {
+	for _, el := range stepFigureElements {
+		if el == tag {
+			return true
+		}
+	}
+	return false
+}
+
+// stepFigureStepCount reads the `steps` list of the element's JSON child.
+func stepFigureStepCount(block string) (int, bool) {
+	payload, ok := jsonPayload(block)
+	if !ok {
+		return 0, false
+	}
+	var spec struct {
+		Steps []json.RawMessage `json:"steps"`
+	}
+	if json.Unmarshal([]byte(payload), &spec) != nil {
+		return 0, false
+	}
+	return len(spec.Steps), true
+}
+
+// contentSectionFigureFindings exige al menos una figura (Mermaid o de pasos)
+// en cada sección de contenido y nombra la sección que no la trae.
+func contentSectionFigureFindings(text string) []string {
+	headings := h2Heading.FindAllStringSubmatchIndex(text, -1)
+	var findings []string
+	for i, heading := range headings {
+		title := strings.TrimSpace(text[heading[2]:heading[3]])
+		if strings.EqualFold(title, "Ruta") || strings.Contains(strings.ToLower(title), "mini-quiz") {
+			continue
+		}
+		end := len(text)
+		if i+1 < len(headings) {
+			end = headings[i+1][0]
+		}
+		if !sectionHasFigure(text[heading[1]:end]) {
+			findings = append(findings, fmt.Sprintf(
+				"la sección «%s» no trae ninguna figura — añade un bloque mermaid o una figura de pasos", title))
+		}
+	}
+	return findings
+}
+
+func sectionHasFigure(body string) bool {
+	if mermaidFence.MatchString(body) {
+		return true
+	}
+	plain := asciiLower(withoutCodeFences(body))
+	for _, el := range stepFigureElements {
+		if hasElement(plain, el) {
+			return true
+		}
+	}
+	return false
+}
 
 // figureFindings measures that the page carries every figure of the note, as the same block (whitespace aside).
 func figureFindings(note, page string, th rules.PartStandardThresholds) []string {

@@ -33,7 +33,7 @@ export const HINTS = {
   'accesorio-sin-sentido': 'quita el icono de lectura o escritura de la tarjeta, o di en la razón qué se lee o se escribe.',
   'personaje-sin-sentido': 'cambia el `kind` del personaje por el que nombra lo que dibuja, o cambia su etiqueta.',
   registro: 'reescribe las filas de registro: cada término se explica donde aparece y se ata al ejemplo.',
-  figuras: 'dibuja la figura que pide la idea con el vocabulario del kit, no con una imagen ni con texto suelto.',
+  figuras: 'dibuja la figura que pide la idea con el vocabulario del kit, no con una imagen ni con texto suelto; una figura de paso lleva al menos cuatro pasos y cada sección de contenido lleva su figura (Mermaid o de pasos).',
 
   // Reglas de registro que explain-check devuelve como filas propias.
   'termino-sin-explicar': 'explica el término en palabras llanas donde aparece y átalo al ejemplo.',
