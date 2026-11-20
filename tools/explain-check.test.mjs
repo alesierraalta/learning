@@ -594,7 +594,7 @@ const ejemploDe = (archivo, etiqueta) => {
 // cuatro. El fixture del test los completa con una copia real de su último paso
 // (no se toca el ejemplo del kit, que es otra superficie).
 const conCuatroPasos = (bloque) => bloque.replace(/<script type="application\/json">([\s\S]*?)<\/script>/,
-  (todo, json) => {
+  (_, json) => {
     const spec = JSON.parse(json);
     if (Array.isArray(spec.steps) && spec.steps.length) {
       while (spec.steps.length < 4) spec.steps.push(structuredClone(spec.steps[spec.steps.length - 1]));
@@ -752,6 +752,66 @@ test('una nota antigua sigue pasando las reglas de figuras', () => {
     ['2. La acción', 'Sólo prosa, como en las partes publicadas.'],
   ]));
   assert.equal(row.ok, true, row.detail);
+});
+
+// #399 (L8): un ejemplo resuelto de solo tarjetas de texto no enseña nada que cambie, y el gate
+// lo mide paso a paso: cada paso con tarjetas lleva sus datos en ese mismo paso.
+const guiadoPorPasos = (form, ...bloquesPorPaso) => `<lk-guided>\n<script type="application/json">\n{"form":"${form}","kicker":"K","question":"¿Cuánto gana?","steps":[${bloquesPorPaso.map((bloques) => `{"title":"Paso","blocks":[${bloques}]}`).join(',')}]}\n</script>\n</lk-guided>`;
+const guiadoDeEjemplo = (form, bloques) => guiadoPorPasos(form, bloques, bloques, bloques, bloques);
+const TARJETAS_SOLAS = '{"kind":"cards","cards":[{"label":"Ventas","value":"120"},{"label":"Coste","value":"80"}],"focus":0,"tone":"blue"}';
+const NUMEROS_DEL_EJEMPLO = '{"kind":"numbers","values":[{"label":"Ventas","value":"120"}],"focusList":[0],"tone":"green"}';
+
+test('un ejemplo resuelto de solo tarjetas de texto falla y nombra el elemento', () => {
+  const row = figurasRow(notaConSecciones([['1. La gestión', guiadoDeEjemplo('example', TARJETAS_SOLAS)]]));
+  assert.equal(row.ok, false);
+  assert.match(row.detail, /lk-guided 1: pasos 1, 2, 3, 4 solo con tarjetas de texto/);
+});
+
+test('un ejemplo resuelto con tarjetas junto a sus números pasa', () => {
+  const row = figurasRow(notaConSecciones([['1. La gestión', guiadoDeEjemplo('example', `${TARJETAS_SOLAS},${NUMEROS_DEL_EJEMPLO}`)]]));
+  assert.equal(row.ok, true, row.detail);
+});
+
+test('unas tarjetas fuera de un ejemplo resuelto no activan esta regla', () => {
+  const row = figurasRow(notaConSecciones([['1. La gestión', guiadoDeEjemplo('numbers', TARJETAS_SOLAS)]]));
+  assert.equal(row.ok, true, row.detail);
+});
+
+const FORMULA_DEL_EJEMPLO = '{"kind":"formula","tokens":[{"text":"C"},{"text":" = 100"}],"focus":0,"tone":"blue"}';
+const NOTA_DEL_EJEMPLO = '{"kind":"note","text":"Cómo se lee."}';
+
+// #399 (L8): cada paso de solo tarjetas falla aunque otro paso traiga datos, y el aviso nombra
+// los pasos ofensores. Caso observado: tres pasos de tarjetas y el cuarto con números.
+test('un paso de solo tarjetas falla aunque otro paso traiga datos y nombra sus pasos', () => {
+  const observado = guiadoPorPasos('example', TARJETAS_SOLAS, TARJETAS_SOLAS, TARJETAS_SOLAS, `${TARJETAS_SOLAS},${NUMEROS_DEL_EJEMPLO}`);
+  const row = figurasRow(notaConSecciones([['1. La gestión', observado]]));
+  assert.equal(row.ok, false);
+  assert.match(row.detail, /lk-guided 1: pasos 1, 2, 3 solo con tarjetas de texto/);
+  const datoPrimero = guiadoPorPasos('example', `${TARJETAS_SOLAS},${NUMEROS_DEL_EJEMPLO}`, TARJETAS_SOLAS, TARJETAS_SOLAS, TARJETAS_SOLAS);
+  assert.match(figurasRow(notaConSecciones([['1. La gestión', datoPrimero]])).detail, /pasos 2, 3, 4 solo con tarjetas de texto/);
+});
+
+test('una fórmula en el mismo paso que las tarjetas cuenta como datos', () => {
+  const row = figurasRow(notaConSecciones([['1. La gestión', guiadoDeEjemplo('example', `${TARJETAS_SOLAS},${FORMULA_DEL_EJEMPLO}`)]]));
+  assert.equal(row.ok, true, row.detail);
+});
+
+test('una nota no cuenta como dato: tarjetas con nota fallan en cada paso', () => {
+  const row = figurasRow(notaConSecciones([['1. La gestión', guiadoDeEjemplo('example', `${TARJETAS_SOLAS},${NOTA_DEL_EJEMPLO}`)]]));
+  assert.equal(row.ok, false);
+  assert.match(row.detail, /pasos 1, 2, 3, 4 solo con tarjetas de texto/);
+});
+
+// `part-check` corre las puertas del estudio (`studio/checks.ts`), y entre ellas `explain-check`,
+// que escribe una fila `FALLA <regla> <detalle>`. Esta prueba lee esa misma fila.
+test('explain-check rechaza el paso de solo tarjetas en una nota del contrato nuevo', () => {
+  const f = join(dir, 'tarjetas-por-paso.md');
+  const observado = guiadoPorPasos('example', TARJETAS_SOLAS, TARJETAS_SOLAS, TARJETAS_SOLAS, `${TARJETAS_SOLAS},${NUMEROS_DEL_EJEMPLO}`);
+  writeFileSync(f, `${notaDelContratoNuevo()}\n## 3. La gestión\n\n${observado}\n`);
+  const r = run(f);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  // La nota ya trae antes el lk-guided del kit: el añadido es el segundo, y el aviso numera por posición.
+  assert.match(r.stdout, /FALLA\s+figuras\s+.*lk-guided 2: pasos 1, 2, 3 solo con tarjetas de texto/);
 });
 
 // ── Story quality (#243) ─────────────────────────────────────────────────────

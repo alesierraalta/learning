@@ -30,6 +30,33 @@ const problemasDePasos = (src) => {
   return problemas;
 };
 
+// #399 (L8): un ejemplo resuelto (`form: "example"`) de solo tarjetas de texto no muestra el estado
+// ni los datos que cambian. Cada paso con `cards` lleva en ese mismo paso un bloque `rows`, `numbers`
+// o `formula`; el gate mira que el bloque exista, no si los datos son correctos.
+const DATOS_DEL_EJEMPLO = ['rows', 'numbers', 'formula'];
+// Los pasos (desde 1) que traen tarjetas y ningún bloque de datos en ese mismo paso.
+const pasosSoloTarjetas = (spec) => spec.steps.flatMap((paso, i) => {
+  const tipos = (Array.isArray(paso?.blocks) ? paso.blocks : []).map((b) => b?.kind);
+  return tipos.includes('cards') && !tipos.some((tipo) => DATOS_DEL_EJEMPLO.includes(tipo)) ? [i + 1] : [];
+});
+const problemasDeEjemplo = (src) => {
+  const problemas = [];
+  const plain = sinCercas(src);
+  [...plain.matchAll(/<lk-guided\b[^>]*>([\s\S]*?)<\/lk-guided>/gi)].forEach((bloque, i) => {
+    const payload = bloque[1].match(/<script\b[^>]*type\s*=\s*["']application\/json["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (!payload) return;
+    let spec;
+    try { spec = JSON.parse(payload[1]); } catch { return; }
+    if (spec?.form !== 'example' || !Array.isArray(spec.steps)) return;
+    const pasos = pasosSoloTarjetas(spec);
+    if (pasos.length) {
+      const palabra = pasos.length > 1 ? 'pasos' : 'paso';
+      problemas.push(`lk-guided ${i + 1}: ${palabra} ${pasos.join(', ')} solo con tarjetas de texto (sin rows, numbers ni formula en ese paso); añade en ese mismo paso el estado o los datos que cambian`);
+    }
+  });
+  return problemas;
+};
+
 const problemasDeSecciones = (src) => {
   const headings = [...src.matchAll(/^##[ \t]+(.+)$/gm)];
   const problemas = [];
@@ -61,7 +88,7 @@ export default {
       }
     }
     if (usaFigurasDePaso) {
-      const problemas = [...problemasDePasos(src), ...problemasDeSecciones(src)];
+      const problemas = [...problemasDePasos(src), ...problemasDeEjemplo(src), ...problemasDeSecciones(src)];
       if (problemas.length) {
         figuras = { ok: false, detail: [figuras.ok ? '' : figuras.detail, problemas.join(' · ')].filter(Boolean).join(' · ') };
       }
