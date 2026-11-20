@@ -169,25 +169,32 @@ test("keyword-only fallback keeps search working with semantica false", async ()
   for (const campo of ["fuente", "tipo", "nombre", "ubicacion", "texto", "score", "senales"]) assert.ok(campo in resultado[0], campo);
 });
 
-test("RRF combines rank lists and reports the signals that matched", async () => {
+test("RRF favors top ranks and semantic hits need a minimum cosine", async () => {
   assert.deepEqual(
-    fusionarRRF([["a", "b", "c"], ["b", "a", "d"]]).map((entry) => entry.id),
-    ["a", "b", "c", "d"],
+    fusionarRRF([["x", "a", "b", "c"], ["y", "a", "b", "c"]]).map((entry) => entry.id),
+    ["a", "b", "x", "y", "c"],
   );
   fake();
   const vault = root();
   const id = cursoDe(vault, "Biología");
   indizarFuente(vault, id, fuenteDe(vault, id, "clase.txt", "documento", "La mitosis produce dos células hijas idénticas."));
+  indizarFuente(vault, id, fuenteDe(vault, id, "otra.txt", "documento", "El tiempo está soleado en la playa."));
   await esperarIndice();
   const estado = estadoIndice(vault, id);
   assert.equal(estado.semantica, true);
   assert.equal(estado.pendiente, 0);
-  const resultado = await buscar(vault, id, "mitosis", { k: 3 });
-  assert.equal(resultado.length, 1);
+  const alto = await buscar(vault, id, "la mitosis produce dos células hijas idénticas", { k: 3, modo: "semantico" });
+  assert.equal(alto.length, 1, "a high cosine keeps the semantic hit");
+  assert.deepEqual(alto[0].senales, ["semantic"]);
+  const bajo = await buscar(vault, id, "mitosis", { k: 3, modo: "semantico" });
+  assert.equal(bajo.length, 0, "a low cosine does not enter the semantic list");
+  const resultado = await buscar(vault, id, "la mitosis produce dos células hijas idénticas", { k: 3 });
+  assert.match(resultado[0].texto, /mitosis/);
   assert.deepEqual(resultado[0].senales, ["keyword", "semantic"]);
   assert.deepEqual(resultado[0].signals, ["keyword", "semantic"]);
-  assert.equal((await buscar(vault, id, "mitosis", { modo: "claves" }))[0].senales.length, 1);
-  assert.equal((await buscar(vault, id, "mitosis", { modo: "semantico" }))[0].senales.length, 1);
+  const soloClave = await buscar(vault, id, "mitosis", { k: 3 });
+  assert.deepEqual(soloClave[0].senales, ["keyword"], "hybrid degrades to the keyword list");
+  assert.equal((await buscar(vault, id, "la mitosis produce dos células hijas idénticas", { modo: "claves" }))[0].senales.length, 1);
 });
 
 test("concurrent uploads queue every embedding job without losing a vector", async () => {

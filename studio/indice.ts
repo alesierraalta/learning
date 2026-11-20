@@ -30,7 +30,9 @@ export const TOKENIZER = "unicode61 remove_diacritics 2";
 const TARGET_WORDS = 220;
 const OVERLAP_WORDS = 40;
 const BATCH = 32;
-const RRF_K = 60;
+const RRF_K = 1;
+/** Semantic ranks only contribute chunks at least this similar to the query. */
+const MIN_COSENO = 0.8;
 const MAX_K = 50;
 const ARCHIVOS_MODELO = ["onnx/model_quantized.onnx", "tokenizer.json", "config.json", "special_tokens_map.json", "tokenizer_config.json"];
 
@@ -847,6 +849,7 @@ async function porVector(db: DatabaseSync, root: string, materia: string, consul
     if (tipos.length && !tipos.includes(cache.tipos[index])) continue;
     let coseno = 0;
     for (let dimension = 0; dimension < DIM; dimension++) coseno += vector[dimension] * cache.datos[index * DIM + dimension];
+    if (coseno < MIN_COSENO) continue;
     puntuados.push({ id, coseno });
   }
   return puntuados.sort((a, b) => b.coseno - a.coseno || a.id.localeCompare(b.id)).slice(0, limite).map((item) => item.id);
