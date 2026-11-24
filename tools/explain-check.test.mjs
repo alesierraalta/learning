@@ -11,6 +11,7 @@ import { leerNota } from './explain-check/nota.mjs';
 import { notaDeHtml } from './register/nota-html.mjs';
 import ruta from './explain-check/rules/ruta.mjs';
 import figuras from './explain-check/rules/figuras.mjs';
+import prosaEnCajas from './explain-check/rules/prosa-en-cajas.mjs';
 
 const TOOLS = dirname(fileURLToPath(import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'explain-check-'));
@@ -911,6 +912,83 @@ test('una historia cuyos pasos solo dibujan cajas y un icono sobre una caja fall
   const r = run(file);
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /FALLA escenario-de-cajas/);
+});
+
+// ── #419: la figura no repite la prosa ──────────────────────────────────────
+// Una frase por caja, unidas por flechas, nada dibujado: el alumno lee el mismo
+// párrafo dos veces. La regla mide dos señales —la caja que lleva una frase y la
+// figura que no dibuja nada fuera del texto— y deja pasar el título corto con su
+// sub-línea, como en un diagrama de causa o de estado. Los umbrales salen del
+// corpus aprobado: sus 127 cajas miden 34 caracteres y 6 palabras como mucho, y
+// ninguna termina en punto.
+const ESCENA_DE_PROSA = `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","scene":{"boxes":[
+ {"x":20,"y":40,"w":200,"h":100,"label":"El cliente envía el paquete SYN al servidor.","tone":"blue"},
+ {"x":280,"y":40,"w":200,"h":100,"label":"El servidor recibe el paquete y reserva recursos.","tone":"slate"},
+ {"x":540,"y":40,"w":200,"h":100,"label":"El cliente espera la respuesta del servidor.","tone":"green"}],
+ "arrows":[{"x1":220,"y1":90,"x2":280,"y2":90},{"x1":480,"y1":90,"x2":540,"y2":90}]}}
+</script>
+</lk-scene>`;
+
+// Las mismas cajas sin punto final: cada una es una cláusula de cuatro palabras o
+// más, así que la segunda señal las lee como prosa aunque no acaben en punto.
+const ESCENA_DE_CLAUSULAS = `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","scene":{"boxes":[
+ {"x":20,"y":40,"w":200,"h":100,"label":"el cliente envia el paquete","tone":"blue"},
+ {"x":280,"y":40,"w":200,"h":100,"label":"el servidor recibe la peticion","tone":"slate"},
+ {"x":540,"y":40,"w":200,"h":100,"label":"el cliente espera respuesta","tone":"green"}],
+ "arrows":[{"x1":220,"y1":90,"x2":280,"y2":90},{"x1":480,"y1":90,"x2":540,"y2":90}]}}
+</script>
+</lk-scene>`;
+
+const reglaDeProsa = (src) => prosaEnCajas.check(leerNota(src, false), { file: 'prosa.md', tools: TOOLS });
+
+test('una figura con una frase por caja y nada dibujado es prosa en cajas (#419)', () => {
+  const file = join(dir, 'prosa-en-cajas.md');
+  writeFileSync(file, CUMPLE.replace(ESCENA, ESCENA_DE_PROSA));
+  const r = run(file);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA prosa-en-cajas/);
+  assert.match(r.stdout, /El cliente envía el paquete SYN al servidor/);
+});
+
+test('sin punto final, las cláusulas de cuatro palabras en cajas y sin dibujo son prosa', () => {
+  const salida = reglaDeProsa(ESCENA_DE_CLAUSULAS);
+  assert.equal(salida.ok, false, 'la segunda señal no midió nada');
+  assert.match(salida.detail, /frases en las cajas/);
+});
+
+test('un diagrama de causa con título corto y sub-línea por caja pasa', () => {
+  const salida = reglaDeProsa(`<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","scene":{"boxes":[
+ {"x":20,"y":40,"w":200,"h":100,"label":"la página","sub":"la pide el cliente","tone":"blue"},
+ {"x":280,"y":40,"w":200,"h":100,"label":"el servidor","sub":"responde con el HTML","tone":"slate"}],
+ "arrows":[{"x1":220,"y1":90,"x2":280,"y2":90}]}}
+</script>
+</lk-scene>`);
+  assert.equal(salida.ok, true, salida.detail);
+});
+
+test('el dibujo salva las cláusulas: con un icono suelto la figura no es prosa en cajas', () => {
+  const conDibujo = ESCENA_DE_CLAUSULAS.replace('"boxes":[', '"icons":[{"kind":"gear","x":700,"y":150,"size":40}],"boxes":[');
+  const salida = reglaDeProsa(conDibujo);
+  assert.equal(salida.ok, true, salida.detail);
+});
+
+test('el corpus aprobado no lleva prosa en cajas', () => {
+  const fixtures = join(TOOLS, '..', 'integrations', 'pi', 'kit', 'test', 'fixtures');
+  const corpus = [
+    ...readdirSync(fixtures).filter((f) => f.endsWith('.md')).map((f) => join(fixtures, f)),
+    ...readdirSync(join(fixtures, 'bench286')).filter((f) => f.endsWith('.md')).map((f) => join(fixtures, 'bench286', f)),
+    join(TOOLS, '..', 'skills', 'explicacion-interactiva', 'references', 'ejemplo-aprobado.md'),
+  ];
+  for (const archivo of corpus) {
+    const salida = prosaEnCajas.check(leerNota(readFileSync(archivo, 'utf8'), false), { file: archivo, tools: TOOLS });
+    assert.equal(salida.ok, true, `${relative(TOOLS, archivo)}: ${salida.detail}`);
+  }
 });
 
 // ── Personajes, escenas y la pieza que le toca (#245) ────────────────────────
