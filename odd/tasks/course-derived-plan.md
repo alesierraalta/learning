@@ -24,7 +24,7 @@ provenance. Reuses milestone 12 (Course materials with retrieval); issues #373 #
 | T2 | S1, S2, S4 | #407 | inline, after T1 | `a9a8a85` |
 | T2b | S1, S2 | #407 | worker, verified by the parent | `29b7e9e` |
 | T3 | S2, S3 | #408 | worker, verified by the parent | `937d70f` |
-| T4 | S4, S5 | #374 | inline, after T3 | pending |
+| T4 | S4, S5 | #374 | worker, verified by the parent | `867f395` |
 
 ## Log
 
