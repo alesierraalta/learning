@@ -16,11 +16,43 @@ import (
 // every part to the declared heading and budget. Measurement never trims:
 // quizzes, receipts and reviews stay exactly as strict as a complete run.
 
+// --- course coverage (#408) -------------------------------------------------
+//
+// A route derived from course material declares how much of it it covers.
+// These predicates are what the pareto gate below reads: complete coverage is
+// never truncated by the pareto cap, and a route that declares the pareto
+// coverage owes the trim even when the run's state scope is complete.
+
+const (
+	coberturaCompleta = "completa"
+	coberturaPareto   = "pareto"
+)
+
+// declaresCourseMaterial reports whether the plan was derived from a course.
+// Both fields are new, so a plan.json written before #408 declares neither and
+// stays out of the provenance gates.
+func declaresCourseMaterial(doc planDoc) bool {
+	return strings.TrimSpace(doc.Cobertura) != "" || len(doc.Material) > 0
+}
+
+// coberturaCompletaMaterial reports a route that declares everything in the
+// material enters it: such a route is never truncated by the pareto cap.
+func coberturaCompletaMaterial(doc planDoc) bool {
+	return len(doc.Material) > 0 && strings.EqualFold(strings.TrimSpace(doc.Cobertura), coberturaCompleta)
+}
+
+// coberturaParetoDeclarada reports a course route that declares it teaches only
+// the vital slice, so the trim it owes is proven even outside pareto scope.
+func coberturaParetoDeclarada(c *evalCtx) bool {
+	return c.planErr == nil && declaresCourseMaterial(*c.plan) &&
+		strings.EqualFold(strings.TrimSpace(c.plan.Cobertura), coberturaPareto)
+}
+
 // evalParetoPlan proves the pareto run declared its trim before applying it:
 // a stated criterion, the content left out, a bounded number of parts, and the
 // vital value of every planned part.
 func evalParetoPlan(c *evalCtx, decl rules.CheckDecl) Check {
-	if stateScope(c.st) != scopePareto {
+	if stateScope(c.st) != scopePareto && !coberturaParetoDeclarada(c) {
 		return skipCheck(decl.ID, "complete scope: the plan teaches the whole topic")
 	}
 	p := c.r.Thresholds.Pareto
@@ -54,7 +86,10 @@ func evalParetoPlan(c *evalCtx, decl rules.CheckDecl) Check {
 	for _, part := range c.plan.Parts {
 		ids = append(ids, part.ID)
 	}
-	if len(ids) > p.MaxParts {
+	// The cap bounds a declared trim, never complete coverage: a course route that
+	// declares cobertura "completa" covers all the material, so it is not truncated
+	// (#408, spec S2). A plan without course material keeps the cap it had.
+	if len(ids) > p.MaxParts && !coberturaCompletaMaterial(*c.plan) {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"pareto scope allows at most %d parts, the plan declares %d: %s",
 			p.MaxParts, len(ids), strings.Join(ids, ",")))

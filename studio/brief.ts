@@ -215,6 +215,11 @@ function briefDeMaterial(root: string, topic: string, idMateria: string, nombreM
     `[${PLAN_BRIEF_MARK} · tema ${topic} · materia ${idMateria}/${nombreMateria}]`,
     `Material: ${fuentes.size} fuentes, ${trozos.length} fragmentos, en este orden; el examen va primero porque pondera el orden, no porque recorte la cobertura.`,
     "Deriva de este material la ruta completa, en pasos: cubre todo lo que aparece aquí y no inventes temas que no estén. El plan es tuyo: no lo muestres ni enumeres partes futuras al aprendiz.",
+    // The provenance fields the engine verifies (#408): the plan brief is the only
+    // place the route learns their shape, so it asks for them by name.
+    `Declara la cobertura así: "cobertura": "completa" — todo el material entra en la ruta; el examen pondera el orden, no la recorta.`,
+    `Y el material del que la derivas: "material": [{"nombre": <fuente>, "tipo": <tipo>}], una entrada por cada fuente de arriba.`,
+    `Cada parte declara lo que cita: "fuentes": [{"nombre": <fuente del material>, "ubicacion": <dónde está en ella>}]. El motor lo verifica: rechaza una parte sin fuentes, una fuente del material que ninguna parte cita y una fuente que el material no declara.`,
   ].join("\n");
   // A course name long enough to eat the whole budget leaves no room for material: no brief.
   if (bytes(head) + PLAN_FOOTER_RESERVE > MAX_PLAN_BRIEF_BYTES) return "";

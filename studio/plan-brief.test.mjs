@@ -72,6 +72,20 @@ test("planBrief carries the material of the topic's course", () => {
   assert.ok(bytes(brief) <= MAX_PLAN_BRIEF_BYTES, `bounded: ${bytes(brief)}`);
 });
 
+// The brief is the only place a course-derived route learns the provenance fields, so it has to ask for
+// them by name: the engine refuses a plan that declares cobertura/material/fuentes any other way (#408).
+test("the plan brief asks for the provenance fields the engine verifies", () => {
+  const raiz = vault();
+  const id = curso(raiz, "Bases de datos", ["normalizacion"]);
+  fuente(raiz, id, "unidad-1.txt", "documento", "Primera forma normal y dependencias funcionales.");
+  fuente(raiz, id, "final.txt", "examen", "Final: normalice el esquema y justifique cada forma.");
+  const brief = planBrief(raiz, "normalizacion");
+  assert.match(brief, /"cobertura"\s*:\s*"completa"/, "the declared coverage is asked for verbatim");
+  assert.match(brief, /"material"\s*:\s*\[\s*\{[^}]*"nombre"[^}]*"tipo"/, "the material list is asked for with both fields");
+  assert.match(brief, /"fuentes"\s*:\s*\[\s*\{[^}]*"nombre"[^}]*"ubicacion"/, "every part is asked for its cited sources");
+  assert.match(brief, /verifica el motor|motor lo verifica/i, "and says the engine verifies it, not prose");
+});
+
 test("a brief that cannot fit everything says how much it left out", () => {
   const raiz = vault();
   const id = curso(raiz, "Historia", ["guerra-fria"]);
