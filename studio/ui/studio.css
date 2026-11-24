@@ -301,6 +301,10 @@ h3 { font-weight: 700; }
    scrolled up over the card and covered its last line */
 .topic-head aside .aside-sticky { position: sticky; top: 90px; }
 .route { list-style: none; margin: 36px 0 0; padding: 0; position: relative; }
+/* The one line a route shows before its first part is written (#423): no list, no count. */
+.route-note { margin: 24px 0 0; padding: 18px 20px; border: 2px dashed var(--line); border-radius: var(--ctl-radius); color: var(--muted); font-style: italic; }
+/* Inside the route it sits where a row would, lined up with the words and not with the rule. */
+.route .route-note { list-style: none; margin: 4px 0 0; padding: 10px 14px 10px 64px; border: 0; }
 .route::before { content: ""; position: absolute; left: 22px; top: 16px; bottom: 16px; border-left: 3px dashed var(--line); }
 .part-row { position: relative; display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 12px 14px 12px 0; }
 .part-row + .part-row { margin-top: 4px; }

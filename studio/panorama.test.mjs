@@ -2,8 +2,13 @@
 // The fixtures keep the shapes the tutor really writes (`planificador.md`, `plan.json`, `mapa.mmd`).
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { buildPanorama, layoutMap, parseMap, parsePlan, parsePlanJson, partFor, requestSubtema } from "./panorama.ts";
+
+/** The page the learner reads: these tests pin what it draws by its source, as #423 has no browser here. */
+const STUDIO_UI = readFileSync(join(import.meta.dirname, "ui", "studio.js"), "utf8");
 
 const PLAN = `---
 tipo: planificador
@@ -216,25 +221,26 @@ test("a numbered concept belongs to the part the tutor wrote for its branch", ()
 });
 
 test("the panorama shows the route and the map together with what explains each concept", () => {
-  const panorama = buildPanorama(TOPIC, { plan: PLAN, planJson: PLAN_JSON, map: MAP });
+  // Every part is written here: this test is about the join, not about what stays hidden (#423).
+  const panorama = buildPanorama(WRITTEN_ALL, { plan: PLAN, planJson: PLAN_JSON, map: MAP });
   assert.deepEqual(panorama.sources, { plan: true, planJson: true, map: true });
   assert.deepEqual(
     panorama.route.map((part) => [part.number, part.subtema, part.written, part.depth, part.why]),
     [
       [1, "1.1", true, "Desde su base", "Falló d1"],
-      [2, "1.2.1a", false, "Completo", "No evaluado en diagnóstico"],
+      [2, "1.2.1a", true, "Completo", "No evaluado en diagnóstico"],
     ],
     "each step of the route carries what the diagnosis found for it",
   );
   const explained = panorama.map.layout.nodes.find((node) => node.id === "N1_2_1_2");
   assert.ok(explained, "the concept of the second subgraph is on the map");
-  assert.deepEqual(explained.part, { id: "p2", number: 2, title: "Filtrado Booleano", written: false });
+  assert.deepEqual(explained.part, { id: "p2", number: 2, title: "Filtrado Booleano", written: true });
   assert.equal(explained.request, null, "a covered concept offers no new part");
   const loose = panorama.map.layout.nodes.find((node) => node.id === "N1_1_3");
   assert.equal(loose?.part?.id, "p1");
 });
 
-test("a topic still being planned shows its route and says what the tutor has not written yet", () => {
+test("a topic nobody has started shows no route and says what the tutor has not written yet", () => {
   const bare = {
     id: "llms",
     title: "LLMs desde la matemática",
@@ -251,14 +257,7 @@ test("a topic still being planned shows its route and says what the tutor has no
   assert.deepEqual(panorama.sources, { plan: false, planJson: false, map: false });
   assert.equal(panorama.plan, null);
   assert.equal(panorama.map, null);
-  assert.deepEqual(
-    panorama.route.map((part) => [part.number, part.title, part.written]),
-    [
-      [1, "Tokens y vocabulario", false],
-      [2, "Modelo de lenguaje", false],
-    ],
-    "without a plan.json the route still lists the parts the topic declares",
-  );
+  assert.deepEqual(panorama.route, [], "the plan is hidden until a note exists");
   const empty = buildPanorama(bare, { map: "flowchart TD\n  classDef neu fill:#eee;\n" });
   assert.equal(empty.map, null, "a map without nodes is no map");
   assert.equal(empty.sources.map, false);
@@ -300,7 +299,7 @@ test("a map that writes its subtema after a dot still links every concept to its
     { id: "p3", title: "Preguntar y conectar", slug: "Preguntar", subtema: "1.3" },
     { id: "p4", title: "Phrasal verbs", slug: "Phrasal", subtema: "2.1" },
   ];
-  const pano = buildPanorama({ id: "g", title: "Gramática", status: "waiting", stage: "diagnosis", nextStage: "diagnosis", part: null, parts: [] }, { planJson: JSON.stringify({ parts }), map: DOTTED });
+  const pano = buildPanorama({ id: "g", title: "Gramática", status: "waiting", stage: "diagnosis", nextStage: "diagnosis", part: null, parts: parts.map((part) => ({ id: part.id, title: part.title, written: true })) }, { planJson: JSON.stringify({ parts }), map: DOTTED });
   const linked = (pano.map?.layout.nodes ?? []).filter((node) => node.part);
   assert.deepEqual(
     linked.map((node) => `${node.number}->${node.part?.id}`),
@@ -308,4 +307,98 @@ test("a map that writes its subtema after a dot still links every concept to its
     "four concepts open the part that explains them",
   );
   assert.equal(pano.map?.layout.nodes[3].request, "P0.5", "the prerequisite names itself when no part covers it");
+});
+
+// ---- #423: the plan stays hidden (course-derived plan S3, strict flow S9) ----
+// The learner never reads the plan in the flow: a part shows up once its note is written, the
+// declared total is never printed, and the map hides the concepts of parts not reached yet.
+
+const WRITTEN_ALL = {
+  ...TOPIC,
+  parts: TOPIC.parts.map((part) => ({ ...part, written: true })),
+};
+
+const NOTHING_WRITTEN = {
+  id: "llms",
+  title: "LLMs desde la matemática",
+  status: "sin inscribir",
+  stage: "",
+  nextStage: "",
+  part: "",
+  parts: [
+    { id: "p1", title: "Tokens y vocabulario", written: false },
+    { id: "p2", title: "Modelo de lenguaje", written: false },
+  ],
+};
+
+/** The plan's map plus a concept no part covers: `1.9.1` is a concept, not a planned step. */
+const MAP_WITH_A_CONCEPT = MAP.replace("\n  classDef ok", '\n  N1_9_1["1.9.1 Concepto sin parte"]:::neu\n  classDef ok');
+
+test("a part shows up only once its note is written", () => {
+  const panorama = buildPanorama(TOPIC, { plan: PLAN, planJson: PLAN_JSON, map: MAP });
+  assert.deepEqual(
+    panorama.route.map((part) => [part.id, part.number, part.title]),
+    [["p1", 1, "Estructura Relacional"]],
+    "the route holds the part whose note exists, numbered the way the learner walks it",
+  );
+  assert.doesNotMatch(JSON.stringify(panorama.route), /Filtrado|1\.2\.1/, "a part not written yet is never named or numbered");
+  assert.equal((STUDIO_UI.match(/const writtenParts = topic\.parts\.filter\(\(p\) => p\.written\);/g) ?? []).length, 1, "the topic view takes the written parts");
+  assert.equal((STUDIO_UI.match(/writtenParts\.forEach\(/g) ?? []).length, 1, "and walks only those");
+});
+
+test("no surface prints how many parts the plan declares", () => {
+  const draws = (pattern) => STUDIO_UI.match(pattern)?.length ?? 0;
+  assert.equal(draws(/de \$\{topic\.parts\.length\}/g), 0, "the count of written parts carries no total");
+  assert.equal(draws(/de \$\{panorama\.route\.length\}/g), 0, "and neither does the panorama's route");
+  assert.equal(draws(/topic\.parts\.length - (?:writtenCount|gaps)/g), 0, "no line counts the parts still to come");
+  assert.equal(draws(/gaps\.missing\.join|faltan \$\{gaps\.missing\.length\}/g), 0, "no surface names the parts still to come");
+  assert.equal(draws(/partes escritas/g), 1, "what is already written is still counted, by the one label the progress meter and the panorama's chips share");
+});
+
+test("a topic with no part written yet shows one neutral line instead of a route", () => {
+  const panorama = buildPanorama(NOTHING_WRITTEN, { plan: PLAN, planJson: PLAN_JSON, map: MAP });
+  assert.deepEqual(panorama.route, [], "nothing is listed before the first note exists");
+  assert.match(STUDIO_UI, /const ROUTE_NEUTRAL = "Las partes aparecen aquí a medida que las estudies\./, "the one line both routes show");
+  assert.equal((STUDIO_UI.match(/ROUTE_NEUTRAL/g) ?? []).length, 4, "defined once and drawn by the two routes and the map with no concept yet");
+  assert.match(STUDIO_UI, /if \(!writtenParts\.length\) rows\.push\(/, "the topic view puts the line where the parts would be");
+  assert.equal((STUDIO_UI.match(/panorama\.route\.length\s*\? h\("ol", \{ class: "route"/g) ?? []).length, 1, "the panorama draws a list only when it has something to list");
+});
+
+test("the map hides a concept whose part nobody has written yet", () => {
+  const panorama = buildPanorama(TOPIC, { planJson: PLAN_JSON, map: MAP_WITH_A_CONCEPT });
+  assert.ok(panorama.map, "the map is still a map");
+  assert.deepEqual(
+    panorama.map.graph.nodes.map((node) => node.id),
+    ["N1_1_1", "N1_1_2", "N1_1_3", "N1_9_1"],
+    "a concept of a part not written yet is no node; a concept no part covers stays",
+  );
+  assert.deepEqual(
+    panorama.map.layout.nodes.map((node) => node.id).sort(),
+    ["N1_1_1", "N1_1_2", "N1_1_3", "N1_9_1"],
+    "and the picture draws the same four, in the order their dependencies put them",
+  );
+  assert.deepEqual(
+    panorama.map.graph.edges.map((edge) => `${edge.from}>${edge.to}`),
+    ["N1_1_1>N1_1_2", "N1_1_2>N1_1_3"],
+    "an arrow goes only where both ends are shown",
+  );
+  assert.deepEqual(panorama.map.graph.groups.map((group) => group.id), ["M1_1"], "a frame with no node left goes with them");
+  assert.doesNotMatch(JSON.stringify(panorama.map), /1\.2\.1|Filtrado|p2/, "and nothing on the map names the hidden part");
+  assert.equal(panorama.map.layout.nodes.find((node) => node.id === "N1_9_1").part, null, "the lone concept is a concept, not a planned step");
+});
+
+test("a topic with every part written keeps the route and the map it has today", () => {
+  const panorama = buildPanorama(WRITTEN_ALL, { plan: PLAN, planJson: PLAN_JSON, map: MAP });
+  assert.deepEqual(
+    panorama.route.map((part) => [part.number, part.subtema, part.written, part.depth, part.why]),
+    [
+      [1, "1.1", true, "Desde su base", "Falló d1"],
+      [2, "1.2.1a", true, "Completo", "No evaluado en diagnóstico"],
+    ],
+    "every part, in the plan's order, with what the diagnosis found for it",
+  );
+  assert.deepEqual(panorama.sources, { plan: true, planJson: true, map: true });
+  assert.deepEqual(panorama.map.graph.nodes.map((node) => node.id), ["N1_1_1", "N1_1_2", "N1_1_3", "N1_2_1_1", "N1_2_1_2"], "every concept of the plan stays");
+  assert.equal(panorama.map.graph.edges.length, 4, "with every arrow");
+  assert.equal(panorama.map.graph.groups.length, 2, "and every frame");
 });

@@ -402,6 +402,13 @@
   const partIndex = (topic, id) => topic.parts.findIndex((p) => p.id === id);
   const partName = (topic, id) => (partIndex(topic, id) >= 0 ? `la Parte ${partIndex(topic, id) + 1}` : "la parte actual");
   const written = (topic) => topic.parts.filter((p) => p.written).length;
+  /**
+   * #423 / S3 / S9: the plan stays hidden, so nothing counts the parts the tutor declared — the
+   * learner reads how many are already written, never how many are still to come.
+   */
+  const partsWritten = (count) => `${count} ${count === 1 ? "parte escrita" : "partes escritas"}`;
+  /** The one neutral line a route with nothing written yet shows, on the topic view and the panorama. */
+  const ROUTE_NEUTRAL = "Las partes aparecen aquí a medida que las estudies.";
   /** The part the tutor owes next: the one the engine points at, else the first one missing. */
   function owedPart(topic) {
     const at = topic.part ? topic.parts[partIndex(topic, topic.part)] : undefined;
@@ -785,7 +792,7 @@
     const chips = topic.parts.map((p) => h("span", { class: p.written ? "on" : "" }));
     return [
       h("div", { class: "progress", role: "progressbar", "aria-label": "Partes escritas", "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(written(topic)) }, chips),
-      h("div", { class: "progress-label" }, h("span", {}, `${written(topic)} de ${topic.parts.length} partes escritas`), h("span", {}, STAGE[topic.nextStage || topic.stage] || "")),
+      h("div", { class: "progress-label" }, h("span", {}, partsWritten(written(topic))), h("span", {}, STAGE[topic.nextStage || topic.stage] || "")),
     ];
   }
 
@@ -1236,6 +1243,7 @@
     setPrimary(step);
     const firstPending = topic.parts.find((p) => !p.written);
     const gaps = topic.gaps || { missing: [], noVisuals: [], noQuiz: [] };
+    const writtenParts = topic.parts.filter((p) => p.written);
     const rows = [];
     if (topic.hasDiagnosis) {
       const current = (topic.nextStage || topic.stage) === "diagnosis";
@@ -1244,7 +1252,7 @@
       // Say that, even when the tutor wrote parts before the learner answered.
       const diagnosisMeta = current
         ? writtenCount
-          ? `Te toca: responde; enfoca las ${topic.parts.length - writtenCount} partes que faltan`
+          ? "Te toca: responde; enfoca tu ruta"
           : "Te toca: responde sus preguntas"
         : "Hecho · enfocó el plan de tu ruta";
       rows.push(
@@ -1257,7 +1265,7 @@
         ),
       );
     }
-    topic.parts.filter((p) => p.written).forEach((p, i) => {
+    writtenParts.forEach((p, i) => {
       const current = topic.part === p.id && topic.status !== "sin inscribir";
       const state = p.answered && !current ? "done" : current ? "current" : p.written ? "ready" : "pending";
       const meta = {
@@ -1288,6 +1296,8 @@
         ),
       );
     });
+    // Nothing written yet: one neutral line, never a list of steps the learner has not reached.
+    if (!writtenParts.length) rows.push(h("li", { class: "route-note reveal", style: `--i:${rows.length + 2}` }, ROUTE_NEUTRAL));
     for (const ex of topic.exercises || []) {
       rows.push(h("li", { class: "part-row ready" },
         h("div", {}, h("h3", {}, ex.titulo), h("div", { class: "meta" }, `Código · ${ex.lenguaje} · Mejor: ${ex.mejor || "sin entregas"}`)),
@@ -1318,15 +1328,11 @@
               h("span", { class: "pano-entry-note" }, "La planificación y el mapa de dependencias, en una vista completa"),
             ),
             currentEspera() ? esperaMount(currentEspera()) : null,
-            gaps.missing.length > 0
+            writtenParts.length > 0 && gaps.missing.length > 0
               ? h(
                   "div",
                   { class: "empty reveal", style: "--i:1" },
-                  h(
-                    "p",
-                    {},
-                    `El plan tiene ${topic.parts.length} partes y ${topic.parts.length - gaps.missing.length} escrita${topic.parts.length - gaps.missing.length === 1 ? "" : "s"}: faltan ${gaps.missing.length} (${gaps.missing.join(", ")}).`,
-                  ),
+                  h("p", {}, "Faltan partes por escribir: aparecerán aquí a medida que las estudies."),
                   btn("Pedir las que faltan", () => say(prompts.fill(topic), topic.id), "btn small ghost", "spark"),
                 )
               : null,
@@ -1776,7 +1782,7 @@
           h(
             "div",
             { class: "pano-chips" },
-            h("span", { class: `tag${written(topic) === topic.parts.length ? "" : " test"}` }, `${written(topic)} de ${topic.parts.length} partes escritas`),
+            h("span", { class: `tag${written(topic) === topic.parts.length ? "" : " test"}` }, partsWritten(written(topic))),
             panorama.plan?.score ? h("span", { class: "tag test" }, `Diagnóstico ${panorama.plan.score}`) : null,
             topic.status === "sin inscribir" ? h("span", { class: "tag test" }, "Sin seguimiento del motor") : null,
             panorama.map ? h("span", { class: "tag test" }, `${panorama.map.graph.nodes.length} conceptos en el mapa`) : null,
@@ -1834,7 +1840,7 @@
             "div",
             { class: "pano-block-title" },
             h("h2", {}, "La ruta"),
-            h("p", {}, `${panorama.route.filter((part) => part.written).length} de ${panorama.route.length} escritas`),
+            h("p", {}, `${panorama.route.length} ${panorama.route.length === 1 ? "escrita" : "escritas"}`),
           ),
           panorama.plan
             ? null
@@ -1844,7 +1850,9 @@
                 h("p", {}, "Falta la planificación: el tutor todavía no escribió planificador.md."),
                 btn("Pedir la planificación", () => say(planPrompt(topic), topic.id), "btn small", "spark"),
               ),
-          h("ol", { class: "route", "aria-label": "Ruta del tema" }, chapters),
+          panorama.route.length
+            ? h("ol", { class: "route", "aria-label": "Ruta del tema" }, chapters)
+            : h("p", { class: "route-note reveal" }, ROUTE_NEUTRAL),
         ),
         sections.length ? h("section", { class: "pano-block" },
           h("div", { class: "pano-block-title" }, h("h2", {}, "El plan del tutor")),
@@ -1881,21 +1889,20 @@
   /** The map the tutor drew, drawn again here: columns per subtema, and a card per concept. */
   function mapPanel(topic, panorama) {
     if (!panorama.map) {
-      return h(
-        "div",
-        { class: "pano-body" },
-        h(
-          "main",
-          { class: "pano-main" },
-          h(
-            "div",
-            { class: "pano-ask reveal" },
-            h("h2", {}, "Todavía no hay mapa"),
-            h("p", {}, "El mapa de dependencias es un archivo mapa.mmd: el tutor dibuja ahí cada subtema con sus conceptos y las flechas de qué necesita a qué."),
-            btn("Pedir el mapa de dependencias", () => say(mapPrompt(topic), topic.id), "btn primary", "spark"),
-          ),
-        ),
-      );
+      // A map with no concept to show yet is not a missing map: the tutor drew it and its boxes
+      // arrive as their parts are written (#423). Only a topic with no map file asks for one.
+      const panel = (body) => h("div", { class: "pano-body" }, h("main", { class: "pano-main" }, body));
+      return panorama.sources.map
+        ? panel(h("p", { class: "route-note reveal" }, ROUTE_NEUTRAL))
+        : panel(
+            h(
+              "div",
+              { class: "pano-ask reveal" },
+              h("h2", {}, "Todavía no hay mapa"),
+              h("p", {}, "El mapa de dependencias es un archivo mapa.mmd: el tutor dibuja ahí cada subtema con sus conceptos y las flechas de qué necesita a qué."),
+              btn("Pedir el mapa de dependencias", () => say(mapPrompt(topic), topic.id), "btn primary", "spark"),
+            ),
+          );
     }
     const { layout, graph } = panorama.map;
     const at = new Map(layout.nodes.map((node) => [node.id, node]));

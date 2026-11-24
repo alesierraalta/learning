@@ -228,21 +228,28 @@ const baseSubtema = (subtema: string) => subtema.replace(/[a-z]+$/i, "");
 /**
  * Join the plan's parts with the focus table, so each step of the route says what the
  * diagnosis found for it. A subtema that the table does not mention simply brings no note.
+ *
+ * Only the parts whose note is already written enter the route: the plan stays hidden until the
+ * learner reaches it (course-derived plan S3, strict flow S9), so a part the tutor planned but has
+ * not explained is never named, numbered or counted here. The survivor keeps the place it has in
+ * the walk, which is how the topic view numbers its rows too.
  */
 export function planRoute(plan: PlanPart[], doc: PlanDoc | null, written: (id: string) => boolean): RoutePart[] {
-  return plan.map((part, index) => {
-    const row =
-      doc?.rows.find((candidate) => candidate.subtema === part.subtema) ??
-      doc?.rows.find((candidate) => baseSubtema(candidate.subtema) === baseSubtema(part.subtema));
-    return {
-      ...part,
-      number: index + 1,
-      written: written(part.id),
-      knows: row?.knows ?? "",
-      depth: row?.depth ?? "",
-      why: row?.why ?? "",
-    };
-  });
+  return plan
+    .filter((part) => written(part.id))
+    .map((part, index) => {
+      const row =
+        doc?.rows.find((candidate) => candidate.subtema === part.subtema) ??
+        doc?.rows.find((candidate) => baseSubtema(candidate.subtema) === baseSubtema(part.subtema));
+      return {
+        ...part,
+        number: index + 1,
+        written: true,
+        knows: row?.knows ?? "",
+        depth: row?.depth ?? "",
+        why: row?.why ?? "",
+      };
+    });
 }
 
 /**
@@ -582,6 +589,25 @@ const pathBetween = (from: PlacedNode, to: PlacedNode) => {
 };
 
 /**
+ * The map as the learner may see it. A concept bound to a part whose note is not written yet belongs
+ * to the hidden plan, so neither it nor the arrows and frames that only held it are shown. A concept
+ * no part covers stays: that is a concept, not a planned step.
+ */
+function revealedMap(graph: MapGraph, parts: PlanPart[], written: (id: string) => boolean): MapGraph {
+  const nodes = graph.nodes.filter((node) => {
+    const part = node.number ? partFor(node.number, parts) : null;
+    return !part || written(part.id);
+  });
+  const shown = new Set(nodes.map((node) => node.id));
+  return {
+    ...graph,
+    nodes,
+    edges: graph.edges.filter((edge) => shown.has(edge.from) && shown.has(edge.to)),
+    groups: graph.groups.filter((group) => nodes.some((node) => node.group === group.id)),
+  };
+}
+
+/**
  * Assemble the panorama of one topic from what the studio already knows about it plus the
  * three files the tutor writes. A topic without a plan or a map still gets its route, so the
  * view can say what is missing instead of showing nothing.
@@ -594,7 +620,8 @@ export function buildPanorama(topic: PanoramaTopic, files: PanoramaFiles): Panor
     ? declared
     : topic.parts.map((part) => ({ id: part.id, title: part.title, slug: part.title, subtema: "", examplesPlanned: false, visualsPlanned: false }));
   const route = planRoute(fromPlan, plan, written);
-  const graph = files.map === undefined ? null : parseMap(files.map);
+  const drawn = files.map === undefined ? null : parseMap(files.map);
+  const graph = drawn ? revealedMap(drawn, fromPlan, written) : null;
   const map = graph && graph.nodes.length ? { graph, layout: layoutMap(graph, route) } : null;
   if (map) {
     const verdicts = new Map<string, { estado: string; evidencia: string }>();
@@ -611,7 +638,9 @@ export function buildPanorama(topic: PanoramaTopic, files: PanoramaFiles): Panor
       } catch { /* A missing or malformed verdict contributes no state. */ }
     };
     consume(files.diagnosis);
-    for (const part of route) consume(files.feedback?.[part.id]);
+    // A verdict is state, not plan: every declared part's correction is read, so a remedial part
+    // still overrides the one it reinforces even while the map shows only what was reached.
+    for (const part of fromPlan) consume(files.feedback?.[part.id]);
     for (const node of map.layout.nodes) {
       const verdict = node.number ? verdicts.get(node.number) : undefined;
       node.status = verdict?.estado ?? "no_visto";
@@ -620,7 +649,7 @@ export function buildPanorama(topic: PanoramaTopic, files: PanoramaFiles): Panor
   }
   return {
     topic: { id: topic.id, title: topic.title, status: topic.status, stage: topic.stage, nextStage: topic.nextStage, part: topic.part },
-    sources: { plan: files.plan !== undefined, planJson: files.planJson !== undefined, map: Boolean(map) },
+    sources: { plan: files.plan !== undefined, planJson: files.planJson !== undefined, map: Boolean(drawn && drawn.nodes.length) },
     route,
     plan,
     map,
