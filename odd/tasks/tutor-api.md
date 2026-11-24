@@ -96,3 +96,55 @@ work unchanged.
 L7 — Verification limit stated up front: no provider key exists on this machine (checked by
 presence only, never printed), so every test runs against a local fake provider. Live proof
 against api.mistral.ai needs the owner's key and is reported as pending, not as passed.
+
+L8 — Slice 1, `41fbb29` (476+/13−): `studio/proveedores.ts`, `studio/tutor.ts` v2, the two new
+suites and the skill-directory invariant split (`TUTOR_SKILL_AGENTS`). The API runtime reads no
+vault skills, so the old invariant — every tutor agent declares a skill directory — would have
+forced a false row into `deploy/vps/tutor-skill-dirs.tsv`; the claim now names the runtimes that
+actually read them. Tests after it: `proveedores` 10/10, `tutor` 8/8, `tutor-context` 14/14.
+
+L9 — Slice 2, `99593ff` (708+/1−): `studio/api-runtime.ts` and its suite. Two defects the tests
+found and fixed before the commit, both real: (a) the system message was appended after the
+learner's, so the provider read an unframed turn — the test that reads `messages[0].role` caught
+it; (b) an aborted turn emitted no `agent_settled`, and the studio releases its turn only on that
+record, so a stopped turn would have locked the chat. 11/11 after both.
+
+L10 — Slice boundary recorded because slice 2 ran past the ~400-line unit: the runtime and its
+tools are one behaviour with one suite, and splitting it would have left a commit whose tests
+cannot pass. Slice 1 is 476 lines, most of them tests and the task file. Reviewer can read them
+one at a time; the delivery shape (one branch, one PR closing #404 and #405) is chosen when
+publishing, and publishing remains the owner's decision.
+
+L11 — Slice 3 (in progress): wiring. A writer was delegated and the studio restart cancelled it
+mid-task; what it had already written (`Session.api`, `startApiRuntime`, `startTaskRuntime`'s
+branch, `missingRuntime`, the two `StudioOptions`) was sound and was kept, and the rest was
+finished inline. Two real gaps the tests found, both silent breakage rather than visible errors:
+`deliver` routed every prompt through Pi's RPC unless `session.agy` existed, so an API turn threw
+503 "El tutor no está en marcha" — a studio that starts the tutor and then refuses every prompt;
+and `GET api/tutor/modelos` gained `pensamientos` while an existing test asserted the whole body
+with `deepEqual`, which is exactly the shape a shared-contract change breaks. Both fixed here.
+
+L12 — The effort selector did not exist: `tutor.json` had `pensamiento` but Configuración only
+offered agent and model. It now exists, its options come from the returned `pensamientos` (the
+model's own levels), and a level the model does not name is refused before `tutor.json` is
+written — a refused tutor never replaces the one that works.
+
+L13 — Delivery so far: three commits on `feat/404-tutor-api` from `origin/main` (41fbb29, 99593ff,
+1f93d49) plus this documentation slice. The code slices run past the ~400-line unit on purpose and
+the reason is on record in L10: each of them is one behaviour with one suite, and splitting them
+would produce commits whose tests cannot pass. A reviewer reads them one at a time; the PR closes
+#404 and #405 together, because they are one feature and #405's runtime cannot be chosen without
+#404's registry.
+
+L14 — Suite evidence, with the environment stated because it changed the plan: the full studio
+suite in parallel is killed by `earlyoom` on this machine (13 GB, 6 GB available, 4.9 GB swap in
+use) — exit 137 with no output. Serialized (`--test-concurrency=1`) it runs: `studio/server.test.mjs`
+213/213 and the remaining `studio/*.test.mjs` 368/368. Two failures it found were both a shared
+contract breaking in silence: `GET api/tutor`'s body asserted with `deepEqual` against the v1 shape
+(now asserts the v1→v2 migration), and a layout test that pinned *two* selects in the preferences
+form (now pins the three by name, which is the claim it was actually making).
+
+L15 — Not verified, and not claimed: a live turn against `api.mistral.ai`. No provider key exists on
+this machine, so every test runs against a local fake provider that emits the shapes Mistral
+documents. The owner's `MISTRAL_API_KEY` plus a restart of the studio is what turns this from
+"tested" into "proven".
