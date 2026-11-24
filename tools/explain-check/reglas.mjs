@@ -21,6 +21,7 @@ import calculoEnTexto from './rules/calculo-en-texto.mjs';
 import historiaCabecera from './rules/historia-cabecera.mjs';
 import actorSinPersonaje from './rules/actor-sin-personaje.mjs';
 import escenarioDeCajas from './rules/escenario-de-cajas.mjs';
+import prosaEnCajas from './rules/prosa-en-cajas.mjs';
 import piezaAdecuada from './rules/pieza-adecuada.mjs';
 import historiaQuieta from './rules/historia-quieta.mjs';
 import faltaFoco from './rules/falta-foco.mjs';
@@ -54,6 +55,7 @@ export const REGLAS = [
   historiaCabecera,
   actorSinPersonaje,
   escenarioDeCajas,
+  prosaEnCajas,
   piezaAdecuada,
   historiaQuieta,
   faltaFoco,
