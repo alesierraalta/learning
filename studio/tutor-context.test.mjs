@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { checkTutorContext, declaredSkillDirs, driftMessage, tutorContextLinks } from "./context.ts";
-import { TUTOR_AGENTS } from "./tutor.ts";
+import { TUTOR_AGENTS, TUTOR_SKILL_AGENTS } from "./tutor.ts";
 
 const SCRIPT = join(import.meta.dirname, "..", "deploy", "vps", "link-tutor-context.sh");
 const SKILL_DIRS = join(import.meta.dirname, "..", "deploy", "vps", "tutor-skill-dirs.tsv");
@@ -40,12 +40,13 @@ function fixture() {
 
 const run = (env, args = []) => spawnSync("bash", [SCRIPT, ...args], { env: { ...process.env, ...env }, encoding: "utf8" });
 
-test("every supported tutor agent declares a skill directory the studio verifies", () => {
+test("every tutor agent that reads the vault's skills declares a skill directory the studio verifies", () => {
   const declared = declaredSkillDirs();
-  for (const agent of TUTOR_AGENTS) {
+  for (const agent of TUTOR_SKILL_AGENTS) {
     assert.ok(declared.some((dir) => dir.agent === agent), `${agent} has a declared skill directory`);
   }
   for (const dir of declared) {
+    assert.ok(TUTOR_SKILL_AGENTS.includes(dir.agent), `${dir.agent} reads the vault's skills`);
     assert.ok(TUTOR_AGENTS.includes(dir.agent), `${dir.agent} is a supported agent`);
   }
   const f = fixture();

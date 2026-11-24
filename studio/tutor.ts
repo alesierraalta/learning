@@ -3,36 +3,62 @@ import { lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "
 import { join } from "node:path";
 import { HttpError } from "../integrations/pi/bridge.ts";
 import { resolveContained } from "../integrations/pi/paths.ts";
+import { proveedorPorId } from "./proveedores.ts";
 
-/** The supported agents, declared once: every one must have skill dirs in deploy/vps/tutor-skill-dirs.tsv. */
-export const TUTOR_AGENTS = ["pi", "agy"] as const;
+/** Every runtime the studio can tutor with. */
+export const TUTOR_AGENTS = ["pi", "agy", "api"] as const;
 export type TutorAgent = (typeof TUTOR_AGENTS)[number];
-export type TutorConfig = { version: 1; agente: TutorAgent; modelo: string; pensamiento: string };
-const DEFAULT: TutorConfig = { version: 1, agente: "pi", modelo: "", pensamiento: "" };
+/**
+ * The runtimes that read the vault's skills. The API runtime talks to a provider and reads none of
+ * them, so it declares no skill directory; the check that guards the others must not invent one.
+ */
+export const TUTOR_SKILL_AGENTS = ["pi", "agy"] as const;
+/**
+ * `proveedor` names the API provider the learner chose, and is empty for the CLI runtimes: an
+ * empty provider means "detect it from the environment", never "pick one for me".
+ */
+export type TutorConfig = { version: 2; agente: TutorAgent; modelo: string; pensamiento: string; proveedor: string };
+const DEFAULT: TutorConfig = { version: 2, agente: "pi", modelo: "", pensamiento: "", proveedor: "" };
 const LEVELS = ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"];
+/** The levels Mistral documents, union across its models; a model's own subset is checked when saving. */
+export const API_LEVELS = ["", "none", "low", "medium", "high", "max"];
 /** What Antigravity's `--effort` accepts; a level outside this list would be dropped, so it is refused. */
 export const AGY_LEVELS = ["low", "medium", "high", "xhigh", "max"];
 
 const isAgent = (value: unknown): value is TutorAgent => typeof value === "string" && (TUTOR_AGENTS as readonly string[]).includes(value);
 
 function supported(agente: TutorAgent, pensamiento: string): boolean {
-  if (agente !== "agy" || pensamiento === "") return LEVELS.includes(pensamiento);
-  return AGY_LEVELS.includes(pensamiento);
+  if (agente === "agy") return pensamiento === "" ? LEVELS.includes(pensamiento) : AGY_LEVELS.includes(pensamiento);
+  if (agente === "api") return API_LEVELS.includes(pensamiento);
+  return LEVELS.includes(pensamiento);
 }
 
+/**
+ * A v1 file (the shape written before providers existed) is valid input and comes back as v2 with
+ * an empty provider, so an upgrade never costs the learner the tutor they had. Anything the studio
+ * cannot honour is refused instead of quietly replaced.
+ */
 function validate(input: unknown): TutorConfig {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new HttpError(400, "invalid tutor settings");
   const data = input as Record<string, unknown>;
-  if (Object.keys(data).sort().join(",") !== "agente,modelo,pensamiento,version" || data.version !== 1 ||
+  const keys = Object.keys(data).sort().join(",");
+  const v1 = keys === "agente,modelo,pensamiento,version" && data.version === 1;
+  const v2 = keys === "agente,modelo,pensamiento,proveedor,version" && data.version === 2;
+  if ((!v1 && !v2) ||
       !isAgent(data.agente) || typeof data.modelo !== "string" ||
       (data.modelo !== "" && !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,119}$/.test(data.modelo)) ||
-      typeof data.pensamiento !== "string" || !LEVELS.includes(data.pensamiento)) {
+      typeof data.pensamiento !== "string" ||
+      (!v1 && typeof data.proveedor !== "string")) {
     throw new HttpError(400, "invalid tutor settings");
   }
+  const proveedor = v1 ? "" : (data.proveedor as string);
+  if (proveedor !== "" && proveedorPorId(proveedor) === null) throw new HttpError(400, "unknown provider");
   if (!supported(data.agente, data.pensamiento)) {
-    throw new HttpError(400, `Antigravity does not accept the thinking level "${data.pensamiento}"; choose ${AGY_LEVELS.join(", ")} or leave it empty`);
+    const quien = { agy: "Antigravity", api: "Mistral", pi: "Pi" }[data.agente];
+    const niveles = data.agente === "agy" ? AGY_LEVELS : data.agente === "api" ? API_LEVELS.filter(Boolean) : LEVELS.filter(Boolean);
+    throw new HttpError(400, `${quien} does not accept the thinking level "${data.pensamiento}"; choose ${niveles.join(", ")} or leave it empty`);
   }
-  return { version: 1, agente: data.agente, modelo: data.modelo, pensamiento: data.pensamiento };
+  return { version: 2, agente: data.agente, modelo: data.modelo, pensamiento: data.pensamiento, proveedor };
 }
 
 function filePath(root: string): string {
