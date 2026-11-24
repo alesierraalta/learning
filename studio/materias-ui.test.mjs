@@ -84,7 +84,11 @@ async function stubMaterias(page, data) {
     }
     const course = data.courses.find((c) => c.id === parts[0]);
     if (!course) return json(404, { error: "No encontré esa materia." });
-    if (parts.length === 1 && request.method() === "GET") return json(200, course);
+    if (parts.length === 1 && request.method() === "GET") {
+      // A course can answer after the learner already opened something else.
+      if (data.materiaDetailDelay) await new Promise((resolve) => setTimeout(resolve, data.materiaDetailDelay));
+      return json(200, course);
+    }
     if (parts[1] === "fuentes" && parts.length === 2 && request.method() === "POST") {
       const headers = Object.fromEntries(Object.entries(request.headers()).map(([key, value]) => [key.toLowerCase(), value]));
       let nombre = headers["x-file-name"] || "archivo.txt";
@@ -231,10 +235,14 @@ test("linking a topic from a materia shows its course on the topic page, where i
   const card = page.locator(".topic-materia");
   await card.locator(".topic-materia-current").getByText("Teoría de la computación").waitFor();
   assert.equal(data.topics[0].materia.id, "m1");
-  await card.getByLabel("Materia del tema").selectOption("m2");
+  const select = card.getByLabel("Materia del tema");
+  // The courses arrive after the card's first paint, so the option the learner
+  // picks has to exist before choosing it, however slow that list is.
+  await select.locator('option[value="m2"]').waitFor({ state: "attached" });
+  await select.selectOption("m2");
   await card.getByRole("button", { name: "Guardar materia" }).click();
   await page.waitForFunction(() => document.querySelector(".topic-materia-current")?.textContent.includes("Historia del arte"));
-  assert.equal(await card.getByLabel("Materia del tema").inputValue(), "m2");
+  assert.equal(await select.inputValue(), "m2");
   assert.deepEqual(data.topicLinks.map((l) => l.action).sort(), ["link", "link", "unlink"]);
 });
 
@@ -275,4 +283,23 @@ test("the materias pages fit a 390 px phone", { skip: browser ? false : "playwri
   await page.getByText("transcripcion-muy-larga-de-la-clase-de-teoria-de-la-computacion.txt").waitFor();
   assert.ok(await overflow() <= 1, `detail overflows by ${await overflow()}px`);
   assert.equal(data.courses.length, 1);
+});
+
+test("a course still opening does not paint over the topic opened meanwhile", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page, data } = await fixture(t);
+  await page.goto(`${studio.url}#/materias`, { waitUntil: "networkidle" });
+  data.materiaDetailDelay = 800;
+  const courseArrived = page.waitForResponse((response) =>
+    response.request().method() === "GET" && new URL(response.url()).pathname.endsWith("/api/materias/m1"));
+  await page.getByRole("link", { name: /Teoría de la computación/ }).click();
+  // The learner leaves while the course is still opening.
+  await page.getByText("Abriendo la materia…").waitFor();
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  await courseArrived;
+  // The answer of the page they left lands now: give its callback its turn, so a
+  // paint over the topic cannot hide behind the assertion.
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  await page.locator(".topic-materia").waitFor();
+  assert.equal(await page.locator("#stage h1").first().innerText(), "Redes");
+  assert.equal(await page.locator(".materia-head").count(), 0, "the course page the learner left never comes back");
 });
