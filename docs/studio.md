@@ -498,6 +498,8 @@ All routes are behind the studio token and reject a foreign `Host`; a POST also 
 | `POST api/materias/<id>/temas` | `{tema}` | `200` with the updated materia |
 | `DELETE api/materias/<id>/temas/<tema>` | — | `200` with the updated materia |
 
+A new topic can be born inside a course instead of being linked later: `POST api/aprender {text, modo, materia?}` takes the id of an existing course, and when the creation turn binds its topic the studio links it (`linkTema`) before the next delivery, so the turn that plans the route already carries the course's PLAN BRIEF. An unknown or malformed id starts no turn and returns `400` with `No existe esa materia.`; without `materia` the request is exactly what it was, and a `rapido` request teaches no topic, so it never joins a course. On the page, the new-topic entry offers the courses the learner already has, preselected when the request comes from a materia's «Nuevo tema en esta materia».
+
 A source accepts PDF, PNG/JPEG/WEBP, DOCX, TXT and MD, up to 20 MiB each, with `X-Tipo` set to one of the three kinds. PDFs reuse the `api/subir` pipeline: `pdftotext` fills `texto`, `pdftoppm` renders up to 20 page PNGs and `paginas` is the total page count. DOCX `word/document.xml` is parsed in-process with `node:zlib` (no new dependency); TXT/MD are read as UTF-8; images keep an empty extracted text and their original bytes. Every source keeps its sanitized original beside the extracted text.
 
 #### Local hybrid index (#373/T4)
