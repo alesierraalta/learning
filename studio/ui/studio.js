@@ -526,6 +526,9 @@
 
   // ---------- routing ----------
   let library = { topics: [], quick: [], runners: null };
+  // Who owns the stage: every render takes it, so a view that paints after an
+  // await only paints if no other route arrived meanwhile (see materiaView).
+  let stageSeq = 0;
   let panoramaBack = "#/";
   const openPanorama = (id, from) => { panoramaBack = from; go(`#/panorama/${id}`); };
   const go = (hash) => {
@@ -592,6 +595,9 @@
 
   let enteredPart = "";
   function render() {
+    // The route changes now, not when an unfinished view decides to paint: the
+    // courses' slow views check this generation instead of drawing over a topic.
+    ++stageSeq;
     const [, view, a, b] = location.hash.split("/").map(decodeURIComponent);
     if (view !== "leer" || enteredPart !== `${a}/${b}`) enteredPart = "";
     closeContextMenu();
@@ -1382,7 +1388,6 @@
   };
   const MATERIA_ACCEPT = [...Object.keys(MATERIA_MIME), ...new Set(Object.values(MATERIA_MIME))].join(",");
   const MAX_MATERIA_FILE_BYTES = 20 * 1024 * 1024;
-  let materiaSeq = 0;
   const materiaExtension = (file) => {
     const dot = String(file?.name ?? "").lastIndexOf(".");
     return dot < 0 ? "" : file.name.slice(dot).toLowerCase();
@@ -1466,7 +1471,7 @@
   }
 
   async function materiasView() {
-    const seq = ++materiaSeq;
+    const seq = stageSeq;
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Materias" }]);
     const status = h("p", { class: "materia-status", role: "status", "aria-live": "polite" });
     const name = h("input", { id: "materia-nombre", type: "text", maxlength: "120", autocomplete: "off", placeholder: "Por ejemplo: Teoría de la computación" });
@@ -1483,14 +1488,14 @@
     const paint = async (message) => {
       try {
         const items = await request("api/materias");
-        if (seq !== materiaSeq || !page.isConnected) return;
+        if (seq !== stageSeq || !page.isConnected) return;
         list.replaceChildren(...items.map((item) => h("article", { class: "materia-card reveal", style: "--i:0" },
           h("a", { class: "materia-card-link", href: `#/materias/${encodeURIComponent(item.id)}` }, h("span", { class: "materia-card-icon" }, icon("book")), h("h2", {}, item.nombre)),
           h("p", { class: "materia-card-count" }, `${item.fuentes} ${item.fuentes === 1 ? "archivo" : "archivos"} · ${item.temas} ${item.temas === 1 ? "tema" : "temas"}`),
           h("ul", { class: "materia-types" }, MATERIA_TIPOS.map(([tipo, label]) => h("li", {}, `${item.porTipo?.[tipo] || 0} · ${label}`))))));
         status.textContent = message ?? (items.length ? "" : "Todavía no tienes materias. Crea una para juntar sus archivos.");
       } catch (error) {
-        if (seq === materiaSeq && page.isConnected) status.textContent = `No se pudieron cargar tus materias: ${error.message}`;
+        if (seq === stageSeq && page.isConnected) status.textContent = `No se pudieron cargar tus materias: ${error.message}`;
       }
     };
     form.addEventListener("submit", async (event) => {
@@ -1510,20 +1515,20 @@
   }
 
   async function materiaView(id) {
-    const seq = ++materiaSeq;
+    const seq = stageSeq;
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Materias", href: "#/materias" }, { text: "Materia" }]);
     stage.replaceChildren(h("div", { class: "page materia-page" }, h("p", { class: "muted" }, "Abriendo la materia…")));
     let materia;
     try {
       materia = await request(`api/materias/${encodeURIComponent(id)}`);
     } catch (error) {
-      if (seq !== materiaSeq) return;
+      if (seq !== stageSeq) return;
       return stage.replaceChildren(h("div", { class: "page materia-page" },
         h("a", { class: "materia-back", href: "#/materias" }, "← Todas las materias"),
         h("h1", {}, "Materia"),
         h("p", { class: "materia-status alert", role: "status" }, `No se pudo abrir la materia: ${error.message}`)));
     }
-    if (seq !== materiaSeq) return;
+    if (seq !== stageSeq) return;
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Materias", href: "#/materias" }, { text: materia.nombre }]);
     const groups = h("div", { class: "source-groups" });
     const topics = h("div", { class: "materia-topics" });
