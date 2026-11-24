@@ -13,10 +13,18 @@ import { fileURLToPath } from "node:url";
 
 import { listTopics, readPlan } from "../integrations/pi/bridge.ts";
 import { ruleSheetText } from "../tools/part-check.mjs";
-import { indicePath, materialOrdenado, materialRelevante } from "./indice.ts";
+import { indicePath, materialOrdenado, materialRelevante, materialRelevanteHibrido, type Resultado } from "./indice.ts";
 import { materiaForTopic } from "./materias.ts";
 
 export const PART_BRIEF_MARK = "PART BRIEF";
+/**
+ * Hard bound for a course part's awaited material (#422). The brief may wait this long for the
+ * embedder and not one millisecond more; at the bound it is today's keyword selection. A warm
+ * e5-small answers a one-line query in tens of milliseconds and the child is already running from
+ * the upload, so 1.5 s is far above a real answer, and the part turn it belongs to lasts minutes,
+ * so even the worst case is invisible next to it.
+ */
+export const PART_MATERIAL_TIMEOUT_MS = 1500;
 /** Hard ceiling for the whole block, rule sheet included (#372/T2d): 12 KiB, no more. */
 export const MAX_PART_BRIEF_BYTES = 12288;
 /** The sheet comes from the rules themselves; frequent first-draft findings lead, then the rest.
@@ -88,37 +96,104 @@ function consultaDeParte(title: string, subtema: string): string {
     .join(" ");
 }
 
+/** What a part asks the course index for, once the course and the query are known. */
+interface ConsultaDeLaParte {
+  materia: { id: string; nombre: string };
+  /** The part's plan title and `subtema`, tokenized so a numeric subtema cannot widen the search. */
+  consulta: string;
+  /** The part's title, for the lines the studio logs when the material cannot be read. */
+  title: string;
+}
+
 /**
- * The course slices that belong to THIS part: its plan title and `subtema` are the query, ranked by
- * the keyword index synchronously so the brief stays synchronous and deterministic (#374/T4).
+ * The course, the index and the query this part reads, or `undefined` when there is nothing to ask:
+ * no course, no index (a brief never creates one as a side effect), no usable query, or any failure.
+ * Nothing here touches the embedder, so a part with no material starts nothing.
+ */
+function consultaDeLaParte(root: string, found: ParteEncontrada): ConsultaDeLaParte | undefined {
+  const part = found.plan.parts[found.index];
+  try {
+    const materia = materiaForTopic(root, found.topicId);
+    if (!materia) return undefined;
+    if (!existsSync(indicePath(root))) return undefined;
+    const subtema = typeof found.entry.subtema === "string" ? found.entry.subtema : "";
+    const consulta = consultaDeParte(part.title, subtema);
+    if (!consulta) return undefined;
+    return { materia: { id: materia.id, nombre: materia.nombre }, consulta, title: part.title };
+  } catch (error) {
+    logMaterial(found.topicId, part.title, error);
+    return undefined;
+  }
+}
+
+/** Every material failure is the studio's log, never a broken brief or a broken turn. */
+function logMaterial(topicId: string, title: string, error: unknown): void {
+  process.stderr.write(`estudio: el material no se pudo leer para la parte «${title}» de ${topicId} · ${(error as Error).message}\n`);
+}
+
+/** The rendered section for one ranked selection; `undefined` when nothing matched. */
+function materialDe(trozos: Resultado[], nombre: string, total: number): MaterialDeParte | undefined {
+  if (!trozos.length) return undefined;
+  return {
+    nombre,
+    total,
+    lineas: trozos.map((trozo) => `- ${trozo.nombre} (${trozo.tipo}, ${trozo.ubicacion}): ${clip(trozo.texto, PART_MATERIAL_CHUNK_BYTES)}`),
+  };
+}
+
+/**
+ * The course slices that belong to THIS part, by the keyword half of the index alone: the answer for
+ * every caller that cannot await, and the fallback of the one that can (#374/T4).
  * `undefined` for a topic without a course, a course with no matching material, or any failure: the
  * material is an improvement to the prompt, never a reason for a brief or a turn to fail.
  */
-function materialDeParte(
-  root: string,
-  topicId: string,
-  part: { title: string },
-  entry: Json,
-): MaterialDeParte | undefined {
+function materialDeParte(root: string, found: ParteEncontrada): MaterialDeParte | undefined {
+  const pedido = consultaDeLaParte(root, found);
+  if (!pedido) return undefined;
   try {
-    const materia = materiaForTopic(root, topicId);
-    if (!materia) return undefined;
-    // A brief never creates an index as a side effect: no index is no material, exactly like an empty course.
-    if (!existsSync(indicePath(root))) return undefined;
-    const subtema = typeof entry.subtema === "string" ? entry.subtema : "";
-    const consulta = consultaDeParte(part.title, subtema);
-    if (!consulta) return undefined;
-    const { trozos, total } = materialRelevante(root, materia.id, consulta, { k: PART_MATERIAL_SLICES });
-    if (!trozos.length) return undefined;
-    return {
-      nombre: materia.nombre,
-      total,
-      lineas: trozos.map((trozo) => `- ${trozo.nombre} (${trozo.tipo}, ${trozo.ubicacion}): ${clip(trozo.texto, PART_MATERIAL_CHUNK_BYTES)}`),
-    };
+    const { trozos, total } = materialRelevante(root, pedido.materia.id, pedido.consulta, { k: PART_MATERIAL_SLICES });
+    return materialDe(trozos, pedido.materia.nombre, total);
   } catch (error) {
-    process.stderr.write(`estudio: el material no se pudo leer para la parte «${part.title}» de ${topicId} · ${(error as Error).message}\n`);
+    logMaterial(found.topicId, pedido.title, error);
     return undefined;
   }
+}
+
+/**
+ * `work`, or `undefined` once `ms` have passed: the brief waits for the embedder and no longer. The
+ * losing promise keeps its own lifetime; a late answer is simply never read.
+ */
+async function conLimite<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: NodeJS.Timeout | undefined;
+  const limite = new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), ms); });
+  try {
+    return await Promise.race([work, limite]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * The same slices, ranked by `buscar`'s hybrid rank when the embedder is there (#422), so a slice
+ * that shares no word with the part can still reach it. Past `PART_MATERIAL_TIMEOUT_MS`, and without
+ * the embedder, this is exactly `materialDeParte`; a delay is the studio's log, never the prompt.
+ */
+async function materialDeParteHibrido(root: string, found: ParteEncontrada): Promise<MaterialDeParte | undefined> {
+  const pedido = consultaDeLaParte(root, found);
+  if (!pedido) return undefined;
+  try {
+    const seleccion = await conLimite(
+      materialRelevanteHibrido(root, pedido.materia.id, pedido.consulta, { k: PART_MATERIAL_SLICES }),
+      PART_MATERIAL_TIMEOUT_MS,
+    );
+    if (seleccion) return materialDe(seleccion.trozos, pedido.materia.nombre, seleccion.total);
+    process.stderr.write(
+      `estudio: el embedder no respondió en ${PART_MATERIAL_TIMEOUT_MS} ms para la parte «${pedido.title}» de ${found.topicId} · se usa el índice por palabras\n`,
+    );
+  } catch (error) {
+    logMaterial(found.topicId, pedido.title, error);
+  }
+  return materialDeParte(root, found);
 }
 
 /** The material section, showing `shown` slices; a clipped section always says how many stayed out. */
@@ -131,8 +206,17 @@ function materialBlock(material: MaterialDeParte | undefined, shown: number): st
   return lines;
 }
 
+/** Which plan entry the prompt asks to write, and its plan entry as stored. */
+interface ParteEncontrada {
+  topicId: string;
+  plan: NonNullable<ReturnType<typeof readPlan>>;
+  index: number;
+  /** The plan entry as `plan.json` stores it, or `{}` when the file does not describe this part. */
+  entry: Json;
+}
+
 /** Which plan entry the prompt asks to write: the UI names it by number and title, the part chat by id. */
-function target(root: string, text: string): { topicId: string; plan: NonNullable<ReturnType<typeof readPlan>>; index: number } | undefined {
+function target(root: string, text: string): ParteEncontrada | undefined {
   let topicId: string;
   let id: string | undefined;
   let number: number | undefined;
@@ -149,7 +233,7 @@ function target(root: string, text: string): { topicId: string; plan: NonNullabl
     id = header[2];
   }
   if (!/^[\w-]+$/.test(topicId)) return undefined;
-  let plan;
+  let plan: ReturnType<typeof readPlan>;
   try {
     plan = readPlan(join(root, topicId));
   } catch {
@@ -163,7 +247,10 @@ function target(root: string, text: string): { topicId: string; plan: NonNullabl
   const numbered = number !== undefined && number >= 1 && number <= plan.parts.length ? number - 1 : -1;
   const index = id ? plan.parts.findIndex((part) => part.id === id) : numbered;
   const chosen = index >= 0 ? index : plan.parts.findIndex((part) => normal(part.title) === normal(title ?? ""));
-  return chosen >= 0 ? { topicId, plan, index: chosen } : undefined;
+  if (chosen < 0) return undefined;
+  const raw = readRecord(join(resolve(root, topicId), "plan.json"));
+  const entry = raw && Array.isArray(raw.parts) && isRecord(raw.parts[chosen]) ? raw.parts[chosen] : {};
+  return { topicId, plan, index: chosen, entry };
 }
 
 /** The part's plan entry as stored, bounded: title, subtema/objetivos and the planning flags. */
@@ -178,22 +265,17 @@ function planLine(entry: Json, title: string): string {
 }
 
 /**
- * The brief itself, or "" for any prompt that is not a write-part request.
- * `root` is the Learnings root the studio was started with; paths are absolute
- * because the tutor may run in a different cwd.
+ * The brief for the part `found` names, carrying `material` when the course had any: one builder for
+ * the keyword path and the awaited one, so every bound and every instruction is shared.
  */
-export function partBrief(root: string, text: string): string {
-  const found = target(root, text);
-  if (!found) return "";
-  const { topicId, plan, index } = found;
+function construirBrief(root: string, found: ParteEncontrada, material: MaterialDeParte | undefined): string {
+  const { topicId, plan, index, entry } = found;
   const topicDir = resolve(root, topicId);
   const part = plan.parts[index];
   const targetPath = join(topicDir, "explicaciones", `Parte ${index + 1} - ${part.slug}.md`);
-  const raw = readRecord(join(topicDir, "plan.json"));
-  const entry = raw && Array.isArray(raw.parts) && isRecord(raw.parts[index]) ? raw.parts[index] : {};
   const statePath = join(topicDir, ".learning", "state.json");
   const state = readRecord(statePath);
-  const method = state === undefined ? "sin elegir" : typeof state.method === "string" && state.method ? state.method : "sin elegir";
+  const method = typeof state?.method === "string" && state.method ? state.method : "sin elegir";
   const summary = listTopics(root).find((topic) => topic.id === topicId);
   const siblings = plan.parts.map((other, position) => ({
     number: position + 1,
@@ -216,8 +298,6 @@ export function partBrief(root: string, text: string): string {
     ...(files.length ? [`Archivos: ${files.map(([label, path]) => `${label}=${path}`).join(" | ")}`] : []),
     `Comprobación: node ${CHECK_TOOL} ${targetPath}`,
   ];
-
-  const material = materialDeParte(root, topicId, part, entry);
 
   /** Rebuild the sibling lines with shorter titles (and only then shorter paths) until it fits. */
   let maxTitle = 64;
@@ -264,6 +344,29 @@ export function partBrief(root: string, text: string): string {
   }
   const withFullSheet = `${facts}${RULES_FULL}`;
   return bytes(withFullSheet) <= MAX_PART_BRIEF_BYTES ? withFullSheet : `${facts}${RULES_COMPACT}`;
+}
+
+/**
+ * The brief itself, or "" for any prompt that is not a write-part request. Synchronous, so the
+ * callers that cannot await keep working with the keyword half of the course index.
+ * `root` is the Learnings root the studio was started with; paths are absolute
+ * because the tutor may run in a different cwd.
+ */
+export function partBrief(root: string, text: string): string {
+  const found = target(root, text);
+  return found ? construirBrief(root, found, materialDeParte(root, found)) : "";
+}
+
+/**
+ * The same brief for the callers that can await (#422): a course part's slices are ranked by the
+ * hybrid index — the one `buscar` gives the learner — inside `PART_MATERIAL_TIMEOUT_MS`. At the
+ * bound, without an embedder, without a course or without indexed material it is exactly
+ * `partBrief`'s answer, and the last two start nothing.
+ */
+export async function partBriefAsync(root: string, text: string): Promise<string> {
+  const found = target(root, text);
+  if (!found) return "";
+  return construirBrief(root, found, await materialDeParteHibrido(root, found));
 }
 
 export const PLAN_BRIEF_MARK = "PLAN BRIEF";

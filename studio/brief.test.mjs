@@ -8,9 +8,10 @@ import { request } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { partBrief, MAX_PART_BRIEF_BYTES, PART_BRIEF_MARK } from "./brief.ts";
-import { cerrarIndice, configurarIndice, indicePath, indizarFuente } from "./indice.ts";
+import { partBrief, partBriefAsync, MAX_PART_BRIEF_BYTES, PART_BRIEF_MARK, PART_MATERIAL_TIMEOUT_MS } from "./brief.ts";
+import { cerrarIndice, configurarIndice, esperarIndice, indicePath, indizarFuente } from "./indice.ts";
 import { ruleSheet } from "../tools/part-check.mjs";
+import { vectorDe } from "./testdata/fake-embed.mjs";
 
 // The write-part brief ranks a course's chunks synchronously: no embedder is needed or started.
 configurarIndice({ embedCommand: null });
@@ -24,6 +25,7 @@ const FREQUENT_FILE = join(REPO, "tools", "part-check-frequent.json");
 const FREQUENT_HEADING = "Most frequent first-draft findings";
 const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
 const FAKE_AGY = join(HERE, "testdata", "fake-agy.mjs");
+const FAKE_EMBED = join(HERE, "testdata", "fake-embed.mjs");
 const PARTS = [
   { id: "p1", title: "Capas", slug: "Capas", subtema: "1.1" },
   { id: "p2", title: "TCP", slug: "TCP", subtema: "1.2.1" },
@@ -287,6 +289,152 @@ test("a broken index degrades to today's brief and logs to stderr", () => {
   }
   assert.equal(brief, sinMaterial, "a broken index leaves the brief exactly as it was");
   assert.ok(escrito.some((linea) => /material/i.test(linea) && /redes/.test(linea)), `the failure is logged: ${escrito.join("")}`);
+});
+
+// ---- #422: the awaited half of the brief -----------------------------------
+
+/** The embedder the index tests use: deterministic vectors, no model, no network. */
+const conEmbedder = () => configurarIndice({ embedCommand: [process.execPath, FAKE_EMBED] });
+const sinEmbedder = () => configurarIndice({ embedCommand: null });
+/**
+ * The deterministic fake hashes tokens, so two different tokens that hash to the same vector are
+ * "the same subject" to it while sharing no word at all: exactly the slice the keyword half cannot
+ * find. The first test re-derives the collision, so the fixture cannot rot silently.
+ */
+const COLISION = "ajd9q";
+
+/** Captures what the studio writes to stderr while `work` runs: a learner never sees those lines. */
+async function conStderr(work) {
+  const lineas = [];
+  const original = process.stderr.write;
+  process.stderr.write = (chunk) => { lineas.push(String(chunk)); return true; };
+  try {
+    const valor = await work();
+    return { valor, lineas };
+  } finally {
+    process.stderr.write = original;
+  }
+}
+
+// Rule 1 (#422): the part brief uses `/buscar`'s hybrid rank when the embedder is available, so a
+// slice that shares no keyword with the part but is the same subject still reaches the note.
+test("with the embedder, the part gets the slice only the semantic half finds", async () => {
+  assert.deepEqual(vectorDe(COLISION), vectorDe("tcp"), "the fake reads the fixture token as the part's subject");
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    const id = curso(root, "Redes", ["redes"]);
+    fuente(root, id, "protocolo.txt", "documento", `${COLISION} ${COLISION} ${COLISION}.`);
+    await esperarIndice();
+    assert.ok(!partBrief(root, WRITE_TEXT).includes("protocolo.txt"), "the keyword half alone never finds it");
+    const brief = await partBriefAsync(root, WRITE_TEXT);
+    assert.match(brief, /protocolo\.txt \(documento, [^)]+\)/, `the slice only the embedder ranks reaches the part: ${brief}`);
+  } finally {
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 2 (#422): the awaited path degrades to exactly today's keyword brief when the embedder is gone.
+test("without the embedder the awaited brief is today's keyword brief, byte for byte", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    const id = curso(root, "Redes", ["redes"]);
+    fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+    await esperarIndice();
+    sinEmbedder();
+    const hoy = partBrief(root, WRITE_TEXT);
+    assert.ok(hoy.includes("tcp.txt"), "the vectors are on disk, so only the missing embedder can explain the brief");
+    const esperado = await partBriefAsync(root, WRITE_TEXT);
+    assert.equal(esperado, hoy, "the awaited path degrades to exactly today's brief");
+  } finally {
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 3 (#422): the model may hang; the part must not. At the bound the keyword brief is delivered
+// and the delay is the studio's log, never a line the learner reads.
+test("a hanging embedder never delays the brief past the bound", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    const id = curso(root, "Redes", ["redes"]);
+    fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+    await esperarIndice();
+    const keyword = partBrief(root, WRITE_TEXT);
+    // A fresh child that receives the query and never answers it.
+    process.env.FAKE_EMBED_DELAY_MS = String(10 * PART_MATERIAL_TIMEOUT_MS);
+    conEmbedder();
+    const comienzo = Date.now();
+    let resultado;
+    try {
+      resultado = await conStderr(() => partBriefAsync(root, WRITE_TEXT));
+    } finally {
+      delete process.env.FAKE_EMBED_DELAY_MS;
+    }
+    const gastado = Date.now() - comienzo;
+    assert.ok(gastado >= PART_MATERIAL_TIMEOUT_MS - 25, `the embedder really was awaited: ${gastado} ms`);
+    assert.ok(gastado < PART_MATERIAL_TIMEOUT_MS + 750, `never past the bound: ${gastado} ms`);
+    assert.equal(resultado.valor, keyword, "at the bound the learner's part carries today's keyword brief");
+    assert.ok(!/embedder/i.test(resultado.valor), "the delay is not part of the prompt");
+    assert.ok(
+      resultado.lineas.some((linea) => /embedder/i.test(linea) && /TCP/.test(linea)),
+      `the delay is logged to stderr: ${resultado.lineas.join("")}`,
+    );
+  } finally {
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 4 (#422): the awaited brief keeps every bound and every instruction of the synchronous one.
+test("the awaited brief stays inside the byte bound, counts the leftovers and keeps the citation order", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    const id = curso(root, "Redes", ["redes"]);
+    const largo = Array.from({ length: 500 }, () => "tcp").join(" ");
+    for (let indice = 0; indice < 8; indice += 1) fuente(root, id, `tcp-${indice}.txt`, "documento", `${largo} fuente ${indice}.`);
+    await esperarIndice();
+    const brief = await partBriefAsync(root, WRITE_TEXT);
+    assert.ok(Buffer.byteLength(brief, "utf8") <= MAX_PART_BRIEF_BYTES, `bounded: ${Buffer.byteLength(brief, "utf8")}`);
+    assert.match(brief, /\d+ fragmentos relevantes sin mostrar/, "silence is the one thing it may not do");
+    assert.ok(
+      brief.includes("cita el nombre de la fuente y la ubicación de todo ejemplo o afirmación que tomes de aquí"),
+      "the citation instruction is unchanged",
+    );
+  } finally {
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 5 (#422): nothing already delivered changes, and nothing is started, without a course or
+// without indexed material. The injected command does not exist, so any start would log to stderr.
+test("a topic without a course or a course with no material keeps today's brief and starts no embedder", async () => {
+  configurarIndice({ embedCommand: [join(HERE, "testdata", "no-such-embed.mjs")] });
+  const { root } = makeRoot();
+  const sinCurso = partBrief(root, WRITE_TEXT);
+  const inicio = Date.now();
+  let fueraDeCurso;
+  let cursoVacio;
+  let escrito;
+  try {
+    const traza = await conStderr(async () => {
+      fueraDeCurso = await partBriefAsync(root, WRITE_TEXT);
+      curso(root, "Redes", ["redes"]);
+      cursoVacio = await partBriefAsync(root, WRITE_TEXT);
+    });
+    escrito = traza.lineas;
+  } finally {
+    sinEmbedder();
+  }
+  assert.equal(fueraDeCurso, sinCurso, "a topic outside every course is untouched");
+  assert.equal(cursoVacio, sinCurso, "a course with no indexed material adds no byte");
+  assert.equal(escrito.length, 0, `no embedder is started: ${escrito.join("")}`);
+  assert.ok(Date.now() - inicio < 1000, "and nothing is waited for");
 });
 
 test.after(async () => { await cerrarIndice(); });
