@@ -41,8 +41,10 @@ import { buildPanorama } from "./panorama.ts";
 import { partBrief } from "./brief.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
-import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
+import { AGY_LEVELS, PI_LEVELS, readTutor, saveTutor, TUTOR_AGENTS, type TutorConfig } from "./tutor.ts";
 import { createAgy, parseAgyModels } from "./agy.ts";
+import { createApi } from "./api-runtime.ts";
+import { catalogoMistral, detectar, nivelesDeEffort, proveedorDisponible, proveedorPorId } from "./proveedores.ts";
 import { checkTutorContext, driftMessage } from "./context.ts";
 import { VISUAL_CONTRACT_PROMPT, withVisualContract } from "../integrations/pi/contract.ts";
 import {
@@ -264,6 +266,16 @@ export interface StudioOptions {
   transcriberUrl?: string;
   transcriberToken?: string;
   enginePath?: string;
+  /**
+   * Base URL of the API provider the tutor talks to; a test or a local proxy points it elsewhere.
+   * Default: the detected provider's own base, as the registry declares it.
+   */
+  apiBase?: string;
+  /**
+   * Where the provider's key is read from, presence only; never written anywhere. Default: the
+   * studio's own environment.
+   */
+  apiEnv?: Record<string, string | undefined>;
   rulesPath?: string;
   /** A fixed 64-hex token, so restarts never invalidate an open tab; random per run when absent. */
   token?: string;
@@ -424,6 +436,8 @@ type Session = {
   kind: "main" | "task";
   child?: ChildProcessWithoutNullStreams;
   agy?: ReturnType<typeof createAgy>;
+  /** The API runtime: same surface as `agy`, no resident process and no conversation to reopen. */
+  api?: ReturnType<typeof createApi>;
   agyTurns: Array<{ role: "user" | "assistant"; text: string }>;
   alive: boolean;
   ready: Promise<void>;
@@ -1152,7 +1166,28 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (proc) proc.kill();
     session.agy?.stop();
     session.agy = undefined;
+    session.api?.stop();
+    session.api = undefined;
     session.alive = false;
+  };
+
+  /** The API tutor: the provider's own endpoint, with tools and no resident process. */
+  const startApiRuntime = (session: Session, config: TutorConfig) => {
+    session.api = createApi({
+      root,
+      config,
+      engine: enginePath,
+      // Presence is read here and nowhere else; nothing writes a key to the vault or the page.
+      env: options.apiEnv ?? process.env,
+      base: options.apiBase,
+      // A task's turn still tells the engine which topic it is working on.
+      ...(session.kind === "task" ? { childEnv: { LEARNING_TASK_TOPIC: session.id } } : {}),
+      onRecord: (record) => handle(record, session),
+      onError: (message) => session.emit("error", { message }),
+    });
+    session.ready = Promise.resolve();
+    session.alive = true;
+    session.emit("state", session.state());
   };
 
   /** Starts the runtime a task will use; new settings only reach tasks that were idle at the change. */
@@ -1162,7 +1197,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (tutor.agente === "pi") {
       startPi(session);
       session.ready = Promise.resolve();
-    } else {
+    } else if (tutor.agente === "agy") {
       const conversations = readTaskConversations(taskConversationFile);
       session.agyConversation = conversations.conversaciones[session.id] ?? null;
       session.agy = createAgy({
@@ -1181,10 +1216,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       session.ready = Promise.resolve();
       session.alive = true;
       session.emit("state", session.state());
+    } else {
+      startApiRuntime(session, tutor);
     }
   };
 
-  const missingRuntime = (session: Session) => !session.agy && !(session.child && session.alive);
+  const missingRuntime = (session: Session) => !session.agy && !session.api && !(session.child && session.alive);
 
   /** The task for a topic is created on first use and then kept for the studio's lifetime. */
   const ensureTask = (topic: string): Session => {
@@ -1379,6 +1416,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (config.agente === "pi") {
       startPi(main);
       main.ready = adoptBoot();
+    } else if (config.agente === "api") {
+      startApiRuntime(main, config);
     } else {
       main.agy = createAgy({
         command: options.agyCommand ?? ["agy"],
@@ -1581,6 +1620,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     try {
       if (session.agy) {
         session.agy.prompt(prompt);
+      } else if (session.api) {
+        session.api.prompt(prompt);
       } else {
         const reply = await call(session, { type: "prompt", message: prompt });
         if (reply.success === false) throw new HttpError(409, String(reply.error ?? "el tutor rechazó el turno"));
@@ -1959,6 +2000,29 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         resolve(parsePiModels(String(stdout ?? "")));
       });
     });
+  /**
+   * The models the API provider returns for its own key. A missing key or a failed request is an
+   * answer with a reason, never a 500: the page must still open and say what is missing.
+   */
+  const apiCatalog = async (id: string): Promise<{ modelos: string[]; aviso?: string }> => {
+    const provider = proveedorPorId(id);
+    if (!provider) throw new HttpError(400, "unknown provider");
+    if (!provider.implementado) return { modelos: [], aviso: `${provider.nombre} todavía no está implementado` };
+    const env = options.apiEnv ?? process.env;
+    const key = String(env[provider.variable] ?? "").trim();
+    if (!key) return { modelos: [], aviso: `Falta ${provider.variable}: expórtala y reinicia el estudio.` };
+    try {
+      const response = await fetch(`${options.apiBase ?? provider.base}models`, {
+        headers: { authorization: `Bearer ${key}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) return { modelos: [], aviso: `${provider.nombre} respondió ${response.status}` };
+      return { modelos: catalogoMistral(await response.json()).map((modelo) => modelo.id) };
+    } catch (error) {
+      return { modelos: [], aviso: `No se pudo leer el catálogo de ${provider.nombre}: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  };
+
   const engineReport = (workspace: string): Promise<Json> =>
     new Promise((resolve) => {
       if (!existsSync(enginePath)) return resolve({ status: "desconocido" });
@@ -2402,6 +2466,20 @@ ${scripts}
       }
       case "api/tutor": {
         if (main.turn) throw new HttpError(409, TURN_ACTIVE);
+        // Checked before the save, so a refused tutor never replaces the one that works.
+        if (isRecord(body) && body.agente === "api") {
+          const modelo = typeof body.modelo === "string" ? body.modelo : "";
+          const pensamiento = typeof body.pensamiento === "string" ? body.pensamiento : "";
+          const id = (typeof body.proveedor === "string" && body.proveedor) || proveedorDisponible(options.apiEnv ?? process.env)?.id || "";
+          const provider = id ? proveedorPorId(id) : null;
+          if (!provider) throw new HttpError(400, "Para usar Mistral exporta MISTRAL_API_KEY y reinicia el estudio.");
+          if (!provider.implementado) throw new HttpError(400, `${provider.nombre} todavía no está implementado`);
+          if (!modelo) throw new HttpError(400, `Elige un modelo de ${provider.nombre} antes de guardar el tutor.`);
+          const niveles = nivelesDeEffort(modelo);
+          if (pensamiento && !niveles.includes(pensamiento)) {
+            throw new HttpError(400, `${provider.nombre} no acepta «${pensamiento}» en ${modelo}; elige ${niveles.length ? niveles.join(", ") : "ningún nivel"}.`);
+          }
+        }
         const config = saveTutor(root, body);
         startTutor(config);
         return sendJson(res, 200, config);
@@ -2861,11 +2939,25 @@ ${scripts}
         return sendJson(res, 200, readPreferences(root));
       case "api/tutor":
         return sendJson(res, 200, readTutor(root));
+      case "api/proveedores":
+        // Presence and a reason, never a key: the page learns whether it can offer the provider.
+        return sendJson(res, 200, { proveedores: detectar(options.apiEnv ?? process.env) });
       case "api/tutor/modelos": {
         // The catalogue belongs to the runtime selected in the page, which may not be saved yet.
-        const provider = url.searchParams.get("agente") ?? readTutor(root).agente;
-        if (provider !== "pi" && provider !== "agy") throw new HttpError(400, "agente must be pi or agy");
-        return sendJson(res, 200, { modelos: provider === "agy" ? await agyCatalog() : await piCatalog() });
+        const saved = readTutor(root);
+        const provider = url.searchParams.get("agente") ?? saved.agente;
+        if (!(TUTOR_AGENTS as readonly string[]).includes(provider)) throw new HttpError(400, "agente must be pi, agy or api");
+        const modelo = url.searchParams.get("modelo") ?? saved.modelo;
+        if (provider === "api") {
+          const id = saved.proveedor || proveedorDisponible(options.apiEnv ?? process.env)?.id || "mistral";
+          const catalogo = await apiCatalog(id);
+          return sendJson(res, 200, { ...catalogo, pensamientos: nivelesDeEffort(modelo) });
+        }
+        // A model the API does not document gets no levels: the page says so instead of guessing.
+        return sendJson(res, 200, {
+          modelos: provider === "agy" ? await agyCatalog() : await piCatalog(),
+          pensamientos: provider === "agy" ? AGY_LEVELS : PI_LEVELS,
+        });
       }
       case "api/tema":
         return sendJson(res, 200, { tema: main.tema });

@@ -661,9 +661,14 @@
       // Who tutors is a choice of its own: it restarts the tutor, so it is not part of the preferences file.
       const agente = h("select", { name: "agente" },
         h("option", { value: "pi", selected: tutor.agente === "pi" }, "Pi"),
-        h("option", { value: "agy", selected: tutor.agente === "agy" }, "Antigravity"));
+        h("option", { value: "agy", selected: tutor.agente === "agy" }, "Antigravity"),
+        h("option", { value: "api", selected: tutor.agente === "api" }, "Mistral (API)"));
+      // An API key lives in the environment, so the page says only whether it is there and what to export.
+      const clave = h("p", { class: "muted provider-key" });
       // The models belong to the chosen runtime, so the list follows the provider.
       const modelo = h("select", { name: "modelo" });
+      // The levels belong to the model, not to the provider: a model that names none offers none.
+      const pensamiento = h("select", { name: "pensamiento" });
       const modelRow = h("div", { class: "preference-row" },
         h("div", { class: "preference-description" },
           h("p", { class: "muted" }, "Con qué modelo responde. El predeterminado es el del proveedor.")),
@@ -674,33 +679,55 @@
         h("option", { value: "" }, "Predeterminado del proveedor"),
         ...(chosen && !ids.includes(chosen) ? [chosen] : []).concat(ids)
           .map((id) => h("option", { value: id, selected: id === chosen }, id)));
+      const showLevels = (levels, chosen) => pensamiento.replaceChildren(
+        h("option", { value: "" }, "El del proveedor"),
+        ...(chosen && !levels.includes(chosen) ? [chosen] : []).concat(levels)
+          .map((level) => h("option", { value: level, selected: level === chosen }, level)));
+      showLevels([], tutor.pensamiento);
+      const showKey = async () => {
+        clave.hidden = agente.value !== "api";
+        if (clave.hidden) return void clave.replaceChildren();
+        const data = await request("api/proveedores").catch(() => null);
+        const mistral = data?.proveedores?.find((entry) => entry.id === "mistral");
+        clave.textContent = mistral ? mistral.aviso : "";
+      };
       let modelsFor = 0;
       const fillModels = async () => {
         const ask = ++modelsFor;
         const chosen = modelo.value || (agente.value === tutor.agente ? tutor.modelo : "");
         showModels([], chosen);
-        const ids = (await request(`api/tutor/modelos?agente=${agente.value}`).catch(() => ({ modelos: [] }))).modelos ?? [];
+        void showKey();
+        const answer = await request(`api/tutor/modelos?agente=${agente.value}&modelo=${encodeURIComponent(chosen)}`).catch(() => ({ modelos: [] }));
         // A slower answer for a provider the learner already left is dropped.
-        if (ask === modelsFor) showModels(ids, modelo.value || chosen);
+        if (ask !== modelsFor) return;
+        showModels(answer.modelos ?? [], modelo.value || chosen);
+        showLevels(answer.pensamientos ?? [], agente.value === tutor.agente ? tutor.pensamiento : "");
       };
       agente.addEventListener("change", () => { modelo.value = ""; fillModels(); });
+      // The effort follows the model, so asking for a new one asks for its own levels.
+      modelo.addEventListener("change", () => { void fillModels(); });
       // Not awaited: `pi --list-models` can take seconds and must not hold the page back.
       fillModels();
+      const levelRow = h("div", { class: "preference-row" },
+        h("div", { class: "preference-description" },
+          h("p", { class: "muted" }, "Cuánto razona antes de responder. Cada modelo tiene sus propios niveles.")),
+        h("div", { class: "preference-levels" }, pensamiento));
       const tutorField = h("fieldset", { class: "tutor-choice" },
         h("legend", {}, "Quién te da la tutoría"),
         h("div", { class: "preference-row" },
           h("div", { class: "preference-description" },
-            h("p", { class: "muted" }, "El mismo motor comprueba tu trabajo con cualquiera de los dos.")),
+            h("p", { class: "muted" }, "El mismo motor comprueba tu trabajo con cualquiera de los tres."),
+            clave),
           h("div", { class: "preference-levels" }, agente)),
-        modelRow);
+        modelRow, levelRow);
       const save = h("button", { class: "btn primary", type: "submit" }, "Guardar preferencias");
       const form = h("form", { class: "preferences-form", onsubmit: async (event) => {
         event.preventDefault();
         save.disabled = true;
         status.textContent = "Guardando…";
         try {
-          if (agente.value !== tutor.agente || modelo.value !== tutor.modelo) {
-            await post("api/tutor", { ...tutor, agente: agente.value, modelo: modelo.value });
+          if (agente.value !== tutor.agente || modelo.value !== tutor.modelo || pensamiento.value !== tutor.pensamiento) {
+            await post("api/tutor", { ...tutor, agente: agente.value, modelo: modelo.value, pensamiento: pensamiento.value });
           }
           await post("api/preferences", data);
           status.textContent = "Preferencias guardadas";

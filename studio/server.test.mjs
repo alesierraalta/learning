@@ -226,7 +226,7 @@ test("the Antigravity model catalogue is offered and the chosen model reaches th
   const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
   open.push(studio);
   // With Pi saved, the unqualified catalogue is Pi's, never Antigravity's.
-  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body), { modelos: PI_MODELS });
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body).modelos, PI_MODELS);
   assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
   assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body).modelos, ["gemini-3.8-flash-high", "claude-sonnet-4-6"]);
   const saved = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "claude-sonnet-4-6", pensamiento: "" });
@@ -2046,14 +2046,15 @@ test("tutor settings default to Pi and persist the selected Antigravity provider
   const settings = { version: 1, agente: "agy", modelo: "", pensamiento: "" };
   const saved = await post(studio, "api/tutor", settings);
   assert.equal(saved.status, 200, saved.body);
-  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), settings);
+  // A v1 body is still accepted and comes back as v2, with the provider left to be detected.
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), { ...settings, version: 2, proveedor: "" });
   // Antigravity cannot apply "minimal": that level is refused, never silently dropped.
   const unsupported = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "minimal" });
   assert.equal(unsupported.status, 400);
   assert.match(JSON.parse(unsupported.body).error, /Antigravity does not accept the thinking level/);
   const low = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "low" });
   assert.equal(low.status, 200, low.body);
-  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), { version: 1, agente: "agy", modelo: "", pensamiento: "low" });
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), { version: 2, agente: "agy", modelo: "", pensamiento: "low", proveedor: "" });
   // Pi keeps the levels Antigravity lacks.
   assert.equal((await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "minimal" })).status, 200);
 });
@@ -4757,3 +4758,92 @@ function materiaUpload(studio, id, { fileName, contentType, tipo, content }) {
     body: content,
   });
 }
+
+// ---- the API tutor, told through the studio -------------------------------------------------
+
+/** A 32-character alphanumeric key, the shape Mistral's dashboard issues. */
+const API_KEY = "0a1b2c3d4e5f60718293a4b5c6d7e8f9";
+
+/** A provider that answers with one tool call, then with text; enough for one real turn. */
+async function fakeProvider() {
+  const seen = [];
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      seen.push({ url: request.url, auth: request.headers.authorization, body: body ? JSON.parse(body) : null });
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      const event = (payload) => `data: ${JSON.stringify(payload)}\n\n`;
+      const delta = (value, finish = null) => event({ choices: [{ delta: value, finish_reason: finish }] });
+      if (seen.length === 1) {
+        response.end(delta({ tool_calls: [{ index: 0, id: "call-write", type: "function", function: { name: "write", arguments: JSON.stringify({ path: "redes/parte1.md", content: "# Parte 1" }) } }] }, "tool_calls") + event("[DONE]"));
+      } else {
+        response.end(delta({ content: "Listo: " }) + delta({ content: "escribí la parte." }) + event("[DONE]"));
+      }
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}/v1/`;
+  return { base, seen, close: () => new Promise((resolve) => server.close(resolve)) };
+}
+
+async function apiStudio(options) {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, ...options });
+  open.push(studio);
+  return { studio, root, engine };
+}
+
+test("the API tutor runs a turn through the studio and writes the note the model asked for", async () => {
+  const fake = await fakeProvider();
+  try {
+    const { studio, root } = await apiStudio({ apiBase: fake.base, apiEnv: { MISTRAL_API_KEY: API_KEY } });
+    writeDoc(root, "tutor", JSON.stringify({ version: 2, agente: "api", modelo: "mistral-small-2603", pensamiento: "high", proveedor: "mistral" }));
+    // The settings file is read at start, so the tutor is restarted with it the way the page does.
+    assert.equal((await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-small-2603", pensamiento: "high", proveedor: "mistral" })).status, 200);
+    const stream = sse(`${studio.url}events`);
+    await stream.next("history");
+    await stream.next("state");
+    const answer = await post(studio, "prompt", { text: "Escribe la Parte 1" });
+    assert.equal(answer.status, 200, answer.body);
+    const delta = await stream.next("assistant_delta");
+    assert.match(delta.delta, /Listo/);
+    assert.equal(readFileSync(join(root, "redes", "parte1.md"), "utf8"), "# Parte 1");
+    // The effort travelled because that model names `high`.
+    assert.equal(fake.seen[0].body.reasoning_effort, "high");
+    assert.equal(fake.seen[0].auth, `Bearer ${API_KEY}`);
+  } finally { await fake.close(); }
+});
+
+test("the studio says whether the key is present and never serves it", async () => {
+  const absent = await apiStudio({ apiEnv: {} });
+  const none = JSON.parse((await http(`${absent.studio.url}api/proveedores`)).body).proveedores.find((entry) => entry.id === "mistral");
+  assert.equal(none.presente, false);
+  assert.match(none.aviso, /MISTRAL_API_KEY/);
+  const present = await apiStudio({ apiEnv: { MISTRAL_API_KEY: API_KEY } });
+  const raw = (await http(`${present.studio.url}api/proveedores`)).body;
+  const there = JSON.parse(raw).proveedores.find((entry) => entry.id === "mistral");
+  assert.equal(there.presente, true);
+  assert.equal(there.forma, "propia");
+  assert.equal(raw.includes(API_KEY), false, "the key never reaches the page");
+  // Another provider's key is detected and reported as not implemented, never as Mistral.
+  const other = await apiStudio({ apiEnv: { ANTHROPIC_API_KEY: `sk-ant-api03-${"a".repeat(24)}` } });
+  const anthropic = JSON.parse((await http(`${other.studio.url}api/proveedores`)).body).proveedores;
+  assert.equal(anthropic.find((entry) => entry.id === "mistral").presente, false);
+  assert.equal(anthropic.find((entry) => entry.id === "anthropic").implementado, false);
+});
+
+test("saving the API tutor refuses an effort the model does not document, before writing the file", async () => {
+  const { studio, root } = await apiStudio({ apiEnv: { MISTRAL_API_KEY: API_KEY } });
+  const refused = await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-large-4-0", pensamiento: "none", proveedor: "mistral" });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body, /no acepta/);
+  assert.equal(existsSync(join(root, "tutor.json")), false, "a refused tutor never writes the file");
+  const accepted = await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-large-4-0", pensamiento: "medium", proveedor: "mistral" });
+  assert.equal(accepted.status, 200, accepted.body);
+  assert.equal(JSON.parse(accepted.body).pensamiento, "medium");
+  // A model nobody documented offers no levels, and the page is told so.
+  const catalogue = JSON.parse((await http(`${studio.url}api/tutor/modelos?agente=api&modelo=mistral-large-latest`)).body);
+  assert.deepEqual(catalogue.pensamientos, []);
+});

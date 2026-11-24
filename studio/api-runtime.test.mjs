@@ -263,3 +263,27 @@ test("a busy tutor refuses a second prompt instead of interleaving two turns", a
     await until(() => h.settled() >= 1);
   } finally { await fake.close(); }
 });
+
+test("an api tutor with no model chosen says which one to pick, without calling out", async () => {
+  const fake = await provider([textTurn("nunca")]);
+  const h = setup([]);
+  const api = runtime(h, { base: fake.base, config: { modelo: "" } });
+  try {
+    api.prompt("hola");
+    await until(() => h.errors.length > 0);
+    assert.match(h.errors[0], /modelo de Mistral/);
+    assert.equal(fake.seen.length, 0);
+  } finally { await fake.close(); }
+});
+
+test("a provider the studio cannot drive yet says so instead of spending the key", async () => {
+  const fake = await provider([textTurn("nunca")]);
+  const h = setup([]);
+  const api = runtime(h, { base: fake.base, config: { proveedor: "anthropic", modelo: "claude-sonnet-4-6" }, env: { ANTHROPIC_API_KEY: `sk-ant-api03-${"a".repeat(24)}` } });
+  try {
+    api.prompt("hola");
+    await until(() => h.errors.length > 0);
+    assert.match(h.errors[0], /todavía no está implementado/);
+    assert.equal(fake.seen.length, 0);
+  } finally { await fake.close(); }
+});

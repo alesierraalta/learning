@@ -19,7 +19,8 @@ export const TUTOR_SKILL_AGENTS = ["pi", "agy"] as const;
  */
 export type TutorConfig = { version: 2; agente: TutorAgent; modelo: string; pensamiento: string; proveedor: string };
 const DEFAULT: TutorConfig = { version: 2, agente: "pi", modelo: "", pensamiento: "", proveedor: "" };
-const LEVELS = ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"];
+/** Pi's own ladder: the page offers it when Pi is the tutor. */
+export const PI_LEVELS = ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"];
 /** The levels Mistral documents, union across its models; a model's own subset is checked when saving. */
 export const API_LEVELS = ["", "none", "low", "medium", "high", "max"];
 /** What Antigravity's `--effort` accepts; a level outside this list would be dropped, so it is refused. */
@@ -28,9 +29,9 @@ export const AGY_LEVELS = ["low", "medium", "high", "xhigh", "max"];
 const isAgent = (value: unknown): value is TutorAgent => typeof value === "string" && (TUTOR_AGENTS as readonly string[]).includes(value);
 
 function supported(agente: TutorAgent, pensamiento: string): boolean {
-  if (agente === "agy") return pensamiento === "" ? LEVELS.includes(pensamiento) : AGY_LEVELS.includes(pensamiento);
+  if (agente === "agy") return pensamiento === "" ? PI_LEVELS.includes(pensamiento) : AGY_LEVELS.includes(pensamiento);
   if (agente === "api") return API_LEVELS.includes(pensamiento);
-  return LEVELS.includes(pensamiento);
+  return PI_LEVELS.includes(pensamiento);
 }
 
 /**
@@ -55,7 +56,7 @@ function validate(input: unknown): TutorConfig {
   if (proveedor !== "" && proveedorPorId(proveedor) === null) throw new HttpError(400, "unknown provider");
   if (!supported(data.agente, data.pensamiento)) {
     const quien = { agy: "Antigravity", api: "Mistral", pi: "Pi" }[data.agente];
-    const niveles = data.agente === "agy" ? AGY_LEVELS : data.agente === "api" ? API_LEVELS.filter(Boolean) : LEVELS.filter(Boolean);
+    const niveles = data.agente === "agy" ? AGY_LEVELS : data.agente === "api" ? API_LEVELS.filter(Boolean) : PI_LEVELS.filter(Boolean);
     throw new HttpError(400, `${quien} does not accept the thinking level "${data.pensamiento}"; choose ${niveles.join(", ")} or leave it empty`);
   }
   return { version: 2, agente: data.agente, modelo: data.modelo, pensamiento: data.pensamiento, proveedor };
