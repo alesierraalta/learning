@@ -179,7 +179,8 @@ renamed without changing the sheet. The write-part prompt carries the sheet in
 its `PART BRIEF` (the compact form when the full one would exceed the brief's
 12288-byte bound), so the tutor's order is: read the brief → write the whole
 part → run part-check once → fix only what its findings name → re-run
-part-check. It does not read rule files, gate or kit source, or the register
+part-check. When the topic belongs to a course, the brief also carries that
+part's relevant material (see Course materials), never the whole course. It does not read rule files, gate or kit source, or the register
 scorer before writing, and does not probe scorers with `node -e`.
 
 It calls `runPartChecks` from `studio/checks.ts` (and its `PART_TOOLS`) for the five gates above,
@@ -499,6 +500,8 @@ All routes are behind the studio token and reject a foreign `Host`; a POST also 
 | `DELETE api/materias/<id>/temas/<tema>` | — | `200` with the updated materia |
 
 A new topic can be born inside a course instead of being linked later: `POST api/aprender {text, modo, materia?}` takes the id of an existing course, and when the creation turn binds its topic the studio links it (`linkTema`) before the next delivery, so the turn that plans the route already carries the course's PLAN BRIEF. An unknown or malformed id starts no turn and returns `400` with `No existe esa materia.`; without `materia` the request is exactly what it was, and a `rapido` request teaches no topic, so it never joins a course. On the page, the new-topic entry offers the courses the learner already has, preselected when the request comes from a materia's «Nuevo tema en esta materia».
+
+Once the topic belongs to a course, its write-part `PART BRIEF` also carries the course slices that belong to that part: the plan entry's title and `subtema` are the query, and the keyword half of the course index ranks the chunks (`materialRelevante`, FTS5 bm25) **synchronously**, so the brief stays synchronous and deterministic for `startTurn`; semantic ranking is a documented follow-up, not a silent claim. Each line names the source, its type and where in it the slice sits, and the part is told to cite the source name and location of every example or claim it takes from the material. The section lives inside the same 12288-byte brief, so it shows bounded slices and says how many relevant fragments stayed out. A topic without a course, a course with no indexed material, or an index that cannot be read leaves today's brief exactly as it was; the failure is a stderr line, never a broken turn.
 
 A source accepts PDF, PNG/JPEG/WEBP, DOCX, TXT and MD, up to 20 MiB each, with `X-Tipo` set to one of the three kinds. PDFs reuse the `api/subir` pipeline: `pdftotext` fills `texto`, `pdftoppm` renders up to 20 page PNGs and `paginas` is the total page count. DOCX `word/document.xml` is parsed in-process with `node:zlib` (no new dependency); TXT/MD are read as UTF-8; images keep an empty extracted text and their original bytes. Every source keeps its sanitized original beside the extracted text.
 

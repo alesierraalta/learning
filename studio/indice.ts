@@ -856,9 +856,8 @@ export function fusionarRRF(listas: readonly (readonly string[])[]): Array<{ id:
 }
 
 function porClave(db: DatabaseSync, materia: string, consulta: string, tipos: string[], limite: number): string[] {
-  const terminos = normalizar(consulta).split(" ").filter(Boolean).slice(0, 16);
-  if (!terminos.length) return [];
-  const match = terminos.map((termino) => `"${termino.replace(/"/g, '""')}"`).join(" OR ");
+  const match = matchDe(consulta);
+  if (!match) return [];
   const filtro = tipos.length ? ` AND c.tipo IN (${tipos.map(() => "?").join(", ")})` : "";
   const sql = `
     SELECT c.id AS id FROM chunks_fts f
@@ -868,6 +867,26 @@ function porClave(db: DatabaseSync, materia: string, consulta: string, tipos: st
   `;
   const filas = db.prepare(sql).all(match, materia, ...tipos, limite) as Array<{ id: string }>;
   return filas.map((fila) => fila.id);
+}
+
+/** The FTS5 expression for a query: diacritics folded, one quoted term per word (OR). */
+function matchDe(consulta: string): string | undefined {
+  const terminos = normalizar(consulta).split(" ").filter(Boolean).slice(0, 16);
+  if (!terminos.length) return undefined;
+  return terminos.map((termino) => `"${termino.replace(/"/g, '""')}"`).join(" OR ");
+}
+
+/** Every chunk the keyword index matches, shown or not: a caller that clips must say how many. */
+function cuentaPorClave(db: DatabaseSync, materia: string, consulta: string, tipos: string[]): number {
+  const match = matchDe(consulta);
+  if (!match) return 0;
+  const filtro = tipos.length ? ` AND c.tipo IN (${tipos.map(() => "?").join(", ")})` : "";
+  const sql = `
+    SELECT COUNT(*) AS n FROM chunks_fts f
+    JOIN chunks c ON c.rowid = f.rowid
+    WHERE chunks_fts MATCH ? AND c.materia = ?${filtro}
+  `;
+  return (db.prepare(sql).get(match, materia, ...tipos) as { n: number }).n;
 }
 
 async function porVector(db: DatabaseSync, root: string, materia: string, consulta: string, tipos: string[], limite: number): Promise<string[]> {
@@ -907,8 +926,13 @@ export async function buscar(
     catch { /* an embedder failure degrades to keywords, never to a failed search */ }
   }
   const combinadas = fusionarRRF([claves, vectores]);
+  return hidratar(db, combinadas.slice(0, k));
+}
+
+/** Turns ranked chunk ids into the rows a caller reads: the one hydration `buscar` and its keyword half share. */
+function hidratar(db: DatabaseSync, combinadas: Array<{ id: string; score: number; senales: string[] }>): Resultado[] {
   const resultados: Resultado[] = [];
-  for (const combinada of combinadas.slice(0, k)) {
+  for (const combinada of combinadas) {
     const fila = db.prepare("SELECT id, materia, fuente, tipo, nombre, ubicacion, texto FROM chunks WHERE id = ?").get(combinada.id) as
       | { id: string; materia: string; fuente: string; tipo: string; nombre: string; ubicacion: string; texto: string }
       | undefined;
@@ -917,6 +941,36 @@ export async function buscar(
     resultados.push({ ...fila, score: combinada.score, senales, signals: [...senales] });
   }
   return resultados;
+}
+
+// ---- Relevant slices, synchronously -----------------------------------------
+
+export interface SeleccionMaterial {
+  /** The best matching chunks, rank 1 first, at most `k`. */
+  trozos: Resultado[];
+  /** Every chunk of the course the index matched, shown or not, so a clipped caller can say how many it left out. */
+  total: number;
+}
+
+/**
+ * The keyword half of `buscar`, synchronously and without the embedder (#374/T4). The write-part
+ * brief is built where `startTurn` already is and must stay synchronous, so a course part is
+ * selected by FTS5 rank only: deterministic, embedder-free, and honest that semantic recall is a
+ * documented follow-up rather than a hidden claim. `total` counts all matches, not just `trozos`.
+ */
+export function materialRelevante(
+  root: string,
+  materia: string,
+  consulta: string,
+  opciones: { k?: number; tipos?: string[] } = {},
+): SeleccionMaterial {
+  const db = database(resolve(root));
+  const k = Math.max(1, Math.min(MAX_K, Math.trunc(opciones.k ?? 6)));
+  const tipos = (opciones.tipos ?? []).filter((tipo) => tipo === "examen" || tipo === "documento" || tipo === "transcripcion");
+  const limite = Math.max(k * 4, 20);
+  const claves = porClave(db, materia, consulta, tipos, limite);
+  const total = cuentaPorClave(db, materia, consulta, tipos);
+  return { trozos: hidratar(db, fusionarRRF([claves]).slice(0, k)), total };
 }
 
 // ---- Rebuild command ---------------------------------------------------------
