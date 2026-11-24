@@ -26,7 +26,8 @@ export function parseAgyModels(output: string): string[] {
  * What Pi learns from its learning_view tool, Antigravity gets with every turn: the vault's
  * AGENTS.md alone would send the learner to answer in the chat, where the engine never reads it.
  */
-const STUDIO_CONTRACT = [
+/** Shared by every runtime that does not inherit Pi's own prompt: the API tutor sends it as its system message. */
+export const STUDIO_CONTRACT = [
   "[Learnings studio]",
   "The learner works in the Learnings studio. Quizzes are answered on the studio page, never in this chat: after writing a diagnosis round, tell the learner to press «Responder el diagnóstico»; after a mini-quiz, «Ir a Parte N» (the part's own page). Never ask for answers in a typed format such as d1-B or seguro/dudo/adivine.",
   "A message starting with [Vista HTML · ...] is the learner's own submission; the answers file it names is already written.",
