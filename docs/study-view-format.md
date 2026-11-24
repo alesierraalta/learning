@@ -34,14 +34,23 @@ the section number automatically. Keep one concrete example running throughout.
 ### The answers belong to the quiz they answer
 
 `mini-quiz/<part>.answers.json` records the learner's choices **and a fingerprint of the
-quiz they answered** — its question ids, statements and every option with the letter the
-tutor gave it, in canonical order. The bridge only treats those answers as «already
+quiz they answered** — its question ids, statements, every option with its letter **and the
+letter the tutor keyed**, in canonical order. The keyed letter is the point: a quiz re-keyed
+in place keeps every word and changes only which option is right, and answers for the old key
+must not be scored against the new one. The bridge only treats those answers as «already
 answered» when the fingerprint matches the quiz on disk: a part whose quiz was regenerated
 (a regeneration archives the answers with the old quiz) or a file written before the
 fingerprint existed is **stale**, and the reader shows the form again instead of a dead
 «0/0». Submitting then replaces the stale file in place; nothing is deleted, and the old
 answers stay readable in `.papelera` when they travelled with a regeneration. The same
 rule hides the practical exercises' solutions until the learner answers this quiz.
+
+The engine holds the same rule from its own side (`internal/engine`): `quizFingerprint` is
+implemented twice — here and in the bridge — and a shared golden value in both test suites is
+what keeps them from drifting apart. An answers file that names no quiz, or another one, is
+**not graded**: the quiz stage reports `waiting for learner input` instead of deriving a score.
+That is also how a vault written before this rule recovers — the learner answers that quiz once
+more, and the new answers name it.
 
 9. Supply the required final mini-quiz (five A–E questions, E = “No sé”) and two practical
    exercises (Easy and Medium). The tutor supplies the quiz JSON sidecar; the view

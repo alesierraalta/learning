@@ -1067,11 +1067,24 @@ function writeAnswers(file: string, record: AnswerFile): void {
  * the tutor gave it — in a canonical order. Two quizzes that reuse the ids `q1..q5` but ask or key different
  * things are not the same quiz, and only the same quiz makes stored answers a second answer (#416).
  */
-function quizFingerprint(questions: Question[]): string {
+export function quizFingerprint(questions: Question[]): string {
+  // `answer` is the point: a quiz re-keyed in place keeps every id and word and changes only the
+  // letter, and answers for the old key must not be graded against the new one. `pieza` and `round`
+  // stay out on purpose: they do not change what the learner answers, and the engine hashes the same
+  // fields from its own struct, where neither exists (the shared golden test pins the agreement).
   const canonical = questions
-    .map((q) => [q.id, q.enunciado, Object.keys(q.options).sort().map((letter) => [letter, q.options[letter]])])
+    .map((q) => [q.id, q.enunciado, q.answer, Object.keys(q.options).sort().map((letter) => [letter, q.options[letter]])])
     .sort((a, b) => String(a[0]) < String(b[0]) ? -1 : String(a[0]) > String(b[0]) ? 1 : 0);
   return `sha256:${createHash("sha256").update(JSON.stringify(canonical)).digest("hex")}`;
+}
+
+/**
+ * The fingerprint of the quiz a part carries on disk, or "" when it carries none. Other modules read
+ * the quiz in their own shape, so they ask for this instead of rebuilding the canonical form.
+ */
+export function quizFingerprintOfPart(dir: string, partId: string): string {
+  const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
+  return questions ? quizFingerprint(questions) : "";
 }
 
 /**

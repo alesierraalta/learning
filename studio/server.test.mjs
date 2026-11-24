@@ -17,6 +17,7 @@ import { busyFile, clearBusy, markBusy, pidAlive } from "./state.ts";
 import { runPartChecks } from "./checks.ts";
 import { stripLecciones } from "./sugerencias.ts";
 import { VISUAL_CONTRACT_PROMPT } from "./contract.ts";
+import { quizFingerprintOfPart } from "../integrations/pi/bridge.ts";
 import extension from "../integrations/pi/index.ts";
 import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
@@ -4502,7 +4503,12 @@ const seedWaiting = (root) => {
     waitingQuestion("q1", "Pregunta uno", "A"),
     waitingQuestion("q2", "Pregunta dos", "B"),
   ] }));
-  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), JSON.stringify({ answers: { q1: "C", q2: "B" }, razonamientos: {} }));
+  // #416: stored answers name the quiz they answer, or the review has nothing to review.
+  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), JSON.stringify({
+    quiz: quizFingerprintOfPart(topic, "p1"),
+    answers: { q1: "C", q2: "B" },
+    razonamientos: {},
+  }));
 };
 
 test("GET api/espera serves the diagnosis before writing and hides its answers", async () => {

@@ -1590,6 +1590,12 @@ func evalMiniQuizAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"learner answers not yet recorded in %s (waiting for learner input)", aRel))
 	}
+	if stored := loadAnswersQuiz(c.ws, aRel); stored != quizFingerprint(qs) {
+		// An answers file that does not name this quiz answers another one (or predates #416): grading
+		// its letters against this key would fail the part on questions the learner never saw.
+		return failCheck(decl.ID, fmt.Sprintf(
+			"learner answers in %s answer another quiz (waiting for learner input)", aRel))
+	}
 	answers, err := loadAnswers(c.ws, aRel)
 	if err != nil {
 		return failCheck(decl.ID, "answers invalid: "+err.Error())

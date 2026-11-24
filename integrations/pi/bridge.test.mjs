@@ -5365,7 +5365,9 @@ test("#416: a stale or legacy answers file heals itself, and the manual recovery
     writeFileSync(answerFileOf(topic), JSON.stringify({ answers: { viejo1: "B", viejo2: "D" } }));
     const failing = engineRun(root, "validate", "--stage", "quiz");
     assert.equal(failing.report.status, "blocked");
-    assert.match(failing.report.checks.find((c) => c.id === "mini-quiz-answers").reason, /unknown questions|missing for/);
+    // #416: a file with no fingerprint answers a quiz nobody can identify, so it is not graded at all;
+    // the reason names that, instead of the coverage error the old letters would also produce.
+    assert.match(failing.report.checks.find((c) => c.id === "mini-quiz-answers").reason, /another quiz|waiting for learner input/);
     // The page does not pretend the part is answered.
     const served = await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`);
     assert.equal(served.answered, null, "a legacy answers file is not a verdict on this quiz");
@@ -5396,6 +5398,75 @@ test("#416: a stale or legacy answers file heals itself, and the manual recovery
   } finally {
     await shutdown();
   }
+});
+
+test("#416: a quiz re-keyed in place is never graded against the letters the learner gave", { skip: ENGINE_SKIP }, async () => {
+  // The worst case of this bug, and the one the fingerprint exists for: same ids, same statements, same
+  // options, only the keyed letter changes. Nothing about the wording is stale, so a hash of the wording
+  // alone would call the old answers fresh and score them 0/3 against a key the learner never saw.
+  const { root, topic } = engineVault();
+  const { view, shutdown } = engineBridge(root);
+  try {
+    const part = await view({ topic: ENGINE_TOPIC, part: "p1" });
+    const url = base(part);
+    const first = await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`);
+    assert.equal((await submit(url, { kind: "mini-quiz", topic: ENGINE_TOPIC, part: "p1", answers: pickAnswers(first.questions, ["B", "D", "A"]) })).status, 200);
+    const answeredFile = JSON.parse(readFileSync(answerFileOf(topic), "utf8"));
+
+    // Re-key the quiz in place: every id, statement and option stays; only `answer` moves.
+    const quizFile = join(topic, "mini-quiz", "p1.json");
+    const quiz = JSON.parse(readFileSync(quizFile, "utf8"));
+    const letters = Object.keys(quiz.questions[0].options);
+    for (const question of quiz.questions) {
+      question.answer = letters.find((letter) => letter !== question.answer && letter !== "E") ?? question.answer;
+    }
+    writeFileSync(quizFile, JSON.stringify(quiz));
+
+    assert.equal((await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`)).answered, null, "answers to the old key are not a verdict on the new one");
+    const notGraded = engineRun(root, "validate", "--stage", "quiz");
+    const check = notGraded.report.checks.find((c) => c.id === "mini-quiz-answers");
+    assert.notEqual(check.status, "PASS", "the engine must not grade letters given for another key");
+    assert.match(check.reason, /another quiz|waiting for learner input/);
+    assert.notEqual(notGraded.report.status, "accepted");
+
+    // The learner answers the re-keyed quiz and the stage passes: the stale file was replaced, not trusted.
+    const again = await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`);
+    assert.equal((await submit(url, { kind: "mini-quiz", topic: ENGINE_TOPIC, part: "p1", answers: pickAnswers(again.questions, ["D", "A", "C"]) })).status, 200);
+    assert.notEqual(JSON.parse(readFileSync(answerFileOf(topic), "utf8")).quiz, answeredFile.quiz, "the new answers name the new quiz");
+    assert.equal(engineRun(root, "validate", "--stage", "quiz").report.checks.find((c) => c.id === "mini-quiz-answers").status, "PASS");
+  } finally {
+    await shutdown();
+  }
+});
+
+test("#416: answers given while the regeneration ran are kept in the trash, and the restore never follows a link", () => {
+  const { root, topic } = makeRoot();
+  const file = join(topic, "mini-quiz", "p1.answers.json");
+  const preTurn = JSON.stringify({ quiz: "sha256:" + "a".repeat(64), answers: { q1: "B" }, razonamientos: {} });
+  writeFileSync(file, preTurn);
+  const planned = regenerationTrash(root, { topic: TOPIC, part: "p1" });
+  const backup = backupPartForRegeneration(root, { topic: TOPIC, part: "p1" }, new Date(), planned.trash);
+
+  // The learner answers while the tutor is regenerating.
+  const duringTurn = JSON.stringify({ quiz: "sha256:" + "b".repeat(64), answers: { q1: "C" }, razonamientos: {} });
+  writeFileSync(file, duringTurn);
+  assert.equal(restoreRegeneration(root, backup), true);
+  assert.equal(readFileSync(file, "utf8"), preTurn, "the answers of the version that comes back are back");
+  assert.equal(
+    readFileSync(join(root, backup.trash, "rechazada", TOPIC, "mini-quiz", "p1.answers.json"), "utf8"),
+    duringTurn,
+    "what the learner answered during the turn is not thrown away",
+  );
+
+  // A link where the file goes must not carry the restore outside the vault.
+  writeFileSync(file, preTurn);
+  const second = backupPartForRegeneration(root, { topic: TOPIC, part: "p1" }, new Date(), regenerationTrash(root, { topic: TOPIC, part: "p1" }).trash);
+  const outside = mkdtempSync(join(tmpdir(), "fuera-"));
+  const victim = join(outside, "victima.txt");
+  writeFileSync(victim, "intacto");
+  symlinkSync(victim, file);
+  restoreRegeneration(root, second);
+  assert.equal(readFileSync(victim, "utf8"), "intacto", "nothing is written outside the vault through a link");
 });
 
 test("#416: answering the same quiz twice is still refused with the same 409", { skip: ENGINE_SKIP }, async () => {
