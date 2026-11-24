@@ -877,19 +877,28 @@ function matchDe(consulta: string): string | undefined {
 }
 
 /** Every chunk the keyword index matches, shown or not: a caller that clips must say how many. */
-function cuentaPorClave(db: DatabaseSync, materia: string, consulta: string, tipos: string[]): number {
+function idsPorClave(db: DatabaseSync, materia: string, consulta: string, tipos: string[]): string[] {
   const match = matchDe(consulta);
-  if (!match) return 0;
+  if (!match) return [];
   const filtro = tipos.length ? ` AND c.tipo IN (${tipos.map(() => "?").join(", ")})` : "";
   const sql = `
-    SELECT COUNT(*) AS n FROM chunks_fts f
+    SELECT c.id AS id FROM chunks_fts f
     JOIN chunks c ON c.rowid = f.rowid
     WHERE chunks_fts MATCH ? AND c.materia = ?${filtro}
   `;
-  return (db.prepare(sql).get(match, materia, ...tipos) as { n: number }).n;
+  return (db.prepare(sql).all(match, materia, ...tipos) as Array<{ id: string }>).map((fila) => fila.id);
 }
 
-async function porVector(db: DatabaseSync, root: string, materia: string, consulta: string, tipos: string[], limite: number): Promise<string[]> {
+/** How many chunks the keyword index matches, shown or not. */
+function cuentaPorClave(db: DatabaseSync, materia: string, consulta: string, tipos: string[]): number {
+  return idsPorClave(db, materia, consulta, tipos).length;
+}
+
+/**
+ * Every chunk of the course the embedder ranks above the cosine gate, best first. The caller decides
+ * how many it reads, so the count a clipped caller reports sees the same set the ranking does.
+ */
+async function puntuarPorVector(db: DatabaseSync, root: string, materia: string, consulta: string, tipos: string[]): Promise<string[]> {
   if (!disponible(configActual())) return [];
   const cache = cacheDe(db, root, materia);
   if (!cache.ids.length) return [];
@@ -905,7 +914,12 @@ async function porVector(db: DatabaseSync, root: string, materia: string, consul
     if (coseno < MIN_COSENO) continue;
     puntuados.push({ id, coseno });
   }
-  return puntuados.sort((a, b) => b.coseno - a.coseno || a.id.localeCompare(b.id)).slice(0, limite).map((item) => item.id);
+  puntuados.sort((a, b) => b.coseno - a.coseno || a.id.localeCompare(b.id));
+  return puntuados.map((item) => item.id);
+}
+
+async function porVector(db: DatabaseSync, root: string, materia: string, consulta: string, tipos: string[], limite: number): Promise<string[]> {
+  return (await puntuarPorVector(db, root, materia, consulta, tipos)).slice(0, limite);
 }
 
 export async function buscar(
@@ -954,9 +968,10 @@ export interface SeleccionMaterial {
 
 /**
  * The keyword half of `buscar`, synchronously and without the embedder (#374/T4). The write-part
- * brief is built where `startTurn` already is and must stay synchronous, so a course part is
- * selected by FTS5 rank only: deterministic, embedder-free, and honest that semantic recall is a
- * documented follow-up rather than a hidden claim. `total` counts all matches, not just `trozos`.
+ * brief was built where `startTurn` already was and had to stay synchronous, so a course part was
+ * selected by FTS5 rank only. `materialRelevanteHibrido` is the awaited twin that adds the semantic
+ * half (#422); this one stays for the callers that cannot wait. `total` counts all matches, not just
+ * `trozos`.
  */
 export function materialRelevante(
   root: string,
@@ -971,6 +986,38 @@ export function materialRelevante(
   const claves = porClave(db, materia, consulta, tipos, limite);
   const total = cuentaPorClave(db, materia, consulta, tipos);
   return { trozos: hidratar(db, fusionarRRF([claves]).slice(0, k)), total };
+}
+
+// ---- Relevant slices, awaited -----------------------------------------------
+
+/**
+ * `materialRelevante`'s awaited twin (#422): the same slices, ranked by `buscar`'s hybrid rank — the
+ * keyword half plus the embedder's, fused with RRF — so a slice that shares no word with the part can
+ * still reach it. Without a usable embedder the semantic list is empty and the answer is exactly
+ * `materialRelevante`'s, byte for byte. `total` counts every chunk either half matched, so a clipped
+ * caller still says how many it left out. It bounds no time of its own: the caller owns that budget.
+ */
+export async function materialRelevanteHibrido(
+  root: string,
+  materia: string,
+  consulta: string,
+  opciones: { k?: number; tipos?: string[] } = {},
+): Promise<SeleccionMaterial> {
+  const db = database(resolve(root));
+  const k = Math.max(1, Math.min(MAX_K, Math.trunc(opciones.k ?? 6)));
+  const tipos = (opciones.tipos ?? []).filter((tipo) => tipo === "examen" || tipo === "documento" || tipo === "transcripcion");
+  const limite = Math.max(k * 4, 20);
+  const claves = porClave(db, materia, consulta, tipos, limite);
+  let vecinos: string[] = [];
+  try { vecinos = await puntuarPorVector(db, root, materia, consulta, tipos); }
+  catch { /* an embedder failure degrades to keywords, never to a failed brief */ }
+  const combinadas = fusionarRRF([claves, vecinos.slice(0, limite)]);
+  // The count a clipped caller reports covers both halves: a fragment only the embedder found is
+  // still a relevant fragment that stayed out. Without the embedder this is the keyword count, exactly.
+  const total = vecinos.length
+    ? new Set([...idsPorClave(db, materia, consulta, tipos), ...vecinos]).size
+    : cuentaPorClave(db, materia, consulta, tipos);
+  return { trozos: hidratar(db, combinadas.slice(0, k)), total };
 }
 
 // ---- Rebuild command ---------------------------------------------------------
