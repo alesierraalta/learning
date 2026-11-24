@@ -2835,13 +2835,15 @@ test("the panorama reaches the browser as one picture: plan, route and map", asy
   assert.equal(panorama.plan.score, "2/5");
   assert.deepEqual(
     panorama.route.map((part) => [part.number, part.subtema, part.written, part.depth]),
-    [[1, "1.1", true, "Desde su base"]],
-    "the route holds the part whose note exists: the plan stays hidden (#423)",
+    [
+      [1, "1.1", true, "Desde su base"],
+      [2, "1.2.1a", false, "Completo"],
+    ],
   );
   const map = panorama.map.layout;
-  assert.equal(map.nodes.length, 2, "the concept of the part not written yet is not drawn");
-  assert.equal(panorama.map.graph.groups.length, 1, "its frame goes with it: only the subtema that is left has one");
-  assert.equal(map.nodes.find((node) => node.id === "N3"), undefined, "a concept of a hidden part has no node");
+  assert.equal(map.nodes.length, 3);
+  assert.equal(map.groups.length, 2);
+  assert.equal(map.nodes.find((node) => node.id === "N3").part.id, "p2", "a concept points at the part the tutor wrote for its branch");
   assert.equal(map.nodes.find((node) => node.id === "N2").part.id, "p1");
   assert.equal((await http(`${studio.url}api/panorama?topic=nope`)).status, 404);
   assert.equal((await http(`${studio.url}api/panorama?topic=../etc`)).status, 404, "a topic id never leaves the root");

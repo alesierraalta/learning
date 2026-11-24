@@ -118,7 +118,7 @@ test("home editorial layout preserves real progress and next action on desktop a
     else assert.ok(geometry.intro.bottom <= geometry.card.top, "mobile stack");
     assert.equal(await card.locator('[role="progressbar"]').getAttribute("aria-valuenow"), "1");
     assert.equal(await card.locator('[role="progressbar"]').getAttribute("aria-valuemax"), "2");
-    assert.match(await card.innerText(), /1 parte escrita/);
+    assert.match(await card.innerText(), /1 de 2 partes escritas/);
     assert.match(await card.innerText(), /La Parte 2 todavía no está escrita/);
   }
   await page.locator(".topbar .header-action").click();
@@ -597,8 +597,6 @@ test("dependency map presents real relationships in a horizontally scrollable mo
 
 test("panorama verdict colors and detail link follow recorded evidence (S12-S14)", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine } = makeRoot();
-  // The verdicts are read for the concepts the map shows: `1.2.1.1` needs its own part written (#423).
-  writeFileSync(join(root, "redes", "explicaciones", "Parte 2 - TCP.md"), "# Parte 2 — TCP\n");
   writeFileSync(join(root, "redes", "diagnostico-conceptos.json"), JSON.stringify({ conceptos: [
     { codigo: "1.1.1", estado: "claro", evidencia: "Explicó las capas" },
     { codigo: "1.1.2", estado: "dudoso", evidencia: "Parcial" },
@@ -1239,7 +1237,7 @@ test("the reading rail uses real progress and keeps the sheet measure at 1440 an
     assert.deepEqual(seen.headings, ["Progreso", "Siguiente paso"]);
     assert.deepEqual(seen.progress.now, "1");
     assert.equal(seen.progress.max, "2");
-    assert.match(seen.progress.label, /1 parte escrita/);
+    assert.match(seen.progress.label, /1 de 2 partes escritas/);
     assert.match(seen.step, /Responde el diagnóstico inicial/, "the next step is the engine's");
     assert.ok(!/Servicios|Tutor ·|Tareas ·/.test(await page.locator(".study-rail").innerText()), "no duplicated services");
     assert.ok(Math.abs(seen.sheetWidth - (width - seen.railWidth)) <= 2, `the sheet keeps the room the rail leaves: ${JSON.stringify(seen)}`);
@@ -1835,8 +1833,7 @@ test("a topic that still owes parts says so instead of looking finished", { skip
 
   await topicPage(page, studio, 1280);
   const banner = await page.locator(".empty", { hasText: "faltan" }).first().textContent();
-  assert.match(banner, /Faltan partes por escribir: aparecerán aquí a medida que las estudies\./);
-  assert.doesNotMatch(banner, /2 partes|\(p2\)/, "neither the plan's total nor the parts still to come are printed (#423)");
+  assert.match(banner, /El plan tiene 2 partes y 1 escrita: faltan 1 \(p2\)/);
   assert.equal(await page.locator(".empty button", { hasText: "Pedir las que faltan" }).count(), 1);
 
   const written = await page.locator("li.part-row", { hasText: "Capas" }).first().textContent();
@@ -2422,16 +2419,17 @@ test("the panorama shows the plan as a route the learner can walk", { skip: brow
   await page.waitForSelector(".pano-head", { timeout: 5000 });
 
   const chips = await page.locator(".pano-chips").textContent();
-  assert.match(chips, /1 parte escrita/, "the chips count what is written and never the plan's total");
+  assert.match(chips, /1 de 2 partes escritas/, "the chips count what is written");
   assert.match(chips, /3\/5/, "the diagnosis score comes from the plan's own header");
-  assert.match(chips, /3 conceptos en el mapa/, "and the map is part of the same picture, without the concept of the part not written yet");
+  assert.match(chips, /4 conceptos en el mapa/, "and the map is part of the same picture");
 
   const route = page.locator("ol.route li.part-row");
-  assert.equal(await route.count(), 1, "one row per written part: the plan's other parts stay hidden");
+  assert.equal(await route.count(), 2, "one row per part of the route");
   assert.match(await route.first().innerText(), /Capas/);
   assert.match(await route.first().innerText(), /1\.1/, "the row names the subtema the plan assigned");
   assert.equal(await route.first().getByRole("button", { name: "Leer" }).count(), 1, "a written part opens");
-  assert.doesNotMatch(await page.locator(".pano-block-title").first().innerText(), / de \d+ escritas|TCP/, "no total and no part still to come are printed (#423)");
+  assert.match(await route.nth(1).innerText(), /TCP/);
+  assert.equal(await route.nth(1).getByRole("button", { name: "Escribir esta parte" }).count(), 1, "an unwritten part is a request");
 
   const titles = await page.locator("details.pano-section > summary .title").allInnerTexts();
   assert.deepEqual(titles, ["Resultado", "Ruta"], "the prose sections stay, the map section does not");
@@ -2455,9 +2453,6 @@ test("the panorama shows the plan as a route the learner can walk", { skip: brow
 // which part of the route explains it, even when no part covers it yet.
 test("the panorama map opens a concept and reaches the part that explains it", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { root, engine, log } = makeRoot();
-  // Both parts are written here: a concept of a part nobody has reached is hidden (#423), and this
-  // test is about what a concept says once its part exists.
-  writeFileSync(join(root, "redes", "explicaciones", "Parte 2 - TCP.md"), "# Parte 2 — TCP\n");
   process.env.FAKE_PI_LOG = log;
   const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
   open.push(studio);
@@ -2478,9 +2473,11 @@ test("the panorama map opens a concept and reaches the part that explains it", {
   assert.match(await detail.innerText(), /Concepto 1\.2\.1\.1/);
   assert.match(await detail.innerText(), /Puerto/);
   assert.equal(await detail.getByRole("button", { name: /1\.1\.2/ }).count(), 1, "what the concept needs is a link to it");
-  assert.match(await detail.innerText(), /Aprendido en Parte 2 · TCP/, "the part that explains it is named");
-  await detail.getByRole("button", { name: "Leer esta parte" }).click();
-  await page.waitForFunction(() => location.hash === "#/leer/redes/p2", null, { timeout: 5000 });
+  assert.match(await detail.innerText(), /Parte 2 · TCP/, "the part that explains it is named");
+  await detail.getByRole("button", { name: "Escribir esta parte" }).click();
+  const sent = await sentPrompts(log);
+  assert.match(sent[0], /Parte 2/);
+  assert.match(sent[0], /TCP/);
 
   await page.locator('[data-node="N1_9_1"]').click();
   assert.match(await page.locator(".pano-detail").innerText(), /no tiene una parte para el subtema 1\.9\.1/, "a concept outside the route says so");
