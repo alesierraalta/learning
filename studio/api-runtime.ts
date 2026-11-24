@@ -20,7 +20,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 
 import { HttpError } from "../integrations/pi/bridge.ts";
 import { resolveContained } from "../integrations/pi/paths.ts";
-import { STUDIO_CONTRACT } from "./agy.ts";
+import { STYLE_RULE, STUDIO_CONTRACT } from "./agy.ts";
 import { nivelesDeEffort, PROVEEDORES, proveedorPorId } from "./proveedores.ts";
 import type { TutorConfig } from "./tutor.ts";
 
@@ -122,6 +122,21 @@ interface Paso {
   text: string;
   calls: Llamada[];
 }
+
+/**
+ * Rioplatense voseo, the one style the contract forbids. Only unmistakable forms are listed: a
+ * false positive costs one wasted correction, a false negative lets the slip through, and the list
+ * is meant to be widened when live turns show a new form.
+ */
+// `\b` cannot guard an accented word: `á` is not a word character, so the boundary after it never
+// matches. The lookarounds say "not part of a longer word" without that trap.
+const VOSEO = /(?<!\p{L})(acá|escribí|respondé|mirá|tenés|podés|sabés|hacé|decí|fijate|andá|vení|querés|sos|empezá|pensá|probá|usá|buscá|seguí|elegí|pedí)(?!\p{L})/iu;
+
+/** Whether a reply slipped into voseo. Exported so the rule can be tested without a provider. */
+export const tieneVoseo = (text: string): boolean => VOSEO.test(String(text ?? ""));
+
+/** What the tutor is told when its own reply broke the rule: rewrite it, same content, no tools. */
+const CORRECCION_ESTILO = "Tu respuesta anterior usó voseo. Reescríbela en español neutro con tú, sin cambiar lo que dice ni usar herramientas: escribe, responde, mira, aquí; nunca escribí, respondé, mirá, acá.";
 
 const textOf = (content: unknown): string => {
   if (typeof content === "string") return content;
@@ -432,7 +447,8 @@ export function createApi(options: {
     if (!provider) throw new HttpError(400, "unknown provider");
     if (!key()) throw new HttpError(503, `falta ${provider.variable}: expórtala y reinicia el estudio`);
     if (!config.modelo) throw new HttpError(400, `elige un modelo de ${provider.nombre} en Configuración`);
-    if (messages.length === 0) messages.push({ role: "system", content: `${TOOL_GUIDE}\n\n${STUDIO_CONTRACT}` });
+    // The style rule opens the system message: a live turn answered in voseo when it was last.
+    if (messages.length === 0) messages.push({ role: "system", content: `${STYLE_RULE}\n\n${TOOL_GUIDE}\n\n${STUDIO_CONTRACT}` });
     if (provider.nombre !== "Mistral") throw new HttpError(400, `${provider.nombre} todavía no está implementado`);
   };
 
@@ -441,6 +457,7 @@ export function createApi(options: {
     emit({ type: "message_start", message: { role: "user", content: text } });
     let answer = "";
     let started = false;
+    let stylePasses = 0;
     try {
       // The system message is written before the learner's, so the provider reads the frame first.
       preparar();
@@ -466,7 +483,20 @@ export function createApi(options: {
         );
         if (paso.calls.length === 0) {
           messages.push({ role: "assistant", content: paso.text });
-          if (!paso.text.trim()) failure(`${provider!.nombre} terminó sin responder; vuelve a intentarlo.`);
+          if (!paso.text.trim()) {
+            failure(`${provider!.nombre} terminó sin responder; vuelve a intentarlo.`);
+            return;
+          }
+          // One corrective pass, never a loop: the learner sees the tutor fix its own style, and a
+          // second slip is accepted instead of paid for again.
+          if (stylePasses === 0 && tieneVoseo(paso.text)) {
+            stylePasses += 1;
+            if (started && answer) emit({ type: "message_end", message: { role: "assistant", content: answer } });
+            started = false;
+            answer = "";
+            messages.push({ role: "user", content: CORRECCION_ESTILO });
+            continue;
+          }
           return;
         }
         messages.push({

@@ -4778,7 +4778,7 @@ async function fakeProvider() {
       if (seen.length === 1) {
         response.end(delta({ tool_calls: [{ index: 0, id: "call-write", type: "function", function: { name: "write", arguments: JSON.stringify({ path: "redes/parte1.md", content: "# Parte 1" }) } }] }, "tool_calls") + event("[DONE]"));
       } else {
-        response.end(delta({ content: "Listo: " }) + delta({ content: "escribí la parte." }) + event("[DONE]"));
+        response.end(delta({ content: "Listo: " }) + delta({ content: "la parte ya está escrita." }) + event("[DONE]"));
       }
     });
   });

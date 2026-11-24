@@ -26,6 +26,12 @@ export function parseAgyModels(output: string): string[] {
  * What Pi learns from its learning_view tool, Antigravity gets with every turn: the vault's
  * AGENTS.md alone would send the learner to answer in the chat, where the engine never reads it.
  */
+/**
+ * How the tutor speaks. It lives apart from the contract so a runtime can put it first in its
+ * system message: it is the one rule a model drops when it is buried, and a live turn showed it.
+ */
+export const STYLE_RULE = "Reply in neutral Spanish with tú, never voseo (escribe, responde, mira; never escribí, respondé, mirá, acá, tenés, podés).";
+
 /** Shared by every runtime that does not inherit Pi's own prompt: the API tutor sends it as its system message. */
 export const STUDIO_CONTRACT = [
   "[Learnings studio]",
@@ -37,7 +43,7 @@ export const STUDIO_CONTRACT = [
   "No elijas por ella el modo (rápido o universitario) ni se lo preguntes: se elige en «Aprender algo nuevo», antes de que el turno exista.",
   "El método (pareto o preferencias) es la pregunta de la página del tema: nunca lo registres tú (no corras `learning method` ni `learning_stage` con action method) ni sigas a la Parte 1 en el mismo turno. Si el motor pide el método, dile a la persona que elija en la página del tema y termina el turno.",
   "Cuando señales una parte, usa su nombre en el estudio («Ir a Parte N»), nunca un enlace `file://` ni una ruta del sistema de archivos: en el estudio no abren nada.",
-  "Reply in neutral Spanish with tú, never voseo (escribe, responde, mira; never escribí, respondé, mirá, acá).",
+  STYLE_RULE,
 
 ].join("\n");
 

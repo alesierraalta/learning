@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createApi } from "./api-runtime.ts";
+import { createApi, tieneVoseo } from "./api-runtime.ts";
 
 const KEY = "0a1b2c3d4e5f60718293a4b5c6d7e8f9";
 
@@ -75,7 +75,7 @@ const until = async (predicate, timeout = 5000) => {
 const text = (harness) => harness.records.filter((r) => r.type === "message_update").map((r) => r.assistantMessageEvent.delta).join("");
 
 test("a turn writes the note the model asked for, then answers", async () => {
-  const fake = await provider([toolTurn("write", { path: "tema/parte1.md", content: "la explicación" }), textTurn("Listo: ", "escribí la parte.")]);
+  const fake = await provider([toolTurn("write", { path: "tema/parte1.md", content: "la explicación" }), textTurn("Listo: ", "la parte ya está escrita.")]);
   const h = setup([]);
   const api = runtime(h, { base: fake.base });
   try {
@@ -83,7 +83,7 @@ test("a turn writes the note the model asked for, then answers", async () => {
     api.prompt("escribe la parte 1");
     await until(() => h.settled() >= 1);
     assert.equal(readFileSync(join(h.root, "tema", "parte1.md"), "utf8"), "la explicación");
-    assert.equal(text(h), "Listo: escribí la parte.");
+    assert.equal(text(h), "Listo: la parte ya está escrita.");
     const tools = h.records.filter((r) => r.type === "tool_execution_start").map((r) => r.toolName);
     assert.deepEqual(tools, ["write"], "the tool is one the page already labels");
     assert.deepEqual(h.errors, []);
@@ -392,5 +392,62 @@ test("two payloads in one block are two events, and a last one without its blank
     api.prompt("hola");
     await until(() => h.settled() >= 1);
     assert.equal(text(h), "uno y dos");
+  } finally { await fake.close(); }
+});
+
+// ---- speaking neutrally: the rule, and one correction when a model forgets it ------------------
+
+test("the voseo the contract forbids is recognised, and neutral Spanish is not", () => {
+  for (const dicho of ["Claro, escribí el archivo acá.", "Mirá, tenés razón.", "Podés seguir con la parte 2."]) {
+    assert.equal(tieneVoseo(dicho), true, dicho);
+  }
+  for (const dicho of ["Claro, escribo el archivo aquí.", "Una lista enlazada guarda un puntero al siguiente nodo.", "El resultado es correcto.", ""]) {
+    assert.equal(tieneVoseo(dicho), false, dicho);
+  }
+});
+
+test("the style rule opens the system message, where a model actually reads it", async () => {
+  const fake = await provider([textTurn("hola")]);
+  const h = setup([]);
+  const api = runtime(h, { base: fake.base });
+  try {
+    api.prompt("buenas");
+    await until(() => h.settled() >= 1);
+    const system = fake.seen[0].body.messages[0].content;
+    assert.match(system.slice(0, 60), /neutral Spanish with tú/);
+    assert.match(system, /never escribí, respondé, mirá/);
+  } finally { await fake.close(); }
+});
+
+test("a reply that slipped into voseo is corrected once, in front of the learner", async () => {
+  const fake = await provider([textTurn("Claro, escribí el archivo acá."), textTurn("Claro, escribí la nota.")]);
+  const h = setup([]);
+  const api = runtime(h, { base: fake.base });
+  try {
+    api.prompt("escribe la nota");
+    await until(() => h.settled() >= 1);
+    assert.equal(fake.seen.length, 2, "exactly one extra call, not a loop");
+    const correction = fake.seen[1].body.messages.at(-1);
+    assert.equal(correction.role, "user");
+    assert.match(correction.content, /voseo/);
+    const starts = h.records.filter((r) => r.type === "message_start" && r.message?.role === "assistant");
+    assert.equal(starts.length, 2, "the page gets a second bubble with the corrected text");
+    const ends = h.records.filter((r) => r.type === "message_end");
+    assert.match(ends.at(-1).message.content, /escribí la nota/);
+    assert.equal(h.errors.length, 0);
+  } finally { await fake.close(); }
+});
+
+test("a second slip is accepted instead of paying for another call", async () => {
+  const fake = await provider([textTurn("Mirá, acá está."), textTurn("Mirá, acá sigue.")]);
+  const h = setup([]);
+  const api = runtime(h, { base: fake.base });
+  try {
+    api.prompt("hola");
+    await until(() => h.settled() >= 1);
+    assert.equal(fake.seen.length, 2, "one correction, then stop");
+    assert.equal(h.errors.length, 0);
+    const ends = h.records.filter((r) => r.type === "message_end");
+    assert.match(ends.at(-1).message.content, /acá sigue/);
   } finally { await fake.close(); }
 });
