@@ -914,7 +914,9 @@ confirmation names exactly what leaves, and nothing is destroyed:
 - deleting a part also drops its entry from `plan.json`, and the manifest keeps
   the removed entry (`planPart`) so the plan can be rebuilt by hand;
 - a part takes its whole footprint with it: note, rich page, app, demos,
-  attachments (its video) and mini-quiz.
+  attachments (its video), mini-quiz **and the learner's answers**. An answers file
+  left behind answers a quiz nobody serves, and the next quiz that reuses the part id
+  would be unanswerable: the answers belong to the quiz they answer (#416).
 
 The trash is a dotted folder, so the library and the engine ignore it; the vault
 backup (`git add -A`) keeps deleted notes in its history as well. Only paths

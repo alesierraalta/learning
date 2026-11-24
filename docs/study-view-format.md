@@ -31,6 +31,18 @@ the section number automatically. Keep one concrete example running throughout.
 7. Close with `Entrada ➔ Proceso ➔ Salida` in its own paragraph, a table with one
    line per concept, and three takeaway bullets.
 8. Include a quick-quiz checkpoint in every explanatory point (`> [!question] Quiz rápido — Punto N` or `<lk-quick-quiz>`), evaluating the immediate concept with options A–E and recording telemetry (right/wrong, why, and adaptive category across any topic: sciences, medicine, languages, humanities, finance, code).
+### The answers belong to the quiz they answer
+
+`mini-quiz/<part>.answers.json` records the learner's choices **and a fingerprint of the
+quiz they answered** — its question ids, statements and every option with the letter the
+tutor gave it, in canonical order. The bridge only treats those answers as «already
+answered» when the fingerprint matches the quiz on disk: a part whose quiz was regenerated
+(a regeneration archives the answers with the old quiz) or a file written before the
+fingerprint existed is **stale**, and the reader shows the form again instead of a dead
+«0/0». Submitting then replaces the stale file in place; nothing is deleted, and the old
+answers stay readable in `.papelera` when they travelled with a regeneration. The same
+rule hides the practical exercises' solutions until the learner answers this quiz.
+
 9. Supply the required final mini-quiz (five A–E questions, E = “No sé”) and two practical
    exercises (Easy and Medium). The tutor supplies the quiz JSON sidecar; the view
    renders the answer/reasoning controls. Do not hand-build a quiz form.

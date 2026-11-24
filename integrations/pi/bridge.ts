@@ -170,6 +170,11 @@ interface AnswerFile {
   answers: Record<string, string>;
   razonamientos: Record<string, Reasoning>;
   exercises?: Record<string, string>;
+  /**
+   * The quiz these answers answer (see `quizFingerprint`). A file without it predates the rule and is
+   * stale by definition: an answers file is not proof of «answered», only of «answered this quiz» (#416).
+   */
+  quiz?: string;
 }
 
 export { HttpError };
@@ -229,7 +234,7 @@ function readAnswers(file: string): AnswerFile | undefined {
   const exercises = isRecord(data.exercises)
     ? Object.fromEntries(Object.entries(data.exercises).filter((e): e is [string, string] => typeof e[1] === "string"))
     : undefined;
-  return { answers, razonamientos, ...(exercises ? { exercises } : {}) };
+  return { answers, razonamientos, ...(exercises ? { exercises } : {}), ...(typeof data.quiz === "string" ? { quiz: data.quiz } : {}) };
 }
 
 /** Concept verdicts the tutor recorded (feedback/{part}.json or diagnostico-conceptos.json). */
@@ -641,7 +646,7 @@ function freshFolder(base: string): string {
   throw new HttpError(500, "the trash has no free folder for this moment");
 }
 
-/** Every file a part owns: note, rich page, legacy app, demos, attachments and mini-quiz. */
+/** Every file a part owns: note, rich page, legacy app, demos, attachments, mini-quiz and its answers. */
 function partFiles(topicDir: string, plan: { parts: PlanPart[] }, partId: string): string[] {
   const index = plan.parts.findIndex((p) => p.id === partId);
   if (index < 0) return [];
@@ -659,6 +664,9 @@ function partFiles(topicDir: string, plan: { parts: PlanPart[] }, partId: string
     for (const name of readdirSync(attachments)) if (name.startsWith(prefix)) files.push(join(attachments, name));
   }
   files.push(join(topicDir, "mini-quiz", `${partId}.json`));
+  // The learner's answers belong to the part they answered: a deleted part leaves no answers behind for the
+  // next quiz that reuses its id (#416).
+  files.push(join(topicDir, "mini-quiz", `${partId}.answers.json`));
   return files.filter((file): file is string => typeof file === "string" && existsSync(file));
 }
 
@@ -712,7 +720,11 @@ export function regenerationTrash(root: string, target: { topic: string; part: s
   return { trash: trashRel, moved: files.map((file) => relative(rootReal, file)) };
 }
 
-/** The part a regeneration may replace, and the three files it rewrites. Never moves anything. */
+/**
+ * The part a regeneration may replace, and the files it rewrites. Never moves anything. The learner's answers
+ * are one of them: they answer the quiz that is being replaced, so they are archived with it instead of
+ * surviving into a quiz they never saw (#416).
+ */
 function regeneratable(root: string, target: { topic: string; part: string }) {
   const rootReal = realpathSync(root);
   if (!safeTopic(target.topic) || RESERVED_DIRS.has(target.topic)) throw new HttpError(400, "invalid topic id");
@@ -722,15 +734,21 @@ function regeneratable(root: string, target: { topic: string; part: string }) {
   const plan = readPlan(topicDir);
   if (!plan) throw new HttpError(404, `topic ${target.topic} has no plan`);
   if (!plan.parts.some((p) => p.id === target.part)) throw new HttpError(404, `part ${target.part} is not in the plan`);
-  const files = [richPage(topicDir, plan, target.part), partNote(topicDir, plan, target.part), join(topicDir, "mini-quiz", `${target.part}.json`)]
-    .filter((file): file is string => typeof file === "string" && existsSync(file));
+  const files = [
+    richPage(topicDir, plan, target.part),
+    partNote(topicDir, plan, target.part),
+    join(topicDir, "mini-quiz", `${target.part}.json`),
+    join(topicDir, "mini-quiz", `${target.part}.answers.json`),
+  ].filter((file): file is string => typeof file === "string" && existsSync(file));
   return { rootReal, files };
 }
 
 /**
  * A regeneration rewrites the page, the note and the quiz, so those three go to the
- * trash once the studio holds the turn, before the tutor is asked: the previous version
- * can be read again by hand, and a move that fails part way puts back what it moved. The
+ * trash once the studio holds the turn, before the tutor is asked, and the learner's
+ * answers travel with the quiz they answer: the previous version can be read again by
+ * hand, a moved-away answers file makes the part answerable again, and a move that
+ * fails part way — or a regeneration that does not pass — puts back what it moved. The
  * video, the demos and the attachments are not rewritten and stay where they are, and
  * `plan.json` keeps its entry: the part is not deleted, it is replaced.
  */
@@ -1042,6 +1060,28 @@ function writeAnswers(file: string, record: AnswerFile): void {
   const tmp = `${file}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
   writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`);
   renameSync(tmp, file);
+}
+
+/**
+ * The quiz a set of answers answers: a hash of its questions — id, statement and every option with the letter
+ * the tutor gave it — in a canonical order. Two quizzes that reuse the ids `q1..q5` but ask or key different
+ * things are not the same quiz, and only the same quiz makes stored answers a second answer (#416).
+ */
+function quizFingerprint(questions: Question[]): string {
+  const canonical = questions
+    .map((q) => [q.id, q.enunciado, Object.keys(q.options).sort().map((letter) => [letter, q.options[letter]])])
+    .sort((a, b) => String(a[0]) < String(b[0]) ? -1 : String(a[0]) > String(b[0]) ? 1 : 0);
+  return `sha256:${createHash("sha256").update(JSON.stringify(canonical)).digest("hex")}`;
+}
+
+/**
+ * Recorded answers answer the quiz on disk when they name it and hold a choice for every one of its questions.
+ * An older file (written before the fingerprint existed) or one written against a quiz a regeneration replaced
+ * is stale: the learner may answer the new quiz, and the new answers replace the old ones in place (#416).
+ */
+function answersAnswerQuiz(recorded: AnswerFile | undefined, questions: Question[], fingerprint: string): recorded is AnswerFile {
+  if (!recorded || recorded.quiz !== fingerprint) return false;
+  return questions.every((q) => typeof recorded.answers[q.id] === "string");
 }
 
 const ALLOWED_KEYS: Record<string, Set<string>> = {
@@ -1821,7 +1861,11 @@ ${scripts}
     const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
     const answerFile = join(dir, "mini-quiz", `${partId}.answers.json`);
     const recorded = readAnswers(answerFile);
-    const revealSolutions = existsSync(answerFile);
+    // Answers written against another quiz are not a verdict on this one: the reader shows the form
+    // again instead of a dead, disabled «0/0», and the exercises keep their solutions hidden until
+    // the learner actually answers this quiz. The rule is the same one the submit enforces (#416).
+    const answered = questions && answersAnswerQuiz(recorded, questions, quizFingerprint(questions)) ? recorded : undefined;
+    const revealSolutions = answered !== undefined;
     const orderFor = orderOf(miniScope(topic, partId));
     const noteText = obsidianToMarkdown(readFileSync(note, "utf8"), dir);
     page(res, part.title, {
@@ -1836,8 +1880,8 @@ ${scripts}
       quiz: questions
         ? { questions: questions.map((q) => publicQuestion(q, orderFor(q))), exercises: partExercises(dir, partId, catalogueFor(dir).runners, revealSolutions) }
         : null,
-      answered: questions ? gradeRecorded(questions, recorded, orderFor) : null,
-      ...(recorded?.exercises ? { answeredExercises: recorded.exercises } : {}),
+      answered: questions ? gradeRecorded(questions, answered, orderFor) : null,
+      ...(answered?.exercises ? { answeredExercises: answered.exercises } : {}),
       demos: partDemos(dir, partId),
       video: partVideoInfo(dir, plan, partId),
       audio: partAudioInfo(dir, plan, partId),
@@ -1855,12 +1899,14 @@ ${scripts}
     if (!questions) throw new HttpError(404, `part ${partId} has no mini-quiz`);
     const answerFile = join(dir, "mini-quiz", `${partId}.answers.json`);
     const recorded = readAnswers(answerFile);
+    // The api/quiz payload the element reads follows the page: a stale file is no answered document (#416).
+    const answered = answersAnswerQuiz(recorded, questions, quizFingerprint(questions)) ? recorded : undefined;
     const orderFor = orderOf(miniScope(topic, partId));
     sendJson(res, 200, {
       questions: questions.map((q) => publicQuestion(q, orderFor(q))),
-      exercises: partExercises(dir, partId, catalogueFor(dir).runners, existsSync(answerFile)),
-      ...(recorded?.exercises ? { answeredExercises: recorded.exercises } : {}),
-      answered: gradeRecorded(questions, recorded, orderFor),
+      exercises: partExercises(dir, partId, catalogueFor(dir).runners, answered !== undefined),
+      ...(answered?.exercises ? { answeredExercises: answered.exercises } : {}),
+      answered: gradeRecorded(questions, answered, orderFor),
       verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
     });
   };
@@ -2317,10 +2363,16 @@ ${scripts}
       const exercises = exerciseAnswers(payload.exercises, declared);
       const saved = `mini-quiz/${partId}.answers.json`;
       const file = join(dir, saved);
-      // The answers are already stored: reloading shows them.
-      if (existsSync(file)) throw new HttpError(409, `Ya respondiste el mini-quiz de esta parte. ${SAVED_HINT}`);
+      // What decides «already answered» is the quiz on disk, not a file existing: a regeneration replaces
+      // the quiz and archives the answers that answered the old one, so the learner answers the new quiz
+      // here. Only answers that answer this very quiz are a second answer (#416).
+      const fingerprint = quizFingerprint(questions);
+      if (answersAnswerQuiz(readAnswers(file), questions, fingerprint)) {
+        throw new HttpError(409, `Ya respondiste el mini-quiz de esta parte. ${SAVED_HINT}`);
+      }
       const ordered = Object.fromEntries(questions.map((q) => [q.id, answers[q.id]]));
       writeAnswers(file, {
+        quiz: fingerprint,
         answers: ordered,
         razonamientos: Object.fromEntries(questions.map((q) => [q.id, reasoning[q.id]])),
         ...(Object.keys(exercises).length ? { exercises } : {}),

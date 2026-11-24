@@ -496,8 +496,15 @@ function quarantineRegeneration(root: string, files: string[], folderRel: string
   return moved.length;
 }
 
-/** Puts the previous version back from the trash. Returns false when there was none to restore. */
-function restoreRegeneration(root: string, regeneration: NonNullable<Turn["regeneration"]>): boolean {
+/**
+ * Puts the previous version back from the trash: every path the backup moved, the learner's answers included, so
+ * a regeneration that does not pass leaves the part exactly as it was (#316, #416). Returns false when there was
+ * nothing to restore.
+ */
+export function restoreRegeneration(
+  root: string,
+  regeneration: { trash: string; moved: string[] },
+): boolean {
   if (!regeneration.trash) return false;
   let restored = false;
   for (const rel of regeneration.moved) {
