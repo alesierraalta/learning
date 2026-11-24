@@ -180,3 +180,26 @@ Still open and stated as such: S3 is partially met (the registry is data, but th
 catalogue still assume Mistral — a second provider is an entry *plus* code); no test exercises a
 real engine verdict (the Go binary was never run in this worktree), and nothing was proven against
 the real provider API. The Configuración UI is covered only through the names of its three selects.
+
+L17 — Live proof, run by the owner's instruction ("pruebalo"), with the key read from
+`Obsidian/00-SISTEMA/CyberVault/api keys/mistral.md` **without printing it**: the value was
+extracted inside one process, passed as an environment variable, and every output was scrubbed
+before it was shown. What the real provider answered:
+
+    deteccion: forma "desconocida" (see L18)     catalogo_http 200, 37 modelos, 1261 ms
+    modelo_elegido: zai-glm-5-3  niveles: low, high, max  esfuerzo: max
+    turno 1: settled, 1665 ms, tool `write` ok, archivo escrito con el contenido exacto
+    turno 2: settled, 1266 ms, respuesta de texto, sin errores
+    veredicto: el turno vivo funciona
+
+So S4 is proven rather than argued: a real turn streams, calls a tool, writes the note and settles
+in under two seconds. The advertised effort table matched the account's catalogue
+(`mistral-small-2603`, `mistral-medium-3-5`, `mistral-large-4-0` and `zai-glm-5-3` are all there).
+
+L18 — The live key disproved the shape I had assumed. Mistral issues a **45-character** token with
+mixed case and underscores, not only the 32-character alphanumeric one, so a real key was reported
+as "desconocida" (usable, with a warning that doubts a correct key). `PROVEEDORES` now accepts both
+formats and never claims a key that belongs to another provider; the test asserts the two formats
+and the two refusals with synthetic strings. Two 32-character values in that same note answered 401:
+the note holds more than one token and only one of them is the key, which is another argument for
+presence over shape.

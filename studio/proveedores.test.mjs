@@ -36,6 +36,17 @@ test("a key that belongs to another provider is never read as Mistral", () => {
   assert.match(entrada.aviso, /ANTHROPIC_API_KEY|Anthropic/);
 });
 
+test("both formats Mistral issues are recognised as its own", () => {
+  // Measured against a real key on 2026-11-06: 45 characters, mixed case, underscore separators.
+  const largo = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_abcdefgh";
+  assert.equal(largo.length, 45);
+  assert.equal(uno({ MISTRAL_API_KEY: largo }, "mistral").forma, "propia");
+  assert.equal(uno({ MISTRAL_API_KEY: MISTRAL }, "mistral").forma, "propia", "the older 32-character token still reads as Mistral");
+  // It never claims a key that belongs to somebody else, whatever its length.
+  assert.equal(uno({ MISTRAL_API_KEY: ANTHROPIC }, "mistral").forma, "ajena");
+  assert.equal(uno({ MISTRAL_API_KEY: `sk-proj-${"a".repeat(40)}` }, "mistral").forma, "ajena");
+});
+
 test("an unrecognised shape is still usable, with the doubt recorded", () => {
   const entrada = uno({ MISTRAL_API_KEY: "una-clave-de-forma-nueva" }, "mistral");
   assert.equal(entrada.presente, true);

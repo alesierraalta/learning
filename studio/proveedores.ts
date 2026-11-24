@@ -35,7 +35,9 @@ export interface Proveedor {
  * ignored nor silently sent to Mistral.
  */
 export const PROVEEDORES: readonly Proveedor[] = [
-  { id: "mistral", nombre: "Mistral", variable: "MISTRAL_API_KEY", forma: /^[A-Za-z0-9]{32}$/, base: "https://api.mistral.ai/v1/", implementado: true },
+  // Two formats are issued in practice: the older 32-character token and a 45-character one with
+  // underscores and mixed case, measured against a real key on 2026-11-06.
+  { id: "mistral", nombre: "Mistral", variable: "MISTRAL_API_KEY", forma: /^(?:[A-Za-z0-9]{32}|(?=.{40,60}$)[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*)$/, base: "https://api.mistral.ai/v1/", implementado: true },
   { id: "anthropic", nombre: "Anthropic", variable: "ANTHROPIC_API_KEY", forma: /^sk-ant-[A-Za-z0-9_-]{20,}$/, base: "https://api.anthropic.com/v1/", implementado: false },
   { id: "openai", nombre: "OpenAI", variable: "OPENAI_API_KEY", forma: /^sk-(?!ant-)[A-Za-z0-9_-]{20,}$/, base: "https://api.openai.com/v1/", implementado: false },
   { id: "deepseek", nombre: "DeepSeek", variable: "DEEPSEEK_API_KEY", forma: /^sk-[0-9a-f]{32}$/, base: "https://api.deepseek.com/v1/", implementado: false },
