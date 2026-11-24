@@ -261,6 +261,76 @@ func TestParetoPartHonoursTheWordBudget(t *testing.T) {
 	}
 }
 
+// --- a declared-pareto course route owes the trim at explanation (#421) ----
+
+// TestDeclaredParetoCourseRouteOwesTheTrimAtExplanation proves that a plan
+// declaring cobertura "pareto" owes the 80/20 heading at explanation even when
+// the run's state scope is complete: the plan made the promise, so the part
+// must keep it.
+func TestDeclaredParetoCourseRouteOwesTheTrimAtExplanation(t *testing.T) {
+	route := func(t *testing.T) *fixture {
+		t.Helper()
+		f := newFixture(t)
+		f.diagnosed(t, defaultParts(), 2, 6)
+		f.methodIfAsked(t)
+		f.writePlanWith(t, "Dificultades detectadas en consenso y en quórums.", []string{"d3"}, defaultParts()...)
+		f.patchPlanPareto(t, paretoBlock(), "la capacidad que rinde el 80% de esta parte")
+		f.patchPlanProvenance(t, "pareto", material("apunte.txt"), citeAll(2, "apunte.txt"))
+		f.advanceOK(t, "planning")
+		return f
+	}
+
+	t.Run("a part without the vital heading fails", func(t *testing.T) {
+		f := route(t)
+		f.writeVitalExplanation(t, "p1", false, "Relleno.")
+		rep, code := f.run(t, f.opts("advance", "explanation"))
+		assertBlocked(t, rep, code)
+		if reason := failReason(rep, "pareto-part"); !strings.Contains(reason, "El 20% que rinde el 80%") {
+			t.Fatalf("pareto-part = %q, want the missing heading named (checks: %+v)", reason, rep.Checks)
+		}
+	})
+
+	t.Run("a part with the vital heading passes", func(t *testing.T) {
+		f := route(t)
+		f.writeVitalExplanation(t, "p1", true, "Relleno.")
+		f.advanceOK(t, "explanation")
+	})
+}
+
+// TestParetoPartWithoutCourseMaterialFollowsTheStateScope keeps today's
+// behaviour for a plan that declares no course material: with the complete
+// state scope the part gate still reports SKIP, whatever the part holds.
+func TestParetoPartWithoutCourseMaterialFollowsTheStateScope(t *testing.T) {
+	f := readyForExplanation(t)
+	rep, code := f.run(t, f.opts("validate", "explanation"))
+	assertGatePassing(t, rep, code, "accepted")
+	c, ok := hasCheck(rep, "pareto-part")
+	if !ok || c.Status != "SKIP" {
+		t.Fatalf("complete scope without course material pareto-part = %+v, want SKIP", c)
+	}
+}
+
+// TestPlainParetoRunKeepsItsPartVerdicts keeps the plain pareto run — state
+// scope pareto, no course material — verdict for verdict: the part gate still
+// fails without the heading and the rest of the stage still passes with it.
+func TestPlainParetoRunKeepsItsPartVerdicts(t *testing.T) {
+	t.Run("without the vital heading it fails", func(t *testing.T) {
+		f := paretoThroughPlanning(t)
+		f.writeVitalExplanation(t, "p1", false, "Relleno.")
+		rep, code := f.run(t, f.opts("advance", "explanation"))
+		assertBlocked(t, rep, code)
+		if reason := failReason(rep, "pareto-part"); !strings.Contains(reason, "El 20% que rinde el 80%") {
+			t.Fatalf("pareto-part = %q, want the missing heading named (checks: %+v)", reason, rep.Checks)
+		}
+	})
+
+	t.Run("with the vital heading it advances", func(t *testing.T) {
+		f := paretoThroughPlanning(t)
+		f.writeVitalExplanation(t, "p1", true, "Relleno.")
+		f.advanceOK(t, "explanation")
+	})
+}
+
 // --- the interpretation gate only exists in pareto scope -------------------
 
 func TestParetoValueReviewOnlyInParetoScope(t *testing.T) {

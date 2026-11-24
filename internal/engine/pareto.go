@@ -113,7 +113,10 @@ func evalParetoPlan(c *evalCtx, decl rules.CheckDecl) Check {
 // evalParetoPart proves one part was written as its vital slice: it carries the
 // declared vital heading and stays inside the word budget.
 func evalParetoPart(c *evalCtx, decl rules.CheckDecl) Check {
-	if stateScope(c.st) != scopePareto {
+	// A course route that declared cobertura "pareto" owes the trim its plan
+	// promised even when the run's state scope is complete (#421). A plan
+	// without course material keeps following the state scope exactly.
+	if stateScope(c.st) != scopePareto && !coberturaParetoDeclarada(c) {
 		return skipCheck(decl.ID, "complete scope: parts are not trimmed")
 	}
 	p := c.r.Thresholds.Pareto
