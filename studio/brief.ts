@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 
 import { listTopics, readPlan } from "../integrations/pi/bridge.ts";
 import { ruleSheetText } from "../tools/part-check.mjs";
+import { indicePath, materialOrdenado, materialRelevante } from "./indice.ts";
+import { materiaForTopic } from "./materias.ts";
 
 export const PART_BRIEF_MARK = "PART BRIEF";
 /** Hard ceiling for the whole block, rule sheet included (#372/T2d): 12 KiB, no more. */
@@ -33,6 +35,12 @@ const VIEW_HEADER = /^\[Vista HTML · ([^·\]\n]+) · (p\d+) ·/;
 const WRITE_INTENT = /(?:escribe|escribir|redacta|redactar|genera|generar|prepara|preparar)\s+(?:la\s+)?parte/i;
 /** Fields a plan part may carry beyond id/title/slug; quoted as stored, never invented. */
 const PLAN_EXTRA = ["subtema", "objetivos", "objetivo", "examplesPlanned", "visualsPlanned", "demosPlanned", "pareto", "examen"];
+/** How many short slices of the course material one part brief shows at most; the rest is only counted. */
+const PART_MATERIAL_SLICES = 6;
+/** A slice is quoted, not copied: enough to write from, small enough to leave the rule sheet its room. */
+const PART_MATERIAL_CHUNK_BYTES = 420;
+/** Even when the brief is tight, a course part keeps at least this many slices before siblings shrink. */
+const PART_MATERIAL_MIN = 2;
 
 type Json = Record<string, unknown>;
 const isRecord = (value: unknown): value is Json => !!value && typeof value === "object" && !Array.isArray(value);
@@ -57,6 +65,70 @@ function readRecord(path: string): Json | undefined {
   } catch {
     return undefined;
   }
+}
+
+interface MaterialDeParte {
+  /** Course name, for the section's opening line. */
+  nombre: string;
+  /** How many chunks the index matched for this part's query, shown or not. */
+  total: number;
+  /** One bounded line per relevant chunk: source, type, location and the slice itself. */
+  lineas: string[];
+}
+
+/**
+ * The part's query: its plan title and `subtema`, keeping words. A subtema code like `1.2.1`
+ * tokenizes to single digits, and the keyword index ORs its terms, so those digits would pull in
+ * any numbered chunk; one-character tokens are dropped instead of widening the search.
+ */
+function consultaDeParte(title: string, subtema: string): string {
+  return `${title} ${subtema}`
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((termino) => termino.length > 1)
+    .join(" ");
+}
+
+/**
+ * The course slices that belong to THIS part: its plan title and `subtema` are the query, ranked by
+ * the keyword index synchronously so the brief stays synchronous and deterministic (#374/T4).
+ * `undefined` for a topic without a course, a course with no matching material, or any failure: the
+ * material is an improvement to the prompt, never a reason for a brief or a turn to fail.
+ */
+function materialDeParte(
+  root: string,
+  topicId: string,
+  part: { title: string },
+  entry: Json,
+): MaterialDeParte | undefined {
+  try {
+    const materia = materiaForTopic(root, topicId);
+    if (!materia) return undefined;
+    // A brief never creates an index as a side effect: no index is no material, exactly like an empty course.
+    if (!existsSync(indicePath(root))) return undefined;
+    const subtema = typeof entry.subtema === "string" ? entry.subtema : "";
+    const consulta = consultaDeParte(part.title, subtema);
+    if (!consulta) return undefined;
+    const { trozos, total } = materialRelevante(root, materia.id, consulta, { k: PART_MATERIAL_SLICES });
+    if (!trozos.length) return undefined;
+    return {
+      nombre: materia.nombre,
+      total,
+      lineas: trozos.map((trozo) => `- ${trozo.nombre} (${trozo.tipo}, ${trozo.ubicacion}): ${clip(trozo.texto, PART_MATERIAL_CHUNK_BYTES)}`),
+    };
+  } catch (error) {
+    process.stderr.write(`estudio: el material no se pudo leer para la parte «${part.title}» de ${topicId} · ${(error as Error).message}\n`);
+    return undefined;
+  }
+}
+
+/** The material section, showing `shown` slices; a clipped section always says how many stayed out. */
+function materialBlock(material: MaterialDeParte | undefined, shown: number): string[] {
+  if (!material) return [];
+  const head = `Material del curso «${material.nombre}» relevante para esta parte (${material.total} fragmentos; cita el nombre de la fuente y la ubicación de todo ejemplo o afirmación que tomes de aquí):`;
+  const lines = [head, ...material.lineas.slice(0, shown)];
+  const resto = material.total - shown;
+  if (resto > 0) lines.push(`[${resto} fragmentos relevantes sin mostrar: pídelos si esta parte los necesita.]`);
+  return lines;
 }
 
 /** Which plan entry the prompt asks to write: the UI names it by number and title, the part chat by id. */
@@ -145,17 +217,27 @@ export function partBrief(root: string, text: string): string {
     `Comprobación: node ${CHECK_TOOL} ${targetPath}`,
   ];
 
+  const material = materialDeParte(root, topicId, part, entry);
+
   /** Rebuild the sibling lines with shorter titles (and only then shorter paths) until it fits. */
   let maxTitle = 64;
   let maxPath = Number.POSITIVE_INFINITY;
+  let shown = material ? material.lineas.length : 0;
   let facts = "";
   for (;;) {
     const lines = siblings.map((sibling) => {
       const status = sibling.written ? "escrita" : "pendiente";
       return `${sibling.number}. ${clip(sibling.title, maxTitle)} | ${status} | ${clipPath(sibling.path, maxPath)}`;
     });
-    const brief = `${head}${[...fixed.slice(0, 4), ...lines, ...fixed.slice(4)].join("\n")}\n`;
+    const block = materialBlock(material, shown);
+    const brief = `${head}${[...fixed.slice(0, 4), ...lines, ...block, ...fixed.slice(4)].join("\n")}\n`;
     if (bytes(brief) <= SOFT_LIMIT) { facts = brief; break; }
+    // Material is the cheapest thing to drop: the slices are excerpts and the plan stays.
+    // Keep a couple while it is only the titles that have to shrink, then give the rest up.
+    if (shown > Math.min(PART_MATERIAL_MIN, material?.lineas.length ?? 0)) {
+      shown -= 1;
+      continue;
+    }
     if (maxTitle > 8) {
       maxTitle = Math.max(8, maxTitle - 8);
       continue;
@@ -164,16 +246,82 @@ export function partBrief(root: string, text: string): string {
       maxPath = maxPath === Number.POSITIVE_INFINITY ? 180 : Math.max(80, maxPath - 20);
       continue;
     }
+    if (shown > 0) {
+      shown -= 1;
+      continue;
+    }
     // A vault with thousands of parts still stays bounded: keep the destination and
     // the check command, then as many siblings as fit, rather than an unbounded block.
+    const rest = materialBlock(material, 0);
     const keep = [`${head}${fixed[0]}\n${fixed.at(-1)}\nPartes:\n`];
     for (const line of lines) {
-      if (bytes(keep.join("")) + bytes(`${line}\n`) > SOFT_LIMIT) break;
+      if (bytes(keep.join("")) + bytes(`${line}\n`) + bytes(rest.join("\n")) > SOFT_LIMIT) break;
       keep.push(`${line}\n`);
     }
+    if (rest.length) keep.push(`${rest.join("\n")}\n`);
     facts = keep.join("").slice(0, FACTS_LIMIT - 1);
     break;
   }
   const withFullSheet = `${facts}${RULES_FULL}`;
   return bytes(withFullSheet) <= MAX_PART_BRIEF_BYTES ? withFullSheet : `${facts}${RULES_COMPACT}`;
+}
+
+export const PLAN_BRIEF_MARK = "PLAN BRIEF";
+/** The planning turn carries the course, never the whole context window (#407/T2). */
+export const MAX_PLAN_BRIEF_BYTES = 8192;
+/** Kept for the line that reports what did not fit: a clipped brief always says so. */
+const PLAN_FOOTER_RESERVE = 200;
+const PLAN_CHUNK_BYTES = 480;
+
+/**
+ * The course material a topic's route must be derived from, or "" when there is nothing to say:
+ * no course, no indexed material, or a plan already written. Bounded by construction, and it never
+ * drops chunks silently — the count of what stayed out travels with it, so the tutor can ask.
+ */
+export function planBrief(root: string, topic: string): string {
+  // A turn must never fail because the material cannot be read: the brief is an improvement to the
+  // planning prompt, and a tutor without it behaves exactly as it did before #407.
+  try {
+    if (!/^[\w-]+$/.test(topic)) return "";
+    if (existsSync(join(root, topic, "plan.json"))) return "";
+    const materia = materiaForTopic(root, topic);
+    if (!materia) return "";
+    return briefDeMaterial(root, topic, materia.id, materia.nombre);
+  } catch (error) {
+    process.stderr.write(`estudio: el material no se pudo leer para el plan de ${topic} · ${(error as Error).message}\n`);
+    return "";
+  }
+}
+
+function briefDeMaterial(root: string, topic: string, idMateria: string, nombreMateria: string): string {
+  const trozos = materialOrdenado(root, idMateria);
+  if (trozos.length === 0) return "";
+  const fuentes = new Set(trozos.map((trozo) => trozo.nombre));
+  const head = [
+    `[${PLAN_BRIEF_MARK} · tema ${topic} · materia ${idMateria}/${nombreMateria}]`,
+    `Material: ${fuentes.size} fuentes, ${trozos.length} fragmentos, en este orden; el examen va primero porque pondera el orden, no porque recorte la cobertura.`,
+    "Deriva de este material la ruta completa, en pasos: cubre todo lo que aparece aquí y no inventes temas que no estén. El plan es tuyo: no lo muestres ni enumeres partes futuras al aprendiz.",
+    // The provenance fields the engine verifies (#408): the plan brief is the only
+    // place the route learns their shape, so it asks for them by name.
+    `Declara la cobertura así: "cobertura": "completa" — todo el material entra en la ruta; el examen pondera el orden, no la recorta.`,
+    `Y el material del que la derivas: "material": [{"nombre": <fuente>, "tipo": <tipo>}], una entrada por cada fuente de arriba.`,
+    `Cada parte declara lo que cita: "fuentes": [{"nombre": <fuente del material>, "ubicacion": <dónde está en ella>}]. El motor lo verifica: rechaza una parte sin fuentes, una fuente del material que ninguna parte cita y una fuente que el material no declara.`,
+  ].join("\n");
+  // A course name long enough to eat the whole budget leaves no room for material: no brief.
+  if (bytes(head) + PLAN_FOOTER_RESERVE > MAX_PLAN_BRIEF_BYTES) return "";
+  const lineas: string[] = [];
+  let usados = bytes(head) + PLAN_FOOTER_RESERVE;
+  for (const trozo of trozos) {
+    const linea = `- ${trozo.nombre} (${trozo.tipo}, ${trozo.ubicacion}): ${clip(trozo.texto, PLAN_CHUNK_BYTES)}`;
+    const costo = bytes(linea) + 1;
+    if (usados + costo > MAX_PLAN_BRIEF_BYTES) break;
+    lineas.push(linea);
+    usados += costo;
+  }
+  const resto = trozos.length - lineas.length;
+  const cola = resto > 0
+    ? `[${resto} fragmentos sin mostrar: pide las fuentes que necesites antes de escribir el plan.]`
+    : "";
+  const brief = `${head}\n${lineas.join("\n")}${lineas.length ? "\n" : ""}${cola}\n`;
+  return bytes(brief) <= MAX_PLAN_BRIEF_BYTES ? brief : `${head}\n${cola}\n`;
 }

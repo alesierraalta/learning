@@ -141,6 +141,51 @@ exactly as before.
 - Measurement is never trimmed: the quiz, its answer key, the diagnosis and
   the learner dump keep their full checks in both scopes.
 
+## Course-derived routes (provenance)
+
+A route derived from a course's material has to be provable, not promised, and
+the plan itself stays hidden: the studio's plan brief enumerates the material
+and asks for the fields below, and the engine — never prose — verifies them.
+
+`plan.json` declares how much of the material the route covers and the sources
+it was derived from:
+
+```json
+{"cobertura": "completa",
+ "material": [{"nombre": "unidad-1.pdf", "tipo": "documento"},
+              {"nombre": "final.pdf", "tipo": "examen"}]}
+```
+
+and every part declares the sources it cites, each with its location inside the
+source:
+
+```json
+{"id": "p1", "fuentes": [{"nombre": "unidad-1.pdf", "ubicacion": "párrafos 3-7"}]}
+```
+
+Two deterministic checks enforce it — `plan-cobertura` and `plan-provenance`,
+declared in `preparation` and again in `planning` (where the plan may have been
+rewritten):
+
+- `plan-cobertura` requires `cobertura` to be `completa` or `pareto` and a
+  `material` list whose every entry has a nonempty `nombre` and `tipo`, with no
+  source declared twice.
+- `plan-provenance` requires every part to cite at least one source with a
+  nonempty `nombre` and `ubicacion`, every source a part cites to appear in
+  `material`, and every source in `material` to be cited by some part — the
+  silent drop is the failure this check exists for.
+
+A route that declares `cobertura: "completa"` is not truncated by
+`thresholds.pareto.maxParts`: complete coverage is the point, and an exam-bearing
+course run is `pareto`-scoped by the engine while still covering everything. A
+route that declares `cobertura: "pareto"` owes the declared trim like any pareto
+run (`pareto.criterio` and a nonempty `pareto.descartado`, one `pareto` line per
+part) and keeps the cap, even when the run's state scope is `complete`.
+
+Both fields are additive. A plan without course material — an exam-only run, or
+a topic the learner typed — declares neither, both checks report `SKIP`, and the
+run keeps exactly the checks it had.
+
 ## Exam mode
 
 `--exam oral|written|practical` fixes the final mock-exam format at `init`.
@@ -342,9 +387,9 @@ is the source of truth for paths and checks; this table summarizes it.
 
 | Stage | Artifacts | Objective checks (summary) |
 |---|---|---|
-| preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned`; in `pareto` scope, a stated `pareto.criterio`, a nonempty `pareto.descartado`, one `pareto` line per part and at most `maxParts` parts. Optional per-part `demosPlanned` declares an interactive-demo promise. Exam runs also require the matching `examen` block and per-part `examen` purpose (`exam-plan`) |
+| preparation | `plan.json` | topic, parts with id/title/slug/subtema, explicit `examplesPlanned`/`visualsPlanned`; in `pareto` scope, a stated `pareto.criterio`, a nonempty `pareto.descartado`, one `pareto` line per part and at most `maxParts` parts. Optional per-part `demosPlanned` declares an interactive-demo promise. Exam runs also require the matching `examen` block and per-part `examen` purpose (`exam-plan`). Course-derived routes also declare `cobertura` (`completa`/`pareto`) with a `material` list, and every part a `fuentes` list with `nombre` and `ubicacion` (`plan-cobertura`, `plan-provenance`); a `completa` route is not capped by `maxParts` |
 | diagnosis | `quiz.md`, `quiz.json`, `quiz.answers.json` | adaptive rounds (`thresholds.diagnostic.mode: adaptive`, see "Adaptive diagnosis") or, for runs whose rules snapshot has fixed counts, 6 prerequisite + 6 topic questions (2/2/2 by level); enunciado/subtema/nivel/pieza, A–D + E `No sé`, enunciados present in `quiz.md`, complete answers, derived score bound to `quiz.md` `puntaje` |
-| planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part; in `pareto` scope the selection is re-checked because planning rewrites `plan.json`; exam runs re-check the format and each part's exam-purpose line (`exam-plan`) |
+| planning | `plan.json`, `planificador.md`, `mapa.mmd`, `explicacion.md`, `mis-palabras.md` | diagnosis summary and focus areas linked to wrong answers, every subtema in the planner, required planner sections (mermaid map, verified bibliography, visual plan row per part, numbered route, exercise table), `mapa.mmd` is a mermaid graph (`graph`/`flowchart` header and at least one edge), index lists every plan part: a written part (nonempty canonical note) is linked as `[[<vault-relative topic path>/explicaciones/Parte N - <slug>|...]]` (plan slug; vault root = nearest ancestor with `.obsidian`, topic-relative outside a vault), a pending part is plain text with its plan title and never a link (Obsidian creates a missing link target empty), no link to other parts; the planning receipt of the index ignores links, status icons and `progreso`, and `explanation` requires the part to be linked, one learner area per part; in `pareto` scope the selection is re-checked because planning rewrites `plan.json`; course-derived routes re-check `cobertura`/`material`/`fuentes` (`plan-cobertura`, `plan-provenance`); exam runs re-check the format and each part's exam-purpose line (`exam-plan`) |
 | explanation | `explicaciones/Parte {index} - {slug}.md` | frontmatter, planned example present, the measured explanation standard (`explanation-standard`, see [Explanation standard](#explanation-standard): `thresholds.partStandard` prose budget, content sections, route lines, one scene that draws, one walkthrough, paragraphs of at most two sentences, no drawn ASCII, formula legend over `<lk-math>`, plain `$$…$$`/`$…$` math and the formulas a scene draws symbol by symbol, with the annotated formula scene named in the fix, no closing summary), planned visual present, at least `thresholds.minVisuals` of them when the part planned a visual (an embed `![...]` such as an image or an Excalidraw drawing, a nonempty block in a `thresholds.visualBlocks` format, an inline `thresholds.visualElements` element such as `<svg>`, or a scene element the kit draws — `<lk-figure>` and `<lk-scene>`), every visual followed on its next non-blank line by the `thresholds.howToReadLine` reading guide (M1), revised after a failed mini-quiz; in `pareto` scope, opens with `## El 20% que rinde el 80%` and stays within `maxWords`; when the part declared `demosPlanned`, at least `thresholds.minDemos` interactive demo components (a closed `thresholds.demoElements` element such as `<lk-widget>` or `<lk-walkthrough>`), each introduced by its own `howToReadLine` guide; every walkthrough deck draws arrows, a step that draws two or more figures draws at least one (a deck of pictures never shows what happens), and a deck has something to draw: a JSON payload that parses with at least one step (scene-only markup does not render in the kit); always, whatever the run's frozen rules: at least one progressive walkthrough (see [Progressive walkthroughs](#progressive-walkthroughs)) |
 | own_words | `mis-palabras.md` (this part's area) | nonempty learner submission; length, spelling and register are never graded |
 | quiz | `mini-quiz/{part}.json`, `mini-quiz/{part}.answers.json` | part note has a mini-quiz section, 5 questions with enunciados present in it, complete answers, derived score ≥ 4/5 with no central miss |
@@ -533,11 +578,19 @@ planning, focus areas naming the diagnosis' wrong answers):
 
 ```json
 {"topic": "Factor de descuento",
+ "cobertura": "completa",
+ "material": [{"nombre": "unidad-1.pdf", "tipo": "documento"}],
  "parts": [{"id": "p1", "title": "El retorno", "slug": "El retorno",
             "subtema": "1.2.2", "examplesPlanned": true, "visualsPlanned": true,
-            "demosPlanned": true}],
+            "demosPlanned": true,
+            "fuentes": [{"nombre": "unidad-1.pdf", "ubicacion": "párrafos 3-7"}]}],
  "diagnosisSummary": "...", "focusAreas": ["..."]}
 ```
+
+`cobertura`, `material` and the per-part `fuentes` are the course-derived
+provenance of a route derived from course material (see [Course-derived routes
+(provenance)](#course-derived-routes-provenance)); a plan without course
+material omits them and its checks are unchanged.
 
 `id` and `slug` must not contain `/`, `\` or be `.`/`..`; the part note is
 `explicaciones/Parte {index} - {slug}.md`.

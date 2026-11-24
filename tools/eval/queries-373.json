@@ -1,0 +1,676 @@
+{
+  "descripcion": "Preguntas escritas leyendo cada chunk real de las notas en español; la etiqueta es ese chunk, no solo la nota.",
+  "origen": "content/*/explicaciones y cualquier texto .md/.txt de content/",
+  "chunking": "studio/indice.ts segmentarTexto (220 palabras objetivo, 40 de solape)",
+  "seed": 373,
+  "notas": [
+    "aprendizaje-por-refuerzo/explicaciones/Parte 1 - El problema que solo existe en el tiempo.md",
+    "aprendizaje-por-refuerzo/explicaciones/Parte 2 - Las cinco piezas.md",
+    "aprendizaje-por-refuerzo/explicaciones/Parte 3 - Un paso completo.md",
+    "aprendizaje-por-refuerzo/explicaciones/Parte 4 - Los cuatro conceptos que se confunden.md",
+    "aprendizaje-por-refuerzo/explicaciones/Parte 5 - Explorar o explotar.md",
+    "aprendizaje-por-refuerzo/explicaciones/Parte 6 - El retorno y el descuento.md"
+  ],
+  "chunks": {
+    "aprendizaje-por-refuerzo/explicaciones/Parte 1 - El problema que solo existe en el tiempo.md": {
+      "0": "# Parte 1 — El problema que solo existe en el tiempo\n## Ruta\nVamos a construirlo en este orden:\n1. Una decisión que no se puede juzgar ahora.\n2. El mismo robot con el 4 % de batería.\n3. En qué se diferencia esto del supervisado.\n## 1. Contestar bien y contestar tarde\nHay decisiones donde acertar ahora no sirve.\nEl robot está en una habitación sucia. Le queda 4 % de batería.\nPuede aspirar. Recompensa inmediata: alta.\nPuede irse al cargador. Recompensa inmediata: ninguna.\nSi miras solo el instante, aspirar gana.\nSi miras la hora siguiente, cargar gana. Con la batería llena, vuelve y limpia seis habitaciones.\n> **¿Qué acciones elijo a lo largo del tiempo para maximizar la recompensa total?**\nEsa pregunta es todo el tema.\n<lk-scene>\n<script type=\"application/json\">\n{\"viewBox\":\"0 0 760 200\",\"title\":\"El mismo robot, dos horizontes\",\"caption\":\"La misma decisión se juzga distinto según dónde pongas el final de la cuenta.\",\"scene\":{\"icons\":[{\"kind\":\"robot\",\"x\":8,\"y\":40,\"size\":56,\"tone\":\"blue\"}],\"boxes\":[{\"x\":88,\"y\":24,\"w\":212,\"h\":100,\"label\":\"aspiro ahora\",\"sub\":\"+10 · a la hora 1 habitación\",\"tone\":\"amber\",\"size\":22,\"subSize\":14,\"subDy\":22},{\"x\":460,\"y\":24,\"w\":212,\"h\":100,\"label\":\"cargo ahora\",\"sub\":\"0 · a la hora 6 habitaciones\",\"tone\":\"green\",\"size\":22,\"subSize\":14,\"subDy\":22}],\"arrows\":[{\"x1\":304,\"y1\":74,\"x2\":456,\"y2\":74,\"label\":\"la hora decide\",\"tone\":\"slate\",\"labelSize\":15,\"width\":3,\"labelAt\":0.5}]}}\n</script>\n</lk-scene>\n## 2. Nadie te dice la respuesta\nEn **supervisado**, alguien te da la respuesta para cada entrada.\nEsta foto es una sucia.\nEsta es una limpia.\nEn **no supervisado** no hay respuesta. Das miles de imágenes y aparecen grupos parecidos, sin nombre.\nEn **refuerzo** nadie te dice qué acción",
+      "1": "alguien te da la respuesta para cada entrada.\nEsta foto es una sucia.\nEsta es una limpia.\nEn **no supervisado** no hay respuesta. Das miles de imágenes y aparecen grupos parecidos, sin nombre.\nEn **refuerzo** nadie te dice qué acción era correcta. Recibes consecuencias.\n> hice esto → +10 · hice aquello → −5\nTienes que descubrir qué comportamiento produce mejores resultados.\nLa diferencia, en una línea.\nEl supervisado te dice la respuesta.\nEl refuerzo te deja actuar y mirar qué pasó.\n<lk-quick-quiz point=\"Parte 1 - El problema que solo existe en el tiempo\" tag=\"conceptual\">\n<script type=\"application/json\">\n{\"id\": \"q-p1-a\", \"pregunta\": \"El robot aspira con 4 % de batería y recibe +10. ¿Qué acaba de decir esa recompensa?\", \"opciones\": {\"A\": \"Que aspirar fue la decisión correcta a largo plazo\", \"B\": \"Que la acción produjo una consecuencia deseable en ese instante, sin decir nada del futuro\", \"E\": \"No sé\"}, \"correcta\": \"B\", \"explicacion\": \"La recompensa valora lo que acaba de pasar. Si era la mejor decisión depende de lo que venga después.\"}\n</script>\n</lk-quick-quiz>"
+    },
+    "aprendizaje-por-refuerzo/explicaciones/Parte 2 - Las cinco piezas.md": {
+      "0": "# Parte 2 — Las cinco piezas\n## Ruta\nVamos a construirlo en este orden:\n1. La caja negra: qué entra y qué sale.\n2. Las cinco piezas, una por una.\n3. La advertencia que sostiene el resto.\n## 1. La caja negra\nSiempre el mismo ejemplo: un robot aspirador en una casa.\nAntes de nombrar nada, míralo como una caja.\nEntra un estado.\nSale una acción.\nVuelve una recompensa.\n<lk-scene>\n<script type=\"application/json\">\n{\"viewBox\":\"0 0 760 230\",\"title\":\"La caja negra\",\"caption\":\"Todavía no sabemos qué hay dentro: solo que algo recibe el estado y devuelve una acción.\",\"scene\":{\"boxes\":[\n{\"x\":8,\"y\":64,\"w\":196,\"h\":110,\"label\":\"AGENTE\",\"sub\":\"robot · batería 70 %\",\"tone\":\"blue\",\"size\":22,\"subSize\":14,\"subDy\":22},\n{\"x\":556,\"y\":64,\"w\":196,\"h\":110,\"label\":\"ENTORNO\",\"sub\":\"casa · sala sucia\",\"tone\":\"green\",\"size\":22,\"subSize\":14,\"subDy\":22}],\n\"arrows\":[\n{\"x1\":208,\"y1\":100,\"x2\":552,\"y2\":100,\"label\":\"acción: aspirar\",\"tone\":\"blue\",\"labelSize\":15,\"width\":3,\"labelAt\":0.36},\n{\"x1\":552,\"y1\":138,\"x2\":208,\"y2\":138,\"label\":\"recompensa +10\",\"tone\":\"green\",\"labelSize\":15,\"width\":3,\"labelAt\":0.64}]}}\n</script>\n</lk-scene>\n## 2. Las cinco piezas\n**Agente**\nEs quien toma decisiones.\nEn nuestro ejemplo:\n> agente = robot aspirador.\nPodría ser también un personaje de videojuego, un recomendador, un controlador de tráfico.\n---\n**Entorno**\nEs todo aquello con lo que interactúa el agente.\nEn nuestro ejemplo:\n> entorno = casa + suciedad + batería + obstáculos.\nEl agente elige sus acciones. No elige las consecuencias.\n---\n**Estado**\nEs lo que hace falta saber para decidir ahora.\nEn nuestro ejemplo:\n> estado = sala sucia, cocina limpia, en la sala, batería 70 %.\n---\n**Acción**\nEs lo que el agente puede hacer.\nEn nuestro ejemplo:\n> acciones = aspirar, moverse, ir al",
+      "1": "falta saber para decidir ahora.\nEn nuestro ejemplo:\n> estado = sala sucia, cocina limpia, en la sala, batería 70 %.\n---\n**Acción**\nEs lo que el agente puede hacer.\nEn nuestro ejemplo:\n> acciones = aspirar, moverse, ir al cargador, esperar.\n---\n**Recompensa**\nEs un número que dice qué tan deseable fue una consecuencia.\nEn nuestro ejemplo:\n> limpiar +10 · movimiento inútil −1 · quedarse sin batería −5\n> La recompensa valora lo que acaba de pasar. No dice si la decisión fue buena.\n<lk-quick-quiz point=\"Parte 2 - Las cinco piezas\" tag=\"conceptual\">\n<script type=\"application/json\">\n{\"id\": \"qq-p1-1\", \"pregunta\": \"El robot aspira con el 4 % de batería y recibe +10. ¿Qué acaba de decirnos esa recompensa?\", \"opciones\": {\"A\": \"Que aspirar fue la decisión correcta a largo plazo\", \"B\": \"Que la acción produjo una consecuencia deseable en ese instante, sin decir nada sobre el futuro\", \"E\": \"No sé\"}, \"correcta\": \"B\", \"explicacion\": \"La recompensa es una señal inmediata. Si era la mejor decisión depende de lo que venga después, y eso lo mide el valor.\"}\n</script>\n</lk-quick-quiz>"
+    },
+    "aprendizaje-por-refuerzo/explicaciones/Parte 3 - Un paso completo.md": {
+      "0": "# Parte 3 — Un paso completo\n## Ruta\nVamos a construirlo en este orden:\n1. Un instante concreto del robot, con sus datos.\n2. Qué devuelve el entorno cuando actúa.\n3. Por qué recompensa y estado nuevo no son lo mismo.\n## 1. El instante T0\nSupongamos que ahora mismo el robot sabe esto:\n> posición = sala · sala = sucia · batería = 70 %\nElige **aspirar**. El entorno responde con dos cosas: una recompensa y un estado nuevo.\n> recompensa = +10 · sala = limpia · batería = 68 %\n## 2. Dos cosas distintas en la misma respuesta\nUn paso entrega dos cosas.\nUna **recompensa**, que se cobra una vez.\nUn **estado nuevo**, que abre las decisiones que vienen.\n<lk-scene>\n<script type=\"application/json\">\n{\"viewBox\": \"0 0 760 240\", \"title\": \"Qué vuelve en cada paso\", \"caption\": \"La recompensa se cobra en el acto; el estado nuevo es la puerta a los pasos siguientes.\", \"scene\": {\"boxes\": [{\"x\": 300, \"y\": 76, \"w\": 160, \"h\": 96, \"label\": \"un paso\", \"sub\": \"s → a → s nuevo\", \"tone\": \"ink\", \"size\": 20, \"subSize\": 13, \"subDy\": 20}], \"arrows\": [{\"x1\": 294, \"y1\": 124, \"x2\": 168, \"y2\": 124, \"tone\": \"amber\", \"width\": 2}, {\"x1\": 466, \"y1\": 124, \"x2\": 592, \"y2\": 124, \"tone\": \"blue\", \"width\": 2}], \"labels\": [{\"x\": 88, \"y\": 124, \"text\": \"recompensa r\"}, {\"x\": 672,",
+      "1": "20, \"subSize\": 13, \"subDy\": 20}], \"arrows\": [{\"x1\": 294, \"y1\": 124, \"x2\": 168, \"y2\": 124, \"tone\": \"amber\", \"width\": 2}, {\"x1\": 466, \"y1\": 124, \"x2\": 592, \"y2\": 124, \"tone\": \"blue\", \"width\": 2}], \"labels\": [{\"x\": 88, \"y\": 124, \"text\": \"recompensa r\"}, {\"x\": 672, \"y\": 124, \"text\": \"estado nuevo\"}]}}\n</script>\n</lk-scene>\nConfundirlas arruina el resto del tema.\nEl +10 ya está cobrado y no vuelve.\nLa batería al 68 % es lo que condiciona el paso siguiente.\nEse ciclo —estado, acción, recompensa, estado nuevo— se repite. Es el corazón de todo lo que sigue.\n<lk-quick-quiz point=\"Parte 3 - Un paso completo\" tag=\"conceptual\">\n<script type=\"application/json\">\n{\"id\": \"q-p3-a\", \"pregunta\": \"Después de aspirar, el robot recibe +10 y la sala queda limpia con 68 % de batería. ¿Qué de esas tres cosas condiciona el paso siguiente?\", \"opciones\": {\"A\": \"El +10, porque ya está cobrado\", \"B\": \"El estado nuevo: sala limpia y 68 % de batería\", \"C\": \"Las tres por igual\", \"E\": \"No sé\"}, \"correcta\": \"B\", \"explicacion\": \"La recompensa se cobró y no vuelve. Lo que decide el siguiente paso es el estado en que quedó el robot.\"}\n</script>\n</lk-quick-quiz>"
+    },
+    "aprendizaje-por-refuerzo/explicaciones/Parte 4 - Los cuatro conceptos que se confunden.md": {
+      "0": "# Parte 4 — Los cuatro conceptos que se confunden\n## Ruta\nVamos a construirlo en este orden:\n1. Política, recompensa, valor y modelo, cada uno con su pregunta.\n2. Por qué dos estados que se ven iguales valen distinto.\n3. Qué cambia cuando el agente tiene un modelo del entorno.\n## 1. Cada uno responde algo distinto\n| Concepto | Pregunta que responde |\n|---|---|\n| Política | ¿Qué acción elijo estando aquí? |\n| Recompensa | ¿Qué acaba de pasar? |\n| Función de valor | ¿Cuánto puedo conseguir desde aquí? |\n| Modelo | ¿Qué pasaría si hago esto? |\nLa **política** puede ser una tabla.\n> sucio → aspirar · batería baja → cargar\nO una distribución: la probabilidad de elegir cada acción estando en un estado.\nLa **recompensa** ya la conoces: es inmediata y no opina del futuro.\nEl **valor** mira hacia adelante. Se escribe de dos formas.\nEl valor de un estado.\nEl valor de un estado **y** una acción concreta.\nEl **modelo** predice qué ocurrirá si actúas. Tenerlo o no parte el campo en dos familias, y no es obligatorio.\n## 2. Mismo cuarto, distinto futuro\nDos estados pueden parecer idénticos —la misma habitación sucia— y valer muy distinto solo por la batería.\n<lk-scene>\n<script type=\"application/json\">\n{\"viewBox\":\"0 0 760 220\",\"title\":\"Mismo cuarto, distinto futuro\",\"caption\":\"La",
+      "1": "en dos familias, y no es obligatorio.\n## 2. Mismo cuarto, distinto futuro\nDos estados pueden parecer idénticos —la misma habitación sucia— y valer muy distinto solo por la batería.\n<lk-scene>\n<script type=\"application/json\">\n{\"viewBox\":\"0 0 760 220\",\"title\":\"Mismo cuarto, distinto futuro\",\"caption\":\"La diferencia no está en lo que se ve ahora, sino en cuánto se puede hacer después.\",\"scene\":{\"boxes\":[\n{\"x\":60,\"y\":64,\"w\":196,\"h\":110,\"label\":\"estado A\",\"sub\":\"batería 4 %\",\"tone\":\"red\",\"size\":22,\"subSize\":14,\"subDy\":22},\n{\"x\":504,\"y\":64,\"w\":196,\"h\":110,\"label\":\"estado B\",\"sub\":\"batería 100 %\",\"tone\":\"green\",\"size\":22,\"subSize\":14,\"subDy\":22}]}}\n</script>\n</lk-scene>\n<lk-quick-quiz point=\"Parte 4 - Los cuatro conceptos que se confunden\" tag=\"conceptual\">\n<script type=\"application/json\">\n{\"id\": \"qq-p1-2\", \"pregunta\": \"Dos estados idénticos salvo la batería (4 % y 100 %). ¿Qué número los distingue?\", \"opciones\": {\"A\": \"La recompensa que se cobró al llegar\", \"B\": \"El valor, porque mide lo que todavía se puede conseguir desde ahí\", \"E\": \"No sé\"}, \"correcta\": \"B\", \"explicacion\": \"La recompensa ya se cobró y es la misma para los dos. El valor mira hacia adelante: con 4 % quedan pocas acciones posibles.\"}\n</script>\n</lk-quick-quiz>"
+    },
+    "aprendizaje-por-refuerzo/explicaciones/Parte 5 - Explorar o explotar.md": {
+      "0": "# Parte 5 — Explorar o explotar\n## Ruta\nVamos a construirlo en este orden:\n1. Dos acciones que el robot conoce y una que no.\n2. Qué gana y qué pierde cada estrategia.\n3. El equilibrio más simple entre las dos.\n## 1. Dos caminos, ninguno gratis\nEl robot conoce dos acciones.\nLa primera suele dar +8.\nLa segunda apenas la ha probado.\n**Explotar** es usar lo que ya parece mejor: cobras lo conocido.\nTe quedas sin saber si había algo mejor.\n**Explorar** es probar lo desconocido: puede salir mal (+2).\nPuede salir extraordinariamente bien (+15).\nY entonces descubres algo que no sabías que existía.\n<lk-scene>\n<script type=\"application/json\">\n{\"viewBox\": \"0 0 760 330\", \"title\": \"El mismo estado, dos caminos\", \"caption\": \"Explotar cobra lo conocido; explorar compra información. Ninguno es gratis.\", \"scene\": {\"boxes\": [{\"x\": 282, \"y\": 20, \"w\": 196, \"h\": 96, \"label\": \"decisión\", \"sub\": \"¿qué acción?\", \"tone\": \"ink\", \"size\": 22, \"subSize\": 14, \"subDy\": 22}, {\"x\": 60, \"y\": 210, \"w\": 196, \"h\": 96, \"label\": \"explotar\", \"sub\": \"lo conocido\", \"tone\": \"blue\", \"size\": 20, \"subSize\": 14, \"subDy\": 20}, {\"x\": 504, \"y\": 210, \"w\": 196, \"h\": 96, \"label\": \"explorar\", \"sub\": \"lo nuevo\", \"tone\": \"amber\", \"size\": 20, \"subSize\": 14, \"subDy\": 20}], \"arrows\": [{\"x1\": 330, \"y1\": 120, \"x2\": 168, \"y2\": 204, \"label\": \"seguro\", \"tone\": \"blue\", \"labelSize\": 15, \"width\": 2}, {\"x1\": 430, \"y1\": 120, \"x2\": 592, \"y2\":",
+      "1": "196, \"h\": 96, \"label\": \"explorar\", \"sub\": \"lo nuevo\", \"tone\": \"amber\", \"size\": 20, \"subSize\": 14, \"subDy\": 20}], \"arrows\": [{\"x1\": 330, \"y1\": 120, \"x2\": 168, \"y2\": 204, \"label\": \"seguro\", \"tone\": \"blue\", \"labelSize\": 15, \"width\": 2}, {\"x1\": 430, \"y1\": 120, \"x2\": 592, \"y2\": 204, \"label\": \"información\", \"tone\": \"amber\", \"labelSize\": 15, \"width\": 2}]}}\n</script>\n</lk-scene>\n## 2. El equilibrio más simple\nNingún extremo funciona.\nExplorar siempre es probar cosas malas a propósito.\nExplotar siempre es quedarse con una estrategia mediocre.\nLa regla más usada reparte el tiempo con una sola probabilidad.\nCasi siempre usas la mejor acción conocida.\nDe vez en cuando, eliges otra al azar.\nEse «de vez en cuando» se ajusta con un número: cuanto más alto, más se explora.\n<lk-quick-quiz point=\"Parte 5 - Explorar o explotar\" tag=\"conceptual\">\n<script type=\"application/json\">\n{\"id\": \"q-p5-a\", \"pregunta\": \"La acción A suele dar +8 y la B nunca se ha probado. ¿Qué compra exactamente explorar B?\", \"opciones\": {\"A\": \"Una recompensa más alta garantizada\", \"B\": \"Información: saber si B era mejor de lo que parecía\", \"C\": \"Nada: es tiempo perdido\", \"E\": \"No sé\"}, \"correcta\": \"B\", \"explicacion\": \"Explorar no garantiza premio: compra información, y a veces cuesta recompensa inmediata.\"}\n</script>\n</lk-quick-quiz>"
+    },
+    "aprendizaje-por-refuerzo/explicaciones/Parte 6 - El retorno y el descuento.md": {
+      "0": "# Parte 6 — El retorno y el descuento\n## Ruta\nVamos a construirlo en este orden:\n1. Sumar las recompensas que vienen.\n2. Por qué llegar tarde pesa menos.\n3. Qué significa cada valor del factor de descuento.\n## 1. El retorno\nEl agente no quiere maximizar la próxima recompensa: quiere maximizar la suma de las que vienen.\nSi recibe +10, luego −1, luego +10, la suma es 19. Ese 19 es el **retorno**.\nPero cobrar +10 ahora no vale lo mismo que cobrarlo dentro de cinco mil pasos.\nPara eso existe el factor de descuento.\nCada paso que pasa, la recompensa pesa un poco menos.\n| Recompensa | Distancia | Peso | Aporta |\n|---:|---:|---:|---:|\n| +10 | 0 | 1 | +10 |\n| −1 | 1 | 0,9 | −0,9 |\n| +10 | 2 | 0,81 | +8,1 |\nEl retorno con descuento de esas tres es 17,2, no 19.\n<lk-scene>\n<script type=\"application/json\">\n{\"viewBox\":\"0 0 760 240\",\"title\":\"El mismo +10, tres pesos distintos\",\"caption\":\"Lo que cambia de una caja a otra no es la recompensa: es cuánto pesa por llegar tarde.\",\"scene\":{\"boxes\":[\n{\"x\":8,\"y\":60,\"w\":182,\"h\":96,\"label\":\"+10\",\"sub\":\"peso 1\",\"tone\":\"green\",\"size\":24,\"subSize\":14,\"subDy\":22},\n{\"x\":289,\"y\":60,\"w\":182,\"h\":96,\"label\":\"−1\",\"sub\":\"peso 0,9\",\"tone\":\"red\",\"size\":24,\"subSize\":14,\"subDy\":22},\n{\"x\":570,\"y\":60,\"w\":182,\"h\":96,\"label\":\"+10\",\"sub\":\"peso 0,81\",\"tone\":\"green\",\"size\":24,\"subSize\":14,\"subDy\":22}],\n\"arrows\":[\n{\"x1\":194,\"y1\":108,\"x2\":285,\"y2\":108,\"label\":\"+1 paso\",\"tone\":\"ink\",\"labelSize\":14,\"width\":3},\n{\"x1\":475,\"y1\":108,\"x2\":566,\"y2\":108,\"label\":\"+2 pasos\",\"tone\":\"ink\",\"labelSize\":14,\"width\":3}]}}\n</script>\n</lk-scene>\n## 2. Qué significa el factor\nEn forma compacta, el retorno suma cada recompensa multiplicada por el factor elevado a su distancia.\nSi",
+      "1": "pesa por llegar tarde.\",\"scene\":{\"boxes\":[\n{\"x\":8,\"y\":60,\"w\":182,\"h\":96,\"label\":\"+10\",\"sub\":\"peso 1\",\"tone\":\"green\",\"size\":24,\"subSize\":14,\"subDy\":22},\n{\"x\":289,\"y\":60,\"w\":182,\"h\":96,\"label\":\"−1\",\"sub\":\"peso 0,9\",\"tone\":\"red\",\"size\":24,\"subSize\":14,\"subDy\":22},\n{\"x\":570,\"y\":60,\"w\":182,\"h\":96,\"label\":\"+10\",\"sub\":\"peso 0,81\",\"tone\":\"green\",\"size\":24,\"subSize\":14,\"subDy\":22}],\n\"arrows\":[\n{\"x1\":194,\"y1\":108,\"x2\":285,\"y2\":108,\"label\":\"+1 paso\",\"tone\":\"ink\",\"labelSize\":14,\"width\":3},\n{\"x1\":475,\"y1\":108,\"x2\":566,\"y2\":108,\"label\":\"+2 pasos\",\"tone\":\"ink\",\"labelSize\":14,\"width\":3}]}}\n</script>\n</lk-scene>\n## 2. Qué significa el factor\nEn forma compacta, el retorno suma cada recompensa multiplicada por el factor elevado a su distancia.\nSi el factor es pequeño, se mira sobre todo el corto plazo.\nSi está cerca de 1, el horizonte se alarga.\nCon el factor en cero, el agente solo ve la siguiente recompensa.\n<lk-quick-quiz point=\"Parte 6 - El retorno y el descuento\" tag=\"conceptual\">\n<script type=\"application/json\">\n{\"id\": \"q-p6-a\", \"pregunta\": \"Con factor de descuento 0,9, ¿por qué el tercer +10 aporta 8,1 y no 10?\", \"opciones\": {\"A\": \"Porque la recompensa se hizo más pequeña\", \"B\": \"Porque llega dos pasos más tarde y cada paso la descuenta\", \"C\": \"Por un error de redondeo\", \"E\": \"No sé\"}, \"correcta\": \"B\", \"explicacion\": \"La recompensa no cambia: cambia su peso, porque el futuro se descuenta paso a paso.\"}\n</script>\n</lk-quick-quiz>"
+    }
+  },
+  "split": "Fisher-Yates con seed 373 dentro de cada kind; mitad tuning, mitad heldout; asignado antes de medir",
+  "stopwords": [
+    "a",
+    "al",
+    "alas",
+    "antes",
+    "aquel",
+    "aquella",
+    "aquellas",
+    "aquellos",
+    "asi",
+    "cada",
+    "como",
+    "con",
+    "contra",
+    "cual",
+    "cuales",
+    "cuando",
+    "cuanta",
+    "cuantas",
+    "cuanto",
+    "cuantos",
+    "de",
+    "del",
+    "desde",
+    "donde",
+    "dos",
+    "el",
+    "ella",
+    "ellos",
+    "en",
+    "entre",
+    "era",
+    "es",
+    "esas",
+    "ese",
+    "esos",
+    "esta",
+    "estas",
+    "este",
+    "estos",
+    "fue",
+    "ha",
+    "hay",
+    "la",
+    "las",
+    "le",
+    "les",
+    "lo",
+    "los",
+    "mas",
+    "me",
+    "menos",
+    "mi",
+    "mio",
+    "mucho",
+    "muy",
+    "ningun",
+    "ninguna",
+    "ningunas",
+    "ningunos",
+    "no",
+    "nos",
+    "nuestra",
+    "nuestro",
+    "o",
+    "os",
+    "otra",
+    "otras",
+    "otro",
+    "otros",
+    "para",
+    "pero",
+    "por",
+    "porque",
+    "que",
+    "quien",
+    "quienes",
+    "se",
+    "sea",
+    "ser",
+    "si",
+    "sin",
+    "sobre",
+    "solamente",
+    "son",
+    "su",
+    "sus",
+    "tambien",
+    "te",
+    "tiene",
+    "todo",
+    "todos",
+    "tu",
+    "tus",
+    "u",
+    "un",
+    "una",
+    "unas",
+    "uno",
+    "unos",
+    "vez",
+    "y",
+    "ya",
+    "yo"
+  ],
+  "queries": [
+    {
+      "id": "p1c0-l1",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "Con un 4 % de batería, ¿qué recompensa inmediata tiene aspirar comparada con ir al cargador?",
+      "esperado": {
+        "archivo": "Parte 1 - El problema que solo existe en el tiempo.md",
+        "pos": 0,
+        "chunk": "1bd884f824e5fb1343e305d962ba592a683157593cbe160903b5668258d8f720"
+      }
+    },
+    {
+      "id": "p1c0-l2",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué decisión gana si solo se mira el instante y cuál gana si se mira la hora siguiente?",
+      "esperado": {
+        "archivo": "Parte 1 - El problema que solo existe en el tiempo.md",
+        "pos": 0,
+        "chunk": "1bd884f824e5fb1343e305d962ba592a683157593cbe160903b5668258d8f720"
+      }
+    },
+    {
+      "id": "p1c0-p1",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "Si el aparato casi no tiene energía y limpiar ofrece un premio inmediato, ¿por qué conviene reponerla primero?",
+      "esperado": {
+        "archivo": "Parte 1 - El problema que solo existe en el tiempo.md",
+        "pos": 0,
+        "chunk": "1bd884f824e5fb1343e305d962ba592a683157593cbe160903b5668258d8f720"
+      }
+    },
+    {
+      "id": "p1c0-p2",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "¿Por qué cambia el veredicto de una elección cuando se alarga el horizonte?",
+      "esperado": {
+        "archivo": "Parte 1 - El problema que solo existe en el tiempo.md",
+        "pos": 0,
+        "chunk": "1bd884f824e5fb1343e305d962ba592a683157593cbe160903b5668258d8f720"
+      }
+    },
+    {
+      "id": "p1c1-l1",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué diferencia hay entre supervisado, no supervisado y refuerzo según quién da la respuesta?",
+      "esperado": {
+        "archivo": "Parte 1 - El problema que solo existe en el tiempo.md",
+        "pos": 1,
+        "chunk": "bbd9e603339b34ef8d2739bc37ebb7b0fec990f15038577cdf294fbd72c171bd"
+      }
+    },
+    {
+      "id": "p1c1-l2",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "En refuerzo, ¿qué recibes en lugar de una respuesta correcta?",
+      "esperado": {
+        "archivo": "Parte 1 - El problema que solo existe en el tiempo.md",
+        "pos": 1,
+        "chunk": "bbd9e603339b34ef8d2739bc37ebb7b0fec990f15038577cdf294fbd72c171bd"
+      }
+    },
+    {
+      "id": "p1c1-p1",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "Cuando no se etiqueta ningún ejemplo y aparece un efecto tras intervenir, ¿cómo se denomina este aprendizaje?",
+      "esperado": {
+        "archivo": "Parte 1 - El problema que solo existe en el tiempo.md",
+        "pos": 1,
+        "chunk": "bbd9e603339b34ef8d2739bc37ebb7b0fec990f15038577cdf294fbd72c171bd"
+      }
+    },
+    {
+      "id": "p1c1-p2",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "¿Cómo se llama el caso en que se entregan muchas fotos sin rótulo y surgen agrupaciones parecidas?",
+      "esperado": {
+        "archivo": "Parte 1 - El problema que solo existe en el tiempo.md",
+        "pos": 1,
+        "chunk": "bbd9e603339b34ef8d2739bc37ebb7b0fec990f15038577cdf294fbd72c171bd"
+      }
+    },
+    {
+      "id": "p2c0-l1",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué entra, qué sale y qué vuelve en la caja negra del robot aspirador?",
+      "esperado": {
+        "archivo": "Parte 2 - Las cinco piezas.md",
+        "pos": 0,
+        "chunk": "96e72eadb741badcfa324b62a1d479cdb78f9eb784932da2863d470a810bc270"
+      }
+    },
+    {
+      "id": "p2c0-l2",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué dos extremos se muestran en la caja negra antes de nombrar las cinco piezas?",
+      "esperado": {
+        "archivo": "Parte 2 - Las cinco piezas.md",
+        "pos": 0,
+        "chunk": "96e72eadb741badcfa324b62a1d479cdb78f9eb784932da2863d470a810bc270"
+      }
+    },
+    {
+      "id": "p2c0-p1",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "¿Qué dato llega, qué se decide y qué señal regresa al dispositivo mientras obra?",
+      "esperado": {
+        "archivo": "Parte 2 - Las cinco piezas.md",
+        "pos": 0,
+        "chunk": "96e72eadb741badcfa324b62a1d479cdb78f9eb784932da2863d470a810bc270"
+      }
+    },
+    {
+      "id": "p2c0-p2",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "¿Qué se introduce, qué se decide y qué señal retorna al aparato en el esquema inicial?",
+      "esperado": {
+        "archivo": "Parte 2 - Las cinco piezas.md",
+        "pos": 0,
+        "chunk": "96e72eadb741badcfa324b62a1d479cdb78f9eb784932da2863d470a810bc270"
+      }
+    },
+    {
+      "id": "p2c1-l1",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿Qué datos forman el estado del robot en el ejemplo de la sala y la cocina?",
+      "esperado": {
+        "archivo": "Parte 2 - Las cinco piezas.md",
+        "pos": 1,
+        "chunk": "530b77851ad07e8fe19fd361b44cedc8a70b031fbfde0e8d75cc185ed22f67f8"
+      }
+    },
+    {
+      "id": "p2c1-l2",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿Qué número indica qué tan deseable fue una consecuencia y qué ejemplo numérico se da?",
+      "esperado": {
+        "archivo": "Parte 2 - Las cinco piezas.md",
+        "pos": 1,
+        "chunk": "530b77851ad07e8fe19fd361b44cedc8a70b031fbfde0e8d75cc185ed22f67f8"
+      }
+    },
+    {
+      "id": "p2c1-p1",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "¿Qué datos describen la situación momento a momento y qué cifra cuantifica lo ocurrido?",
+      "esperado": {
+        "archivo": "Parte 2 - Las cinco piezas.md",
+        "pos": 1,
+        "chunk": "530b77851ad07e8fe19fd361b44cedc8a70b031fbfde0e8d75cc185ed22f67f8"
+      }
+    },
+    {
+      "id": "p2c1-p2",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "¿Cómo se denomina la opción ejecutable, como recoger el polvo o aguardar?",
+      "esperado": {
+        "archivo": "Parte 2 - Las cinco piezas.md",
+        "pos": 1,
+        "chunk": "530b77851ad07e8fe19fd361b44cedc8a70b031fbfde0e8d75cc185ed22f67f8"
+      }
+    },
+    {
+      "id": "p3c0-l1",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿Qué dos cosas devuelve el entorno cuando el robot elige aspirar en T0?",
+      "esperado": {
+        "archivo": "Parte 3 - Un paso completo.md",
+        "pos": 0,
+        "chunk": "23faf201e1afc61b4c3be970c840d9813d5f9c876a77cc0c9957d61298fcb25a"
+      }
+    },
+    {
+      "id": "p3c0-l2",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿Qué valores tiene la batería antes y después de ese paso?",
+      "esperado": {
+        "archivo": "Parte 3 - Un paso completo.md",
+        "pos": 0,
+        "chunk": "23faf201e1afc61b4c3be970c840d9813d5f9c876a77cc0c9957d61298fcb25a"
+      }
+    },
+    {
+      "id": "p3c0-p1",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "Tras la intervención, ¿qué cambio queda registrado para manejar lo que sigue y qué premio se percibe de inmediato?",
+      "esperado": {
+        "archivo": "Parte 3 - Un paso completo.md",
+        "pos": 0,
+        "chunk": "23faf201e1afc61b4c3be970c840d9813d5f9c876a77cc0c9957d61298fcb25a"
+      }
+    },
+    {
+      "id": "p3c0-p2",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "Al terminar la maniobra, ¿qué dato sobre el lugar y la carga queda para la siguiente decisión?",
+      "esperado": {
+        "archivo": "Parte 3 - Un paso completo.md",
+        "pos": 0,
+        "chunk": "23faf201e1afc61b4c3be970c840d9813d5f9c876a77cc0c9957d61298fcb25a"
+      }
+    },
+    {
+      "id": "p3c1-l1",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué condiciona el paso siguiente: el +10 ya cobrado o la batería al 68 %?",
+      "esperado": {
+        "archivo": "Parte 3 - Un paso completo.md",
+        "pos": 1,
+        "chunk": "db425b8a117826efc58ce4b77268ddd8a6f7d4c3b872de3c03c02a2a8b174181"
+      }
+    },
+    {
+      "id": "p3c1-l2",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué cuatro elementos se repiten en el ciclo descrito al final de esta parte?",
+      "esperado": {
+        "archivo": "Parte 3 - Un paso completo.md",
+        "pos": 1,
+        "chunk": "db425b8a117826efc58ce4b77268ddd8a6f7d4c3b872de3c03c02a2a8b174181"
+      }
+    },
+    {
+      "id": "p3c1-p1",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "¿Cuál de los datos obtenidos influye todavía en la decisión posterior y cuál ya se agotó?",
+      "esperado": {
+        "archivo": "Parte 3 - Un paso completo.md",
+        "pos": 1,
+        "chunk": "db425b8a117826efc58ce4b77268ddd8a6f7d4c3b872de3c03c02a2a8b174181"
+      }
+    },
+    {
+      "id": "p3c1-p2",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "¿Por qué el premio ya entregado no incide más y sí lo hace la situación resultante?",
+      "esperado": {
+        "archivo": "Parte 3 - Un paso completo.md",
+        "pos": 1,
+        "chunk": "db425b8a117826efc58ce4b77268ddd8a6f7d4c3b872de3c03c02a2a8b174181"
+      }
+    },
+    {
+      "id": "p4c0-l1",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué concepto responde a la pregunta «¿qué acción elijo estando aquí?»",
+      "esperado": {
+        "archivo": "Parte 4 - Los cuatro conceptos que se confunden.md",
+        "pos": 0,
+        "chunk": "52ff791b4efd86324d66526eb5f711e4d2679a940b7a3e0b50a3df32e7fedd32"
+      }
+    },
+    {
+      "id": "p4c0-l2",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿De qué dos formas se escribe el valor según esta parte?",
+      "esperado": {
+        "archivo": "Parte 4 - Los cuatro conceptos que se confunden.md",
+        "pos": 0,
+        "chunk": "52ff791b4efd86324d66526eb5f711e4d2679a940b7a3e0b50a3df32e7fedd32"
+      }
+    },
+    {
+      "id": "p4c0-p1",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "¿Cómo se llama la regla que decide la conducta y qué distinción hay entre premio recibido y expectativa futura?",
+      "esperado": {
+        "archivo": "Parte 4 - Los cuatro conceptos que se confunden.md",
+        "pos": 0,
+        "chunk": "52ff791b4efd86324d66526eb5f711e4d2679a940b7a3e0b50a3df32e7fedd32"
+      }
+    },
+    {
+      "id": "p4c0-p2",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "¿Qué mecanismo anticipa el desenlace de una intervención y es prescindible?",
+      "esperado": {
+        "archivo": "Parte 4 - Los cuatro conceptos que se confunden.md",
+        "pos": 0,
+        "chunk": "52ff791b4efd86324d66526eb5f711e4d2679a940b7a3e0b50a3df32e7fedd32"
+      }
+    },
+    {
+      "id": "p4c1-l1",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿Por qué dos estados que se ven iguales pueden valer muy distinto?",
+      "esperado": {
+        "archivo": "Parte 4 - Los cuatro conceptos que se confunden.md",
+        "pos": 1,
+        "chunk": "a07075202991511e5b09f8f8379f002a51aea8de8b7c2a48578bf6c48cdf3a42"
+      }
+    },
+    {
+      "id": "p4c1-l2",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué diferencia hay entre el estado A con 4 % y el estado B con 100 % de batería?",
+      "esperado": {
+        "archivo": "Parte 4 - Los cuatro conceptos que se confunden.md",
+        "pos": 1,
+        "chunk": "a07075202991511e5b09f8f8379f002a51aea8de8b7c2a48578bf6c48cdf3a42"
+      }
+    },
+    {
+      "id": "p4c1-p1",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "Si dos situaciones se ven iguales pero una permite actuar mucho más rato, ¿qué magnitud las separa?",
+      "esperado": {
+        "archivo": "Parte 4 - Los cuatro conceptos que se confunden.md",
+        "pos": 1,
+        "chunk": "a07075202991511e5b09f8f8379f002a51aea8de8b7c2a48578bf6c48cdf3a42"
+      }
+    },
+    {
+      "id": "p4c1-p2",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "¿Qué medida separa dos cuartos iguales cuando uno apenas logra continuar?",
+      "esperado": {
+        "archivo": "Parte 4 - Los cuatro conceptos que se confunden.md",
+        "pos": 1,
+        "chunk": "a07075202991511e5b09f8f8379f002a51aea8de8b7c2a48578bf6c48cdf3a42"
+      }
+    },
+    {
+      "id": "p5c0-l1",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿Qué gana el robot al probar la segunda acción apenas conocida?",
+      "esperado": {
+        "archivo": "Parte 5 - Explorar o explotar.md",
+        "pos": 0,
+        "chunk": "fd208efbbb0c077b70209f25b27ba33cc79891e338801455faee1880c4c45680"
+      }
+    },
+    {
+      "id": "p5c0-l2",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué recompensa puede salir al explorar y cuál al explotar?",
+      "esperado": {
+        "archivo": "Parte 5 - Explorar o explotar.md",
+        "pos": 0,
+        "chunk": "fd208efbbb0c077b70209f25b27ba33cc79891e338801455faee1880c4c45680"
+      }
+    },
+    {
+      "id": "p5c0-p1",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "¿Qué se obtiene al arriesgarse con una opción poco ensayada, aunque el premio pueda caer?",
+      "esperado": {
+        "archivo": "Parte 5 - Explorar o explotar.md",
+        "pos": 0,
+        "chunk": "fd208efbbb0c077b70209f25b27ba33cc79891e338801455faee1880c4c45680"
+      }
+    },
+    {
+      "id": "p5c0-p2",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "¿Qué se logra al arriesgarse con una vía inédita y qué se sacrifica al quedarse con la segura?",
+      "esperado": {
+        "archivo": "Parte 5 - Explorar o explotar.md",
+        "pos": 0,
+        "chunk": "fd208efbbb0c077b70209f25b27ba33cc79891e338801455faee1880c4c45680"
+      }
+    },
+    {
+      "id": "p5c1-l1",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué regla reparte el tiempo con una sola probabilidad?",
+      "esperado": {
+        "archivo": "Parte 5 - Explorar o explotar.md",
+        "pos": 1,
+        "chunk": "8dcfe3ce8182bcffa75ecd5781920e1734abe41e0be66b24223bca13d33614aa"
+      }
+    },
+    {
+      "id": "p5c1-l2",
+      "kind": "lexical",
+      "split": "tuning",
+      "q": "¿Qué ocurre cuanto más alto es el número que ajusta la exploración?",
+      "esperado": {
+        "archivo": "Parte 5 - Explorar o explotar.md",
+        "pos": 1,
+        "chunk": "8dcfe3ce8182bcffa75ecd5781920e1734abe41e0be66b24223bca13d33614aa"
+      }
+    },
+    {
+      "id": "p5c1-p1",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "¿Con qué mecanismo se decide cada tanto ensayar una alternativa en vez de repetir la favorita?",
+      "esperado": {
+        "archivo": "Parte 5 - Explorar o explotar.md",
+        "pos": 1,
+        "chunk": "8dcfe3ce8182bcffa75ecd5781920e1734abe41e0be66b24223bca13d33614aa"
+      }
+    },
+    {
+      "id": "p5c1-p2",
+      "kind": "paraphrase",
+      "split": "tuning",
+      "q": "¿Por qué persistir en la elección más segura acaba rindiendo poco?",
+      "esperado": {
+        "archivo": "Parte 5 - Explorar o explotar.md",
+        "pos": 1,
+        "chunk": "8dcfe3ce8182bcffa75ecd5781920e1734abe41e0be66b24223bca13d33614aa"
+      }
+    },
+    {
+      "id": "p6c0-l1",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿Qué total intenta maximizar el agente en vez de la próxima recompensa?",
+      "esperado": {
+        "archivo": "Parte 6 - El retorno y el descuento.md",
+        "pos": 0,
+        "chunk": "e1ce39b304d4fa38dd81d6c87a5bce732c3c9d39d0972c04404dfd9310c89145"
+      }
+    },
+    {
+      "id": "p6c0-l2",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿Cuál es el retorno con descuento de +10, −1 y +10?",
+      "esperado": {
+        "archivo": "Parte 6 - El retorno y el descuento.md",
+        "pos": 0,
+        "chunk": "e1ce39b304d4fa38dd81d6c87a5bce732c3c9d39d0972c04404dfd9310c89145"
+      }
+    },
+    {
+      "id": "p6c0-p1",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "¿Qué total pretende optimizar quien decide, en lugar del premio de este instante?",
+      "esperado": {
+        "archivo": "Parte 6 - El retorno y el descuento.md",
+        "pos": 0,
+        "chunk": "e1ce39b304d4fa38dd81d6c87a5bce732c3c9d39d0972c04404dfd9310c89145"
+      }
+    },
+    {
+      "id": "p6c0-p2",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "¿Por qué un premio lejano se cuenta por menos que uno próximo?",
+      "esperado": {
+        "archivo": "Parte 6 - El retorno y el descuento.md",
+        "pos": 0,
+        "chunk": "e1ce39b304d4fa38dd81d6c87a5bce732c3c9d39d0972c04404dfd9310c89145"
+      }
+    },
+    {
+      "id": "p6c1-l1",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿Qué significa que el factor esté cerca de 1?",
+      "esperado": {
+        "archivo": "Parte 6 - El retorno y el descuento.md",
+        "pos": 1,
+        "chunk": "1b25ee57a8039e07f9c3bca3082188abdb0be14b468d79fb1b18f643bca22ab6"
+      }
+    },
+    {
+      "id": "p6c1-l2",
+      "kind": "lexical",
+      "split": "heldout",
+      "q": "¿Qué ve el agente cuando el factor vale cero?",
+      "esperado": {
+        "archivo": "Parte 6 - El retorno y el descuento.md",
+        "pos": 1,
+        "chunk": "1b25ee57a8039e07f9c3bca3082188abdb0be14b468d79fb1b18f643bca22ab6"
+      }
+    },
+    {
+      "id": "p6c1-p1",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "¿Qué ocurre con la mirada de quien decide cuando el coeficiente se aproxima a la unidad?",
+      "esperado": {
+        "archivo": "Parte 6 - El retorno y el descuento.md",
+        "pos": 1,
+        "chunk": "1b25ee57a8039e07f9c3bca3082188abdb0be14b468d79fb1b18f643bca22ab6"
+      }
+    },
+    {
+      "id": "p6c1-p2",
+      "kind": "paraphrase",
+      "split": "heldout",
+      "q": "¿Cómo se comporta la visión de quien decide con un coeficiente nulo?",
+      "esperado": {
+        "archivo": "Parte 6 - El retorno y el descuento.md",
+        "pos": 1,
+        "chunk": "1b25ee57a8039e07f9c3bca3082188abdb0be14b468d79fb1b18f643bca22ab6"
+      }
+    }
+  ]
+}

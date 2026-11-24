@@ -2,13 +2,18 @@
 // discover the topic layout with ls/find/reads before it can write the note (T2b).
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { partBrief, MAX_PART_BRIEF_BYTES, PART_BRIEF_MARK } from "./brief.ts";
+import { cerrarIndice, configurarIndice, indicePath, indizarFuente } from "./indice.ts";
 import { ruleSheet } from "../tools/part-check.mjs";
+
+// The write-part brief ranks a course's chunks synchronously: no embedder is needed or started.
+configurarIndice({ embedCommand: null });
 import { startStudio } from "./server.ts";
 import { stripLecciones } from "./sugerencias.ts";
 import { makeRoot } from "./testdata/root.mjs";
@@ -25,6 +30,27 @@ const PARTS = [
   { id: "p3", title: "Enrutamiento", slug: "Enrutamiento", subtema: "1.3" },
 ];
 const WRITE_TEXT = "Escribe la Parte 2 «TCP» de Redes (carpeta redes): con sus visuales, sus ejemplos y su mini-quiz.";
+
+/** The on-disk course contract, as `studio/plan-brief.test.mjs` builds it. */
+function curso(raiz, nombre, temas = []) {
+  const id = randomBytes(16).toString("hex");
+  mkdirSync(join(raiz, ".materias", id), { recursive: true });
+  writeFileSync(join(raiz, ".materias", id, "materia.json"), `${JSON.stringify({
+    id, nombre, creada: new Date().toISOString(), temas, fuentes: [],
+  })}\n`);
+  return id;
+}
+
+function fuente(raiz, id, nombre, tipo, texto) {
+  const sourceId = randomBytes(16).toString("hex");
+  const cursoDir = join(raiz, ".materias", id);
+  mkdirSync(join(cursoDir, "fuentes", sourceId), { recursive: true });
+  const archivo = `fuentes/${sourceId}/${nombre}`;
+  writeFileSync(join(cursoDir, `${archivo}.txt`), texto, "utf8");
+  const declarada = { id: sourceId, tipo, nombre, archivo, bytes: Buffer.byteLength(texto), subida: new Date().toISOString(), texto: `${archivo}.txt` };
+  indizarFuente(raiz, id, declarada);
+  return declarada;
+}
 const open = [];
 afterEach(async () => {
   for (const studio of open.splice(0)) await studio.close();
@@ -192,3 +218,75 @@ test("a 20-part topic keeps the brief under the byte bound", async () => {
   assert.ok(brief.includes(join(bigRoot, "redes", "explicaciones", "Parte 20 - parte-numero-20.md")));
   assert.equal(partBrief(root, "Hola"), "", "no brief for a general prompt");
 });
+
+// Rule 1 (#374/T4): the part is written from its course's relevant slices, never from the plan entry alone.
+test("a part written for a course topic carries the slices relevant to that part", () => {
+  const { root } = makeRoot();
+  const id = curso(root, "Redes", ["redes"]);
+  fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+  const brief = partBrief(root, WRITE_TEXT);
+  assert.match(brief, /tcp\.txt \(documento, (?:párrafo|líneas|página) [^)]+\)/, `the source, its type and its location: ${brief}`);
+  assert.ok(brief.includes("ventana deslizante"), "the slice itself travels, not just its name");
+});
+
+// Rule 2 (#374/T4): the material section is part of the same 12 KiB brief and reports what it left out.
+test("the part brief stays bounded and says how many slices it left out", () => {
+  const { root } = makeRoot();
+  const id = curso(root, "Redes", ["redes"]);
+  const largo = Array.from({ length: 500 }, () => "tcp").join(" ");
+  for (let indice = 0; indice < 8; indice += 1) fuente(root, id, `tcp-${indice}.txt`, "documento", `${largo} fuente ${indice}.`);
+  const brief = partBrief(root, WRITE_TEXT);
+  assert.ok(Buffer.byteLength(brief, "utf8") <= MAX_PART_BRIEF_BYTES, `bounded: ${Buffer.byteLength(brief, "utf8")}`);
+  assert.match(brief, /\d+ fragmentos relevantes sin mostrar/, "silence is the one thing it may not do");
+});
+
+// Rule 3 (#374/T4): a source whose subject does not match the part must not leak into it.
+test("material that does not belong to the part stays out", () => {
+  const { root } = makeRoot();
+  const id = curso(root, "Redes", ["redes"]);
+  fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+  fuente(root, id, "reposteria.txt", "documento", "Receta de pan casero: 1 kg de harina, 2 huevos y levadura fresca.");
+  const brief = partBrief(root, WRITE_TEXT);
+  assert.ok(brief.includes("tcp.txt"), "the slice that belongs to the part is there");
+  assert.ok(!brief.includes("reposteria.txt"), `the decoy source stays out: ${brief}`);
+});
+
+// Rule 4 (#374/T4): every example or claim taken from the material is traced back for the learner.
+test("the brief tells the part to cite the source and location of what it takes", () => {
+  const { root } = makeRoot();
+  const id = curso(root, "Redes", ["redes"]);
+  fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+  const brief = partBrief(root, WRITE_TEXT);
+  assert.match(brief, /cita[^\n]*fuente[^\n]*ubicaci[^\n]*/i, `the citation order is asked for: ${brief}`);
+});
+
+// Rule 5 (#374/T4): nothing already delivered changes without a course or without indexed material.
+test("a topic without a course or a course without indexed material keeps today's brief", () => {
+  const { root } = makeRoot();
+  const sinCurso = partBrief(root, WRITE_TEXT);
+  const id = curso(root, "Redes", ["redes"]);
+  assert.equal(partBrief(root, WRITE_TEXT), sinCurso, "an empty course adds no line and changes no byte");
+  fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+  assert.notEqual(partBrief(root, WRITE_TEXT), sinCurso, "indexed material is the only thing that changes it");
+});
+
+// Rule 6 (#374/T4): material that cannot be read is a stderr line, never a broken brief or turn.
+test("a broken index degrades to today's brief and logs to stderr", () => {
+  const { root } = makeRoot();
+  const sinMaterial = partBrief(root, WRITE_TEXT);
+  curso(root, "Redes", ["redes"]);
+  writeFileSync(indicePath(root), "esto no es una base de datos\n", "utf8");
+  const escrito = [];
+  const original = process.stderr.write;
+  process.stderr.write = (chunk) => { escrito.push(String(chunk)); return true; };
+  let brief;
+  try {
+    brief = partBrief(root, WRITE_TEXT);
+  } finally {
+    process.stderr.write = original;
+  }
+  assert.equal(brief, sinMaterial, "a broken index leaves the brief exactly as it was");
+  assert.ok(escrito.some((linea) => /material/i.test(linea) && /redes/.test(linea)), `the failure is logged: ${escrito.join("")}`);
+});
+
+test.after(async () => { await cerrarIndice(); });

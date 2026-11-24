@@ -60,6 +60,13 @@ run() {
   if "$dry_run"; then printf 'DRY-RUN:'; printf ' %q' "$@"; printf '\n'; else "$@"; fi
 }
 if ! "$dry_run" && (( missing )); then exit 1; fi
+# T4's embedder is built by update.sh from the repo's locked Rust crate. rustup
+# installs under this user's home, with the minimal profile and no shell edits.
+if [[ ! -x "$HOME/.cargo/bin/cargo" ]]; then
+  run env CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup" bash -c \
+    'curl --proto "=https" --tlsv1.2 --fail --silent --show-error --max-time 600 https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path'
+fi
+export PATH="$HOME/.cargo/bin:$PATH"
 # PDF uploads use pdftotext; install its package only when the utility is absent.
 run bash "$assets/install-poppler-utils.sh"
 run mkdir -p "$HOME/.config/systemd/user"

@@ -210,6 +210,12 @@ h3 { font-weight: 700; }
 .learning-source-count, .learning-source-error { display: block; }
 .learning-source-error { color: var(--red); font-weight: 600; }
 .learning-source-control { display: grid; justify-items: start; gap: 6px; margin: 10px 0; }
+/* The course a new topic is born in: only the courses the learner already has are offered. */
+.learning-materia-field { display: grid; justify-items: start; gap: 4px; margin: 10px 0; }
+.learning-materia-field[hidden] { display: none; }
+.learning-materia-field label { font: 600 13px/1.4 var(--sans); color: var(--muted); }
+.learning-materia { box-sizing: border-box; width: min(100%, 24rem); min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--ctl-radius); background: var(--paper); color: var(--ink); font: 14px/1.4 var(--sans); }
+.learning-materia:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 .learning-source-picker { position: relative; display: inline-flex; align-items: center; min-height: 44px; padding: 7px 12px; border: 1px solid var(--line); background: var(--paper); color: var(--blue); font: 600 14px/1.4 var(--sans); cursor: pointer; }
 .learning-source-picker:hover { border-color: var(--blue); background: var(--blue-s); }
 .learning-source-picker:focus-within { outline: 3px solid var(--blue); outline-offset: 2px; }

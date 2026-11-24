@@ -116,6 +116,12 @@ func evalCheck(c *evalCtx, decl rules.CheckDecl) Check {
 		return passCheck(decl.ID, fmt.Sprintf("plan declares topic %q and %d part(s): %s",
 			c.plan.Topic, len(c.plan.Parts), strings.Join(ids, ",")))
 
+	case "plan_cobertura":
+		return evalPlanCobertura(c, decl)
+
+	case "plan_provenance":
+		return evalPlanProvenance(c, decl)
+
 	case "planning_link":
 		return evalPlanningLink(c, decl)
 
