@@ -62,6 +62,53 @@ jobs:
       - name: Build the engine binary
         run: go build -o bin/learning ./cmd/learning
 
+  # T4's long-lived embedder is a separate Rust crate. The model-free protocol
+  # tests run first; the real-model test runs after the pinned assets are in
+  # the default XDG directory the studio and the test both read.
+  embedder:
+    name: Rust embedder
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Formatting
+        run: cargo fmt --manifest-path tools/embed/Cargo.toml -- --check
+
+      - name: Clippy
+        run: |
+          cargo clippy --manifest-path tools/embed/Cargo.toml \
+            --all-targets --locked -j 2 -- -D warnings
+
+      - name: Protocol tests
+        run: |
+          cargo test --manifest-path tools/embed/Cargo.toml \
+            --locked -j 2 --lib --test protocol
+
+      - name: Asset cache key
+        id: embed-assets
+        run: |
+          pins="$(grep -Eo '[0-9a-f]{64}' tools/embed/fetch.sh \
+            | sort | tr -d '\n' | sha256sum | cut -d' ' -f1)"
+          echo "key=embed-assets-${pins}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/.local/share/learning/embed
+          key: ${{ steps.embed-assets.outputs.key }}
+
+      - name: Fetch pinned assets
+        run: bash tools/embed/fetch.sh
+
+      - name: Real-model integration test
+        run: |
+          cargo test --manifest-path tools/embed/Cargo.toml \
+            --locked -j 2 --test integration -- --nocapture
+
   # adapter.test.mjs skips its engine test when bin/learning is missing, so the
   # build comes first. The code-exercise tests skip themselves when a pinned
   # image is missing; pulling them here turns those skips into real runs. The
@@ -259,9 +306,9 @@ jobs:
 
       - name: Check the shell syntax
         run: |
-          for script in deploy/vps/*.sh; do
+          for script in deploy/vps/*.sh tools/embed/fetch.sh; do
             bash -n "$script"
           done
 
       - name: Run shellcheck
-        run: shellcheck --severity=warning deploy/vps/*.sh
+        run: shellcheck --severity=warning deploy/vps/*.sh tools/embed/fetch.sh
