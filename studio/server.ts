@@ -38,7 +38,7 @@ import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio } from "../integratio
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { ROOT_UNSET, resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
-import { partBrief } from "./brief.ts";
+import { partBrief, planBrief } from "./brief.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
@@ -1578,7 +1578,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   /** One prompt to the runtime. A refusal is the studio's log, never the learner's words. */
   const deliver = async (session: Session, text: string, started: Turn, reason: CallReason = "turn") => {
     // Every runtime hears the same figure contract, once, whatever prompted the turn.
-    const prompt = withVisualContract(text);
+    // A topic whose route is still unwritten also hears its course material, so the plan is
+    // derived from what the learner uploaded instead of invented from the topic name (#407).
+    const material = started.topic ? planBrief(root, started.topic) : "";
+    const prompt = material ? `${withVisualContract(text)}\n\n${material}` : withVisualContract(text);
     // From here until the runtime settles is this call's own time; the sizes are what it sends.
     started.timing.startCall(reason, prompt.length);
     try {

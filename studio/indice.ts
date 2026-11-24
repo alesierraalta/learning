@@ -799,6 +799,37 @@ export function estadoIndice(root: string, id: string): EstadoIndice {
   return { chunks, conVector, pendiente: chunks - conVector, semantica: disponible(configActual()), fuentes };
 }
 
+// ---- Whole material, in order -------------------------------------------------
+
+export interface TrozoMaterial {
+  /** The stored source id the chunk came from, so a citation can be traced back. */
+  fuente: string;
+  tipo: string;
+  nombre: string;
+  ubicacion: string;
+  texto: string;
+}
+
+/**
+ * Every chunk of a course in the order a learner reads the material: the exam leads (it weights
+ * the route, it does not trim it), then each source by name and each chunk by position. Unlike
+ * `buscar`, nothing is ranked away and no `k` clamps the result: the planner must be able to see
+ * the whole course, and `MAX_K` exists for queries, not for enumeration.
+ */
+export function materialOrdenado(root: string, materia: string): TrozoMaterial[] {
+  const db = database(resolve(root));
+  // SAFETY: the SELECT lists exactly these five columns of `chunks`, one row per chunk, with
+  // no expression SQLite could coerce; TypeScript cannot see the schema, so the row shape is declared.
+  const filas = db.prepare(`
+    SELECT fuente, tipo, nombre, ubicacion, texto FROM chunks
+    WHERE materia = ?
+    ORDER BY CASE tipo WHEN 'examen' THEN 0 ELSE 1 END, fuente, pos
+  `).all(materia) as unknown as TrozoMaterial[];
+  return filas.map((fila) => ({
+    fuente: fila.fuente, tipo: fila.tipo, nombre: fila.nombre, ubicacion: fila.ubicacion, texto: fila.texto,
+  }));
+}
+
 // ---- Hybrid search ------------------------------------------------------------
 
 /** Reciprocal Rank Fusion, rank 1 = best; ties break by id for reproducibility. */
