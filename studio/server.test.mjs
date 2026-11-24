@@ -4757,3 +4757,58 @@ function materiaUpload(studio, id, { fileName, contentType, tipo, content }) {
     body: content,
   });
 }
+
+// ---- what the learner says about a part -------------------------------------------------------
+
+test("a verdict is stored, listed for its part, and a second one replaces it", async () => {
+  const { studio } = await setup();
+  const cuerpo = { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "El ejemplo del sobre me cerró la idea." };
+  const saved = await post(studio, "api/valoraciones", cuerpo);
+  assert.equal(saved.status, 200, saved.body);
+  const { entrada } = JSON.parse(saved.body);
+  assert.equal(entrada.texto, "El ejemplo del sobre me cerró la idea.");
+  const listado = JSON.parse((await http(`${studio.url}api/valoraciones?tema=redes&parte=p1`)).body);
+  assert.deepEqual(listado.entradas.map((cada) => cada.id), [entrada.id]);
+  assert.ok(listado.motivos.some((motivo) => motivo.id === "ejemplo-claro" && motivo.signo === "gusta"));
+  const segunda = await post(studio, "api/valoraciones", { ...cuerpo, valor: "no-gusta", motivos: ["muy-abstracto"], texto: "" });
+  assert.equal(segunda.status, 200, segunda.body);
+  const otra = JSON.parse((await http(`${studio.url}api/valoraciones?tema=redes&parte=p1`)).body);
+  assert.equal(otra.entradas.length, 1, "one verdict per part");
+  assert.equal(otra.entradas[0].valor, "no-gusta");
+});
+
+test("praise that repeats reaches the prompt the tutor writes with", async () => {
+  const { studio, received } = await setup();
+  const uno = await post(studio, "api/valoraciones", { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  const dos = await post(studio, "api/valoraciones", { tema: "redes", parte: "p2", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  assert.equal(uno.status, 200, uno.body);
+  assert.equal(dos.status, 200, dos.body);
+  const guardadas = JSON.parse((await http(`${studio.url}api/valoraciones`)).body).entradas;
+  assert.equal(guardadas.length, 2, "both verdicts are on disk before the turn");
+  assert.equal((await post(studio, "prompt", { text: "Escribe la parte 3" })).status, 200);
+  const prompt = received().filter((call) => call.type === "prompt").at(-1).message;
+  assert.match(prompt, /\[Lo que esta persona valora\]/);
+  assert.match(prompt, /El ejemplo fue claro \(2 partes\)/);
+});
+
+test("one verdict is a day, not a rule: the prompt does not carry it", async () => {
+  const { studio, received } = await setup();
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p1", valor: "no-gusta", motivos: ["muy-abstracto"], texto: "" });
+  assert.equal((await post(studio, "prompt", { text: "Escribe la parte 3" })).status, 200);
+  const prompt = received().filter((call) => call.type === "prompt").at(-1).message;
+  assert.equal(prompt.includes("[Lo que esta persona valora]"), false);
+});
+
+test("the learner's own message never shows the block that was added to the prompt", async () => {
+  const { studio } = await setup();
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p2", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "Escribe la parte 3" })).status, 200);
+    const dicho = await stream.next("user");
+    assert.equal(dicho.text, "Escribe la parte 3");
+  } finally { stream.close(); }
+});
