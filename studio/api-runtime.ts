@@ -15,13 +15,13 @@
  *   - streamed `tool_calls` arrive by `index`, with `function.arguments` split across events.
  */
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { HttpError } from "../integrations/pi/bridge.ts";
 import { resolveContained } from "../integrations/pi/paths.ts";
 import { STUDIO_CONTRACT } from "./agy.ts";
-import { nivelesDeEffort, proveedorPorId } from "./proveedores.ts";
+import { nivelesDeEffort, PROVEEDORES, proveedorPorId } from "./proveedores.ts";
 import type { TutorConfig } from "./tutor.ts";
 
 type Json = Record<string, unknown>;
@@ -29,6 +29,9 @@ const isRecord = (value: unknown): value is Json => !!value && typeof value === 
 
 /** Steps a single turn may take before the studio stops it: a turn, not an agent loop forever. */
 const MAX_STEPS = 12;
+/** How long a provider may stay silent before the turn is cut: an idle socket must not latch the studio. */
+const IDLE_MS = 60_000;
+
 /** What one `read` returns, and what one engine call may say back to the model. */
 const MAX_TEXT = 20_000;
 const MAX_OUTPUT = 8_000;
@@ -89,7 +92,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "bash",
-      description: "Run the study engine (`learning ...`). Nothing else is allowed.",
+      description: "Run the study engine (`learning status --json`, `learning validate --json`, `learning advance --stage ... --verdict ... --json`). The studio adds --root, --workspace and --rules for you. Nothing else is allowed.",
       parameters: {
         type: "object",
         properties: { command: { type: "string", description: "For example: learning status --json" } },
@@ -102,7 +105,7 @@ const TOOLS = [
 const TOOL_GUIDE = [
   "[Herramientas]",
   "Puedes leer (read), escribir (write) y editar (edit) notas dentro de la carpeta de Learnings, y preguntarle al motor (bash) con `learning ...`.",
-  "El motor es la autoridad: no declares aprobado nada que él no haya aprobado. Usa `learning status --json` para saber dónde está el estudio.",
+  "El motor es la autoridad: no declares aprobado nada que él no haya aprobado. Usa `bash` con `learning status --json` (el estudio añade --root, --workspace y --rules): ahí ves dónde está el estudio.",
   "No escribas fuera de la carpeta de Learnings: esas rutas se rechazan.",
 ].join("\n");
 
@@ -135,19 +138,22 @@ async function leerTurno(
   key: string,
   providerName: string,
   body: Json,
-  signal: AbortSignal,
+  controller: AbortController,
   onText: (delta: string) => void,
   fetchImpl: typeof fetch,
+  idleMs: number = IDLE_MS,
 ): Promise<Paso> {
   const response = await fetchImpl(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
-    signal,
+    signal: controller.signal,
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    const said = detail.slice(0, 300).replace(/\s+/g, " ").trim();
+    // A provider (or a proxy) may quote the request back at us; the key is scrubbed before it can
+    // reach a message, the page or a log.
+    const said = detail.slice(0, 300).split(key).join("[clave]").replace(/\s+/g, " ").trim();
     throw new Error(`${providerName} respondió ${response.status}${said ? `: ${said}` : ""}`);
   }
   if (response.body === null) throw new Error(`${providerName} no envió respuesta`);
@@ -157,6 +163,15 @@ async function leerTurno(
   let text = "";
   let buffer = "";
   let done = false;
+  // A provider that accepts the turn and then goes quiet would otherwise hold the studio's only
+  // turn for as long as it likes; silence is cut, and the cut says it was silence.
+  let stalled = false;
+  let watchdog: NodeJS.Timeout | undefined;
+  const bump = () => {
+    if (watchdog) clearTimeout(watchdog);
+    watchdog = setTimeout(() => { stalled = true; controller.abort(); }, idleMs);
+  };
+  const dataOf = (line: string) => (line.startsWith("data:") ? line.slice(5).trim() : "");
   const consume = (payload: string) => {
     if (payload === "[DONE]") { done = true; return; }
     let record: unknown;
@@ -179,18 +194,36 @@ async function leerTurno(
       calls.set(index, carrier);
     }
   };
-  while (!done) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    buffer += decoder.decode(chunk.value, { stream: true });
-    // Events end at a blank line; the tail stays buffered until its own blank line arrives.
-    const blocks = buffer.split(/\r?\n\r?\n/);
-    buffer = blocks.pop() ?? "";
-    for (const block of blocks) {
-      const payload = block.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("");
-      if (payload) consume(payload);
-      if (done) break;
+  bump();
+  try {
+    while (!done) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bump();
+      buffer += decoder.decode(chunk.value, { stream: true });
+      // Events end at a blank line; the tail stays buffered until its own blank line arrives.
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        // One payload per `data:` line: two of them in one block are two events, not one string.
+        for (const line of block.split(/\r?\n/)) {
+          const payload = dataOf(line);
+          if (payload) consume(payload);
+          if (done) break;
+        }
+        if (done) break;
+      }
     }
+    // A stream that ends without its blank line still carried a last event.
+    for (const line of buffer.split(/\r?\n/)) {
+      const payload = dataOf(line);
+      if (payload) consume(payload);
+    }
+  } catch (error) {
+    if (stalled) throw new Error(`${providerName} dejó de responder durante ${Math.round(idleMs / 1000)} s; el turno se cortó.`);
+    throw error;
+  } finally {
+    if (watchdog) clearTimeout(watchdog);
   }
   await reader.cancel().catch(() => {});
   const assembled: Llamada[] = [...calls.entries()].sort(([left], [right]) => left - right).map(([index, call]) => {
@@ -220,7 +253,15 @@ function destinoDeEscritura(root: string, raw: unknown): { ok: true; path: strin
     return { ok: false, reason: "esa ruta sale de la carpeta de Learnings por un enlace" };
   }
   mkdirSync(dirname(absolute), { recursive: true });
-  return { ok: true, path: join(realpathSync(dirname(absolute)), basename(absolute)) };
+  const final = join(realpathSync(dirname(absolute)), basename(absolute));
+  // The parent is contained; the file itself must not be a link, or the write lands wherever the
+  // link points -- including a dangling one, whose target does not exist yet.
+  try {
+    if (lstatSync(final).isSymbolicLink()) {
+      return { ok: false, reason: "esa ruta es un enlace simbólico: escribe el archivo real al que apunta" };
+    }
+  } catch { /* nothing there yet: a new file */ }
+  return { ok: true, path: final };
 }
 
 /** An existing file the tutor may look at: the studio's own containment rule. */
@@ -231,14 +272,53 @@ function destinoExistente(root: string, raw: unknown): { ok: true; path: string 
   return contained.ok ? { ok: true, path: contained.targetReal } : { ok: false, reason: contained.reason };
 }
 
-/** `learning status --json` and nothing else: the engine is the one program the tutor may run. */
-function engineArgs(command: unknown, engine: string): { ok: true; args: string[] } | { ok: false; reason: string } {
+/** The flags whose value is a path the engine writes to or reads from. */
+const RUTAS = new Set(["--root", "--workspace", "--rules", "--source", "--exam-source"]);
+
+/**
+ * The engine is the one program the tutor may run, and it may not be pointed outside the vault:
+ * `learning init --workspace /tmp/x` writes a study there without `write` ever being called. The
+ * flags the engine requires on every command are supplied here, so `learning status --json` works.
+ */
+function engineArgs(
+  command: unknown,
+  engine: string,
+  root: string,
+  rulesPath: string,
+): { ok: true; args: string[] } | { ok: false; reason: string } {
   if (typeof command !== "string" || !command.trim()) return { ok: false, reason: "falta el comando" };
   const tokens = (command.match(/(?:[^\s"]+|"[^"]*")+/g) ?? []).map((token) => (token.startsWith('"') && token.endsWith('"') ? token.slice(1, -1) : token));
   const [first, ...rest] = tokens;
   const allowed = new Set(["learning", "./bin/learning", "bin/learning", engine]);
   if (!allowed.has(first)) return { ok: false, reason: "solo puedes correr el motor de aprendizaje: `learning ...`" };
-  return { ok: true, args: rest };
+  const rootReal = realpathSync(root);
+  const passed = new Set<string>();
+  for (let index = 0; index < rest.length; index += 1) {
+    const token = rest[index];
+    if (!RUTAS.has(token)) continue;
+    const value = rest[index + 1];
+    if (value === undefined) return { ok: false, reason: `${token} necesita una ruta` };
+    passed.add(token);
+    const absolute = isAbsolute(value) ? resolve(value) : resolve(rootReal, value);
+    const inside = relative(rootReal, absolute);
+    if (inside === ".." || inside.startsWith(`..${sep}`)) {
+      return { ok: false, reason: `${token} apunta fuera de la carpeta de Learnings; el motor solo trabaja dentro` };
+    }
+    for (let walk = absolute; walk !== dirname(walk); walk = dirname(walk)) {
+      if (!existsSync(walk)) continue;
+      const reached = relative(rootReal, realpathSync(walk));
+      if (reached === ".." || reached.startsWith(`..${sep}`)) {
+        return { ok: false, reason: `${token} sale de la carpeta de Learnings por un enlace` };
+      }
+      break;
+    }
+  }
+  const injected = [
+    ...(passed.has("--root") ? [] : ["--root", rootReal]),
+    ...(passed.has("--workspace") ? [] : ["--workspace", rootReal]),
+    ...(passed.has("--rules") ? [] : ["--rules", rulesPath]),
+  ];
+  return { ok: true, args: [...injected, ...rest] };
 }
 
 function correr(engine: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ ok: boolean; content: string }> {
@@ -256,10 +336,11 @@ function correr(engine: string, args: string[], cwd: string, env: NodeJS.Process
 async function ejecutar(options: {
   root: string;
   engine: string;
+  rulesPath: string;
   env: NodeJS.ProcessEnv;
   call: Llamada;
 }): Promise<{ ok: boolean; content: string }> {
-  const { root, engine, env, call } = options;
+  const { root, engine, rulesPath, env, call } = options;
   switch (call.name) {
     case "read": {
       const where = destinoExistente(root, call.args.path);
@@ -293,7 +374,7 @@ async function ejecutar(options: {
       return { ok: true, content: `editado ${relative(realpathSync(root), where.path)}` };
     }
     case "bash": {
-      const command = engineArgs(call.args.command, engine);
+      const command = engineArgs(call.args.command, engine, root, rulesPath);
       if (!command.ok) return { ok: false, content: command.reason };
       return correr(engine, command.args, root, env);
     }
@@ -319,14 +400,22 @@ export function createApi(options: {
   childEnv?: Record<string, string>;
   /** The study engine binary, as the studio resolved it. */
   engine: string;
+  /** The rules file the engine requires on every command. */
+  rulesPath: string;
   fetchImpl?: typeof fetch;
   maxSteps?: number;
+  /** How long a silent provider is tolerated before the turn is cut; a test shortens it. */
+  idleMs?: number;
 }) {
   const provider = proveedorPorId(options.config.proveedor) ?? proveedorPorId("mistral");
   const base = options.base ?? provider?.base ?? "";
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
-  const engineEnv: NodeJS.ProcessEnv = { ...process.env, ...options.childEnv };
+  // The engine child gets the studio's environment without any provider key: it never needs one,
+  // and a tool result is the one place a key could come back to the model.
+  const engineEnv: NodeJS.ProcessEnv = { ...process.env };
+  for (const provider of PROVEEDORES) delete engineEnv[provider.variable];
+  Object.assign(engineEnv, options.childEnv);
   const messages: Json[] = [];
   const config = { ...options.config };
   let busy = false;
@@ -366,13 +455,14 @@ export function createApi(options: {
           key(),
           provider!.nombre,
           body,
-          controller!.signal,
+          controller!,
           (delta) => {
             if (!started) { emit({ type: "message_start", message: { role: "assistant" } }); started = true; }
             answer += delta;
             emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta } });
           },
           fetchImpl,
+          options.idleMs,
         );
         if (paso.calls.length === 0) {
           messages.push({ role: "assistant", content: paso.text });
@@ -389,7 +479,7 @@ export function createApi(options: {
           emit({ type: "tool_execution_start", toolCallId: call.id, toolName: call.name, args: call.args });
           let result: { ok: boolean; content: string };
           try {
-            result = await ejecutar({ root: options.root, engine: options.engine, env: engineEnv, call });
+            result = await ejecutar({ root: options.root, engine: options.engine, rulesPath: options.rulesPath, env: engineEnv, call });
           } catch (error) {
             result = { ok: false, content: error instanceof Error ? error.message : String(error) };
           }

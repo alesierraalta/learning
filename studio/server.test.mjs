@@ -4835,7 +4835,8 @@ test("the studio says whether the key is present and never serves it", async () 
 });
 
 test("saving the API tutor refuses an effort the model does not document, before writing the file", async () => {
-  const { studio, root } = await apiStudio({ apiEnv: { MISTRAL_API_KEY: API_KEY } });
+  const fake = await fakeProvider();
+  const { studio, root } = await apiStudio({ apiEnv: { MISTRAL_API_KEY: API_KEY }, apiBase: fake.base });
   const refused = await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-large-4-0", pensamiento: "none", proveedor: "mistral" });
   assert.equal(refused.status, 400);
   assert.match(refused.body, /no acepta/);
@@ -4846,4 +4847,52 @@ test("saving the API tutor refuses an effort the model does not document, before
   // A model nobody documented offers no levels, and the page is told so.
   const catalogue = JSON.parse((await http(`${studio.url}api/tutor/modelos?agente=api&modelo=mistral-large-latest`)).body);
   assert.deepEqual(catalogue.pensamientos, []);
+  assert.ok(fake.seen.length >= 1, "the catalogue came from the provider the studio was pointed at, never the internet");
+  await fake.close();
+});
+
+test("a missing key refuses the save instead of replacing a tutor that works", async () => {
+  const { studio, root } = await apiStudio({ apiEnv: {} });
+  const before = await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "" });
+  assert.equal(before.status, 200, before.body);
+  const refused = await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-small-2603", pensamiento: "", proveedor: "mistral" });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body, /MISTRAL_API_KEY/);
+  assert.equal(JSON.parse(readFileSync(join(root, "tutor.json"), "utf8")).agente, "pi", "the working tutor is still the saved one");
+});
+
+test("stopping an API turn through the studio stops the work, not just the page", async () => {
+  // The provider holds the stream open after its first delta; the model's tool call is queued
+  // behind the release. A stop that only reaches the page leaves the runtime busy and lets the
+  // model write to the vault after the learner said stop.
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", async () => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "a medias" } }] })}\n\n`);
+      await held;
+      const call = { tool_calls: [{ index: 0, id: "call-write", type: "function", function: { name: "write", arguments: JSON.stringify({ path: "redes/abortado.md", content: "no" }) } }] };
+      response.end(`data: ${JSON.stringify({ choices: [{ delta: call, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}/v1/`;
+  const { studio, root } = await apiStudio({ apiBase: base, apiEnv: { MISTRAL_API_KEY: API_KEY } });
+  try {
+    assert.equal((await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-small-2603", pensamiento: "", proveedor: "mistral" })).status, 200);
+    const stream = sse(`${studio.url}events`);
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "escribe la parte" })).status, 200);
+    await stream.next("assistant_delta");
+    assert.equal((await post(studio, "abort", {})).status, 200);
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(existsSync(join(root, "redes", "abortado.md")), false, "nothing is written after the stop");
+    // The runtime is usable again: the stop did not latch the studio's only turn.
+    const again = await post(studio, "prompt", { text: "otra cosa" });
+    assert.equal(again.status, 200, again.body);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
 });

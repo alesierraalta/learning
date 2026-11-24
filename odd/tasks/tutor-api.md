@@ -51,13 +51,13 @@ the vocabulary. A turn that cannot reach a verdict leaves the studio saying so.
 
 | ID | Specs | What | Route | Commit |
 |---|---|---|---|---|
-| T1 | S1,S3,S5,S8 | `studio/proveedores.ts`: registry, `detectar`, `detectarClave`, `nivelesDeEffort`; tests | inline | pending |
-| T2 | S1,S2 | `studio/tutor.ts`: `version: 2` with `proveedor`, v1 migrated on read; tests | inline | pending |
-| T3 | S1,S2,S5 | `api/tutor` reports detected providers and key presence; effort follows the model; Configuración shows the provider block | inline | pending |
-| T4 | S4,S9 | `studio/api-runtime.ts`: SSE parser (string and chunk-array deltas, `[DONE]`), streamed tool calls, bounded tool loop, abort, transcript | inline | pending |
-| T5 | S7 | Tools `read`/`write`/`edit`/`bash` with `resolveContained` and a `bash` restricted to the study engine | inline | pending |
-| T6 | S4,S7,S10 | Wire `agente: "api"` in `studio/server.ts`; conformance across the three runtimes | inline | pending |
-| T7 | S3,S7 | `docs/studio.md`: the runtime, what it does differently, what it cannot do | inline | pending |
+| T1 | S1,S3,S5,S8 | `studio/proveedores.ts`: registry, `detectar`, `detectarClave`, `nivelesDeEffort`; tests | inline | 41fbb29 |
+| T2 | S1,S2 | `studio/tutor.ts`: `version: 2` with `proveedor`, v1 migrated on read; tests | inline | 41fbb29 |
+| T3 | S1,S2,S5 | `api/tutor` reports detected providers and key presence; effort follows the model; Configuración shows the provider block | inline | 1f93d49 |
+| T4 | S4,S9 | `studio/api-runtime.ts`: SSE parser (string and chunk-array deltas, `[DONE]`), streamed tool calls, bounded tool loop, abort, transcript | inline | 99593ff |
+| T5 | S7 | Tools `read`/`write`/`edit`/`bash` with `resolveContained` and a `bash` restricted to the study engine | inline | 99593ff, L16 fixes |
+| T6 | S4,S7,S10 | Wire `agente: "api"` in `studio/server.ts`; conformance across the three runtimes | inline | 1f93d49, L16 fixes |
+| T7 | S3,S7 | `docs/studio.md`: the runtime, what it does differently, what it cannot do | inline | e82b315, L16 fixes |
 
 ## Log
 
@@ -148,3 +148,35 @@ L15 — Not verified, and not claimed: a live turn against `api.mistral.ai`. No 
 this machine, so every test runs against a local fake provider that emits the shapes Mistral
 documents. The owner's `MISTRAL_API_KEY` plus a restart of the studio is what turns this from
 "tested" into "proven".
+
+L16 — Independent verification (`gentle-ai-verify`, mwuuqjb4-1-bx2c) read the candidate and
+reported, with reproductions: **two blocking** and four medium defects. It was right about every
+one I checked, and the fixes are pinned by tests that would fail without them:
+
+- **B1, blocking — the stop button never reached this runtime.** `abort` knew `session.agy` and
+  `session.child`, not `session.api`, so «Detener» released the page while the runtime stayed busy
+  and the model kept writing to the vault. Fixed in `api/server.ts`'s abort branch, and the turn is
+  now watched: a provider that goes silent for 60 s is cut with a message that says it was silence,
+  instead of holding the studio's only turn for as long as its socket lives.
+- **B2, high — `write` escaped through a final-component symlink**, dangling ones included,
+  because only `dirname` was realpath'd. A write now refuses a last component that is a link; a
+  link that stays inside the folder still works.
+- **B3 — the key could reach the page** inside a provider's error body (a proxy may quote the
+  request). The body is still reported, with the key scrubbed to `[clave]`.
+- **B4 — the engine child inherited the key** because the "never the key map" comment was true of
+  `childEnv` and false of `process.env`. Every provider variable is stripped before the child runs.
+- **B5/B9 — the engine could be pointed outside the vault** with `--workspace /tmp/x`, and the
+  advertised `learning status --json` could never run because the engine requires `--root`,
+  `--workspace` and `--rules` on every command. The studio now supplies the three, and refuses any
+  of them (or `--source`/`--exam-source`) whose value leaves the folder.
+- **6b — a named provider with no key was saved**, replacing a tutor that worked. Refused before
+  the write now, like the other unusable configurations.
+- Parser: a last event without its trailing blank line was dropped and two `data:` lines in one
+  block were joined into unparseable JSON. Both read now.
+- One test was reaching the real `api.mistral.ai` because it never pointed the studio at a fake
+  provider; it does now, so the suite is offline.
+
+Still open and stated as such: S3 is partially met (the registry is data, but the runtime and the
+catalogue still assume Mistral — a second provider is an entry *plus* code); no test exercises a
+real engine verdict (the Go binary was never run in this worktree), and nothing was proven against
+the real provider API. The Configuración UI is covered only through the names of its three selects.

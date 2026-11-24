@@ -1177,6 +1177,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       root,
       config,
       engine: enginePath,
+      rulesPath,
       // Presence is read here and nowhere else; nothing writes a key to the vault or the page.
       env: options.apiEnv ?? process.env,
       base: options.apiBase,
@@ -2474,6 +2475,11 @@ ${scripts}
           const provider = id ? proveedorPorId(id) : null;
           if (!provider) throw new HttpError(400, "Para usar Mistral exporta MISTRAL_API_KEY y reinicia el estudio.");
           if (!provider.implementado) throw new HttpError(400, `${provider.nombre} todavía no está implementado`);
+          // A named provider whose key is gone must not replace a tutor that works: every turn
+          // would then fail while the page said the tutor was ready.
+          if (!String((options.apiEnv ?? process.env)[provider.variable] ?? "").trim()) {
+            throw new HttpError(400, `Exporta ${provider.variable} y reinicia el estudio antes de guardar ${provider.nombre}.`);
+          }
           if (!modelo) throw new HttpError(400, `Elige un modelo de ${provider.nombre} antes de guardar el tutor.`);
           const niveles = nivelesDeEffort(modelo);
           if (pensamiento && !niveles.includes(pensamiento)) {
@@ -2608,6 +2614,7 @@ ${scripts}
           session.saveSnapshot();
         }
         if (session.agy) session.agy.abort();
+        else if (session.api) session.api.abort();
         else if (session.child) await call(session, { type: "abort" }, 60000);
         if (session.kind === "task") emitTareas();
         break;

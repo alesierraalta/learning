@@ -127,13 +127,31 @@ name is a refused request, and a selector that cannot work is worse than none.
 A turn is one request per step to `POST /v1/chat/completions` with `stream: true`,
 read as it arrives: text reaches the chat as it is written, `thinking` chunks stay
 out of it, `tool_calls` are reassembled by index, and the stream ends at `[DONE]`.
+A last event that arrives without its closing blank line is still read, and two
+`data:` lines in one block are two events.
+
 The tools are the ones the page already labels, under Pi's own argument names, so
 the note tracking keeps working: `read`, `write`, `edit` and `bash`. Every path is
-contained by the studio's rule — a write resolves the nearest existing ancestor,
-so a symlink cannot carry it out of the folder — and `bash` accepts only the study
-engine (`learning …`); anything else comes back to the model as a refusal it can
-read. A turn is bounded (12 steps) and always ends in a record the studio settles,
-including a turn the learner stops.
+contained by the studio's rule, and a write resolves the nearest existing ancestor
+**and refuses a final component that is a symlink** — including a dangling one,
+whose target does not exist yet and would be created wherever it points. Refusals
+come back to the model as text it can read, never as a clamped write.
+
+`bash` accepts only the study engine (`learning …`), and never lets the model point
+it outside the folder: the studio supplies the `--root`, `--workspace` and `--rules`
+the engine requires on every command, and refuses any of those flags — or
+`--source`/`--exam-source` — whose value would leave the Learnings folder, by path
+or by link. The engine child is started without any provider key in its
+environment, so not even a tool result can hand one back to the model.
+
+A turn is bounded (12 steps), a provider that stops sending is cut after 60 s
+instead of holding the studio's single turn, and every turn ends in a record the
+studio settles — including a turn the learner stops, which also stops the work:
+the studio's abort reaches this runtime, so nothing is written after «Detener».
+
+A provider error is reported with its status and its body, with the key scrubbed
+out of the text before it can reach the page, a message or a log: a provider — or a
+proxy behind it — may quote the request it received.
 
 What it cannot do, stated so the choice is informed: it reads none of the vault's
 skills (Pi and Antigravity do), it has no dialogs, there is no MCP and no image

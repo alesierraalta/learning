@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -43,7 +43,7 @@ function setup(responses, extra = {}) {
   const root = mkdtempSync(join(tmpdir(), "api-tutor-"));
   const engine = join(root, "bin", "learning");
   mkdirSync(join(root, "bin"), { recursive: true });
-  writeFileSync(engine, "#!/bin/sh\necho \"{\\\"status\\\":\\\"$*\\\"}\"\n", { mode: 0o755 });
+  writeFileSync(engine, '#!/bin/sh\nprintf \'{"argv":"%s","key":"%s"}\\n\' "$*" "${MISTRAL_API_KEY:-none}"\n', { mode: 0o755 });
   const records = [];
   const errors = [];
   const state = { settled: 0 };
@@ -54,6 +54,7 @@ function runtime(harness, options = {}) {
   return createApi({
     root: harness.root,
     engine: harness.engine,
+    rulesPath: join(harness.root, "rules", "deep.json"),
     env: { MISTRAL_API_KEY: KEY },
     config: { version: 2, agente: "api", modelo: "mistral-small-2603", pensamiento: "", proveedor: "mistral", ...options.config },
     onRecord: (record) => { harness.records.push(record); if (record.type === "agent_settled") harness.settle(); },
@@ -285,5 +286,111 @@ test("a provider the studio cannot drive yet says so instead of spending the key
     await until(() => h.errors.length > 0);
     assert.match(h.errors[0], /todavía no está implementado/);
     assert.equal(fake.seen.length, 0);
+  } finally { await fake.close(); }
+});
+
+// ---- what the independent verification found, pinned as tests ---------------------------------
+
+test("a provider that goes quiet cuts the turn instead of holding the studio's only turn", async () => {
+  // The provider accepts the request and then never says anything: without a watchdog the runtime
+  // stays busy for as long as the socket lives, and every later prompt is refused.
+  const fake = await provider([(request, response) => {
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write(": pensando\n\n");
+  }]);
+  const h = setup([]);
+  const api = runtime(h, { base: fake.base, idleMs: 150 });
+  try {
+    api.prompt("hola");
+    await until(() => h.settled() >= 1, 8000);
+    assert.equal(h.errors.length, 1);
+    assert.match(h.errors[0], /dejó de responder/);
+    api.prompt("otra vez");
+    await until(() => h.settled() >= 2, 8000);
+    assert.equal(h.errors.length, 2, "the runtime is usable again");
+  } finally { await fake.close(); }
+});
+
+test("a write never follows a symlink out of the vault, dangling or not", async () => {
+  const outside = mkdtempSync(join(tmpdir(), "fuera-"));
+  const real = join(outside, "real.md");
+  writeFileSync(real, "intacto");
+  const h = setup([]);
+  const fake = await provider([
+    toolTurn("write", { path: "enlace.md", content: "PWNED" }),
+    toolTurn("write", { path: "colgante.md", content: "creado" }),
+    textTurn("no pude"),
+  ]);
+  const api = runtime(h, { base: fake.base });
+  try {
+    symlinkSync(real, join(h.root, "enlace.md"));
+    symlinkSync(join(outside, "nuevo.md"), join(h.root, "colgante.md"));
+    api.prompt("escribe");
+    await until(() => h.settled() >= 1);
+    assert.equal(readFileSync(real, "utf8"), "intacto", "the file behind the link is untouched");
+    assert.equal(existsSync(join(outside, "nuevo.md")), false, "nothing is created behind a dangling link");
+    const ends = h.records.filter((record) => record.type === "tool_execution_end");
+    assert.deepEqual(ends.map((end) => end.isError), [true, true]);
+  } finally { await fake.close(); }
+});
+
+test("an error body that quotes the request cannot print the key", async () => {
+  const fake = await provider([(request, response) => {
+    response.writeHead(401, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: "unauthorized", request_headers: { authorization: request.headers.authorization } }));
+  }]);
+  const h = setup([]);
+  const api = runtime(h, { base: fake.base });
+  try {
+    api.prompt("hola");
+    await until(() => h.errors.length > 0);
+    assert.equal(h.errors[0].includes(KEY), false, "the key is scrubbed from the provider's own words");
+    assert.match(h.errors[0], /\[clave\]/);
+    assert.match(h.errors[0], /401/);
+  } finally { await fake.close(); }
+});
+
+test("the engine child carries no provider key, and the flags it requires are supplied", async () => {
+  const fake = await provider([toolTurn("bash", { command: "learning status --json" }), textTurn("listo")]);
+  const h = setup([]);
+  const api = runtime(h, { base: fake.base });
+  try {
+    api.prompt("pregunta al motor");
+    await until(() => h.settled() >= 1);
+    const result = JSON.parse(fake.seen[1].body.messages.filter((message) => message.role === "tool").at(-1).content);
+    assert.equal(result.key, "none", "the key never reaches the engine's environment");
+    assert.match(result.argv, /--root /);
+    assert.match(result.argv, /--workspace /);
+    assert.match(result.argv, /--rules /);
+    assert.match(result.argv, /status --json/);
+  } finally { await fake.close(); }
+});
+
+test("the engine cannot be pointed outside the vault by its own path flags", async () => {
+  const fake = await provider([
+    toolTurn("bash", { command: "learning init --workspace /tmp/fuera-del-vault" }),
+    toolTurn("bash", { command: "learning init --workspace tema/parte1" }),
+    textTurn("hecho"),
+  ]);
+  const h = setup([]);
+  const api = runtime(h, { base: fake.base });
+  try {
+    api.prompt("inicia");
+    await until(() => h.settled() >= 1);
+    const ends = h.records.filter((record) => record.type === "tool_execution_end");
+    assert.equal(ends[0].isError, true, "an absolute workspace outside the vault is refused");
+    assert.equal(ends[1].isError, false, "a workspace inside the vault is fine");
+  } finally { await fake.close(); }
+});
+
+test("two payloads in one block are two events, and a last one without its blank line is not lost", async () => {
+  const body = delta({ content: "uno" }) + delta({ content: " y " }) + "data: " + JSON.stringify({ choices: [{ delta: { content: "dos" } }] });
+  const fake = await provider([body]);
+  const h = setup([]);
+  const api = runtime(h, { base: fake.base });
+  try {
+    api.prompt("hola");
+    await until(() => h.settled() >= 1);
+    assert.equal(text(h), "uno y dos");
   } finally { await fake.close(); }
 });
