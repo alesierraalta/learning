@@ -96,13 +96,177 @@ Es una marca intermedia de control. En nuestro ejemplo, fija el punto sp_debito.
 
 Calculamos el saldo intermedio paso a paso.
 
-```text
-1000 - 200 = 800
-1000 + 500 = 1500
-1500 - 500 = 1000
-800 + 1000 = 1800
-2000 - 1800 = 200
-```
+<lk-story>
+<script type="application/json">
+{
+ "summary": {
+  "title": "La cuenta del ciclo",
+  "text": "El débito de 200 sobrevive y el crédito de 500 se revierte: de los 2000 iniciales faltan 200.",
+  "metrics": [["Cuenta 10", "800"], ["Cuenta 20", "1000"], ["Total", "1800"], ["Faltan", "200"]]
+ },
+ "kind": "derivation",
+ "title": "La cuenta del SAVEPOINT, renglón por renglón",
+ "viewBox": "0 0 360 260",
+ "steps": [
+  {
+   "title": "Débito en la cuenta 10",
+   "facts": [["saldo", "el saldo de la cuenta 10 al empezar: 1000"], ["resta", "lo que descuenta el UPDATE: 200"], ["res", "el saldo que queda tras el débito: 800"]],
+   "narrator": "UPDATE resta «200» al saldo «1000» de la cuenta 10. Quedan «800».",
+   "equation": {
+    "size": 18,
+    "atoms": [
+     { "t": "1000", "id": "saldo" },
+     { "t": " − ", "id": "menos" },
+     { "t": "200", "id": "resta" },
+     { "t": " = ", "id": "eq" },
+     { "t": "800", "id": "res" }
+    ]
+   },
+   "focus": ["res"],
+   "stage": {
+    "scene": {
+     "actors": [
+      { "id": "c10", "x": 90, "y": 120, "label": "Cuenta 10", "tone": "blue", "tag": "Cuenta 10", "kind": "row", "size": 64, "state": "locked" },
+      { "id": "c20", "x": 270, "y": 120, "label": "Cuenta 20", "tone": "slate", "tag": "Cuenta 20", "kind": "row", "size": 64 }
+     ],
+     "props": [
+      { "id": "saldo10", "kind": "value", "on": "c10", "side": "below", "label": "800", "tone": "blue" },
+      { "id": "saldo20", "kind": "value", "on": "c20", "side": "below", "label": "1000", "tone": "slate" }
+     ],
+     "marks": [
+      { "kind": "ok", "label": "debitado", "actors": ["saldo10"] }
+     ]
+    }
+   }
+  },
+  {
+   "title": "Crédito en la cuenta 20",
+   "narrator": "El segundo UPDATE suma «500» a la cuenta 20, que pasa de «1000» a «1500».",
+   "equation": {
+    "size": 18,
+    "atoms": [
+     { "t": "1000", "id": "saldo" },
+     { "t": " + ", "id": "mas" },
+     { "t": "500", "id": "credito" },
+     { "t": " = ", "id": "eq" },
+     { "t": "1500", "id": "res" }
+    ]
+   },
+   "focus": ["credito", "res"],
+   "stage": {
+    "scene": {
+     "actors": [
+      { "id": "c10", "x": 90, "y": 120, "label": "Cuenta 10", "tone": "blue", "tag": "Cuenta 10", "kind": "row", "size": 64, "state": "locked" },
+      { "id": "c20", "x": 270, "y": 120, "label": "Cuenta 20", "tone": "amber", "tag": "Cuenta 20", "kind": "row", "size": 64, "state": "locked" }
+     ],
+     "props": [
+      { "id": "saldo10", "kind": "value", "on": "c10", "side": "below", "label": "800", "tone": "blue" },
+      { "id": "saldo20", "kind": "value", "on": "c20", "side": "below", "label": "1500", "tone": "amber" }
+     ],
+     "moves": [
+      { "from": "c10", "to": "c20", "verb": "+500", "tone": "amber" }
+     ],
+     "marks": [
+      { "kind": "ok", "label": "acreditado", "actors": ["saldo20"] }
+     ]
+    }
+   }
+  },
+  {
+   "title": "La reversión devuelve el crédito",
+   "narrator": "ROLLBACK TO sp_debito devuelve «500»: la cuenta 20 vuelve de «1500» a «1000».",
+   "equation": {
+    "size": 18,
+    "atoms": [
+     { "t": "1500", "id": "saldo" },
+     { "t": " − ", "id": "menos" },
+     { "t": "500", "id": "devuelto" },
+     { "t": " = ", "id": "eq" },
+     { "t": "1000", "id": "res" }
+    ]
+   },
+   "focus": ["devuelto", "res"],
+   "stage": {
+    "scene": {
+     "actors": [
+      { "id": "c10", "x": 90, "y": 120, "label": "Cuenta 10", "tone": "blue", "tag": "Cuenta 10", "kind": "row", "size": 64, "state": "locked" },
+      { "id": "c20", "x": 270, "y": 120, "label": "Cuenta 20", "tone": "slate", "tag": "Cuenta 20", "kind": "row", "size": 64 }
+     ],
+     "props": [
+      { "id": "saldo10", "kind": "value", "on": "c10", "side": "below", "label": "800", "tone": "blue" },
+      { "id": "saldo20", "kind": "value", "on": "c20", "side": "below", "label": "1000", "tone": "slate" }
+     ],
+     "marks": [
+      { "kind": "no", "label": "anulado", "actors": ["saldo20"] }
+     ]
+    }
+   }
+  },
+  {
+   "title": "Los dos saldos juntos",
+   "narrator": "Lo que queda en el banco es la suma: «800» más «1000» son «1800».",
+   "equation": {
+    "size": 18,
+    "atoms": [
+     { "t": "800", "id": "saldo10" },
+     { "t": " + ", "id": "mas" },
+     { "t": "1000", "id": "saldo20" },
+     { "t": " = ", "id": "eq" },
+     { "t": "1800", "id": "res" }
+    ]
+   },
+   "focus": ["saldo10", "saldo20", "res"],
+   "stage": {
+    "scene": {
+     "actors": [
+      { "id": "c10", "x": 90, "y": 120, "label": "Cuenta 10", "tone": "green", "tag": "Cuenta 10", "kind": "row", "size": 64 },
+      { "id": "c20", "x": 270, "y": 120, "label": "Cuenta 20", "tone": "green", "tag": "Cuenta 20", "kind": "row", "size": 64 }
+     ],
+     "props": [
+      { "id": "saldo10", "kind": "value", "on": "c10", "side": "below", "label": "800", "tone": "green" },
+      { "id": "saldo20", "kind": "value", "on": "c20", "side": "below", "label": "1000", "tone": "green" }
+     ],
+     "marks": [
+      { "kind": "ok", "label": "sumados", "actors": ["saldo10", "saldo20"] }
+     ]
+    }
+   }
+  },
+  {
+   "title": "Cuánto falta de los 2000 iniciales",
+   "ring": "c10",
+   "narrator": "Al empezar había «2000» entre las dos cuentas. Quedan «1800», así que faltan «200».",
+   "equation": {
+    "size": 18,
+    "atoms": [
+     { "t": "2000", "id": "inicial" },
+     { "t": " − ", "id": "menos" },
+     { "t": "1800", "id": "total" },
+     { "t": " = ", "id": "eq" },
+     { "t": "200", "id": "res" }
+    ]
+   },
+   "focus": ["total", "res"],
+   "stage": {
+    "scene": {
+     "actors": [
+      { "id": "c10", "x": 90, "y": 120, "label": "Cuenta 10", "tone": "blue", "tag": "Cuenta 10", "kind": "row", "size": 64 },
+      { "id": "c20", "x": 270, "y": 120, "label": "Cuenta 20", "tone": "green", "tag": "Cuenta 20", "kind": "row", "size": 64 }
+     ],
+     "props": [
+      { "id": "saldo10", "kind": "value", "on": "c10", "side": "below", "label": "800", "tone": "blue" },
+      { "id": "saldo20", "kind": "value", "on": "c20", "side": "below", "label": "1000", "tone": "green" }
+     ],
+     "marks": [
+      { "kind": "ok", "label": "faltan 200", "actors": ["saldo10"] }
+     ]
+    }
+   }
+  }
+ ]
+}
+</script>
+</lk-story>
 
 ```sql
 SAVEPOINT sp_debito;
