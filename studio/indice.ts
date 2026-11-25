@@ -388,7 +388,20 @@ function disponible(config: Config): boolean {
 }
 
 type Respuesta = { id: string; dim?: number; vectors?: string[]; error?: string };
-type Espera = { resolve: (respuesta: Respuesta) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
+type Espera = {
+  resolve: (respuesta: Respuesta) => void;
+  reject: (error: Error) => void;
+  timer: NodeJS.Timeout;
+  /** Detaches the caller's abort listener once the request settles, whichever way it does. */
+  quitar?: () => void;
+};
+
+/** A request its caller stopped awaiting: it is dropped, never timed out and never retried (#427). */
+function errorAbortado(): Error {
+  const error = new Error("la petición de vectores se canceló");
+  error.name = "AbortError";
+  return error;
+}
 
 class ClienteEmbed {
   private proc: ChildProcessWithoutNullStreams | undefined;
@@ -457,9 +470,8 @@ class ClienteEmbed {
       proc.stderr.on("data", (chunk: string) => { this.stderr = (this.stderr + chunk).slice(-2000); });
       proc.on("error", (error) => falla(error));
       proc.on("exit", (code, senal) => {
-        for (const espera of this.esperas.values()) {
-          clearTimeout(espera.timer);
-          espera.reject(new Error(`el embedder salió (${code ?? senal}): ${this.stderr}`));
+        for (const id of [...this.esperas.keys()]) {
+          this.soltar(id)?.reject(new Error(`el embedder salió (${code ?? senal}): ${this.stderr}`));
         }
         this.esperas.clear();
         this.proc = undefined;
@@ -470,28 +482,49 @@ class ClienteEmbed {
   }
 
   private entregar(mensaje: Respuesta): void {
-    const espera = this.esperas.get(mensaje.id);
+    const espera = this.soltar(mensaje.id);
     if (!espera) return;
-    clearTimeout(espera.timer);
-    this.esperas.delete(mensaje.id);
     if (mensaje.error) espera.reject(new Error(mensaje.error));
     else espera.resolve(mensaje);
   }
 
-  private pedir(kind: "passage" | "query", texts: string[]): Promise<Respuesta> {
+  /** Drops one pending request and everything that could still speak for it: timer and abort hook. */
+  private soltar(id: string): Espera | undefined {
+    const espera = this.esperas.get(id);
+    if (!espera) return undefined;
+    this.esperas.delete(id);
+    clearTimeout(espera.timer);
+    espera.quitar?.();
+    return espera;
+  }
+
+  private pedir(kind: "passage" | "query", texts: string[], señal?: AbortSignal): Promise<Respuesta> {
     const proc = this.proc;
     if (!proc) return Promise.reject(new Error("el embedder no está vivo"));
+    if (señal?.aborted) return Promise.reject(errorAbortado());
     const id = `${Date.now().toString(36)}-${++this.serie}`;
     return new Promise<Respuesta>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.esperas.delete(id);
+      let timer: NodeJS.Timeout;
+      const quitar = () => señal?.removeEventListener("abort", abortar);
+      // The caller stopped awaiting this request (#427): the pending answer is dropped here and the
+      // client's own timeout can never fire for it. The pinned JSON Lines contract has no cancel
+      // verb, and a blank line is what the Rust binary and the fake both skip, so it is the notice
+      // that the work is no longer awaited; an inference already running is not interruptible.
+      const abortar = () => {
+        if (!this.esperas.has(id)) return;
+        try { proc.stdin.write("\n"); } catch { /* el embedder ya no está */ }
+        this.soltar(id);
+        reject(errorAbortado());
+      };
+      timer = setTimeout(() => {
+        this.soltar(id);
         reject(new Error("timeout esperando vectores"));
       }, this.config.timeoutMs);
-      this.esperas.set(id, { resolve, reject, timer });
+      this.esperas.set(id, { resolve, reject, timer, quitar });
+      señal?.addEventListener("abort", abortar, { once: true });
       proc.stdin.write(`${JSON.stringify({ id, kind, texts })}\n`, (error) => {
         if (!error) return;
-        clearTimeout(timer);
-        this.esperas.delete(id);
+        this.soltar(id);
         reject(error);
       });
     });
@@ -510,15 +543,24 @@ class ClienteEmbed {
     });
   }
 
-  /** Serializes requests, retries the whole batch once after a crash. */
-  embed(kind: "passage" | "query", texts: string[]): Promise<Float32Array[]> {
+  /**
+   * Serializes requests, retries the whole batch once after a crash. A request that arrives with an
+   * already-aborted `signal`, or that is aborted while it waits, is neither sent nor retried: the
+   * retry budget belongs to work that is still wanted (#427).
+   */
+  embed(kind: "passage" | "query", texts: string[], opciones: { signal?: AbortSignal } = {}): Promise<Float32Array[]> {
     if (!texts.length) return Promise.resolve([]);
+    const { signal } = opciones;
     const ejecutar = async (): Promise<Float32Array[]> => {
       for (let intento = 0; intento < 2; intento++) {
+        if (signal?.aborted) throw errorAbortado();
         try {
           await this.iniciar();
-          return this.decodificar(await this.pedir(kind, texts), texts.length);
+          return this.decodificar(await this.pedir(kind, texts, signal), texts.length);
         } catch (error) {
+          // A withdrawn request does not clear the client, does not spend the restart budget and is
+          // not retried: nobody is waiting for the answer.
+          if (signal?.aborted) throw errorAbortado();
           this.limpiar();
           if (intento === 0 && this.reinicios === 0 && !this.cerrado) { this.reinicios++; continue; }
           throw error;
@@ -532,8 +574,7 @@ class ClienteEmbed {
   }
 
   private limpiar(): void {
-    for (const espera of this.esperas.values()) clearTimeout(espera.timer);
-    this.esperas.clear();
+    for (const id of [...this.esperas.keys()]) this.soltar(id);
     this.proc = undefined;
     this.listo = undefined;
     this.buffer = "";
@@ -541,10 +582,7 @@ class ClienteEmbed {
 
   async cerrar(): Promise<void> {
     this.cerrado = true;
-    for (const espera of this.esperas.values()) {
-      clearTimeout(espera.timer);
-      espera.reject(new Error("el embedder se está cerrando"));
-    }
+    for (const id of [...this.esperas.keys()]) this.soltar(id)?.reject(new Error("el embedder se está cerrando"));
     this.esperas.clear();
     const proc = this.proc;
     this.limpiar();
@@ -898,11 +936,11 @@ function cuentaPorClave(db: DatabaseSync, materia: string, consulta: string, tip
  * Every chunk of the course the embedder ranks above the cosine gate, best first. The caller decides
  * how many it reads, so the count a clipped caller reports sees the same set the ranking does.
  */
-async function puntuarPorVector(db: DatabaseSync, root: string, materia: string, consulta: string, tipos: string[]): Promise<string[]> {
+async function puntuarPorVector(db: DatabaseSync, root: string, materia: string, consulta: string, tipos: string[], señal?: AbortSignal): Promise<string[]> {
   if (!disponible(configActual())) return [];
   const cache = cacheDe(db, root, materia);
   if (!cache.ids.length) return [];
-  const [vector] = await clientePara().embed("query", [consulta]);
+  const [vector] = await clientePara().embed("query", [consulta], { signal: señal });
   let norma = 0;
   for (const valor of vector) norma += valor * valor;
   if (!norma) return [];
@@ -918,8 +956,8 @@ async function puntuarPorVector(db: DatabaseSync, root: string, materia: string,
   return puntuados.map((item) => item.id);
 }
 
-async function porVector(db: DatabaseSync, root: string, materia: string, consulta: string, tipos: string[], limite: number): Promise<string[]> {
-  return (await puntuarPorVector(db, root, materia, consulta, tipos)).slice(0, limite);
+async function porVector(db: DatabaseSync, root: string, materia: string, consulta: string, tipos: string[], limite: number, señal?: AbortSignal): Promise<string[]> {
+  return (await puntuarPorVector(db, root, materia, consulta, tipos, señal)).slice(0, limite);
 }
 
 export async function buscar(
@@ -995,13 +1033,15 @@ export function materialRelevante(
  * keyword half plus the embedder's, fused with RRF — so a slice that shares no word with the part can
  * still reach it. Without a usable embedder the semantic list is empty and the answer is exactly
  * `materialRelevante`'s, byte for byte. `total` counts every chunk either half matched, so a clipped
- * caller still says how many it left out. It bounds no time of its own: the caller owns that budget.
+ * caller still says how many it left out. It bounds no time of its own: the caller owns that budget,
+ * and it hands it a `signal` so a caller that stops awaiting the answer cancels the request instead
+ * of leaving the embedder busy with work nobody reads (#427).
  */
 export async function materialRelevanteHibrido(
   root: string,
   materia: string,
   consulta: string,
-  opciones: { k?: number; tipos?: string[] } = {},
+  opciones: { k?: number; tipos?: string[]; signal?: AbortSignal } = {},
 ): Promise<SeleccionMaterial> {
   const db = database(resolve(root));
   const k = Math.max(1, Math.min(MAX_K, Math.trunc(opciones.k ?? 6)));
@@ -1009,8 +1049,13 @@ export async function materialRelevanteHibrido(
   const limite = Math.max(k * 4, 20);
   const claves = porClave(db, materia, consulta, tipos, limite);
   let vecinos: string[] = [];
-  try { vecinos = await puntuarPorVector(db, root, materia, consulta, tipos); }
-  catch { /* an embedder failure degrades to keywords, never to a failed brief */ }
+  try { vecinos = await puntuarPorVector(db, root, materia, consulta, tipos, opciones.signal); }
+  catch (error) {
+    // A cancellation is the caller's own decision, not a broken embedder: it travels back so the
+    // caller falls back once, with the same answer and the same stderr line as the bound itself.
+    if (opciones.signal?.aborted) throw error;
+    /* an embedder failure degrades to keywords, never to a failed brief */
+  }
   const combinadas = fusionarRRF([claves, vecinos.slice(0, limite)]);
   // The count a clipped caller reports covers both halves: a fragment only the embedder found is
   // still a relevant fragment that stayed out. Without the embedder this is the keyword count, exactly.

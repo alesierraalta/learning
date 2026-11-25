@@ -437,4 +437,120 @@ test("a topic without a course or a course with no material keeps today's brief 
   assert.ok(Date.now() - inicio < 1000, "and nothing is waited for");
 });
 
+// ---- #427: the request nobody awaits is cancelled, not completed -----------
+
+/**
+ * The fake embedder's own account of what happened (`FAKE_EMBED_LOG`): one line per child start, per
+ * request, per answer and per withdrawal. It is the only observer that can say whether the work the
+ * studio abandoned was actually dropped instead of completed.
+ */
+function eventosDelEmbedder(path) {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map((linea) => JSON.parse(linea));
+}
+
+const deTipo = (eventos, tipo) => eventos.filter((evento) => evento.event === tipo);
+
+/** Waits until `pred` holds, so an event the child writes a few ms later is never a race. */
+async function hastaQue(pred, timeout = PART_MATERIAL_TIMEOUT_MS + 750) {
+  const deadline = Date.now() + timeout;
+  while (!pred() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
+/** A course with one indexed source the part matches by keyword and by vector. */
+async function cursoIndexado(root) {
+  const id = curso(root, "Redes", ["redes"]);
+  fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+  await esperarIndice();
+  return id;
+}
+
+// Rule 1 (#427): past the bound the request is withdrawn, so the embedder drops it instead of
+// answering work the part no longer reads.
+test("a request abandoned at the bound is cancelled, not completed", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    await cursoIndexado(root);
+    const registro = join(root, "fake-embed.log");
+    // The fake answers long after the bound: only a withdrawal can explain a missing answer.
+    process.env.FAKE_EMBED_DELAY_MS = String(PART_MATERIAL_TIMEOUT_MS + 500);
+    process.env.FAKE_EMBED_LOG = registro;
+    configurarIndice({ embedCommand: [process.execPath, FAKE_EMBED] });
+    const keyword = partBrief(root, WRITE_TEXT);
+    const { valor } = await conStderr(() => partBriefAsync(root, WRITE_TEXT));
+    await hastaQue(() => deTipo(eventosDelEmbedder(registro), "cancelled").length > 0);
+    const eventos = eventosDelEmbedder(registro);
+    const peticiones = deTipo(eventos, "request");
+    assert.equal(peticiones.length, 1, `the part sent exactly one query: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "cancelled").length, 1, `the embedder was told the request was withdrawn: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "cancelled")[0].id, peticiones[0].id, "the withdrawal names the request it cancels");
+    assert.equal(deTipo(eventos, "answer").length, 0, `a withdrawn request is never answered: ${JSON.stringify(eventos)}`);
+    assert.equal(valor, keyword, "the learner's part still carries today's keyword brief");
+  } finally {
+    delete process.env.FAKE_EMBED_DELAY_MS;
+    delete process.env.FAKE_EMBED_LOG;
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 2 (#427): the abandoned request used to keep the client busy until its own timeout, which
+// then retried the whole batch. Neither may fire for work nobody awaits.
+test("the client's timeout and its single retry never fire for a request nobody awaits", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    await cursoIndexado(root);
+    const registro = join(root, "fake-embed-retry.log");
+    process.env.FAKE_EMBED_DELAY_MS = String(10 * PART_MATERIAL_TIMEOUT_MS);
+    process.env.FAKE_EMBED_LOG = registro;
+    // A client timeout that would have fired well inside the observation window below.
+    configurarIndice({ embedCommand: [process.execPath, FAKE_EMBED], timeoutMs: PART_MATERIAL_TIMEOUT_MS + 100 });
+    const comienzo = Date.now();
+    await conStderr(() => partBriefAsync(root, WRITE_TEXT));
+    const trasElLimite = Date.now() - comienzo;
+    assert.ok(trasElLimite < PART_MATERIAL_TIMEOUT_MS + 750, `the brief kept its bound: ${trasElLimite} ms`);
+    // Wait past the client's own timeout: a retry would restart the child and resend the query.
+    await new Promise((resolve) => setTimeout(resolve, PART_MATERIAL_TIMEOUT_MS + 700 - (Date.now() - comienzo)));
+    const gastado = Date.now() - comienzo;
+    const eventos = eventosDelEmbedder(registro);
+    assert.ok(gastado > PART_MATERIAL_TIMEOUT_MS + 100, `the client's timeout window really passed: ${gastado} ms`);
+    assert.equal(deTipo(eventos, "ready").length, 1, `one child, never restarted: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "request").length, 1, `one request, never resent: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "answer").length, 0, `nothing completed: ${JSON.stringify(eventos)}`);
+  } finally {
+    delete process.env.FAKE_EMBED_DELAY_MS;
+    delete process.env.FAKE_EMBED_LOG;
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 4 (#427): a request that answers in time is untouched: same hybrid brief, same bytes, no
+// withdrawal at all.
+test("a request that answers in time is untouched", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    await cursoIndexado(root);
+    const registro = join(root, "fake-embed-fast.log");
+    process.env.FAKE_EMBED_LOG = registro;
+    configurarIndice({ embedCommand: [process.execPath, FAKE_EMBED] });
+    const keyword = partBrief(root, WRITE_TEXT);
+    const { valor, lineas } = await conStderr(() => partBriefAsync(root, WRITE_TEXT));
+    await hastaQue(() => deTipo(eventosDelEmbedder(registro), "answer").length > 0);
+    const eventos = eventosDelEmbedder(registro);
+    assert.equal(deTipo(eventos, "request").length, 1, `the part sent exactly one query: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "answer").length, 1, `the query was answered: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "cancelled").length, 0, `nothing was withdrawn: ${JSON.stringify(eventos)}`);
+    assert.equal(valor, keyword, "the fast answer keeps the brief's bytes");
+    assert.equal(lineas.length, 0, `no delay line for the learner or the log: ${lineas.join("")}`);
+  } finally {
+    delete process.env.FAKE_EMBED_LOG;
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
 test.after(async () => { await cerrarIndice(); });

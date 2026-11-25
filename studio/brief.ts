@@ -160,14 +160,24 @@ function materialDeParte(root: string, found: ParteEncontrada): MaterialDeParte 
 }
 
 /**
- * `work`, or `undefined` once `ms` have passed: the brief waits for the embedder and no longer. The
- * losing promise keeps its own lifetime; a late answer is simply never read.
+ * `work`, or `undefined` once `ms` have passed: the brief waits for the embedder and no longer.
+ * At the bound the signal it was handed is aborted, so the request nobody awaits is cancelled —
+ * dropped by the client, never timed out and never retried — instead of running to completion (#427).
  */
-async function conLimite<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+async function conLimite<T>(work: (señal: AbortSignal) => Promise<T>, ms: number): Promise<T | undefined> {
+  const control = new AbortController();
   let timer: NodeJS.Timeout | undefined;
-  const limite = new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), ms); });
+  const limite = new Promise<undefined>((resolve) => { timer = setTimeout(() => { control.abort(); resolve(undefined); }, ms); });
+  const pendiente = work(control.signal);
+  // The losing side is abandoned on purpose: its answer is never read, and its rejection (the abort
+  // itself) must never surface as an unhandled rejection.
+  pendiente.catch(() => undefined);
   try {
-    return await Promise.race([work, limite]);
+    return await Promise.race([pendiente, limite]);
+  } catch (error) {
+    // Our own bound, not the caller's business: the caller falls back exactly as it does at `ms`.
+    if (control.signal.aborted) return undefined;
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -183,7 +193,7 @@ async function materialDeParteHibrido(root: string, found: ParteEncontrada): Pro
   if (!pedido) return undefined;
   try {
     const seleccion = await conLimite(
-      materialRelevanteHibrido(root, pedido.materia.id, pedido.consulta, { k: PART_MATERIAL_SLICES }),
+      (señal) => materialRelevanteHibrido(root, pedido.materia.id, pedido.consulta, { k: PART_MATERIAL_SLICES, signal: señal }),
       PART_MATERIAL_TIMEOUT_MS,
     );
     if (seleccion) return materialDe(seleccion.trozos, pedido.materia.nombre, seleccion.total);
