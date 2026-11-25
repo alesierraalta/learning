@@ -4812,3 +4812,29 @@ test("the learner's own message never shows the block that was added to the prom
     assert.equal(dicho.text, "Escribe la parte 3");
   } finally { stream.close(); }
 });
+
+test("a learner who quotes the verdict block gets their own words back untouched", async () => {
+  const { studio } = await setup();
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p2", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    const dicho = "¿Qué es «[Lo que esta persona valora]»? Lo vi en el prompt.";
+    assert.equal((await post(studio, "prompt", { text: dicho })).status, 200);
+    const served = await stream.next("user");
+    assert.equal(served.text, dicho, "the chat shows what the learner wrote, not a truncated sentence");
+  } finally { stream.close(); }
+});
+
+test("the regenerate prompt carries what the learner values, not only the writing turn", async () => {
+  const { studio } = await setup();
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p2", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  const asked = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: [], texto: "quiero el ejemplo otra vez" });
+  assert.equal(asked.status, 200, asked.body);
+  const { prompt } = JSON.parse(asked.body);
+  assert.match(prompt, /\[Lo que esta persona valora\]/, "the rewrite of a part reads the same verdicts as the first write");
+  assert.match(prompt, /El ejemplo fue claro \(2 partes\)/);
+});

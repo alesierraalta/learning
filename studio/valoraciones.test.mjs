@@ -129,3 +129,12 @@ test("the learner never sees the block as their own words or as the answer", () 
   assert.equal(limpio, "Escribe la parte 3");
   assert.equal(stripGustos("una respuesta normal"), "una respuesta normal");
 });
+
+test("a message that quotes the block's title is the learner's, and is not cut", () => {
+  // The studio appends its block at the end of a prompt; a learner asking *about* that block types
+  // the same title in the middle of a sentence. Stripping by marker alone ate their words (#413).
+  const dicho = "Oye, ¿qué significa «[Lo que esta persona valora]» en lo que me mandas?";
+  assert.equal(stripGustos(dicho), dicho);
+  const prompt = `${dicho}\n\n[Lo que esta persona valora]\nLo que le funcionó: El ejemplo fue claro (2 partes). Repítelo.`;
+  assert.equal(stripGustos(prompt), dicho, "the appended block still goes, and only it");
+});

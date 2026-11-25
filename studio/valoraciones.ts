@@ -223,10 +223,9 @@ export function withGustos(text: string, root: string): string {
  * tutor's answer. Only the block, never the text around it.
  */
 export function stripGustos(text: string): string {
-  const start = text.indexOf(GUSTOS_TITULO);
-  if (start < 0) return text;
-  const rest = text.slice(start + GUSTOS_TITULO.length);
-  const end = rest.search(/\n\s*\n|\n\[/);
-  const tail = end < 0 ? "" : rest.slice(end);
-  return `${text.slice(0, start)}${tail}`.trim();
+  // The block is appended as a paragraph of its own, so the marker that identifies it is the blank
+  // line before it — the same rule `stripLecciones` follows. A learner who mentions the title in the
+  // middle of a sentence is asking about it, not quoting the studio (#413).
+  const at = text.indexOf(`\n\n${GUSTOS_TITULO}`);
+  return at < 0 ? text : text.slice(0, at);
 }
