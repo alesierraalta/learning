@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { entryUrl, idleMinutesFor, DEFAULT_IDLE_MINUTES, noteFromMessages, noteFromPath, startStudio as startStudioChecked, studioLinks, topicFromPath } from "./server.ts";
 import { busyFile, clearBusy, markBusy, pidAlive } from "./state.ts";
 import { runPartChecks } from "./checks.ts";
-import { stripLecciones } from "./sugerencias.ts";
+import { LECCIONES_TITULO, MAX_TEMA_CHARS, TEMA_TITULO, stripLecciones, stripTema } from "./sugerencias.ts";
 import { VISUAL_CONTRACT_PROMPT } from "./contract.ts";
 import { quizFingerprintOfPart } from "../integrations/pi/bridge.ts";
 import extension from "../integrations/pi/index.ts";
@@ -3406,6 +3406,59 @@ for (const runtime of ["pi", "agy"]) {
     }
   });
 }
+
+// The topic's own channel (#440): what the learner said about one topic steers the first draft of
+// its next part, and never a turn that writes a part of another topic.
+test("a write turn carries the digest of its own topic, and a turn on another topic does not", async (t) => {
+  process.env.FAKE_PI_WRITES = JSON.stringify([
+    [{ path: "algebra/explicaciones/Parte 1 - Ecuaciones.md", content: "# Ecuaciones\n" }],
+    [{ path: "redes/explicaciones/Parte 1 - Capas.md", content: "# Capas\n" }],
+  ]);
+  process.env.FAKE_PI_HISTORY = "1";
+  t.after(() => { delete process.env.FAKE_PI_WRITES; delete process.env.FAKE_PI_HISTORY; });
+  // The parts' checks are not under test: a clean verdict keeps both turns normal.
+  const { studio, root, stream, prompts } = await piStudio({ root: { statuses: [CLEARED_STAGE, CLEARED_STAGE] }, studio: { partChecks: async () => ({ kind: "clean" }) } });
+  // A fake turn ends when its dialog is answered, and the end of the turn is what the settle reads.
+  const finishTurn = async (turns) => {
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => prompts().length === turns);
+    await until(() => settleIdle(stream));
+  };
+  try {
+    secondTopic(root);
+    // One review of redes, with no chip that would become a standing rule of its own.
+    assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "sobra la mitad del texto" })).status, 200);
+
+    // A turn that writes a part of algebra is not taught redes's feedback.
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "algebra" })).status, 200);
+    await finishTurn(1);
+    assert.equal(prompts()[0].message.includes(`[${TEMA_TITULO}`), false, "another topic's digest is not this turn's");
+    assert.equal(stripTema(stripLecciones(prompts()[0].message)), "Escribe la Parte 1", "and nothing else was appended for it");
+
+    // The learner writes redes's part while quoting the digest's title, as someone asking about the
+    // studio does: the studio's block is found by its blank line, never by the title inside a sentence (#413).
+    const dicho = "Escribe la Parte 1. ¿Qué es «[Lo que el alumno pidió en este tema]» que te llega?";
+    assert.equal((await post(studio, "prompt", { text: dicho, tema: "redes" })).status, 200);
+    await finishTurn(2);
+    const sent = prompts()[1].message;
+    const at = sent.indexOf(`\n\n[${TEMA_TITULO}`);
+    assert.ok(at > sent.indexOf(LECCIONES_TITULO), "the digest follows the lessons");
+    const block = sent.slice(at + 2, sent.indexOf("\n]", at) + 2);
+    assert.ok(block.length <= MAX_TEMA_CHARS, `the digest stays under its cap of ${MAX_TEMA_CHARS}, got ${block.length}`);
+    assert.match(block, /Le pidió a este tema: Demasiado texto \(1\)\./);
+    assert.doesNotMatch(block, /sobra la mitad del texto/, "the digest is the studio's words, not the learner's prose again");
+
+    // The learner's own message reaches them intact, in the live event and in the served thread.
+    const said = await stream.next("user", (data) => data.text === dicho);
+    assert.equal(said.text, dicho, "a title quoted mid-sentence is the learner's, not the studio's");
+    const again = sse(`${studio.url}events`);
+    try {
+      const history = await again.next("history");
+      assert.ok(history.messages.filter((message) => message.role === "user").map((message) => message.text).includes(dicho), "and the thread keeps it verbatim");
+    } finally { again.close(); }
+  } finally { stream.close(); }
+});
 
 test("the regenerate prompt still carries the part-specific reviews of that part", async () => {
   const { studio, received } = await setup();
