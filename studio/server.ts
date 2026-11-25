@@ -38,7 +38,7 @@ import { MAX_AUDIO_BYTES, TranscribeError, transcribeAudio } from "../integratio
 import { lintMarkdown } from "../tools/deck-lint.mjs";
 import { ROOT_UNSET, resolveContained } from "../integrations/pi/paths.ts";
 import { buildPanorama } from "./panorama.ts";
-import { partBrief } from "./brief.ts";
+import { partBriefAsync, planBrief } from "./brief.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
 import { AGY_LEVELS, PI_LEVELS, readTutor, saveTutor, TUTOR_AGENTS, type TutorConfig } from "./tutor.ts";
@@ -104,6 +104,7 @@ import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLe
 import { buildEspera, partNotePath, writePartTarget } from "./espera.ts";
 import { createGlosario } from "./glosario.ts";
 import {
+  MATERIA_ERRORS,
   addFuente,
   createMateria,
   deleteFuente,
@@ -114,6 +115,7 @@ import {
   unlinkTema,
   writePdfDerivatives,
 } from "./materias.ts";
+import { buscar, cerrarIndice, desindizarFuente, indizarFuente, progresoIndice, estadoIndice } from "./indice.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..");
@@ -374,6 +376,11 @@ type Turn = {
   correction: boolean;
   /** A new deep-mode request whose topic does not exist yet: the first topic folder it writes. */
   creation?: boolean;
+  /**
+   * The course the request named for the topic it is about to create: the topic joins it the moment
+   * it is bound, so the turn that plans its route already reads the material (#407/T2b).
+   */
+  materia?: string;
   /**
    * A regeneration's previous version, waiting in `.papelera`: the new one replaces it only after
    * passing every gate. The same turn carries it through its corrections, so every exit knows what
@@ -768,6 +775,24 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const conversationFile = snapshotFile(openedFile);
   const busyTracker = createBusyTracker(openedFile);
   const locks = createTopicLocks();
+  /**
+   * The course links a creation turn still owes. A topic is born inside its course, so the delivery
+   * for that topic waits for the link before it reads the material (#407/T2b); a link that fails is
+   * the studio's own log line and never the turn's.
+   */
+  const enlacesDeMateria = new Map<string, Promise<void>>();
+  const unirAMateria = (materia: string, topic: string): void => {
+    const enlace: Promise<void> = linkTema(root, materia, topic).then(
+      () => undefined,
+      (error) => {
+        process.stderr.write(`estudio: no se pudo unir «${topic}» a su materia · ${(error as Error).message}\n`);
+      },
+    );
+    enlacesDeMateria.set(topic, enlace);
+    void enlace.then(() => {
+      if (enlacesDeMateria.get(topic) === enlace) enlacesDeMateria.delete(topic);
+    });
+  };
   const taskConversationFile = taskConversationsFile(chatsFile);
   /** The last regeneration verdict per part, outside the vault: the topic view reads it (#393). */
   const regenerationMarksFile = join(dirname(openedFile), "regeneraciones.json");
@@ -796,6 +821,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const res of clients) res.write(frame);
   };
+  // Background embeddings publish their progress on the same stream as the turns.
+  progresoIndice((evento) => emit("indice", evento));
   /** Task frames are written to a task stream and always name the topic; main frames never do. */
   const emitTask = (topic: string, event: string, data: unknown) => {
     const frame = `event: ${event}\ndata: ${JSON.stringify({ ...(isRecord(data) ? data : {}), task: topic })}\n\n`;
@@ -1088,6 +1115,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           session.emit("state", session.state());
           busyTracker.mark(session.id, { pid: process.pid, startedAt, topic });
           session.saveSnapshot();
+          // The topic is born inside the course the request named, before anything else is delivered.
+          if (started.materia) unirAMateria(started.materia, topic);
         }
         session.emit("tool", { phase: "end", chat: chatId(), id: record.toolCallId, name: record.toolName, label: toolLabel(name, args), ok: !record.isError, ...(note === null ? {} : { note }), ...(topic === null ? {} : { topic }) });
         return;
@@ -1614,8 +1643,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
 
   /** One prompt to the runtime. A refusal is the studio's log, never the learner's words. */
   const deliver = async (session: Session, text: string, started: Turn, reason: CallReason = "turn") => {
+    // A topic a creation turn just put in a course waits for that link: the route is planned from
+    // the material, never from a topic name alone (#407/T2b).
+    const enlace = started.topic ? enlacesDeMateria.get(started.topic) : undefined;
+    if (enlace) await enlace;
     // Every runtime hears the same figure contract, once, whatever prompted the turn.
-    const prompt = withVisualContract(text);
+    // A topic whose route is still unwritten also hears its course material, so the plan is
+    // derived from what the learner uploaded instead of invented from the topic name (#407).
+    const material = started.topic ? planBrief(root, started.topic) : "";
+    const prompt = material ? `${withVisualContract(text)}\n\n${material}` : withVisualContract(text);
     // From here until the runtime settles is this call's own time; the sizes are what it sends.
     started.timing.startCall(reason, prompt.length);
     try {
@@ -1690,6 +1726,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     topic: string | null;
     correction?: boolean;
     creation?: boolean;
+    /** The course a creation turn puts its topic in, checked by the route that named it. */
+    materia?: string;
     lock?: { release: () => void } | null;
     backup?: () => NonNullable<Turn["regeneration"]>;
   }) => {
@@ -1719,6 +1757,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         topic: spec.topic,
         correction: spec.correction === true,
         creation: spec.creation === true,
+        ...(spec.materia ? { materia: spec.materia } : {}),
         parts: [],
         methodBefore: spec.topic === null ? null : methodOf(spec.topic),
         timing: createPageTiming({ runtime: tutor.agente, model: tutor.modelo, topic: spec.topic }),
@@ -1743,9 +1782,11 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         if (spec.backup) started.regeneration = spec.backup();
         // The learner's words stay first; a write-part turn also carries the facts the
         // tutor would otherwise discover with ls/find/reads. Both runtimes get the same prompt.
-        const prompt = await started.timing.measure("contexto", () => {
+        const prompt = await started.timing.measure("contexto", async () => {
           const base = withLecciones(namedPart(text), root);
-          const brief = partBrief(root, text);
+          // The awaited brief adds the course slices the embedder ranks; it returns at once and
+          // starts nothing for a prompt that is not a course part (#422).
+          const brief = await partBriefAsync(root, text);
           return brief ? `${base}\n\n${brief}` : base;
         });
         await deliver(session, prompt, started);
@@ -2375,7 +2416,11 @@ ${scripts}
     const tipo = String(req.headers["x-tipo"] ?? "");
     const fileName = typeof req.headers["x-file-name"] === "string" ? req.headers["x-file-name"] : "";
     const content = await readFuenteBody(req);
-    return sendJson(res, 201, await addFuente(root, id, { fileName, contentType, tipo, content }));
+    const fuente = await addFuente(root, id, { fileName, contentType, tipo, content });
+    // The keyword rows are committed before the 201; embeddings are a queue on
+    // purpose, so a slow model never holds the upload's HTTP response (#373).
+    try { indizarFuente(root, id, fuente); } catch { /* a rebuild can recover the index later */ }
+    return sendJson(res, 201, fuente);
   };
 
   const materiaTema = async (req: IncomingMessage, res: ServerResponse, id: string) => {
@@ -2384,7 +2429,7 @@ ${scripts}
     return sendJson(res, 200, await linkTema(root, id, body.tema));
   };
 
-  const materiaRemove = async (req: IncomingMessage, res: ServerResponse, action: string) => {
+  const materiaRemove = async (_req: IncomingMessage, res: ServerResponse, action: string) => {
     const match = /^api\/materias\/([a-f0-9]{32})\/(fuentes|temas)\/([^/]+)$/.exec(action);
     if (!match) throw new HttpError(404, "not found");
     const [, id, section, rawLeaf] = match;
@@ -2396,6 +2441,7 @@ ${scripts}
     }
     if (section === "fuentes") {
       await deleteFuente(root, id, leaf);
+      try { desindizarFuente(root, id, leaf); } catch { /* the source is already in the trash */ }
       res.writeHead(204);
       res.end();
       return;
@@ -2530,11 +2576,24 @@ ${scripts}
         } else if (Object.hasOwn(body, "examen")) {
           throw new HttpError(400, "Los datos del examen solo se aceptan en modo examen.");
         }
+        // The course the new topic is born in: an existing one, and only its id. An unknown or
+        // malformed id is refused here, before any turn exists to be sorry about (#407/T2b).
+        let materia: string | undefined;
+        if (body.materia !== undefined) {
+          if (typeof body.materia !== "string" || !/^[a-f0-9]{32}$/.test(body.materia)) throw new HttpError(400, MATERIA_ERRORS.curso);
+          try {
+            getMateria(root, body.materia);
+          } catch (error) {
+            if (error instanceof HttpError && error.status === 404) throw new HttpError(400, MATERIA_ERRORS.curso);
+            throw error;
+          }
+          materia = body.materia;
+        }
         // A deep-mode request's topic does not exist yet: its first write under a topic folder
         // binds it, and the gate asks the engine about that folder when it settles.
         const fuentesPrompt = fuentes.length ? `\n${fuentesLine(fuentes)}` : "";
         const learningTarget = text || "el tema que aparece en el examen o documento adjunto";
-        await startTurn(main, `Quiero aprender ${learningTarget}.\n\n${modeLine(modo, examen)}${fuentesPrompt}`, { topic: null, creation: modo !== "rapido" });
+        await startTurn(main, `Quiero aprender ${learningTarget}.\n\n${modeLine(modo, examen)}${fuentesPrompt}`, { topic: null, creation: modo !== "rapido", ...(materia ? { materia } : {}) });
         return sendJson(res, 200, { ok: true, modo });
       }
       case "api/metodo": {
@@ -2892,6 +2951,27 @@ ${scripts}
     if (req.method !== "GET") throw new HttpError(405, "method not allowed");
     const materiaDetail = /^api\/materias\/([a-f0-9]{32})$/.exec(path);
     if (materiaDetail) return sendJson(res, 200, getMateria(root, materiaDetail[1]));
+    const indiceBuscar = /^api\/materias\/([a-f0-9]{32})\/buscar$/.exec(path);
+    if (indiceBuscar) {
+      const id = indiceBuscar[1];
+      getMateria(root, id);
+      const consulta = (url.searchParams.get("q") ?? "").trim();
+      if (!consulta) throw new HttpError(400, "Incluye una consulta en q.");
+      const rawK = url.searchParams.get("k");
+      const k = rawK === null ? 8 : Number(rawK);
+      if (!Number.isSafeInteger(k) || k < 1 || k > 50) throw new HttpError(400, "k debe estar entre 1 y 50.");
+      const tipos = url.searchParams.getAll("tipo");
+      const validos = new Set(["examen", "documento", "transcripcion"]);
+      if (tipos.some((tipo) => !validos.has(tipo))) throw new HttpError(400, "tipo debe ser examen, documento o transcripcion.");
+      const modo = url.searchParams.get("modo") ?? "hibrido";
+      if (modo !== "hibrido" && modo !== "claves" && modo !== "semantico") throw new HttpError(400, "modo debe ser hibrido, claves o semantico.");
+      return sendJson(res, 200, await buscar(root, id, consulta, { k, tipos, modo }));
+    }
+    const indiceEstado = /^api\/materias\/([a-f0-9]{32})\/indice$/.exec(path);
+    if (indiceEstado) {
+      getMateria(root, indiceEstado[1]);
+      return sendJson(res, 200, estadoIndice(root, indiceEstado[1]));
+    }
     switch (path) {
       case "":
         return send(res, 200, "text/html; charset=utf-8", shell(), { "content-security-policy": shellCsp() });
@@ -3179,6 +3259,7 @@ ${scripts}
       if (proc) await stopChild(proc);
     }
     for (const handler of shutdownHandlers) await handler();
+    await cerrarIndice();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   };

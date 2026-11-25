@@ -1,0 +1,54 @@
+{
+  "notas": "content/aprendizaje-por-refuerzo/explicaciones",
+  "descripcion": "Preguntas escritas leyendo las notas de aprendizaje por refuerzo; no copian su redacción. La etiqueta es la nota que debe aparecer entre los primeros resultados.",
+  "queries": [
+    {
+      "q": "Si el robot limpia ahora y se queda sin batería, ¿por qué puede convenir ir a cargar primero?",
+      "esperado": { "archivo": "Parte 1 - El problema que solo existe en el tiempo.md", "pista": "batería" }
+    },
+    {
+      "q": "¿Cómo se distingue este aprendizaje de otro en el que alguien etiqueta fotos como limpias o sucias?",
+      "esperado": { "archivo": "Parte 1 - El problema que solo existe en el tiempo.md", "pista": "supervisado" }
+    },
+    {
+      "q": "¿Quién elige la acción y qué dos cosas vuelven del entorno después de actuar?",
+      "esperado": { "archivo": "Parte 2 - Las cinco piezas.md", "pista": "agente" }
+    },
+    {
+      "q": "¿Cuáles son las cinco partes del esquema del robot aspirador?",
+      "esperado": { "archivo": "Parte 2 - Las cinco piezas.md", "pista": "piezas" }
+    },
+    {
+      "q": "Después de limpiar, ¿qué dato del nuevo estado condiciona la decisión siguiente?",
+      "esperado": { "archivo": "Parte 3 - Un paso completo.md", "pista": "estado" }
+    },
+    {
+      "q": "¿Qué diferencia hay entre la cantidad cobrada al actuar y la situación en que queda el robot?",
+      "esperado": { "archivo": "Parte 3 - Un paso completo.md", "pista": "recompensa" }
+    },
+    {
+      "q": "¿Qué magnitud indica cuánto se puede conseguir más adelante desde una situación concreta?",
+      "esperado": { "archivo": "Parte 4 - Los cuatro conceptos que se confunden.md", "pista": "valor" }
+    },
+    {
+      "q": "¿Qué pieza permite anticipar lo que pasaría si el agente ejecutara una acción?",
+      "esperado": { "archivo": "Parte 4 - Los cuatro conceptos que se confunden.md", "pista": "modelo" }
+    },
+    {
+      "q": "¿Por qué sacrificar premio inmediato probando una acción poco conocida puede ser útil?",
+      "esperado": { "archivo": "Parte 5 - Explorar o explotar.md", "pista": "información" }
+    },
+    {
+      "q": "¿De qué manera se reparte el tiempo entre la mejor opción ya conocida y probar otras?",
+      "esperado": { "archivo": "Parte 5 - Explorar o explotar.md", "pista": "probabilidad" }
+    },
+    {
+      "q": "¿Qué total intenta maximizar el agente en vez de la próxima recompensa?",
+      "esperado": { "archivo": "Parte 6 - El retorno y el descuento.md", "pista": "retorno" }
+    },
+    {
+      "q": "Al subir el parámetro que pondera el futuro, ¿qué cambia en la cuenta de recompensas lejanas?",
+      "esperado": { "archivo": "Parte 6 - El retorno y el descuento.md", "pista": "descuento" }
+    }
+  ]
+}

@@ -2,13 +2,19 @@
 // discover the topic layout with ls/find/reads before it can write the note (T2b).
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { partBrief, MAX_PART_BRIEF_BYTES, PART_BRIEF_MARK } from "./brief.ts";
+import { partBrief, partBriefAsync, MAX_PART_BRIEF_BYTES, PART_BRIEF_MARK, PART_MATERIAL_TIMEOUT_MS } from "./brief.ts";
+import { cerrarIndice, configurarIndice, esperarIndice, indicePath, indizarFuente } from "./indice.ts";
 import { ruleSheet } from "../tools/part-check.mjs";
+import { vectorDe } from "./testdata/fake-embed.mjs";
+
+// The write-part brief ranks a course's chunks synchronously: no embedder is needed or started.
+configurarIndice({ embedCommand: null });
 import { startStudio } from "./server.ts";
 import { stripLecciones } from "./sugerencias.ts";
 import { makeRoot } from "./testdata/root.mjs";
@@ -19,12 +25,34 @@ const FREQUENT_FILE = join(REPO, "tools", "part-check-frequent.json");
 const FREQUENT_HEADING = "Most frequent first-draft findings";
 const FAKE_PI = join(HERE, "testdata", "fake-pi.mjs");
 const FAKE_AGY = join(HERE, "testdata", "fake-agy.mjs");
+const FAKE_EMBED = join(HERE, "testdata", "fake-embed.mjs");
 const PARTS = [
   { id: "p1", title: "Capas", slug: "Capas", subtema: "1.1" },
   { id: "p2", title: "TCP", slug: "TCP", subtema: "1.2.1" },
   { id: "p3", title: "Enrutamiento", slug: "Enrutamiento", subtema: "1.3" },
 ];
 const WRITE_TEXT = "Escribe la Parte 2 «TCP» de Redes (carpeta redes): con sus visuales, sus ejemplos y su mini-quiz.";
+
+/** The on-disk course contract, as `studio/plan-brief.test.mjs` builds it. */
+function curso(raiz, nombre, temas = []) {
+  const id = randomBytes(16).toString("hex");
+  mkdirSync(join(raiz, ".materias", id), { recursive: true });
+  writeFileSync(join(raiz, ".materias", id, "materia.json"), `${JSON.stringify({
+    id, nombre, creada: new Date().toISOString(), temas, fuentes: [],
+  })}\n`);
+  return id;
+}
+
+function fuente(raiz, id, nombre, tipo, texto) {
+  const sourceId = randomBytes(16).toString("hex");
+  const cursoDir = join(raiz, ".materias", id);
+  mkdirSync(join(cursoDir, "fuentes", sourceId), { recursive: true });
+  const archivo = `fuentes/${sourceId}/${nombre}`;
+  writeFileSync(join(cursoDir, `${archivo}.txt`), texto, "utf8");
+  const declarada = { id: sourceId, tipo, nombre, archivo, bytes: Buffer.byteLength(texto), subida: new Date().toISOString(), texto: `${archivo}.txt` };
+  indizarFuente(raiz, id, declarada);
+  return declarada;
+}
 const open = [];
 afterEach(async () => {
   for (const studio of open.splice(0)) await studio.close();
@@ -192,3 +220,337 @@ test("a 20-part topic keeps the brief under the byte bound", async () => {
   assert.ok(brief.includes(join(bigRoot, "redes", "explicaciones", "Parte 20 - parte-numero-20.md")));
   assert.equal(partBrief(root, "Hola"), "", "no brief for a general prompt");
 });
+
+// Rule 1 (#374/T4): the part is written from its course's relevant slices, never from the plan entry alone.
+test("a part written for a course topic carries the slices relevant to that part", () => {
+  const { root } = makeRoot();
+  const id = curso(root, "Redes", ["redes"]);
+  fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+  const brief = partBrief(root, WRITE_TEXT);
+  assert.match(brief, /tcp\.txt \(documento, (?:párrafo|líneas|página) [^)]+\)/, `the source, its type and its location: ${brief}`);
+  assert.ok(brief.includes("ventana deslizante"), "the slice itself travels, not just its name");
+});
+
+// Rule 2 (#374/T4): the material section is part of the same 12 KiB brief and reports what it left out.
+test("the part brief stays bounded and says how many slices it left out", () => {
+  const { root } = makeRoot();
+  const id = curso(root, "Redes", ["redes"]);
+  const largo = Array.from({ length: 500 }, () => "tcp").join(" ");
+  for (let indice = 0; indice < 8; indice += 1) fuente(root, id, `tcp-${indice}.txt`, "documento", `${largo} fuente ${indice}.`);
+  const brief = partBrief(root, WRITE_TEXT);
+  assert.ok(Buffer.byteLength(brief, "utf8") <= MAX_PART_BRIEF_BYTES, `bounded: ${Buffer.byteLength(brief, "utf8")}`);
+  assert.match(brief, /\d+ fragmentos relevantes sin mostrar/, "silence is the one thing it may not do");
+});
+
+// Rule 3 (#374/T4): a source whose subject does not match the part must not leak into it.
+test("material that does not belong to the part stays out", () => {
+  const { root } = makeRoot();
+  const id = curso(root, "Redes", ["redes"]);
+  fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+  fuente(root, id, "reposteria.txt", "documento", "Receta de pan casero: 1 kg de harina, 2 huevos y levadura fresca.");
+  const brief = partBrief(root, WRITE_TEXT);
+  assert.ok(brief.includes("tcp.txt"), "the slice that belongs to the part is there");
+  assert.ok(!brief.includes("reposteria.txt"), `the decoy source stays out: ${brief}`);
+});
+
+// Rule 4 (#374/T4): every example or claim taken from the material is traced back for the learner.
+test("the brief tells the part to cite the source and location of what it takes", () => {
+  const { root } = makeRoot();
+  const id = curso(root, "Redes", ["redes"]);
+  fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+  const brief = partBrief(root, WRITE_TEXT);
+  assert.match(brief, /cita[^\n]*fuente[^\n]*ubicaci[^\n]*/i, `the citation order is asked for: ${brief}`);
+});
+
+// Rule 5 (#374/T4): nothing already delivered changes without a course or without indexed material.
+test("a topic without a course or a course without indexed material keeps today's brief", () => {
+  const { root } = makeRoot();
+  const sinCurso = partBrief(root, WRITE_TEXT);
+  const id = curso(root, "Redes", ["redes"]);
+  assert.equal(partBrief(root, WRITE_TEXT), sinCurso, "an empty course adds no line and changes no byte");
+  fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+  assert.notEqual(partBrief(root, WRITE_TEXT), sinCurso, "indexed material is the only thing that changes it");
+});
+
+// Rule 6 (#374/T4): material that cannot be read is a stderr line, never a broken brief or turn.
+test("a broken index degrades to today's brief and logs to stderr", () => {
+  const { root } = makeRoot();
+  const sinMaterial = partBrief(root, WRITE_TEXT);
+  curso(root, "Redes", ["redes"]);
+  writeFileSync(indicePath(root), "esto no es una base de datos\n", "utf8");
+  const escrito = [];
+  const original = process.stderr.write;
+  process.stderr.write = (chunk) => { escrito.push(String(chunk)); return true; };
+  let brief;
+  try {
+    brief = partBrief(root, WRITE_TEXT);
+  } finally {
+    process.stderr.write = original;
+  }
+  assert.equal(brief, sinMaterial, "a broken index leaves the brief exactly as it was");
+  assert.ok(escrito.some((linea) => /material/i.test(linea) && /redes/.test(linea)), `the failure is logged: ${escrito.join("")}`);
+});
+
+// ---- #422: the awaited half of the brief -----------------------------------
+
+/** The embedder the index tests use: deterministic vectors, no model, no network. */
+const conEmbedder = () => configurarIndice({ embedCommand: [process.execPath, FAKE_EMBED] });
+const sinEmbedder = () => configurarIndice({ embedCommand: null });
+/**
+ * The deterministic fake hashes tokens, so two different tokens that hash to the same vector are
+ * "the same subject" to it while sharing no word at all: exactly the slice the keyword half cannot
+ * find. The first test re-derives the collision, so the fixture cannot rot silently.
+ */
+const COLISION = "ajd9q";
+
+/** Captures what the studio writes to stderr while `work` runs: a learner never sees those lines. */
+async function conStderr(work) {
+  const lineas = [];
+  const original = process.stderr.write;
+  process.stderr.write = (chunk) => { lineas.push(String(chunk)); return true; };
+  try {
+    const valor = await work();
+    return { valor, lineas };
+  } finally {
+    process.stderr.write = original;
+  }
+}
+
+// Rule 1 (#422): the part brief uses `/buscar`'s hybrid rank when the embedder is available, so a
+// slice that shares no keyword with the part but is the same subject still reaches the note.
+test("with the embedder, the part gets the slice only the semantic half finds", async () => {
+  assert.deepEqual(vectorDe(COLISION), vectorDe("tcp"), "the fake reads the fixture token as the part's subject");
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    const id = curso(root, "Redes", ["redes"]);
+    fuente(root, id, "protocolo.txt", "documento", `${COLISION} ${COLISION} ${COLISION}.`);
+    await esperarIndice();
+    assert.ok(!partBrief(root, WRITE_TEXT).includes("protocolo.txt"), "the keyword half alone never finds it");
+    const brief = await partBriefAsync(root, WRITE_TEXT);
+    assert.match(brief, /protocolo\.txt \(documento, [^)]+\)/, `the slice only the embedder ranks reaches the part: ${brief}`);
+  } finally {
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 2 (#422): the awaited path degrades to exactly today's keyword brief when the embedder is gone.
+test("without the embedder the awaited brief is today's keyword brief, byte for byte", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    const id = curso(root, "Redes", ["redes"]);
+    fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+    await esperarIndice();
+    sinEmbedder();
+    const hoy = partBrief(root, WRITE_TEXT);
+    assert.ok(hoy.includes("tcp.txt"), "the vectors are on disk, so only the missing embedder can explain the brief");
+    const esperado = await partBriefAsync(root, WRITE_TEXT);
+    assert.equal(esperado, hoy, "the awaited path degrades to exactly today's brief");
+  } finally {
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 3 (#422): the model may hang; the part must not. At the bound the keyword brief is delivered
+// and the delay is the studio's log, never a line the learner reads.
+test("a hanging embedder never delays the brief past the bound", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    const id = curso(root, "Redes", ["redes"]);
+    fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+    await esperarIndice();
+    const keyword = partBrief(root, WRITE_TEXT);
+    // A fresh child that receives the query and never answers it.
+    process.env.FAKE_EMBED_DELAY_MS = String(10 * PART_MATERIAL_TIMEOUT_MS);
+    conEmbedder();
+    const comienzo = Date.now();
+    let resultado;
+    try {
+      resultado = await conStderr(() => partBriefAsync(root, WRITE_TEXT));
+    } finally {
+      delete process.env.FAKE_EMBED_DELAY_MS;
+    }
+    const gastado = Date.now() - comienzo;
+    assert.ok(gastado >= PART_MATERIAL_TIMEOUT_MS - 25, `the embedder really was awaited: ${gastado} ms`);
+    assert.ok(gastado < PART_MATERIAL_TIMEOUT_MS + 750, `never past the bound: ${gastado} ms`);
+    assert.equal(resultado.valor, keyword, "at the bound the learner's part carries today's keyword brief");
+    assert.ok(!/embedder/i.test(resultado.valor), "the delay is not part of the prompt");
+    assert.ok(
+      resultado.lineas.some((linea) => /embedder/i.test(linea) && /TCP/.test(linea)),
+      `the delay is logged to stderr: ${resultado.lineas.join("")}`,
+    );
+  } finally {
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 4 (#422): the awaited brief keeps every bound and every instruction of the synchronous one.
+test("the awaited brief stays inside the byte bound, counts the leftovers and keeps the citation order", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    const id = curso(root, "Redes", ["redes"]);
+    const largo = Array.from({ length: 500 }, () => "tcp").join(" ");
+    for (let indice = 0; indice < 8; indice += 1) fuente(root, id, `tcp-${indice}.txt`, "documento", `${largo} fuente ${indice}.`);
+    await esperarIndice();
+    const brief = await partBriefAsync(root, WRITE_TEXT);
+    assert.ok(Buffer.byteLength(brief, "utf8") <= MAX_PART_BRIEF_BYTES, `bounded: ${Buffer.byteLength(brief, "utf8")}`);
+    assert.match(brief, /\d+ fragmentos relevantes sin mostrar/, "silence is the one thing it may not do");
+    assert.ok(
+      brief.includes("cita el nombre de la fuente y la ubicación de todo ejemplo o afirmación que tomes de aquí"),
+      "the citation instruction is unchanged",
+    );
+  } finally {
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 5 (#422): nothing already delivered changes, and nothing is started, without a course or
+// without indexed material. The injected command does not exist, so any start would log to stderr.
+test("a topic without a course or a course with no material keeps today's brief and starts no embedder", async () => {
+  configurarIndice({ embedCommand: [join(HERE, "testdata", "no-such-embed.mjs")] });
+  const { root } = makeRoot();
+  const sinCurso = partBrief(root, WRITE_TEXT);
+  const inicio = Date.now();
+  let fueraDeCurso;
+  let cursoVacio;
+  let escrito;
+  try {
+    const traza = await conStderr(async () => {
+      fueraDeCurso = await partBriefAsync(root, WRITE_TEXT);
+      curso(root, "Redes", ["redes"]);
+      cursoVacio = await partBriefAsync(root, WRITE_TEXT);
+    });
+    escrito = traza.lineas;
+  } finally {
+    sinEmbedder();
+  }
+  assert.equal(fueraDeCurso, sinCurso, "a topic outside every course is untouched");
+  assert.equal(cursoVacio, sinCurso, "a course with no indexed material adds no byte");
+  assert.equal(escrito.length, 0, `no embedder is started: ${escrito.join("")}`);
+  assert.ok(Date.now() - inicio < 1000, "and nothing is waited for");
+});
+
+// ---- #427: the request nobody awaits is cancelled, not completed -----------
+
+/**
+ * The fake embedder's own account of what happened (`FAKE_EMBED_LOG`): one line per child start, per
+ * request, per answer and per withdrawal. It is the only observer that can say whether the work the
+ * studio abandoned was actually dropped instead of completed.
+ */
+function eventosDelEmbedder(path) {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map((linea) => JSON.parse(linea));
+}
+
+const deTipo = (eventos, tipo) => eventos.filter((evento) => evento.event === tipo);
+
+/** Waits until `pred` holds, so an event the child writes a few ms later is never a race. */
+async function hastaQue(pred, timeout = PART_MATERIAL_TIMEOUT_MS + 750) {
+  const deadline = Date.now() + timeout;
+  while (!pred() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
+/** A course with one indexed source the part matches by keyword and by vector. */
+async function cursoIndexado(root) {
+  const id = curso(root, "Redes", ["redes"]);
+  fuente(root, id, "tcp.txt", "documento", "TCP usa puertos, segmentos y una ventana deslizante para no perder datos.");
+  await esperarIndice();
+  return id;
+}
+
+// Rule 1 (#427): past the bound the request is withdrawn, so the embedder drops it instead of
+// answering work the part no longer reads.
+test("a request abandoned at the bound is cancelled, not completed", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    await cursoIndexado(root);
+    const registro = join(root, "fake-embed.log");
+    // The fake answers long after the bound: only a withdrawal can explain a missing answer.
+    process.env.FAKE_EMBED_DELAY_MS = String(PART_MATERIAL_TIMEOUT_MS + 500);
+    process.env.FAKE_EMBED_LOG = registro;
+    configurarIndice({ embedCommand: [process.execPath, FAKE_EMBED] });
+    const keyword = partBrief(root, WRITE_TEXT);
+    const { valor } = await conStderr(() => partBriefAsync(root, WRITE_TEXT));
+    await hastaQue(() => deTipo(eventosDelEmbedder(registro), "cancelled").length > 0);
+    const eventos = eventosDelEmbedder(registro);
+    const peticiones = deTipo(eventos, "request");
+    assert.equal(peticiones.length, 1, `the part sent exactly one query: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "cancelled").length, 1, `the embedder was told the request was withdrawn: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "cancelled")[0].id, peticiones[0].id, "the withdrawal names the request it cancels");
+    assert.equal(deTipo(eventos, "answer").length, 0, `a withdrawn request is never answered: ${JSON.stringify(eventos)}`);
+    assert.equal(valor, keyword, "the learner's part still carries today's keyword brief");
+  } finally {
+    delete process.env.FAKE_EMBED_DELAY_MS;
+    delete process.env.FAKE_EMBED_LOG;
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 2 (#427): the abandoned request used to keep the client busy until its own timeout, which
+// then retried the whole batch. Neither may fire for work nobody awaits.
+test("the client's timeout and its single retry never fire for a request nobody awaits", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    await cursoIndexado(root);
+    const registro = join(root, "fake-embed-retry.log");
+    process.env.FAKE_EMBED_DELAY_MS = String(10 * PART_MATERIAL_TIMEOUT_MS);
+    process.env.FAKE_EMBED_LOG = registro;
+    // A client timeout that would have fired well inside the observation window below.
+    configurarIndice({ embedCommand: [process.execPath, FAKE_EMBED], timeoutMs: PART_MATERIAL_TIMEOUT_MS + 100 });
+    const comienzo = Date.now();
+    await conStderr(() => partBriefAsync(root, WRITE_TEXT));
+    const trasElLimite = Date.now() - comienzo;
+    assert.ok(trasElLimite < PART_MATERIAL_TIMEOUT_MS + 750, `the brief kept its bound: ${trasElLimite} ms`);
+    // Wait past the client's own timeout: a retry would restart the child and resend the query.
+    await new Promise((resolve) => setTimeout(resolve, PART_MATERIAL_TIMEOUT_MS + 700 - (Date.now() - comienzo)));
+    const gastado = Date.now() - comienzo;
+    const eventos = eventosDelEmbedder(registro);
+    assert.ok(gastado > PART_MATERIAL_TIMEOUT_MS + 100, `the client's timeout window really passed: ${gastado} ms`);
+    assert.equal(deTipo(eventos, "ready").length, 1, `one child, never restarted: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "request").length, 1, `one request, never resent: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "answer").length, 0, `nothing completed: ${JSON.stringify(eventos)}`);
+  } finally {
+    delete process.env.FAKE_EMBED_DELAY_MS;
+    delete process.env.FAKE_EMBED_LOG;
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+// Rule 4 (#427): a request that answers in time is untouched: same hybrid brief, same bytes, no
+// withdrawal at all.
+test("a request that answers in time is untouched", async () => {
+  conEmbedder();
+  try {
+    const { root } = makeRoot();
+    await cursoIndexado(root);
+    const registro = join(root, "fake-embed-fast.log");
+    process.env.FAKE_EMBED_LOG = registro;
+    configurarIndice({ embedCommand: [process.execPath, FAKE_EMBED] });
+    const keyword = partBrief(root, WRITE_TEXT);
+    const { valor, lineas } = await conStderr(() => partBriefAsync(root, WRITE_TEXT));
+    await hastaQue(() => deTipo(eventosDelEmbedder(registro), "answer").length > 0);
+    const eventos = eventosDelEmbedder(registro);
+    assert.equal(deTipo(eventos, "request").length, 1, `the part sent exactly one query: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "answer").length, 1, `the query was answered: ${JSON.stringify(eventos)}`);
+    assert.equal(deTipo(eventos, "cancelled").length, 0, `nothing was withdrawn: ${JSON.stringify(eventos)}`);
+    assert.equal(valor, keyword, "the fast answer keeps the brief's bytes");
+    assert.equal(lineas.length, 0, `no delay line for the learner or the log: ${lineas.join("")}`);
+  } finally {
+    delete process.env.FAKE_EMBED_LOG;
+    await cerrarIndice();
+    sinEmbedder();
+  }
+});
+
+test.after(async () => { await cerrarIndice(); });

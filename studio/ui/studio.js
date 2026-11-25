@@ -526,6 +526,9 @@
 
   // ---------- routing ----------
   let library = { topics: [], quick: [], runners: null };
+  // Who owns the stage: every render takes it, so a view that paints after an
+  // await only paints if no other route arrived meanwhile (see materiaView).
+  let stageSeq = 0;
   let panoramaBack = "#/";
   const openPanorama = (id, from) => { panoramaBack = from; go(`#/panorama/${id}`); };
   const go = (hash) => {
@@ -592,6 +595,9 @@
 
   let enteredPart = "";
   function render() {
+    // The route changes now, not when an unfinished view decides to paint: the
+    // courses' slow views check this generation instead of drawing over a topic.
+    ++stageSeq;
     const [, view, a, b] = location.hash.split("/").map(decodeURIComponent);
     if (view !== "leer" || enteredPart !== `${a}/${b}`) enteredPart = "";
     closeContextMenu();
@@ -811,6 +817,12 @@
   }
 
   /**
+   * The course the next new topic is born in. The materia page sets it and sends the learner to the
+   * new-topic entry that already exists; the request then carries it as `materia` (#407/T2b).
+   */
+  let nuevaMateria = "";
+
+  /**
    * «Aprender algo nuevo»: the learner writes what to learn and picks the mode before sending, so no
    * tutor asks it. Exam format and, when practical, the kind of practice are decided here too.
    */
@@ -902,7 +914,31 @@
       input.style.height = `${Math.min(height, 240)}px`;
       input.style.overflowY = height > 240 ? "auto" : "hidden";
     };
+    // The course the new topic is born in: the page already knows the learner's materia, and the
+    // studio links the topic in the same turn that binds it, so the route is planned from it.
+    let materiaId = nuevaMateria;
+    const materiaPick = h("select", { id: "learning-materia", class: "learning-materia", "aria-label": "Materia del tema nuevo" },
+      h("option", { value: "" }, "Sin materia"));
+    const materiaField = h("div", { class: "learning-materia-field", hidden: true },
+      h("label", { for: materiaPick.id }, "Materia del tema nuevo"),
+      materiaPick);
+    let hayMaterias = false;
+    const paintMateria = () => { materiaField.hidden = !hayMaterias || modo === "rapido"; };
+    materiaPick.addEventListener("change", () => { materiaId = materiaPick.value; nuevaMateria = ""; });
+    request("api/materias").then((items) => {
+      hayMaterias = items.length > 0;
+      if (hayMaterias) {
+        materiaPick.replaceChildren(
+          h("option", { value: "" }, "Sin materia"),
+          ...items.map((m) => h("option", { value: m.id }, m.nombre)),
+        );
+        if (!items.some((m) => m.id === materiaId)) materiaId = "";
+        materiaPick.value = materiaId;
+      }
+      paintMateria();
+    }).catch(() => { hayMaterias = false; paintMateria(); });
     const refresh = () => {
+      paintMateria();
       const text = input.value;
       const tooLong = text.length > MAX_LEARNING_SOURCE_CHARS;
       if (!fuentes.length && formato === "deducir") resetExam();
@@ -1004,6 +1040,8 @@
         };
       }
       if (fuentes.length) body.fuentes = fuentes.map((source) => source.id);
+      // A quick note is not a topic and belongs to no course: only a deep turn can join one.
+      if (materiaId && modo !== "rapido") body.materia = materiaId;
       openDrawer();
       try {
         await post("api/aprender", body);
@@ -1013,6 +1051,9 @@
       }
       input.value = "";
       modo = "";
+      materiaId = "";
+      nuevaMateria = "";
+      materiaPick.value = "";
       resetExam();
       fuentes.length = 0;
       erroresFuente.length = 0;
@@ -1035,6 +1076,7 @@
       h("p", { class: "learn-hint" }, "Al adjuntar, se selecciona Examen si no habías elegido modo y «Que lo deduzca el tutor» si el examen aún no tiene formato. Tus elecciones previas se conservan."),
       sourceHelp,
       h("div", { class: "learning-source-control" }, filePicker, sourceList, sourceErrors),
+      materiaField,
       tagGroup(h("div", { class: "mode-picks", role: "group", "aria-label": "Modo de estudio" }, picks), ["c04-modes"]),
       formatGroup,
       practiceGroup,
@@ -1373,7 +1415,6 @@
   };
   const MATERIA_ACCEPT = [...Object.keys(MATERIA_MIME), ...new Set(Object.values(MATERIA_MIME))].join(",");
   const MAX_MATERIA_FILE_BYTES = 20 * 1024 * 1024;
-  let materiaSeq = 0;
   const materiaExtension = (file) => {
     const dot = String(file?.name ?? "").lastIndexOf(".");
     return dot < 0 ? "" : file.name.slice(dot).toLowerCase();
@@ -1457,7 +1498,7 @@
   }
 
   async function materiasView() {
-    const seq = ++materiaSeq;
+    const seq = stageSeq;
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Materias" }]);
     const status = h("p", { class: "materia-status", role: "status", "aria-live": "polite" });
     const name = h("input", { id: "materia-nombre", type: "text", maxlength: "120", autocomplete: "off", placeholder: "Por ejemplo: Teoría de la computación" });
@@ -1474,14 +1515,14 @@
     const paint = async (message) => {
       try {
         const items = await request("api/materias");
-        if (seq !== materiaSeq || !page.isConnected) return;
+        if (seq !== stageSeq || !page.isConnected) return;
         list.replaceChildren(...items.map((item) => h("article", { class: "materia-card reveal", style: "--i:0" },
           h("a", { class: "materia-card-link", href: `#/materias/${encodeURIComponent(item.id)}` }, h("span", { class: "materia-card-icon" }, icon("book")), h("h2", {}, item.nombre)),
           h("p", { class: "materia-card-count" }, `${item.fuentes} ${item.fuentes === 1 ? "archivo" : "archivos"} · ${item.temas} ${item.temas === 1 ? "tema" : "temas"}`),
           h("ul", { class: "materia-types" }, MATERIA_TIPOS.map(([tipo, label]) => h("li", {}, `${item.porTipo?.[tipo] || 0} · ${label}`))))));
         status.textContent = message ?? (items.length ? "" : "Todavía no tienes materias. Crea una para juntar sus archivos.");
       } catch (error) {
-        if (seq === materiaSeq && page.isConnected) status.textContent = `No se pudieron cargar tus materias: ${error.message}`;
+        if (seq === stageSeq && page.isConnected) status.textContent = `No se pudieron cargar tus materias: ${error.message}`;
       }
     };
     form.addEventListener("submit", async (event) => {
@@ -1501,20 +1542,20 @@
   }
 
   async function materiaView(id) {
-    const seq = ++materiaSeq;
+    const seq = stageSeq;
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Materias", href: "#/materias" }, { text: "Materia" }]);
     stage.replaceChildren(h("div", { class: "page materia-page" }, h("p", { class: "muted" }, "Abriendo la materia…")));
     let materia;
     try {
       materia = await request(`api/materias/${encodeURIComponent(id)}`);
     } catch (error) {
-      if (seq !== materiaSeq) return;
+      if (seq !== stageSeq) return;
       return stage.replaceChildren(h("div", { class: "page materia-page" },
         h("a", { class: "materia-back", href: "#/materias" }, "← Todas las materias"),
         h("h1", {}, "Materia"),
         h("p", { class: "materia-status alert", role: "status" }, `No se pudo abrir la materia: ${error.message}`)));
     }
-    if (seq !== materiaSeq) return;
+    if (seq !== stageSeq) return;
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Materias", href: "#/materias" }, { text: materia.nombre }]);
     const groups = h("div", { class: "source-groups" });
     const topics = h("div", { class: "materia-topics" });
@@ -1647,6 +1688,8 @@
           button);
       }));
     };
+    // A new topic starts inside this course: the entry that already exists does the rest.
+    const empezarEnMateria = () => { nuevaMateria = id; go("#/"); };
     const linkTopic = async (topic) => {
       status.textContent = `Vinculando ${topic.title}…`;
       try {
@@ -1675,7 +1718,9 @@
         h("div", { class: "section-title" }, h("h2", {}, "Tus fuentes"), h("p", {}, "Cada archivo, con su tipo")),
         groups),
       h("section", { class: "materia-topics-section" },
-        h("div", { class: "section-title" }, h("h2", {}, "Temas de esta materia"), h("p", {}, "Un tema pertenece a una sola materia")),
+        h("div", { class: "section-title has-action" },
+          h("div", { class: "section-heading" }, h("h2", {}, "Temas de esta materia"), h("p", {}, "Un tema pertenece a una sola materia")),
+          btn("Nuevo tema en esta materia", () => empezarEnMateria(), "btn small primary", "fresh")),
         topics));
     stage.replaceChildren(page);
     renderSources();

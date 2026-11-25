@@ -1,4 +1,6 @@
 bin/
+/bin/embed
+/tools/embed/target
 *.test
 .learning/
 .learning-cache/

@@ -20,6 +20,8 @@ import (
 var KnownCheckKinds = map[string]bool{
 	"file_exists":               true,
 	"plan_valid":                true,
+	"plan_cobertura":            true,
+	"plan_provenance":           true,
 	"planning_link":             true,
 	"diagnostic_questions":      true,
 	"diagnostic_answers":        true,
@@ -982,7 +984,7 @@ func validateDecl(d CheckDecl) error {
 	}
 	var err error
 	switch d.Kind {
-	case "file_exists", "plan_valid", "part_file", "explanation_content",
+	case "file_exists", "plan_valid", "plan_cobertura", "plan_provenance", "part_file", "explanation_content",
 		"changed_after_failed_quiz", "quiz_questions", "feedback_valid",
 		"planificador_sections", "index_note", "mis_palabras_structure",
 		"mis_palabras_area", "exercises_note", "mermaid_graph",

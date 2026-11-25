@@ -1,5 +1,9 @@
 # Rich part pages
 
+Before authoring, run `node tools/branch-fresh.mjs`: a checkout behind `origin/main` documents a
+contract main has already replaced, so a figure written against it is redesigned the moment it
+lands (#406).
+
 The part's Markdown note is what the learner reads (#265): the reader renders it with the
 kit's pieces, the interactive mini-quiz and the video. A plain HTML page beside the note,
 with the same basename and an `.html` extension, is optional. The bridge serves it at
