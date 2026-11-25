@@ -2528,6 +2528,22 @@ test("an iPad held sideways with the tutor closed keeps the two columns", { skip
   assert.equal(await tracks(page, ".topic-head"), 2, "with the whole screen the card sits beside the route");
 });
 
+// The tutor takes 520px of a 1440px laptop: the home has to answer that room,
+// not the window, or its heading and its cards are squeezed into a sliver.
+test("the home keeps a readable column beside the tutor", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await ipadPage(t, 1440, 900);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(400);
+  const heading = await page.locator(".home-page h1").boundingBox();
+  assert.ok(heading.width >= 560, `the heading keeps a readable line: ${Math.round(heading.width)}px`);
+  const ask = await page.locator(".home-page .ask-big").boundingBox();
+  assert.ok(ask.width >= 420, `the question box keeps room for a sentence: ${Math.round(ask.width)}px`);
+  const card = await page.locator(".home-page .cards > *").first().boundingBox();
+  assert.ok(card.width >= 280, `a card keeps its width instead of shrinking to a sliver: ${Math.round(card.width)}px`);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 0, "nothing spills sideways");
+});
+
 test("on an upright iPad the open tutor dims the page and a tap outside closes it", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page, studio } = await ipadPage(t, 820, 1180);
   await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });

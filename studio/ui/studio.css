@@ -1078,16 +1078,24 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   .home-layout { grid-template-columns: minmax(0, 1fr) 248px; gap: calc(var(--space) * 2); }
   .home-rail { padding: calc(var(--space) * 2); }
 }
-@media (max-width: 850px) {
-  .home-page { padding: calc(var(--space) * 4) calc(var(--space) * 2) calc(var(--space) * 12); }
+/* The home answers to the room the stage has, like every other page: the tutor
+   takes up to 520px, and the rail plus the hero's fixed card would leave the
+   text a sliver. Below that room the rail steps under the content, the hero
+   stacks and the cards give up a column each time. */
+@container stage (max-width: 1100px) {
   .home-layout { grid-template-columns: minmax(0, 1fr); }
-  .home-page .hero { grid-template-columns: minmax(0, 1fr); gap: calc(var(--space) * 4); }
   .home-page .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .home-page .hero h1 { font-size: 38px; }
 }
-@media (max-width: 560px) {
+@container stage (max-width: 1000px) {
+  .home-page .hero { grid-template-columns: minmax(0, 1fr); gap: calc(var(--space) * 4); }
+}
+@container stage (max-width: 760px) {
   .home-page .cards { grid-template-columns: minmax(0, 1fr); }
   .home-page .progress-label { flex-wrap: wrap; }
+}
+@media (max-width: 850px) {
+  .home-page { padding: calc(var(--space) * 4) calc(var(--space) * 2) calc(var(--space) * 12); }
+  .home-page .hero h1 { font-size: 38px; }
 }
 :root:is([data-theme="dark"], [data-theme="black"]) .editor-preview,
 :root:is([data-theme="dark"], [data-theme="black"]) .pano-canvas { background: var(--paper); }
