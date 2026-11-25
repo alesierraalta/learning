@@ -41,9 +41,9 @@ tuteo, and nothing is saved without the learner's tap.
 
 | ID | Specs | What | Route | Commit |
 |---|---|---|---|---|
-| T1 | S1,S2,S5,S6 | `studio/valoraciones.ts`: document, motives with a sign, validation, record/list, `loQueGusta`; `POST`/`GET api/valoraciones`; tests | inline | pending |
-| T2 | S1,S3,S7 | Reader bar: thumbs, dialog with the sign's motives and the learner's words, existing verdict shown on reload; layout and body tests | inline | pending |
-| T3 | S2,S4,S6 | `gustosBlock` joins `withLecciones` so every runtime receives it; regenerate too; the feedback page lists verdicts; docs | inline | pending |
+| T1 | S1,S2,S5,S6 | `studio/valoraciones.ts`: document, motives with a sign, validation, record/list, `loQueGusta`; `POST`/`GET api/valoraciones`; tests | inline | d6fab8c |
+| T2 | S1,S3,S7 | Reader bar: thumbs, dialog with the sign's motives and the learner's words, existing verdict shown on reload; layout and body tests | writer + parent | this slice |
+| T3 | S2,S4,S6 | `gustosBlock` joins `withLecciones` so every runtime receives it; regenerate too; the feedback page lists verdicts; docs | inline | d6fab8c (prompt + docs); page in T2's commit |
 
 ## Log
 
@@ -67,3 +67,37 @@ L4 — Consequence of S4 that shapes the plan: painting a button would be a lie 
 reached the writer. T3 therefore moves the digest into `withLecciones`, the one block the normal
 turn already carries, instead of leaving it in `tutorContext` — and the test asserts the prompt,
 which is the studio's, for the three runtimes at once.
+
+L5 — Slice 1, `d6fab8c` (540 lines): the record, its two routes, `gustosBlock`/`withGustos`/
+`stripGustos` in the write path, and the docs. The test that matters is not the storage suite but
+the one that reads the prompt a real turn hands to the fake tutor: it fails if the block is built
+and never delivered, which is the defect this feature exists to avoid on the other side of the
+problem.
+
+L6 — The docs' older paragraph "before writing, the prompts for a part, the plan and the map carry a
+compact context built from the stored preferences, the weak telemetry categories and the last
+suggestions" was **not** verified by this work: the explorer traced `tutorContext` to the regenerate
+prompt and `GET api/contexto` only, and `startTurn` carries lessons and now verdicts. Whether the
+plan and map prompts carry preferences was left unproven rather than contradicted; it needs its own
+reading before anyone quotes that sentence again.
+
+L7 — The UI (T2) runs as a separate writer on `studio/ui/studio.js`, `studio.css` and
+`studio/layout.test.mjs`, disjoint from the files this slice owns, under the parallel-writers rule:
+the parent owns git, the writer never commits.
+
+L8 — Slice 2, the UI: two thumbs in the reader's own menu (they carry only their label, the glyph is
+CSS, so the accessible name is the whole sentence), one dialog with the reasons of **its** sign, the
+learner's box prefilled from the verdict already stored, and a verdicts block on «Tu feedback» beside
+the suggestions. A verdict is never recorded before «Guardar», and the second thumb replaces the
+first instead of adding a second opinion.
+
+Evidence, with a browser: `studio/layout.test.mjs` 128/128 and the three new tests on their own
+3/3 — the thumbs are 44 px on a coarse pointer and offer only their sign's reasons, the save posts
+`{tema, parte, valor, motivos, texto}`, and a stored verdict comes back pressed when the part is
+reopened. Note for the next session: the suite resolves Playwright by itself from the global npm
+root; a bare `import('playwright')` says it is missing and that probe is wrong, not the suite.
+
+L9 — The writer ran on `studio/ui/studio.js`, `studio.css` and `layout.test.mjs` as agreed, and was
+cancelled by a session restart before it could report; its work was verified here rather than
+trusted. It also edited this task file (outside its surfaces) to mark T1/T3 with their commit, which
+was accurate and is kept.
