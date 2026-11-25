@@ -1,10 +1,14 @@
 package engine
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"learning/internal/rules"
@@ -280,6 +284,47 @@ func loadAnswers(ws, rel string) (map[string]string, error) {
 		return nil, fmt.Errorf("%s has no answers object", filepath.Base(rel))
 	}
 	return doc.Answers, nil
+}
+
+// quizFingerprint is the canonical form the studio hashes for #416: each question's id, statement,
+// the keyed letter and every option by letter, sorted by id. It must produce exactly the same
+// sha256 as `quizFingerprint` in integrations/pi/bridge.ts; `pieza` and `round` are out of the hash
+// on both sides because neither changes what a learner answers, and the engine has no such fields.
+// The shared golden value in the tests is what keeps the two implementations honest.
+func quizFingerprint(qs []quizQuestion) string {
+	ordered := make([][]any, 0, len(qs))
+	for _, q := range qs {
+		letters := make([]string, 0, len(q.Options))
+		for letter := range q.Options {
+			letters = append(letters, letter)
+		}
+		sort.Strings(letters)
+		options := make([][]string, 0, len(letters))
+		for _, letter := range letters {
+			options = append(options, []string{letter, q.Options[letter]})
+		}
+		ordered = append(ordered, []any{q.ID, q.Enunciado, q.Answer, options})
+	}
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i][0].(string) < ordered[j][0].(string) })
+	buf := &bytes.Buffer{}
+	encoder := json.NewEncoder(buf)
+	// JavaScript's JSON.stringify does not escape <, > or &, and Go's encoder does by default.
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(ordered)
+	sum := sha256.Sum256([]byte(strings.TrimSuffix(buf.String(), "\n")))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// loadAnswersQuiz is the fingerprint an answers file names, or "" when it names none: a file written
+// before #416, which answers a quiz the engine cannot identify and must therefore not grade.
+func loadAnswersQuiz(ws, rel string) string {
+	var doc struct {
+		Quiz string `json:"quiz"`
+	}
+	if err := readJSON(absPath(ws, rel), &doc); err != nil {
+		return ""
+	}
+	return doc.Quiz
 }
 
 func answerFileMissing(ws, rel string) bool {

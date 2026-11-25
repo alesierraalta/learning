@@ -3,13 +3,14 @@
 import { after, afterEach, test } from "node:test";
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, existsSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request, createServer as httpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-import { backupPartForRegeneration, countVisuals, obsidianToMarkdown, registerBridge, listTopics } from "./bridge.ts";
+import { backupPartForRegeneration, countVisuals, obsidianToMarkdown, regenerationTrash, registerBridge, listTopics } from "./bridge.ts";
+import { restoreRegeneration } from "../../studio/server.ts";
 import { stored } from "../../studio/testdata/stored.mjs";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { loadRunners } from "./coderun.ts";
@@ -1776,7 +1777,14 @@ test("a part's rich HTML page replaces the Markdown rendering, with the kit, the
   assert.equal(JSON.stringify(quiz).includes('"answer"'), false);
   assert.equal(quiz.answered, null);
   assert.equal(quiz.verdicts, null);
-  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), JSON.stringify({ answers: { q1: "B", q2: "A" }, razonamientos: why("q1", "q2") }));
+  // #416: answers belong to the quiz they answer, so the answered state is produced the way a learner
+  // produces it. A hand-written file without the fingerprint is stale by definition.
+  const answeredOnce = await submit(result.structuredContent.base, {
+    kind: "mini-quiz", topic: TOPIC, part: "p1",
+    answers: { q1: shownLetter(quiz.questions[0], "B"), q2: shownLetter(quiz.questions[1], "A") },
+    reasoning: why("q1", "q2"),
+  });
+  assert.equal(answeredOnce.status, 200, answeredOnce.body);
   const after = JSON.parse((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p1`)).body);
   assert.deepEqual(after.answered[1], { id: "q2", chosen: shownLetter(quiz.questions[1], "A"), correct: shownLetter(quiz.questions[1], "B"), ok: false, ...why("q2").q2 });
   assert.equal((await http(`${result.structuredContent.base}api/quiz?topic=${TOPIC}&part=p9`)).status, 404);
@@ -2064,7 +2072,7 @@ test("mini-quiz submit grades, stores the answers file and sends one follow-up c
     { id: "q2", chosen: shownLetter(q2, "C"), correct: shownLetter(q2, "B"), ok: false },
   ]);
   assert.equal(body.score, "1/2");
-  assert.deepEqual(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8")), {
+  assert.deepEqual(storedAnswers(join(topic, "mini-quiz", "p1.answers.json")), {
     answers: { q1: "B", q2: "C" },
     razonamientos: {
       ...why("q1"),
@@ -2107,7 +2115,7 @@ test("a queued submit answers 202 at once and writes only after the topic ticket
 
     held.release();
     await until(() => existsSync(answerFile) && host.sent.length === 1);
-    assert.deepEqual(JSON.parse(readFileSync(answerFile, "utf8")), {
+    assert.deepEqual(storedAnswers(answerFile), {
       answers: { q1: "B", q2: "C" }, razonamientos: why("q1", "q2"),
     });
     assert.match(host.sent[0].content, /mini-quiz\/p1\.answers\.json/);
@@ -2692,11 +2700,16 @@ test("an already answered mini-quiz is refused with 409 and leaves the file and 
   const { view, topic, host, shutdown } = await setup();
   const url = base(await view({}));
   const file = join(topic, "mini-quiz", "p1.answers.json");
-  writeFileSync(file, '{"answers":{"q1":"A","q2":"A"}}');
+  // Answered the way a learner answers (#416): the file carries the quiz it answers, and only then is a
+  // second answer a second answer.
+  const quiz = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  const first = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: shownLetter(quiz.questions[0], "A"), q2: shownLetter(quiz.questions[1], "A") } });
+  assert.equal(first.status, 200, first.body);
+  const stored = readFileSync(file, "utf8");
   const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" }, reasoning: why("q1", "q2") });
   assert.equal(res.status, 409);
-  assert.equal(readFileSync(file, "utf8"), '{"answers":{"q1":"A","q2":"A"}}');
-  assert.equal(host.sent.length, 0);
+  assert.equal(readFileSync(file, "utf8"), stored, "the refused answer changed nothing");
+  assert.equal(host.sent.length, 1, "only the accepted answer reached the tutor");
   await shutdown();
 });
 
@@ -2726,10 +2739,15 @@ test("a code submission refused by the turn lock runs nothing and leaves no file
 // N4: only the refusals that saved something tell the learner to reload the page.
 test("only the refusals that saved something advise a reload", async () => {
   let checks = 0;
-  const { topic, view, shutdown } = await setup({ refuseTurn: () => (++checks >= 2 ? "El tutor está trabajando; espera a que termine." : null) });
+  // The first answer is accepted (check 1), the second is the already-answered refusal (check 2) and the
+  // locked question is refused (check 3): the turn lock must not mask the message each one carries.
+  const { view, shutdown } = await setup({ refuseTurn: () => (++checks >= 3 ? "El tutor está trabajando; espera a que termine." : null) });
   const url = base(await view({}));
   // The quiz is already answered: something is saved, so the page is worth reloading.
-  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), '{"answers":{"q1":"A","q2":"A"}}');
+  // Answered for real first: the file then names the quiz it answers (#416).
+  const quiz = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  const first = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: shownLetter(quiz.questions[0], "A"), q2: shownLetter(quiz.questions[1], "A") } });
+  assert.equal(first.status, 200, first.body);
   const answered = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" }, reasoning: why("q1", "q2") });
   assert.equal(answered.status, 409, answered.body);
   const saved = JSON.parse(answered.body).error;
@@ -2773,11 +2791,16 @@ test('a refused submission shows the bridge message, with no reload advice', { s
 });
 
 test("the part page reports recorded answers with their grading once the quiz is answered", async () => {
-  const { view, topic, shutdown } = await setup();
-  writeFileSync(
-    join(topic, "mini-quiz", "p1.answers.json"),
-    JSON.stringify({ answers: { q1: "B", q2: "A" }, razonamientos: why("q2") }),
-  );
+  const { view, shutdown } = await setup();
+  // #416: the page reports the grading of answers that answer this quiz, so they are submitted here.
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const quiz = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  const sent = await submit(url, {
+    kind: "mini-quiz", topic: TOPIC, part: "p1",
+    answers: { q1: shownLetter(quiz.questions[0], "B"), q2: shownLetter(quiz.questions[1], "A") },
+    reasoning: why("q2"),
+  });
+  assert.equal(sent.status, 200, sent.body);
   const page = await http((await view({ topic: TOPIC, part: "p1" })).structuredContent.url);
   const data = JSON.parse(page.body.match(/id="view-data">([\s\S]*?)<\/script>/)[1]);
   const [q1, q2] = data.quiz.questions;
@@ -5112,4 +5135,374 @@ test("the reader says «no se pudo comprobar» and lists only what runs (#350)",
   assert.match(rustText, /docker pull rust-unknown:350/, "the install hint is still shown");
   assert.equal(await rust.getByRole("button", { name: "Pedir al estudio que lo descargue" }).count(), 0, "pulling would fail for the same reason");
   assert.match(await strip.locator("li").filter({ hasText: "Python 3.12" }).textContent(), /disponible/);
+});
+
+// --- #416: the answers belong to the quiz they answer -------------------------------------------
+//
+// The engine stays the authority on a pass, so these tests build a real run with the compiled engine
+// (`go build -o bin/learning ./cmd/learning`) and ask it, after the bridge has written the answers,
+// whether the part can advance. The owner's sequence is the one that broke: answer the mini-quiz while
+// its part is being regenerated, and the part is left unanswerable and unadvanceable.
+
+const ENGINE_BIN = join(import.meta.dirname, "..", "..", "bin", "learning");
+const DEEP_RULES = join(import.meta.dirname, "..", "..", "rules", "deep.json");
+const BENCH = join(import.meta.dirname, "..", "..", "tools", "register", "fixtures", "bench265");
+const ENGINE_SKIP = existsSync(ENGINE_BIN) ? false : "engine binary bin/learning not built yet (go build -o bin/learning ./cmd/learning)";
+const ENGINE_TOPIC = "tcp-demo";
+// The fixture's own clean note: it passes the production explanation standard (#265), which is the stage
+// the engine asks for before the quiz. The part keeps the fixture's plan, title and slug.
+const CLEAN_NOTE = readFileSync(join(BENCH, "clean", "tcp-handshake.md"), "utf8");
+const OPTIONS = { A: "El saludo inicial", B: "El número de secuencia", C: "La ventana de recepción", D: "El puerto efímero", E: "No sé" };
+
+/** The engine's report as one JSON object, the way the adapter reads it. */
+function engineRun(root, ...args) {
+  const out = spawnSync(ENGINE_BIN, [...args, "--root", root, "--workspace", join(root, ENGINE_TOPIC), "--rules", DEEP_RULES, "--json"], {
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  assert.ok(out.stdout, `${args.join(" ")} wrote no report (stderr: ${out.stderr})`);
+  return { report: JSON.parse(out.stdout), code: out.status };
+}
+
+/** Records the rubric verdicts the chat would record, then advances: the engine decides. */
+function advanceStage(root, stage) {
+  const checked = engineRun(root, "validate", "--stage", stage);
+  for (const pending of checked.report.evidence?.pendingReviews ?? []) {
+    const reviewed = engineRun(root, "review", "--stage", stage, "--rule", pending.rule,
+      "--verdict", pending.kind === "assessment" ? "FAIL" : "PASS",
+      "--reason", "chat review of the artifact against the rubric", "--reviewer", "chat");
+    assert.equal(reviewed.code, 0, `${stage}/${pending.rule}: ${reviewed.report.detail ?? JSON.stringify(reviewed.report.checks)}`);
+  }
+  const advanced = engineRun(root, "advance", "--stage", stage);
+  assert.equal(advanced.code, 0, `${stage}: ${JSON.stringify(advanced.report.checks.filter((c) => c.status !== "PASS"))}`);
+  return advanced.report;
+}
+
+/** The mini-quiz of a part with varied keys: the production rules refuse a positional pattern (A, B, C). */
+function engineQuestions(version) {
+  const keys = version === 1 ? ["B", "D", "A"] : ["D", "A", "C"];
+  const ask = version === 1
+    ? ["¿Por qué el cliente elige un número inicial aleatorio?", "¿Qué confirma el servidor en el segundo segmento?", "¿Cómo termina el tercer paso del saludo?"]
+    : ["¿Qué protege el número inicial aleatorio de una conexión?", "¿Qué anuncia el servidor al responder con SYN-ACK?", "¿Qué deja el tercer segmento en ambos extremos?"];
+  return ask.map((enunciado, i) => ({
+    id: `q${i + 1}`,
+    central: i < 2,
+    subtema: "syn-inicio-secuencias",
+    nivel: "básico",
+    conceptos: ["syn-inicio-secuencias", "P0.1"],
+    enunciado,
+    options: { ...OPTIONS },
+    answer: keys[i],
+  }));
+}
+
+/**
+ * Writes one version of the part as a regeneration does: the note carries the mini-quiz section with the
+ * enunciados of the quiz beside it, and the quiz keeps the ids `q1..q3` while asking and keying other things
+ * — the case where equal ids alone would grade old letters against the new key (#416).
+ */
+function writePartVersion(topic, version) {
+  const questions = engineQuestions(version);
+  writeFileSync(join(topic, "mini-quiz", "p1.json"), JSON.stringify({ questions }, null, 2) + "\n");
+  const head = CLEAN_NOTE.slice(0, CLEAN_NOTE.indexOf("## Mini-quiz"));
+  const note = `${head}## Mini-quiz\n\n${questions.map((q) => q.enunciado).join("\n\n")}\n`;
+  writeFileSync(join(topic, "explicaciones", "Parte 1 - El saludo inicial y los números de secuencia.md"), note);
+}
+
+/** A vault walked by the engine to the frontier of part p1's quiz, with its files on disk. */
+function engineVault() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "learnings-416-")));
+  const topic = join(root, ENGINE_TOPIC);
+  for (const dir of ["explicaciones", "mini-quiz"]) mkdirSync(join(topic, dir), { recursive: true });
+  const plan = JSON.parse(readFileSync(join(BENCH, "tcp-handshake", "plan.json"), "utf8"));
+  plan.focusAreas = ["a1"];
+  writeFileSync(join(topic, "plan.json"), JSON.stringify(plan, null, 2) + "\n");
+  const write = (rel, body) => writeFileSync(join(topic, rel), body);
+  // The diagnosis the production rules ask for: concept mode, one question with two verdicts quoted from
+  // the learner's own reasoning.
+  const diagnosis = {
+    id: "a1", round: 1, type: "topic", level: 1, subtema: "syn-inicio-secuencias", nivel: "básico",
+    enunciado: "¿Qué resultado produce el caso a1?",
+    pieza: { tipo: "caso", contenido: "Caso concreto a1 con datos." },
+    options: { ...OPTIONS }, answer: "B", conceptos: ["syn-inicio-secuencias", "P0.1"],
+  };
+  write("quiz.json", JSON.stringify({ questions: [diagnosis] }, null, 2) + "\n");
+  write("quiz.answers.json", JSON.stringify({
+    answers: { a1: "E" },
+    razonamientos: { a1: { entendi: "entendí que a1 pide el caso", porque: "porque en a1 el valor existe" } },
+  }, null, 2) + "\n");
+  write("diagnostico-conceptos.json", JSON.stringify({ conceptos: [
+    { codigo: "syn-inicio-secuencias", estado: "claro", pregunta: "a1", evidencia: "porque en a1 el valor existe" },
+    { codigo: "P0.1", estado: "claro", pregunta: "a1", evidencia: "entendí que a1 pide el caso" },
+  ] }, null, 2) + "\n");
+  write("quiz.md", "---\ntipo: quiz-diagnostico\nestado: completado\npuntaje: 0/1\n---\n# Diagnóstico\n\n## a1\n"
+    + `${diagnosis.enunciado}\n${diagnosis.pieza.contenido}\nsubtema: syn-inicio-secuencias\nnivel: básico\n`
+    + "A. El saludo inicial\nB. El número de secuencia\nC. La ventana de recepción\nD. El puerto efímero\nE. No sé\n");
+  const sections = ["pre-preguntas", "resultado", "tabla de plan", "mapa de dependencias", "ruta", "plan visual",
+    "estructura", "vuelco", "bibliografía", "ejercicios", "post-preguntas", "bitácora"];
+  let planner = "# Planificador\n";
+  for (const section of sections) {
+    planner += `\n## ${section}\nContenido verificado.\n`;
+    if (section === "tabla de plan") {
+      planner += "syn-inicio-secuencias · pregunta a1 · nivel básico\n";
+      for (const part of plan.parts) planner += `T.${part.id} · ${part.subtema} · nivel básico\n`;
+    }
+    if (section === "mapa de dependencias") planner += "```mermaid\nflowchart LR\nA --> B\n```\n";
+    if (section === "ruta") planner += plan.parts.map((p, i) => `${i + 1}. T.${p.id} — ${p.title}`).join("\n") + "\n";
+    if (section === "plan visual") {
+      planner += "| Parte | Nodo | Escalón | Tipo | Muestra |\n|---|---|---|---|---|\n";
+      for (const part of plan.parts) planner += `| ${part.id} | T.${part.id} | básico | tabla | ejemplo |\n`;
+    }
+    if (section === "bibliografía") planner += "| Claim | Fuente | Verificado | ✅ verificado |\n";
+    if (section === "ejercicios") planner += "| Ejercicio | Nodo | Formato | Mide |\n";
+  }
+  write("planificador.md", planner);
+  write("mapa.mmd", "flowchart LR\n  A[Concepto] --> B[Aplicación]\n");
+  write("explicacion.md", `---\ntipo: indice\n---\n# Índice\n\n- [[explicaciones/Parte 1 - ${plan.parts[0].slug}|Parte 1 — ${plan.parts[0].title}]] — 🔓 abierta\n`
+    + plan.parts.slice(1).map((p, i) => `\n- Parte ${i + 2} — ${p.title} — ⬜ pendiente\n`).join(""));
+  write("mis-palabras.md", `---\ntipo: mis-palabras\n---\n# Vuelcos\n`
+    + plan.parts.map((p, i) => `\n## Parte ${i + 1} — ${p.title}\nVuelca aquí, con tus palabras, todo lo que entendiste y lo que no entendiste.\n\n`).join(""));
+  writePartVersion(topic, 1);
+
+  assert.equal(engineRun(root, "init").code, 0);
+  advanceStage(root, "preparation");
+  advanceStage(root, "diagnosis");
+  const method = engineRun(root, "method", "--method", "preferencias");
+  assert.equal(method.code, 0, JSON.stringify(method.report));
+  advanceStage(root, "planning");
+  advanceStage(root, "explanation");
+  return { root, topic };
+}
+
+/** A bridge over the engine's vault: the same host the studio hands the reader. */
+function engineBridge(root) {
+  const host = makeHost();
+  // #348: no test may inherit the operator's real machine overlay.
+  registerBridge(host.api, { root, env: { HOME: root, XDG_CONFIG_HOME: join(root, ".config") } });
+  const view = (params) => host.tools.get("learning_view").execute("call", params, undefined, undefined, { cwd: root });
+  const shutdown = shutdownOf(host);
+  openServers.push(shutdown);
+  return { host, view, shutdown };
+}
+
+/**
+ * What the learner answered, as stored, minus the quiz fingerprint #416 added: the fingerprint is
+ * asserted here so a fixture cannot quietly store answers that answer nothing.
+ */
+const storedAnswers = (file) => {
+  const data = JSON.parse(readFileSync(file, "utf8"));
+  assert.match(data.quiz, /^sha256:[0-9a-f]{64}$/, "the answers name the quiz they answer");
+  const rest = { ...data };
+  delete rest.quiz;
+  return rest;
+};
+
+/** The letter a learner sees for the option the tutor keyed: the bridge shuffles options per learner (#272). */
+const letterShowing = (question, tutorText) => Object.keys(question.options).find((letter) => question.options[letter] === tutorText);
+const pickAnswers = (questions, tutorKeys) => Object.fromEntries(questions.map((q, i) => [q.id, letterShowing(q, OPTIONS[tutorKeys[i]])]));
+const answerFileOf = (topic) => join(topic, "mini-quiz", "p1.answers.json");
+
+test("#416: answering while the part regenerates leaves it answerable and advanceable, and the engine passes it", { skip: ENGINE_SKIP }, async () => {
+  const { root, topic } = engineVault();
+  const { view, shutdown } = engineBridge(root);
+  try {
+    const part = await view({ topic: ENGINE_TOPIC, part: "p1" });
+    const url = base(part);
+    const first = await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`);
+    assert.equal(first.answered, null, "an unanswered part starts with no verdict");
+    const submitted = await submit(url, { kind: "mini-quiz", topic: ENGINE_TOPIC, part: "p1", answers: pickAnswers(first.questions, ["B", "D", "A"]) });
+    assert.equal(submitted.status, 200, submitted.body);
+    const stored = JSON.parse(readFileSync(answerFileOf(topic), "utf8"));
+    assert.match(stored.quiz, /^sha256:[0-9a-f]{64}$/, "the answers name the quiz they answer");
+
+    // The regeneration: the studio backs the part up before the tutor writes, so the answers leave with
+    // the quiz they answer and the new part starts unanswered (#416).
+    const planned = regenerationTrash(root, { topic: ENGINE_TOPIC, part: "p1" });
+    const backup = backupPartForRegeneration(root, { topic: ENGINE_TOPIC, part: "p1" }, new Date(), planned.trash);
+    assert.ok(backup.moved.includes(`${ENGINE_TOPIC}/mini-quiz/p1.answers.json`), `the backup moved ${JSON.stringify(backup.moved)}`);
+    assert.equal(existsSync(answerFileOf(topic)), false, "the old answers left mini-quiz/ with their quiz");
+    const archived = JSON.parse(readFileSync(join(root, backup.trash, ENGINE_TOPIC, "mini-quiz", "p1.answers.json"), "utf8"));
+    assert.deepEqual(archived, stored, "the archived answers are still readable, beside the quiz they answer");
+
+    writePartVersion(topic, 2);
+    // The reader is offered the regenerated quiz: stale answers are not a verdict on it, so the form is
+    // answerable instead of a disabled «0/0» (#416).
+    const regenerated = await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`);
+    assert.deepEqual(regenerated.questions.map((q) => q.id), ["q1", "q2", "q3"], "the new quiz reuses the ids");
+    assert.equal(regenerated.answered, null, "the element must not paint a score for answers to another quiz");
+    assert.equal(pageData((await http(part.structuredContent.url)).body).answered, null, "the page carries no answered document either");
+
+    // The tutor's regeneration step: the rewritten part is what the engine now measures.
+    advanceStage(root, "explanation");
+    const waited = engineRun(root, "validate", "--stage", "quiz");
+    const waitCheck = waited.report.checks.find((c) => c.id === "mini-quiz-answers");
+    assert.match(waitCheck.reason, /waiting for learner input/, "an archived answers file leaves the stage waiting, never judging answers to another quiz");
+
+    const second = await submit(url, { kind: "mini-quiz", topic: ENGINE_TOPIC, part: "p1", answers: pickAnswers(regenerated.questions, ["D", "A", "C"]) });
+    assert.equal(second.status, 200, `answering the regenerated quiz must be accepted: ${second.body}`);
+    const rewritten = JSON.parse(readFileSync(answerFileOf(topic), "utf8"));
+    assert.notEqual(rewritten.quiz, stored.quiz, "the new answers name the new quiz");
+    assert.deepEqual(rewritten.answers, { q1: "D", q2: "A", q3: "C" }, "the file keeps the tutor's letters");
+
+    const validated = engineRun(root, "validate", "--stage", "quiz");
+    assert.equal(validated.code, 0, JSON.stringify(validated.report.checks.filter((c) => c.status !== "PASS")));
+    assert.equal(validated.report.status, "accepted");
+    assert.equal(validated.report.checks.find((c) => c.id === "mini-quiz-answers").status, "PASS", "the engine derives a passing score from the new answers");
+    advanceStage(root, "quiz");
+    assert.equal(engineRun(root, "status").report.nextStage, "own_words", "the part moved on");
+  } finally {
+    await shutdown();
+  }
+});
+
+test("#416: a stale or legacy answers file heals itself, and the manual recovery the issue promises works", { skip: ENGINE_SKIP }, async () => {
+  const { root, topic } = engineVault();
+  const { view, shutdown } = engineBridge(root);
+  try {
+    const part = await view({ topic: ENGINE_TOPIC, part: "p1" });
+    const url = base(part);
+    // A legacy answers file: no fingerprint, and answers for a question this quiz does not ask.
+    writeFileSync(answerFileOf(topic), JSON.stringify({ answers: { viejo1: "B", viejo2: "D" } }));
+    const failing = engineRun(root, "validate", "--stage", "quiz");
+    assert.equal(failing.report.status, "blocked");
+    // #416: a file with no fingerprint answers a quiz nobody can identify, so it is not graded at all;
+    // the reason names that, instead of the coverage error the old letters would also produce.
+    assert.match(failing.report.checks.find((c) => c.id === "mini-quiz-answers").reason, /another quiz|waiting for learner input/);
+    // The page does not pretend the part is answered.
+    const served = await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`);
+    assert.equal(served.answered, null, "a legacy answers file is not a verdict on this quiz");
+    assert.equal(pageData((await http(part.structuredContent.url)).body).answered, null);
+
+    // The recovery the owner was given: rename the answers aside.
+    renameSync(answerFileOf(topic), join(topic, "mini-quiz", "p1.answers.json.viejo"));
+    const waiting = engineRun(root, "validate", "--stage", "quiz");
+    assert.equal(waiting.report.checks.find((c) => c.id === "mini-quiz-answers").status, "FAIL");
+    assert.match(waiting.report.checks.find((c) => c.id === "mini-quiz-answers").reason, /waiting for learner input/);
+
+    // And the learner can now answer: the healed file replaces the stale one in place.
+    const submitted = await submit(url, { kind: "mini-quiz", topic: ENGINE_TOPIC, part: "p1", answers: pickAnswers(served.questions, ["B", "D", "A"]) });
+    assert.equal(submitted.status, 200, submitted.body);
+    assert.match(JSON.parse(readFileSync(answerFileOf(topic), "utf8")).quiz, /^sha256:/);
+    const validated = engineRun(root, "validate", "--stage", "quiz");
+    assert.equal(validated.report.checks.find((c) => c.id === "mini-quiz-answers").status, "PASS");
+    assert.equal(validated.report.status, "accepted");
+
+    // A stale file that is not renamed aside also heals: the submit accepts it and replaces it.
+    writeFileSync(answerFileOf(topic), JSON.stringify({ answers: { q1: "A", q2: "A", q3: "A" } }));
+    assert.equal((await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`)).answered, null, "no fingerprint, no answered document");
+    const healed = await submit(url, { kind: "mini-quiz", topic: ENGINE_TOPIC, part: "p1", answers: pickAnswers(served.questions, ["B", "D", "A"]) });
+    assert.equal(healed.status, 200, healed.body);
+    const healedFile = JSON.parse(readFileSync(answerFileOf(topic), "utf8"));
+    assert.match(healedFile.quiz, /^sha256:[0-9a-f]{64}$/, "the healed file names the quiz it answers");
+    assert.deepEqual(healedFile.answers, { q1: "B", q2: "D", q3: "A" }, "the new answers replaced the stale ones in place");
+  } finally {
+    await shutdown();
+  }
+});
+
+test("#416: a quiz re-keyed in place is never graded against the letters the learner gave", { skip: ENGINE_SKIP }, async () => {
+  // The worst case of this bug, and the one the fingerprint exists for: same ids, same statements, same
+  // options, only the keyed letter changes. Nothing about the wording is stale, so a hash of the wording
+  // alone would call the old answers fresh and score them 0/3 against a key the learner never saw.
+  const { root, topic } = engineVault();
+  const { view, shutdown } = engineBridge(root);
+  try {
+    const part = await view({ topic: ENGINE_TOPIC, part: "p1" });
+    const url = base(part);
+    const first = await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`);
+    assert.equal((await submit(url, { kind: "mini-quiz", topic: ENGINE_TOPIC, part: "p1", answers: pickAnswers(first.questions, ["B", "D", "A"]) })).status, 200);
+    const answeredFile = JSON.parse(readFileSync(answerFileOf(topic), "utf8"));
+
+    // Re-key the quiz in place: every id, statement and option stays; only `answer` moves.
+    const quizFile = join(topic, "mini-quiz", "p1.json");
+    const quiz = JSON.parse(readFileSync(quizFile, "utf8"));
+    const letters = Object.keys(quiz.questions[0].options);
+    for (const question of quiz.questions) {
+      question.answer = letters.find((letter) => letter !== question.answer && letter !== "E") ?? question.answer;
+    }
+    writeFileSync(quizFile, JSON.stringify(quiz));
+
+    assert.equal((await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`)).answered, null, "answers to the old key are not a verdict on the new one");
+    const notGraded = engineRun(root, "validate", "--stage", "quiz");
+    const check = notGraded.report.checks.find((c) => c.id === "mini-quiz-answers");
+    assert.notEqual(check.status, "PASS", "the engine must not grade letters given for another key");
+    assert.match(check.reason, /another quiz|waiting for learner input/);
+    assert.notEqual(notGraded.report.status, "accepted");
+
+    // The learner answers the re-keyed quiz and the stage passes: the stale file was replaced, not trusted.
+    const again = await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`);
+    assert.equal((await submit(url, { kind: "mini-quiz", topic: ENGINE_TOPIC, part: "p1", answers: pickAnswers(again.questions, ["D", "A", "C"]) })).status, 200);
+    assert.notEqual(JSON.parse(readFileSync(answerFileOf(topic), "utf8")).quiz, answeredFile.quiz, "the new answers name the new quiz");
+    assert.equal(engineRun(root, "validate", "--stage", "quiz").report.checks.find((c) => c.id === "mini-quiz-answers").status, "PASS");
+  } finally {
+    await shutdown();
+  }
+});
+
+test("#416: answers given while the regeneration ran are kept in the trash, and the restore never follows a link", () => {
+  const { root, topic } = makeRoot();
+  const file = join(topic, "mini-quiz", "p1.answers.json");
+  const preTurn = JSON.stringify({ quiz: "sha256:" + "a".repeat(64), answers: { q1: "B" }, razonamientos: {} });
+  writeFileSync(file, preTurn);
+  const planned = regenerationTrash(root, { topic: TOPIC, part: "p1" });
+  const backup = backupPartForRegeneration(root, { topic: TOPIC, part: "p1" }, new Date(), planned.trash);
+
+  // The learner answers while the tutor is regenerating.
+  const duringTurn = JSON.stringify({ quiz: "sha256:" + "b".repeat(64), answers: { q1: "C" }, razonamientos: {} });
+  writeFileSync(file, duringTurn);
+  assert.equal(restoreRegeneration(root, backup), true);
+  assert.equal(readFileSync(file, "utf8"), preTurn, "the answers of the version that comes back are back");
+  assert.equal(
+    readFileSync(join(root, backup.trash, "rechazada", TOPIC, "mini-quiz", "p1.answers.json"), "utf8"),
+    duringTurn,
+    "what the learner answered during the turn is not thrown away",
+  );
+
+  // A link where the file goes must not carry the restore outside the vault.
+  writeFileSync(file, preTurn);
+  const second = backupPartForRegeneration(root, { topic: TOPIC, part: "p1" }, new Date(), regenerationTrash(root, { topic: TOPIC, part: "p1" }).trash);
+  const outside = mkdtempSync(join(tmpdir(), "fuera-"));
+  const victim = join(outside, "victima.txt");
+  writeFileSync(victim, "intacto");
+  symlinkSync(victim, file);
+  restoreRegeneration(root, second);
+  assert.equal(readFileSync(victim, "utf8"), "intacto", "nothing is written outside the vault through a link");
+});
+
+test("#416: answering the same quiz twice is still refused with the same 409", { skip: ENGINE_SKIP }, async () => {
+  const { root } = engineVault();
+  const { view, shutdown } = engineBridge(root);
+  try {
+    const url = base(await view({ topic: ENGINE_TOPIC, part: "p1" }));
+    const served = await quizJson(`${url}api/quiz?topic=${ENGINE_TOPIC}&part=p1`);
+    const answers = pickAnswers(served.questions, ["B", "D", "A"]);
+    assert.equal((await submit(url, { kind: "mini-quiz", topic: ENGINE_TOPIC, part: "p1", answers })).status, 200);
+    const before = readFileSync(answerFileOf(join(root, ENGINE_TOPIC)), "utf8");
+    const again = await submit(url, { kind: "mini-quiz", topic: ENGINE_TOPIC, part: "p1", answers });
+    assert.equal(again.status, 409, again.body);
+    assert.match(JSON.parse(again.body).error, /^Ya respondiste el mini-quiz de esta parte\. Recarga la página para ver las respuestas guardadas\.$/);
+    assert.equal(readFileSync(answerFileOf(join(root, ENGINE_TOPIC)), "utf8"), before, "a refused second answer writes nothing");
+  } finally {
+    await shutdown();
+  }
+});
+
+test("#416: a regeneration archives the learner's answers with the quiz, and a failed one restores both", () => {
+  const { root, topic } = makeRoot();
+  const answers = JSON.stringify({ quiz: "sha256:" + "a".repeat(64), answers: { q1: "B", q2: "C" }, razonamientos: {} }, null, 2) + "\n";
+  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), answers);
+  const quizBefore = readFileSync(join(topic, "mini-quiz", "p1.json"), "utf8");
+  const planned = regenerationTrash(root, { topic: TOPIC, part: "p1" });
+  const backup = backupPartForRegeneration(root, { topic: TOPIC, part: "p1" }, new Date(), planned.trash);
+  assert.ok(backup.moved.includes(`${TOPIC}/mini-quiz/p1.answers.json`), `the answers are part of the backup: ${JSON.stringify(backup.moved)}`);
+  assert.equal(existsSync(join(topic, "mini-quiz", "p1.answers.json")), false, "a regenerated part starts with no answers");
+  // The tutor writes the regenerated quiz: no answers for it, so the part is answerable again.
+  writeFileSync(join(topic, "mini-quiz", "p1.json"), JSON.stringify({ questions: [{ id: "q9", enunciado: "¿Otra?", options: { A: "a", B: "b", C: "c", D: "d", E: "No sé" }, answer: "A" }] }));
+  assert.equal(JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.json"), "utf8")).questions[0].id, "q9");
+  // The regeneration did not pass: the studio puts the previous version back, answers included.
+  assert.equal(restoreRegeneration(root, backup), true);
+  assert.equal(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"), answers, "the learner's answers come back byte for byte");
+  assert.equal(readFileSync(join(topic, "mini-quiz", "p1.json"), "utf8"), quizBefore, "the quiz they answer comes back with them");
+  // Nothing was deleted: the old version is still readable in the trash.
+  assert.equal(readFileSync(join(root, backup.trash, TOPIC, "mini-quiz", "p1.answers.json"), "utf8"), answers);
 });

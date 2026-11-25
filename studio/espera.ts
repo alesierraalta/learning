@@ -11,7 +11,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { HttpError, listTopics, readPlan } from "../integrations/pi/bridge.ts";
+import { HttpError, listTopics, quizFingerprintOfPart, readPlan } from "../integrations/pi/bridge.ts";
 
 const LETTERS = ["A", "B", "C", "D", "E"] as const;
 const MAX_REPASO = 5;
@@ -93,9 +93,9 @@ function questionsOf(file: string): Question[] {
   return data.questions.map(questionOf).filter((question): question is Question => question !== undefined);
 }
 
-function answersOf(file: string): { answers: Record<string, string>; razonamientos: Record<string, string> } {
+function answersOf(file: string): { answers: Record<string, string>; razonamientos: Record<string, string>; quiz: string } {
   const data = readRecord(file);
-  if (!data) return { answers: {}, razonamientos: {} };
+  if (!data) return { answers: {}, razonamientos: {}, quiz: "" };
   const answers = object(data.answers)
     ? Object.fromEntries(Object.entries(data.answers).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
     : {};
@@ -107,7 +107,7 @@ function answersOf(file: string): { answers: Record<string, string>; razonamient
       if (typeof text === "string") razonamientos[id] = text;
     }
   }
-  return { answers, razonamientos };
+  return { answers, razonamientos, quiz: typeof data.quiz === "string" ? data.quiz : "" };
 }
 
 /** What the plan says the learner will get from this part: its own goals, or its own title. */
@@ -217,7 +217,11 @@ export function buildEspera(root: string, topicId: string, partId: string, optio
     for (const earlier of plan.parts.slice(0, index)) {
       const answers = answersOf(join(dir, "mini-quiz", `${earlier.id}.answers.json`));
       if (Object.keys(answers.answers).length === 0) continue;
-      for (const question of questionsOf(join(dir, "mini-quiz", `${earlier.id}.json`))) {
+      const earlierQuestions = questionsOf(join(dir, "mini-quiz", `${earlier.id}.json`));
+      // #416: a review is only a review of answers that answer the quiz on disk. A file left by another
+      // version would otherwise be shown as right or wrong against a key the learner never saw.
+      if (earlierQuestions.length === 0 || answers.quiz !== quizFingerprintOfPart(dir, earlier.id)) continue;
+      for (const question of earlierQuestions) {
         if (!Object.hasOwn(answers.answers, question.id)) continue;
         const explanation = answers.razonamientos[question.id] ?? question.explicacion;
         const item: EsperaItem = {

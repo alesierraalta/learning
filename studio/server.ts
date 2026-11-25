@@ -12,7 +12,7 @@
  */
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -496,8 +496,15 @@ function quarantineRegeneration(root: string, files: string[], folderRel: string
   return moved.length;
 }
 
-/** Puts the previous version back from the trash. Returns false when there was none to restore. */
-function restoreRegeneration(root: string, regeneration: NonNullable<Turn["regeneration"]>): boolean {
+/**
+ * Puts the previous version back from the trash: every path the backup moved, the learner's answers included, so
+ * a regeneration that does not pass leaves the part exactly as it was (#316, #416). Returns false when there was
+ * nothing to restore.
+ */
+export function restoreRegeneration(
+  root: string,
+  regeneration: { trash: string; moved: string[] },
+): boolean {
   if (!regeneration.trash) return false;
   let restored = false;
   for (const rel of regeneration.moved) {
@@ -506,6 +513,21 @@ function restoreRegeneration(root: string, regeneration: NonNullable<Turn["regen
     if (!existsSync(source)) continue;
     const target = join(root, rel);
     if (!insideVault(root, target)) continue;
+    // A symlink where the file goes would carry the copy outside the vault: the backup refuses to
+    // move one, and the restore must refuse to write through one (#416).
+    try {
+      if (lstatSync(target).isSymbolicLink()) {
+        process.stderr.write(`estudio: no restauro ${rel}, es un enlace simbólico\n`);
+        continue;
+      }
+    } catch { /* nothing there yet: a plain file */ }
+    // What was written during the turn is not thrown away to make room: it waits in the trash beside
+    // the version that replaces it, so an answer given while the regeneration ran is still readable.
+    if (existsSync(target)) {
+      const aside = join(root, regeneration.trash, "rechazada", rel);
+      mkdirSync(dirname(aside), { recursive: true });
+      copyFileSync(target, aside);
+    }
     mkdirSync(dirname(target), { recursive: true });
     copyFileSync(source, target);
     restored = true;

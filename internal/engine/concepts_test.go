@@ -285,6 +285,16 @@ func (f *fixture) writeConceptQuiz(t *testing.T, qs []quizQuestionWire) {
 }
 
 // writeConceptAnswers answers the listed ids right and the rest "No sé".
+// quizWireFingerprint is the fingerprint of the quiz a fixture just wrote, in the engine's own
+// canonical form: the answers a fixture stores have to name the quiz they answer (#416).
+func quizWireFingerprint(qs []quizQuestionWire) string {
+	converted := make([]quizQuestion, 0, len(qs))
+	for _, q := range qs {
+		converted = append(converted, quizQuestion{ID: q.ID, Enunciado: q.Enunciado, Answer: q.Answer, Options: q.Options})
+	}
+	return quizFingerprint(converted)
+}
+
 func (f *fixture) writeConceptAnswers(t *testing.T, qs []quizQuestionWire, r map[string]why, right ...string) {
 	t.Helper()
 	answers := map[string]string{}
@@ -298,7 +308,7 @@ func (f *fixture) writeConceptAnswers(t *testing.T, qs []quizQuestionWire, r map
 			}
 		}
 	}
-	f.writeJSON(t, "mini-quiz/p1.answers.json", map[string]any{"answers": answers, "razonamientos": reasoningWire(r)})
+	f.writeJSON(t, "mini-quiz/p1.answers.json", map[string]any{"quiz": quizWireFingerprint(qs), "answers": answers, "razonamientos": reasoningWire(r)})
 }
 
 func (f *fixture) writeConceptFeedback(t *testing.T, entries ...map[string]string) {
@@ -363,6 +373,7 @@ func TestConceptReasoningAcceptsOneThought(t *testing.T) {
 	f.writeConceptQuiz(t, qs)
 	record := func(thought string) {
 		f.writeJSON(t, "mini-quiz/p1.answers.json", map[string]any{
+			"quiz":          quizWireFingerprint(qs),
 			"answers":       map[string]string{"q1": qs[0].Answer},
 			"razonamientos": map[string]any{"q1": map[string]string{"razonamiento": thought}},
 		})
