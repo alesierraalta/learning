@@ -1082,7 +1082,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
    takes up to 520px, and the rail plus the hero's fixed card would leave the
    text a sliver. Below that room the rail steps under the content, the hero
    stacks and the cards give up a column each time. */
-@container stage (max-width: 1100px) {
+@container stage (max-width: 1250px) {
   .home-layout { grid-template-columns: minmax(0, 1fr); }
   .home-page .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
