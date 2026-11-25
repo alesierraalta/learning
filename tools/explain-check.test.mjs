@@ -978,68 +978,80 @@ test('el dibujo salva las cláusulas: con un icono suelto la figura no es prosa 
   assert.equal(salida.ok, true, salida.detail);
 });
 
-// ── #431: la figura no esconde la prosa fuera del `label` ───────────────────
-// Mover la frase del título a la sub-línea de la caja o a la ficha del actor se lee igual: el
-// alumno ve la misma prosa. Y un icono suelto no puede comprarla. Los umbrales salen del corpus
-// aprobado: 124 sub-líneas de 47 caracteres y 10 palabras como mucho, ninguna con punto final;
-// 153 fichas (149 en actores y 4 en `scene.tags`) de 15 caracteres y 3 palabras; y 54 pies, que
-// sí son frases —todos acaban en punto— y no pasan de 115 caracteres y 22 palabras.
-const ESCENA_CON_SUB = `<lk-scene>
+// ── #429: la puerta de #419 se mide sobre lo que el lector ve ────────────────
+// Una escena con su dibujo fuera de las cajas, para que solo la primera señal
+// (la caja que lleva una frase) pueda dispararse: así el probe no es ciego.
+const escenaConRotulo = (rotulo, sub) => `<lk-scene>
 <script type="application/json">
-{"viewBox":"0 0 760 200","scene":{"boxes":[
- {"x":20,"y":40,"w":240,"h":100,"label":"el cliente","sub":"el cliente envía el paquete SYN al servidor.","tone":"blue"},
- {"x":300,"y":40,"w":240,"h":100,"label":"el servidor","sub":"el servidor recibe el paquete y reserva recursos.","tone":"slate"}],
- "arrows":[{"x1":260,"y1":90,"x2":300,"y2":90}]}}
+${JSON.stringify({
+  viewBox: '0 0 760 200',
+  scene: {
+    boxes: [{ x: 20, y: 40, w: 200, h: 100, label: rotulo, ...(sub ? { sub } : {}), tone: 'blue' }],
+    icons: [{ kind: 'gear', x: 700, y: 170, size: 20 }]
+  }
+})}
 </script>
 </lk-scene>`;
 
-test('una frase en la sub-línea de la caja es prosa, aunque el título sea corto (#431)', () => {
-  const salida = reglaDeProsa(ESCENA_CON_SUB);
-  assert.equal(salida.ok, false, 'la sub-línea no se midió');
-  assert.match(salida.detail, /sub-línea/);
+// El umbral son «40 caracteres» del título que el lector ve. La misma cadena
+// escrita en NFC mide 38 y pasa; escrita en NFD mide 42 y se declara frase. Un
+// texto que se lee igual no puede recibir dos veredictos distintos: el corrector
+// no ve la forma de normalización.
+test('el mismo título compuesto y descompuesto mide lo mismo: 38 caracteres son 38', () => {
+  const titulo = 'Configuración rápida del módulo básico';
+  assert.equal(titulo.length, 38, 'el título compuesto cabe por debajo del límite');
+  assert.equal(titulo.normalize('NFD').normalize('NFC'), titulo, 'es el mismo texto, escrito de dos maneras');
+  const compuesta = reglaDeProsa(escenaConRotulo(titulo));
+  const descompuesta = reglaDeProsa(escenaConRotulo(titulo.normalize('NFD')));
+  assert.equal(compuesta.ok, true, compuesta.detail);
+  assert.equal(descompuesta.ok, true, `la forma descompuesta del mismo título: ${descompuesta.detail}`);
 });
 
-test('una frase en la ficha de un actor es prosa, aunque la figura no tenga cajas (#431)', () => {
-  const salida = reglaDeProsa(`<lk-scene>
-<script type="application/json">
-{"viewBox":"0 0 360 250","scene":{"actors":[
- {"id":"c","x":80,"y":100,"w":140,"h":60,"label":"el cliente","tag":"el cliente que envía el paquete SYN y espera la respuesta."}],
- "arrows":[]}}
-</script>
-</lk-scene>`);
-  assert.equal(salida.ok, false, 'la ficha del actor no se midió');
-  assert.match(salida.detail, /ficha/);
+// El comentario de la regla delega la spec ilegible: «una spec ilegible no se mide
+// aquí (la reporta la regla del JSON)». Ninguna regla la reporta —todas hacen
+// `catch { … }` y siguen—, así que una figura cuyo JSON no se lee pasa la puerta
+// entera: la nota queda idéntica salvo la llave que falta y sigue «cumpliendo el
+// estándar». Lo que la regla no puede medir no puede darlo por bueno.
+test('una figura cuyo JSON no se lee no pasa la puerta en silencio (#429)', () => {
+  const ESCENA_ILEGIBLE = ESCENA.replace('"tone":"slate"}]}}', '"tone":"slate"}]}');
+  const payload = ESCENA_ILEGIBLE.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1];
+  assert.throws(() => JSON.parse(payload), 'la escena del test tiene que estar ilegible de verdad');
+  const file = join(dir, 'spec-ilegible.md');
+  writeFileSync(file, CUMPLE.replace(ESCENA, ESCENA_ILEGIBLE));
+  const r = run(file);
+  assert.equal(r.status, 1, `una spec que nadie puede leer pasó la puerta: ${r.stdout}${r.stderr}`);
 });
 
-test('un icono suelto ya no compra frases: la sub-línea con frase falla igual (#431)', () => {
-  const conIcono = ESCENA_CON_SUB.replace('"boxes":[', '"icons":[{"kind":"gear","x":700,"y":150,"size":40}],"boxes":[');
-  const salida = reglaDeProsa(conIcono);
-  assert.equal(salida.ok, false, salida.detail);
+// #273, la regla hermana: «un icono sobre una caja es su adorno: el kit lo lleva a
+// una esquina de esa caja y no dibuja nada que la caja no dibuje». Aquí cualquier
+// `icons` cuenta como dibujo, también el que está encima de una caja, así que un
+// icono decorativo compra la figura entera y sus cajas de cláusulas pasan. Las dos
+// puertas miden lo mismo y no pueden dar veredictos opuestos.
+test('un icono encima de una caja es adorno y no salva las cláusulas (#273)', () => {
+  const iconoEnLaCaja = ESCENA_DE_CLAUSULAS.replace('"boxes":[', '"icons":[{"kind":"gear","x":120,"y":90,"size":24}],"boxes":[');
+  assert.notEqual(iconoEnLaCaja, ESCENA_DE_CLAUSULAS, 'el icono tiene que estar dentro del JSON de la figura');
+  const salida = reglaDeProsa(iconoEnLaCaja);
+  assert.equal(salida.ok, false, 'un icono dentro de una caja no es un dibujo: las cláusulas siguen siendo prosa');
 });
 
-test('un pie de párrafo es prosa que la figura no dibuja (#431)', () => {
-  const salida = reglaDeProsa(`<lk-scene>
-<script type="application/json">
-{"viewBox":"0 0 760 200","caption":"El cliente abre la conexión y el servidor responde con su propio paquete; después el cliente confirma, la conexión queda establecida y los dos pueden intercambiar datos durante el resto de la sesión.","scene":{"boxes":[
- {"x":20,"y":40,"w":200,"h":100,"label":"el cliente","tone":"blue"},
- {"x":280,"y":40,"w":200,"h":100,"label":"el servidor","tone":"slate"}],
- "arrows":[{"x1":220,"y1":90,"x2":280,"y2":90}]}}
-</script>
-</lk-scene>`);
-  assert.equal(salida.ok, false, 'el pie no se midió');
-  assert.match(salida.detail, /pie/);
+// Un punto seguido de un carácter invisible sigue siendo un punto: el lector ve
+// «…paquete.», pero `/[.…]$/` no lo ve porque la cadena acaba en U+200B. Un texto
+// que se lee como una frase no puede pasar por no serlo según qué byte venga
+// detrás del punto; el espacio normal y el salto de línea ya cuentan como punto
+// final, y el ancho cero tiene que contar igual.
+test('una frase acabada en punto y en un carácter invisible sigue siendo una frase', () => {
+  const salida = reglaDeProsa(escenaConRotulo('El cliente envía el paquete.\u200B'));
+  assert.equal(salida.ok, false, 'el punto final no desaparece por un carácter que no se ve');
 });
 
-test('la sub-línea más larga del corpus sigue pasando, y el pie con una frase también (#431)', () => {
-  const salida = reglaDeProsa(`<lk-scene>
-<script type="application/json">
-{"viewBox":"0 0 760 200","caption":"El estado entra y la acción sale; la recompensa vuelve al agente.","scene":{"boxes":[
- {"x":20,"y":40,"w":260,"h":100,"label":"el agente","sub":"DP usa el modelo · MC episodios · TD transición","tone":"blue"},
- {"x":320,"y":40,"w":220,"h":100,"label":"el entorno","tone":"slate"}],
- "arrows":[{"x1":280,"y1":90,"x2":320,"y2":90}]}}
-</script>
-</lk-scene>`);
-  assert.equal(salida.ok, true, salida.detail);
+// La caja dibuja su `label` y su `sub` (`integrations/pi/kit/kit.js:1512`:
+// `sub: b.sub || ''`), así que la sub-línea es texto de la misma caja que el umbral
+// mide. La regla solo mira `label`: nueve palabras sin punto final dentro de la caja
+// se leen como prosa y pasan la puerta. El título corto con su sub-línea corta sigue
+// pasando; lo que no puede pasar es una frase en el sitio donde ya se mide.
+test('una sub-línea de nueve palabras dentro de la caja es prosa, no un título', () => {
+  const salida = reglaDeProsa(escenaConRotulo('la página', 'el cliente pide la página y espera la respuesta'));
+  assert.equal(salida.ok, false, 'la sub-línea de la caja es lo que el lector lee en la caja');
 });
 
 test('el corpus aprobado no lleva prosa en cajas', () => {
