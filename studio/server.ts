@@ -12,7 +12,7 @@
  */
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -101,6 +101,7 @@ import { createPageTiming, type PageTiming, type PageTimingReport } from "./timi
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, tutorContext, validateSugerencia, withLecciones } from "./sugerencias.ts";
+import { listarValoraciones, recordValoracion, stripGustos, withGustos } from "./valoraciones.ts";
 import { buildEspera, partNotePath, writePartTarget } from "./espera.ts";
 import { createGlosario } from "./glosario.ts";
 import {
@@ -510,8 +511,15 @@ function quarantineRegeneration(root: string, files: string[], folderRel: string
   return moved.length;
 }
 
-/** Puts the previous version back from the trash. Returns false when there was none to restore. */
-function restoreRegeneration(root: string, regeneration: NonNullable<Turn["regeneration"]>): boolean {
+/**
+ * Puts the previous version back from the trash: every path the backup moved, the learner's answers included, so
+ * a regeneration that does not pass leaves the part exactly as it was (#316, #416). Returns false when there was
+ * nothing to restore.
+ */
+export function restoreRegeneration(
+  root: string,
+  regeneration: { trash: string; moved: string[] },
+): boolean {
   if (!regeneration.trash) return false;
   let restored = false;
   for (const rel of regeneration.moved) {
@@ -520,6 +528,21 @@ function restoreRegeneration(root: string, regeneration: NonNullable<Turn["regen
     if (!existsSync(source)) continue;
     const target = join(root, rel);
     if (!insideVault(root, target)) continue;
+    // A symlink where the file goes would carry the copy outside the vault: the backup refuses to
+    // move one, and the restore must refuse to write through one (#416).
+    try {
+      if (lstatSync(target).isSymbolicLink()) {
+        process.stderr.write(`estudio: no restauro ${rel}, es un enlace simbólico\n`);
+        continue;
+      }
+    } catch { /* nothing there yet: a plain file */ }
+    // What was written during the turn is not thrown away to make room: it waits in the trash beside
+    // the version that replaces it, so an answer given while the regeneration ran is still readable.
+    if (existsSync(target)) {
+      const aside = join(root, regeneration.trash, "rechazada", rel);
+      mkdirSync(dirname(aside), { recursive: true });
+      copyFileSync(target, aside);
+    }
     mkdirSync(dirname(target), { recursive: true });
     copyFileSync(source, target);
     restored = true;
@@ -1018,7 +1041,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         if (isRecord(message) && message.role === "user") {
           // The standing lessons travel inside the turn's prompt; the chat shows what the learner
           // wrote, so the block is stripped before it is ever served as their message.
-          const text = stripLecciones(messageText(message));
+          const text = stripGustos(stripLecciones(messageText(message)));
           // The gate's instruction is the studio's prompt, never the learner's own words.
           if (isStudioPrompt(text)) return;
           if (text) {
@@ -1783,7 +1806,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         // The learner's words stay first; a write-part turn also carries the facts the
         // tutor would otherwise discover with ls/find/reads. Both runtimes get the same prompt.
         const prompt = await started.timing.measure("contexto", async () => {
-          const base = withLecciones(namedPart(text), root);
+          // #412/#413: the learner's verdicts ride with the lessons; #422 made the brief async.
+          const base = withGustos(withLecciones(namedPart(text), root), root);
           // The awaited brief adds the course slices the embedder ranks; it returns at once and
           // starts nothing for a prompt that is not a course part (#422).
           const brief = await partBriefAsync(root, text);
@@ -2330,7 +2354,7 @@ ${scripts}
       "",
       VISUAL_CONTRACT_PROMPT,
       "",
-      tutorContext(root, tema),
+      withGustos(tutorContext(root, tema), root),
     ].filter((line) => line !== "").join("\n");
   };
 
@@ -2475,6 +2499,9 @@ ${scripts}
       }
       case "api/sugerencias":
         return sendJson(res, 200, recordSugerencia(root, body));
+      case "api/valoraciones":
+        // What the learner thought of a part: a verdict with reasons, kept apart from suggestions.
+        return sendJson(res, 200, recordValoracion(root, body));
       case "api/regenerar": {
         if (options.agentDisabled) throw new HttpError(503, "El tutor está desactivado.");
         if (!isRecord(body)) throw new HttpError(400, "No pude leer la regeneración.");
@@ -2842,7 +2869,7 @@ ${scripts}
         .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
         // The standing lessons travel inside the turn's prompt, so the thread keeps the learner's
         // words and never the block the studio added after them.
-        .map((m) => ({ role: m.role, text: m.role === "user" ? stripLecciones(messageText(m)) : messageText(m) }))
+        .map((m) => ({ role: m.role, text: m.role === "user" ? stripGustos(stripLecciones(messageText(m))) : messageText(m) }))
         // The gate's instruction is the studio's own prompt: the thread keeps the learner's words.
         .filter((m) => m.text && !(m.role === "user" && isStudioPrompt(m.text)));
       // A runtime that lost the conversation still has the studio's own copy of the turn.
@@ -3055,6 +3082,11 @@ ${scripts}
       }
       case "api/sugerencias/resumen":
         return sendJson(res, 200, resumenSugerencias(root));
+      case "api/valoraciones":
+        return sendJson(res, 200, listarValoraciones(root, {
+          tema: url.searchParams.get("tema") ?? undefined,
+          parte: url.searchParams.get("parte") ?? undefined,
+        }));
       case "api/sugerencias":
         return sendJson(res, 200, listSugerencias(root, {
           tema: url.searchParams.get("tema") ?? undefined,

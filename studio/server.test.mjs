@@ -17,6 +17,7 @@ import { busyFile, clearBusy, markBusy, pidAlive } from "./state.ts";
 import { runPartChecks } from "./checks.ts";
 import { stripLecciones } from "./sugerencias.ts";
 import { VISUAL_CONTRACT_PROMPT } from "./contract.ts";
+import { quizFingerprintOfPart } from "../integrations/pi/bridge.ts";
 import extension from "../integrations/pi/index.ts";
 import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
@@ -2047,7 +2048,7 @@ test("tutor settings default to Pi and persist the selected Antigravity provider
   const settings = { version: 1, agente: "agy", modelo: "", pensamiento: "" };
   const saved = await post(studio, "api/tutor", settings);
   assert.equal(saved.status, 200, saved.body);
-  // #404: a v1 body is still accepted and comes back as v2, with the provider left to be detected.
+    // #404: a v1 body is still accepted and comes back as v2, with the provider left to be detected.
   assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), { ...settings, version: 2, proveedor: "" });
   // Antigravity cannot apply "minimal": that level is refused, never silently dropped.
   const unsupported = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "minimal" });
@@ -4503,7 +4504,12 @@ const seedWaiting = (root) => {
     waitingQuestion("q1", "Pregunta uno", "A"),
     waitingQuestion("q2", "Pregunta dos", "B"),
   ] }));
-  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), JSON.stringify({ answers: { q1: "C", q2: "B" }, razonamientos: {} }));
+  // #416: stored answers name the quiz they answer, or the review has nothing to review.
+  writeFileSync(join(topic, "mini-quiz", "p1.answers.json"), JSON.stringify({
+    quiz: quizFingerprintOfPart(topic, "p1"),
+    answers: { q1: "C", q2: "B" },
+    razonamientos: {},
+  }));
 };
 
 test("GET api/espera serves the diagnosis before writing and hides its answers", async () => {
@@ -4936,6 +4942,87 @@ test("the studio documentation names the course option where it documents the co
   assert.ok(courses.length > 0, "the course section is where the option belongs");
   assert.match(courses, /`POST api\/aprender \{text, modo, materia\?[^`]*\}`/);
   assert.match(courses, /No existe esa materia\./);
+});
+
+// ---- what the learner says about a part -------------------------------------------------------
+
+test("a verdict is stored, listed for its part, and a second one replaces it", async () => {
+  const { studio } = await setup();
+  const cuerpo = { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "El ejemplo del sobre me cerró la idea." };
+  const saved = await post(studio, "api/valoraciones", cuerpo);
+  assert.equal(saved.status, 200, saved.body);
+  const { entrada } = JSON.parse(saved.body);
+  assert.equal(entrada.texto, "El ejemplo del sobre me cerró la idea.");
+  const listado = JSON.parse((await http(`${studio.url}api/valoraciones?tema=redes&parte=p1`)).body);
+  assert.deepEqual(listado.entradas.map((cada) => cada.id), [entrada.id]);
+  assert.ok(listado.motivos.some((motivo) => motivo.id === "ejemplo-claro" && motivo.signo === "gusta"));
+  const segunda = await post(studio, "api/valoraciones", { ...cuerpo, valor: "no-gusta", motivos: ["muy-abstracto"], texto: "" });
+  assert.equal(segunda.status, 200, segunda.body);
+  const otra = JSON.parse((await http(`${studio.url}api/valoraciones?tema=redes&parte=p1`)).body);
+  assert.equal(otra.entradas.length, 1, "one verdict per part");
+  assert.equal(otra.entradas[0].valor, "no-gusta");
+});
+
+test("praise that repeats reaches the prompt the tutor writes with", async () => {
+  const { studio, received } = await setup();
+  const uno = await post(studio, "api/valoraciones", { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  const dos = await post(studio, "api/valoraciones", { tema: "redes", parte: "p2", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  assert.equal(uno.status, 200, uno.body);
+  assert.equal(dos.status, 200, dos.body);
+  const guardadas = JSON.parse((await http(`${studio.url}api/valoraciones`)).body).entradas;
+  assert.equal(guardadas.length, 2, "both verdicts are on disk before the turn");
+  assert.equal((await post(studio, "prompt", { text: "Escribe la parte 3" })).status, 200);
+  const prompt = received().filter((call) => call.type === "prompt").at(-1).message;
+  assert.match(prompt, /\[Lo que esta persona valora\]/);
+  assert.match(prompt, /El ejemplo fue claro \(2 partes\)/);
+});
+
+test("one verdict is a day, not a rule: the prompt does not carry it", async () => {
+  const { studio, received } = await setup();
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p1", valor: "no-gusta", motivos: ["muy-abstracto"], texto: "" });
+  assert.equal((await post(studio, "prompt", { text: "Escribe la parte 3" })).status, 200);
+  const prompt = received().filter((call) => call.type === "prompt").at(-1).message;
+  assert.equal(prompt.includes("[Lo que esta persona valora]"), false);
+});
+
+test("the learner's own message never shows the block that was added to the prompt", async () => {
+  const { studio } = await setup();
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p2", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "Escribe la parte 3" })).status, 200);
+    const dicho = await stream.next("user");
+    assert.equal(dicho.text, "Escribe la parte 3");
+  } finally { stream.close(); }
+});
+
+test("a learner who quotes the verdict block gets their own words back untouched", async () => {
+  const { studio } = await setup();
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p2", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    const dicho = "¿Qué es «[Lo que esta persona valora]»? Lo vi en el prompt.";
+    assert.equal((await post(studio, "prompt", { text: dicho })).status, 200);
+    const served = await stream.next("user");
+    assert.equal(served.text, dicho, "the chat shows what the learner wrote, not a truncated sentence");
+  } finally { stream.close(); }
+});
+
+test("the regenerate prompt carries what the learner values, not only the writing turn", async () => {
+  const { studio } = await setup();
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  await post(studio, "api/valoraciones", { tema: "redes", parte: "p2", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  const asked = await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: [], texto: "quiero el ejemplo otra vez" });
+  assert.equal(asked.status, 200, asked.body);
+  const { prompt } = JSON.parse(asked.body);
+  assert.match(prompt, /\[Lo que esta persona valora\]/, "the rewrite of a part reads the same verdicts as the first write");
+  assert.match(prompt, /El ejemplo fue claro \(2 partes\)/);
 });
 
 // ---- the API tutor, told through the studio -------------------------------------------------

@@ -1072,8 +1072,10 @@ test("the reader bar is one row and its overflow menu holds the part actions (S1
   // reached here, because the row belongs to the title.
   // The part's actions, plus what the phone's studio bar used to carry: it is gone
   // on the reader, so its controls live here instead of becoming unreachable.
+  // The verdict's two thumbs join that one menu, beside «Sugerir» and «Regenerar» (#413): the
+  // row keeps three controls, so the phone's way to them is the same overflow as every action.
   assert.deepEqual((await menu.locator("button").allInnerTexts()).map((text) => text.trim()), [
-    "Descargar para ver sin conexión", "Sugerir", "Regenerar", "Modo: art.", "Borrar",
+    "Descargar para ver sin conexión", "Me sirvió esta parte", "No me sirvió esta parte", "Sugerir", "Regenerar", "Modo: art.", "Borrar",
     "Conversación de esta parte", "Tema oscuro", "Configuración", "Tutorial",
   ]);
   assert.equal(await page.evaluate(() => !!document.activeElement.closest?.(".reader-menu")), true, "the menu is not keyboard reachable");
@@ -1154,8 +1156,9 @@ test("the reader bar keeps four controls and one labelled overflow on a desktop 
   assert.equal(await more.getAttribute("aria-haspopup"), "menu");
   await more.click();
   assert.equal(await more.getAttribute("aria-expanded"), "true");
+  // The two thumbs are part actions too, and they live in the same single menu (#413).
   assert.deepEqual((await page.locator(".reader-menu button").allInnerTexts()).map((text) => text.trim()), [
-    "Descargar para ver sin conexión", "Sugerir", "Regenerar", "Modo: art.", "Borrar",
+    "Descargar para ver sin conexión", "Me sirvió esta parte", "No me sirvió esta parte", "Sugerir", "Regenerar", "Modo: art.", "Borrar",
     "Conversación de esta parte", "Tema oscuro", "Configuración", "Tutorial",
   ]);
   assert.equal(await page.evaluate(() => !!document.activeElement.closest?.(".reader-menu")), true, "the menu takes focus");
@@ -3873,4 +3876,135 @@ test("the task card's controls follow every state the server can report", { skip
   assert.equal(await card.getByRole("button", { name: /Detener/i }).count(), 0, "unknown: stop");
   assert.equal(await card.getByRole("button", { name: /Quitar/i }).count(), 1, "unknown: dismiss");
   assert.equal(await card.locator(".task-way .btn").count(), 0, "unknown: no invented destination");
+});
+
+// S1/S3/S7: a verdict is a third action beside «Sugerir» and «Regenerar», and a thumb carries
+// only the reasons of its own sign. The phone reaches the part's actions through the one
+// overflow, so 44px is measured there.
+const verdictStudio = async () => {
+  const { root, engine } = makeRoot();
+  writeMiniQuiz(root);
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.html"), "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Capas</title></head><body><main><h1>Capas</h1></main></body></html>");
+  writeFileSync(join(root, "redes", "explicaciones", "Parte 1 - Capas.md"), "# Capas\n");
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  return { root, studio };
+};
+
+test("the thumbs are touch targets and offer only the reasons of their sign (S1, S3, S7)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio } = await verdictStudio();
+  const page = await coarsePage(t, browser, studio.url, "#/leer/redes/p1", async (p) => { await p.getByRole("button", { name: "Más acciones" }).click(); });
+  const seen = await page.evaluate(() => [...document.querySelectorAll(".reader-menu .verdict")].map((el) => {
+    const rect = el.getBoundingClientRect();
+    return { name: el.getAttribute("aria-label"), text: el.textContent.trim(), h: Math.round(rect.height), pressed: el.getAttribute("aria-pressed") };
+  }));
+  console.log(`coarse thumbs: ${JSON.stringify(seen)}`);
+  assert.equal(seen.length, 2, "the reader offers the two thumbs");
+  for (const thumb of seen) {
+    assert.match(thumb.text, /^Me sirvió esta parte$|^No me sirvió esta parte$/, `neutral tuteo: ${thumb.text}`);
+    assert.equal(thumb.name, thumb.text, "the label says what the thumb does");
+    assert.ok(thumb.h >= 44, `${thumb.name} is ${thumb.h}px tall`);
+    assert.equal(thumb.pressed, "false", "a part nobody judged shows no verdict");
+  }
+  const dialog = page.getByRole("dialog");
+  await page.getByRole("menuitem", { name: "No me sirvió esta parte", exact: true }).click();
+  await dialog.waitFor();
+  assert.match(await dialog.innerText(), /¿Qué te restó de esta parte\?/);
+  assert.equal(await dialog.locator("textarea").getAttribute("aria-label"), "¿Qué te restó?");
+  const down = await dialog.locator(".chip").allInnerTexts();
+  assert.ok(down.includes("Faltan ejemplos"), `the down thumb offers its own reasons: ${down.join(" | ")}`);
+  assert.equal(down.includes("El ejemplo fue claro"), false, "praise does not fit a thumb down");
+  await dialog.getByRole("button", { name: "Cancelar" }).click();
+  await page.getByRole("button", { name: "Más acciones" }).click();
+  await page.getByRole("menuitem", { name: "Me sirvió esta parte", exact: true }).click();
+  await dialog.waitFor();
+  assert.match(await dialog.innerText(), /¿Qué te sirvió de esta parte\?/);
+  assert.equal(await dialog.locator("textarea").getAttribute("aria-label"), "¿Qué te sirvió?");
+  const up = await dialog.locator(".chip").allInnerTexts();
+  assert.ok(up.includes("El ejemplo fue claro"), `the up thumb offers its own reasons: ${up.join(" | ")}`);
+  assert.equal(up.includes("Faltan ejemplos"), false, "a complaint does not fit a thumb up");
+});
+
+test("a verdict posts its four fields and comes back pressed when the part is reopened (S1, S3, S6)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio } = await verdictStudio();
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 1280, height: 900 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  // A verdict the learner already gave, written through the API as another device would.
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  const earlier = { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "el dibujo de la pila" };
+  const status = await page.evaluate(async (body) => (await fetch("api/valoraciones", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).status, earlier);
+  assert.equal(status, 200);
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Más acciones" }).click();
+  const up = page.getByRole("menuitem", { name: "Me sirvió esta parte", exact: true });
+  const down = page.getByRole("menuitem", { name: "No me sirvió esta parte", exact: true });
+  // A reopened part shows the verdict it already has instead of asking again.
+  await page.waitForFunction(() => document.querySelector(".reader-menu .verdict-gusta")?.getAttribute("aria-pressed") === "true");
+  assert.equal(await up.getAttribute("aria-pressed"), "true", "the thumb the learner chose stays pressed");
+  assert.equal(await down.getAttribute("aria-pressed"), "false");
+  await up.click();
+  const dialog = page.getByRole("dialog");
+  await dialog.waitFor();
+  // The dialog starts from what was said: the reasons and the learner's own words.
+  assert.deepEqual(await dialog.locator('.chip[aria-pressed="true"]').allInnerTexts(), ["El ejemplo fue claro"]);
+  assert.equal(await dialog.locator("#valoracion-texto").inputValue(), "el dibujo de la pila");
+  // Nothing is saved without the tap: the record keeps what it had while the box changes.
+  await dialog.getByRole("button", { name: "El ejemplo fue claro" }).click();
+  await dialog.getByRole("button", { name: "El ritmo fue bueno" }).click();
+  const before = await page.evaluate(async () => (await fetch("api/valoraciones?tema=redes&parte=p1")).json());
+  assert.deepEqual(before.entradas.map((entrada) => entrada.motivos), [["ejemplo-claro"]], "opening and ticking a chip saves nothing");
+  // The save posts exactly what the API validates, and nothing else.
+  const posted = page.waitForRequest((request) => request.url().includes("api/valoraciones") && request.method() === "POST");
+  await dialog.getByRole("button", { name: "Guardar" }).click();
+  const body = (await posted).postDataJSON();
+  assert.deepEqual(body, { tema: "redes", parte: "p1", valor: "gusta", motivos: ["buen-ritmo"], texto: "el dibujo de la pila" });
+  await page.getByText("Anotado: esta parte te sirvió").waitFor();
+  // One verdict per part: the new one replaced the old one instead of stacking beside it.
+  const kept = await page.evaluate(async () => (await fetch("api/valoraciones?tema=redes&parte=p1")).json());
+  assert.equal(kept.entradas.length, 1);
+  assert.deepEqual(kept.entradas[0].motivos, ["buen-ritmo"]);
+  await page.getByRole("button", { name: "Más acciones" }).click();
+  assert.equal(await up.getAttribute("aria-pressed"), "true", "the thumb is repainted after the save");
+  // And it is still pressed when the part is loaded again from scratch.
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Más acciones" }).click();
+  await page.waitForFunction(() => document.querySelector(".reader-menu .verdict-gusta")?.getAttribute("aria-pressed") === "true");
+});
+
+test("the feedback page lists the verdicts beside the suggestions (S1, S2)", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot();
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage({ viewport: { width: 390, height: 800 } }));
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/preferencias`, { waitUntil: "networkidle" });
+  const bodies = [
+    ["api/sugerencias", { tema: "redes", parte: "p1", motivos: ["faltan-visuales"], texto: "" }],
+    ["api/valoraciones", { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro", "visual-util"], texto: "la pila dibujada" }],
+    ["api/valoraciones", { tema: "redes", parte: "p2", valor: "no-gusta", motivos: ["demasiado-texto"], texto: "" }],
+  ];
+  for (const [path, body] of bodies) {
+    const status = await page.evaluate(async ([url, payload]) => (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) })).status, [path, body]);
+    assert.equal(status, 200);
+  }
+  await page.getByRole("link", { name: "Ver tu feedback" }).click();
+  await page.getByRole("heading", { name: "Tu feedback" }).waitFor();
+  // The suggestions keep their own block: a verdict is not a suggestion and does not replace it.
+  await page.getByText("1 sugerencia").first().waitFor();
+  await page.locator(".feedback-part").getByText("Faltan visuales · 1").waitFor();
+  const verdicts = page.locator(".feedback-verdicts");
+  await verdicts.getByRole("heading", { name: "Lo que dijiste de cada parte" }).waitFor();
+  await verdicts.getByText("2 veredictos").waitFor();
+  const up = page.locator('.feedback-verdict[data-valor="gusta"]');
+  assert.match(await up.innerText(), /redes · p1/);
+  assert.match(await up.innerText(), /Me sirvió esta parte/);
+  assert.deepEqual(await up.locator(".feedback-motivos .chip").allInnerTexts(), ["El ejemplo fue claro", "El dibujo ayudó"]);
+  assert.match(await up.locator("blockquote").innerText(), /la pila dibujada/);
+  const down = page.locator('.feedback-verdict[data-valor="no-gusta"]');
+  assert.match(await down.innerText(), /redes · p2/);
+  assert.match(await down.innerText(), /No me sirvió esta parte/);
+  assert.deepEqual(await down.locator(".feedback-motivos .chip").allInnerTexts(), ["Demasiado texto"]);
+  assert.equal(await down.locator("blockquote").count(), 0, "no words, no empty quote");
 });

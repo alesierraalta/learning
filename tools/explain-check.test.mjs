@@ -978,6 +978,70 @@ test('el dibujo salva las cláusulas: con un icono suelto la figura no es prosa 
   assert.equal(salida.ok, true, salida.detail);
 });
 
+// ── #431: la figura no esconde la prosa fuera del `label` ───────────────────
+// Mover la frase del título a la sub-línea de la caja o a la ficha del actor se lee igual: el
+// alumno ve la misma prosa. Y un icono suelto no puede comprarla. Los umbrales salen del corpus
+// aprobado: 124 sub-líneas de 47 caracteres y 10 palabras como mucho, ninguna con punto final;
+// 153 fichas (149 en actores y 4 en `scene.tags`) de 15 caracteres y 3 palabras; y 54 pies, que
+// sí son frases —todos acaban en punto— y no pasan de 115 caracteres y 22 palabras.
+const ESCENA_CON_SUB = `<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","scene":{"boxes":[
+ {"x":20,"y":40,"w":240,"h":100,"label":"el cliente","sub":"el cliente envía el paquete SYN al servidor.","tone":"blue"},
+ {"x":300,"y":40,"w":240,"h":100,"label":"el servidor","sub":"el servidor recibe el paquete y reserva recursos.","tone":"slate"}],
+ "arrows":[{"x1":260,"y1":90,"x2":300,"y2":90}]}}
+</script>
+</lk-scene>`;
+
+test('una frase en la sub-línea de la caja es prosa, aunque el título sea corto (#431)', () => {
+  const salida = reglaDeProsa(ESCENA_CON_SUB);
+  assert.equal(salida.ok, false, 'la sub-línea no se midió');
+  assert.match(salida.detail, /sub-línea/);
+});
+
+test('una frase en la ficha de un actor es prosa, aunque la figura no tenga cajas (#431)', () => {
+  const salida = reglaDeProsa(`<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 360 250","scene":{"actors":[
+ {"id":"c","x":80,"y":100,"w":140,"h":60,"label":"el cliente","tag":"el cliente que envía el paquete SYN y espera la respuesta."}],
+ "arrows":[]}}
+</script>
+</lk-scene>`);
+  assert.equal(salida.ok, false, 'la ficha del actor no se midió');
+  assert.match(salida.detail, /ficha/);
+});
+
+test('un icono suelto ya no compra frases: la sub-línea con frase falla igual (#431)', () => {
+  const conIcono = ESCENA_CON_SUB.replace('"boxes":[', '"icons":[{"kind":"gear","x":700,"y":150,"size":40}],"boxes":[');
+  const salida = reglaDeProsa(conIcono);
+  assert.equal(salida.ok, false, salida.detail);
+});
+
+test('un pie de párrafo es prosa que la figura no dibuja (#431)', () => {
+  const salida = reglaDeProsa(`<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","caption":"El cliente abre la conexión y el servidor responde con su propio paquete; después el cliente confirma, la conexión queda establecida y los dos pueden intercambiar datos durante el resto de la sesión.","scene":{"boxes":[
+ {"x":20,"y":40,"w":200,"h":100,"label":"el cliente","tone":"blue"},
+ {"x":280,"y":40,"w":200,"h":100,"label":"el servidor","tone":"slate"}],
+ "arrows":[{"x1":220,"y1":90,"x2":280,"y2":90}]}}
+</script>
+</lk-scene>`);
+  assert.equal(salida.ok, false, 'el pie no se midió');
+  assert.match(salida.detail, /pie/);
+});
+
+test('la sub-línea más larga del corpus sigue pasando, y el pie con una frase también (#431)', () => {
+  const salida = reglaDeProsa(`<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 200","caption":"El estado entra y la acción sale; la recompensa vuelve al agente.","scene":{"boxes":[
+ {"x":20,"y":40,"w":260,"h":100,"label":"el agente","sub":"DP usa el modelo · MC episodios · TD transición","tone":"blue"},
+ {"x":320,"y":40,"w":220,"h":100,"label":"el entorno","tone":"slate"}],
+ "arrows":[{"x1":280,"y1":90,"x2":320,"y2":90}]}}
+</script>
+</lk-scene>`);
+  assert.equal(salida.ok, true, salida.detail);
+});
+
 test('el corpus aprobado no lleva prosa en cajas', () => {
   const fixtures = join(TOOLS, '..', 'integrations', 'pi', 'kit', 'test', 'fixtures');
   const corpus = [

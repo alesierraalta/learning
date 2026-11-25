@@ -1067,6 +1067,11 @@ func detectWait(r *rules.Rules, ws, stage, part string) bool {
 		}
 		aPart := substPart(aRel, part)
 		if r.Thresholds.ConceptMode() && !answerFileMissing(ws, aPart) {
+			// Answers that name another quiz — or none, written before #416 — are not answers to this
+			// one: the stage waits for the learner instead of judging letters given for other questions.
+			if loadAnswersQuiz(ws, aPart) != quizFingerprint(qs) {
+				return true
+			}
 			answers, err := loadAnswers(ws, aPart)
 			if err != nil {
 				return false

@@ -547,7 +547,7 @@ func (f *fixture) writeQuizQuestions(t *testing.T, part string) {
 func (f *fixture) writeQuizAnswers(t *testing.T, part string, correct int) {
 	t.Helper()
 	var wire struct {
-		Questions []quizQuestionWire `json:"questions"`
+		Questions []quizQuestion `json:"questions"`
 	}
 	if err := json.Unmarshal(f.read(t, "mini-quiz/"+part+".json"), &wire); err != nil {
 		t.Fatal(err)
@@ -561,7 +561,8 @@ func (f *fixture) writeQuizAnswers(t *testing.T, part string, correct int) {
 			answers[q.ID] = "E"
 		}
 	}
-	f.writeJSON(t, "mini-quiz/"+part+".answers.json", map[string]any{"answers": answers})
+	// The answers name the quiz they answer (#416); a fixture without the fingerprint is a stale file.
+	f.writeJSON(t, "mini-quiz/"+part+".answers.json", map[string]any{"quiz": quizFingerprint(qs), "answers": answers})
 }
 
 func (f *fixture) canonicalPartFile(t *testing.T, part string) string {

@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { buildEspera, writePartTarget } from "./espera.ts";
+import { quizFingerprintOfPart } from "../integrations/pi/bridge.ts";
 import { makeRoot } from "./testdata/root.mjs";
 
 const question = (id, enunciado, answer, options = { A: "uno", B: "dos", C: "tres" }) => ({ id, enunciado, options, answer });
@@ -24,7 +25,11 @@ function seededRoot(parts = ["p1", "p2", "p3"]) {
     ["p2", [question("q4", "P2 uno", "B"), question("q5", "P2 dos", "A"), question("q6", "P2 tres", "C")], { q4: "A", q5: "A", q6: "B" }],
   ]) {
     writeFileSync(join(root, "redes", "mini-quiz", `${part}.json`), quizFile(questions));
-    writeFileSync(join(root, "redes", "mini-quiz", `${part}.answers.json`), JSON.stringify({ answers, razonamientos: {} }));
+    // #416: stored answers name the quiz they answer; the review only reads answers that name this one.
+    writeFileSync(
+      join(root, "redes", "mini-quiz", `${part}.answers.json`),
+      JSON.stringify({ quiz: quizFingerprintOfPart(join(root, "redes"), part), answers, razonamientos: {} }),
+    );
   }
   return { root, engine };
 }
