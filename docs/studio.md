@@ -1087,6 +1087,9 @@ container (`container: stage / inline-size`), and the two-column layouts (home,
 topic page, panorama, note editor) stack below 1000px **of stage**. That matters on
 an iPad held sideways: the screen is 1133–1366px wide, but with the tutor open the
 page gets about 700–930px, so it stacks; with the tutor closed it keeps both columns.
+The home's route rail is the first thing to give way: below 1250px of stage it steps
+under the content, because beside it the rail and the hero's own card would leave
+the text a sliver.
 
 Below 1100px of screen the tutor lies over the page instead of pushing it. The
 page behind it dims, and a tap on the dimmed page closes the tutor.
