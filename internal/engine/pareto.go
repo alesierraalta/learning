@@ -44,8 +44,31 @@ func coberturaCompletaMaterial(doc planDoc) bool {
 // coberturaParetoDeclarada reports a course route that declares it teaches only
 // the vital slice, so the trim it owes is proven even outside pareto scope.
 func coberturaParetoDeclarada(c *evalCtx) bool {
-	return c.planErr == nil && declaresCourseMaterial(*c.plan) &&
-		strings.EqualFold(strings.TrimSpace(c.plan.Cobertura), coberturaPareto)
+	return c.planErr == nil && planDeclaraCoberturaPareto(*c.plan)
+}
+
+// planDeclaraCoberturaPareto is the plan-level half of that predicate. The
+// semantic review loads the plan itself and has no evalCtx, so both readers ask
+// the same two fields here instead of growing a second reading of the plan.
+func planDeclaraCoberturaPareto(doc planDoc) bool {
+	return declaresCourseMaterial(doc) &&
+		strings.EqualFold(strings.TrimSpace(doc.Cobertura), coberturaPareto)
+}
+
+// paretoRubricApplies resolves the `when: "pareto"` review condition. A plain
+// pareto run owes the rubric by scope; a course route that declared the pareto
+// coverage owes it too, whatever the state scope says (#428). A plan without
+// course material keeps today's answer exactly: the state scope decides. An
+// unreadable plan declares no course material, like coberturaParetoDeclarada.
+func paretoRubricApplies(r *rules.Rules, st *State, ws string) bool {
+	if stateScope(st) == scopePareto {
+		return true
+	}
+	plan, err := loadPlan(ws, declPathByKind(r, "preparation", "file_exists"))
+	if err != nil {
+		return false
+	}
+	return planDeclaraCoberturaPareto(plan)
 }
 
 // evalParetoPlan proves the pareto run declared its trim before applying it:
