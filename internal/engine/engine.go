@@ -1231,7 +1231,9 @@ func rubricApplies(r *rules.Rules, st *State, ws, part string, rub rules.Rubric)
 	case "":
 		return true
 	case "pareto":
-		return stateScope(st) == scopePareto
+		// A plain pareto run owes the review by scope; a course route that declared
+		// the pareto coverage owes it too, whatever the scope says (#428).
+		return paretoRubricApplies(r, st, ws)
 	case "visualsPlanned":
 		if part == "" {
 			return true

@@ -350,6 +350,73 @@ func TestParetoValueReviewOnlyInParetoScope(t *testing.T) {
 	}
 }
 
+// TestDeclaredParetoCourseRouteOwesTheValueReview proves the semantic half of
+// the #421 promise: a course route that declared cobertura "pareto" owes the
+// 80/20 judgment whatever the run's state scope says. The review is due, and
+// advancing without it blocks.
+func TestDeclaredParetoCourseRouteOwesTheValueReview(t *testing.T) {
+	f := newFixture(t)
+	f.diagnosed(t, defaultParts(), 2, 6)
+	f.methodIfAsked(t)
+	f.writePlanWith(t, "Dificultades detectadas en consenso y en quórums.", []string{"d3"}, defaultParts()...)
+	f.patchPlanPareto(t, paretoBlock(), "la capacidad que rinde el 80% de esta parte")
+	f.patchPlanProvenance(t, "pareto", material("apunte.txt"), citeAll(2, "apunte.txt"))
+	f.advanceOK(t, "planning")
+	f.writeVitalExplanation(t, "p1", true, "Relleno.")
+
+	rep, code := f.run(t, f.opts("validate", "explanation"))
+	assertGatePassing(t, rep, code, "accepted")
+	if found := pendingByRule(pendingListOf(rep.Evidence), "pareto-value"); !found {
+		t.Fatalf("pendingReviews = %+v, want pareto-value for a route that declared cobertura pareto", pendingListOf(rep.Evidence))
+	}
+
+	rep, code = f.run(t, f.opts("advance", "explanation"))
+	assertBlocked(t, rep, code)
+	if c, ok := hasCheck(rep, "pareto-value"); !ok || c.Kind != "semantic" || c.Status != "FAIL" {
+		t.Fatalf("pareto-value = %+v (present=%v), want a semantic FAIL without the review", c, ok)
+	}
+}
+
+// TestParetoValueReviewWithoutCourseMaterialFollowsTheStateScope keeps today's
+// behaviour for a plan that declares no course material: under the complete
+// state scope the rubric is not even reported, so a typed topic is judged
+// exactly as it was before course-derived routes existed.
+func TestParetoValueReviewWithoutCourseMaterialFollowsTheStateScope(t *testing.T) {
+	f := readyForExplanation(t)
+
+	rep, code := f.run(t, f.opts("validate", "explanation"))
+	assertGatePassing(t, rep, code, "accepted")
+	if found := pendingByRule(pendingListOf(rep.Evidence), "pareto-value"); found {
+		t.Fatalf("pendingReviews = %+v, want no pareto-value without course material in complete scope", pendingListOf(rep.Evidence))
+	}
+
+	rep, code = f.run(t, f.opts("advance", "explanation"))
+	assertBlocked(t, rep, code)
+	if c, ok := hasCheck(rep, "pareto-value"); ok {
+		t.Fatalf("pareto-value = %+v, want no pareto-value verdict without course material in complete scope", c)
+	}
+}
+
+// TestPlainParetoRunStillOwesTheValueReview keeps the plain pareto run — state
+// scope pareto, no course material — demanding the rubric: the review is due
+// and advancing without a recorded verdict blocks.
+func TestPlainParetoRunStillOwesTheValueReview(t *testing.T) {
+	f := paretoThroughPlanning(t)
+	f.writeVitalExplanation(t, "p1", true, "Relleno.")
+
+	rep, code := f.run(t, f.opts("validate", "explanation"))
+	assertGatePassing(t, rep, code, "accepted")
+	if found := pendingByRule(pendingListOf(rep.Evidence), "pareto-value"); !found {
+		t.Fatalf("pendingReviews = %+v, want pareto-value in pareto scope", pendingListOf(rep.Evidence))
+	}
+
+	rep, code = f.run(t, f.opts("advance", "explanation"))
+	assertBlocked(t, rep, code)
+	if c, ok := hasCheck(rep, "pareto-value"); !ok || c.Kind != "semantic" || c.Status != "FAIL" {
+		t.Fatalf("pareto-value = %+v (present=%v), want a semantic FAIL without the review", c, ok)
+	}
+}
+
 func pendingByRule(pending []map[string]any, rule string) bool {
 	for _, p := range pending {
 		if name, _ := p["rule"].(string); name == rule {
