@@ -336,6 +336,14 @@ h3 { font-weight: 700; }
 .reader-menu button:focus-visible { background: var(--soft); outline: 3px solid var(--blue); outline-offset: -3px; }
 .reader-menu button:disabled { opacity: .45; cursor: default; }
 .reader-menu button svg { width: 17px; height: 17px; flex: none; }
+/* A thumb is a state, not a command: the pair opens the reasons of its own sign and the one the
+   part already has stays marked. The glyph is painted here, so the label is the whole accessible
+   name and the row's text is the words alone. */
+.reader-menu .verdict::before { width: 17px; flex: none; text-align: center; font-size: .98rem; line-height: 1; }
+.reader-menu .verdict-gusta::before { content: "👍"; }
+.reader-menu .verdict-no-gusta::before { content: "👎"; }
+.reader-menu .verdict[aria-pressed="true"] { background: var(--soft); }
+.reader-menu .verdict[aria-pressed="true"]::after { content: "✓"; margin-left: auto; font-weight: 700; }
 /* 8ch floor: a long kicker plus a crowded row must never collapse the title. */
 .reader-bar .title { flex: 1 1 auto; min-width: 8ch; font-size: 1.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .reader-bar .title small { font-size: 1rem; color: var(--meta); margin-right: 12px; }
@@ -1122,6 +1130,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .feedback-part summary { cursor: pointer; color: var(--ink); overflow-wrap: anywhere; }
 .feedback-part details[open] summary { margin-bottom: 8px; color: var(--muted); }
 .feedback-more { color: var(--blue); white-space: nowrap; }
+
+/* Verdicts: the other half of the record, beside the suggestions and never inside them. */
+.feedback-verdicts { margin: 0 0 28px; }
+.feedback-verdicts h2 { margin: 0 0 4px; font-size: 1.15rem; }
+.feedback-verdict { margin-top: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--ctl-radius); }
+.feedback-verdict h3 { margin: 0 0 4px; font-size: 1rem; overflow-wrap: anywhere; }
+.feedback-verdict-value { margin: 0; font-weight: 700; }
+.feedback-motivos { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.feedback-verdict blockquote { margin: 10px 0 0; padding-left: 14px; border-left: 3px solid var(--line); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* S6 (#376): useful waiting. Text, quiet panels and the controls the studio already has. */
 .espera { margin: 24px 0 0; padding: 20px 22px; border: 1px solid var(--line); border-radius: var(--ctl-radius); background: var(--soft2); }

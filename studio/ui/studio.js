@@ -364,6 +364,89 @@
     area.focus();
   };
 
+  // ---------- what the part did for the learner ----------
+  /**
+   * A verdict is the other half of «Sugerir»: it records what a part gave as well as what it took,
+   * with the reasons of its own sign and the learner's words. The thumb that opened it is the
+   * verdict —nothing is recorded until «Guardar»— and one verdict per part means the box starts
+   * from what was already said instead of from an empty page.
+   */
+  const askValoracion = async ({ topic, part, valor, existing, onSaved }) => {
+    const gusto = valor === "gusta";
+    let motivos = [];
+    let stored = existing;
+    try {
+      const data = await request(`api/valoraciones?${new URLSearchParams({ tema: topic, parte: part })}`);
+      // Only the reasons this verdict can carry: praise under a thumb down would be another opinion.
+      motivos = (data.motivos ?? []).filter((motivo) => motivo.signo === (gusto ? "gusta" : "mejora"));
+      stored = (data.entradas ?? [])[0] ?? existing;
+    } catch { /* the thumb alone is a verdict: the reasons are a help, never a requirement */ }
+    const chosen = new Set(stored?.valor === valor ? stored.motivos ?? [] : []);
+    const area = h("textarea", {
+      id: "valoracion-texto",
+      rows: "4",
+      "aria-label": gusto ? "¿Qué te sirvió?" : "¿Qué te restó?",
+      placeholder: gusto
+        ? "¿Qué te sirvió? Cuéntalo con tus palabras…"
+        : "¿Qué te restó? Cuéntalo con tus palabras…",
+    });
+    if (stored?.texto) area.value = stored.texto;
+    const note = h("span", { class: "muted" });
+    const chips = h(
+      "div",
+      { class: "chips", role: "group", "aria-label": "Motivos" },
+      ...motivos.map((motivo) => {
+        const chip = h("button", { class: "chip", type: "button", "aria-pressed": String(chosen.has(motivo.id)) }, motivo.texto);
+        chip.addEventListener("click", () => {
+          if (chosen.has(motivo.id)) chosen.delete(motivo.id);
+          else chosen.add(motivo.id);
+          chip.setAttribute("aria-pressed", String(chosen.has(motivo.id)));
+        });
+        return chip;
+      }),
+    );
+    const cancel = btn("Cancelar", () => box.remove(), "btn ghost");
+    const accept = btn("Guardar", () => submit(), "btn primary");
+
+    async function submit() {
+      accept.disabled = true;
+      const body = { tema: topic, parte: part, valor, motivos: [...chosen], texto: area.value.trim() };
+      try {
+        const result = await post("api/valoraciones", body);
+        box.remove();
+        onSaved?.(result.entrada ?? body);
+        toast(gusto ? "Anotado: esta parte te sirvió" : "Anotado: esta parte no te sirvió");
+      } catch (error) {
+        accept.disabled = false;
+        note.textContent = error.message;
+        note.classList.add("alert");
+      }
+    }
+
+    const box = h(
+      "div",
+      { class: "modal-backdrop" },
+      h(
+        "div",
+        { class: "modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "valoracion-title" },
+        h("h2", { id: "valoracion-title" }, gusto ? "¿Qué te sirvió de esta parte?" : "¿Qué te restó de esta parte?"),
+        h("p", { class: "modal-note" }, "Queda como tu veredicto de esta parte: uno por parte, y puedes cambiarlo cuando quieras."),
+        chips,
+        area,
+        note,
+        h("div", { class: "modal-actions" }, cancel, accept),
+      ),
+    );
+    box.addEventListener("click", (event) => {
+      if (event.target === box) box.remove();
+    });
+    box.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") box.remove();
+    });
+    document.body.append(box);
+    area.focus();
+  };
+
   // ---------- what the engine state means for the learner ----------
   /** The same stages with their article, for sentences ("en la explicación"). */
   const STAGE_IN = {
@@ -717,7 +800,30 @@
     } catch (error) { if (page.isConnected) status.textContent = `No se pudieron cargar las preferencias: ${error.message}`; }
   }
 
-  /** What the learner said with «Sugerir» and «Regenerar», by topic and part. */
+  /** A timestamp as the learner reads it, or "" when the stored one is not a date. */
+  const when = (iso) => { const date = new Date(iso); return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("es", { dateStyle: "medium", timeStyle: "short" }); };
+
+  /**
+   * The verdicts, on their own side of «Tu feedback»: a verdict says what the part did for the
+   * learner, so it is never folded into the complaints above it. Each one names the part, the
+   * thumb it carried, the reasons in the learner's vocabulary and the learner's own words.
+   */
+  function verdictsSection(veredictos, motivoTexto) {
+    const total = `${veredictos.length} ${veredictos.length === 1 ? "veredicto" : "veredictos"}`;
+    return h("section", { class: "feedback-verdicts" },
+      h("h2", {}, "Lo que dijiste de cada parte"),
+      h("p", { class: "muted" }, total),
+      ...veredictos.map((entrada) => h("article", { class: "feedback-verdict", "data-valor": entrada.valor },
+        h("h3", {}, `${entrada.tema} · ${entrada.parte}`),
+        h("p", { class: "feedback-verdict-value" }, entrada.valor === "gusta" ? "Me sirvió esta parte" : "No me sirvió esta parte"),
+        entrada.motivos.length
+          ? h("ul", { class: "feedback-motivos" }, entrada.motivos.map((id) => h("li", { class: "chip" }, motivoTexto.get(id) ?? id)))
+          : null,
+        entrada.texto ? h("blockquote", {}, entrada.texto) : null,
+        h("p", { class: "muted" }, when(entrada.timestamp)))));
+  }
+
+  /** What the learner said with «Sugerir», «Regenerar» and the thumbs at the end of a part. */
   async function feedbackView() {
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Configuración", href: "#/preferencias" }, { text: "Tu feedback" }]);
     const status = h("p", { role: "status", class: "muted" }, "Cargando…");
@@ -727,22 +833,25 @@
     stage.replaceChildren(page);
     const count = (n) => `${n} ${n === 1 ? "sugerencia" : "sugerencias"}`;
     const reasons = (list) => h("ul", { class: "feedback-reasons" }, list.map((m) => h("li", { class: "chip" }, `${m.texto} · ${m.n}`)));
-    const when = (iso) => { const date = new Date(iso); return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("es", { dateStyle: "medium", timeStyle: "short" }); };
     try {
-      const resumen = await request("api/sugerencias/resumen");
+      const [resumen, valoraciones] = await Promise.all([request("api/sugerencias/resumen"), request("api/valoraciones")]);
       if (!page.isConnected) return;
-      if (resumen.total === 0) { status.textContent = "Todavía no hay sugerencias: usa «Sugerir» o «Regenerar» al leer una parte."; return; }
-      status.textContent = count(resumen.total);
-      page.append(reasons(resumen.motivos), ...resumen.temas.flatMap((tema) => tema.partes.map((parte) => h("section", { class: "feedback-part" },
-        h("h2", {}, `${tema.tema} · ${parte.parte}`),
-        h("p", { class: "muted" }, count(parte.total)),
-        parte.motivos.length ? reasons(parte.motivos) : null,
-        ...parte.entradas.filter((e) => e.texto).map((e) => h("figure", {},
-          // A long paste is folded, never cut: the words stay whole one click away.
-          e.texto.length > 280
-            ? h("details", {}, h("summary", {}, `${e.texto.replace(/\s+/g, " ").slice(0, 200).trim()}… `, h("span", { class: "feedback-more" }, "Ver completo")), h("blockquote", {}, e.texto))
-            : h("blockquote", {}, e.texto),
-          h("figcaption", { class: "muted" }, `${e.origen === "regenerar" ? "Regenerar" : "Sugerencia"} · ${when(e.timestamp)}`)))))));
+      if (resumen.total === 0) status.textContent = "Todavía no hay sugerencias: usa «Sugerir» o «Regenerar» al leer una parte.";
+      else {
+        status.textContent = count(resumen.total);
+        page.append(reasons(resumen.motivos), ...resumen.temas.flatMap((tema) => tema.partes.map((parte) => h("section", { class: "feedback-part" },
+          h("h2", {}, `${tema.tema} · ${parte.parte}`),
+          h("p", { class: "muted" }, count(parte.total)),
+          parte.motivos.length ? reasons(parte.motivos) : null,
+          ...parte.entradas.filter((e) => e.texto).map((e) => h("figure", {},
+            // A long paste is folded, never cut: the words stay whole one click away.
+            e.texto.length > 280
+              ? h("details", {}, h("summary", {}, `${e.texto.replace(/\s+/g, " ").slice(0, 200).trim()}… `, h("span", { class: "feedback-more" }, "Ver completo")), h("blockquote", {}, e.texto))
+              : h("blockquote", {}, e.texto),
+            h("figcaption", { class: "muted" }, `${e.origen === "regenerar" ? "Regenerar" : "Sugerencia"} · ${when(e.timestamp)}`)))))));
+      }
+      const veredictos = valoraciones.entradas ?? [];
+      if (veredictos.length) page.append(verdictsSection(veredictos, new Map((valoraciones.motivos ?? []).map((motivo) => [motivo.id, motivo.texto]))));
     } catch (error) { if (page.isConnected) status.textContent = `No se pudo cargar el feedback: ${error.message}`; }
   }
 
@@ -2220,6 +2329,19 @@
       h("button", { class: cls, type: "button", onclick, "aria-label": label, title: label }, icon(iconName), h("span", { class: "label" }, label));
     let saveButton;
     let modeMenuItem;
+    // S1/S3: a verdict is a third action, not a rename. The two thumbs are one state and each one
+    // opens the reasons that fit its sign; the verdict the part already has paints itself as soon
+    // as the page hears about it, so a reopened part never asks again.
+    let verdict = null;
+    const thumbs = {};
+    const paintVerdict = () => {
+      for (const [valor, button] of Object.entries(thumbs)) button.setAttribute("aria-pressed", String(verdict?.valor === valor));
+    };
+    const setVerdict = (entrada) => {
+      verdict = entrada?.valor ? { valor: entrada.valor, motivos: entrada.motivos ?? [], texto: entrada.texto ?? "" } : null;
+      paintVerdict();
+    };
+    const openVerdict = (valor) => askValoracion({ topic: topicId, part, valor, existing: verdict, onSaved: setVerdict });
     // The menu keeps the action's promise (`Descargar para ver sin conexión`)
     // in all states; only its availability follows the download. The saved
     // state itself is named by «Guardado» in the rail beside the sheet.
@@ -2273,6 +2395,12 @@
         ? { label: "Descargar para ver sin conexión", icon: "doc", cls: "btn small ghost", run: () => saveReaderPart(), save: true }
         : null,
       info?.written
+        ? { label: "Me sirvió esta parte", verdict: "gusta", cls: "btn small ghost", run: () => openVerdict("gusta") }
+        : null,
+      info?.written
+        ? { label: "No me sirvió esta parte", verdict: "no-gusta", cls: "btn small ghost", run: () => openVerdict("no-gusta") }
+        : null,
+      info?.written
         ? { label: "Sugerir", icon: "pencil", cls: "btn small ghost", run: () => askSugerencia({ topic: topicId, part, title, regenerate: false }) }
         : null,
       info?.written
@@ -2322,10 +2450,20 @@
       actions.map((action) => {
         const item = h(
           "button",
-          { class: "reader-menu-item", type: "button", role: "menuitem", onclick: () => { closeMenu(); action.run(); } },
-          icon(action.icon),
+          {
+            class: `reader-menu-item${action.verdict ? ` verdict verdict-${action.verdict}` : ""}`,
+            type: "button",
+            role: "menuitem",
+            "aria-label": action.verdict ? action.label : undefined,
+            // The pair is a toggle: the thumb the part already has stays pressed. The glyph is
+            // painted by the sheet, so the label is the whole name and the text stays readable.
+            "aria-pressed": action.verdict ? "false" : undefined,
+            onclick: () => { closeMenu(); action.run(); },
+          },
+          action.verdict ? null : icon(action.icon),
           h("span", {}, action.label),
         );
+        if (action.verdict) thumbs[action.verdict] = item;
         if (action.save) {
           // The row's save chip and this menu item are now the same control:
           // one label, one state, one handler, with no second rank in the bar.
@@ -2393,6 +2531,13 @@
     const waiting = currentEspera();
     if (waiting && waiting.topic === topicId && waiting.part === part) reader.insertBefore(esperaMount(waiting), reader.querySelector(".sheet-wrap"));
     stage.replaceChildren(topic ? h("div", { class: "reader-layout" }, reader, studyRail(topic, part, title)) : reader);
+    // S1: what the learner said about this part is read back, so the thumb they chose is pressed
+    // the moment the menu opens. A part without a verdict costs nothing: the thumbs still work.
+    if (info?.written) {
+      request(`api/valoraciones?${new URLSearchParams({ tema: topicId, parte: part })}`)
+        .then((data) => { if (seq === readSeq) setVerdict((data.entradas ?? [])[0] ?? null); })
+        .catch(() => { /* no verdict is not an error */ });
+    }
     ensureEspera();
     function applyMode(id) {
       readingMode = id;

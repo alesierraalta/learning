@@ -1030,6 +1030,42 @@ lines), `GET api/sugerencias/resumen` (every entry grouped by topic and part, wi
 and `GET api/contexto?tema=` (the lines a writing prompt carries). Malformed input
 returns 400; nothing is written on a failure.
 
+### A verdict on a part
+
+The reader also asks what the part was worth: two thumbs, **Me sirvió** and **No me sirvió**, next
+to Sugerir and Regenerar. A thumb opens one dialog, with the reasons of its own sign as chips and a
+box for the learner's words, and nothing is stored until they save. Reopening the part shows the
+verdict it already has, so a learner can change their mind.
+
+It is a second document on purpose. `sugerencias` records what to **change**, and `directrices()`
+feeds those lines into corrections: praise there would be noise, and a suggestion is a request
+while a verdict is a report of what the material did to the learner. `valoraciones.json`
+(`{version: 1, actualizado, entradas}`, mode `0600`, replaced atomically) keeps **one verdict per
+part** — changing the mind replaces it instead of stacking — capped at 500 entries. A damaged file
+is reported and read as empty, then copied aside like `sugerencias`, and a refused input writes
+nothing: an unknown motive, a `valor` outside `gusta|no-gusta`, more than 8 motives, a text over
+2000 characters, a part that is not `pN`.
+
+The motives carry a sign, and the negative side **is** the vocabulary Sugerir already uses, so the
+two do not fork:
+
+| Sign | Motives |
+|---|---|
+| `gusta` | `ejemplo-claro`, `visual-util`, `paso-a-paso`, `buen-ritmo`, `conecta-con-lo-que-se`, `ejercicio-util` |
+| `mejora` | `demasiado-texto`, `faltan-ejemplos`, `faltan-visuales`, `muy-abstracto`, `matematicas-confusas`, `sin-paso-a-paso`, `sobran-preguntas`, `no-entendi` |
+
+The record is worth nothing if the writer never reads it. A motive mentioned in **two different
+parts** becomes a line of `[Lo que esta persona valora]`, bounded to 900 characters, and
+`withGustos` appends it to every prompt `startTurn` builds — for the three runtimes at once, because
+the prompt is the studio's — and to the regenerate prompt, which already carried `tutorContext`.
+One mention is a day, not a preference. The block is the studio's, never the learner's: the chat
+strips it from a user message before serving it. Their free text stays in the document and is shown
+back to them on the feedback page, and it is never quoted into a prompt: unbounded text inside a
+prompt is an instruction nobody wrote.
+
+Routes: `GET api/valoraciones?tema=&parte=` (the verdicts of a part and the motive table with its
+signs) and `POST api/valoraciones` (`{tema, parte, valor, motivos, texto}`).
+
 ## Design and tutorial
 
 The UI uses the visual language of the Learnings slides

@@ -1,0 +1,294 @@
+# Test plan — Learnings studio · feedback por parte (#413)
+
+Created: 2026-11-25 · Last updated: 2026-11-25 · Plan path: `odd/tsp/feedback-parte-tsp.md` · Sandbox: worktree `feat-412-feedback-parte` · Findings precision: 2 / 2
+Baseline: `fcce7fb` · untracked files: 0 (el plan es este fichero) · fingerprint: `-` (el runtime no está instalado en este host; el plan lo dice en vez de inventarlo)
+
+Tables are the format: prose never replaces a row.
+A finding is a row whose cell opens with `path:line` and one line of finding. The path is a file with an
+extension (`src/a.js:5`), a dotfile (`.gitignore:1`) or a conventional build file (`Makefile:3`); a
+directory or a `host:port` is not a location.
+A finding that lives only in prose does not exist for the scorer.
+
+
+## Request
+
+```
+# Ask for a verdict at the end of a part
+
+## Objective
+
+Ask for the verdict where the learner already is: at the end of a part, with the reader's own controls, in one tap.
+
+## Specs
+
+- "al terminar una parte, estaría bueno integrarle un sistema de feedback, tipo un pulgar arriba, un pulgar abajo, explicar"
+- The end-of-part controls are studio-rendered (the part's HTML is the tutor's file; `studio/ui/studio.js:2253-2297`), so this belongs to the reader bar, next to `Sugerir` and `Regenerar`, and must not touch the tutor's page format.
+- Keep `Sugerir` and `Regenerar` exactly as they are: this is "además de lo que ya tenemos", not a replacement.
+- Existing constraints that still apply: 44 px targets on a coarse pointer (the rule `studio/layout.test.mjs` already enforces for this page), Spanish copy in neutral tuteo, and nothing is saved without the learner's tap.
+
+## Scope
+
+- In `studio/ui/studio.js`, the reader bar gains a two-button verdict (thumbs up / thumbs down). A thumb opens one dialog: the motives of **its** sign as chips (reusing the `askSugerencia` pattern and its `aria-pressed` behaviour), a box for the learner's own words, and a save. Choosing the other thumb afterwards replaces the verdict instead of stacking two.
+- The dialog reuses `#411`'s endpoint; it never posts a suggestion.
+- The verdict a part already has is visible when the page is reopened (the bar shows which thumb is set), so a learner can change their mind.
+- Tests: the dialog posts `{tema, parte, valor, motivos, texto}`; the thumbs are 44 px on a coarse pointer; a stored verdict shows on reload; `Sugerir` and `Regenerar` still post what they posted before (no regression in their bodies).
+
+Non-goals: storage and aggregation (#410); what the tutor does with it (#412).
+
+
+```
+
+## Request criteria
+
+<!-- Write one row per acceptance criterion. Disposition: covered, blocked, or na. -->
+<!-- Covered names a Finding or Evidence id in Source; blocked/na require a Reason. -->
+
+| Id | Criterion (one line) | Disposition | Source | Reason |
+|---|---|---|---|---|
+
+## Inventory
+
+| Surface | Entry points | Owner module | Notes |
+|---|---|---|---|
+
+## Ranked targets
+
+Rows are never removed by budget; budget changes order and status only. Rows contributed by a
+sibling in the layer sweep name that sibling in "Sibling skill".
+
+| Target | Blast radius | Churn / past fixes | Consequence class | Existing evidence | Altitude | Target rung | Sibling skill | Verdict | Status | Run |
+|---|---|---|---|---|---|---|---|---|---|---|
+
+Verdicts: probe · pin · none. Statuses: pending · in progress · done · blocked · n/a.
+A `none` verdict is created with status `n/a`; the execution ratio excludes `n/a` rows.
+
+## Real-run recipes
+
+How each critical journey is driven for real (`real-run-validation`), so EXECUTE never rediscovers it.
+
+| Journey | Start command | Data setup | Sample requests | Expected observable |
+|---|---|---|---|---|
+
+## Layer matrix
+
+The `Run` column identifies which bounded run owns each layer and target row; leave it blank for unscoped work.
+
+| Layer | Skill | Scope | Status | Run |
+|---|---|---|---|---|
+| Security | `appsec-adversarial-auditor` | documento con symlink fuera del vault, texto libre rumbo al prompt | probed (E2: enlace rechazado, víctima intacta; el texto libre nunca entra) | feedback-parte |
+| Runtime and faults | `runtime-reliability-testing`, `resilience-fault-injection` | load, latency, fault injection, smoke | pending |  |
+| Persistence and migrations | `database-persistence-testing` | documento acotado a 500, reemplazo atómico, 40 escrituras simultáneas | probed (E2: 500/113584 bytes; 40/40 sin corrupción) | feedback-parte |
+| Architecture conformance | `clean-architecture-audit` | layer purity, targeted mutation | pending |  |
+| Critical e2e journeys | `real-run-validation` | veredicto con pulgar → GET → bloque en el prompt → regenerar | probed with a browser (layout 128/128 + 3) | feedback-parte |
+| Sandbox | `docker-test-containers` | ephemeral DB/cache, environment proof | pending |  |
+
+Statuses: pending · in progress · done · blocked · n/a. `plan gaps` counts a row as swept when its
+status cell reads `done`, `fixed` or `closed`, and drops `n/a`, `na`, `none` and `skipped` from the
+denominator entirely; the `Skill` cell only labels the rows still owed. In a plan that declares
+`Light:`, every `n/a` row also states its reason in the `Scope` cell, and the declared blast radius
+(`Light: <blast radius> · touches <classes>`) must be corroborated by the plan: either it equals a
+`Target` cell in Ranked targets exactly (a directory works this way), or it is a file path the plan
+cites somewhere as `path:line`. Write the path without `:line` in the declaration; the check compares
+it with the part of each citation before the colon.
+
+## Not testing, on purpose
+
+| Target | Reason |
+|---|---|
+
+## Characterization (legacy)
+
+| Test | Behavior pinned | Believed correct? | Promote or delete after the change |
+|---|---|---|---|
+
+## Execution log
+
+| Date | Target | Rung reached | Findings (path:line) | Promoted tests | Evidence (ledger id) | Notes |
+|---|---|---|---|---|---|---|
+| 2026-11-25 | `studio/valoraciones.ts`, rutas `api/valoraciones`, `withGustos` en el turno y en regenerar | rung 4 (propiedad y volumen) | `studio/valoraciones.ts:225` | `studio/valoraciones.test.mjs :: a message that quotes the block's title is the learner's, and is not cut`; `studio/server.test.mjs :: a learner who quotes the verdict block gets their own words back untouched` | E1 | el defecto se observó RED antes del arreglo |
+| 2026-11-25 | prompt de regenerar (`studio/server.ts`) | rung 3 (integración) | — | `studio/server.test.mjs :: the regenerate prompt carries what the learner values, not only the writing turn` | E2 | comportamiento correcto sin testigo: gap cerrado |
+
+## Findings
+
+A rejected or wontfix finding is a known non-issue: it is never re-proposed unless the fingerprint
+of its cited files changed; when a run skips it, it cites the row. Severity is the consequence
+class: money moved or lost, data destroyed or corrupted, a permission or tenant boundary, a
+silently wrong answer a human will act on, a visible error, cosmetic; always state whether data is
+safe. A `confirmed` or `fixed` finding names the promoted test that asserts the promised behaviour,
+so it is red on the current code and green once fixed (rule 13); a test written the other way round
+is a characterization test and says so in its name. A finding that never got a test stays `open`,
+reason `not pinned`.
+The fingerprint cell holds the `assets/fingerprint.sh` output, one or more git SHAs, `-` when none
+is recorded, or `pending` while the value is owed; `plan check` refuses anything else.
+
+| Id | Finding (path:line, one line) | Severity (consequence class) | Data safe? | Evidence id | Pinning test (suite path :: test name) | Status | Verdict by / date | Reason | Cited-files fingerprint at verdict | Causality (`introduced` / `pre-existing` / `unknown`) | Reproduction |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| F1 | `studio/valoraciones.ts:225` — `stripGustos` corta desde la marca esté donde esté, así que un mensaje del alumno que cita el título se sirve truncado en el chat | data-loss (palabras del alumno perdidas) | yes | E1 | `studio/valoraciones.test.mjs :: a message that quotes the block's title is the learner's, and is not cut` | fixed | parent session / 2026-11-25 | Ahora exige la línea en blanco que el estudio antepone al bloque, como `stripLecciones`; el bloque añadido se sigue quitando entero. Observado RED antes del arreglo. | - | introduced |
+| F2 | `studio/server.ts:2229` — el prompt de regenerar lleva el bloque de veredictos y ningún test lo afirmaba | contract (promesa documentada sin testigo) | yes | E2 | `studio/server.test.mjs :: the regenerate prompt carries what the learner values, not only the writing turn` | gap-closed | parent session / 2026-11-25 | Comportamiento correcto; el test lo fija. | - | unknown |
+
+Statuses: open · confirmed · fixed · gap-closed · rejected · wontfix.
+`gap-closed` is a behaviour that was correct but untested, now held by the promoted test it names; like
+`confirmed` and `fixed` it owes that test.
+
+## Security candidates
+
+This optional table records security dispositions separately from Findings statuses; older plans do not
+need it. Name the actor, their effective authority, resource, action and boundary. For `confirmed`,
+record the observed boundary violation and cite an executed, observed Evidence ledger row. For `blocked`,
+record the missing fact and a safe validation step; do not assign a confirmed severity. For `rejected`,
+cite the executed, observed ledger row that refutes the claim. Use `-` for inapplicable fields. A plan
+check validates the recorded structure and references, not whether an observation is truthful or proves
+an actual violation. Use one Security candidates section with one table and a distinct ID for each populated
+row. Promote actionable findings to Findings using its existing statuses and evidence.
+
+| Id | Actor | Authority | Resource | Action | Boundary | Evidence id | Disposition | Observed boundary violation | Missing fact | Safe validation step | Refuting evidence id |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+
+## Candidate reviews
+
+Optional, and separate from `Security candidates`: a candidate row's `Disposition` is its author's claim,
+while a review is a second answer to it. One row per review of an existing candidate, naming its
+`Candidate id`. `Reviewer` names who did the review, and `Independence attestation` is the literal
+`attested`, recording that the reviewer states they did not produce the candidate. `Refutation attempt`
+records a real attempt to refute the claimed path, and `Effective controls` records the controls found to
+prevent it. `Outcome` is `confirmed`, `rejected` or `blocked`. A `confirmed` or `rejected` review cites an
+executed, observed Evidence ledger row that is decisive; a `blocked` review names the specific `Blocker`
+that still has to be resolved. Use `-` for inapplicable cells. A candidate keeps its own disposition
+whether or not it is reviewed, and a review confirmation never replaces the author's disposition.
+
+`plan check` validates the recorded structure and references, not whether the reviewer was truly
+independent or whether the cited evidence proves the claim: an attestation and a table cannot mechanically
+prove identity or truth. Test verification is a different instrument: `tsp verify` freezes the candidate
+in a read-only worktree and asks a second session for a verdict document, publishing `.tsp-verify.json`,
+while a review row is a plan record a human reads. Use one section with one table and a distinct review
+id; duplicate sections or ids, malformed tables, dangling candidate or evidence references, and an
+outcome without its required evidence are refused.
+
+| Id | Candidate id | Reviewer | Independence attestation | Refutation attempt | Effective controls | Outcome | Decisive evidence id | Blocker |
+|---|---|---|---|---|---|---|---|---|
+
+## Security coverage
+
+Optional, and separate from both Findings and Security candidates: one row per surface, boundary,
+subsystem or attack class the security audit considered. `Source` is the `path:line` that locates the
+work, so a coverage claim can be checked against the code it names; `Kind` is `surface`, `boundary`,
+`subsystem` or `attack class`. A `covered` row cites an executed, observed Evidence ledger row, and
+coverage without observed evidence is refused rather than counted. `blocked` and `deferred` state why
+the work is not covered and stay owed in `plan gaps`; `excluded` states why the item is not
+applicable, so a reasoned exclusion leaves the denominator the way an `n/a` layer does. Use `-` for
+inapplicable cells. Plans without this section remain valid.
+
+| Id | Source | Kind | Subject | Disposition | Reason | Evidence id |
+|---|---|---|---|---|---|---|
+
+## Evidence ledger
+
+One row per conclusion you executed and observed (`observado`). `razonado` items go under
+"Hypotheses" below, never here.
+
+`Admit` holds ONE bare shell command, with no backticks and no placeholders, because `Executed` is
+prose a human reads and `Admit` is the command the binary runs. `Digest` holds the `sha256:` digest of the
+canonical output, written by `tsp plan admit --execute --record <id>` rather than by hand.
+
+A pin only means something over output that holds still, so `--execute` runs each admitted command twice:
+the second run is the probe, and a row whose two observations disagree is refused as unstable instead of
+pinned. A zero exit whose output shows a skipped Go test or a filter that matched nothing is refused as
+`tests-not-run`, so a Go test row runs `go test -v`, where a skip is visible. `Normalize` is the escape hatch for the part of an output that legitimately moves, such as an
+elapsed time: it holds a Go regular expression whose every match becomes `X` before hashing. Leave it empty
+the first time and fill it only when the probe names what moves, keeping it as narrow as that part — a
+pattern broad enough to swallow the output turns the pin into decoration. `plan check` requires none of
+these columns; `plan admit` refuses a row whose `Admit` is absent, whose `Digest` is unpinned, or whose
+output does not hold still.
+
+`Mode` says where the observation was taken, and a pin is only comparable inside the mode it was taken in,
+because the same command digests differently in a container than on this machine. An empty cell means `host`,
+which is where every pin taken before the column existed was taken. `--sandbox` runs each command in a
+container with the tree mounted read-only and no network, and a row that tries to write is refused instead
+of admitted. `--record` writes both cells, so recording is how a row's mode gets set; a row pinned in one mode
+and checked in the other is refused as a mode mismatch, rather than as a digest mismatch that would say
+nothing about why the digests disagree. Only a pin has a mode: a row that carries no digest is refused for the
+missing pin, not told it was pinned somewhere.
+
+`Mutate` is the machine half of a falsifiability claim: `<old> => <new> @ <path>:<line>`, one textual edit whose
+old text must occur exactly once in that file and on that line, naming a file inside the tree. It is a value and
+not a command because a replay has to be able to undo exactly what it did, and an edit admits an exact inverse
+while a command does not. A row that declares one is claiming its own command goes red under the edit and green
+without it, so the claim is checked rather than believed: `plan admit` refuses a mutation it cannot parse, find,
+or tell apart from another, and under `--sandbox` it replays the claim — the edit lands on a copy of the tree git
+knows, the command must fail there, the file is put back and its bytes verified, and the command must pass again.
+A row whose command survives the edit, or whose restored half fails, is refused; outside `--sandbox` there is no
+copy to edit and put back, so the claim is refused rather than admitted unchecked. `Mutation or negative control →
+result` stays prose for a human to read; `Mutate` is the part a binary can act on and undo.
+
+A `Mutate` cell may also hold a survey: several edits separated by ` ;; ` (space, two semicolons, space), each
+checked before any runs and each replayed on its own copy. An edit prefixed `~ ` is declared equivalent, so the
+command must stay green under it instead of going red; one that goes red is refused as `mutation-not-equivalent`.
+The first edit that breaks its declaration refuses the row and is named by its position (`edit 2 of 3`), and an
+admitted survey reports its tally (`2 killed, 1 equivalent`). An edit whose own text contains ` ;; ` cannot be
+written in a cell.
+
+`Mutate` sees production code only. A test that asserts against a double reimplementing the rule under test
+survives every edit, because the edit lands in code the test never runs, so the matrix reports it green and the
+test proves the double. Read what a test is asserting before trusting its row: a reversion that cannot reach the
+assertion is not evidence that the assertion holds.
+
+`Expect` says which way the command must exit: empty or `pass` for zero, `fail` for a FAIL_TO_PASS test
+observed red. With `fail` only an exit from 1 to 125 qualifies (126, 127 and signals mean the command never
+ran as a test, a timeout or a sandbox refusal keeps its own reason, and a zero exit is refused as
+`expected-failure-passed`), and the output is pinned exactly as a passing
+command's is, so it should show the failing test's name: a compile error must not be able to stand in for the red
+test. Prefer it over `! cmd`, which also passes on a compile failure. `Expect` beside `Mutate` is refused, because
+a mutation already defines its own red and green runs.
+
+Every row carries exactly one cell per header column (14 here); an empty cell stays as `| |`. An observation that is a `None`, a refusal, or a "cannot be measured" is a pass
+nowhere: before it counts, `Observed` names the real input that reaches that branch, one real file per common
+source rather than a stub built for the probe. A rejection no real input produces is a gap in the claim, not
+evidence for it, so it goes under Hypotheses until an input is named. A literal
+`|` inside a cell is written `\|`, or it splits the cell and `plan check` refuses the row. `tsp plan add-evidence`
+writes a ledger row from flags, escaping `|` and leaving `Digest` and `Mode` empty. Add the ledger
+row before `tsp plan add-finding` names it: that command writes the Findings row only and refuses
+an Evidence id the ledger does not carry.
+
+| Id | Claim | Executed | Admit | Inputs and parameters | Observed | Digest | Normalize | Mode | Mutate | Expect | Mutation or negative control → result | Reproduction | Label (`observado` / `razonado`, literal) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+
+### Hypotheses (razonado)
+
+| Hypothesis | Probe that would settle it |
+|---|---|
+
+## Calibration history
+
+One row per calibration run — defects seeded from a key the run never reads, recall measured against
+that key — and never overwritten.
+
+| Date | Skill version | K | Found | Recall | Misses (file:line operator, why) | False positives |
+|---|---|---|---|---|---|---|
+
+## Blocked by testability
+
+| Target | Rung | Why | Minimal change that opens it |
+|---|---|---|---|
+
+## Remaining, in order
+
+1. La UI del veredicto en las otras pilas de lectura (tablet apaisada, móvil) — rung 4 — `ui-ux-pro-max`:
+   hoy está probada a 390 px y en la pila de escritorio; el resto de pilas no se miraron.
+2. El motivo libre del alumno dentro del prompt sigue prohibido a propósito; si algún día se quiere,
+   necesita un eval de inyección antes — rung 5 — `llm-redteam`.
+3. `stripLecciones` comparte la clase de defecto que F1 cerró en `stripGustos`: la sonda que lo probó
+   (E2, P1) da por buena la guarda de línea en blanco, pero nadie lo pina en su propio test.
+
+## Evidence rows
+
+| Id | Claim | Executed | Observed | Expect |
+|---|---|---|---|---|
+| E1 | `stripGustos` trunca un mensaje que solo cita el título del bloque | `node /tmp/probe-tsp.mjs`, P1 | devolvió `"Oye, ¿qué significa «"` | fail (RED antes del arreglo) |
+| E2 | Siete sondas sobre el registro: presupuesto del bloque, texto libre, symlink, concurrencia, volumen, repetición y regenerar | `node /tmp/probe-tsp.mjs`, P2..P7 | 393≤900; texto libre ausente del prompt; enlace rechazado con la víctima intacta; 40/40 escrituras y documento legible; 620→500 entradas y 113584 bytes; una mención no llega y dos sí | pass |
+
+Herramienta, corregido tras investigarlo: `add-evidence`/`add-finding` **ignoran `--path`** y
+escriben en el plan canónico `docs/testing/test-plan.md`. Por eso este fichero nació a mano: el
+`--path` de `init` sí se respeta, pero las órdenes que añaden filas no. Las filas de esta ronda viven
+donde el loop las lee: **F29/F30 y E43/E44** en `docs/testing/test-plan.md`, y `tsp plan check`
+responde «well formed». Este documento queda como el relato de la ronda; el registro máquina está en
+el canónico.

@@ -99,6 +99,7 @@ import { createPageTiming, type PageTiming, type PageTimingReport } from "./timi
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
 import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, tutorContext, validateSugerencia, withLecciones } from "./sugerencias.ts";
+import { listarValoraciones, recordValoracion, stripGustos, withGustos } from "./valoraciones.ts";
 import { buildEspera, partNotePath, writePartTarget } from "./espera.ts";
 import { createGlosario } from "./glosario.ts";
 import {
@@ -1026,7 +1027,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         if (isRecord(message) && message.role === "user") {
           // The standing lessons travel inside the turn's prompt; the chat shows what the learner
           // wrote, so the block is stripped before it is ever served as their message.
-          const text = stripLecciones(messageText(message));
+          const text = stripGustos(stripLecciones(messageText(message)));
           // The gate's instruction is the studio's prompt, never the learner's own words.
           if (isStudioPrompt(text)) return;
           if (text) {
@@ -1763,7 +1764,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         // The learner's words stay first; a write-part turn also carries the facts the
         // tutor would otherwise discover with ls/find/reads. Both runtimes get the same prompt.
         const prompt = await started.timing.measure("contexto", async () => {
-          const base = withLecciones(namedPart(text), root);
+          // #412/#413: the learner's verdicts ride with the lessons; #422 made the brief async.
+          const base = withGustos(withLecciones(namedPart(text), root), root);
           // The awaited brief adds the course slices the embedder ranks; it returns at once and
           // starts nothing for a prompt that is not a course part (#422).
           const brief = await partBriefAsync(root, text);
@@ -2287,7 +2289,7 @@ ${scripts}
       "",
       VISUAL_CONTRACT_PROMPT,
       "",
-      tutorContext(root, tema),
+      withGustos(tutorContext(root, tema), root),
     ].filter((line) => line !== "").join("\n");
   };
 
@@ -2432,6 +2434,9 @@ ${scripts}
       }
       case "api/sugerencias":
         return sendJson(res, 200, recordSugerencia(root, body));
+      case "api/valoraciones":
+        // What the learner thought of a part: a verdict with reasons, kept apart from suggestions.
+        return sendJson(res, 200, recordValoracion(root, body));
       case "api/regenerar": {
         if (options.agentDisabled) throw new HttpError(503, "El tutor está desactivado.");
         if (!isRecord(body)) throw new HttpError(400, "No pude leer la regeneración.");
@@ -2779,7 +2784,7 @@ ${scripts}
         .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
         // The standing lessons travel inside the turn's prompt, so the thread keeps the learner's
         // words and never the block the studio added after them.
-        .map((m) => ({ role: m.role, text: m.role === "user" ? stripLecciones(messageText(m)) : messageText(m) }))
+        .map((m) => ({ role: m.role, text: m.role === "user" ? stripGustos(stripLecciones(messageText(m))) : messageText(m) }))
         // The gate's instruction is the studio's own prompt: the thread keeps the learner's words.
         .filter((m) => m.text && !(m.role === "user" && isStudioPrompt(m.text)));
       // A runtime that lost the conversation still has the studio's own copy of the turn.
@@ -2978,6 +2983,11 @@ ${scripts}
       }
       case "api/sugerencias/resumen":
         return sendJson(res, 200, resumenSugerencias(root));
+      case "api/valoraciones":
+        return sendJson(res, 200, listarValoraciones(root, {
+          tema: url.searchParams.get("tema") ?? undefined,
+          parte: url.searchParams.get("parte") ?? undefined,
+        }));
       case "api/sugerencias":
         return sendJson(res, 200, listSugerencias(root, {
           tema: url.searchParams.get("tema") ?? undefined,
