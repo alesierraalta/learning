@@ -773,8 +773,29 @@ test('una etiqueta más ancha que su flecha se mete en el lienzo, no se sale', {
 // la tinta del trazo, ni la de la flecha ni la de las fichas de nombre.
 const PARTE_PLSQL = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'plsql-parte-1-v4.md');
 
+// El fixture trae dos historias: la derivación del saldo, paso a paso (la cuenta que
+// antes era un bloque de texto), y el ciclo transaccional, que rotula una flecha en
+// cada paso. La derivación va primero —es la que sigue a «Calculamos el saldo
+// intermedio paso a paso»— y no dibuja ninguna flecha, así que ya no es la primera
+// la que las dos pruebas de la flecha miden: se lee la que rotula una flecha en
+// todos sus pasos, y se exige que sea la única, para que el fixture no cambie de
+// historia medida a espaldas de la prueba.
+const plsqlStories = () => [...readFileSync(PARTE_PLSQL, 'utf8').matchAll(/<lk-story[\s\S]*?<\/lk-story>/g)]
+  .map((m) => m[0])
+  .map((block) => ({ block, spec: JSON.parse(block.match(/<script type="application\/json">([\s\S]*?)<\/script>/)[1]) }));
+const arrowStory = () => {
+  const labelled = plsqlStories().filter(({ spec }) => (spec.steps || []).length > 0
+    && spec.steps.every((step) => (((step.stage || {}).scene || step.stage || {}).arrows || [])
+      .some((arrow) => arrow.label)));
+  assert.equal(labelled.length, 1, `el fixture trae ${labelled.length} historias que rotulan una flecha en todos sus pasos (espera una)`);
+  return labelled[0];
+};
+
 test('la historia de la parte real de PL/SQL: etiqueta a la letra de la figura y fuera del trazo en los seis pasos', { skip: SKIP }, async () => {
-  const block = readFileSync(PARTE_PLSQL, 'utf8').match(/<lk-story[\s\S]*?<\/lk-story>/)[0];
+  const { block, spec } = arrowStory();
+  // El nombre dice seis: la historia que la prueba mide es la del ciclo
+  // transaccional, paso por paso, no una vecina más corta con flechas.
+  assert.equal(spec.steps.length, 6, `la historia que se mide trae ${spec.steps.length} pasos, no seis`);
   const dir = mkdtempSync(join(tmpdir(), 'kit-story-real-'));
   mkdirSync(join(dir, 'kit'), { recursive: true });
   for (const file of ['kit.css', 'kit.js', 'scene.js', 'dictate.js']) cpSync(join(KIT, file), join(dir, 'kit', file));
@@ -850,7 +871,7 @@ const arrowShot = (view) => view.evaluate(() => {
 });
 
 test('la parte real de PL/SQL: la flecha va entera, con la punta en su actor y la etiqueta en su trazo', { skip: SKIP }, async () => {
-  const block = readFileSync(PARTE_PLSQL, 'utf8').match(/<lk-story[\s\S]*?<\/lk-story>/)[0];
+  const { block } = arrowStory();
   const dir = mkdtempSync(join(tmpdir(), 'kit-story-route-'));
   mkdirSync(join(dir, 'kit'), { recursive: true });
   for (const file of ['kit.css', 'kit.js', 'scene.js', 'dictate.js']) cpSync(join(KIT, file), join(dir, 'kit', file));

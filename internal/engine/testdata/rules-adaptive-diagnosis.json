@@ -120,6 +120,18 @@
         "receipt": false
       },
       {
+        "id": "plan-cobertura",
+        "kind": "plan_cobertura",
+        "path": "plan.json",
+        "receipt": false
+      },
+      {
+        "id": "plan-provenance",
+        "kind": "plan_provenance",
+        "path": "plan.json",
+        "receipt": false
+      },
+      {
         "id": "pareto-plan",
         "kind": "pareto_plan",
         "path": "plan.json",
@@ -157,6 +169,18 @@
         "id": "plan-file",
         "kind": "file_exists",
         "path": "plan.json"
+      },
+      {
+        "id": "plan-cobertura",
+        "kind": "plan_cobertura",
+        "path": "plan.json",
+        "receipt": false
+      },
+      {
+        "id": "plan-provenance",
+        "kind": "plan_provenance",
+        "path": "plan.json",
+        "receipt": false
       },
       {
         "id": "pareto-plan",

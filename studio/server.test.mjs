@@ -22,6 +22,7 @@ import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
 import { stored, writeDoc } from "./testdata/stored.mjs";
 import { tinyDocx } from "./testdata/docx.mjs";
+import { configurarIndice, esperarIndice } from "./indice.ts";
 
 test("studio startup warms existing rich pages serially in the background", async () => {
   const { root, engine } = makeRoot();
@@ -4757,6 +4758,184 @@ function materiaUpload(studio, id, { fileName, contentType, tipo, content }) {
     body: content,
   });
 }
+
+// ---- Local hybrid index (issue #373/T4) -------------------------------------
+
+test("course search routes index uploads, track embeddings and drop deleted sources", async () => {
+  configurarIndice({ embedCommand: [process.execPath, join(HERE, "testdata", "fake-embed.mjs")] });
+  try {
+    const { studio } = await setup();
+    const { id } = JSON.parse((await post(studio, "api/materias", { nombre: "Biología" })).body);
+    const upload = await materiaUpload(studio, id, {
+      fileName: "clase.txt", contentType: "text/plain", tipo: "documento",
+      content: Buffer.from("El profesor explica la función de la mitosis.", "utf8"),
+    });
+    assert.equal(upload.status, 201, upload.body);
+    const fuente = JSON.parse(upload.body);
+
+    const antes = await http(`${studio.url}api/materias/${id}/indice`);
+    assert.equal(antes.status, 200);
+    assert.deepEqual(Object.keys(JSON.parse(antes.body)).sort(), ["chunks", "conVector", "fuentes", "pendiente", "semantica"]);
+    assert.equal(JSON.parse(antes.body).chunks, 1, "keyword rows are indexed before the 201 returns");
+    assert.equal(JSON.parse(antes.body).semantica, true);
+    await esperarIndice();
+    const listo = JSON.parse((await http(`${studio.url}api/materias/${id}/indice`)).body);
+    assert.equal(listo.pendiente, 0);
+    assert.equal(listo.conVector, 1);
+
+    const found = await http(`${studio.url}api/materias/${id}/buscar?q=${encodeURIComponent("El profesor explica la función de la mitosis.")}&k=5&tipo=documento`);
+    assert.equal(found.status, 200, found.body);
+    const resultados = JSON.parse(found.body);
+    assert.equal(resultados.length, 1);
+    assert.equal(resultados[0].fuente, fuente.id);
+    assert.equal(resultados[0].tipo, "documento");
+    assert.equal(resultados[0].ubicacion, "líneas 1–1");
+    assert.ok(resultados[0].score > 0);
+    assert.deepEqual(resultados[0].senales, ["keyword", "semantic"]);
+    const corto = await http(`${studio.url}api/materias/${id}/buscar?q=funcion`);
+    assert.deepEqual(JSON.parse(corto.body)[0].senales, ["keyword"], "a one-word query stays below the cosine floor");
+    assert.deepEqual((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis&tipo=examen`)).body, "[]");
+
+    assert.equal((await http(`${studio.url}api/materias/${id}/buscar`)).status, 400);
+    assert.equal((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis&k=99`)).status, 400);
+    assert.equal((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis&tipo=otro`)).status, 400);
+    assert.equal((await http(`${studio.url}api/materias/${'f'.repeat(32)}/indice`)).status, 404);
+    assert.equal((await http(`${studio.url}api/materias/${'f'.repeat(32)}/buscar?q=x`)).status, 404);
+
+    const removed = await http(`${studio.url}api/materias/${id}/fuentes/${fuente.id}`, { method: "DELETE", headers: { origin: new URL(studio.url).origin } });
+    assert.equal(removed.status, 204);
+    const despues = JSON.parse((await http(`${studio.url}api/materias/${id}/indice`)).body);
+    assert.equal(despues.chunks, 0);
+    assert.equal(despues.conVector, 0);
+    assert.deepEqual(JSON.parse((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis`)).body), []);
+  } finally {
+    configurarIndice({});
+  }
+});
+
+test("course search exposes keyword, semantic and hybrid modes over HTTP", async () => {
+  configurarIndice({ embedCommand: [process.execPath, join(HERE, "testdata", "fake-embed.mjs")] });
+  try {
+    const { studio } = await setup();
+    const { id } = JSON.parse((await post(studio, "api/materias", { nombre: "Modos" })).body);
+    await materiaUpload(studio, id, {
+      fileName: "clase.txt", contentType: "text/plain", tipo: "documento",
+      content: Buffer.from("La mitosis produce dos células hijas idénticas.", "utf8"),
+    });
+    await esperarIndice();
+    const consulta = encodeURIComponent("La mitosis produce dos células hijas idénticas.");
+    const buscarModo = async (modo) => {
+      const respuesta = await http(`${studio.url}api/materias/${id}/buscar?q=${consulta}&modo=${modo}`);
+      assert.equal(respuesta.status, 200, respuesta.body);
+      return JSON.parse(respuesta.body);
+    };
+    assert.deepEqual((await buscarModo("claves"))[0].senales, ["keyword"]);
+    assert.deepEqual((await buscarModo("semantico"))[0].senales, ["semantic"]);
+    assert.deepEqual((await buscarModo("hibrido"))[0].senales, ["keyword", "semantic"]);
+    assert.equal((await http(`${studio.url}api/materias/${id}/buscar?q=mitosis&modo=otro`)).status, 400);
+  } finally {
+    configurarIndice({});
+  }
+});
+
+// ---- T2b: a new topic is born inside its course (#407) ----------------------
+// The journey is twenty PDFs and then a new topic, so the turn that plans the route must
+// already read the material of the course the learner is in.
+
+test("api/aprender accepts the course a new topic joins and refuses an unknown or malformed one", async () => {
+  const { studio, received } = await setup();
+  const curso = JSON.parse((await post(studio, "api/materias", { nombre: "Redes" })).body);
+  for (const materia of ["f".repeat(32), "../../escape", "no-existe", "", 7, true]) {
+    const refused = await post(studio, "api/aprender", { text: "redes", modo: "universitario", materia });
+    assert.equal(refused.status, 400, `${JSON.stringify(materia)}: ${refused.body}`);
+    assert.equal(JSON.parse(refused.body).error, "No existe esa materia.", JSON.stringify(materia));
+  }
+  assert.equal(received().filter((entry) => entry.type === "prompt").length, 0, "a refused request starts no tutor turn");
+  const accepted = await post(studio, "api/aprender", { text: "redes", modo: "universitario", materia: curso.id });
+  assert.equal(accepted.status, 200, accepted.body);
+  await until(() => received().some((entry) => entry.type === "prompt"));
+});
+
+test("a creation turn that names a course links its topic before the next delivery", async () => {
+  const created = await creatingStudio((root) => [[{ path: join(root, "nuevo", "notas", "clase.md"), content: "# Clase\n" }], [{ path: join(root, "otro", "notas", "clase.md"), content: "# Otra\n" }]]);
+  const { studio, root, prompts, stream } = created;
+  const courses = join(root, ".materias");
+  try {
+    const curso = JSON.parse((await post(studio, "api/materias", { nombre: "Redes" })).body);
+    const fuente = await materiaUpload(studio, curso.id, {
+      fileName: "examen.txt", contentType: "text/plain", tipo: "examen",
+      content: Buffer.from("El examen pregunta por las capas del modelo TCP/IP.\n", "utf8"),
+    });
+    assert.equal(fuente.status, 201, fuente.body);
+
+    const asked = await post(studio, "api/aprender", { text: "aprendizaje por refuerzo", modo: "universitario", materia: curso.id });
+    assert.equal(asked.status, 200, asked.body);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    // The turn binds the topic with its first write, and the link to the course lands with it.
+    const materiaFile = join(courses, curso.id, "materia.json");
+    const course = () => (existsSync(materiaFile) ? JSON.parse(readFileSync(materiaFile, "utf8")) : { temas: [] });
+    await until(() => course().temas.includes("nuevo"));
+    // So the next prompt the tutor hears is planned from the material of that course.
+    await until(() => prompts().length === 2);
+    assert.match(prompts()[1].message, /\[PLAN BRIEF · tema nuevo · materia /, prompts()[1].message.slice(0, 400));
+    assert.match(prompts()[1].message, /El examen pregunta por las capas del modelo TCP\/IP/);
+    assert.equal((await post(studio, "abort", {})).status, 200, "the test releases its held correction");
+
+    // A topic another course already owns cannot be linked: the studio says so in its log and the
+    // turn finishes exactly as it would have, so a course is never a reason to lose a turn.
+    const otro = await post(studio, "api/materias", { nombre: "Otra materia" });
+    assert.equal(otro.status, 201, otro.body);
+    mkdirSync(join(root, "otro"), { recursive: true });
+    assert.equal((await post(studio, `api/materias/${JSON.parse(otro.body).id}/temas`, { tema: "otro" })).status, 200);
+    const logged = [];
+    const escrito = process.stderr.write;
+    process.stderr.write = (chunk, ...rest) => { logged.push(String(chunk)); return escrito.call(process.stderr, chunk, ...rest); };
+    try {
+      const second = await post(studio, "api/aprender", { text: "otra cosa", modo: "universitario", materia: curso.id });
+      assert.equal(second.status, 200, second.body);
+      const next = await stream.next("dialog");
+      assert.equal((await post(studio, "dialog", { id: next.id, value: "Universitario" })).status, 200);
+      await until(() => prompts().length === 4);
+      assert.match(prompts()[3].message, /state-initialized/, "the turn still reached its gate and its correction");
+      assert.doesNotMatch(prompts()[3].message, /PLAN BRIEF · tema otro/, "the refused link leaves no material behind");
+      assert.ok(logged.some((line) => /no se pudo unir «otro» a su materia/.test(line)), `logged: ${logged.join("")}`);
+      assert.deepEqual(course().temas, ["nuevo"], "the course keeps only the topic it really got");
+      assert.equal((await post(studio, "abort", {})).status, 200);
+    } finally {
+      process.stderr.write = escrito;
+    }
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
+test("the new-topic entry starts the topic inside the course the learner is in", () => {
+  const source = readFileSync(join(HERE, "ui", "studio.js"), "utf8");
+  assert.equal(source.match(/id: "learning-materia"/g)?.length, 1, "the new-topic entry carries one course selector");
+  assert.match(source, /body\.materia = materiaId;/, "the existing request carries the chosen course");
+  assert.match(source, /Nuevo tema en esta materia/, "the materia page starts a topic inside that course");
+  assert.doesNotMatch(source, /#\/aprender/, "no new page and no new route: the entry is the one that already exists");
+});
+
+test("a new-topic request without a course keeps today's prompt and links nothing", async () => {
+  const { studio, root, received } = await setup();
+  const response = await post(studio, "api/aprender", { text: "aprendizaje por refuerzo", modo: "universitario" });
+  assert.equal(response.status, 200, response.body);
+  await until(() => received().some((entry) => entry.type === "prompt"));
+  const prompt = received().find((entry) => entry.type === "prompt").message;
+  assert.equal(said(prompt), `Quiero aprender aprendizaje por refuerzo.\n\n${MODE_LINE.universitario}`);
+  assert.equal(existsSync(join(root, ".materias")), false, "no course is created or touched");
+});
+
+test("the studio documentation names the course option where it documents the courses", () => {
+  const docs = readFileSync(join(HERE, "..", "docs", "studio.md"), "utf8");
+  const courses = docs.slice(docs.indexOf("### Course materials (`materias`)"));
+  assert.ok(courses.length > 0, "the course section is where the option belongs");
+  assert.match(courses, /`POST api\/aprender \{text, modo, materia\?[^`]*\}`/);
+  assert.match(courses, /No existe esa materia\./);
+});
 
 // ---- what the learner says about a part -------------------------------------------------------
 

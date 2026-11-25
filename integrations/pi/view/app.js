@@ -505,7 +505,19 @@
       typeof exercise.solucion === "string" ? [[exercise.id, exercise.solucion]] : [])));
     if (recorded.size) showScore(form, `${[...recorded.values()].filter((r) => r.ok).length}/${recorded.size}`);
     if (pending.length) {
-      const ownWords = !diagnosis && textarea(form, "Vuelco con tus palabras");
+      // #415: the own-words block is the answer that most needs dictation, so it is drawn by the
+      // same thought field as the questions. Only its box is read, under the same key and cap.
+      const ownField = !diagnosis && window.learningThoughtField("own-words", 0, data);
+      const ownWords = ownField && ownField.querySelector("textarea");
+      if (ownField) {
+        // The kit worded this field for a question, but the block is the learner's own summary.
+        const label = ownField.querySelector(".lk-thought-label");
+        if (label) label.textContent = "Vuelco con tus palabras (opcional)";
+        ownWords.placeholder = "";
+        ownWords.maxLength = 8000;
+        ownField.querySelector("button.lk-mic")?.setAttribute("aria-label", "Dictar el vuelco con tus palabras");
+        form.append(ownField);
+      }
       const button = element("button", "Enviar al tutor");
       button.type = "submit";
       const message = status();

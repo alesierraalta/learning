@@ -23,6 +23,7 @@ export const HINTS = {
   'historia-cabecera': 'pon la línea de código o la fórmula en la cabecera de cada paso (`equation.atoms` o `formula.atoms`) y resalta el token en `focus`.',
   'actor-sin-personaje': 'dibuja el actor con `kind` (database, row, session, file, robot…) y su nombre en `tag`, no como una caja con texto.',
   'escenario-de-cajas': 'dibuja la acción con personajes, `moves` y rótulos con punta; no con cajas de texto y flechas.',
+  'prosa-en-cajas': 'deja en cada caja un título de hasta 6 palabras y 40 caracteres, sin punto final, y dibuja lo que la figura cuenta: una frase por caja y nada dibujado (rejilla, hoja, actor, icono, trazo, curva, nodo, barra, engranaje, tabla, memoria, conjunto o árbol) es la prosa otra vez.',
   'pieza-adecuada': 'elige la pieza que le toca a la idea: `lk-tables`/`lk-memory` para filas, `lk-cards` para compilar frente a fallar.',
   'historia-quieta': 'haz que cada paso cambie algo —un `moves`, un `state`, una prop o un puntero—; funde los pasos que repiten la foto.',
   'falta-foco': 'da a un paso `ring: "<id>"` con el id de una pieza dibujada en ese paso.',

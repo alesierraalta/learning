@@ -49,6 +49,18 @@ type planDoc struct {
 	FocusAreas       []string       `json:"focusAreas"`
 	Pareto           *planParetoDoc `json:"pareto,omitempty"`
 	Exam             *planExamDoc   `json:"examen,omitempty"`
+	// Cobertura and Material are the course-derived provenance (#408): how much
+	// of the material the route covers and the sources it was derived from, as
+	// the plan brief enumerated them. A plan with no course material declares
+	// neither and is verified exactly as before.
+	Cobertura string            `json:"cobertura,omitempty"`
+	Material  []planMaterialDoc `json:"material,omitempty"`
+}
+
+// planMaterialDoc is one source of the course the route was derived from.
+type planMaterialDoc struct {
+	Nombre string `json:"nombre"`
+	Tipo   string `json:"tipo"`
 }
 
 type planExamDoc struct {
@@ -87,6 +99,16 @@ type planPartDoc struct {
 	// Analisis why the learner failed it and what they did understand.
 	Remedia  string `json:"remedia,omitempty"`
 	Analisis string `json:"analisis,omitempty"`
+	// Fuentes are the material sources this part cites, each with the location
+	// inside the source (course-derived routes, #408).
+	Fuentes []planFuenteDoc `json:"fuentes,omitempty"`
+}
+
+// planFuenteDoc is one cited source: the material entry's nombre plus where in
+// it the part came from.
+type planFuenteDoc struct {
+	Nombre    string `json:"nombre"`
+	Ubicacion string `json:"ubicacion"`
 }
 
 func loadPlan(ws, rel string) (planDoc, error) {
