@@ -286,7 +286,9 @@ that key — and never overwritten.
 | E1 | `stripGustos` trunca un mensaje que solo cita el título del bloque | `node /tmp/probe-tsp.mjs`, P1 | devolvió `"Oye, ¿qué significa «"` | fail (RED antes del arreglo) |
 | E2 | Siete sondas sobre el registro: presupuesto del bloque, texto libre, symlink, concurrencia, volumen, repetición y regenerar | `node /tmp/probe-tsp.mjs`, P2..P7 | 393≤900; texto libre ausente del prompt; enlace rechazado con la víctima intacta; 40/40 escrituras y documento legible; 620→500 entradas y 113584 bytes; una mención no llega y dos sí | pass |
 
-Herramienta: `tsp plan init` escribió la plantilla, pero `add-evidence` y `add-finding` la rechazan
-(exigen una columna `Reproduction` que su propio encabezado no tiene, y después responden «ya es la
-fila N» sin haber escrito nada). Las filas de arriba están escritas a mano sobre la plantilla del
-propio binario, con los mismos campos; el defecto de la herramienta queda reportado, no escondido.
+Herramienta, corregido tras investigarlo: `add-evidence`/`add-finding` **ignoran `--path`** y
+escriben en el plan canónico `docs/testing/test-plan.md`. Por eso este fichero nació a mano: el
+`--path` de `init` sí se respeta, pero las órdenes que añaden filas no. Las filas de esta ronda viven
+donde el loop las lee: **F29/F30 y E43/E44** en `docs/testing/test-plan.md`, y `tsp plan check`
+responde «well formed». Este documento queda como el relato de la ronda; el registro máquina está en
+el canónico.
