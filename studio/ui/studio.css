@@ -66,6 +66,22 @@ a { color: var(--blue); }
   .tutor-pill { max-width: 180px; }
   .tasks-pill { max-width: 180px; }
 }
+/* #453: an upright iPad (721–1000) is wider than the phone this bar was narrowed for and
+   narrower than the desk it was drawn on, so the bar's own minimum — 946px with a finger,
+   899 with a mouse, and up to 976 while the tutor reports a long activity — became the
+   document's and scrolled it sideways. Here the bar gives way first: the pills keep their
+   box, their dot and their badge and lose only their caption, and the brand keeps its name
+   and loses its subtitle. No control leaves the bar, so nothing has to be hunted for again
+   in Contexto. The band ends at 1000, where the bar holds its longest caption. */
+@media (min-width: 721px) and (max-width: 1000px) {
+  .brand span, .tutor-pill .what, .tasks-pill .what, .context-trigger .label { display: none; }
+  /* The phone's pill: one control wide, and the dot and the badge carry the state. */
+  .tutor-pill, .tasks-pill { flex: none; width: var(--ctl); max-width: var(--ctl); padding: 0; justify-content: center; }
+  .context-trigger { padding: 0; }
+  /* The crumb stops claiming 240px and the next step keeps its label until the very end. */
+  .topbar > .crumbs { flex: 0 1 auto; }
+  .topbar > .header-action { flex: 0 1 auto; min-width: var(--ctl); }
+}
 #context-menu[hidden] { display: none; }
 /* The single overflow: its trigger is the only labelled «Contexto» control. */
 .context-trigger { display: inline-flex; align-items: center; justify-content: center; gap: var(--space); min-width: var(--ctl); min-height: var(--ctl); padding: 0 calc(var(--space) * 2); border: 2px solid var(--line); border-radius: var(--ctl-radius); background: var(--soft); color: var(--slate); cursor: pointer; font: 700 12px/1.4 var(--sans); white-space: nowrap; }

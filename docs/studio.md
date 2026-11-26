@@ -61,25 +61,103 @@ the button. Nothing is applied without the learner's click.
 ## Tutor choice and the engine gate
 
 The tutor is chosen in the same page, above the learning aspects. `GET api/tutor`
-returns `{version: 1, agente, modelo, pensamiento}` and `POST api/tutor` replaces
-it atomically in `<LEARNING_ROOT>/tutor.json`. `agente` is `pi` or `agy`: Pi runs
-`pi --mode rpc` and Antigravity runs `agy -p … --output-format stream-json`, one
-process per turn and `--conversation` for the turns after the first. `modelo` and
-`pensamiento` are empty by default, which leaves each CLI its own setting;
-`GET api/tutor/modelos?agente=pi|agy` lists the models of the provider selected
-in the page (Pi's from `pi --list-models` as `provider/model`, Antigravity's from
-`agy models`), the saved provider when `agente` is absent, and any other value is
-refused with 400. An unknown field or model name is refused with 400. The thinking levels are per
-provider because the CLIs differ: Pi takes `off`, `minimal`, `low`, `medium`,
-`high`, `xhigh` and `max`, while Antigravity's `--effort` takes `low`, `medium`,
-`high`, `xhigh` and `max`. A level the chosen provider cannot apply is refused
-with 400 instead of being dropped.
+returns `{version: 2, agente, modelo, pensamiento, proveedor}` and `POST api/tutor`
+replaces it atomically in `<LEARNING_ROOT>/tutor.json`. `agente` is `pi`, `agy` or
+`api`: Pi runs `pi --mode rpc` and Antigravity runs `agy -p … --output-format
+stream-json`, one process per turn and `--conversation` for the turns after the
+first; `api` talks to a provider's own chat-completions endpoint (see
+[Mistral as tutor](#mistral-as-tutor-api)). `modelo` and `pensamiento` are empty by
+default, which leaves each CLI its own setting; `proveedor` names the API provider
+and is empty for the two CLIs, where an empty value means "detect it from the
+environment", never "pick one for me". A `tutor.json` written before providers
+existed (`version: 1`) still opens: it comes back as `version: 2` with an empty
+provider, and a page posting the old shape is accepted instead of refused.
+`GET api/tutor/modelos?agente=pi|agy|api&modelo=<id>` lists the models of the
+provider selected in the page (Pi's from `pi --list-models` as `provider/model`,
+Antigravity's from `agy models`, Mistral's from its own `GET /v1/models`), the
+saved provider when `agente` is absent, and any other value is refused with 400.
+It also answers `pensamientos`, the levels the chosen model accepts. An unknown
+field or model name is refused with 400. The thinking levels are per provider
+because the providers differ: Pi takes `off`, `minimal`, `low`, `medium`, `high`,
+`xhigh` and `max`, Antigravity's `--effort` takes `low`, `medium`, `high`, `xhigh`
+and `max`, and Mistral's levels belong to the **model**, not to the API (see
+below). A level the chosen provider or model cannot apply is refused with 400
+instead of being dropped.
+
+`GET api/proveedores` reports every provider the studio knows how to recognise as
+`{id, nombre, variable, base, presente, forma, sospechoso, implementado, aviso}`.
+It answers whether a key is present and which variable carries it, never the key
+itself: no key reaches the page, a log or `tutor.json`.
 
 Antigravity needs its CLI reachable from the studio's own environment: the studio
 spawns `agy` from `PATH`, so a service whose `PATH` omits the CLI's directory
 reports one actionable error (`no se encontró el ejecutable "agy"`) instead of a
 bogus exit code. `deploy/vps/learning-studio.service` and its env example put
 `~/.local/bin` on that `PATH`.
+
+### Mistral as tutor (API)
+
+The third runtime needs no CLI: the learner exports `MISTRAL_API_KEY` and picks
+«Mistral (API)» in Configuración. The key belongs to the environment and stays
+there — the page is told whether it is present and which variable carries it, and
+nothing else.
+
+Which provider a key belongs to is detected by its shape, and the detection is
+advice, never permission: what enables a provider is its variable being present,
+and a key whose shape belongs to somebody else says so (`ANTHROPIC_API_KEY tiene
+forma de Anthropic`) instead of being sent to Mistral. The registry also knows
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` and `GOOGLE_API_KEY`;
+those are reported as detected and not implemented, and the runtime refuses to
+spend them.
+
+The model list is the provider's own: `GET /v1/models` with the key, chat models
+only. The effort levels are **per model**, because that is how Mistral documents
+them (`docs.mistral.ai/inference/conversations/reasoning`):
+
+| Model | `reasoning_effort` |
+|---|---|
+| `mistral-small-2603`, `mistral-medium-3-5` | `high`, `none` |
+| `mistral-large-4-0` | `low`, `medium`, `high` |
+| `zai-glm-5-3`, `zai-glm-5-3-flash` | `low`, `high`, `max` |
+| anything else, aliases included | none — the page offers no selector and no level is sent |
+
+A model nobody documented gets no levels on purpose: sending one the model does not
+name is a refused request, and a selector that cannot work is worse than none.
+
+A turn is one request per step to `POST /v1/chat/completions` with `stream: true`,
+read as it arrives: text reaches the chat as it is written, `thinking` chunks stay
+out of it, `tool_calls` are reassembled by index, and the stream ends at `[DONE]`.
+A last event that arrives without its closing blank line is still read, and two
+`data:` lines in one block are two events.
+
+The tools are the ones the page already labels, under Pi's own argument names, so
+the note tracking keeps working: `read`, `write`, `edit` and `bash`. Every path is
+contained by the studio's rule, and a write resolves the nearest existing ancestor
+**and refuses a final component that is a symlink** — including a dangling one,
+whose target does not exist yet and would be created wherever it points. Refusals
+come back to the model as text it can read, never as a clamped write.
+
+`bash` accepts only the study engine (`learning …`), and never lets the model point
+it outside the folder: the studio supplies the `--root`, `--workspace` and `--rules`
+the engine requires on every command, and refuses any of those flags — or
+`--source`/`--exam-source` — whose value would leave the Learnings folder, by path
+or by link. The engine child is started without any provider key in its
+environment, so not even a tool result can hand one back to the model.
+
+A turn is bounded (12 steps), a provider that stops sending is cut after 60 s
+instead of holding the studio's single turn, and every turn ends in a record the
+studio settles — including a turn the learner stops, which also stops the work:
+the studio's abort reaches this runtime, so nothing is written after «Detener».
+
+A provider error is reported with its status and its body, with the key scrubbed
+out of the text before it can reach the page, a message or a log: a provider — or a
+proxy behind it — may quote the request it received.
+
+What it cannot do, stated so the choice is informed: it reads none of the vault's
+skills (Pi and Antigravity do), it has no dialogs, there is no MCP and no image
+input, and the thread lives in the studio's memory — a restart begins a new one.
+The engine still owns PASS: the tutor reaches it through `bash learning …`, and a
+turn that cannot be checked leaves the studio saying so.
 
 ### The topic a turn teaches
 
@@ -274,7 +352,7 @@ The phases are the ones the code really has, and nothing else is invented:
 
 | Fase | Qué mide |
 | --- | --- |
-| `contexto` | construir el prompt que el tutor lee: el nombre de la parte y las lecciones permanentes del alumno (`withLecciones`) |
+| `contexto` | construir el prompt que el tutor lee: el nombre de la parte, las lecciones permanentes del alumno (`withLecciones`) y el resumen de ese tema (`topicBlock`) |
 | `tutor` | las llamadas al modelo: una por prompt enviado, abierta al enviarlo y cerrada cuando el runtime hace su `settle` |
 | `motor` | la llamada al motor (`learning status`) en cada settle, que decide si el turno sigue |
 | `comprobaciones` | los cinco `tools/` del estudio sobre la parte que el turno escribió |
@@ -1025,17 +1103,36 @@ is the studio's, not the learner's: the chat strips it from the user message bef
 the thread shows what the learner wrote. A **part-specific** review keeps its old path — the
 regenerate prompt of its topic, through `tutorContext` — and never becomes a standing rule.
 
+What a topic's own reviews asked reaches the **first draft** of its next part through a third
+channel, `topicBlock(root, tema)`, appended by `startTurn` to the prompt of every turn that writes a
+part of that topic: after the lessons block, before the verdicts and before the brief, so the review
+written while reading Parte 3 steers the first draft of Parte 4. It is a digest and never the
+topic's history — the chips the learner chose with how often, the verdicts that topic collected
+(two mentions, as in the verdict block) and the rules that topic taught that the lessons block could
+not carry — and it quotes no prose of its own: the learner's words ride `tutorContext`, once. Its
+own cap is `MAX_TEMA_CHARS = 240` characters for the whole block, title and brackets included, and
+no line rides twice: a rule the lessons block already says is dropped from it. A topic with nothing
+said has no block at all, and a turn that writes a part of another topic carries nothing of it. Like
+the others, the block is the studio's: the chat strips it (`stripTema`) from the user message before
+serving or saving it, so a learner who quotes its title mid-sentence still reads their own words
+(#413).
+
 The seed is `studio/lecciones-base.json`: the general lessons of the reviews already read (the
 first topic's, 12 of the 14), written down in the repo with the reviews that taught them and what
 enforces them, so they apply from the deploy without editing the live `sugerencias.json`. It is
 merged with the live general reviews at runtime. `odd/reviews/mapa-sugerencias.md` maps every one
 of the 14 to its rule, check or skill section.
 
-A new general lesson enters by itself when the learner picks a general chip: the studio classifies
-it, gives it the chip's rule and the next turn — in any topic — already applies it. A lesson that
-no chip names, and that several reviews repeat, is written by hand into `studio/lecciones-base.json`
-and into the map, with the check or the skill section that enforces it; a rule with nothing that
-measures or explains it is an opinion, and the skill is written first.
+A new general lesson enters by itself when the learner picks **any** chip the page offers: every
+motive names a rule (`REGLA_POR_MOTIVO`), the studio classifies the review as general, and the next
+turn — in any topic — already applies it (#454). Three of those rules are the seed's own text: a
+review that picks them collapses into its seed line, and that is the dedupe doing its job rather
+than a rule being lost. The block keeps its ten-line cap and the learner's own rules come before the
+seed, so their rules displace seed lines instead of the reverse; with more than ten live rules the
+oldest fall out, which is the moment consolidation stops being optional. A lesson no chip names, and
+that several reviews repeat, is written by hand into `studio/lecciones-base.json` and into the map,
+with the check or the skill section that enforces it; a rule with nothing that measures or explains
+it is an opinion, and the skill is written first.
 
 The loop leans on what is already stored: before writing, the prompts for a part, the
 plan and the map carry a compact context built from the stored preferences, the weak

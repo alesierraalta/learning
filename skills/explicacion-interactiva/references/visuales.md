@@ -50,6 +50,15 @@ borde. Una idea por paso; si caben diez cosas, se añaden pasos, no contenido. S
 cuesto, se parte. Nada de coordenadas `x`/`y`, ni SVG escrito a mano: las formas y la cámara las
 calcula el render a partir de celdas, ids e índices con nombre.
 
+**Qué pide el aviso `prosa-en-cajas`**: cuando `explain-check` lo reporta, no pide acortar la
+frase: pide dibujar el ejemplo. La rejilla con sus celdas, la hoja con sus columnas, el actor
+con su personaje, el icono suelto, la curva con sus puntos, el nodo con su rama. Un título de
+hasta 6 palabras y 40 caracteres y una sub-línea igual de corta caben en una caja que además
+dibuja; una frase por caja y nada dibujado es el párrafo otra vez. El pie puede ser una frase
+de hasta 22 palabras. Esta puerta se corre sobre la nota recién escrita, antes de entregarla,
+con `node tools/explain-check.mjs <ruta de la nota>`: se corrigen sus hallazgos y se vuelve a
+correr hasta que salga 0.
+
 ## 2. Reglas compartidas (S18–S25)
 
 1. **Interacción: solo `←`, `→` y `▶`** (más puntos de progreso y flechas de teclado si el
@@ -389,7 +398,10 @@ es el diagrama CPM por defecto: para red de proyectos, Mermaid Gantt/flowchart.
 - [ ] Ancho ocupado, temas claro/oscuro/negro revisados y movimiento reducido respetado.
 - [ ] Antes de entregar: ejecuta `node tools/part-check.mjs <ruta de la nota>` y corrige **todos**
       los hallazgos; sale con 0 solo si todas las mediciones pasan (las puertas del estudio, la de
-      figuras incluida, y `audit-note` para la gramática de los elementos nuevos).
+      figuras incluida, y `audit-note` para la gramática de los elementos nuevos). Sobre la nota
+      recién escrita, corre además `node tools/explain-check.mjs <ruta de la nota>`; una figura con
+      el hallazgo `prosa-en-cajas` no se entrega: se dibuja el ejemplo —la rejilla, la hoja, el
+      actor, la curva, el nodo—, no la frase dentro de una caja.
 
 El motor ya acepta `<lk-stage>`, `<lk-codestep>`, `<lk-tablestep>`, `<lk-guided>` y `<lk-lanes>`
 como recorrido progresivo, escena y fórmula (`internal/engine/decks.go` y los gates

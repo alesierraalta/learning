@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { entryUrl, idleMinutesFor, DEFAULT_IDLE_MINUTES, noteFromMessages, noteFromPath, startStudio as startStudioChecked, studioLinks, topicFromPath } from "./server.ts";
 import { busyFile, clearBusy, markBusy, pidAlive } from "./state.ts";
 import { runPartChecks } from "./checks.ts";
-import { stripLecciones } from "./sugerencias.ts";
+import { LECCIONES_TITULO, MAX_TEMA_CHARS, TEMA_TITULO, stripLecciones, stripTema } from "./sugerencias.ts";
 import { VISUAL_CONTRACT_PROMPT } from "./contract.ts";
 import { quizFingerprintOfPart } from "../integrations/pi/bridge.ts";
 import extension from "../integrations/pi/index.ts";
@@ -228,7 +228,7 @@ test("the Antigravity model catalogue is offered and the chosen model reaches th
   const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, agyCommand: [process.execPath, join(HERE, "testdata", "fake-agy.mjs")] });
   open.push(studio);
   // With Pi saved, the unqualified catalogue is Pi's, never Antigravity's.
-  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body), { modelos: PI_MODELS });
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body).modelos, PI_MODELS);
   assert.equal((await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "" })).status, 200);
   assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor/modelos`)).body).modelos, ["gemini-3.8-flash-high", "claude-sonnet-4-6"]);
   const saved = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "claude-sonnet-4-6", pensamiento: "" });
@@ -895,6 +895,80 @@ for (const runtime of ["pi", "agy"]) {
     } finally { tutor.close(); }
   });
 }
+
+// ---- #452: the studio runs the gate on the part it is about to show ------------------
+
+/**
+ * A part whose figure is the prose wearing boxes: every gate but `explain-check` measures the
+ * figure's geometry, and `prosa-en-cajas` (#420/#435/#441) is the rule that names the prose.
+ */
+const PROSE_IN_BOXES = `# Parte 2 — TCP
+
+## Ruta
+
+1. Qué es TCP.
+2. Cómo saluda.
+3. Por qué importa.
+
+## 1. TCP
+
+**TCP**: es el protocolo que saluda antes de hablar. Ordena los paquetes y vuelve a pedir los que faltan.
+
+Antes, el cliente enviaba y esperaba la respuesta. Ahora el cliente y el servidor se saludan y ningún paquete se pierde.
+
+<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 210","title":"El saludo","scene":{"boxes":[
+{"x":20,"y":40,"w":200,"h":100,"label":"el cliente envia el paquete SYN al servidor","tone":"blue"},
+{"x":280,"y":40,"w":200,"h":100,"label":"el servidor recibe la peticion y responde","tone":"slate"},
+{"x":540,"y":40,"w":200,"h":100,"label":"el cliente espera la respuesta","tone":"green"}],
+"arrows":[{"x1":220,"y1":90,"x2":280,"y2":90},{"x1":480,"y1":90,"x2":540,"y2":90}]}}
+</script>
+</lk-scene>
+
+Cómo leerlo: sigue la flecha y mira qué caja responde.
+
+## Mini-quiz
+
+1. ¿Qué envía el cliente primero?
+`;
+
+test("a part whose figure is prose in boxes never reaches the learner as a finished part", async () => {
+  // The studio's own five tools measure the note the turn wrote, with the repo's rules: no fake
+  // verdict here, because what #452 is about is the real rule (`prosa-en-cajas`) meeting the real path.
+  const tutor = await checkingTutor("pi", {
+    parts: [
+      [{ name: "Parte 2 - TCP.md", content: PROSE_IN_BOXES }],
+      [{ name: "Parte 2 - TCP.md", content: PROSE_IN_BOXES }],
+      [{ name: "Parte 2 - TCP.md", content: PROSE_IN_BOXES }],
+    ],
+  });
+  try {
+    assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 2", tema: "redes" })).status, 200);
+    for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
+      await until(() => tutor.turnsSoFar() === round + 1, 120000);
+      await tutor.endTurn();
+    }
+    await until(() => settleIdle(tutor.stream), 120000);
+    const phases = tutor.stream.events.filter((event) => event.name === "fase").map((event) => event.data);
+    assert.equal(
+      phases.some((phase) => phase.fase === "lista"),
+      false,
+      `a part the gates rejected is never announced as ready: ${JSON.stringify(phases.map((phase) => phase.fase))}`,
+    );
+    assert.ok(
+      tutor.stream.events.some((event) => event.name === "error" && /problemas visuales/.test(String(event.data.message))),
+      "the learner hears the part still has visual problems",
+    );
+    // And the part cannot be opened either: the reader shows what the gates found instead (#452).
+    const refused = await http(`${tutor.studio.url}api/view?topic=redes&part=p2`);
+    assert.equal(refused.status, 409, refused.body);
+    assert.match(refused.body, /no pasó las comprobaciones/);
+    assert.match(refused.body, /prosa-en-cajas/, "the refusal names the rule the figure broke");
+    // Nothing changed for a part nobody measured in this studio: it is still served as before.
+    assert.equal((await http(`${tutor.studio.url}api/view?topic=redes&part=p1`)).status, 200);
+  } finally { tutor.close(); }
+});
 
 test("an Antigravity turn is asked again until the engine clears the failing stage", async () => {
   const { root, engine, log } = makeRoot({ statuses: [FAILING_STAGE, CLEARED_STAGE] });
@@ -2068,14 +2142,15 @@ test("tutor settings default to Pi and persist the selected Antigravity provider
   const settings = { version: 1, agente: "agy", modelo: "", pensamiento: "" };
   const saved = await post(studio, "api/tutor", settings);
   assert.equal(saved.status, 200, saved.body);
-  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), settings);
+    // #404: a v1 body is still accepted and comes back as v2, with the provider left to be detected.
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), { ...settings, version: 2, proveedor: "" });
   // Antigravity cannot apply "minimal": that level is refused, never silently dropped.
   const unsupported = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "minimal" });
   assert.equal(unsupported.status, 400);
   assert.match(JSON.parse(unsupported.body).error, /Antigravity does not accept the thinking level/);
   const low = await post(studio, "api/tutor", { version: 1, agente: "agy", modelo: "", pensamiento: "low" });
   assert.equal(low.status, 200, low.body);
-  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), { version: 1, agente: "agy", modelo: "", pensamiento: "low" });
+  assert.deepEqual(JSON.parse((await http(`${studio.url}api/tutor`)).body), { version: 2, agente: "agy", modelo: "", pensamiento: "low", proveedor: "" });
   // Pi keeps the levels Antigravity lacks.
   assert.equal((await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "minimal" })).status, 200);
 });
@@ -3453,6 +3528,59 @@ for (const runtime of ["pi", "agy"]) {
     }
   });
 }
+
+// The topic's own channel (#440): what the learner said about one topic steers the first draft of
+// its next part, and never a turn that writes a part of another topic.
+test("a write turn carries the digest of its own topic, and a turn on another topic does not", async (t) => {
+  process.env.FAKE_PI_WRITES = JSON.stringify([
+    [{ path: "algebra/explicaciones/Parte 1 - Ecuaciones.md", content: "# Ecuaciones\n" }],
+    [{ path: "redes/explicaciones/Parte 1 - Capas.md", content: "# Capas\n" }],
+  ]);
+  process.env.FAKE_PI_HISTORY = "1";
+  t.after(() => { delete process.env.FAKE_PI_WRITES; delete process.env.FAKE_PI_HISTORY; });
+  // The parts' checks are not under test: a clean verdict keeps both turns normal.
+  const { studio, root, stream, prompts } = await piStudio({ root: { statuses: [CLEARED_STAGE, CLEARED_STAGE] }, studio: { partChecks: async () => ({ kind: "clean" }) } });
+  // A fake turn ends when its dialog is answered, and the end of the turn is what the settle reads.
+  const finishTurn = async (turns) => {
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => prompts().length === turns);
+    await until(() => settleIdle(stream));
+  };
+  try {
+    secondTopic(root);
+    // One review of redes, with no chip that would become a standing rule of its own.
+    assert.equal((await post(studio, "api/sugerencias", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "sobra la mitad del texto" })).status, 200);
+
+    // A turn that writes a part of algebra is not taught redes's feedback.
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "algebra" })).status, 200);
+    await finishTurn(1);
+    assert.equal(prompts()[0].message.includes(`[${TEMA_TITULO}`), false, "another topic's digest is not this turn's");
+    assert.equal(stripTema(stripLecciones(prompts()[0].message)), "Escribe la Parte 1", "and nothing else was appended for it");
+
+    // The learner writes redes's part while quoting the digest's title, as someone asking about the
+    // studio does: the studio's block is found by its blank line, never by the title inside a sentence (#413).
+    const dicho = "Escribe la Parte 1. ¿Qué es «[Lo que el alumno pidió en este tema]» que te llega?";
+    assert.equal((await post(studio, "prompt", { text: dicho, tema: "redes" })).status, 200);
+    await finishTurn(2);
+    const sent = prompts()[1].message;
+    const at = sent.indexOf(`\n\n[${TEMA_TITULO}`);
+    assert.ok(at > sent.indexOf(LECCIONES_TITULO), "the digest follows the lessons");
+    const block = sent.slice(at + 2, sent.indexOf("\n]", at) + 2);
+    assert.ok(block.length <= MAX_TEMA_CHARS, `the digest stays under its cap of ${MAX_TEMA_CHARS}, got ${block.length}`);
+    assert.match(block, /Le pidió a este tema: Demasiado texto \(1\)\./);
+    assert.doesNotMatch(block, /sobra la mitad del texto/, "the digest is the studio's words, not the learner's prose again");
+
+    // The learner's own message reaches them intact, in the live event and in the served thread.
+    const said = await stream.next("user", (data) => data.text === dicho);
+    assert.equal(said.text, dicho, "a title quoted mid-sentence is the learner's, not the studio's");
+    const again = sse(`${studio.url}events`);
+    try {
+      const history = await again.next("history");
+      assert.ok(history.messages.filter((message) => message.role === "user").map((message) => message.text).includes(dicho), "and the thread keeps it verbatim");
+    } finally { again.close(); }
+  } finally { stream.close(); }
+});
 
 test("the regenerate prompt still carries the part-specific reviews of that part", async () => {
   const { studio, received } = await setup();
@@ -5069,4 +5197,142 @@ test("the regenerate prompt carries what the learner values, not only the writin
   const { prompt } = JSON.parse(asked.body);
   assert.match(prompt, /\[Lo que esta persona valora\]/, "the rewrite of a part reads the same verdicts as the first write");
   assert.match(prompt, /El ejemplo fue claro \(2 partes\)/);
+});
+
+// ---- the API tutor, told through the studio -------------------------------------------------
+
+/** A 32-character alphanumeric key, the shape Mistral's dashboard issues. */
+const API_KEY = "0a1b2c3d4e5f60718293a4b5c6d7e8f9";
+
+/** A provider that answers with one tool call, then with text; enough for one real turn. */
+async function fakeProvider() {
+  const seen = [];
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      seen.push({ url: request.url, auth: request.headers.authorization, body: body ? JSON.parse(body) : null });
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      const event = (payload) => `data: ${JSON.stringify(payload)}\n\n`;
+      const delta = (value, finish = null) => event({ choices: [{ delta: value, finish_reason: finish }] });
+      if (seen.length === 1) {
+        response.end(delta({ tool_calls: [{ index: 0, id: "call-write", type: "function", function: { name: "write", arguments: JSON.stringify({ path: "redes/parte1.md", content: "# Parte 1" }) } }] }, "tool_calls") + event("[DONE]"));
+      } else {
+        response.end(delta({ content: "Listo: " }) + delta({ content: "la parte ya está escrita." }) + event("[DONE]"));
+      }
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}/v1/`;
+  return { base, seen, close: () => new Promise((resolve) => server.close(resolve)) };
+}
+
+async function apiStudio(options) {
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, ...options });
+  open.push(studio);
+  return { studio, root, engine };
+}
+
+test("the API tutor runs a turn through the studio and writes the note the model asked for", async () => {
+  const fake = await fakeProvider();
+  try {
+    const { studio, root } = await apiStudio({ apiBase: fake.base, apiEnv: { MISTRAL_API_KEY: API_KEY } });
+    writeDoc(root, "tutor", JSON.stringify({ version: 2, agente: "api", modelo: "mistral-small-2603", pensamiento: "high", proveedor: "mistral" }));
+    // The settings file is read at start, so the tutor is restarted with it the way the page does.
+    assert.equal((await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-small-2603", pensamiento: "high", proveedor: "mistral" })).status, 200);
+    const stream = sse(`${studio.url}events`);
+    await stream.next("history");
+    await stream.next("state");
+    const answer = await post(studio, "prompt", { text: "Escribe la Parte 1" });
+    assert.equal(answer.status, 200, answer.body);
+    const delta = await stream.next("assistant_delta");
+    assert.match(delta.delta, /Listo/);
+    assert.equal(readFileSync(join(root, "redes", "parte1.md"), "utf8"), "# Parte 1");
+    // The effort travelled because that model names `high`.
+    assert.equal(fake.seen[0].body.reasoning_effort, "high");
+    assert.equal(fake.seen[0].auth, `Bearer ${API_KEY}`);
+  } finally { await fake.close(); }
+});
+
+test("the studio says whether the key is present and never serves it", async () => {
+  const absent = await apiStudio({ apiEnv: {} });
+  const none = JSON.parse((await http(`${absent.studio.url}api/proveedores`)).body).proveedores.find((entry) => entry.id === "mistral");
+  assert.equal(none.presente, false);
+  assert.match(none.aviso, /MISTRAL_API_KEY/);
+  const present = await apiStudio({ apiEnv: { MISTRAL_API_KEY: API_KEY } });
+  const raw = (await http(`${present.studio.url}api/proveedores`)).body;
+  const there = JSON.parse(raw).proveedores.find((entry) => entry.id === "mistral");
+  assert.equal(there.presente, true);
+  assert.equal(there.forma, "propia");
+  assert.equal(raw.includes(API_KEY), false, "the key never reaches the page");
+  // Another provider's key is detected and reported as not implemented, never as Mistral.
+  const other = await apiStudio({ apiEnv: { ANTHROPIC_API_KEY: `sk-ant-api03-${"a".repeat(24)}` } });
+  const anthropic = JSON.parse((await http(`${other.studio.url}api/proveedores`)).body).proveedores;
+  assert.equal(anthropic.find((entry) => entry.id === "mistral").presente, false);
+  assert.equal(anthropic.find((entry) => entry.id === "anthropic").implementado, false);
+});
+
+test("saving the API tutor refuses an effort the model does not document, before writing the file", async () => {
+  const fake = await fakeProvider();
+  const { studio, root } = await apiStudio({ apiEnv: { MISTRAL_API_KEY: API_KEY }, apiBase: fake.base });
+  const refused = await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-large-4-0", pensamiento: "none", proveedor: "mistral" });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body, /no acepta/);
+  assert.equal(existsSync(join(root, "tutor.json")), false, "a refused tutor never writes the file");
+  const accepted = await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-large-4-0", pensamiento: "medium", proveedor: "mistral" });
+  assert.equal(accepted.status, 200, accepted.body);
+  assert.equal(JSON.parse(accepted.body).pensamiento, "medium");
+  // A model nobody documented offers no levels, and the page is told so.
+  const catalogue = JSON.parse((await http(`${studio.url}api/tutor/modelos?agente=api&modelo=mistral-large-latest`)).body);
+  assert.deepEqual(catalogue.pensamientos, []);
+  assert.ok(fake.seen.length >= 1, "the catalogue came from the provider the studio was pointed at, never the internet");
+  await fake.close();
+});
+
+test("a missing key refuses the save instead of replacing a tutor that works", async () => {
+  const { studio, root } = await apiStudio({ apiEnv: {} });
+  const before = await post(studio, "api/tutor", { version: 1, agente: "pi", modelo: "", pensamiento: "" });
+  assert.equal(before.status, 200, before.body);
+  const refused = await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-small-2603", pensamiento: "", proveedor: "mistral" });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body, /MISTRAL_API_KEY/);
+  assert.equal(JSON.parse(readFileSync(join(root, "tutor.json"), "utf8")).agente, "pi", "the working tutor is still the saved one");
+});
+
+test("stopping an API turn through the studio stops the work, not just the page", async () => {
+  // The provider holds the stream open after its first delta; the model's tool call is queued
+  // behind the release. A stop that only reaches the page leaves the runtime busy and lets the
+  // model write to the vault after the learner said stop.
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", async () => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "a medias" } }] })}\n\n`);
+      await held;
+      const call = { tool_calls: [{ index: 0, id: "call-write", type: "function", function: { name: "write", arguments: JSON.stringify({ path: "redes/abortado.md", content: "no" }) } }] };
+      response.end(`data: ${JSON.stringify({ choices: [{ delta: call, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}/v1/`;
+  const { studio, root } = await apiStudio({ apiBase: base, apiEnv: { MISTRAL_API_KEY: API_KEY } });
+  try {
+    assert.equal((await post(studio, "api/tutor", { version: 2, agente: "api", modelo: "mistral-small-2603", pensamiento: "", proveedor: "mistral" })).status, 200);
+    const stream = sse(`${studio.url}events`);
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "escribe la parte" })).status, 200);
+    await stream.next("assistant_delta");
+    assert.equal((await post(studio, "abort", {})).status, 200);
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(existsSync(join(root, "redes", "abortado.md")), false, "nothing is written after the stop");
+    // The runtime is usable again: the stop did not latch the studio's only turn.
+    const again = await post(studio, "prompt", { text: "otra cosa" });
+    assert.equal(again.status, 200, again.body);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
 });

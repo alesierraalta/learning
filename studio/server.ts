@@ -41,8 +41,10 @@ import { buildPanorama } from "./panorama.ts";
 import { partBriefAsync, planBrief } from "./brief.ts";
 import { OFFLINE_CSP, partLoader, snapshotPage } from "./offline.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
-import { readTutor, saveTutor, type TutorConfig } from "./tutor.ts";
+import { AGY_LEVELS, PI_LEVELS, readTutor, saveTutor, TUTOR_AGENTS, type TutorConfig } from "./tutor.ts";
 import { createAgy, parseAgyModels } from "./agy.ts";
+import { createApi } from "./api-runtime.ts";
+import { catalogoMistral, detectar, nivelesDeEffort, proveedorDisponible, proveedorPorId } from "./proveedores.ts";
 import { checkTutorContext, driftMessage } from "./context.ts";
 import { VISUAL_CONTRACT_PROMPT, withVisualContract } from "../integrations/pi/contract.ts";
 import {
@@ -82,7 +84,7 @@ import {
 } from "./chats.ts";
 import { parsePiModels } from "./pi-models.ts";
 import { enrolled } from "./gate.ts";
-import { runPartChecks, type PartChecks, type PartReport } from "./checks.ts";
+import { parsedFindingsOf, runPartChecks, type PartChecks, type PartReport } from "./checks.ts";
 import { gateVerdictsFile, warmGateVerdicts } from "../integrations/pi/gate-verdicts.ts";
 import { PASS_STATUSES, gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
 import {
@@ -98,7 +100,7 @@ import {
 import { createPageTiming, type PageTiming, type PageTimingReport } from "./timing.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
-import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, tutorContext, validateSugerencia, withLecciones } from "./sugerencias.ts";
+import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, stripTema, tutorContext, validateSugerencia, withLecciones, withTema } from "./sugerencias.ts";
 import { listarValoraciones, recordValoracion, stripGustos, withGustos } from "./valoraciones.ts";
 import { buildEspera, partNotePath, writePartTarget } from "./espera.ts";
 import { createGlosario } from "./glosario.ts";
@@ -267,6 +269,16 @@ export interface StudioOptions {
   transcriberUrl?: string;
   transcriberToken?: string;
   enginePath?: string;
+  /**
+   * Base URL of the API provider the tutor talks to; a test or a local proxy points it elsewhere.
+   * Default: the detected provider's own base, as the registry declares it.
+   */
+  apiBase?: string;
+  /**
+   * Where the provider's key is read from, presence only; never written anywhere. Default: the
+   * studio's own environment.
+   */
+  apiEnv?: Record<string, string | undefined>;
   rulesPath?: string;
   /** A fixed 64-hex token, so restarts never invalidate an open tab; random per run when absent. */
   token?: string;
@@ -397,11 +409,29 @@ type Turn = {
    * report the studio writes when the turn ends. It only reads the turn; it never changes it.
    */
   timing: PageTiming;
+  /**
+   * What the studio's own measurement said about the part this turn had to produce (#452).
+   * `undefined` means no part was owed and `crashed` means nothing could measure it: neither is a
+   * part the studio may present as finished. Only `clean` is.
+   */
+  partVerdict?: PartChecks;
+  /**
+   * How the part this turn owed looked before the turn started (#452). A part the turn did not
+   * change is not this turn's to measure: its findings are the note's, never this turn's failure.
+   */
+  expectedAtStart?: string | null;
   /** The topic writer ticket this turn inherited from its route, released when the turn ends. */
   lock?: { release: () => void } | null;
   lockPromise?: Promise<{ release: () => void }>;
   /** An aborted turn ends as failed, whatever the runtime reports afterwards. */
   aborted?: boolean;
+  /**
+   * A settle is already deciding this turn (#460). A runtime that reports its end twice, or a
+   * correction whose own settle lands while the previous one is still asking for it, must not
+   * decide the same turn again: the second decision reads a part the first one is still writing
+   * and rolls back a regeneration that did write.
+   */
+  settling?: boolean;
   /**
    * This turn already used its one explicit correction for a part that was not written or that
    * the gates rejected; a second failure rolls back instead of asking again (#393).
@@ -432,6 +462,8 @@ type Session = {
   kind: "main" | "task";
   child?: ChildProcessWithoutNullStreams;
   agy?: ReturnType<typeof createAgy>;
+  /** The API runtime: same surface as `agy`, no resident process and no conversation to reopen. */
+  api?: ReturnType<typeof createApi>;
   agyTurns: Array<{ role: "user" | "assistant"; text: string }>;
   alive: boolean;
   ready: Promise<void>;
@@ -576,6 +608,49 @@ function markRegeneration(file: string, topic: string, part: string, reason: str
   } catch (error) {
     try { rmSync(temporary, { force: true }); } catch { /* nothing to clean */ }
     process.stderr.write(`estudio: no se pudo guardar el estado de la regeneración · ${(error as Error).message}\n`);
+  }
+}
+
+/**
+ * One part's last measurement, keyed by the bytes it measured (#452): a part that changed since
+ * then is not covered by it, and a part nobody measured carries no mark at all.
+ */
+export type PartGateMark = { bytes: string; count: number; rules: string[] };
+
+function readPartGateMarks(file: string): Record<string, PartGateMark> {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const marks: Record<string, PartGateMark> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
+      const entry = value as Record<string, unknown>;
+      const rules = Array.isArray(entry.rules) ? entry.rules.filter((rule): rule is string => typeof rule === "string") : null;
+      if (typeof entry.bytes === "string" && typeof entry.count === "number" && rules !== null) {
+        marks[key] = { bytes: entry.bytes, count: entry.count, rules };
+      }
+    }
+    return marks;
+  } catch {
+    return {};
+  }
+}
+
+/** One part's last measurement: a failing one is remembered, a passing one forgets it (#452). */
+function markPartGate(file: string, key: string, mark: PartGateMark | null): void {
+  const marks = readPartGateMarks(file);
+  if (mark === null) {
+    if (!(key in marks)) return;
+    delete marks[key];
+  } else marks[key] = mark;
+  mkdirSync(dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(marks, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    renameSync(temporary, file);
+  } catch (error) {
+    try { rmSync(temporary, { force: true }); } catch { /* nothing to clean */ }
+    process.stderr.write(`estudio: no se pudo guardar la medida de la parte · ${(error as Error).message}\n`);
   }
 }
 
@@ -805,6 +880,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const taskConversationFile = taskConversationsFile(chatsFile);
   /** The last regeneration verdict per part, outside the vault: the topic view reads it (#393). */
   const regenerationMarksFile = join(dirname(openedFile), "regeneraciones.json");
+  /** The last measurement of each part, keyed by the bytes it measured: what the studio may serve (#452). */
+  const partGateMarksFile = join(dirname(openedFile), "partes-medidas.json");
   /** One Session for the main chat, one per topic: a map, never a global limit. */
   const tasks = new Map<string, Session>();
   const taskClients = new Map<string, Set<ServerResponse>>();
@@ -1025,9 +1102,9 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       case "message_start": {
         const message = record.message;
         if (isRecord(message) && message.role === "user") {
-          // The standing lessons travel inside the turn's prompt; the chat shows what the learner
-          // wrote, so the block is stripped before it is ever served as their message.
-          const text = stripGustos(stripLecciones(messageText(message)));
+          // The studio's blocks travel inside the turn's prompt; the chat shows what the learner
+          // wrote, so they are stripped before it is ever served as their message.
+          const text = stripGustos(stripTema(stripLecciones(messageText(message))));
           // The gate's instruction is the studio's prompt, never the learner's own words.
           if (isStudioPrompt(text)) return;
           if (text) {
@@ -1204,7 +1281,29 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (proc) proc.kill();
     session.agy?.stop();
     session.agy = undefined;
+    session.api?.stop();
+    session.api = undefined;
     session.alive = false;
+  };
+
+  /** The API tutor: the provider's own endpoint, with tools and no resident process. */
+  const startApiRuntime = (session: Session, config: TutorConfig) => {
+    session.api = createApi({
+      root,
+      config,
+      engine: enginePath,
+      rulesPath,
+      // Presence is read here and nowhere else; nothing writes a key to the vault or the page.
+      env: options.apiEnv ?? process.env,
+      base: options.apiBase,
+      // A task's turn still tells the engine which topic it is working on.
+      ...(session.kind === "task" ? { childEnv: { LEARNING_TASK_TOPIC: session.id } } : {}),
+      onRecord: (record) => handle(record, session),
+      onError: (message) => session.emit("error", { message }),
+    });
+    session.ready = Promise.resolve();
+    session.alive = true;
+    session.emit("state", session.state());
   };
 
   /** Starts the runtime a task will use; new settings only reach tasks that were idle at the change. */
@@ -1214,7 +1313,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (tutor.agente === "pi") {
       startPi(session);
       session.ready = Promise.resolve();
-    } else {
+    } else if (tutor.agente === "agy") {
       const conversations = readTaskConversations(taskConversationFile);
       session.agyConversation = conversations.conversaciones[session.id] ?? null;
       session.agy = createAgy({
@@ -1233,10 +1332,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       session.ready = Promise.resolve();
       session.alive = true;
       session.emit("state", session.state());
+    } else {
+      startApiRuntime(session, tutor);
     }
   };
 
-  const missingRuntime = (session: Session) => !session.agy && !(session.child && session.alive);
+  const missingRuntime = (session: Session) => !session.agy && !session.api && !(session.child && session.alive);
 
   /** The task for a topic is created on first use and then kept for the studio's lifetime. */
   const ensureTask = (topic: string): Session => {
@@ -1431,6 +1532,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     if (config.agente === "pi") {
       startPi(main);
       main.ready = adoptBoot();
+    } else if (config.agente === "api") {
+      startApiRuntime(main, config);
     } else {
       main.agy = createAgy({
         command: options.agyCommand ?? ["agy"],
@@ -1614,7 +1717,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     // the turn is over, so a reader can compare this generation with the next one.
     if (ended.parts.length > 0) savePageTiming(ended.timing, ended.parts);
     if (!ended.aborted && ended.espera?.note && existsSync(ended.espera.note) &&
-        !(ended.regeneration && !ended.regeneration.passed)) {
+        !(ended.regeneration && !ended.regeneration.passed) && partServes(ended)) {
       emitFase(session, ended, "lista", undefined, true);
     }
     session.saveSnapshot();
@@ -1640,6 +1743,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     try {
       if (session.agy) {
         session.agy.prompt(prompt);
+      } else if (session.api) {
+        session.api.prompt(prompt);
       } else {
         const reply = await call(session, { type: "prompt", message: prompt });
         if (reply.success === false) throw new HttpError(409, String(reply.error ?? "el tutor rechazó el turno"));
@@ -1761,11 +1866,17 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       }
       try {
         if (spec.backup) started.regeneration = spec.backup();
+        // #452: what the part owed looked like before this turn, so only a part the turn itself
+        // wrote or changed is measured here.
+        const owed = partExpected(started);
+        started.expectedAtStart = owed ? bytesOf(owed.file) : undefined;
         // The learner's words stay first; a write-part turn also carries the facts the
         // tutor would otherwise discover with ls/find/reads. Both runtimes get the same prompt.
         const prompt = await started.timing.measure("contexto", async () => {
           // #412/#413: the learner's verdicts ride with the lessons; #422 made the brief async.
-          const base = withGustos(withLecciones(namedPart(text), root), root);
+          // #440: a turn that writes a part also carries that topic's own digest, after the lessons
+          // and before the verdicts, so a line never rides in two channels.
+          const base = withGustos(withTema(withLecciones(namedPart(text), root), root, target?.topic), root);
           // The awaited brief adds the course slices the embedder ranks; it returns at once and
           // starts nothing for a prompt that is not a course part (#422).
           const brief = await partBriefAsync(root, text);
@@ -1806,7 +1917,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * failure and goes to the log: it is never a finding the tutor is asked to fix.
    */
   const checkParts = async (settled: Turn): Promise<PartReport | null> => {
-    const files = partNotes(settled.parts);
+    const expected = partExpected(settled);
+    // #452: the part the turn owed is measured even when its own write events never named it, so
+    // the file the learner will open is the one that must pass. Only when the turn is what changed
+    // it: a part that was already there is not this turn's to measure, and re-measuring it would
+    // hand the tutor findings it did not produce.
+    const owed = expected !== null && settled.expectedAtStart !== undefined && bytesOf(expected.file) !== settled.expectedAtStart
+      ? expected.file
+      : null;
+    const files = [...new Set(partNotes([...settled.parts, ...(owed ? [owed] : [])]))];
     if (!files.length) return null;
     const checkPartsWithVerdicts = options.partChecks ?? ((paths: string[]) => runPartChecks(paths, { gateVerdictsFile: gateStoreFile, gateToolPath: options.gateToolPath }));
     const checked = await checkPartsWithVerdicts(files);
@@ -1814,6 +1933,23 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     // something: it never becomes a tutor finding, and it is never silently dropped (#372/T2a).
     for (const failure of "failures" in checked ? checked.failures : []) {
       process.stderr.write(`estudio: comprobación fallida · ${failure}\n`);
+    }
+    settled.partVerdict = checked;
+    // What the measurement said about the part itself is kept beside the studio's own state, so
+    // the part cannot be served as if it had passed (#452). A measurement that could not run
+    // leaves no mark: the studio does not refuse what it could not read. The findings counted are
+    // the ones in the note the reader opens, never another file's: a page that failed does not
+    // hide a note that passed.
+    if (owed && expected && settled.topic) {
+      const bytes = bytesOf(expected.file);
+      const mine = checked.kind === "findings" ? checked.tools.filter((tool) => tool.file === expected.file) : [];
+      const count = mine.reduce((total, tool) => total + tool.findings.length, 0);
+      const rules = [...new Set(mine.flatMap((tool) => parsedFindingsOf(tool.tool, tool.output).map((found) => found.rule)).filter((rule) => rule !== ""))].slice(0, 12);
+      markPartGate(
+        partGateMarksFile,
+        `${root}::${settled.topic}/${expected.part}`,
+        bytes === null ? null : count > 0 ? { bytes, count, rules } : null,
+      );
     }
     if (checked.kind === "crashed") {
       // A gate that could not measure did not pass: a regeneration keeps the previous version.
@@ -1837,7 +1973,39 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     session.emit("studio", { text, ...aboveTutor(turn) });
   };
 
-  /** The part this turn had to produce: a regeneration's part, or the part a write request named. */
+  /**
+   * A part the studio presents as finished was measured and nothing was found in it (#452): a
+   * part nobody measured is not presented as a finished part either.
+   */
+  const partServes = (turn: Turn): boolean => turn.partVerdict?.kind === "clean";
+
+  /** The bytes a measurement covers: a part that changed since then is not covered by it (#452). */
+  const bytesOf = (file: string): string | null => {
+    try {
+      const stats = statSync(file);
+      return `${stats.size}:${stats.mtimeMs}`;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * A part the studio measured and rejected is not served as if it had passed (#452): the learner
+   * gets the findings instead. A mark that does not match the note's bytes covers another version.
+   */
+  const assertPartServes = (topic: string, part: string): void => {
+    const file = partNotePath(root, topic, part);
+    if (!file) return;
+    const mark = readPartGateMarks(partGateMarksFile)[`${root}::${topic}/${part}`];
+    if (!mark || mark.count === 0 || bytesOf(file) !== mark.bytes) return;
+    const count = mark.count === 1 ? "1 hallazgo" : `${mark.count} hallazgos`;
+    const rules = mark.rules.length ? ` (${mark.rules.join(", ")})` : "";
+    throw new HttpError(409, `«${basename(file, ".md")}» no pasó las comprobaciones: ${count}${rules}. No se sirve hasta que pase.`);
+  };
+
+  /**
+   * The part this turn had to produce: a regeneration's part, or the part a write request named.
+   */
   const partExpected = (settled: Turn): { file: string; part: string; title: string; number: number } | null => {
     const topic = settled.topic;
     const part = settled.regeneration?.part ?? settled.espera?.part;
@@ -1884,6 +2052,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * only its own turn; only a correction that was sent keeps it.
    */
   const settleTurn = async (session: Session, settled: Turn) => {
+    // #460: the learner stopped this turn, so what the runtime reports afterwards decides nothing:
+    // the abort already said how it ends, and a late settle would only roll back its own result.
+    if (settled.aborted) {
+      releaseTurn(session, settled);
+      return;
+    }
+    // #460: one decision per turn at a time, whatever a runtime reports and however late.
+    if (settled.settling) return;
+    settled.settling = true;
     const topic = settled.topic;
     let corrected = false;
     try {
@@ -1965,6 +2142,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       correctionRefused(session, topic ?? "el tema");
       process.stderr.write(`estudio: el motor no pudo decidir el turno · ${(error as Error).message}\n`);
     } finally {
+      settled.settling = false;
       // Only the turn this settle was called for: a late answer may belong to a turn already gone.
       if (!corrected) releaseTurn(session, settled);
     }
@@ -2024,6 +2202,29 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         resolve(parsePiModels(String(stdout ?? "")));
       });
     });
+  /**
+   * The models the API provider returns for its own key. A missing key or a failed request is an
+   * answer with a reason, never a 500: the page must still open and say what is missing.
+   */
+  const apiCatalog = async (id: string): Promise<{ modelos: string[]; aviso?: string }> => {
+    const provider = proveedorPorId(id);
+    if (!provider) throw new HttpError(400, "unknown provider");
+    if (!provider.implementado) return { modelos: [], aviso: `${provider.nombre} todavía no está implementado` };
+    const env = options.apiEnv ?? process.env;
+    const key = String(env[provider.variable] ?? "").trim();
+    if (!key) return { modelos: [], aviso: `Falta ${provider.variable}: expórtala y reinicia el estudio.` };
+    try {
+      const response = await fetch(`${options.apiBase ?? provider.base}models`, {
+        headers: { authorization: `Bearer ${key}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) return { modelos: [], aviso: `${provider.nombre} respondió ${response.status}` };
+      return { modelos: catalogoMistral(await response.json()).map((modelo) => modelo.id) };
+    } catch (error) {
+      return { modelos: [], aviso: `No se pudo leer el catálogo de ${provider.nombre}: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  };
+
   const engineReport = (workspace: string): Promise<Json> =>
     new Promise((resolve) => {
       if (!existsSync(enginePath)) return resolve({ status: "desconocido" });
@@ -2494,6 +2695,25 @@ ${scripts}
       }
       case "api/tutor": {
         if (main.turn) throw new HttpError(409, TURN_ACTIVE);
+        // Checked before the save, so a refused tutor never replaces the one that works.
+        if (isRecord(body) && body.agente === "api") {
+          const modelo = typeof body.modelo === "string" ? body.modelo : "";
+          const pensamiento = typeof body.pensamiento === "string" ? body.pensamiento : "";
+          const id = (typeof body.proveedor === "string" && body.proveedor) || proveedorDisponible(options.apiEnv ?? process.env)?.id || "";
+          const provider = id ? proveedorPorId(id) : null;
+          if (!provider) throw new HttpError(400, "Para usar Mistral exporta MISTRAL_API_KEY y reinicia el estudio.");
+          if (!provider.implementado) throw new HttpError(400, `${provider.nombre} todavía no está implementado`);
+          // A named provider whose key is gone must not replace a tutor that works: every turn
+          // would then fail while the page said the tutor was ready.
+          if (!String((options.apiEnv ?? process.env)[provider.variable] ?? "").trim()) {
+            throw new HttpError(400, `Exporta ${provider.variable} y reinicia el estudio antes de guardar ${provider.nombre}.`);
+          }
+          if (!modelo) throw new HttpError(400, `Elige un modelo de ${provider.nombre} antes de guardar el tutor.`);
+          const niveles = nivelesDeEffort(modelo);
+          if (pensamiento && !niveles.includes(pensamiento)) {
+            throw new HttpError(400, `${provider.nombre} no acepta «${pensamiento}» en ${modelo}; elige ${niveles.length ? niveles.join(", ") : "ningún nivel"}.`);
+          }
+        }
         const config = saveTutor(root, body);
         startTutor(config);
         return sendJson(res, 200, config);
@@ -2629,13 +2849,20 @@ ${scripts}
         const cause = isRecord(body) && body.cause === "update" ? "update" : undefined;
         const held = session.turn;
         if (held) held.aborted = true;
-        releaseTurn(session);
-        if (cause !== undefined && held !== null) {
-          session.interrupted = { topic: held.topic, at: Date.now(), cause };
-          session.saveSnapshot();
+        // The runtime is stopped before the rollback moves anything back: a process that is still
+        // writing would otherwise land its part on top of the version the learner was told is kept
+        // (#460). Either way the turn is released, so an abort is final.
+        try {
+          if (session.agy) session.agy.abort();
+          else if (session.api) session.api.abort();
+          else if (session.child) await call(session, { type: "abort" }, 60000);
+        } finally {
+          releaseTurn(session);
+          if (cause !== undefined && held !== null) {
+            session.interrupted = { topic: held.topic, at: Date.now(), cause };
+            session.saveSnapshot();
+          }
         }
-        if (session.agy) session.agy.abort();
-        else if (session.child) await call(session, { type: "abort" }, 60000);
         if (session.kind === "task") emitTareas();
         break;
       }
@@ -2801,9 +3028,9 @@ ${scripts}
       const raw = isRecord(reply.data) && Array.isArray(reply.data.messages) ? reply.data.messages : [];
       const messages = raw
         .filter((m): m is Json => isRecord(m) && (m.role === "user" || m.role === "assistant"))
-        // The standing lessons travel inside the turn's prompt, so the thread keeps the learner's
-        // words and never the block the studio added after them.
-        .map((m) => ({ role: m.role, text: m.role === "user" ? stripGustos(stripLecciones(messageText(m))) : messageText(m) }))
+        // The studio's blocks travel inside the turn's prompt, so the thread keeps the learner's
+        // words and never what was added after them.
+        .map((m) => ({ role: m.role, text: m.role === "user" ? stripGustos(stripTema(stripLecciones(messageText(m)))) : messageText(m) }))
         // The gate's instruction is the studio's own prompt: the thread keeps the learner's words.
         .filter((m) => m.text && !(m.role === "user" && isStudioPrompt(m.text)));
       // A runtime that lost the conversation still has the studio's own copy of the turn.
@@ -2987,11 +3214,25 @@ ${scripts}
         return sendJson(res, 200, readPreferences(root));
       case "api/tutor":
         return sendJson(res, 200, readTutor(root));
+      case "api/proveedores":
+        // Presence and a reason, never a key: the page learns whether it can offer the provider.
+        return sendJson(res, 200, { proveedores: detectar(options.apiEnv ?? process.env) });
       case "api/tutor/modelos": {
         // The catalogue belongs to the runtime selected in the page, which may not be saved yet.
-        const provider = url.searchParams.get("agente") ?? readTutor(root).agente;
-        if (provider !== "pi" && provider !== "agy") throw new HttpError(400, "agente must be pi or agy");
-        return sendJson(res, 200, { modelos: provider === "agy" ? await agyCatalog() : await piCatalog() });
+        const saved = readTutor(root);
+        const provider = url.searchParams.get("agente") ?? saved.agente;
+        if (!(TUTOR_AGENTS as readonly string[]).includes(provider)) throw new HttpError(400, "agente must be pi, agy or api");
+        const modelo = url.searchParams.get("modelo") ?? saved.modelo;
+        if (provider === "api") {
+          const id = saved.proveedor || proveedorDisponible(options.apiEnv ?? process.env)?.id || "mistral";
+          const catalogo = await apiCatalog(id);
+          return sendJson(res, 200, { ...catalogo, pensamientos: nivelesDeEffort(modelo) });
+        }
+        // A model the API does not document gets no levels: the page says so instead of guessing.
+        return sendJson(res, 200, {
+          modelos: provider === "agy" ? await agyCatalog() : await piCatalog(),
+          pensamientos: provider === "agy" ? AGY_LEVELS : PI_LEVELS,
+        });
       }
       case "api/tema":
         return sendJson(res, 200, { tema: main.tema });
@@ -3084,6 +3325,8 @@ ${scripts}
         const part = url.searchParams.get("part") ?? "";
         const entry = listTopics(root).find((t) => t.id === topic)?.parts.find((p) => p.id === part);
         if (!entry?.written) throw new HttpError(404, `no written part ${part} in ${topic}`);
+        // A part the studio's own measurement rejected is not packaged for reading either (#452).
+        assertPartServes(topic, part);
         // Over loopback, like the draft preview: the public proxy's certificate is for browsers.
         const reader = await view(topic, part);
         const publicBase = String(reader.base);
@@ -3109,7 +3352,11 @@ ${scripts}
           if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(audio)) throw new HttpError(404, `no audio session ${audio}`);
           return sendJson(res, 200, { url: `${String((await view()).base)}audios/${audio}` });
         }
-        const result = await view(url.searchParams.get("topic") ?? undefined, url.searchParams.get("part") ?? undefined);
+        const topic = url.searchParams.get("topic") ?? undefined;
+        const part = url.searchParams.get("part") ?? "";
+        // A part the studio's own measurement rejected is not served as if it had passed (#452).
+        if (topic !== undefined) assertPartServes(topic, part);
+        const result = await view(topic, part === "" ? undefined : part);
         return sendJson(res, 200, { url: result.url });
       }
       default:
