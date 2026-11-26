@@ -851,6 +851,80 @@
         h("p", { class: "muted" }, when(entrada.timestamp)))));
   }
 
+  /**
+   * The learner's own sentence becomes the rule every turn reads (#464). The field starts from
+   * their words and shows the cap: the studio invites them to shorten it and stores nothing until
+   * the sentence fits, because a rule it invented or cut would not be theirs.
+   */
+  const askLeccion = ({ tema, parte, entrada, maxRegla = 140 }) => {
+    const field = h("input", {
+      id: "leccion-regla",
+      type: "text",
+      autocomplete: "off",
+      "aria-label": "Tu frase, como lección",
+      "aria-describedby": "leccion-limite",
+      value: entrada.texto.trim(),
+    });
+    const limit = h("p", { class: "modal-note", id: "leccion-limite" });
+    const alert = h("p", { class: "modal-note", role: "status" });
+    const accept = btn("Guardarla como lección", () => submit(), "btn primary");
+    const cancel = btn("Cancelar", () => box.remove(), "btn ghost");
+    const count = () => {
+      const largo = field.value.trim().length;
+      limit.textContent = largo === 0
+        ? `Escribe la frase que será la lección: ${maxRegla} caracteres como máximo`
+        : `${largo} de ${maxRegla} caracteres${largo > maxRegla ? ": acórtala y guárdala" : ""}`;
+      limit.classList.toggle("alert", largo > maxRegla);
+      accept.disabled = largo === 0 || largo > maxRegla;
+    };
+    field.addEventListener("input", count);
+
+    async function submit() {
+      if (field.value.trim().length > maxRegla) return;
+      accept.disabled = true;
+      try {
+        await post("api/sugerencias/promover", { tema, parte, id: entrada.id, regla: field.value.trim() });
+        box.remove();
+        toast("Lección guardada: desde ahora el tutor lee tu frase en cada explicación");
+        // The entry stops offering the door and starts saying what its rule is.
+        feedbackView();
+      } catch (error) {
+        accept.disabled = false;
+        alert.textContent = error.message;
+        alert.classList.add("alert");
+        field.focus();
+      }
+    }
+
+    const box = h(
+      "div",
+      { class: "modal-backdrop" },
+      h(
+        "div",
+        { class: "modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "leccion-title" },
+        h("h2", { id: "leccion-title" }, "¿Tu frase será la lección?"),
+        h(
+          "p",
+          { class: "modal-note" },
+          `Se lee en cada explicación, así que va en una sola línea de ${maxRegla} caracteres como máximo. Si no cabe, acórtala aquí: el estudio nunca recorta tus palabras.`,
+        ),
+        field,
+        limit,
+        alert,
+        h("div", { class: "modal-actions" }, cancel, accept),
+      ),
+    );
+    box.addEventListener("click", (event) => {
+      if (event.target === box) box.remove();
+    });
+    box.addEventListener("keydown", (event) => {
+      if (event["key"] === "Escape") box.remove();
+    });
+    document.body.append(box);
+    count();
+    field.focus();
+  };
+
   /** What the learner said with «Sugerir», «Regenerar» and the thumbs at the end of a part. */
   async function feedbackView() {
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: "Configuración", href: "#/preferencias" }, { text: "Tu feedback" }]);
@@ -864,6 +938,9 @@
     try {
       const [resumen, valoraciones] = await Promise.all([request("api/sugerencias/resumen"), request("api/valoraciones")]);
       if (!page.isConnected) return;
+      // The cap a lesson has to fit: the studio sends it with the summary, so the page never keeps
+      // a second copy of the number that decides what a rule may be.
+      const maxRegla = resumen.maxRegla || 140;
       if (resumen.total === 0) status.textContent = "Todavía no hay sugerencias: usa «Sugerir» o «Regenerar» al leer una parte.";
       else {
         status.textContent = count(resumen.total);
@@ -876,7 +953,12 @@
             e.texto.length > 280
               ? h("details", {}, h("summary", {}, `${e.texto.replace(/\s+/g, " ").slice(0, 200).trim()}… `, h("span", { class: "feedback-more" }, "Ver completo")), h("blockquote", {}, e.texto))
               : h("blockquote", {}, e.texto),
-            h("figcaption", { class: "muted" }, `${e.origen === "regenerar" ? "Regenerar" : "Sugerencia"} · ${when(e.timestamp)}`)))))));
+            h("figcaption", { class: "muted" }, `${e.origen === "regenerar" ? "Regenerar" : "Sugerencia"} · ${when(e.timestamp)}`),
+            // The explicit door (#464): their sentence, shortened by them when the cap asks for it,
+            // and never offered again once it is already the rule.
+            e.promovida
+              ? h("p", { class: "muted" }, `Ya es una lección: «${e.regla}»`)
+              : btn("Hacer de esto una lección", () => askLeccion({ tema: tema.tema, parte: parte.parte, entrada: e, maxRegla }), "btn small ghost")))))));
       }
       const veredictos = valoraciones.entradas ?? [];
       if (veredictos.length) page.append(verdictsSection(veredictos, new Map((valoraciones.motivos ?? []).map((motivo) => [motivo.id, motivo.texto]))));

@@ -1052,7 +1052,8 @@ chip or one sentence; the accept button stays disabled until then.
   moved go back and no folder is left behind.
 
 The `sugerencias` document of the learner database holds every entry (`{id, tema, parte, motivos, texto,
-origen: sugerencia|regenerar, timestamp}`, version 1). It is validated on read and
+origen: sugerencia|regenerar, timestamp}`, version 1, plus the classification an entry may carry:
+`alcance`, `regla` and `promovida`). It is validated on read and
 nothing is repaired behind the learner's back: a document that cannot be parsed reads as
 empty and is copied to `sugerencias.corrupta-<stamp>.json` before the next write, and an
 entry that no longer matches the shape is copied to `sugerencias.corrupta-<stamp>.json`
@@ -1074,12 +1075,12 @@ A review says one of two things, and the studio tells them apart when it records
 model and without reading the learner's prose: a review is about **one passage of one part**
 («no entendí esta parte», «de dónde sale `c/(1−γ)`») or it is a **lesson about how explanations
 are made anywhere** («faltan visuales», «da pasos intermedios en los ejercicios largos»). The
-chips decide it. `faltan-visuales`, `faltan-ejemplos` and `sin-paso-a-paso` name a way of
-explaining, so the review is `alcance: "general"` and carries a `regla` — one line, in Spanish,
-imperative, at most 140 characters — built from those chips. Anything else (`no-entendi`,
-`matematicas-confusas`, `demasiado-texto`, `muy-abstracto`, `sobran-preguntas`, or words with no
-chip at all) is `alcance: "parte"`. Both fields are stored in the entry and survive every rewrite
-of the store; the page never sends them.
+chips decide it. Every chip the page offers names a way of explaining (`REGLA_POR_MOTIVO`), so the
+review is `alcance: "general"` and carries a `regla` — one line, in Spanish, imperative, at most 140
+characters — built from the first such chip it names. Words with no chip at all stay with their part
+until the learner promotes them below, and a legacy entry already classified `parte` keeps its part.
+Both fields are stored in the entry and survive every rewrite of the store; the page never sends
+them.
 
 A **general** lesson is read by every turn of every topic, not only by the regenerate of the part
 that taught it. `startTurn` appends the block to the prompt of the turn — the one place both
@@ -1134,11 +1135,28 @@ that several reviews repeat, is written by hand into `studio/lecciones-base.json
 with the check or the skill section that enforces it; a rule with nothing that measures or explains
 it is an opinion, and the skill is written first.
 
+**The learner's own sentence can be the rule, explicitly** (#464). The menu of motives was the only
+door from feedback to a standing lesson, so «Tu feedback» opens a second, deliberate one: every
+suggestion with words carries **«Hacer de esto una lección»**, which opens one line pre-filled with
+that sentence and shows its length against the cap of 140 characters. What is saved is what the
+learner wrote — or shortened to fit — never a sentence the studio invented: the rule *is* their
+words. `POST api/sugerencias/promover` answers `{entrada, bloque}`, the promoted entry and the
+length of the block it just changed. A sentence of 141 characters, one carrying a newline or a
+control character, or one carrying `\n\n[` (the studio's own block marker, which would read back as
+a block it never wrote) is refused with 400 and nothing is stored: the studio never truncates a
+rule, because a rule the learner did not write is not theirs. With an `id` the entry itself becomes
+the lesson (`alcance: "general"`, `regla`, `promovida: true`), so offering it again rewrites the same
+line instead of adding a second one, and the page answers «Ya es una lección» with the rule it now
+reads. Without an `id` a new general entry records the sentence as its words. Nothing is promoted by
+itself: an entry stays part-scoped until the learner says otherwise.
+
 The loop leans on what is already stored: before writing, the prompts for a part, the
 plan and the map carry a compact context built from the stored preferences, the weak
 telemetry categories and the last suggestions. The
 token-gated routes are `GET api/sugerencias?tema=&parte=` (entries, chips and derived
-lines), `GET api/sugerencias/resumen` (every entry grouped by topic and part, with chip counts), `POST api/sugerencias` (record), `POST api/regenerar` (record, back up, prompt)
+lines), `GET api/sugerencias/resumen` (every entry grouped by topic and part, with chip counts and the
+cap a lesson has to fit), `POST api/sugerencias` (record), `POST api/sugerencias/promover` (their own
+sentence as a standing rule), `POST api/regenerar` (record, back up, prompt)
 and `GET api/contexto?tema=` (the lines a writing prompt carries). Malformed input
 returns 400; nothing is written on a failure.
 
