@@ -94,8 +94,9 @@ def encode_mp3(wav: str, mp3: str) -> None:
     measured = loudness(wav)
     args = ["ffmpeg", "-y", "-loglevel", "error", "-i", wav]
     if measured is not None:
-        # A limiter keeps the lift from clipping a loud take.
-        args += ["-af", f"volume={round(TARGET_LUFS - measured, 1)}dB,alimiter=limit=0.708"]
+        # A limiter keeps the lift from clipping a loud take; it must not re-level the take, or the
+        # lift misses the target the renderer measures (render.mjs passes the same flag).
+        args += ["-af", f"volume={round(TARGET_LUFS - measured, 1)}dB,alimiter=limit=0.708:level=false"]
     args += ["-ar", "24000", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "48k", mp3]
     result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode != 0:

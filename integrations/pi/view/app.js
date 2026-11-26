@@ -750,6 +750,8 @@
     const drafts = new Map();
     const fields = new Map();
     let painted = "";
+    // A poll read before a submission must not paint over it: every accepted submission invalidates earlier reads.
+    let accepted = 0;
     // Dictation writes into the field without an input event, so the field itself is read, never a copy of it.
     const said = (key) => fields.get(key)?.value ?? "";
 
@@ -829,7 +831,36 @@
           card.append(element("p", "Tu cápsula está pendiente: el tutor la está preparando.", "muted"));
         }
         if (["escuchar", "corrigiendo", "completado"].includes(block.estado)) card.append(capsule(block));
-        if (block.estado === "escuchar") {
+        if (block.estado === "escuchar" && block.desarrollo) {
+          // One open question per concept, each with its own dictation field and one submit for the block.
+          const section = element("section", undefined, "audio-desarrollo");
+          const keys = block.desarrollo.map((question) => `desarrollo:${block.id}:${question.id}`);
+          for (const [number, question] of block.desarrollo.entries()) {
+            const box = element("div", undefined, "audio-desarrollo-question");
+            box.append(drawnText(question.enunciado, true));
+            box.append(thought(keys[number], "Tu respuesta (dicta o escribe)", "Responde con tus palabras, en varias frases.", `Dictar la respuesta a la pregunta ${number + 1}`, `desarrollo-${index}-${number}`));
+            section.append(box);
+          }
+          const send = element("button", "Enviar desarrollo al tutor");
+          send.type = "button";
+          const message = status();
+          send.onclick = async () => {
+            send.disabled = true;
+            message.className = "";
+            try {
+              const answers = Object.fromEntries(block.desarrollo.map((question, number) => [question.id, said(keys[number])]));
+              const result = await post({ kind: "audio-desarrollo", topic: "audios", note: data.note, block: block.id, answers });
+              message.textContent = result.queued ? "En cola…" : "Preguntas de desarrollo enviadas al tutor.";
+              await settled();
+            } catch (error) {
+              message.className = "error";
+              message.textContent = error.message;
+            } finally { send.disabled = false; }
+          };
+          away(send, message);
+          section.append(send, message);
+          card.append(section);
+        } else if (block.estado === "escuchar") {
           card.append(element("p", block.consigna, "audio-consigna"));
           card.append(thought(`explicacion:${block.id}`, "Tu explicación (dicta o escribe)", "El tutor te corrige concepto por concepto.", `Dictar la explicación de ${block.titulo}`, `explicacion-${index}`));
           const send = element("button", "Enviar explicación al tutor");
@@ -841,7 +872,7 @@
             try {
               const result = await post({ kind: "audio-explicacion", topic: "audios", note: data.note, block: block.id, text: said(`explicacion:${block.id}`) });
               message.textContent = result.queued ? "En cola…" : "Explicación enviada al tutor.";
-              await refresh();
+              await settled();
             } catch (error) {
               message.className = "error";
               message.textContent = error.message;
@@ -876,7 +907,7 @@
             const answers = Object.fromEntries(questions.map((id) => [id, said(`previa:${id}`)]));
             const result = await post({ kind: "audio-previas", topic: "audios", note: data.note, answers });
             message.textContent = result.queued ? "En cola…" : "Respuestas enviadas al tutor.";
-            await refresh();
+            await settled();
           } catch (error) {
             message.className = "error";
             message.textContent = error.message;
@@ -887,11 +918,18 @@
     };
 
     const refresh = async () => {
+      const before = accepted;
       try {
         const response = await fetch(data.stateUrl, { cache: "no-store" });
-        if (response.ok) paint(await response.json());
+        if (!response.ok) return;
+        const session = await response.json();
+        // A read that began before the last accepted submission is older than what the page knows.
+        if (before !== accepted) return;
+        paint(session);
       } catch { /* an offline poll keeps the last state on screen */ }
     };
+    // The state the tutor now has: this read outranks every poll still in flight.
+    const settled = async () => { accepted += 1; await refresh(); };
     paint(data.session);
     setInterval(() => { if (!document.hidden) refresh(); }, 30000);
   }

@@ -835,10 +835,14 @@ window.LEARNING_BRIDGE = {
 An audio-session page injects `kind: "audio"`, `topic: "audios"`, `note: "<sesion>"`,
 `session: {titulo, bloques}` and `stateUrl`. Each block in `session.bloques` carries the derived
 `estado` (`preguntas`, `evaluando`, `sabido`, `capsula-pendiente`, `escuchar`, `corrigiendo`,
-`completado`), its questions, its concepts with the valid verdicts, and its capsule file names. The
+`completado`), its questions, its concepts with the valid verdicts, and its capsule file names. A
+block may also carry `desarrollo: [{id, enunciado, conceptos}]`: one open development question per
+concept, which replaces the single explanation field with one dictation field per question and one
+submit for the block, and never draws an option, a radio or a checkbox. The
 page draws one dictation field per opening question with a single submit for the session, and, in
 state `escuchar`, the capsule player, its download and a `details` control for the transcript. It
-polls `stateUrl` every 30 seconds and keeps the fields' drafts when the state changes.
+polls `stateUrl` every 30 seconds and keeps the fields' drafts when the state changes; a poll read
+before an accepted submission is dropped, so it never repaints a state the page already moved past.
 
 Quiz responses are `{questions, answered, verdicts, exercises}`; `exercises` lists the part's code exercises as `{id,titulo,enunciado}` and is empty when the part has none. Questions have `id`,
 `enunciado` and an A–E `options` object, without keys, in the order the learner sees: shuffled per learner and question, «No sé» last. The file route never serves `quiz.json`, `quiz.answers.json` or `mini-quiz/*.json`. `answered` is null or a
@@ -858,6 +862,11 @@ are an array of `{codigo,estado,pregunta,evidencia}`; a concept-ID map to
 - Explanation: `{kind:'audio-explicacion', topic:'audios', note:'<sesion>',
   block:'<bloqueId>', text:'<text>'}`: non-empty text, 409 unless the block is in state
   `escuchar`. The tutor is asked for that block's verdicts in `audios/<sesion>/veredictos.json`.
+- Development: `{kind:'audio-desarrollo', topic:'audios', note:'<sesion>', block:'<bloqueId>',
+  answers:{'<preguntaId>':'<text>'}}`: every development question id of that block once, non-empty
+  text, 409 unless the block is in state `escuchar`. The answers are stored under
+  `respuestas.json.desarrollo[<bloque>]` and the tutor is asked for one `desarrollo` verdict per
+  concept in `audios/<sesion>/veredictos.json`, quoting that concept's own answer.
 - Question: `{kind:'question', topic, part, text}`.
 - Quiz: `{kind:'mini-quiz', topic, part, answers, reasoning, ownWords?, exercises?}`, where `exercises` maps the part's exercise ids to the learner's text. Blank answers are dropped; any other id, or a value that is not text, is refused with 400.
   `reasoning` maps question IDs to `{razonamiento, confianza}`; the older

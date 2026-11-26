@@ -22,6 +22,7 @@
       "titulo": "Ruta crítica",
       "conceptos": [{ "codigo": "ruta-critica", "nombre": "Ruta crítica" }],
       "preguntas": [{ "id": "b1-p1", "enunciado": "¿Qué pasa si se retrasa una tarea de la ruta crítica?", "conceptos": ["ruta-critica"] }],
+      "desarrollo": [{ "id": "b1-d1", "enunciado": "¿Por qué dos obras idénticas pueden tener rutas críticas distintas?", "conceptos": ["ruta-critica"] }],
       "consigna": "Explica qué es la ruta crítica y para qué sirve."
     }
   ]
@@ -29,7 +30,8 @@
 ```
 
 - Los ids y códigos siguen `^[a-z0-9][a-z0-9-]{0,39}$` y son únicos en toda la sesión. Los `conceptos` de cada pregunta son un subconjunto no vacío de los códigos del bloque, y cada concepto del bloque aparece en al menos una pregunta. La `consigna` es la instrucción breve para explicar el bloque en voz alta, no texto de estudio.
-- Si una sesión rompe una de estas reglas o los límites de bloques, conceptos o preguntas, la página la rechaza con un mensaje que nombra la regla: corrige el archivo antes de continuar. Nunca escribas `respuestas.json`: es del puente.
+- `desarrollo` es opcional: si está, lleva **una pregunta abierta por concepto** (1 a 4 por bloque), cada concepto del bloque nombrado por al menos una, ids con la misma regla y únicos. Un bloque sin `desarrollo` conserva la `consigna` y el campo único de explicación.
+- Si una sesión rompe una de estas reglas o los límites de bloques, conceptos, preguntas o preguntas de desarrollo, la página la rechaza con un mensaje que nombra la regla: corrige el archivo antes de continuar. Nunca escribas `respuestas.json`: es del puente.
 
 ## Cuando la página entrega las respuestas de apertura
 
@@ -49,7 +51,32 @@
 ## Cápsulas
 
 - Usa la skill `learnings-audio` en su perfil de cápsula: `audios/<sesion>/<bloque>.m4a` con `audios/<sesion>/<bloque>.srt` al lado. Escribe la spec en `tools/audio/specs/audio-<sesion>-<bloque>.json` con `"capsule": true`, el id del bloque en `part` y el id de la sesión en `topic`; `minutes` vale de 5 a 8 (6 por defecto).
+- La cápsula es un **diálogo entre dos voces**, nunca un narrador único: en la spec pon `"style": "charla"` y `voices` con las dos voces que eligió la persona, `{ "A": "Alex", "B": "Dora" }`. Las dos se alternan por turnos, un capítulo por concepto. La persona las eligió para el modo audio porque la conversación le mantiene la atención mientras entrena, y una sola voz la pierde.
 - Cada cápsula dura de 5 a 8 minutos y lleva **un capítulo por concepto**, en el mismo orden de `sesion.json`. Cada afirmación, número y ejemplo sale de las fuentes de la sesión; una fuente delgada da una cápsula más corta, nunca relleno general. No escribas la transcripción en el chat ni en el vault como texto de lectura.
+
+## Cómo escribir las preguntas de desarrollo
+
+- Escribe **una pregunta por concepto** y cúbrelos todos: son el punto del bloque, no un extra. Se responden hablando o escribiendo varias frases, nunca eligiendo una opción; no hay multiple choice, ni sí/no, ni listas de alternativas.
+- Imita el ejemplo de la persona: «¿por qué una casa, a pesar de que se construye igual muchas veces, es un proyecto?». La pregunta nombra lo que parece igual, contrasta con lo que cambia y pide la razón; así se puede desarrollar en varias frases.
+- Pregunta por el porqué, por el caso o por el contraste, no por una definición que se recite. No uses el nombre del concepto como etiqueta («define ruta crítica»): el concepto se reconoce por la situación, no por el término.
+- La última sección de la cápsula lee estas preguntas en voz alta, para responderlas sin mirar la pantalla.
+
+## Cuando la página entrega las preguntas de desarrollo
+
+- La entrega `[Vista HTML · audios · <sesion> · desarrollo · <bloque>]` llega con `respuestas.json` actualizado: `desarrollo: {"<bloqueId>": {"<preguntaId>": "<text>"}}` contiene lo que la persona respondió a cada pregunta de ese bloque. No se lo pidas otra vez ni expliques tú el bloque.
+- Añade a `veredictos.json` un arreglo `desarrollo` con **un veredicto por concepto** del bloque:
+
+```json
+{
+  "previas": [],
+  "explicaciones": [],
+  "desarrollo": [{ "bloque": "b1", "codigo": "ruta-critica", "estado": "dudoso", "evidencia": "porque si una tarea se retrasa se corre todo", "correccion": "Faltó decir qué tareas la componen.\nLa ruta crítica no es la más larga: es la que no admite holgura." }]
+}
+```
+
+- La `evidencia` se cita **literalmente de la respuesta a la pregunta de ese concepto**, nunca de la de otro concepto ni de la explicación: la página descarta el veredicto que no aparezca en las palabras guardadas para ese concepto y el bloque no se completa.
+- Cada concepto lleva su veredicto, también los que la persona no mencionó: ese concepto es `laguna`, su `evidencia` es el fragmento donde debía aparecer y la `correccion` dice qué faltó.
+- La `correccion` ocupa **dos o tres líneas** y dice qué faltó o qué estuvo mal, sin repetir la respuesta completa. Mientras falte un veredicto el bloque queda en `corrigiendo`; con todos, en `completado`.
 
 ## Cuando la página entrega una explicación
 

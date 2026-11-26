@@ -20,14 +20,29 @@ with wave.open(sys.argv[-1], "wb") as out:
     out.writeframes(b"\\x00\\x00" * 48000)
 `;
 
+// Fake Kokoro interpreter: a quiet tone, close to the level Kokoro's own output reports.
+const TONE = `#!/usr/bin/env python3
+import math, struct, sys, wave
+rate, seconds, amplitude = 24000, 2, 0.02
+with wave.open(sys.argv[-1], "wb") as out:
+    out.setnchannels(1)
+    out.setsampwidth(2)
+    out.setframerate(rate)
+    out.writeframes(b"".join(struct.pack("<h", int(amplitude * 32767 * math.sin(2 * math.pi * 440 * i / rate))) for i in range(rate * seconds)))
+`;
+
 let dir;
 let stub;
+let tone;
 
 before(() => {
   dir = tempDir("audio-kokoro-");
   stub = join(dir, "fake-python");
   writeFileSync(stub, STUB);
   chmodSync(stub, 0o755);
+  tone = join(dir, "tone-python");
+  writeFileSync(tone, TONE);
+  chmodSync(tone, 0o755);
 });
 
 after(() => rmSync(dir, { recursive: true, force: true }));
@@ -169,4 +184,27 @@ test("T5 characterization: the edge synth dry run keeps its roster and keys", ()
   assert.match(result.stdout, new RegExp(`  ${turnKey("es-ES-AlvaroNeural", spec.chapters[0].segments[0].text)} es-ES-AlvaroNeural`));
   assert.match(result.stdout, new RegExp(`  ${turnKey("es-ES-ElviraNeural", spec.chapters[0].segments[1].text)} es-ES-ElviraNeural`));
   assert.deepEqual(readdirSync(out), []);
+});
+
+/** Integrated loudness of a file, as ffmpeg's own meter reports it in its summary. */
+function lufs(path) {
+  const run = spawnSync("ffmpeg", ["-hide_banner", "-nostats", "-i", path, "-af", "ebur128", "-f", "null", "-"], { encoding: "utf8" });
+  const summary = run.stderr.slice(run.stderr.lastIndexOf("Summary:"));
+  const match = /I:\s*(-?\d+(?:\.\d+)?)\s*LUFS/.exec(summary);
+  assert.ok(match, run.stderr);
+  return Number(match[1]);
+}
+
+test("T5 the per-take lift lands each take on the -16 LUFS target", () => {
+  const spec = specOf();
+  const path = writeSpec("tone.json", spec);
+  const out = join(dir, "tone-cache");
+  const result = kokoro("--spec", path, "--out", out, "--python", tone);
+  assert.equal(result.status, 0, result.stderr);
+  const takes = readdirSync(out).filter((name) => name.endsWith(".mp3"));
+  assert.equal(takes.length, 2);
+  for (const take of takes) {
+    const measured = lufs(join(out, take));
+    assert.ok(Math.abs(measured + 16) <= 1, `${take} is ${measured} LUFS, not the -16 LUFS the lift promises`);
+  }
 });

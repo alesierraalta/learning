@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { capsule, conversation, recordAll, tempDir, text } from "./fixtures.mjs";
+import { turnTags } from "../lib/timeline.mjs";
 
 const RENDER = new URL("../render.mjs", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -200,4 +201,26 @@ test("renders one m4a with chapters, a transcript and a report", () => {
   const transcript = readFileSync(srt, "utf8");
   assert.match(transcript, /^1\n00:00:00,600 --> /);
   assert.equal(transcript.trimEnd().split(/\n\n+/).length, report.cues);
+});
+
+test("a rendered capsule just under five minutes is told it is outside", () => {
+  // Twelve takes of 24.1 s plus the planned gaps last 297.8 s: 4.963 min, which the one-decimal report prints as 5.
+  const spoken = capsule();
+  const path = join(dir, "capsule-actual.json");
+  const takes = join(dir, "capsule-actual-audio");
+  writeFileSync(path, JSON.stringify(spoken));
+  mkdirSync(takes, { recursive: true });
+  const sample = join(takes, "sample.mp3");
+  execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=24.1", "-ar", "24000", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "48k", sample]);
+  for (const tag of turnTags(spoken)) {
+    const { key, voice, text: line } = tag;
+    copyFileSync(sample, join(takes, `${key}.mp3`));
+    writeFileSync(join(takes, `${key}.json`), JSON.stringify({ key, voice, rate: "-4%", text: line, boundaries: [{ t: 0, d: 24.1, w: "uno" }] }));
+  }
+  const out = join(dir, "capsule-actual.m4a");
+  const run = render("--spec", path, "--audio", takes, "--out", out, "--work", join(dir, "capsule-actual-work"));
+  assert.equal(run.status, 0, run.stderr);
+  const report = JSON.parse(readFileSync(join(dir, "capsule-actual-work", "report.json"), "utf8"));
+  assert.ok(report.duration < 300, `the rendered capsule lasts ${report.duration} s`);
+  assert.match(run.stderr, /warning: .*capsule/, "a capsule that lasts under five minutes is told so");
 });

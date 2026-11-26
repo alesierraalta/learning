@@ -5865,3 +5865,360 @@ test("T2 an opening verdict counts only words said to a question about that conc
   assert.notEqual(state.estado, "sabido", "a concept left unanswered is not known");
   await shutdown();
 });
+
+/** A block whose explanation step is one open development question per concept. */
+function audioDesarrolloBlock(id = "b1", codes = ["c1", "c2"]) {
+  return {
+    id,
+    titulo: `Bloque ${id}`,
+    conceptos: codes.map((code) => ({ codigo: code, nombre: `Concepto ${code}` })),
+    preguntas: codes.map((code) => ({ id: `${id}-p-${code}`, enunciado: `¿Qué sabes de ${code}?`, conceptos: [code] })),
+    desarrollo: codes.map((code) => ({ id: `${id}-d-${code}`, enunciado: `¿Por qué ${code} importa en un proyecto?`, conceptos: [code] })),
+    consigna: `Explica el bloque ${id}.`,
+  };
+}
+
+/** The same block already read: opening answers judged dudoso and its capsule delivered. */
+function audioDesarrolloInEscuchar(root, block, desarrollo) {
+  const previas = Object.fromEntries(block.preguntas.map((question) => [question.id, `dije ${question.conceptos[0]}`]));
+  return audioFixture(root, {
+    bloques: [block],
+    answers: { previas, explicaciones: {}, ...(desarrollo ? { desarrollo: { [block.id]: desarrollo } } : {}) },
+    verdicts: {
+      previas: block.conceptos.map((concepto) => ({ bloque: block.id, codigo: concepto.codigo, estado: "dudoso", evidencia: `dije ${concepto.codigo}` })),
+      explicaciones: [],
+    },
+    capsules: [block.id],
+  });
+}
+
+test("T9 the desarrollo questions of a session obey the id and coverage rules", async () => {
+  const { root, view, shutdown } = await setup();
+  const site = base(await view({}));
+  const block = audioDesarrolloBlock();
+  const [first, second] = block.desarrollo;
+  for (const [bloques, rule] of [
+    [[{ ...block, desarrollo: [] }], /block b1 has 1 to 4 desarrollo questions/],
+    [[{ ...block, desarrollo: [first, second, first, second, first] }], /block b1 has 1 to 4 desarrollo questions/],
+    [[{ ...block, desarrollo: [first, first] }], /ids and codes must be unique in the session/],
+    [[{ ...block, desarrollo: [{ ...first, id: "B1-D" }, second] }], /desarrollo question ids must match/],
+    [[{ ...block, desarrollo: [{ ...first, conceptos: ["c9"] }, second] }], /desarrollo question b1-d-c1 concepts must be a non-empty subset/],
+    [[{ ...block, desarrollo: [first] }], /every concept of block b1 must be named by at least one desarrollo question/],
+  ]) {
+    audioFixture(root, { bloques });
+    const response = await http(`${site}audios/admin`);
+    assert.equal(response.status, 400, response.body);
+    assert.match(JSON.parse(response.body).error, rule);
+  }
+  audioFixture(root, { bloques: [block] });
+  assert.equal((await http(`${site}audios/admin`)).status, 200, "a block with one question per concept is accepted");
+  await shutdown();
+});
+
+test("T9 a block with desarrollo only completes when every concept has a desarrollo verdict", async () => {
+  const { root, view, shutdown } = await setup();
+  const block = audioDesarrolloBlock();
+  const dir = audioDesarrolloInEscuchar(root, block);
+  const site = base(await view({}));
+  const estado = async () => audioData((await http(`${site}audios/admin`)).body).session.bloques[0].estado;
+  assert.equal(await estado(), "escuchar", "no development answers yet");
+  const file = join(dir, "respuestas.json");
+  const answers = JSON.parse(readFileSync(file, "utf8"));
+  answers.desarrollo = { b1: { "b1-d-c1": "cada casa tiene su terreno", "b1-d-c2": "cada cliente es distinto" } };
+  writeFileSync(file, JSON.stringify(answers));
+  assert.equal(await estado(), "corrigiendo", "the answers are stored and nothing is judged yet");
+  const verdicts = JSON.parse(readFileSync(join(dir, "veredictos.json"), "utf8"));
+  verdicts.desarrollo = [{ bloque: "b1", codigo: "c1", estado: "claro", evidencia: "cada casa tiene su terreno", correccion: "Bien dicho." }];
+  writeFileSync(join(dir, "veredictos.json"), JSON.stringify(verdicts));
+  assert.equal(await estado(), "corrigiendo", "one concept still lacks a verdict");
+  verdicts.desarrollo.push({ bloque: "b1", codigo: "c2", estado: "dudoso", evidencia: "cada cliente es distinto", correccion: "Faltó el alcance." });
+  writeFileSync(join(dir, "veredictos.json"), JSON.stringify(verdicts));
+  assert.equal(await estado(), "completado");
+  assert.equal(JSON.parse((await http(`${site}audios/admin/estado`)).body).bloques[0].estado, "completado");
+  await shutdown();
+});
+
+test("T9 audio-desarrollo stores every answer and delivers the development instruction", async () => {
+  const { root, view, host, shutdown } = await setup();
+  const dir = audioDesarrolloInEscuchar(root, audioDesarrolloBlock());
+  const site = base(await view({}));
+  const response = await submit(site, { kind: "audio-desarrollo", topic: "audios", note: "admin", block: "b1", answers: {
+    "b1-d-c1": "Una casa se construye igual, pero el terreno y los vecinos cambian.",
+    "b1-d-c2": "El presupuesto se decide antes de empezar.",
+  } });
+  assert.equal(response.status, 200, response.body);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, "respuestas.json"), "utf8")), {
+    previas: { "b1-p-c1": "dije c1", "b1-p-c2": "dije c2" },
+    explicaciones: {},
+    desarrollo: { b1: {
+      "b1-d-c1": "Una casa se construye igual, pero el terreno y los vecinos cambian.",
+      "b1-d-c2": "El presupuesto se decide antes de empezar.",
+    } },
+  });
+  assert.equal(host.sent.length, 1);
+  assert.equal(host.sent[0].content, [
+    "[Vista HTML · audios · admin · desarrollo · b1]",
+    "Preguntas de desarrollo de b1:",
+    "- b1-d-c1:",
+    '"""',
+    "Una casa se construye igual, pero el terreno y los vecinos cambian.",
+    '"""',
+    "- b1-d-c2:",
+    '"""',
+    "El presupuesto se decide antes de empezar.",
+    '"""',
+    "Escribe en audios/admin/veredictos.json los veredictos de desarrollo de este bloque en desarrollo: uno por concepto, con bloque, codigo, estado (claro, dudoso o laguna), evidencia citada literalmente de la respuesta a su pregunta y corrección de dos o tres líneas.",
+  ].join("\n"));
+  await shutdown();
+});
+
+test("T9 every refused audio-desarrollo leaves respuestas.json alone and sends nothing", async () => {
+  const { root, view, host, shutdown } = await setup();
+  const block = audioDesarrolloBlock();
+  const dir = audioDesarrolloInEscuchar(root, block);
+  const unanswered = audioDesarrolloBlock("b2", ["c3"]);
+  const session = { titulo: "Administración de proyectos", bloques: [block, unanswered] };
+  writeFileSync(join(dir, "sesion.json"), `${JSON.stringify(session, null, 2)}\n`);
+  const file = join(dir, "respuestas.json");
+  const before = readFileSync(file, "utf8");
+  const site = base(await view({}));
+  const good = { kind: "audio-desarrollo", topic: "audios", note: "admin", block: "b1", answers: { "b1-d-c1": "uno", "b1-d-c2": "dos" } };
+  for (const [payload, status] of [
+    [{ ...good, extra: "nope" }, 400],
+    [{ ...good, note: "../x" }, 400],
+    [{ ...good, note: "desconocida" }, 404],
+    [{ ...good, block: "b9" }, 400],
+    [{ ...good, answers: { "b1-d-c1": "uno", otra: "dos" } }, 400],
+    [{ ...good, answers: { "b1-d-c1": "uno" } }, 400],
+    [{ ...good, answers: { "b1-d-c1": "uno", "b1-d-c2": "   " } }, 400],
+    [{ ...good, block: "b2", answers: { "b2-d-c3": "tres" } }, 409],
+  ]) {
+    const response = await submit(site, payload);
+    assert.equal(response.status, status, response.body);
+    assert.equal(readFileSync(file, "utf8"), before, `a refused ${JSON.stringify(payload)} writes nothing`);
+  }
+  assert.equal(host.sent.length, 0);
+  await shutdown();
+});
+
+test("T9 a desarrollo verdict counts only words said to that concept's question", async () => {
+  const { root, view, shutdown } = await setup();
+  const block = audioDesarrolloBlock();
+  const dir = audioDesarrolloInEscuchar(root, block, {
+    "b1-d-c1": "La ruta crítica marca el plazo del proyecto.",
+    "b1-d-c2": "El presupuesto se queda corto.",
+  });
+  const verdicts = { desarrollo: [
+    { bloque: "b1", codigo: "c2", estado: "claro", evidencia: "marca el plazo", correccion: "Bien." },
+  ], previas: [{ bloque: "b1", codigo: "c1", estado: "dudoso", evidencia: "dije c1" }, { bloque: "b1", codigo: "c2", estado: "dudoso", evidencia: "dije c2" }], explicaciones: [] };
+  writeFileSync(join(dir, "veredictos.json"), JSON.stringify(verdicts));
+  const site = base(await view({}));
+  const served = audioData((await http(`${site}audios/admin`)).body);
+  assert.deepEqual(served.session.bloques[0].conceptos.map((concepto) => concepto.explicacion.estado), ["sin-veredicto", "sin-veredicto"]);
+  assert.equal(JSON.stringify(served).includes("marca el plazo"), false, "a quote taken from another concept's answer is no verdict");
+  assert.equal(served.session.bloques[0].estado, "corrigiendo");
+  verdicts.desarrollo.push({ bloque: "b1", codigo: "c1", estado: "claro", evidencia: "La ruta crítica marca el plazo", correccion: "Bien." });
+  writeFileSync(join(dir, "veredictos.json"), JSON.stringify(verdicts));
+  const judged = audioData((await http(`${site}audios/admin`)).body);
+  assert.deepEqual(judged.session.bloques[0].conceptos.map((concepto) => concepto.explicacion.estado), ["claro", "sin-veredicto"]);
+  await shutdown();
+});
+
+test("T9 a block with desarrollo draws one field per question and offers no option", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { root, view, shutdown } = await setup();
+  const dir = audioDesarrolloInEscuchar(root, audioDesarrolloBlock());
+  const page = await audioPageIn(t, base(await view({})));
+  assert.equal(await page.locator(".audio-desarrollo-question").count(), 2, "one field per development question");
+  assert.equal(await page.getByText("¿Por qué c1 importa en un proyecto?").count(), 1);
+  assert.equal(await page.locator(".audio-block-card input[type=radio], .audio-block-card input[type=checkbox], .audio-block-card select").count(), 0, "no option control anywhere in the block");
+  assert.equal(await page.getByRole("radio").count(), 0);
+  assert.equal(await page.getByRole("checkbox").count(), 0);
+  const areas = page.locator(".audio-desarrollo-question textarea");
+  await areas.nth(0).fill("Cada casa tiene su terreno.");
+  await areas.nth(1).fill("Cada cliente es distinto.");
+  const [response] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/submit")),
+    page.getByRole("button", { name: "Enviar desarrollo al tutor" }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, "respuestas.json"), "utf8")).desarrollo, { b1: {
+    "b1-d-c1": "Cada casa tiene su terreno.",
+    "b1-d-c2": "Cada cliente es distinto.",
+  } });
+  await shutdown();
+});
+
+test("M1 an audio submission whose delivery fails restores respuestas.json so the retry works", async () => {
+  const { root, view, host, shutdown } = await setup();
+  const block = audioDesarrolloBlock("b1", ["c1", "c2"]);
+  const plain = audioBlock("b2", "c3");
+  const admin = audioFixture(root, {
+    bloques: [block, plain],
+    answers: { previas: { "b1-p-c1": "dije c1", "b1-p-c2": "dije c2", "b2-p1": "dije c3" }, explicaciones: {} },
+    verdicts: {
+      previas: [
+        { bloque: "b1", codigo: "c1", estado: "dudoso", evidencia: "dije c1" },
+        { bloque: "b1", codigo: "c2", estado: "dudoso", evidencia: "dije c2" },
+        { bloque: "b2", codigo: "c3", estado: "dudoso", evidencia: "dije c3" },
+      ],
+      explicaciones: [],
+    },
+    capsules: ["b1", "b2"],
+  });
+  const inicial = audioFixture(root, { session: "inicial", bloques: [audioBlock("b1", "c1")] });
+  const site = base(await view({}));
+  // The host's chat is down until the test says otherwise: the same call must leave nothing behind.
+  const send = host.api.sendUserMessage;
+  let down = true;
+  host.api.sendUserMessage = (content, options) => {
+    if (down) throw new Error("tutor no disponible");
+    send.call(host.api, content, options);
+  };
+  const file = join(admin, "respuestas.json");
+  const snapshot = () => readFileSync(file);
+
+  const previas = { kind: "audio-previas", topic: "audios", note: "inicial", answers: { "b1-p1": "La ruta crítica marca el plazo." } };
+  const inicialFile = join(inicial, "respuestas.json");
+  assert.equal(existsSync(inicialFile), false);
+  const lost = await submit(site, previas);
+  assert.equal(lost.status, 502, lost.body);
+  assert.equal(existsSync(inicialFile), false, "a file that did not exist is not left behind");
+  assert.equal(host.sent.length, 0);
+  down = false;
+  assert.equal((await submit(site, previas)).status, 200);
+  assert.equal(JSON.parse(readFileSync(inicialFile, "utf8")).previas["b1-p1"], "La ruta crítica marca el plazo.");
+
+  const before = snapshot();
+  const explicacion = { kind: "audio-explicacion", topic: "audios", note: "admin", block: "b2", text: "El presupuesto se arma por partidas." };
+  down = true;
+  const refused = await submit(site, explicacion);
+  assert.equal(refused.status, 502, refused.body);
+  assert.deepEqual(snapshot(), before, "a failed delivery leaves respuestas.json byte for byte");
+  down = false;
+  assert.equal((await submit(site, explicacion)).status, 200);
+  assert.equal(JSON.parse(snapshot()).explicaciones.b2, "El presupuesto se arma por partidas.");
+
+  const afterExplicacion = snapshot();
+  const desarrollo = { kind: "audio-desarrollo", topic: "audios", note: "admin", block: "b1", answers: { "b1-d-c1": "Porque el terreno cambia.", "b1-d-c2": "Porque el margen se recalcula." } };
+  down = true;
+  const lostDesarrollo = await submit(site, desarrollo);
+  assert.equal(lostDesarrollo.status, 502, lostDesarrollo.body);
+  assert.deepEqual(snapshot(), afterExplicacion, "a failed delivery leaves respuestas.json byte for byte");
+  down = false;
+  assert.equal((await submit(site, desarrollo)).status, 200);
+  assert.deepEqual(JSON.parse(snapshot()).desarrollo, { b1: {
+    "b1-d-c1": "Porque el terreno cambia.",
+    "b1-d-c2": "Porque el margen se recalcula.",
+  } });
+  assert.equal(host.sent.length, 3, "the tutor hears about each accepted submission exactly once");
+  await shutdown();
+});
+
+test("T2 the audio file route serves only a block's capsule in a real session", async () => {
+  const { root, view, shutdown } = await setup();
+  const dir = audioFixture(root, { answers: { previas: { "b1-p1": "x" }, explicaciones: {} }, capsules: ["b1"] });
+  // Names and folders the contract does not call capsules: only <bloque>.m4a / .srt of a session is served.
+  writeFileSync(join(dir, "extra.m4a"), "fuera de lo pactado");
+  writeFileSync(join(dir, "b1 .m4a"), "con un espacio");
+  writeFileSync(join(dir, "notas.srt"), "no es una transcripcion de bloque");
+  const outside = join(root, "audios", "Admin Proyectos");
+  mkdirSync(outside, { recursive: true });
+  writeFileSync(join(outside, "leak.m4a"), "carpeta que no es sesion");
+  const site = base(await view({}));
+  assert.equal((await http(`${site}audios/file/admin/b1.m4a`)).status, 200, "the real capsule is served");
+  for (const path of [
+    "audios/file/admin/extra.m4a",
+    "audios/file/admin/b1%20.m4a",
+    "audios/file/admin/notas.srt",
+    `audios/file/${encodeURIComponent("Admin Proyectos")}/leak.m4a`,
+  ]) {
+    assert.equal((await http(site + path)).status, 404, path);
+  }
+  await shutdown();
+});
+
+test("T2 a capsule name that points at another session file serves nothing", async () => {
+  const { root, view, shutdown } = await setup();
+  const dir = audioFixture(root, { answers: { previas: { "b1-p1": "respuesta privada" }, explicaciones: {} } });
+  symlinkSync(join(dir, "respuestas.json"), join(dir, "b1.m4a"));
+  const site = base(await view({}));
+  const response = await http(`${site}audios/file/admin/b1.m4a`);
+  assert.equal(response.status, 404, "a link named as a capsule is not the capsule");
+  assert.equal(response.body.includes("respuesta privada"), false, "the answers are not served through a capsule name");
+  await shutdown();
+});
+
+test("T2 a block id that shadows Object.prototype still serves its session", async () => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root, {
+    session: "proto",
+    bloques: [audioBlock("constructor", "c1", "p1")],
+    answers: { previas: { p1: "algo" }, explicaciones: {} },
+    verdicts: { previas: [{ bloque: "constructor", codigo: "c1", estado: "dudoso", evidencia: "algo" }], explicaciones: [] },
+    capsules: ["constructor"],
+  });
+  const site = base(await view({}));
+  const page = await http(`${site}audios/proto`);
+  assert.equal(page.status, 200, page.body);
+  const state = JSON.parse((await http(`${site}audios/proto/estado`)).body);
+  assert.equal(state.bloques[0].conceptos[0].previa.estado, "dudoso");
+  assert.equal(state.bloques[0].estado, "escuchar");
+  await shutdown();
+});
+
+test("T2 a stale poll does not put back a form the tutor already answered", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root);
+  const site = base(await view({}));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ reducedMotion: "reduce" });
+  // The 30 second poll fires on a page that already holds the answers form: capture its callback so the test decides when it runs.
+  await page.addInitScript(() => {
+    window.__polls = [];
+    const real = window.setInterval.bind(window);
+    window.setInterval = (fn, ms) => { window.__polls.push(fn); return real(fn, ms); };
+  });
+  let held;
+  let release;
+  const stale = new Promise((resolve) => { release = resolve; });
+  let first = true;
+  await page.route("**/audios/admin/estado", async (route) => {
+    if (!first) return route.continue();
+    first = false;
+    const response = await route.fetch();
+    held = { route, status: response.status(), body: await response.text() };
+    release();
+  });
+  await page.goto(`${site}audios/admin`);
+  await page.locator(".audio-block-card textarea").first().waitFor();
+  // The poll reads the unanswered session and its answer is held in flight.
+  await page.evaluate(() => window.__polls.forEach((fn) => fn()));
+  await stale;
+  // Meanwhile the learner submits the form.
+  await page.locator(".audio-block-card textarea").first().fill("La ruta crítica marca el plazo.");
+  await page.getByRole("button", { name: "Enviar respuestas al tutor" }).click();
+  await page.getByText("Evaluando tus respuestas iniciales").waitFor({ timeout: 5000 });
+  assert.equal(await page.getByRole("button", { name: "Enviar respuestas al tutor" }).count(), 0);
+  // The older response lands after the submission moved the page on.
+  await held.route.fulfill({ status: held.status, contentType: "application/json", body: held.body });
+  await page.waitForTimeout(300);
+  assert.equal(await page.getByRole("button", { name: "Enviar respuestas al tutor" }).count(), 0, "the stale poll put the answered form back");
+  assert.equal(await page.getByText("Evaluando tus respuestas iniciales").count(), 1);
+  await shutdown();
+});
+
+test("T9 a block with desarrollo refuses the single explanation it would never read", async () => {
+  const { root, view, host, shutdown } = await setup();
+  const block = audioDesarrolloBlock();
+  const dir = audioDesarrolloInEscuchar(root, block);
+  const file = join(dir, "respuestas.json");
+  const before = readFileSync(file, "utf8");
+  const site = base(await view({}));
+  const response = await submit(site, { kind: "audio-explicacion", topic: "audios", note: "admin", block: "b1", text: "La ruta crítica fija la fecha." });
+  assert.equal(response.status, 400, response.body);
+  assert.match(JSON.parse(response.body).error, /desarrollo/);
+  assert.equal(readFileSync(file, "utf8"), before, "a refused explanation leaves respuestas.json alone");
+  assert.equal(host.sent.length, 0, "the tutor is told nothing");
+  await shutdown();
+});
