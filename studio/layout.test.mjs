@@ -1620,7 +1620,8 @@ test("preferences selects are control-height on a coarse pointer", { skip: brows
     overflow: document.documentElement.scrollWidth - innerWidth,
   }));
   console.log(`coarse preferences: ${JSON.stringify(seen)}`);
-  assert.equal(seen.selects.length, 2);
+  // The three tutor choices, by name: the effort selector is one of them, not an extra.
+  assert.deepEqual(seen.selects.map((sel) => sel.name).sort(), ["agente", "modelo", "pensamiento"]);
   for (const s of seen.selects) assert.ok(s.h >= 44, `${s.name} select is ${s.h}px tall`);
   assert.ok(seen.overflow <= 0, `the form overflows by ${seen.overflow}px`);
 });
@@ -2506,6 +2507,50 @@ async function ipadPage(t, width, height, prepare = () => {}) {
 
 const tracks = (page, selector) => page.evaluate((s) => getComputedStyle(document.querySelector(s)).gridTemplateColumns.split(" ").length, selector);
 
+// #453: an upright iPad is wider than the phone the bar was narrowed for and narrower
+// than the desk it was drawn on. Between 721 and 876 the bar used to have no rule at all,
+// so its own minimum width became the page's: the document scrolled sideways carrying a
+// control nobody could see. The bar gives way; the page never does.
+test("the top bar gives way instead of widening the page between a phone and a desk", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await ipadPage(t, 768, 1024);
+  for (const [width, height] of [[768, 1024], [820, 900]]) {
+    await page.setViewportSize({ width, height });
+    for (const route of ["#/", "#/tema/redes"]) {
+      await page.goto(`${studio.url}${route}`, { waitUntil: "networkidle" });
+      const geometry = await page.evaluate(() => ({
+        overflow: document.documentElement.scrollWidth - window.innerWidth,
+        bar: document.querySelector(".topbar").getBoundingClientRect().height,
+      }));
+      assert.equal(geometry.overflow, 0, `nothing spills sideways at ${width}px on ${route}`);
+      assert.equal(geometry.bar, 64, `the sticky bar keeps one row of --topbar at ${width}px on ${route}`);
+    }
+  }
+  // A live caption is the longest text the bar carries, and it may not decide the page's
+  // width either: the pill gives way by ellipsizing its caption instead of pushing.
+  await page.setViewportSize({ width: 951, height: 900 });
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  const live = await page.evaluate(() => {
+    const what = document.querySelector(".tutor-pill .what");
+    what.textContent = "Trabajando · Preparando la vista del tema";
+    return { overflow: document.documentElement.scrollWidth - window.innerWidth, pill: document.querySelector(".tutor-pill").getBoundingClientRect().width };
+  });
+  assert.equal(live.overflow, 0, "a long live caption does not widen the page at 951px");
+  assert.ok(live.pill >= 44, `the tutor pill stays a finger-sized control: ${Math.round(live.pill)}px`);
+  // The bar gives way by dropping captions, not controls: the tutor, the tasks, Contexto
+  // and the next step keep their box, their 44px and their name, so nothing has to be
+  // found again in a menu that did not carry it before.
+  const controls = await page.evaluate(() =>
+    [".tutor-pill", ".tasks-pill", ".context-trigger", ".header-action"].map((selector) => {
+      const node = document.querySelector(`.topbar ${selector}`);
+      const box = node.getBoundingClientRect();
+      return { selector, w: Math.round(box.width), h: Math.round(box.height), name: node.getAttribute("aria-label") || node.textContent.trim() };
+    }));
+  for (const control of controls) {
+    assert.ok(control.w >= 44 && control.h >= 44, `still a finger-sized control at 820px: ${JSON.stringify(control)}`);
+    assert.ok(control.name, `still named at 820px: ${JSON.stringify(control)}`);
+  }
+});
+
 test("an iPad held sideways with the tutor open gives the topic one readable column", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page, studio } = await ipadPage(t, 1180, 820);
   await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
@@ -2731,8 +2776,19 @@ test("online the studio always shows what the server has now, not what it saved"
 
 test("what was saved under one run's token still answers after a restart changes it", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page, studio, stop, origin } = await controlledStudio(t);
-  const saved = await page.evaluate(async (url) => (await fetch(url)).status, `${studio.url}api/offline?topic=redes&part=p1`);
+  // Saved the way the product saves a part (`savePart`): the body is read to the end and the
+  // worker is asked (see `savedParts`), so «saved» means the copy is in the store and not that
+  // headers arrived. `networkFirst` hands the answer over and files its copy in the background,
+  // so «saved» at headers alone is undone by the `stop()` below as soon as the machine is
+  // loaded: the store is still empty, the read below falls through to a network that is gone,
+  // and `networkFirst` rethrows it as `TypeError: Failed to fetch` — the Studio flake of #444.
+  const saved = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    await response.text();
+    return response.status;
+  }, `${studio.url}api/offline?topic=redes&part=p1`);
   assert.equal(saved, 200, "the part was saved while online");
+  assert.deepEqual(await savedParts(page), ["redes/p1"], "the worker holds the copy before the studio goes away");
   await stop();
   const answer = await page.evaluate(async (url) => {
     const response = await fetch(url);
@@ -2745,6 +2801,8 @@ test("what was saved under one run's token still answers after a restart changes
 
 // What the learner sees: a part read once with a connection opens again without one,
 // in the same reader; one never read says how to get it; a topic saves all its parts.
+// The worker answers from its store and waits for the copies still being written, so
+// asking it is the product's own word that a part is saved.
 const savedParts = (page) =>
   page.evaluate(
     () =>

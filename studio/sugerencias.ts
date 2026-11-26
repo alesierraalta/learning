@@ -6,6 +6,7 @@ import { safeTopic } from "../integrations/pi/paths.ts";
 import { readDoc, writeDoc } from "../integrations/pi/store.ts";
 import { readGlobalTelemetry } from "../integrations/pi/telemetry.ts";
 import { readPreferences, savePreferences } from "./preferences.ts";
+import { loQueGusta, readValoraciones } from "./valoraciones.ts";
 
 /**
  * What the learner asks of a part, and why. The reason is the point: a chip maps to
@@ -343,10 +344,10 @@ export function lecciones(root: string): string[] {
   const out: string[] = [];
   let chars = 0;
   for (const regla of [...vivas, ...seed()]) {
-    const clave = regla.toLowerCase().replace(/\s+/g, " ").replace(/[.;:]$/, "");
-    if (dichas.has(clave)) continue;
+    const dicha = clave(regla);
+    if (dichas.has(dicha)) continue;
     if (out.length >= MAX_LECCIONES || chars + regla.length > MAX_LECCIONES_CHARS) break;
-    dichas.add(clave);
+    dichas.add(dicha);
     out.push(regla);
     chars += regla.length;
   }
@@ -369,6 +370,78 @@ export function withLecciones(text: string, root: string): string {
 /** What the learner actually said: the block is the studio's, so the chat never shows it as theirs. */
 export function stripLecciones(text: string): string {
   const at = text.indexOf(`\n\n[${LECCIONES_TITULO}`);
+  return at < 0 ? text : text.slice(0, at);
+}
+
+/**
+ * What this topic's own reviews asked, in a channel of its own: the lessons say how every
+ * explanation is made, these lines say what this topic needs. A part written for the first time is
+ * composed from both, so the review written while reading Parte 3 steers the first draft of Parte 4.
+ *
+ * It is a digest and never the topic's history: chips with how often they were chosen and the
+ * verdicts the topic collected, in the studio's own vocabulary. The learner's prose is quoted by
+ * `tutorContext`, once; this block does not quote it again.
+ */
+export const TEMA_TITULO = "Lo que el alumno pidió en este tema";
+/** The whole block, brackets and title included: a digest of one topic, not a manual. */
+export const MAX_TEMA_CHARS = 240;
+
+/** Two lines say the same thing when only case and trailing punctuation differ, as in `lecciones`. */
+const clave = (line: string) => line.toLowerCase().replace(/\s+/g, " ").replace(/[.;:,]$/, "");
+
+/** The block as the prompt carries it: one line per rule, the title first. */
+const bloqueDelTema = (lines: string[]) => `[${TEMA_TITULO}\n${lines.join("\n")}\n]`;
+
+/** A label with how many times it was said, the shape the verdict block reads. */
+const conCuenta = (items: { texto: string; veces: number }[]) => items.slice(0, 3).map((cada) => `${cada.texto} (${cada.veces})`).join(", ");
+
+/** The digest of one topic, in the studio's own vocabulary: its chips, its verdicts, its rules. */
+function lineasDelTema(root: string, tema: string): string[] {
+  const entradas = readSugerencias(root).entradas.filter((entrada) => entrada.tema === tema);
+  const lines: string[] = [];
+  const chips = conteo(entradas).slice(0, 3);
+  if (chips.length > 0) lines.push(`Le pidió a este tema: ${chips.map((chip) => `${chip.texto} (${chip.n})`).join(", ")}.`);
+  try {
+    const { gusta, mejora } = loQueGusta(readValoraciones(root).entradas.filter((veredicto) => veredicto.tema === tema), { minimo: 2 });
+    if (gusta.length > 0) lines.push(`Le funcionó aquí: ${conCuenta(gusta)}.`);
+    if (mejora.length > 0) lines.push(`Le restó aquí: ${conCuenta(mejora)}.`);
+  } catch { /* a verdict store that cannot be read must not cost the turn */ }
+  // The rules this topic taught ride in `leccionesBlock`, where the bound may crowd one out: a rule
+  // that no longer fits there still reaches its own topic, and the ones already standing are dropped.
+  for (const regla of entradas.filter((entrada) => entrada.alcance === "general" && entrada.regla).map((entrada) => entrada.regla!.trim()).reverse()) {
+    lines.push(regla);
+  }
+  return lines;
+}
+
+/**
+ * The block a turn on one topic carries, or nothing when that topic has taught nothing yet. Each
+ * line rides once: a rule the lessons block already says is not repeated here, and the whole block
+ * stays under its own cap so the prompt never grows with the topic's history.
+ */
+export function topicBlock(root: string, tema?: string | null): string {
+  if (!tema) return "";
+  const dichas = new Set(lecciones(root).map(clave));
+  const lines: string[] = [];
+  for (const line of lineasDelTema(root, tema)) {
+    const linea = clave(line);
+    if (dichas.has(linea)) continue;
+    if (bloqueDelTema([...lines, `- ${line}`]).length > MAX_TEMA_CHARS) break;
+    dichas.add(linea);
+    lines.push(`- ${line}`);
+  }
+  return lines.length === 0 ? "" : bloqueDelTema(lines);
+}
+
+/** The prompt of a turn that writes a part: after the lessons, where the topic's own lines are read. */
+export function withTema(text: string, root: string, tema?: string | null): string {
+  const block = topicBlock(root, tema);
+  return block ? `${text}\n\n${block}` : text;
+}
+
+/** What the learner should read: the topic's digest is the studio's, never their message. */
+export function stripTema(text: string): string {
+  const at = text.indexOf(`\n\n[${TEMA_TITULO}`);
   return at < 0 ? text : text.slice(0, at);
 }
 
