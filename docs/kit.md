@@ -841,7 +841,8 @@ concept, which replaces the single explanation field with one dictation field pe
 submit for the block, and never draws an option, a radio or a checkbox. The
 page draws one dictation field per opening question with a single submit for the session, and, in
 state `escuchar`, the capsule player, its download and a `details` control for the transcript. It
-polls `stateUrl` every 30 seconds and keeps the fields' drafts when the state changes.
+polls `stateUrl` every 30 seconds and keeps the fields' drafts when the state changes; a poll read
+before an accepted submission is dropped, so it never repaints a state the page already moved past.
 
 Quiz responses are `{questions, answered, verdicts, exercises}`; `exercises` lists the part's code exercises as `{id,titulo,enunciado}` and is empty when the part has none. Questions have `id`,
 `enunciado` and an A–E `options` object, without keys, in the order the learner sees: shuffled per learner and question, «No sé» last. The file route never serves `quiz.json`, `quiz.answers.json` or `mini-quiz/*.json`. `answered` is null or a

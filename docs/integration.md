@@ -170,7 +170,7 @@ vault files on every request, so Obsidian stays the source of truth:
 | `<topic>/file/<path>` | any file inside the topic folder, with HTTP Range (video and audio seeking) |
 | `audios/<sesion>` | `audios/<sesion>/sesion.json`, `respuestas.json` and `veredictos.json`: questions, capsule player, explanation or development fields and verdicts; the bridge derives the state of each block |
 | `audios/<sesion>/estado` | the same derived block states as JSON; the page polls it every 30 seconds |
-| `audios/file/<sesion>/<bloque>.m4a` (or `.srt`) | a session's capsules and transcripts through the topic file route, with HTTP Range for seeking; nothing else in the session folder is served |
+| `audios/file/<sesion>/<bloque>.m4a` (or `.srt`) | the capsule or transcript of a block that session declares in `sesion.json`, through the topic file route with HTTP Range for seeking; a folder that is not a session id serves nothing, and neither does a name that is not a block of the session, another file under a capsule name, or a link that resolves outside the session folder |
 | `submit` (POST) | learner submission, see below |
 
 Obsidian syntax is translated: frontmatter is dropped, `![[file.mp4]]` becomes a `<video>`

@@ -1086,10 +1086,31 @@ function exerciseMessage(declared: PartExercise[], answers: Record<string, strin
 }
 
 /** Atomic write: a reader sees either no file or the whole file. */
-function writeAnswers(file: string, record: AnswerFile | AudioAnswers): void {
+function writeAtomic(file: string, bytes: string | Buffer): void {
   const tmp = `${file}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
-  writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`);
+  writeFileSync(tmp, bytes);
   renameSync(tmp, file);
+}
+
+function writeAnswers(file: string, record: AnswerFile | AudioAnswers): void {
+  writeAtomic(file, `${JSON.stringify(record, null, 2)}\n`);
+}
+
+/**
+ * The answers are stored first so the tutor's message can quote them, and put back when the message
+ * never left: a failed delivery must leave the retry possible and nothing duplicated.
+ */
+async function storeAndDeliver(file: string, record: AudioAnswers, text: string, deliver: (message: string) => Promise<void>): Promise<void> {
+  const previous = existsSync(file) ? readFileSync(file) : undefined;
+  writeAnswers(file, record);
+  try {
+    await deliver(text);
+  } catch (error) {
+    // No file before means no file after: whatever this request stored is what would refuse the retry.
+    if (previous === undefined) rmSync(file, { force: true });
+    else writeAtomic(file, previous);
+    throw error;
+  }
 }
 
 const audioWords = (text: string) => text.replace(/\s+/g, " ").trim();
@@ -1185,24 +1206,31 @@ function readDesarrollo(blockId: string, raw: unknown, codes: Set<string>, uniqu
   return desarrollo;
 }
 
+/** A map with no inherited keys: a block or question named `constructor` is data, never Object.prototype. */
+function keyed<T>(entries: [string, T][]): Record<string, T> {
+  const record: Record<string, T> = Object.create(null);
+  for (const [key, value] of entries) record[key] = value;
+  return record;
+}
+
 function readAudioAnswers(dir: string): AudioAnswers {
   const file = join(dir, "respuestas.json");
   const doc = readRecord(file);
   const texts = (value: Record<string, unknown>): Record<string, string> =>
-    Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+    keyed(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
   const map = (key: "previas" | "explicaciones"): Record<string, string> => {
     const value = doc?.[key];
-    if (value === undefined) return {};
+    if (value === undefined) return keyed([]);
     if (!isRecord(value)) throw new HttpError(409, `recorded ${key} are unreadable: ${file}`);
     return texts(value);
   };
   const byBlock = (): Record<string, Record<string, string>> => {
     const value = doc?.desarrollo;
-    if (value === undefined) return {};
+    if (value === undefined) return keyed([]);
     if (!isRecord(value)) throw new HttpError(409, `recorded desarrollo are unreadable: ${file}`);
-    return Object.fromEntries(Object.entries(value)
+    return keyed(Object.entries(value)
       .filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]))
-      .map(([block, answers]) => [block, texts(answers)]));
+      .map(([block, answers]): [string, Record<string, string>] => [block, texts(answers)]));
   };
   const desarrollo = byBlock();
   return {
@@ -1241,6 +1269,26 @@ function audioDir(rootReal: string, note: unknown): string {
   const contained = resolveContained(rootReal, requested);
   if (!contained.ok) throw new HttpError(404, contained.reason);
   return contained.targetReal;
+}
+
+/**
+ * The one file a session's folder serves: the capsule or the transcript of a block that session declares.
+ * A folder that is not a session id serves nothing, and the file is served only under its own name inside
+ * the session, so a link cannot hand out another file of the folder.
+ */
+function audioCapsule(rootReal: string, segments: string[]): string {
+  if (segments.length !== 2) throw new HttpError(404, "not found");
+  const [sesion, name] = segments;
+  const block = /^(.+)\.(m4a|srt)$/.exec(name);
+  if (!block || !AUDIO_ID.test(block[1])) throw new HttpError(404, "not found");
+  let sessionDir: string;
+  try { sessionDir = audioDir(rootReal, sesion); } catch { throw new HttpError(404, "not found"); }
+  if (!readAudioSession(sessionDir).bloques.some((entry) => entry.id === block[1])) throw new HttpError(404, "not found");
+  const capsule = join(sessionDir, name);
+  let real: string;
+  try { real = realpathSync(capsule); } catch { throw new HttpError(404, "not found"); }
+  if (real !== capsule) throw new HttpError(404, "not found");
+  return capsule;
 }
 
 /** Only valid verdicts reach the page: a quote from another answer is no verdict at all. */
@@ -2272,11 +2320,10 @@ ${scripts}
     if (segments.length === 0 || segments.some((s) => s === "" || s === "." || s === ".." || /[\\/\0]/.test(s))) {
       throw new HttpError(404, "not found");
     }
-    // A session serves its capsules and nothing else: the page reads the session, the answers and the verdicts as derived state only.
-    if (topic === "audios" && !(segments.length === 2 && /\.(m4a|srt)$/i.test(segments[1]))) {
-      throw new HttpError(404, "not found");
-    }
-    const contained = resolveContained(dir, join(dir, ...segments));
+    let file = join(dir, ...segments);
+    // A session serves its capsules and nothing else: the capsule or transcript of a block it declares.
+    if (topic === "audios") file = audioCapsule(rootReal, segments);
+    const contained = resolveContained(dir, file);
     if (!contained.ok) throw new HttpError(404, "not found");
     const codeDir = resolveContained(dir, join(dir, "codigo"));
     // Exercise files hold the hidden tests; the vault may sit on a case-insensitive drive.
@@ -2522,7 +2569,6 @@ ${scripts}
         if (Object.keys(raw).length !== ids.length) throw new HttpError(400, "every question must be answered exactly once");
         if (Object.keys(recorded.previas).length > 0) throw new HttpError(409, `Ya respondiste las preguntas iniciales. ${SAVED_HINT}`);
         const answers = Object.fromEntries(ids.map((id) => [id, raw[id] as string]));
-        writeAnswers(file, { ...recorded, previas: answers });
         const lines = [
           `[Vista HTML · audios · ${note} · preguntas]`,
           "Respuestas a las preguntas iniciales:",
@@ -2530,7 +2576,7 @@ ${scripts}
           `Escribe en audios/${note}/veredictos.json los veredictos de las preguntas iniciales: un estado (claro, dudoso o laguna) y una evidencia citada literalmente de lo que dijiste para cada concepto. Produce también la cápsula de cada bloque que no quede con todos los conceptos claros (motor de audio: skill learnings-audio, perfil capsule):`,
           ...session.bloques.map((block) => `- ${block.id}: spec tools/audio/specs/audio-${note}-${block.id}.json; entrega audios/${note}/${block.id}.m4a con transcripción audios/${note}/${block.id}.srt`),
         ];
-        await deliver(lines.join("\n"));
+        await storeAndDeliver(file, { ...recorded, previas: answers }, lines.join("\n"), deliver);
         answer({ saved, sent: true });
         return;
       }
@@ -2554,17 +2600,13 @@ ${scripts}
         const estado = audioSessionView(dir, session, recorded).bloques.find((entry) => entry.id === blockId)!.estado;
         if (estado !== "escuchar") throw new HttpError(409, `El bloque ${blockId} no está en estado escuchar (está en ${estado}).`);
         const answers = Object.fromEntries(ids.map((id) => [id, raw[id] as string]));
-        writeAnswers(file, {
-          ...recorded,
-          desarrollo: { ...(recorded.desarrollo ?? {}), [blockId]: answers },
-        });
         const lines = [
           `[Vista HTML · audios · ${note} · desarrollo · ${blockId}]`,
           `Preguntas de desarrollo de ${blockId}:`,
           ...ids.flatMap((id) => [`- ${id}:`, quote(answers[id])]),
           `Escribe en audios/${note}/veredictos.json los veredictos de desarrollo de este bloque en desarrollo: uno por concepto, con bloque, codigo, estado (claro, dudoso o laguna), evidencia citada literalmente de la respuesta a su pregunta y corrección de dos o tres líneas.`,
         ];
-        await deliver(lines.join("\n"));
+        await storeAndDeliver(file, { ...recorded, desarrollo: { ...(recorded.desarrollo ?? {}), [blockId]: answers } }, lines.join("\n"), deliver);
         answer({ saved, sent: true });
         return;
       }
@@ -2572,14 +2614,13 @@ ${scripts}
       if (text === "") throw new HttpError(400, "text must not be empty");
       const estado = audioSessionView(dir, session, recorded).bloques.find((entry) => entry.id === blockId)!.estado;
       if (estado !== "escuchar") throw new HttpError(409, `El bloque ${blockId} no está en estado escuchar (está en ${estado}).`);
-      writeAnswers(file, { ...recorded, explicaciones: { ...recorded.explicaciones, [blockId]: text } });
       const lines = [
         `[Vista HTML · audios · ${note} · explicación · ${blockId}]`,
         `Explicación de ${blockId}:`,
         quote(text),
         `Escribe en audios/${note}/veredictos.json un veredicto por concepto de este bloque: estado (claro, dudoso o laguna), evidencia citada literalmente de lo que dijiste y corrección de dos o tres líneas.`,
       ];
-      await deliver(lines.join("\n"));
+      await storeAndDeliver(file, { ...recorded, explicaciones: { ...recorded.explicaciones, [blockId]: text } }, lines.join("\n"), deliver);
       answer({ saved, sent: true });
     } finally { ticket?.release(); }
   };

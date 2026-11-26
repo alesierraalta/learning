@@ -750,6 +750,8 @@
     const drafts = new Map();
     const fields = new Map();
     let painted = "";
+    // A poll read before a submission must not paint over it: every accepted submission invalidates earlier reads.
+    let accepted = 0;
     // Dictation writes into the field without an input event, so the field itself is read, never a copy of it.
     const said = (key) => fields.get(key)?.value ?? "";
 
@@ -849,7 +851,7 @@
               const answers = Object.fromEntries(block.desarrollo.map((question, number) => [question.id, said(keys[number])]));
               const result = await post({ kind: "audio-desarrollo", topic: "audios", note: data.note, block: block.id, answers });
               message.textContent = result.queued ? "En cola…" : "Preguntas de desarrollo enviadas al tutor.";
-              await refresh();
+              await settled();
             } catch (error) {
               message.className = "error";
               message.textContent = error.message;
@@ -870,7 +872,7 @@
             try {
               const result = await post({ kind: "audio-explicacion", topic: "audios", note: data.note, block: block.id, text: said(`explicacion:${block.id}`) });
               message.textContent = result.queued ? "En cola…" : "Explicación enviada al tutor.";
-              await refresh();
+              await settled();
             } catch (error) {
               message.className = "error";
               message.textContent = error.message;
@@ -905,7 +907,7 @@
             const answers = Object.fromEntries(questions.map((id) => [id, said(`previa:${id}`)]));
             const result = await post({ kind: "audio-previas", topic: "audios", note: data.note, answers });
             message.textContent = result.queued ? "En cola…" : "Respuestas enviadas al tutor.";
-            await refresh();
+            await settled();
           } catch (error) {
             message.className = "error";
             message.textContent = error.message;
@@ -916,11 +918,18 @@
     };
 
     const refresh = async () => {
+      const before = accepted;
       try {
         const response = await fetch(data.stateUrl, { cache: "no-store" });
-        if (response.ok) paint(await response.json());
+        if (!response.ok) return;
+        const session = await response.json();
+        // A read that began before the last accepted submission is older than what the page knows.
+        if (before !== accepted) return;
+        paint(session);
       } catch { /* an offline poll keeps the last state on screen */ }
     };
+    // The state the tutor now has: this read outranks every poll still in flight.
+    const settled = async () => { accepted += 1; await refresh(); };
     paint(data.session);
     setInterval(() => { if (!document.hidden) refresh(); }, 30000);
   }

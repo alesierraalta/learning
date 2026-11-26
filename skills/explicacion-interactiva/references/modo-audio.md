@@ -51,6 +51,7 @@
 ## Cápsulas
 
 - Usa la skill `learnings-audio` en su perfil de cápsula: `audios/<sesion>/<bloque>.m4a` con `audios/<sesion>/<bloque>.srt` al lado. Escribe la spec en `tools/audio/specs/audio-<sesion>-<bloque>.json` con `"capsule": true`, el id del bloque en `part` y el id de la sesión en `topic`; `minutes` vale de 5 a 8 (6 por defecto).
+- La cápsula es un **diálogo entre dos voces**, nunca un narrador único: en la spec pon `"style": "charla"` y `voices` con las dos voces que eligió la persona, `{ "A": "Alex", "B": "Dora" }`. Las dos se alternan por turnos, un capítulo por concepto. La persona las eligió para el modo audio porque la conversación le mantiene la atención mientras entrena, y una sola voz la pierde.
 - Cada cápsula dura de 5 a 8 minutos y lleva **un capítulo por concepto**, en el mismo orden de `sesion.json`. Cada afirmación, número y ejemplo sale de las fuentes de la sesión; una fuente delgada da una cápsula más corta, nunca relleno general. No escribas la transcripción en el chat ni en el vault como texto de lectura.
 
 ## Cómo escribir las preguntas de desarrollo

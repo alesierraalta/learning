@@ -87,6 +87,8 @@ async function main() {
   // made it: a limiter that misses by a fraction of a dB is still missing.
   if (probed.peak > -1.4) throw new Error(`true peak ${probed.peak} dBFS exceeds the -1.5 dBFS ceiling`);
   if (Math.abs(probed.lufs + 16) > 0.7) throw new Error(`loudness ${probed.lufs} LUFS left the -16 LUFS target`);
+  // The promise is about the file, so the window is checked against the seconds it lasts, never the rounded report.
+  const actualMinutes = probed.duration / 60;
   const report = {
     part: spec.part,
     title: spec.title,
@@ -103,8 +105,8 @@ async function main() {
     bytes: statSync(out).size,
     files: { audio: out, srt },
   };
-  if (profile.capsule && (report.minutes.actual < shortest || report.minutes.actual > longest)) {
-    console.warn(`warning: the capsule lasts ${report.minutes.actual} min; a capsule runs ${shortest} to ${longest} minutes`);
+  if (profile.capsule && (actualMinutes < shortest || actualMinutes > longest)) {
+    console.warn(`warning: the capsule lasts ${Math.round(actualMinutes * 100) / 100} min; a capsule runs ${shortest} to ${longest} minutes`);
   }
   writeFileSync(join(work, "report.json"), JSON.stringify(report, null, 1));
   console.log(`wrote ${out} · ${report.minutes.actual} min · ${report.cues} cues · ${report.bytes} bytes`);

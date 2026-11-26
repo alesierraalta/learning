@@ -6047,3 +6047,163 @@ test("T9 a block with desarrollo draws one field per question and offers no opti
   } });
   await shutdown();
 });
+
+test("M1 an audio submission whose delivery fails restores respuestas.json so the retry works", async () => {
+  const { root, view, host, shutdown } = await setup();
+  const block = audioDesarrolloBlock("b1", ["c1", "c2"]);
+  const plain = audioBlock("b2", "c3");
+  const admin = audioFixture(root, {
+    bloques: [block, plain],
+    answers: { previas: { "b1-p-c1": "dije c1", "b1-p-c2": "dije c2", "b2-p1": "dije c3" }, explicaciones: {} },
+    verdicts: {
+      previas: [
+        { bloque: "b1", codigo: "c1", estado: "dudoso", evidencia: "dije c1" },
+        { bloque: "b1", codigo: "c2", estado: "dudoso", evidencia: "dije c2" },
+        { bloque: "b2", codigo: "c3", estado: "dudoso", evidencia: "dije c3" },
+      ],
+      explicaciones: [],
+    },
+    capsules: ["b1", "b2"],
+  });
+  const inicial = audioFixture(root, { session: "inicial", bloques: [audioBlock("b1", "c1")] });
+  const site = base(await view({}));
+  // The host's chat is down until the test says otherwise: the same call must leave nothing behind.
+  const send = host.api.sendUserMessage;
+  let down = true;
+  host.api.sendUserMessage = (content, options) => {
+    if (down) throw new Error("tutor no disponible");
+    send.call(host.api, content, options);
+  };
+  const file = join(admin, "respuestas.json");
+  const snapshot = () => readFileSync(file);
+
+  const previas = { kind: "audio-previas", topic: "audios", note: "inicial", answers: { "b1-p1": "La ruta crítica marca el plazo." } };
+  const inicialFile = join(inicial, "respuestas.json");
+  assert.equal(existsSync(inicialFile), false);
+  const lost = await submit(site, previas);
+  assert.equal(lost.status, 502, lost.body);
+  assert.equal(existsSync(inicialFile), false, "a file that did not exist is not left behind");
+  assert.equal(host.sent.length, 0);
+  down = false;
+  assert.equal((await submit(site, previas)).status, 200);
+  assert.equal(JSON.parse(readFileSync(inicialFile, "utf8")).previas["b1-p1"], "La ruta crítica marca el plazo.");
+
+  const before = snapshot();
+  const explicacion = { kind: "audio-explicacion", topic: "audios", note: "admin", block: "b2", text: "El presupuesto se arma por partidas." };
+  down = true;
+  const refused = await submit(site, explicacion);
+  assert.equal(refused.status, 502, refused.body);
+  assert.deepEqual(snapshot(), before, "a failed delivery leaves respuestas.json byte for byte");
+  down = false;
+  assert.equal((await submit(site, explicacion)).status, 200);
+  assert.equal(JSON.parse(snapshot()).explicaciones.b2, "El presupuesto se arma por partidas.");
+
+  const afterExplicacion = snapshot();
+  const desarrollo = { kind: "audio-desarrollo", topic: "audios", note: "admin", block: "b1", answers: { "b1-d-c1": "Porque el terreno cambia.", "b1-d-c2": "Porque el margen se recalcula." } };
+  down = true;
+  const lostDesarrollo = await submit(site, desarrollo);
+  assert.equal(lostDesarrollo.status, 502, lostDesarrollo.body);
+  assert.deepEqual(snapshot(), afterExplicacion, "a failed delivery leaves respuestas.json byte for byte");
+  down = false;
+  assert.equal((await submit(site, desarrollo)).status, 200);
+  assert.deepEqual(JSON.parse(snapshot()).desarrollo, { b1: {
+    "b1-d-c1": "Porque el terreno cambia.",
+    "b1-d-c2": "Porque el margen se recalcula.",
+  } });
+  assert.equal(host.sent.length, 3, "the tutor hears about each accepted submission exactly once");
+  await shutdown();
+});
+
+test("T2 the audio file route serves only a block's capsule in a real session", async () => {
+  const { root, view, shutdown } = await setup();
+  const dir = audioFixture(root, { answers: { previas: { "b1-p1": "x" }, explicaciones: {} }, capsules: ["b1"] });
+  // Names and folders the contract does not call capsules: only <bloque>.m4a / .srt of a session is served.
+  writeFileSync(join(dir, "extra.m4a"), "fuera de lo pactado");
+  writeFileSync(join(dir, "b1 .m4a"), "con un espacio");
+  writeFileSync(join(dir, "notas.srt"), "no es una transcripcion de bloque");
+  const outside = join(root, "audios", "Admin Proyectos");
+  mkdirSync(outside, { recursive: true });
+  writeFileSync(join(outside, "leak.m4a"), "carpeta que no es sesion");
+  const site = base(await view({}));
+  assert.equal((await http(`${site}audios/file/admin/b1.m4a`)).status, 200, "the real capsule is served");
+  for (const path of [
+    "audios/file/admin/extra.m4a",
+    "audios/file/admin/b1%20.m4a",
+    "audios/file/admin/notas.srt",
+    `audios/file/${encodeURIComponent("Admin Proyectos")}/leak.m4a`,
+  ]) {
+    assert.equal((await http(site + path)).status, 404, path);
+  }
+  await shutdown();
+});
+
+test("T2 a capsule name that points at another session file serves nothing", async () => {
+  const { root, view, shutdown } = await setup();
+  const dir = audioFixture(root, { answers: { previas: { "b1-p1": "respuesta privada" }, explicaciones: {} } });
+  symlinkSync(join(dir, "respuestas.json"), join(dir, "b1.m4a"));
+  const site = base(await view({}));
+  const response = await http(`${site}audios/file/admin/b1.m4a`);
+  assert.equal(response.status, 404, "a link named as a capsule is not the capsule");
+  assert.equal(response.body.includes("respuesta privada"), false, "the answers are not served through a capsule name");
+  await shutdown();
+});
+
+test("T2 a block id that shadows Object.prototype still serves its session", async () => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root, {
+    session: "proto",
+    bloques: [audioBlock("constructor", "c1", "p1")],
+    answers: { previas: { p1: "algo" }, explicaciones: {} },
+    verdicts: { previas: [{ bloque: "constructor", codigo: "c1", estado: "dudoso", evidencia: "algo" }], explicaciones: [] },
+    capsules: ["constructor"],
+  });
+  const site = base(await view({}));
+  const page = await http(`${site}audios/proto`);
+  assert.equal(page.status, 200, page.body);
+  const state = JSON.parse((await http(`${site}audios/proto/estado`)).body);
+  assert.equal(state.bloques[0].conceptos[0].previa.estado, "dudoso");
+  assert.equal(state.bloques[0].estado, "escuchar");
+  await shutdown();
+});
+
+test("T2 a stale poll does not put back a form the tutor already answered", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root);
+  const site = base(await view({}));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ reducedMotion: "reduce" });
+  // The 30 second poll fires on a page that already holds the answers form: capture its callback so the test decides when it runs.
+  await page.addInitScript(() => {
+    window.__polls = [];
+    const real = window.setInterval.bind(window);
+    window.setInterval = (fn, ms) => { window.__polls.push(fn); return real(fn, ms); };
+  });
+  let held;
+  let release;
+  const stale = new Promise((resolve) => { release = resolve; });
+  let first = true;
+  await page.route("**/audios/admin/estado", async (route) => {
+    if (!first) return route.continue();
+    first = false;
+    const response = await route.fetch();
+    held = { route, status: response.status(), body: await response.text() };
+    release();
+  });
+  await page.goto(`${site}audios/admin`);
+  await page.locator(".audio-block-card textarea").first().waitFor();
+  // The poll reads the unanswered session and its answer is held in flight.
+  await page.evaluate(() => window.__polls.forEach((fn) => fn()));
+  await stale;
+  // Meanwhile the learner submits the form.
+  await page.locator(".audio-block-card textarea").first().fill("La ruta crítica marca el plazo.");
+  await page.getByRole("button", { name: "Enviar respuestas al tutor" }).click();
+  await page.getByText("Evaluando tus respuestas iniciales").waitFor({ timeout: 5000 });
+  assert.equal(await page.getByRole("button", { name: "Enviar respuestas al tutor" }).count(), 0);
+  // The older response lands after the submission moved the page on.
+  await held.route.fulfill({ status: held.status, contentType: "application/json", body: held.body });
+  await page.waitForTimeout(300);
+  assert.equal(await page.getByRole("button", { name: "Enviar respuestas al tutor" }).count(), 0, "the stale poll put the answered form back");
+  assert.equal(await page.getByText("Evaluando tus respuestas iniciales").count(), 1);
+  await shutdown();
+});
