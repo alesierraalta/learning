@@ -1,0 +1,72 @@
+# Audio study mode
+
+Objective: a fourth study mode, `audio`, for a learner with no time to read: voice answers decide what is already known, a short audio capsule explains the rest, and the learner explains each block aloud and gets a verdict per concept. This document covers the first slice only (validate, explain, validate; audio only).
+Branch `feat/445-audio-mode` from `origin/main` @ `3438ea0`, worktree `../learning-worktrees/feat-445-audio-mode`. Milestone #14. Delivery strategy: `ask-on-risk`; forecast about 1000 authored lines, one commit per task.
+Runners: `node --test tools/audio/test/*.test.mjs` · `cd integrations/pi && npm exec tsc -- -p .` then `node --test integrations/pi/*.test.mjs integrations/pi/kit/test/*.test.mjs` (CI builds the engine first, `.github/workflows/ci.yml`) · `node --test studio/*.test.mjs`.
+
+## Specs
+
+- **S1 — A mode of its own.** The learner asked: «necesito una sección que no sea tanto de […] lectura», «mejoremos al máximo un flujo de poco tiempo de uso». `audio` is a fourth study mode next to `rapido`, `universitario` and `examen`. *Assumption A1:* like `rapido` it runs outside the Go engine (no `learning_stage`, no `plan.json`, no stages), because the engine's stage order is fixed in Go.
+- **S2 — No reading text.** «que no me genere el texto porque no es necesario, solamente me genere los audios». The session page shows no explanation prose: only the opening questions, the capsule player, the explanation field and the verdicts. A verdict's correction is two or three lines. The capsule transcript may sit behind a control; it is never shown by default.
+- **S3 — Validate first.** Approved proposal: «Validar primero. Respondes dos o tres preguntas dictando. Lo que ya sabes se salta.» The opening questions are open questions answered by voice (dictation) or by typing, all blocks in one submission. A block whose concepts were all judged `claro` from those answers is shown as skipped and gets no capsule. An empty answer is allowed; a concept whose questions were all left empty is a `laguna` without a tutor verdict.
+- **S4 — Explain.** Approved proposal: «Explicar. Una cápsula de audio de 5 a 8 minutos». One capsule per block that was not skipped, produced by the existing audio engine under a capsule profile.
+- **S5 — Validate.** Approved proposal: «Validar. Lo explicas tú en voz alta y el tutor marca cada concepto como claro, dudoso o laguna, citando lo que dijiste.» The learner also asked for «un lugar donde yo pueda explicar todo y me vaya corrigiendo». Each verdict carries `estado`, an `evidencia` quoted verbatim from what the learner said about that block, and (after the explanation) a short `correccion`. A verdict whose `evidencia` is not contained in the learner's stored words (whitespace-normalised) is not valid and is not shown; its concept stays unjudged.
+- **S6 — Same philosophy, compressed.** «debe tener toda la filosofía que hemos estado haciendo de explicar, validar, explicar, validar, explicar, validar, o sea, testear […] pero en algo un poco más comprimido y estilo audio». The unit is a block of concepts, and each block goes through validate → explain → validate; a block is complete only when every one of its concepts has a valid explanation verdict.
+- **S7 — Little time.** «para mí una hora es vital», «así sean 5 minutos». A session has 1 to 6 blocks; a block has 1 to 4 concepts and 1 to 3 opening questions. The tutor instructions aim for two questions per block.
+- **S8 — On the phone, while training.** The page works at phone width; a capsule plays with seeking and has a download link.
+- **S9 — From the course material.** Sources uploaded in the studio are accepted in audio mode as in the other modes, and the tutor takes the concepts from them.
+- **S10 — Out of this slice.** Video, micro-capsules for gaps, a second explanation of the same block, the final mock exam, scheduled review, engine changes and offline audio.
+
+### Contract shared by the three tasks
+
+Everything of a session lives in `<Learnings root>/audios/<sesion>/` (`<sesion>` is one safe folder name, the same rule as a topic). `audios` is never listed as a study topic.
+
+`sesion.json`, written by the tutor:
+
+```json
+{
+  "titulo": "Administración de proyectos",
+  "bloques": [
+    {
+      "id": "b1",
+      "titulo": "Ruta crítica",
+      "conceptos": [{ "codigo": "ruta-critica", "nombre": "Ruta crítica" }],
+      "preguntas": [{ "id": "b1-p1", "enunciado": "¿Qué pasa si se retrasa una tarea de la ruta crítica?", "conceptos": ["ruta-critica"] }],
+      "consigna": "Explica qué es la ruta crítica y para qué sirve."
+    }
+  ]
+}
+```
+
+Ids and codes match `^[a-z0-9][a-z0-9-]{0,39}$` and are unique in the session; a question's `conceptos` is a non-empty subset of its block's codes; every concept of a block is named by at least one of its questions. A session file that breaks these rules or the S7 limits is refused with a message that names the rule.
+
+`respuestas.json`, written only by the bridge: `{"previas": {"<preguntaId>": "<text>"}, "explicaciones": {"<bloqueId>": "<text>"}}`.
+
+`veredictos.json`, written by the tutor: `{"previas": [{"bloque","codigo","estado","evidencia"}], "explicaciones": [{"bloque","codigo","estado","evidencia","correccion"}]}`, `estado` one of `claro`, `dudoso`, `laguna`. A `previas` quote must come from the learner's answers to that block's questions; an `explicaciones` quote from that block's explanation.
+
+Capsule: `audios/<sesion>/<bloque>.m4a` with its `<bloque>.srt`; spec in `tools/audio/specs/audio-<sesion>-<bloque>.json`.
+
+Block state, derived by the bridge in this order: `preguntas` (opening answers not submitted) → `evaluando` (submitted; a concept with a non-empty answer has no valid opening verdict) → `sabido` (every concept `claro`: skipped) or `capsula-pendiente` (capsule file missing) → `escuchar` (capsule present, no explanation) → `corrigiendo` (explanation submitted; a concept has no valid explanation verdict) → `completado`.
+
+Bridge page: `<bridge base>audios/<sesion>`; capsule files through the existing topic file route with HTTP Range. Submissions (unknown fields, sessions, blocks and question ids are refused):
+
+- `{"kind":"audio-previas","topic":"audios","note":"<sesion>","answers":{"<preguntaId>":"<text>"}}` — every question id exactly once, empty text allowed; refused with 409 once answers exist. The tutor is told to write the opening verdicts and produce the capsule of every block that was not all `claro`.
+- `{"kind":"audio-explicacion","topic":"audios","note":"<sesion>","block":"<bloqueId>","text":"<text>"}` — non-empty text; refused with 409 unless the block is in state `escuchar`. The tutor is told to write that block's explanation verdicts.
+
+Studio: mode value `audio`; the library gains `audio: [{id, title}]` (from `audios/*/sesion.json`, most recently used first); route `#/audio/<sesion>` frames the bridge page the way `#/rapido/<id>` frames a quick note.
+
+## Tasks
+
+- [ ] **T1** (#445; S4) Audio engine capsule profile: a spec that declares `"capsule": true` is validated and rendered against a 5–8 minute target (`minutes` 5–8, default 6; render window 4–9); a spec without it keeps today's rules byte for byte. `tools/audio/SKILL.md` and `README.md` gain the capsule section (one chapter per concept, delivery path of the contract). Route: writer A. Commit: —
+- [ ] **T2** (#446; S2, S3, S5, S6, S7, S8) Bridge: session reader with validation and block state, the session page, the two submission kinds, verdict validity, capsule player and download; `docs/integration.md` and `docs/kit.md`. Route: writer B. Commit: —
+- [ ] **T3** (#447; S1, S9) Studio: mode `audio` everywhere a mode is listed, sources accepted, library list, home cards, route; tutor instructions (`skills/explicacion-interactiva` mode reference and pointers); `docs/studio.md`. Route: writer C. Commit: —
+- [ ] **T4** (S1–S9) Seam check across T1–T3, the three suites, a real run of one session against the bridge with a rendered or stand-in capsule, independent verification of T2's write endpoints, review assessment. Route: parent. Commit: —
+
+## Log
+
+- **L1** (2026-11-25, original request, verbatim): «tengo una situación porque en vista de que tengo muy poco tiempo para estudiar no sé qué tanto me convenga estar leyendo mucho de verdad que o sea para que tengas una idea ahorita estoy trabajando justo acabo de ganar una jacatón en la cual ahora vamos a empezar unas tartas y nos van y nos va a caer unas rondas de inversión de inversiones pues Y además entrenar y de paso estudiar es imposible o sea no me da chance estudiar y tengo el examen la semana que viene entonces no sé cuál es la forma más rápida y que no me quite casi tiempo no sé si lo necesito por audio si ver videos de verdad o sea no sé si tenemos que perfeccionar el sistema de audio o perfeccionar el sistema de video no sé cuál con con cuál método voy a mejorar más voy a aprender más necesito aprender la máxima cantidad de cosas o sea cuando imagínate que necesito que te pasó para armar el el la parte de un examen o lo que sea pero necesito aprender necesito aprender y entender todo pero sin leer porque es que de verdad no me da tiempo no puedo o sea Tengo demasiadas cosas encima y no me da ojalá yo pudiese pero en estos momento de mi vida no me da la vida para para de paso sentarme una hora a estudiar para mí una hora es vital para hacer otras cosas entonces y más cuando tengo tan poco tiempo de aquí al examen así que no sé cómo podemos hacer para para aprender y entiendo que para otras materias por ejemplo los laboratorios dos que es escribir tanto en neoj o sea base de datos no no sql voy a necesitar hacer código y de la forma y aprender ese código de la forma más rápida posible entonces tampoco sé cómo hacer con eso pero necesito una solución no rápida pero necesito una solución porque tengo examen la semana que viene no de laboratorio pero sí de administración de proyectos y necesito tener de ahí donde encontrar la forma de aprender sin tener que sentarme una hora a leer así sean 5 minutos no sé no sé de verdad que no sé pero necesito una solución para esto»
+- **L2** (2026-11-25, verbatim): «No, la idea es que utilicemos la aplicación de Learnings, por eso estamos aquí, no por nada más en particular, pero por eso fíjate qué es lo que tenemos construido para ver cómo podemos adaptar todo esto que te estoy diciendo al flujo o añadir un nuevo flujo, no sé, por eso estoy bastante perdido con eso, recomiéndame cosas.»
+- **L3** (2026-11-25, verbatim): «Claro, pero por eso justamente necesito una sección que no sea tanto de, ¿cómo se dice? De lectura, sino más bien necesito que justamente para esto mejoremos al máximo un flujo de poco tiempo de uso. Por ejemplo, no sé, que no me genere el texto porque no es necesario, solamente me genere los audios y luego me genere como un lugar donde yo pueda explicar todo y me vaya corrigiendo, no lo sé. Por eso justamente te quería pedir una opinión porque necesito estudiar mucho en muy poco tiempo y con poco tiempo, lo cual sé que no es lo óptimo, pero es lo que hay. Entonces necesito justamente una alternativa para eso.»
+- **L4** (2026-11-25, verbatim): «Claro, pero debe tener toda la filosofía que hemos estado haciendo de explicar, validar, explicar, validar, explicar, validar, o sea, testear, todo ese tipo de todo ese flujo, pero en algo un poco más comprimido y estilo audio o video. No sé si, es que no sé si el video me renta, pero necesito, no sé, creo que el audio es lo mejor, pero creo que para otras cosas podría incluso ser mejor también video. Entonces, pues no sé si vale la pena tener ambas o solo una. Por eso, justamente necesito esa solución.»
+- **L5** (2026-11-25): the parent proposed the six-step cycle (validate first, explain, validate, re-explain the gap, validate again, final test) and a build order whose first point is «los pasos 1 a 3 solo con audio». The learner answered, verbatim: «vale, go». Only that first point is authorised here; micro-capsules, the mock exam and short videos are later slices.
+- **L6** (2026-11-25, exploration evidence on `origin/main`): modes live in `studio/runtime.ts` (`STUDY_MODES`, `modeLine`) and `POST api/aprender` in `studio/server.ts`, with the three buttons in `studio/ui/studio.js`; `rapido` is the precedent for a mode outside the engine (`rapidos/<nota>.md`, listed by the studio, framed at `#/rapido/<id>`, graded through the bridge's `quick-quiz` kind with `topic: "rapidos"` and `note`). The audio engine (`tools/audio`) fixes `TARGET_MINUTES = 20`, `MINUTE_WINDOW = [12, 28]` and `minutes` 8–35 in `lib/spec.mjs`, enforced in `render.mjs`. Bridge submissions are a closed set in `ALLOWED_KEYS` (`integrations/pi/bridge.ts`); dictation is `window.learningDictate` / `learningThoughtField` in `integrations/pi/kit/dictate.js`. The engine's stage order is validated in `internal/rules/rules.go`, so a shorter flow cannot be a second rules file.
