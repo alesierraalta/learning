@@ -177,6 +177,29 @@ interface AnswerFile {
   quiz?: string;
 }
 
+const AUDIO_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const AUDIO_ESTADOS = new Set(["claro", "dudoso", "laguna"]);
+type AudioEstado = "claro" | "dudoso" | "laguna";
+type AudioBlockEstado = "preguntas" | "evaluando" | "sabido" | "capsula-pendiente" | "escuchar" | "corrigiendo" | "completado";
+interface AudioConcepto { codigo: string; nombre: string }
+interface AudioPregunta { id: string; enunciado: string; conceptos: string[] }
+interface AudioBloque { id: string; titulo: string; conceptos: AudioConcepto[]; preguntas: AudioPregunta[]; consigna: string }
+interface AudioSesion { titulo: string; bloques: AudioBloque[] }
+interface AudioAnswers { previas: Record<string, string>; explicaciones: Record<string, string> }
+interface AudioVerdict { bloque: string; codigo: string; estado: AudioEstado; evidencia: string; correccion?: string }
+interface AudioVerdictView { estado: AudioEstado | "laguna" | "sin-veredicto"; evidencia: string; correccion: string; valido: boolean; tutor: boolean }
+interface AudioConceptView extends AudioConcepto { previa: AudioVerdictView; explicacion: AudioVerdictView }
+interface AudioBlockView {
+  id: string;
+  titulo: string;
+  consigna: string;
+  estado: AudioBlockEstado;
+  preguntas: AudioPregunta[];
+  conceptos: AudioConceptView[];
+  capsula: { name: string; exists: boolean; srt: string; srtExists: boolean };
+}
+interface AudioSessionView { titulo: string; bloques: AudioBlockView[] }
+
 export { HttpError };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -634,7 +657,7 @@ function partDemos(topicDir: string, partId: string): string[] {
 /** Deleted notes leave the library but never the vault: they wait in `.papelera/`, restorable by hand. */
 const TRASH_DIR = ".papelera";
 /** Folders the vault needs: a topic is a content folder, never the trash or the quick notes. */
-const RESERVED_DIRS = new Set([TRASH_DIR, "rapidos"]);
+const RESERVED_DIRS = new Set([TRASH_DIR, "rapidos", "audios"]);
 
 /** A trash folder is named after the moment it is created: two backups in the same millisecond must not share one. */
 function freshFolder(base: string): string {
@@ -1056,10 +1079,176 @@ function exerciseMessage(declared: PartExercise[], answers: Record<string, strin
 }
 
 /** Atomic write: a reader sees either no file or the whole file. */
-function writeAnswers(file: string, record: AnswerFile): void {
+function writeAnswers(file: string, record: AnswerFile | AudioAnswers): void {
   const tmp = `${file}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
   writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`);
   renameSync(tmp, file);
+}
+
+const AUDIO_PRIVATE_FILES = new Set(["sesion.json", "respuestas.json", "veredictos.json"]);
+const audioWords = (text: string) => text.replace(/\s+/g, " ").trim();
+const audioQuoted = (said: string, evidence: string) => {
+  const quote_ = audioWords(evidence);
+  return quote_ !== "" && audioWords(said).includes(quote_);
+};
+/** The verbatim rules a session must satisfy; the refusal names the one it broke. */
+function audioId(value: unknown, rule: string): string {
+  if (typeof value !== "string" || !AUDIO_ID.test(value)) throw new HttpError(400, rule);
+  return value;
+}
+function audioText(value: unknown, rule: string): string {
+  if (typeof value !== "string" || value.trim() === "") throw new HttpError(400, rule);
+  return value;
+}
+
+function readAudioSession(dir: string): AudioSesion {
+  const file = join(dir, "sesion.json");
+  const doc = readRecord(file);
+  if (!doc) throw new HttpError(404, `audio session has no sesion.json: ${file}`);
+  const titulo = audioText(doc.titulo, "session titulo must be a non-empty string");
+  if (!Array.isArray(doc.bloques) || doc.bloques.length < 1 || doc.bloques.length > 6) {
+    throw new HttpError(400, "a session has 1 to 6 blocks (S7)");
+  }
+  const ids = new Set<string>();
+  const unique = (id: string) => {
+    if (ids.has(id)) throw new HttpError(400, `ids and codes must be unique in the session: ${id}`);
+    ids.add(id);
+  };
+  const bloques = doc.bloques.map((raw) => {
+    if (!isRecord(raw)) throw new HttpError(400, "each block needs id, titulo, conceptos, preguntas and consigna");
+    const id = audioId(raw.id, "block ids must match ^[a-z0-9][a-z0-9-]{0,39}$");
+    unique(id);
+    const titulo = audioText(raw.titulo, `block ${id} titulo must be a non-empty string`);
+    if (!Array.isArray(raw.conceptos) || raw.conceptos.length < 1 || raw.conceptos.length > 4) {
+      throw new HttpError(400, `block ${id} has 1 to 4 concepts (S7)`);
+    }
+    const conceptos = raw.conceptos.map((value) => {
+      if (!isRecord(value)) throw new HttpError(400, `block ${id} has a concept that is not an object`);
+      const codigo = audioId(value.codigo, "concept codes must match ^[a-z0-9][a-z0-9-]{0,39}$");
+      unique(codigo);
+      return { codigo, nombre: audioText(value.nombre, `concept ${codigo} nombre must be a non-empty string`) };
+    });
+    const codes = new Set(conceptos.map((concepto) => concepto.codigo));
+    if (!Array.isArray(raw.preguntas) || raw.preguntas.length < 1 || raw.preguntas.length > 3) {
+      throw new HttpError(400, `block ${id} has 1 to 3 opening questions (S7)`);
+    }
+    const preguntas = raw.preguntas.map((value) => {
+      if (!isRecord(value)) throw new HttpError(400, `block ${id} has a question that is not an object`);
+      const preguntaId = audioId(value.id, "question ids must match ^[a-z0-9][a-z0-9-]{0,39}$");
+      unique(preguntaId);
+      const enunciado = audioText(value.enunciado, `question ${preguntaId} enunciado must be a non-empty string`);
+      if (!Array.isArray(value.conceptos) || value.conceptos.length === 0 ||
+          value.conceptos.some((code) => typeof code !== "string" || !codes.has(code))) {
+        throw new HttpError(400, `question ${preguntaId} concepts must be a non-empty subset of the block's concepts`);
+      }
+      return { id: preguntaId, enunciado, conceptos: value.conceptos as string[] };
+    });
+    const named = new Set(preguntas.flatMap((pregunta) => pregunta.conceptos));
+    if (conceptos.some((concepto) => !named.has(concepto.codigo))) {
+      throw new HttpError(400, `every concept of block ${id} must be named by at least one question`);
+    }
+    return { id, titulo, conceptos, preguntas, consigna: audioText(raw.consigna, `block ${id} consigna must be a non-empty string`) };
+  });
+  return { titulo, bloques };
+}
+
+function readAudioAnswers(dir: string): AudioAnswers {
+  const file = join(dir, "respuestas.json");
+  const doc = readRecord(file);
+  const map = (key: "previas" | "explicaciones"): Record<string, string> => {
+    const value = doc?.[key];
+    if (value === undefined) return {};
+    if (!isRecord(value)) throw new HttpError(409, `recorded ${key} are unreadable: ${file}`);
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  };
+  return { previas: map("previas"), explicaciones: map("explicaciones") };
+}
+
+function readAudioVerdicts(dir: string): { previas: AudioVerdict[]; explicaciones: AudioVerdict[] } {
+  const doc = readRecord(join(dir, "veredictos.json"));
+  const parse = (key: "previas" | "explicaciones"): AudioVerdict[] => {
+    const raw = doc?.[key];
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((value): value is AudioVerdict => isRecord(value) &&
+      typeof value.bloque === "string" && typeof value.codigo === "string" &&
+      typeof value.estado === "string" && AUDIO_ESTADOS.has(value.estado) &&
+      typeof value.evidencia === "string" &&
+      (key === "previas" || typeof value.correccion === "string"));
+  };
+  return { previas: parse("previas"), explicaciones: parse("explicaciones") };
+}
+
+const audioKey = (block: string, code: string) => `${block}/${code}`;
+
+function audioDir(rootReal: string, note: unknown): string {
+  if (!safeTopic(note)) throw new HttpError(400, "note must be one safe audio session folder name");
+  const requested = join(rootReal, "audios", note);
+  try {
+    const stat = lstatSync(requested);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new HttpError(404, `unknown audio session: ${note}`);
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(404, `unknown audio session: ${note}`);
+  }
+  const contained = resolveContained(rootReal, requested);
+  if (!contained.ok) throw new HttpError(404, contained.reason);
+  return contained.targetReal;
+}
+
+/** Only valid verdicts reach the page: a quote from another answer is no verdict at all. */
+function audioSessionView(dir: string, session: AudioSesion, answers: AudioAnswers): AudioSessionView {
+  const recorded = readAudioVerdicts(dir);
+  const valid = (list: AudioVerdict[], said: (block: AudioBloque) => string): Map<string, AudioVerdict> => {
+    const found = new Map<string, AudioVerdict>();
+    const blocks = new Map(session.bloques.map((block) => [block.id, block]));
+    for (const verdict of list) {
+      const block = blocks.get(verdict.bloque);
+      if (!block || !block.conceptos.some((concepto) => concepto.codigo === verdict.codigo)) continue;
+      if (!audioQuoted(said(block), verdict.evidencia)) continue;
+      if (verdict.correccion !== undefined && verdict.correccion.trim() === "") continue;
+      const key = audioKey(verdict.bloque, verdict.codigo);
+      if (!found.has(key)) found.set(key, verdict);
+    }
+    return found;
+  };
+  const previas = valid(recorded.previas, (block) => block.preguntas.map((q) => answers.previas[q.id] ?? "").join(" "));
+  const explicaciones = valid(recorded.explicaciones, (block) => answers.explicaciones[block.id] ?? "");
+  const emptyCodes = (block: AudioBloque) => new Set(block.conceptos
+    .filter((concepto) => block.preguntas
+      .filter((pregunta) => pregunta.conceptos.includes(concepto.codigo))
+      .every((pregunta) => (answers.previas[pregunta.id] ?? "").trim() === ""))
+    .map((concepto) => concepto.codigo));
+  const view = (estado: AudioVerdictView["estado"], verdict: AudioVerdict | undefined): AudioVerdictView => verdict
+    ? { estado: verdict.estado, evidencia: verdict.evidencia, correccion: verdict.correccion ?? "", valido: true, tutor: true }
+    : { estado, evidencia: "", correccion: "", valido: false, tutor: false };
+  const bloques = session.bloques.map((block): AudioBlockView => {
+    const lagunas = emptyCodes(block);
+    const conceptos = block.conceptos.map((concepto): AudioConceptView => ({
+      ...concepto,
+      previa: view(lagunas.has(concepto.codigo) ? "laguna" : "sin-veredicto", previas.get(audioKey(block.id, concepto.codigo))),
+      explicacion: view("sin-veredicto", explicaciones.get(audioKey(block.id, concepto.codigo))),
+    }));
+    const submitted = block.preguntas.every((pregunta) => Object.hasOwn(answers.previas, pregunta.id));
+    let estado: AudioBlockEstado;
+    if (!submitted) estado = "preguntas";
+    else if (block.conceptos.some((concepto) => !lagunas.has(concepto.codigo) && !previas.has(audioKey(block.id, concepto.codigo)))) estado = "evaluando";
+    else if (block.conceptos.every((concepto) => previas.get(audioKey(block.id, concepto.codigo))?.estado === "claro")) estado = "sabido";
+    else if (!existsSync(join(dir, `${block.id}.m4a`))) estado = "capsula-pendiente";
+    else if (!(answers.explicaciones[block.id] ?? "").trim()) estado = "escuchar";
+    else if (block.conceptos.some((concepto) => !explicaciones.has(audioKey(block.id, concepto.codigo)))) estado = "corrigiendo";
+    else estado = "completado";
+    const srt = `${block.id}.srt`;
+    return {
+      id: block.id,
+      titulo: block.titulo,
+      consigna: block.consigna,
+      estado,
+      preguntas: block.preguntas,
+      conceptos,
+      capsula: { name: `${block.id}.m4a`, exists: existsSync(join(dir, `${block.id}.m4a`)), srt, srtExists: existsSync(join(dir, srt)) },
+    };
+  });
+  return { titulo: session.titulo, bloques };
 }
 
 /**
@@ -1104,6 +1293,8 @@ const ALLOWED_KEYS: Record<string, Set<string>> = {
   question: new Set(["kind", "topic", "part", "text", "demo"]),
   video: new Set(["kind", "topic", "part"]),
   audio: new Set(["kind", "topic", "part", "style"]),
+  "audio-previas": new Set(["kind", "topic", "note", "answers"]),
+  "audio-explicacion": new Set(["kind", "topic", "note", "block", "text"]),
   code: new Set(["kind", "topic", "exercise", "code", "note"]),
 };
 
@@ -1542,7 +1733,7 @@ function readTopicExam(topicDir: string): TopicSummary["exam"] {
 /** Every topic folder with a plan.json under the Learnings root, with its parts as the vault holds them. */
 export function listTopics(rootReal: string, runners = loadRunners()): TopicSummary[] {
   return readdirSync(rootReal, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && !e.name.startsWith("_") && !e.name.startsWith(".") && e.name !== "rapidos")
+    .filter((e) => e.isDirectory() && !e.name.startsWith("_") && !e.name.startsWith(".") && !RESERVED_DIRS.has(e.name))
     .flatMap((e) => {
       const dir = join(rootReal, e.name);
       let plan;
@@ -1994,9 +2185,32 @@ ${scripts}
     }, topic);
   };
 
+  const audioView = (note: unknown): AudioSessionView => {
+    const dir = audioDir(rootReal, note);
+    return audioSessionView(dir, readAudioSession(dir), readAudioAnswers(dir));
+  };
+
+  const audioPage = (res: ServerResponse, note: string) => {
+    const view = audioView(note);
+    const audioBase = `/${token}/audios/${encodeURIComponent(note)}/`;
+    page(res, view.titulo, {
+      kind: "audio",
+      title: view.titulo,
+      topic: "audios",
+      note,
+      session: view,
+      topicBase: audioBase,
+      stateUrl: `${audioBase}estado`,
+    });
+  };
+
   const serveFile = (req: IncomingMessage, res: ServerResponse, topic: string, segments: string[]) => {
     const dir = topicDir(topic);
     if (segments.length === 0 || segments.some((s) => s === "" || s === "." || s === ".." || /[\\/\0]/.test(s))) {
+      throw new HttpError(404, "not found");
+    }
+    // The session, its answers and its verdicts are a private contract: the page reads derived state only.
+    if (topic === "audios" && segments.length === 1 && AUDIO_PRIVATE_FILES.has(segments[0].toLowerCase())) {
       throw new HttpError(404, "not found");
     }
     const contained = resolveContained(dir, join(dir, ...segments));
@@ -2217,6 +2431,66 @@ ${scripts}
       ...readSubmissions(dirname(file)), runUrl: `/${token}/api/code/run`, topicBase: `/${token}/${encodeURIComponent(topic)}/`, topicTitle: readPlan(dir)?.topic || topic }, topic);
   };
 
+  const audioSubmit = async (
+    res: ServerResponse, payload: Record<string, unknown>,
+    kind: "audio-previas" | "audio-explicacion",
+    claim: { ticket: Promise<WriterTicket | null>; queued: boolean },
+  ) => {
+    const note = optionalText(payload, "note");
+    if (claim.queued) sendJson(res, 202, queuedAck(kind));
+    const ticket = await claim.ticket;
+    const answer = (body: unknown) => { if (!claim.queued) sendJson(res, 200, body); };
+    try {
+      const dir = audioDir(rootReal, note);
+      const session = readAudioSession(dir);
+      const file = join(dir, "respuestas.json");
+      const recorded = readAudioAnswers(dir);
+      const saved = `audios/${note}/respuestas.json`;
+      if (kind === "audio-previas") {
+        const raw = payload.answers;
+        if (!isRecord(raw)) throw new HttpError(400, "answers must be an object of text by question id");
+        const ids = session.bloques.flatMap((block) => block.preguntas.map((question) => question.id));
+        for (const [id, text] of Object.entries(raw)) {
+          if (!ids.includes(id)) throw new HttpError(400, `unknown question id: ${id}`);
+          if (typeof text !== "string" || text.length > MAX_TEXT_CHARS) {
+            throw new HttpError(400, `answer ${id} must be text of at most ${MAX_TEXT_CHARS} characters`);
+          }
+        }
+        if (Object.keys(raw).length !== ids.length) throw new HttpError(400, "every question must be answered exactly once");
+        if (Object.keys(recorded.previas).length > 0) throw new HttpError(409, `Ya respondiste las preguntas iniciales. ${SAVED_HINT}`);
+        const answers = Object.fromEntries(ids.map((id) => [id, raw[id] as string]));
+        writeAnswers(file, { previas: answers, explicaciones: recorded.explicaciones });
+        const lines = [
+          `[Vista HTML · audios · ${note} · preguntas]`,
+          "Respuestas a las preguntas iniciales:",
+          ...ids.flatMap((id) => [`- ${id}:`, quote(answers[id])]),
+          `Escribe en audios/${note}/veredictos.json los veredictos de las preguntas iniciales: un estado (claro, dudoso o laguna) y una evidencia citada literalmente de lo que dijiste para cada concepto. Produce también la cápsula de cada bloque que no quede con todos los conceptos claros (motor de audio: skill learnings-audio, perfil capsule):`,
+          ...session.bloques.map((block) => `- ${block.id}: spec tools/audio/specs/audio-${note}-${block.id}.json; entrega audios/${note}/${block.id}.m4a con transcripción audios/${note}/${block.id}.srt`),
+        ];
+        await deliver(lines.join("\n"));
+        answer({ saved, sent: true });
+        return;
+      }
+      const blockId = payload.block;
+      if (typeof blockId !== "string") throw new HttpError(400, "block is required");
+      const block = session.bloques.find((entry) => entry.id === blockId);
+      if (!block) throw new HttpError(400, `unknown block id: ${blockId}`);
+      const text = optionalText(payload, "text").trim();
+      if (text === "") throw new HttpError(400, "text must not be empty");
+      const estado = audioSessionView(dir, session, recorded).bloques.find((entry) => entry.id === blockId)!.estado;
+      if (estado !== "escuchar") throw new HttpError(409, `El bloque ${blockId} no está en estado escuchar (está en ${estado}).`);
+      writeAnswers(file, { previas: recorded.previas, explicaciones: { ...recorded.explicaciones, [blockId]: text } });
+      const lines = [
+        `[Vista HTML · audios · ${note} · explicación · ${blockId}]`,
+        `Explicación de ${blockId}:`,
+        quote(text),
+        `Escribe en audios/${note}/veredictos.json un veredicto por concepto de este bloque: estado (claro, dudoso o laguna), evidencia citada literalmente de lo que dijiste y corrección de dos o tres líneas.`,
+      ];
+      await deliver(lines.join("\n"));
+      answer({ saved, sent: true });
+    } finally { ticket?.release(); }
+  };
+
   const submit = async (req: IncomingMessage, res: ServerResponse) => {
     if (!allowedOrigins().has(String(req.headers.origin ?? ""))) throw new HttpError(403, "foreign origin");
     if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) throw new HttpError(415, "JSON only");
@@ -2233,7 +2507,10 @@ ${scripts}
     const kind = payload.kind;
     const unknownKey = Object.keys(payload).find((key) => !ALLOWED_KEYS[kind].has(key));
     if (unknownKey) throw new HttpError(400, `unknown field: ${unknownKey}`);
+    const audioKind = kind === "audio-previas" || kind === "audio-explicacion";
+    if (audioKind && payload.topic !== "audios") throw new HttpError(400, "topic must be audios");
     const claim = claimTopic(payload.topic);
+    if (audioKind) return audioSubmit(res, payload, kind, claim);
     if (kind === "code") return codeRequest(res, payload, true, claim);
     if (claim.queued) sendJson(res, 202, queuedAck(kind));
     // The topic's writer owns the answer file from here until the delivery is accepted.
@@ -2505,6 +2782,10 @@ ${scripts}
     }
     const [topic, second, ...more] = rest;
     if (second === undefined) return topicPage(res, topic);
+    if (topic === "audios") {
+      if (more.length === 0) return audioPage(res, second);
+      if (more.length === 1 && more[0] === "estado") return sendJson(res, 200, audioView(second));
+    }
     if (second === "codigo" && more.length === 1) return codePage(res, topic, more[0]);
     // A page under the topic links the kit relatively (../../../kit/kit.js), so served
     // through the reader it lands on <topic>/kit/... (and <topic>/file/kit/... from a

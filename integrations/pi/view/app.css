@@ -327,6 +327,21 @@ button.secondary { background: transparent; color: var(--ink); }
 .lk-thought-label, .lk-thought-hint { display: block; }
 .lk-thought-label { font-weight: 700; }
 .lk-thought-hint, .lk-mic-note { font-family: var(--sans); font-size: 12px; line-height: 1.5; color: var(--muted); }
+
+.audio-session { max-width: 760px; }
+.audio-block-card { min-width: 0; margin: 24px 0; padding-top: 16px; border-top: 1px solid var(--hair); }
+.audio-state { font-family: var(--sans); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.audio-consigna { font-weight: 700; }
+.audio-capsule audio { display: block; width: 100%; max-width: 100%; }
+.audio-capsule details { margin-top: 10px; }
+.audio-capsule details a { display: inline-block; margin: 8px 0; }
+.concept-verdict { padding: 12px 0; border-top: 1px solid var(--rule); }
+.concept-verdict h4 { margin: 0; }
+.concept-verdict blockquote { margin: 6px 0; font-size: .95em; }
+.audio-verdict-state { font-family: var(--sans); font-size: 12px; text-transform: uppercase; }
+@media (pointer: coarse) {
+  .audio-session button, .audio-capsule summary { min-height: 44px; }
+}
 .lk-thought-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .lk-mic[data-state="listening"] { background: var(--ink); color: var(--on-ink); }
 

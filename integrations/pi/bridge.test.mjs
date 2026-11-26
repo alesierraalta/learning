@@ -5506,3 +5506,246 @@ test("#416: a regeneration archives the learner's answers with the quiz, and a f
   // Nothing was deleted: the old version is still readable in the trash.
   assert.equal(readFileSync(join(root, backup.trash, TOPIC, "mini-quiz", "p1.answers.json"), "utf8"), answers);
 });
+
+function audioBlock(id, code, question = `${id}-p1`) {
+  return {
+    id,
+    titulo: `Bloque ${id}`,
+    conceptos: [{ codigo: code, nombre: `Concepto ${code}` }],
+    preguntas: [{ id: question, enunciado: `¿Qué sabes de ${code}?`, conceptos: [code] }],
+    consigna: `Explica ${code}.`,
+  };
+}
+
+function audioFixture(root, { session = "admin", bloques = [audioBlock("b1", "c1")], answers, verdicts, capsules = [] } = {}) {
+  const dir = join(root, "audios", session);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "sesion.json"), `${JSON.stringify({ titulo: "Administración de proyectos", bloques }, null, 2)}\n`);
+  if (answers) writeFileSync(join(dir, "respuestas.json"), `${JSON.stringify(answers, null, 2)}\n`);
+  if (verdicts) writeFileSync(join(dir, "veredictos.json"), `${JSON.stringify(verdicts, null, 2)}\n`);
+  for (const id of capsules) writeFileSync(join(dir, `${id}.m4a`), Buffer.from(`capsula-${id}`));
+  return dir;
+}
+
+const audioData = (html) => JSON.parse(html.match(/<script type="application\/json" id="view-data">([\s\S]*?)<\/script>/)?.[1] ?? "null");
+const audioStates = (data) => data.session.bloques.map((block) => block.estado);
+
+test("T2 an invalid audio session is refused with the rule it broke", async () => {
+  const { root, view, shutdown } = await setup();
+  const site = base(await view({}));
+  const tooMany = Array.from({ length: 7 }, (_, index) => audioBlock(`b${index + 1}`, `c${index + 1}`));
+  const missingConcept = { ...audioBlock("b1", "c1"), conceptos: [{ codigo: "c1", nombre: "Uno" }, { codigo: "c2", nombre: "Dos" }] };
+  const foreignConcept = { ...audioBlock("b1", "c1"), preguntas: [{ id: "b1-p1", enunciado: "¿Qué?", conceptos: ["otro"] }] };
+  for (const [bloques, rule] of [
+    [[{ ...audioBlock("b1", "c1"), id: "B1" }], /ids must match/],
+    [tooMany, /1 to 6 blocks/],
+    [[missingConcept], /every concept .* named by at least one question/],
+    [[foreignConcept], /question .* concepts must be a non-empty subset/],
+  ]) {
+    audioFixture(root, { bloques });
+    const response = await http(`${site}audios/admin`);
+    assert.equal(response.status, 400, response.body);
+    assert.match(JSON.parse(response.body).error, rule);
+  }
+  await shutdown();
+});
+
+test("T2 every audio block derives its state in the contract order", async () => {
+  const { root, view, shutdown } = await setup();
+  const bloques = Array.from({ length: 6 }, (_, index) => audioBlock(`b${index + 1}`, `c-b${index + 1}`));
+  const previas = Object.fromEntries(bloques.slice(1).map((block, index) => [block.preguntas[0].id, `respuesta ${index + 2}`]));
+  const dir = audioFixture(root, {
+    bloques,
+    answers: { previas, explicaciones: { b6: "explicación seis" } },
+    verdicts: {
+      previas: [
+        { bloque: "b3", codigo: "c-b3", estado: "claro", evidencia: "respuesta 3" },
+        { bloque: "b4", codigo: "c-b4", estado: "dudoso", evidencia: "respuesta 4" },
+        { bloque: "b5", codigo: "c-b5", estado: "dudoso", evidencia: "respuesta 5" },
+        { bloque: "b6", codigo: "c-b6", estado: "dudoso", evidencia: "respuesta 6" },
+      ],
+      explicaciones: [{ bloque: "b6", codigo: "c-b6", estado: "claro", evidencia: "explicación seis", correccion: "Corrección breve." }],
+    },
+    capsules: ["b5", "b6"],
+  });
+  const site = base(await view({}));
+  const first = audioData((await http(`${site}audios/admin`)).body);
+  assert.deepEqual(audioStates(first), ["preguntas", "evaluando", "sabido", "capsula-pendiente", "escuchar", "completado"]);
+  const answers = JSON.parse(readFileSync(join(dir, "respuestas.json"), "utf8"));
+  answers.explicaciones.b5 = "explicación cinco";
+  writeFileSync(join(dir, "respuestas.json"), JSON.stringify(answers));
+  const correcting = audioData((await http(`${site}audios/admin`)).body);
+  assert.equal(audioStates(correcting)[4], "corrigiendo");
+  const verdicts = JSON.parse(readFileSync(join(dir, "veredictos.json"), "utf8"));
+  verdicts.explicaciones.push({ bloque: "b5", codigo: "c-b5", estado: "claro", evidencia: "explicación cinco", correccion: "Corrección breve." });
+  writeFileSync(join(dir, "veredictos.json"), JSON.stringify(verdicts));
+  const served = audioData((await http(`${site}audios/admin`)).body);
+  const state = JSON.parse((await http(`${site}audios/admin/estado`)).body);
+  assert.deepEqual(audioStates({ session: state }), audioStates(served));
+  assert.equal(audioStates(served)[4], "completado");
+  await shutdown();
+});
+
+test("T2 a tutor verdict with a foreign quote is not served", async () => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root, {
+    bloques: [audioBlock("b1", "c-b1"), audioBlock("b2", "c-b2"), audioBlock("b3", "c-b3")],
+    answers: {
+      previas: { "b1-p1": "dije esto uno", "b2-p1": "dije esto dos", "b3-p1": "dije esto tres" },
+      explicaciones: { b2: "dije esto dos", b3: "palabras b3" },
+    },
+    verdicts: {
+      previas: [
+        { bloque: "b1", codigo: "c-b1", estado: "claro", evidencia: "otra frase" },
+        { bloque: "b2", codigo: "c-b2", estado: "dudoso", evidencia: "dije esto dos" },
+        { bloque: "b3", codigo: "c-b3", estado: "dudoso", evidencia: "dije esto tres" },
+      ],
+      explicaciones: [
+        { bloque: "b2", codigo: "c-b2", estado: "claro", evidencia: "palabra ajena", correccion: "Corrección." },
+        { bloque: "b3", codigo: "c-b3", estado: "claro", evidencia: "palabras b3", correccion: "" },
+      ],
+    },
+    capsules: ["b2", "b3"],
+  });
+  const site = base(await view({}));
+  const served = audioData((await http(`${site}audios/admin`)).body);
+  assert.deepEqual(audioStates(served), ["evaluando", "corrigiendo", "corrigiendo"]);
+  const json = JSON.stringify(served);
+  for (const quote of ["otra frase", "palabra ajena", "palabras b3"]) assert.equal(json.includes(quote), false, `${quote} was never said`);
+  await shutdown();
+});
+
+test("T2 a concept whose opening answers were all empty is a laguna without a tutor verdict", async () => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root, {
+    bloques: [{ ...audioBlock("b1", "c-a", "b1-pa"), conceptos: [{ codigo: "c-a", nombre: "A" }, { codigo: "c-b", nombre: "B" }], preguntas: [
+      { id: "b1-pa", enunciado: "¿A?", conceptos: ["c-a"] },
+      { id: "b1-pb", enunciado: "¿B?", conceptos: ["c-b"] },
+    ] }],
+    answers: { previas: { "b1-pa": "", "b1-pb": "respuesta b" }, explicaciones: {} },
+    verdicts: { previas: [{ bloque: "b1", codigo: "c-a", estado: "claro", evidencia: "" }, { bloque: "b1", codigo: "c-b", estado: "claro", evidencia: "respuesta b" }] },
+  });
+  const site = base(await view({}));
+  const served = audioData((await http(`${site}audios/admin`)).body);
+  const [a, b] = served.session.bloques[0].conceptos;
+  assert.equal(a.previa.estado, "laguna");
+  assert.equal(a.previa.tutor, false);
+  assert.equal(a.previa.evidencia, "");
+  assert.equal(b.previa.estado, "claro");
+  assert.equal(b.previa.evidencia, "respuesta b");
+  await shutdown();
+});
+
+test("T2 audio-previas stores every answer and delivers the opening instructions", async () => {
+  const { root, view, host, shutdown } = await setup();
+  const dir = audioFixture(root);
+  const file = join(dir, "respuestas.json");
+  const snapshot = () => existsSync(file) ? readFileSync(file, "utf8") : null;
+  const before = snapshot();
+  const bad = [
+    [{ kind: "audio-previas", topic: "audios", note: "admin", answers: { "b1-p1": "x" }, extra: "nope" }, 400],
+    [{ kind: "audio-previas", topic: "audios", note: "../x", answers: { "b1-p1": "x" } }, 400],
+    [{ kind: "audio-previas", topic: "audios", note: "admin", answers: { "b1-p1": "x", otra: "y" } }, 400],
+    [{ kind: "audio-previas", topic: "audios", note: "admin", answers: {} }, 400],
+    [{ kind: "audio-previas", topic: "audios", note: "desconocida", answers: { "b1-p1": "x" } }, 404],
+  ];
+  const site = base(await view({}));
+  for (const [payload, status] of bad) {
+    const response = await submit(site, payload);
+    assert.equal(response.status, status, response.body);
+    assert.equal(snapshot(), before, "a refused answer leaves respuestas.json alone");
+  }
+  assert.equal(host.sent.length, 0);
+  const good = await submit(site, { kind: "audio-previas", topic: "audios", note: "admin", answers: { "b1-p1": "La ruta crítica marca el plazo." } });
+  assert.equal(good.status, 200, good.body);
+  assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), {
+    previas: { "b1-p1": "La ruta crítica marca el plazo." },
+    explicaciones: {},
+  });
+  assert.equal(host.sent[0].content, [
+    "[Vista HTML · audios · admin · preguntas]",
+    "Respuestas a las preguntas iniciales:",
+    "- b1-p1:",
+    '"""',
+    "La ruta crítica marca el plazo.",
+    '"""',
+    "Escribe en audios/admin/veredictos.json los veredictos de las preguntas iniciales: un estado (claro, dudoso o laguna) y una evidencia citada literalmente de lo que dijiste para cada concepto. Produce también la cápsula de cada bloque que no quede con todos los conceptos claros (motor de audio: skill learnings-audio, perfil capsule):",
+    "- b1: spec tools/audio/specs/audio-admin-b1.json; entrega audios/admin/b1.m4a con transcripción audios/admin/b1.srt",
+  ].join("\n"));
+  const saved = snapshot();
+  const again = await submit(site, { kind: "audio-previas", topic: "audios", note: "admin", answers: { "b1-p1": "Otra respuesta." } });
+  assert.equal(again.status, 409, again.body);
+  assert.equal(snapshot(), saved);
+  assert.equal(host.sent.length, 1);
+  await shutdown();
+});
+
+test("T2 audio-explicacion stores the explanation and delivers the verdict instructions", async () => {
+  const { root, view, host, shutdown } = await setup();
+  const dir = audioFixture(root, {
+    bloques: [audioBlock("b1", "c1"), audioBlock("b2", "c2")],
+    answers: { previas: { "b1-p1": "Ruta crítica" }, explicaciones: {} },
+    verdicts: { previas: [{ bloque: "b1", codigo: "c1", estado: "dudoso", evidencia: "Ruta crítica" }] },
+    capsules: ["b1"],
+  });
+  const file = join(dir, "respuestas.json");
+  const snapshot = () => existsSync(file) ? readFileSync(file, "utf8") : null;
+  const before = snapshot();
+  const site = base(await view({}));
+  const bad = [
+    [{ kind: "audio-explicacion", topic: "audios", note: "admin", block: "b1", text: "vale", extra: "nope" }, 400],
+    [{ kind: "audio-explicacion", topic: "audios", note: "desconocida", block: "b1", text: "vale" }, 404],
+    [{ kind: "audio-explicacion", topic: "audios", note: "admin", block: "b9", text: "vale" }, 400],
+    [{ kind: "audio-explicacion", topic: "audios", note: "admin", block: "b1", text: "  " }, 400],
+    [{ kind: "audio-explicacion", topic: "audios", note: "admin", block: "b2", text: "vale" }, 409],
+  ];
+  for (const [payload, status] of bad) {
+    const response = await submit(site, payload);
+    assert.equal(response.status, status, response.body);
+    assert.equal(snapshot(), before, "a refused explanation leaves respuestas.json alone");
+  }
+  assert.equal(host.sent.length, 0);
+  const text = "La ruta crítica concentra las tareas que fijan la fecha.";
+  const good = await submit(site, { kind: "audio-explicacion", topic: "audios", note: "admin", block: "b1", text });
+  assert.equal(good.status, 200, good.body);
+  assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), {
+    previas: { "b1-p1": "Ruta crítica" },
+    explicaciones: { b1: text },
+  });
+  assert.equal(host.sent[0].content, [
+    "[Vista HTML · audios · admin · explicación · b1]",
+    "Explicación de b1:",
+    '"""',
+    text,
+    '"""',
+    "Escribe en audios/admin/veredictos.json un veredicto por concepto de este bloque: estado (claro, dudoso o laguna), evidencia citada literalmente de lo que dijiste y corrección de dos o tres líneas.",
+  ].join("\n"));
+  const saved = snapshot();
+  const again = await submit(site, { kind: "audio-explicacion", topic: "audios", note: "admin", block: "b1", text: "Otra explicación." });
+  assert.equal(again.status, 409, again.body);
+  assert.equal(snapshot(), saved);
+  assert.equal(host.sent.length, 1);
+  await shutdown();
+});
+
+test("T2 audios is not listed as a study topic", async () => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root);
+  const served = await http(base(await view({})));
+  assert.equal(served.status, 200, served.body);
+  const topics = audioData(served.body).topics.map((topic) => topic.id);
+  assert.ok(topics.includes(TOPIC), JSON.stringify(topics));
+  assert.equal(topics.includes("audios"), false, JSON.stringify(topics));
+  assert.equal(topics.includes("rapidos"), false, JSON.stringify(topics));
+  await shutdown();
+});
+
+test("T2 the audio kind with a style keeps its message beside an audio session", async () => {
+  const { root, view, host, shutdown } = await setup();
+  audioFixture(root);
+  const site = base(await view({}));
+  const response = await submit(site, { kind: "audio", topic: TOPIC, part: "p1", style: "debate" });
+  assert.equal(response.status, 200, response.body);
+  assert.equal(host.sent[0].content, "[Vista HTML · sql-demo · p1 · audio · debate]\nLa persona pide el audio de esta parte en estilo debate: escríbelo y prodúcelo con el motor de audio (skill learnings-audio), con la spec en tools/audio/specs/sql-demo-p1-debate.json y la entrega en explicaciones/adjuntos/audio/Parte 1 - Claves - debate.m4a.");
+  await shutdown();
+});

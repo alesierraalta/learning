@@ -832,6 +832,14 @@ window.LEARNING_BRIDGE = {
 };
 ```
 
+An audio-session page injects `kind: "audio"`, `topic: "audios"`, `note: "<sesion>"`,
+`session: {titulo, bloques}` and `stateUrl`. Each block in `session.bloques` carries the derived
+`estado` (`preguntas`, `evaluando`, `sabido`, `capsula-pendiente`, `escuchar`, `corrigiendo`,
+`completado`), its questions, its concepts with the valid verdicts, and its capsule file names. The
+page draws one dictation field per opening question with a single submit for the session, and, in
+state `escuchar`, the capsule player, its download and a `details` control for the transcript. It
+polls `stateUrl` every 30 seconds and keeps the fields' drafts when the state changes.
+
 Quiz responses are `{questions, answered, verdicts, exercises}`; `exercises` lists the part's code exercises as `{id,titulo,enunciado}` and is empty when the part has none. Questions have `id`,
 `enunciado` and an A–E `options` object, without keys, in the order the learner sees: shuffled per learner and question, «No sé» last. The file route never serves `quiz.json`, `quiz.answers.json` or `mini-quiz/*.json`. `answered` is null or a
 graded array of `{id,chosen,correct,ok,razonamiento,confianza}` (`chosen` and `correct` are the letters shown; the answers file keeps the tutor's own letters; the bridge
@@ -843,6 +851,13 @@ are an array of `{codigo,estado,pregunta,evidencia}`; a concept-ID map to
 - Video: `{kind:'video', topic, part}`.
 - Audio: `{kind:'audio', topic, part, style}` with `style` one of `debate`,
   `entrevista`, `charla`, `formal`; anything else is rejected with 400.
+- Opening answers: `{kind:'audio-previas', topic:'audios', note:'<sesion>',
+  answers:{'<preguntaId>':'<text>'}}`: every question id once, empty text allowed, 409 on a
+  second submission. The tutor is asked for the opening verdicts and for the capsule of every
+  block not all `claro`.
+- Explanation: `{kind:'audio-explicacion', topic:'audios', note:'<sesion>',
+  block:'<bloqueId>', text:'<text>'}`: non-empty text, 409 unless the block is in state
+  `escuchar`. The tutor is asked for that block's verdicts in `audios/<sesion>/veredictos.json`.
 - Question: `{kind:'question', topic, part, text}`.
 - Quiz: `{kind:'mini-quiz', topic, part, answers, reasoning, ownWords?, exercises?}`, where `exercises` maps the part's exercise ids to the learner's text. Blank answers are dropped; any other id, or a value that is not text, is refused with 400.
   `reasoning` maps question IDs to `{razonamiento, confianza}`; the older
