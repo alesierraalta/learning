@@ -303,6 +303,9 @@
   let plan = null;
   let layersByBeat = [];
   let current = -1;
+  // The instant the frame on screen repainted the state that is leaving at, so a
+  // check can ask which frame of the window a cross-fade actually shows.
+  let lastFrozen = null;
 
   function boot(next) {
     plan = next;
@@ -329,9 +332,48 @@
     return slot.layers;
   }
 
+  // The states on screen at t: the one the drawing reached, and the one that is
+  // leaving it. Both are painted at t, so the picture depends on t alone.
+  function showState(layers, k, st, t) {
+    paint(layers[k], t, k > 0 ? layers[k - 1].sigs : new Set());
+    // The layer being drawn is fully opaque: it was dimmed when it was the one
+    // leaving some earlier state.
+    layers[k].g.setAttribute("opacity", "1");
+    if (k === 0) return;
+    // A layer that only ever had its group faded kept whatever its last paint
+    // left, so the same instant drew different pixels on a page that skipped
+    // frames in between. It is painted here instead, at the last frame instant
+    // before the change: the one the sequential loop had already drawn it at, so
+    // the cross-fade is the picture it always was.
+    lastFrozen = frozenAt(st);
+    paint(layers[k - 1], lastFrozen, k > 1 ? layers[k - 2].sigs : new Set());
+    const gone = clamp((t - st.t) / OUT);
+    layers[k - 1].g.setAttribute("opacity", String(1 - gone));
+  }
+
+  // The last frame this render draws a state at, before the next one starts. Not
+  // `st.t - 1/fps`: a state changes on an instant that is not a frame instant,
+  // so the sequential render drew it up to a frame later than that, and painting
+  // the older instant moved the cross-fade by the difference.
+  //
+  // The grid starts where this window starts (`plan.origin`, the render's
+  // `--from`), because that is where its frames are: `--from 0.71` at 30 fps puts
+  // every frame 0.3 of a frame off the part's grid, and quantizing to the part's
+  // grid froze the cross-fade up to a frame earlier than the frame the loop drew
+  // it at. Measured on a 0.9 s slice starting at 0.71 s: the two anchors disagree
+  // on 13 of 27 frames, the 8 inside the cross-fade by up to 150/255 per channel.
+  // An origin that is a whole number of frames picks the same instant as the
+  // part's grid, so nothing moves there.
+  function frozenAt(st) {
+    const fps = plan.fps || 30;
+    const origin = Number(plan.origin) || 0;
+    return origin + Math.floor((st.t - origin) * fps - 1e-6) / fps;
+  }
+
   function frame(t) {
     const beat = pick(plan.beats, t);
     const index = plan.beats.indexOf(beat);
+    lastFrozen = null;
     if (index !== current) {
       for (const entry of layersByBeat) entry.svg.style.display = "none";
       current = index;
@@ -354,12 +396,7 @@
       el.counter.textContent = "";
     } else {
       const st = beat.states[k];
-      const prevSigs = k > 0 ? layers[k - 1].sigs : new Set();
-      paint(layers[k], t, prevSigs);
-      if (k > 0) {
-        const gone = clamp((t - st.t) / OUT);
-        layers[k - 1].g.setAttribute("opacity", String(1 - gone));
-      }
+      showState(layers, k, st, t);
       el.counter.textContent = `${k + 1} / ${beat.states.length}`;
       el.stateTitle.textContent = st.title || "";
       el.stateText.textContent = st.text || "";
@@ -387,5 +424,6 @@
 
   window.__boot = boot;
   window.__frame = frame;
+  window.__frozen = () => lastFrozen;
   window.__ready = () => document.fonts.ready.then(() => true);
 })();
