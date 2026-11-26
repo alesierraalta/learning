@@ -1108,11 +1108,16 @@ enforces them, so they apply from the deploy without editing the live `sugerenci
 merged with the live general reviews at runtime. `odd/reviews/mapa-sugerencias.md` maps every one
 of the 14 to its rule, check or skill section.
 
-A new general lesson enters by itself when the learner picks a general chip: the studio classifies
-it, gives it the chip's rule and the next turn — in any topic — already applies it. A lesson that
-no chip names, and that several reviews repeat, is written by hand into `studio/lecciones-base.json`
-and into the map, with the check or the skill section that enforces it; a rule with nothing that
-measures or explains it is an opinion, and the skill is written first.
+A new general lesson enters by itself when the learner picks **any** chip the page offers: every
+motive names a rule (`REGLA_POR_MOTIVO`), the studio classifies the review as general, and the next
+turn — in any topic — already applies it (#454). Three of those rules are the seed's own text: a
+review that picks them collapses into its seed line, and that is the dedupe doing its job rather
+than a rule being lost. The block keeps its ten-line cap and the learner's own rules come before the
+seed, so their rules displace seed lines instead of the reverse; with more than ten live rules the
+oldest fall out, which is the moment consolidation stops being optional. A lesson no chip names, and
+that several reviews repeat, is written by hand into `studio/lecciones-base.json` and into the map,
+with the check or the skill section that enforces it; a rule with nothing that measures or explains
+it is an opinion, and the skill is written first.
 
 The loop leans on what is already stored: before writing, the prompts for a part, the
 plan and the map carry a compact context built from the stored preferences, the weak

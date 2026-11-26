@@ -17,6 +17,8 @@ import {
   clasificar,
   lecciones,
   leccionesBlock,
+  motivos,
+  reglaDeMotivo,
   recordSugerencia,
   stripLecciones,
   stripTema,
@@ -30,22 +32,19 @@ import { recordValoracion } from "./valoraciones.ts";
 const emptyRoot = () => realpathSync(mkdtempSync(join(tmpdir(), "lecciones-")));
 const seed = () => JSON.parse(readFileSync(join(import.meta.dirname, "lecciones-base.json"), "utf8")).lecciones.map((l) => l.regla);
 
-test("a chip that names how to explain is a lesson for every part; the rest name this passage", () => {
-  const general = clasificar(["faltan-visuales"]);
-  assert.equal(general.alcance, "general");
-  assert.equal(typeof general.regla, "string");
-  assert.ok(general.regla.length > 0 && general.regla.length <= 140, `a rule is one line, got ${general.regla.length}`);
-  assert.match(general.regla, /^[A-ZÁÉÍÓÚÑ]/, "a rule is written as an instruction");
-
-  for (const motivos of [["faltan-ejemplos"], ["sin-paso-a-paso"]]) {
-    assert.equal(clasificar(motivos).alcance, "general", `${motivos[0]} is about every explanation`);
+test("every chip the page offers is a lesson for every part (#454)", () => {
+  for (const motivo of motivos) {
+    const clasificado = clasificar([motivo.id]);
+    assert.equal(clasificado.alcance, "general", `${motivo.id} is about every explanation`);
+    assert.equal(typeof clasificado.regla, "string");
+    assert.ok(clasificado.regla.length > 0 && clasificado.regla.length <= 140, `a rule is one line, got ${clasificado.regla.length}`);
+    assert.match(clasificado.regla, /^[A-ZÁÉÍÓÚÑ]/, "a rule is written as an instruction");
   }
-  // A review that picks three general chips still leaves one rule: the first one it names.
-  assert.equal(clasificar(["faltan-visuales", "faltan-ejemplos", "sin-paso-a-paso"]).regla, general.regla);
-  // «No entendí una idea» and «Matemáticas confusas» are about one passage: they stay with the part.
-  assert.deepEqual(clasificar(["no-entendi"]), { alcance: "parte" });
-  assert.deepEqual(clasificar(["matematicas-confusas", "sobran-preguntas"]), { alcance: "parte" });
-  assert.deepEqual(clasificar([]), { alcance: "parte" }, "words alone never become a rule the studio invents");
+  // A review that picks several chips still leaves one rule: the first one it names.
+  assert.equal(clasificar(["muy-abstracto", "no-entendi"]).regla, reglaDeMotivo("muy-abstracto"));
+  // No chip names a single passage any more: what the learner says about one part rides the topic
+  // channel instead (#443), and a legacy entry without a rule still stays with its part.
+  assert.equal(motivos.some((motivo) => clasificar([motivo.id]).alcance === "parte"), false);
 });
 
 test("the repo's seed is the general lessons of the first topic, already classified", () => {
@@ -61,20 +60,26 @@ test("the repo's seed is the general lessons of the first topic, already classif
   assert.deepEqual(lecciones(emptyRoot()), reglas);
 });
 
-test("a general lesson recorded on one topic reaches every topic, and a part-specific one does not", () => {
+test("a general lesson recorded on one topic reaches every topic (#454)", () => {
   const root = emptyRoot();
-  recordSugerencia(root, { tema: "redes", parte: "p1", motivos: ["faltan-visuales"], texto: "", origen: "sugerencia" });
+  recordSugerencia(root, { tema: "redes", parte: "p1", motivos: ["muy-abstracto"], texto: "", origen: "sugerencia" });
   recordSugerencia(root, { tema: "redes", parte: "p1", motivos: ["no-entendi"], texto: "no entendí el ejemplo del charco", origen: "sugerencia" });
 
   const block = leccionesBlock(root);
   assert.match(block, new RegExp(`^\\[${LECCIONES_TITULO.replace(/[()]/g, "\\$&")}\\n- `));
-  assert.match(block, /Dibuja la cosa misma/, "the general lesson is in the block");
-  assert.doesNotMatch(block, /charco/, "a part-specific review is never a standing rule");
+  assert.match(block, /Baja a tierra antes de definir/, "the learner's lesson is in the block");
+  assert.doesNotMatch(block, /charco/, "the learner's words are not a standing rule");
   // The same block, whatever topic the turn teaches: the lessons are the learner's, not the topic's.
-  assert.equal(leccionesBlock(root), leccionesBlock(emptyRoot()), "a general lesson that duplicates the seed adds nothing");
-  // And the part keeps its own review for its own regeneration.
+  assert.equal(leccionesBlock(root), leccionesBlock(root));
+  // And the part keeps its own words for its own regeneration.
   assert.match(tutorContext(root, "redes"), /charco/);
   assert.doesNotMatch(tutorContext(root, "algebra"), /charco/);
+});
+
+test("a review whose rule duplicates the seed adds nothing (#454)", () => {
+  const root = emptyRoot();
+  recordSugerencia(root, { tema: "redes", parte: "p1", motivos: ["faltan-visuales"], texto: "", origen: "sugerencia" });
+  assert.equal(leccionesBlock(root), leccionesBlock(emptyRoot()), "the seed already says it");
 });
 
 test("the block is bounded and says each rule once", () => {
@@ -180,4 +185,50 @@ test("the digest is the studio's: a message that quotes its title is served inta
   const dicho = "Oye, ¿qué es eso de «[Lo que el alumno pidió en este tema]» que me llega?";
   assert.equal(stripTema(dicho), dicho);
   assert.equal(stripTema(`${dicho}\n\n${topicBlock(root, "redes")}`), dicho, "the appended digest still goes, and only it");
+});
+
+// #454: the page offers eight motives; before this, three of them could become a lesson and the
+// other five classified as "this part only". A learner saying «muy abstracto» taught nothing.
+const normalizar = (texto) => texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/gi, " ").trim().toLowerCase();
+const lineasDe = (bloque) => bloque.split("\n").filter((l) => l.startsWith("- "));
+
+test("every motive the page offers names a rule, and no two rules say the same (#454)", () => {
+  const reglas = motivos.map((motivo) => reglaDeMotivo(motivo.id));
+  assert.deepEqual(reglas.filter((r) => r === null), [], "a chip with no rule teaches nothing");
+  for (const regla of reglas) assert.ok(regla.length <= 140, `a rule is one line: ${regla.length} chars`);
+  const normalizadas = reglas.map(normalizar);
+  assert.equal(new Set(normalizadas).size, normalizadas.length, "two motives cannot teach the same line");
+  // The three the seed came from stay verbatim: they are provenance, and the dedupe keeps them out.
+  const semilla = seed().map(normalizar);
+  const colapsan = normalizadas.filter((r) => semilla.includes(r)).length;
+  assert.equal(colapsan, 3, "exactly the three seed-derived rules collapse into the seed");
+});
+
+test("a motive that used to be part-only now grows the block (#454)", () => {
+  const root = mkdtempSync(join(tmpdir(), "voc-"));
+  const antes = lineasDe(leccionesBlock(root));
+  const regla = reglaDeMotivo("muy-abstracto");
+  recordSugerencia(root, { tema: "redes", parte: "p1", motivos: ["muy-abstracto"], texto: "", origen: "sugerencia" });
+  const despues = lineasDe(leccionesBlock(root));
+  assert.equal(despues.length, antes.length + 1, "the learner's lesson enters the block");
+  assert.ok(despues.some((l) => normalizar(l.slice(2)) === normalizar(regla)), "and the line is the rule it teaches");
+});
+
+test("a motive the seed already says still collapses instead of repeating it (#454)", () => {
+  const root = mkdtempSync(join(tmpdir(), "voc2-"));
+  const antes = lineasDe(leccionesBlock(root));
+  recordSugerencia(root, { tema: "redes", parte: "p1", motivos: ["faltan-visuales"], texto: "", origen: "sugerencia" });
+  assert.equal(lineasDe(leccionesBlock(root)).length, antes.length, "the seed already says it; the block does not grow");
+});
+
+test("with every lesson live the block stays inside its own budget (#454)", () => {
+  const root = mkdtempSync(join(tmpdir(), "voc3-"));
+  motivos.forEach((motivo, index) => {
+    recordSugerencia(root, { tema: `t${index}`, parte: "p1", motivos: [motivo.id], texto: "", origen: "sugerencia" });
+  });
+  const bloque = leccionesBlock(root);
+  const lineas = lineasDe(bloque);
+  assert.ok(lineas.length <= MAX_LECCIONES, `${lineas.length} rules ride, cap ${MAX_LECCIONES}`);
+  for (const linea of lineas) assert.ok(linea.length <= 142, `one rule is one line: ${linea.length} chars`);
+  assert.ok(bloque.length <= 1600, `the block stays small with everything live: ${bloque.length} chars`);
 });
