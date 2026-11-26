@@ -106,11 +106,6 @@ async def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="list the turns without calling the network")
     args = parser.parse_args()
     try:
-        import edge_tts  # pyright: ignore[reportMissingImports]  # installed on the synthesis host
-    except ImportError:
-        print("edge-tts is not installed here: run this on the VPS with ~/learnings-video/.venv/bin/python", file=sys.stderr)
-        return 2
-    try:
         with open(args.spec, encoding="utf-8") as handle:
             spec = json.load(handle)
         os.makedirs(args.out, exist_ok=True)
@@ -125,6 +120,11 @@ async def main() -> int:
             print(f"  {key} {voice}")
         return 0
 
+    try:
+        import edge_tts  # pyright: ignore[reportMissingImports]  # installed on the synthesis host
+    except ImportError:
+        print("edge-tts is not installed here: run this on the VPS with ~/learnings-video/.venv/bin/python", file=sys.stderr)
+        return 2
     counts = {"new": 0, "kept": 0}
     for index, (key, voice, text) in enumerate(planned, 1):
         try:
