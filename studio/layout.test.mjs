@@ -2560,6 +2560,42 @@ test("an iPad held sideways with the tutor closed keeps the two columns", { skip
   assert.equal(await tracks(page, ".topic-head"), 2, "with the whole screen the card sits beside the route");
 });
 
+// The tutor takes 520px of a 1440px laptop: the home has to answer that room,
+// not the window, or its heading and its cards are squeezed into a sliver.
+test("the home keeps a readable column beside the tutor", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await ipadPage(t, 1440, 900);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tutor-pill").click();
+  await page.waitForTimeout(400);
+  const heading = await page.locator(".home-page h1").boundingBox();
+  assert.ok(heading.width >= 560, `the heading keeps a readable line: ${Math.round(heading.width)}px`);
+  const ask = await page.locator(".home-page .ask-big").boundingBox();
+  assert.ok(ask.width >= 420, `the question box keeps room for a sentence: ${Math.round(ask.width)}px`);
+  const card = await page.locator(".home-page .cards > *").first().boundingBox();
+  assert.ok(card.width >= 280, `a card keeps its width instead of shrinking to a sliver: ${Math.round(card.width)}px`);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 0, "nothing spills sideways");
+});
+
+// The tutor's width is the learner's to drag: every panel width is a stage width,
+// and none of them may leave the home's text a sliver. The rail comes back into
+// the row at 1100 and the hero stacks until 1250, where both tracks still read.
+test("the home never leaves its text a sliver, whatever width the tutor takes", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { page, studio } = await ipadPage(t, 1920, 900);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  for (const panel of [1100, 819, 800, 780, 760, 700, 660, 520]) {
+    await page.evaluate((w) => localStorage.setItem("estudio.tutor.ancho", String(w)), panel);
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator(".tutor-pill").click();
+    await page.waitForTimeout(300);
+    const stage = await page.evaluate(() => Math.round(document.querySelector(".stage").getBoundingClientRect().width));
+    const heading = await page.locator(".home-page h1").boundingBox();
+    assert.ok(heading.width >= 420, `a ${panel}px panel (stage ${stage}px) leaves the heading ${Math.round(heading.width)}px`);
+    const card = await page.locator(".home-page .cards > *").first().boundingBox();
+    assert.ok(card.width >= 280, `a ${panel}px panel (stage ${stage}px) leaves a card ${Math.round(card.width)}px`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 0, `a ${panel}px panel spills sideways`);
+  }
+});
+
 test("on an upright iPad the open tutor dims the page and a tap outside closes it", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page, studio } = await ipadPage(t, 820, 1180);
   await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
