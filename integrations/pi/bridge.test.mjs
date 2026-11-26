@@ -5822,3 +5822,21 @@ test("T2 a folder outside the id rule is not an audio session", async () => {
   assert.equal(existsSync(join(root, "audios", "Admin Proyectos", "respuestas.json")), false);
   await shutdown();
 });
+
+test("T2 a session that was not answered yet judges nothing", async () => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root);
+  const site = base(await view({}));
+  const state = JSON.parse((await http(`${site}audios/admin/estado`)).body);
+  assert.deepEqual(state.bloques[0].conceptos.map((concepto) => concepto.previa.estado), ["sin-veredicto"]);
+  await shutdown();
+});
+
+test("T2 the page shows a verdict only where there is one", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root);
+  const page = await audioPageIn(t, base(await view({})));
+  assert.equal(await page.getByText(/laguna|sin veredicto/i).count(), 0);
+  assert.equal(await page.getByRole("heading", { name: "Veredictos" }).count(), 0);
+  await shutdown();
+});

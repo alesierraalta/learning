@@ -759,15 +759,19 @@
       field.querySelector(".lk-thought-hint").textContent = hint;
       field.querySelector(".lk-mic").setAttribute("aria-label", micLabel);
       const area = field.querySelector("textarea");
+      area.placeholder = "Dilo con tus palabras.";
       area.value = drafts.get(key) ?? "";
       fields.set(key, area);
       return field;
     };
 
+    /** A concept draws only the verdicts it has: nothing is announced before it is judged. */
     const conceptCard = (concept) => {
+      const judged = [["previa", "Inicial"], ["explicacion", "Explicación"]].filter(([phase]) => concept[phase].estado !== "sin-veredicto");
+      if (!judged.length) return null;
       const card = element("article", undefined, "concept-verdict");
       card.append(element("h4", concept.nombre));
-      for (const [phase, label] of [["previa", "Inicial"], ["explicacion", "Explicación"]]) {
+      for (const [phase, label] of judged) {
         const value = concept[phase];
         card.append(element("p", `${label}: ${AUDIO_VERDICT_LABEL[value.estado] ?? value.estado}`, "audio-verdict-state"));
         if (value.evidencia) card.append(element("blockquote", `«${value.evidencia}»`));
@@ -827,7 +831,7 @@
         if (["escuchar", "corrigiendo", "completado"].includes(block.estado)) card.append(capsule(block));
         if (block.estado === "escuchar") {
           card.append(element("p", block.consigna, "audio-consigna"));
-          card.append(thought(`explicacion:${block.id}`, "Tu explicación (dicta o escribe)", block.consigna, `Dictar la explicación de ${block.titulo}`, `explicacion-${index}`));
+          card.append(thought(`explicacion:${block.id}`, "Tu explicación (dicta o escribe)", "El tutor te corrige concepto por concepto.", `Dictar la explicación de ${block.titulo}`, `explicacion-${index}`));
           const send = element("button", "Enviar explicación al tutor");
           send.type = "button";
           const message = status();
@@ -848,10 +852,12 @@
         } else if (block.estado === "corrigiendo") {
           card.append(element("p", "Evaluando tu explicación: los veredictos aparecen aquí en cuanto lleguen.", "muted"));
         }
-        const verdicts = element("section", undefined, "audio-verdicts");
-        verdicts.append(element("h3", "Veredictos"));
-        for (const concept of block.conceptos) verdicts.append(conceptCard(concept));
-        card.append(verdicts);
+        const cards = block.conceptos.map(conceptCard).filter(Boolean);
+        if (cards.length) {
+          const verdicts = element("section", undefined, "audio-verdicts");
+          verdicts.append(element("h3", "Veredictos"), ...cards);
+          card.append(verdicts);
+        }
         root.append(card);
       }
       if (questions.length) {

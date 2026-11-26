@@ -1221,13 +1221,14 @@ function audioSessionView(dir: string, session: AudioSesion, answers: AudioAnswe
     ? { estado: verdict.estado, evidencia: verdict.evidencia, correccion: verdict.correccion ?? "", valido: true, tutor: true }
     : { estado, evidencia: "", correccion: "", valido: false, tutor: false };
   const bloques = session.bloques.map((block): AudioBlockView => {
-    const lagunas = emptyCodes(block);
+    const submitted = block.preguntas.every((pregunta) => Object.hasOwn(answers.previas, pregunta.id));
+    // Silence is a gap only once the learner has answered: before that nothing was asked.
+    const lagunas = submitted ? emptyCodes(block) : new Set<string>();
     const conceptos = block.conceptos.map((concepto): AudioConceptView => ({
       ...concepto,
       previa: view(lagunas.has(concepto.codigo) ? "laguna" : "sin-veredicto", previas.get(audioKey(block.id, concepto.codigo))),
       explicacion: view("sin-veredicto", explicaciones.get(audioKey(block.id, concepto.codigo))),
     }));
-    const submitted = block.preguntas.every((pregunta) => Object.hasOwn(answers.previas, pregunta.id));
     let estado: AudioBlockEstado;
     if (!submitted) estado = "preguntas";
     else if (block.conceptos.some((concepto) => !lagunas.has(concepto.codigo) && !previas.has(audioKey(block.id, concepto.codigo)))) estado = "evaluando";
