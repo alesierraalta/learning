@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadTurns } from "./lib/audio.mjs";
-import { MINUTE_WINDOW, readSpec, resolveVoices } from "./lib/spec.mjs";
+import { readSpec, resolveProfile, resolveVoices } from "./lib/spec.mjs";
 import { buildTimeline, estimate } from "./lib/timeline.mjs";
 
 const KNOWN_ARGS = new Set(["spec", "audio", "out", "srt", "work", "remote", "dry-run", "date"]);
@@ -39,20 +39,24 @@ async function main() {
   if (!args["dry-run"] && !args.audio) throw new UsageError("missing --audio");
   if (!args["dry-run"] && !args.out) throw new UsageError("missing --out");
   const spec = readSpec(resolve(args.spec));
+  const profile = resolveProfile(spec);
   const planned = estimate(spec);
   const voices = resolveVoices(spec);
   const rosters = Object.entries(voices).map(([speaker, entry]) => `${speaker}=${entry.name}`).join(" ");
 
   console.log(`${spec.part} · ${spec.title} · ${spec.style} (${rosters})`);
   console.log(`estimate ${planned.minutes} min · ${planned.words} words · ${planned.turns} turns · ${planned.chapters} chapters`);
-  const [low, high] = MINUTE_WINDOW;
+  const [low, high] = profile.window;
   if (planned.minutes < low || planned.minutes > high) {
     throw new Error(
-      `the estimate is ${planned.minutes} min; a part's audio must land between ${low} and ${high} minutes (target ${planned.target})`,
+      `the estimate is ${planned.minutes} min; ${profile.label} must land between ${low} and ${high} minutes (target ${planned.target})`,
     );
   }
-  if (Math.abs(planned.minutes - planned.target) > 2) {
-    console.warn(`warning: the estimate is ${planned.minutes} min against a ${planned.target}-minute target`);
+  const [shortest, longest] = profile.range;
+  if (profile.capsule && (planned.minutes < shortest || planned.minutes > longest)) {
+    console.warn(`warning: the capsule estimate is ${planned.minutes} min; a capsule runs ${shortest} to ${longest} minutes`);
+  } else if (Math.abs(planned.minutes - planned.target) > 2) {
+    console.warn(`warning: the ${profile.capsule ? "capsule estimate" : "estimate"} is ${planned.minutes} min against a ${planned.target}-minute target`);
   }
   if (args["dry-run"]) {
     for (const chapter of spec.chapters) {
@@ -99,6 +103,9 @@ async function main() {
     bytes: statSync(out).size,
     files: { audio: out, srt },
   };
+  if (profile.capsule && (report.minutes.actual < shortest || report.minutes.actual > longest)) {
+    console.warn(`warning: the capsule lasts ${report.minutes.actual} min; a capsule runs ${shortest} to ${longest} minutes`);
+  }
   writeFileSync(join(work, "report.json"), JSON.stringify(report, null, 1));
   console.log(`wrote ${out} · ${report.minutes.actual} min · ${report.cues} cues · ${report.bytes} bytes`);
   console.log(`wrote ${srt}`);
@@ -232,7 +239,7 @@ function checkArgs(parsed) {
 
 function usage() {
   console.error(`usage: node tools/audio/render.mjs --spec <json> [--audio <dir> --out <file.m4a>]
-  --spec     the part's audio spec
+  --spec     the part's audio or capsule spec
   --audio    directory with <key>.mp3 and <key>.json per turn (synth.py output)
   --out      destination m4a
   --srt      transcript path (default: beside --out)

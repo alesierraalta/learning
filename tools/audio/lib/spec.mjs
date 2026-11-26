@@ -22,6 +22,14 @@ export const TARGET_MINUTES = 20;
 // Below 12 minutes it is a fragment, not a podcast; above 28 it is a lecture.
 export const MINUTE_WINDOW = [12, 28];
 
+const PART_PROFILE = { capsule: false, label: "a part's audio", target: TARGET_MINUTES, range: [8, 35], window: MINUTE_WINDOW };
+const CAPSULE_PROFILE = { capsule: true, label: "a capsule", target: 6, range: [5, 8], window: [4, 9] };
+
+/** Target, allowed target range and render window for one spec. */
+export function resolveProfile(spec) {
+  return spec.capsule === true ? CAPSULE_PROFILE : PART_PROFILE;
+}
+
 const DEFAULT_VOICES = {
   debate: { A: "Alvaro", B: "Elvira" },
   entrevista: { A: "Elvira", B: "Alvaro" },
@@ -53,13 +61,16 @@ const words = (text) => String(text ?? "").trim().split(/\s+/).filter(Boolean).l
 
 export function validate(spec) {
   const problems = [];
+  const profile = resolveProfile(spec);
+  if (spec.capsule !== undefined && typeof spec.capsule !== "boolean") problems.push("capsule must be a boolean");
   for (const key of ["part", "title", "topic"]) {
     if (!spec[key]) problems.push(`missing "${key}"`);
   }
   if (!STYLES.includes(spec.style)) problems.push(`style must be one of ${STYLES.join(", ")}`);
-  const minutes = spec.minutes ?? TARGET_MINUTES;
-  if (!Number.isInteger(minutes) || minutes < 8 || minutes > 35) {
-    problems.push("minutes must be an integer between 8 and 35");
+  const minutes = spec.minutes ?? profile.target;
+  const [min, max] = profile.range;
+  if (!Number.isInteger(minutes) || minutes < min || minutes > max) {
+    problems.push(`${profile.capsule ? "capsule " : ""}minutes must be an integer between ${min} and ${max}`);
   }
   if (!spec.chapters || !Array.isArray(spec.chapters) || !spec.chapters.length) {
     problems.push("missing chapters");
@@ -122,7 +133,7 @@ export function validate(spec) {
   }
   // The floor is its own rule: one more problem must not hide it.
   if (total < 200) {
-    problems.push(`only ${total} words: a part's audio is not a summary`);
+    problems.push(`only ${total} words: ${profile.label} is not a summary`);
   }
   return problems;
 }

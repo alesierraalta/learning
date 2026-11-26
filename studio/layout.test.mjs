@@ -198,6 +198,7 @@ test("home asks for exam format and practice, sends the choice, and clears it on
     { id: "universitario", title: "Universitario", description: "plan, diagnóstico y partes con quiz" },
     { id: "rapido", title: "Rápido", description: "una nota breve para entenderlo hoy" },
     { id: "examen", title: "Examen", description: "lo vital del temario, el formato de tu examen (oral, escrito o práctico) y un simulacro final" },
+    { id: "audio", title: "Audio", description: "preguntas en voz y cápsulas de 5 a 8 minutos, sin texto que leer" },
   ]);
   const field = entry.locator(".ask-big textarea");
   const submit = entry.locator('button[type="submit"]');
@@ -1969,6 +1970,37 @@ test("a quick note is created, listed first and edited through the reader", { sk
   await edited.getByText("Un párrafo añadido desde el estudio.").waitFor({ timeout: 15000 });
   await edited.locator("lk-walkthrough svg").first().waitFor({ timeout: 15000 });
   assert.equal(readFileSync(join(root, "rapidos", "nota-con-diapositivas.md"), "utf8"), changed);
+});
+
+test("an audio session is a home card and #/audio opens the bridge with dictation", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, page } = await phonePage(t);
+  const dir = join(root, "audios", "ruta-critica");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "sesion.json"), JSON.stringify({
+    titulo: "Ruta crítica",
+    bloques: [{
+      id: "b1",
+      titulo: "Ruta crítica",
+      conceptos: [{ codigo: "ruta-critica", nombre: "Ruta crítica" }],
+      preguntas: [{ id: "b1-p1", enunciado: "¿Qué pasa si se retrasa una tarea de la ruta crítica?", conceptos: ["ruta-critica"] }],
+      consigna: "Explica qué es la ruta crítica.",
+    }],
+  }));
+  await page.reload({ waitUntil: "networkidle" });
+
+  const card = page.locator(".audio-card").filter({ hasText: "Ruta crítica" });
+  await card.waitFor();
+  await card.locator(".audio-open").click();
+  await page.waitForFunction(() => location.hash === "#/audio/ruta-critica");
+  const frame = page.locator("iframe.sheet");
+  await frame.waitFor();
+  assert.match(await frame.getAttribute("src"), /\/audios\/ruta-critica(\?|$)/);
+  assert.match(await frame.getAttribute("allow"), /microphone/);
+  // The frame is the bridge's session page, not just its address.
+  await page.frameLocator("iframe.sheet").getByText("¿Qué pasa si se retrasa una tarea de la ruta crítica?").waitFor();
+  await page.frameLocator("iframe.sheet").getByRole("button", { name: /Dictar la respuesta/ }).waitFor();
+  assert.match(await page.locator(".reader-bar .title small").innerText(), /Sesión de audio/);
+  assert.match(await page.locator(".crumbs").innerText(), /Sesión de audio/);
 });
 
 test("the preview draws the draft before it is saved", { skip: browser ? false : "playwright not installed" }, async (t) => {

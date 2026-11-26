@@ -2,7 +2,7 @@
 // No ffmpeg, no clock: the same spec and the same recordings always produce the
 // same timeline, which is what makes a render reproducible and testable.
 import { createHash } from "node:crypto";
-import { RATE, TARGET_MINUTES, WORDS_PER_MINUTE, resolveVoices } from "./spec.mjs";
+import { RATE, WORDS_PER_MINUTE, resolveProfile, resolveVoices } from "./spec.mjs";
 
 export const GAPS = { lead: 0.6, turn: 0.45, chapter: 1.15, tail: 0.9 };
 
@@ -35,7 +35,7 @@ export function estimate(spec) {
   // first chapter opens after the lead silence, so n chapters add n - 1 of them.
   const gaps = GAPS.lead + GAPS.tail + Math.max(0, tags.length - chapters) * GAPS.turn + Math.max(0, chapters - 1) * GAPS.chapter;
   const seconds = (count / WORDS_PER_MINUTE) * 60 + gaps;
-  return { turns: tags.length, chapters, words: count, gaps: round(gaps), seconds: round(seconds), minutes: round(seconds / 60), target: spec.minutes ?? TARGET_MINUTES };
+  return { turns: tags.length, chapters, words: count, gaps: round(gaps), seconds: round(seconds), minutes: round(seconds / 60), target: spec.minutes ?? resolveProfile(spec).target };
 }
 
 /**

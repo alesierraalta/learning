@@ -32,6 +32,24 @@ export function conversation(overrides = {}) {
   };
 }
 
+/** Four concepts, three turns each: a one-voice capsule of about six minutes. */
+export function capsule(overrides = {}) {
+  const concept = (tag, index) => ({
+    title: `Concepto ${index}`,
+    segments: [1, 2, 3].map((turn) => ({ speaker: "A", text: text(75, `${tag}${turn}`) })),
+  });
+  return {
+    part: "b1",
+    title: "Ruta crítica",
+    topic: "administracion-proyectos",
+    style: "formal",
+    capsule: true,
+    minutes: 6,
+    chapters: [concept("c1", 1), concept("c2", 2), concept("c3", 3), concept("c4", 4)],
+    ...overrides,
+  };
+}
+
 export function tempDir(prefix = "audio-test-") {
   return mkdtempSync(join(tmpdir(), prefix));
 }

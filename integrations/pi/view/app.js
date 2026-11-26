@@ -733,6 +733,169 @@
     return runnersBox;
   }
 
+  const AUDIO_STATE_LABEL = {
+    preguntas: "Preguntas iniciales",
+    evaluando: "Evaluando tus respuestas",
+    sabido: "Bloque ya sabido: sin cápsula",
+    "capsula-pendiente": "Cápsula pendiente",
+    escuchar: "Escucha la cápsula y explica",
+    corrigiendo: "Evaluando tu explicación",
+    completado: "Completado",
+  };
+  const AUDIO_VERDICT_LABEL = { claro: "Claro", dudoso: "Dudoso", laguna: "Laguna", "sin-veredicto": "Sin veredicto" };
+
+  function audioPage() {
+    const root = element("section", undefined, "audio-session");
+    app.append(root);
+    const drafts = new Map();
+    const fields = new Map();
+    let painted = "";
+    // Dictation writes into the field without an input event, so the field itself is read, never a copy of it.
+    const said = (key) => fields.get(key)?.value ?? "";
+
+    const thought = (key, label, hint, micLabel, index) => {
+      const field = window.learningThoughtField(`audio-${index}`, index, data);
+      field.querySelector(".lk-thought-label").textContent = label;
+      field.querySelector(".lk-thought-hint").textContent = hint;
+      field.querySelector(".lk-mic").setAttribute("aria-label", micLabel);
+      const area = field.querySelector("textarea");
+      area.placeholder = "Dilo con tus palabras.";
+      area.value = drafts.get(key) ?? "";
+      fields.set(key, area);
+      return field;
+    };
+
+    /** A concept draws only the verdicts it has: nothing is announced before it is judged. */
+    const conceptCard = (concept) => {
+      const judged = [["previa", "Inicial"], ["explicacion", "Explicación"]].filter(([phase]) => concept[phase].estado !== "sin-veredicto");
+      if (!judged.length) return null;
+      const card = element("article", undefined, "concept-verdict");
+      card.append(element("h4", concept.nombre));
+      for (const [phase, label] of judged) {
+        const value = concept[phase];
+        card.append(element("p", `${label}: ${AUDIO_VERDICT_LABEL[value.estado] ?? value.estado}`, "audio-verdict-state"));
+        if (value.evidencia) card.append(element("blockquote", `«${value.evidencia}»`));
+        if (value.correccion) card.append(element("p", value.correccion));
+      }
+      return card;
+    };
+
+    const capsule = (block) => {
+      if (!block.capsula.exists) {
+        return element("p", "La cápsula todavía no está lista: el tutor la está produciendo.", "muted");
+      }
+      const section = element("section", undefined, "audio-capsule");
+      const src = data.topicBase + block.capsula.name;
+      const player = element("audio");
+      player.controls = true;
+      player.preload = "metadata";
+      player.src = src;
+      const download = link("Descargar cápsula", src);
+      download.download = block.capsula.name;
+      const transcript = element("details");
+      transcript.append(element("summary", "Transcripción"));
+      if (block.capsula.srtExists) {
+        const file = link("Abrir transcripción", data.topicBase + block.capsula.srt);
+        file.download = block.capsula.srt;
+        transcript.append(file);
+      } else transcript.append(element("p", "El tutor todavía no ha entregado la transcripción.", "muted"));
+      section.append(player, download, transcript);
+      return section;
+    };
+
+    const paint = (session) => {
+      const signature = JSON.stringify(session);
+      if (signature === painted) return;
+      painted = signature;
+      for (const [key, area] of fields) drafts.set(key, area.value);
+      fields.clear();
+      root.replaceChildren(element("p", session.titulo, "part-kicker"));
+      const questions = [];
+      for (const [index, block] of session.bloques.entries()) {
+        const card = element("section", undefined, "audio-block-card");
+        card.append(element("h2", block.titulo), element("p", `Estado: ${AUDIO_STATE_LABEL[block.estado] ?? block.estado}`, "audio-state"));
+        if (block.estado === "preguntas") {
+          for (const [number, question] of block.preguntas.entries()) {
+            const stem = element("p");
+            stem.append(drawnText(question.enunciado, true));
+            card.append(stem, thought(`previa:${question.id}`, "Tu respuesta (dicta o escribe)", "Puedes dejarla vacía si no lo sabes.", `Dictar la respuesta ${question.id}`, `${index}-${number}`));
+            questions.push(question.id);
+          }
+        } else if (block.estado === "evaluando") {
+          card.append(element("p", "Evaluando tus respuestas iniciales: en cuanto el tutor escriba los veredictos, este bloque avanzará.", "muted"));
+        } else if (block.estado === "sabido") {
+          card.append(element("p", "Ya lo sabías: este bloque se salta la cápsula.", "muted"));
+        } else if (block.estado === "capsula-pendiente") {
+          card.append(element("p", "Tu cápsula está pendiente: el tutor la está preparando.", "muted"));
+        }
+        if (["escuchar", "corrigiendo", "completado"].includes(block.estado)) card.append(capsule(block));
+        if (block.estado === "escuchar") {
+          card.append(element("p", block.consigna, "audio-consigna"));
+          card.append(thought(`explicacion:${block.id}`, "Tu explicación (dicta o escribe)", "El tutor te corrige concepto por concepto.", `Dictar la explicación de ${block.titulo}`, `explicacion-${index}`));
+          const send = element("button", "Enviar explicación al tutor");
+          send.type = "button";
+          const message = status();
+          send.onclick = async () => {
+            send.disabled = true;
+            message.className = "";
+            try {
+              const result = await post({ kind: "audio-explicacion", topic: "audios", note: data.note, block: block.id, text: said(`explicacion:${block.id}`) });
+              message.textContent = result.queued ? "En cola…" : "Explicación enviada al tutor.";
+              await refresh();
+            } catch (error) {
+              message.className = "error";
+              message.textContent = error.message;
+            } finally { send.disabled = false; }
+          };
+          away(send, message);
+          card.append(send, message);
+        } else if (block.estado === "corrigiendo") {
+          card.append(element("p", "Evaluando tu explicación: los veredictos aparecen aquí en cuanto lleguen.", "muted"));
+        }
+        const cards = block.conceptos.map(conceptCard).filter(Boolean);
+        if (cards.length) {
+          const verdicts = element("section", undefined, "audio-verdicts");
+          verdicts.append(element("h3", "Veredictos"), ...cards);
+          card.append(verdicts);
+        }
+        root.append(card);
+      }
+      if (questions.length) {
+        const form = element("form", undefined, "audio-previas-form");
+        form.append(element("h2", "Preguntas iniciales"));
+        const send = element("button", "Enviar respuestas al tutor");
+        send.type = "submit";
+        const message = status();
+        form.append(send, message);
+        away(send, message);
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          send.disabled = true;
+          message.className = "";
+          try {
+            const answers = Object.fromEntries(questions.map((id) => [id, said(`previa:${id}`)]));
+            const result = await post({ kind: "audio-previas", topic: "audios", note: data.note, answers });
+            message.textContent = result.queued ? "En cola…" : "Respuestas enviadas al tutor.";
+            await refresh();
+          } catch (error) {
+            message.className = "error";
+            message.textContent = error.message;
+          } finally { send.disabled = false; }
+        });
+        root.append(form);
+      }
+    };
+
+    const refresh = async () => {
+      try {
+        const response = await fetch(data.stateUrl, { cache: "no-store" });
+        if (response.ok) paint(await response.json());
+      } catch { /* an offline poll keeps the last state on screen */ }
+    };
+    paint(data.session);
+    setInterval(() => { if (!document.hidden) refresh(); }, 30000);
+  }
+
   function codePage() {
     const ex = data.exercise;
     app.append(element("p", ex.ejecutable === false ? `Lenguaje: ${ex.lenguaje}` : `Lenguaje: ${ex.lenguaje} · archivo ${data.file}`, "part-kicker"), drawnText(ex.enunciado));
@@ -834,6 +997,7 @@
   // A part note and the diagnostic carry their own headings.
   if (data.kind === "diagnosis") document.body.classList.add("diagnosis-page");
   if (data.kind !== "part" && data.kind !== "diagnosis") app.append(element("h1", data.title || "Learnings"));
+  if (data.kind === "audio") { audioPage(); return; }
   if (data.kind === "code") { codePage(); return; }
   if (data.kind === "index" || data.kind === "topic") {
     const list = element("ul", undefined, "navigation");

@@ -2365,7 +2365,26 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           .sort((a, b) => b.used - a.used || a.id.localeCompare(b.id))
           .map(({ used: _used, ...note }) => note)
       : [];
-    return { topics, quick };
+    const audioDir = join(root, "audios");
+    const audio = existsSync(audioDir)
+      ? readdirSync(audioDir, { withFileTypes: true })
+          .filter((e) => e.isDirectory() && /^[a-z0-9][a-z0-9-]{0,39}$/.test(e.name))
+          .flatMap((e) => {
+            const file = join(audioDir, e.name, "sesion.json");
+            if (!existsSync(file)) return [];
+            let title = e.name;
+            let used = 0;
+            try {
+              used = statSync(file).mtimeMs;
+              const session: unknown = JSON.parse(readFileSync(file, "utf8"));
+              if (isRecord(session) && typeof session.titulo === "string" && session.titulo.trim()) title = session.titulo.trim();
+            } catch { /* an unreadable session is still listed under its folder name */ }
+            return [{ id: e.name, title, used }];
+          })
+          .sort((a, b) => b.used - a.used || a.id.localeCompare(b.id))
+          .map(({ used: _used, ...session }) => session)
+      : [];
+    return { topics, quick, audio };
   };
 
   // ---- HTTP -----------------------------------------------------------------
@@ -2715,7 +2734,7 @@ ${scripts}
         }
         requireNoTurn(main);
         const modo = STUDY_MODES.find((mode) => mode === body.modo);
-        if (!modo) throw new HttpError(400, "elige rápido, universitario o examen antes de enviar");
+        if (!modo) throw new HttpError(400, "elige rápido, universitario, examen o audio antes de enviar");
         let examen: ExamChoice | undefined;
         const fuentes = uploadedSources(root, body.fuentes);
         if (modo === "examen") {
@@ -2756,7 +2775,7 @@ ${scripts}
         // binds it, and the gate asks the engine about that folder when it settles.
         const fuentesPrompt = fuentes.length ? `\n${fuentesLine(fuentes)}` : "";
         const learningTarget = text || "el tema que aparece en el examen o documento adjunto";
-        await startTurn(main, `Quiero aprender ${learningTarget}.\n\n${modeLine(modo, examen)}${fuentesPrompt}`, { topic: null, creation: modo !== "rapido", ...(materia ? { materia } : {}) });
+        await startTurn(main, `Quiero aprender ${learningTarget}.\n\n${modeLine(modo, examen)}${fuentesPrompt}`, { topic: null, creation: modo === "universitario" || modo === "examen", ...(materia ? { materia } : {}) });
         return sendJson(res, 200, { ok: true, modo });
       }
       case "api/metodo": {
@@ -3327,6 +3346,11 @@ ${scripts}
           const file = join(root, "rapidos", `${quick}.md`);
           if (!/^[\w-]+$/.test(quick) || !existsSync(file)) throw new HttpError(404, `no quick note ${quick}`);
           return sendJson(res, 200, { url: `${String((await view()).base)}rapidos/${encodeURIComponent(quick)}` });
+        }
+        const audio = url.searchParams.get("audio");
+        if (audio !== null) {
+          if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(audio)) throw new HttpError(404, `no audio session ${audio}`);
+          return sendJson(res, 200, { url: `${String((await view()).base)}audios/${audio}` });
         }
         const topic = url.searchParams.get("topic") ?? undefined;
         const part = url.searchParams.get("part") ?? "";

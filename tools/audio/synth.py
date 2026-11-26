@@ -28,13 +28,15 @@ def turn_key(voice: str, text: str, rate: str) -> str:
     return hashlib.sha256(f"{voice}|{rate}|{text}".encode()).hexdigest()[:16]
 
 
-def turns(spec: dict, rate: str):
+def turns(spec: dict, rate: str, voices: dict | None = None):
+    """The spec's turns in speaking order; `voices` swaps the name table."""
     declared = spec.get("voices") or DEFAULT_VOICES[spec["style"]]
+    table = VOICES if voices is None else voices
     seen = set()
     for chapter in spec["chapters"]:
         for segment in chapter["segments"]:
             name = declared[segment["speaker"]]
-            voice = VOICES.get(name, name)
+            voice = table.get(name, name)
             text = segment["text"]
             key = turn_key(voice, text, rate)
             if key in seen:
@@ -104,11 +106,6 @@ async def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="list the turns without calling the network")
     args = parser.parse_args()
     try:
-        import edge_tts  # pyright: ignore[reportMissingImports]  # installed on the synthesis host
-    except ImportError:
-        print("edge-tts is not installed here: run this on the VPS with ~/learnings-video/.venv/bin/python", file=sys.stderr)
-        return 2
-    try:
         with open(args.spec, encoding="utf-8") as handle:
             spec = json.load(handle)
         os.makedirs(args.out, exist_ok=True)
@@ -123,6 +120,11 @@ async def main() -> int:
             print(f"  {key} {voice}")
         return 0
 
+    try:
+        import edge_tts  # pyright: ignore[reportMissingImports]  # installed on the synthesis host
+    except ImportError:
+        print("edge-tts is not installed here: run this on the VPS with ~/learnings-video/.venv/bin/python", file=sys.stderr)
+        return 2
     counts = {"new": 0, "kept": 0}
     for index, (key, voice, text) in enumerate(planned, 1):
         try:

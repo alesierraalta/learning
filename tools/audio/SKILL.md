@@ -43,9 +43,9 @@ node tools/audio/render.mjs --spec <spec> --dry-run
 ```
 
 Run this after every chapter you write. The command prints each chapter's
-word count and the estimate it derives from it, and refuses a spec outside 12–28 minutes.
-You want to land at 18–22 and be told so by the numbers, not by your sense of
-length.
+word count and the estimate it derives from it, and refuses a spec outside
+12–28 minutes (4–9 for a capsule). You want to land at 18–22 and be told so by
+the numbers, not by your sense of length.
 
 ## 3. Write turns, not paragraphs
 
@@ -91,6 +91,25 @@ Synthesis needs the venv with `edge-tts` (on the VPS); rendering needs only
 `ffmpeg`. If the voice cache lives on another machine, pass
 `--remote user@host:path` to the renderer instead of copying by hand.
 
+### Free offline voices (Kokoro)
+
+edge-tts remains the default. For the learner's free, offline voices create
+the venv once with `python3 -m venv ~/.cache/kokoro-venv` and
+`~/.cache/kokoro-venv/bin/pip install kokoro soundfile`. Declare `ef_dora`
+(female), `em_alex` or `em_santa` (male) in the spec's `voices` map and run:
+
+```bash
+python3 tools/audio/kokoro.py --spec <spec> --out ~/.cache/learning-audio/<name>
+```
+
+The command writes the same cache the renderer reads; `--force` and
+`--dry-run` work as in `synth.py`, and any other voice name is refused with
+the accepted list. Quality sits below a commercial engine: this buys free,
+offline synthesis, not more natural voices. Kokoro gives no word timings, so
+each `<key>.json` marks `boundaries_source` as estimated: words are spread
+over the measured audio and the last one ends with the turn. The `.srt` is
+approximate, not an alignment.
+
 ## 6. Verify, then report
 
 1. the render printed a duration inside 18–22 minutes and the chapter count
@@ -101,3 +120,28 @@ Synthesis needs the venv with `edge-tts` (on the VPS); rendering needs only
 
 Report the file, the duration, the style and the number of turns. If any check
 fails, fix the spec and re-render — never hand-edit the `.m4a` or the `.srt`.
+
+## 7. Capsules for the audio study mode
+
+The `audio` study mode plays one 5–8 minute capsule per block that was not
+already known. Author its spec at `tools/audio/specs/audio-<sesion>-<bloque>.json`
+with `"capsule": true`, the block id in `part` and the session id in `topic`.
+`minutes` is 5–8 (default 6); the render window is 4–9, and an estimate outside
+5–8 minutes renders with a warning: rebalance it. Write **one chapter per
+concept** of the block, in the order the concepts appear in `sesion.json`.
+Grounding is the same rule as for a part's audio: every claim, number and
+example comes from that session's sources. A thin source makes a shorter
+capsule, never general knowledge or filler.
+
+```bash
+python3 tools/audio/synth.py --spec tools/audio/specs/audio-<sesion>-<bloque>.json \
+  --out ~/.cache/learning-audio/audio-<sesion>-<bloque>
+node tools/audio/render.mjs --spec tools/audio/specs/audio-<sesion>-<bloque>.json \
+  --audio ~/.cache/learning-audio/audio-<sesion>-<bloque> \
+  --out "audios/<sesion>/<bloque>.m4a" \
+  --srt "audios/<sesion>/<bloque>.srt"
+```
+
+Check the estimate with the `--dry-run` form of the render command before
+synthesis. The delivery is `audios/<sesion>/<bloque>.m4a` with its `.srt` beside
+it, where the bridge reads it.

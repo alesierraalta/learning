@@ -1335,6 +1335,7 @@ test("a correction the runtime refuses is told in Spanish, not in the runtime's 
 const MODE_LINE = {
   rapido: "[Modo de estudio: rápido — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
   universitario: "[Modo de estudio: universitario — ya decidido en el estudio. No preguntes si prefiere rápido o universitario y no abras un diálogo para elegirlo.]",
+  audio: "[Modo de estudio: audio — ya decidido en el estudio, no lo preguntes ni lo cambies. Sin motor de aprendizaje: no uses learning_stage ni escribas plan.json, y no escribas texto de lectura. Guarda la sesión en audios/<sesion>/sesion.json siguiendo la referencia modo-audio de la skill explicacion-interactiva.]",
 };
 const EXAM_MODE_LINE = {
   oral: '[Modo de estudio: examen — ya decidido en el estudio, con formato oral (exam: "oral"). No preguntes el modo ni el formato: pásalos a learning_stage init como exam.]',
@@ -1398,6 +1399,25 @@ test("oral exam mode refuses a practice kind before starting a turn", async () =
 
 test("quick mode refuses exam fields before starting a turn", async () => {
   await assertExamRefusal({ text: "redes neuronales", modo: "rapido", examen: { formato: "written" } }, /solo.*modo examen/i);
+});
+
+test("audio mode carries its mode line, sources and a chosen course to the tutor", async () => {
+  const { studio, prompts, stream, root } = await piStudio();
+  try {
+    const uploaded = JSON.parse((await uploadFile(studio, "temario.png", "image/png", tinyImage)).body);
+    const curso = JSON.parse((await post(studio, "api/materias", { nombre: "Proyectos" })).body);
+    const response = await post(studio, "api/aprender", { text: "ruta crítica", modo: "audio", fuentes: [uploaded.id], materia: curso.id });
+    assert.equal(response.status, 200, response.body);
+    assert.deepEqual(JSON.parse(response.body), { ok: true, modo: "audio" });
+    await until(() => prompts().length === 1);
+    const message = prompts()[0].message;
+    assert.ok(message.includes(MODE_LINE.audio), `the audio mode reaches the tutor: ${message}`);
+    assert.ok(message.includes(join(root, ".subidas", uploaded.id, uploaded.nombre)), "the uploaded source reaches the tutor");
+  } finally { stream.close(); }
+});
+
+test("audio mode refuses exam fields before starting a turn", async () => {
+  await assertExamRefusal({ text: "redes neuronales", modo: "audio", examen: { formato: "written" } }, /solo.*modo examen/i);
 });
 
 test("PDF uploads render at most 20 pages to 150-dpi PNGs with byte-bounded names", { skip: pdfToolsAvailable ? false : "pdftotext, pdftoppm and pdfinfo are required for PDF upload" }, async () => {
@@ -1630,7 +1650,7 @@ test("«Aprender algo nuevo» keeps refusing blank text without an attachment wi
     for (const body of [{ text: "algo" }, { text: "algo", modo: "" }, { text: "algo", modo: "medio" }, { text: "algo", modo: "Universitario" }, { text: "  ", modo: "rapido" }]) {
       const res = await post(studio, "api/aprender", body);
       assert.equal(res.status, 400, `${JSON.stringify(body)} → ${res.body}`);
-      assert.equal(JSON.parse(res.body).error, body.text.trim() ? "elige rápido, universitario o examen antes de enviar" : "escribe qué quieres aprender");
+      assert.equal(JSON.parse(res.body).error, body.text.trim() ? "elige rápido, universitario, examen o audio antes de enviar" : "escribe qué quieres aprender");
     }
     assert.equal(prompts().length, 0, "nothing reached the tutor");
   } finally { stream.close(); }
@@ -2642,6 +2662,33 @@ test("the library lists topics with engine status, parts and quick notes; api/vi
   assert.equal((await http(quick.url)).status, 200);
   assert.equal((await http(`${studio.url}api/view?quick=nope`)).status, 404);
   assert.equal((await http(`${studio.url}api/view?quick=..`)).status, 404);
+});
+
+test("the library lists audio sessions by use and survives an unreadable session file", async () => {
+  const { studio, root } = await setup();
+  const dir = join(root, "audios");
+  for (const [id, titulo, hoursAgo] of [["ruta-critica", "Ruta crítica", 0.5], ["sin-titulo", "", 5], ["roto", null, 30]]) {
+    const sessionDir = join(dir, id);
+    mkdirSync(sessionDir, { recursive: true });
+    const file = join(sessionDir, "sesion.json");
+    writeFileSync(file, titulo === null ? "{no es JSON" : JSON.stringify(titulo ? { titulo, bloques: [] } : { bloques: [] }));
+    const when = new Date(Date.now() - hoursAgo * 3600_000);
+    utimesSync(file, when, when);
+  }
+  const library = JSON.parse((await http(`${studio.url}api/library`)).body);
+  assert.deepEqual(library.audio, [
+    { id: "ruta-critica", title: "Ruta crítica" },
+    { id: "sin-titulo", title: "sin-titulo" },
+    { id: "roto", title: "roto" },
+  ]);
+  assert.deepEqual(library.topics.map((t) => t.id), ["redes"], "audios is never a study topic");
+});
+
+test("api/view returns the bridge address for an audio session", async () => {
+  const { studio } = await setup();
+  const view = JSON.parse((await http(`${studio.url}api/view?audio=ruta-critica`)).body);
+  assert.match(view.url, /^http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{64}\/audios\/ruta-critica$/);
+  assert.equal((await http(`${studio.url}api/view?audio=..`)).status, 404);
 });
 
 test("the library lists the most recently used quick note first", async () => {
