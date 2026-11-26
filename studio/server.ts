@@ -100,7 +100,7 @@ import {
 import { createPageTiming, type PageTiming, type PageTimingReport } from "./timing.ts";
 import { candidatos, descubrir, olvidar } from "./descubrir.ts";
 import { readGlobalTelemetry, readTopicTelemetry, recordQuizTelemetry, saveGlobalTelemetry } from "./telemetry.ts";
-import { listSugerencias, motivos, recordSugerencia, resumenSugerencias, stripLecciones, stripTema, tutorContext, validateSugerencia, withLecciones, withTema } from "./sugerencias.ts";
+import { listSugerencias, motivos, promoverALeccion, recordSugerencia, resumenSugerencias, stripLecciones, stripTema, tutorContext, validateSugerencia, withLecciones, withTema } from "./sugerencias.ts";
 import { listarValoraciones, recordValoracion, stripGustos, withGustos } from "./valoraciones.ts";
 import { buildEspera, partNotePath, writePartTarget } from "./espera.ts";
 import { createGlosario } from "./glosario.ts";
@@ -2654,6 +2654,10 @@ ${scripts}
       }
       case "api/sugerencias":
         return sendJson(res, 200, recordSugerencia(root, body));
+      case "api/sugerencias/promover":
+        // The learner's own sentence becomes the rule (#464): validated on the way in, never
+        // shortened here, and the answer carries the block it just changed.
+        return sendJson(res, 200, promoverALeccion(root, body));
       case "api/valoraciones":
         // What the learner thought of a part: a verdict with reasons, kept apart from suggestions.
         return sendJson(res, 200, recordValoracion(root, body));

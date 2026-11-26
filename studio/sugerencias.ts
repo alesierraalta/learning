@@ -53,6 +53,11 @@ export interface Sugerencia {
   alcance?: Alcance;
   /** The standing rule a general review leaves behind, in the learner's imperative. */
   regla?: string;
+  /**
+   * True when the learner promoted this entry's own sentence to a lesson (#464): the words are
+   * theirs, not the studio's, and the page says so instead of offering the door twice.
+   */
+  promovida?: boolean;
 }
 
 export interface SugerenciasFile {
@@ -92,6 +97,9 @@ function clean(entrada: unknown): Sugerencia | null {
   // general, and losing it would silently demote the learner's rules to one part.
   if (entrada.alcance === "general" || entrada.alcance === "parte") kept.alcance = entrada.alcance;
   if (typeof entrada.regla === "string" && entrada.regla.trim()) kept.regla = clip(entrada.regla.trim(), MAX_REGLA);
+  // A promotion is the learner's decision, so it is never inferred from the rule: a chip's rule and
+  // the learner's own sentence both end up as `regla`, and only the second says «promovida».
+  if (entrada.promovida === true) kept.promovida = true;
   return kept;
 }
 
@@ -215,8 +223,8 @@ export function reglaDeMotivo(id: string): string | null {
   return REGLA_POR_MOTIVO[id] ?? null;
 }
 
-/** A rule is read on every turn, so it stays one line. */
-const MAX_REGLA = 140;
+/** A rule is read on every turn, so it stays one line. The page shows the same cap. */
+export const MAX_REGLA = 140;
 
 /**
  * What a review is about, decided from its chips alone: never a model, never a reading of the
@@ -284,14 +292,19 @@ export function resumenSugerencias(root: string) {
           parte,
           total: deLaParte.length,
           motivos: conteo(deLaParte),
+          // `regla` and `promovida` travel because «Tu feedback» offers the door (#464) to the
+          // entries whose words are not a lesson yet, and says so for the ones that already are.
           entradas: deLaParte
-            .map(({ id, texto, motivos: elegidos, origen, timestamp }) => ({ id, texto, motivos: elegidos, origen, timestamp }))
+            .map(({ id, texto, motivos: elegidos, origen, timestamp, regla, promovida }) => ({
+              id, texto, motivos: elegidos, origen, timestamp, regla: regla ?? "", promovida: promovida === true,
+            }))
             .reverse(),
         };
       });
     return { tema, total: delTema.length, partes };
   });
-  return { total: entradas.length, motivos: conteo(entradas), temas };
+  // The cap rides with the payload so the page never writes it down a second time.
+  return { total: entradas.length, motivos: conteo(entradas), temas, maxRegla: MAX_REGLA };
 }
 
 export function directrices(entradas: Sugerencia[]) {
@@ -493,4 +506,96 @@ export function recordSugerencia(root: string, raw: unknown) {
   data.actualizado = entrada.timestamp;
   writeDoc(root, "sugerencias", `${JSON.stringify(data, null, 2)}\n`);
   return { entrada, preferencias, directrices: directrices(data.entradas) };
+}
+
+/**
+ * The studio's own block opens with a blank line and a bracket, so a rule carrying those two
+ * characters in that order is not a rule: it would read back as a block this studio never wrote.
+ */
+const MARCA_BLOQUE = "\n\n[";
+
+/** Everything a rule may not be: empty, two lines, a spoofed block, or longer than the cap. */
+function validateRegla(raw: unknown): string {
+  if (typeof raw !== "string") throw new HttpError(400, "Escribe la frase que será la lección.");
+  const regla = raw.trim();
+  if (!regla) throw new HttpError(400, "Escribe la frase que será la lección.");
+  // Checked before the control characters, so the marker has a refusal of its own to report.
+  if (regla.includes(MARCA_BLOQUE)) throw new HttpError(400, "Tu frase no puede traer las marcas de un bloque del estudio.");
+  // A newline or a control character would break the one line the block is built from.
+  if (/[\u0000-\u001f\u007f\u2028\u2029]/.test(regla)) throw new HttpError(400, "Una lección es una sola línea: quita los saltos de línea y los caracteres invisibles.");
+  // Never truncated: a rule the learner did not write is not their rule, so the page asks them to
+  // shorten it and nothing is stored until they do.
+  if (regla.length > MAX_REGLA) {
+    throw new HttpError(400, `Una lección tiene ${MAX_REGLA} caracteres como máximo y tu frase tiene ${regla.length}: acórtala y guárdala.`);
+  }
+  return regla;
+}
+
+export interface Promocion {
+  tema: string;
+  parte: string;
+  /** The entry whose words become the rule; without it, a new general entry is recorded. */
+  id?: string;
+  regla: string;
+}
+
+/** What a promotion must say: where, which entry, and the one line that becomes the lesson. */
+export function validatePromocion(raw: unknown): Promocion {
+  if (!isRecord(raw)) throw new HttpError(400, "invalid sugerencia");
+  if (!Object.keys(raw).every((k) => ["tema", "parte", "id", "regla"].includes(k))) throw new HttpError(400, "invalid sugerencia");
+  if (!safeTopic(raw.tema) || typeof raw.parte !== "string" || !/^p\d+$/.test(raw.parte)) throw new HttpError(400, "invalid sugerencia target");
+  if (raw.id !== undefined && (typeof raw.id !== "string" || raw.id.trim().length === 0)) throw new HttpError(400, "invalid sugerencia id");
+  const regla = validateRegla(raw.regla);
+  return raw.id === undefined
+    ? { tema: raw.tema, parte: raw.parte, regla }
+    : { tema: raw.tema, parte: raw.parte, id: raw.id as string, regla };
+}
+
+/**
+ * The learner's own sentence becomes the rule (#464). The door is explicit and never automatic:
+ * nothing stored turns into a lesson by itself, and the rule is what they wrote — the page offers
+ * their sentence, they shorten it if the cap asks for it, and the studio invents nothing.
+ *
+ * With an `id` the entry itself becomes the lesson, so promoting it again rewrites the same line
+ * instead of adding a second one; without an id a new general entry carries the sentence. A
+ * refused promotion stores nothing at all: the words stay exactly as they were.
+ */
+export function promoverALeccion(root: string, raw: unknown) {
+  const input = validatePromocion(raw);
+  const lectura = read(root);
+  const data = lectura.data;
+  const ahora = new Date().toISOString();
+  let entrada: Sugerencia | undefined;
+  if (input.id !== undefined) {
+    entrada = data.entradas.find((cada) => cada.id === input.id && cada.tema === input.tema && cada.parte === input.parte);
+    // An id outside this topic and part is not a promotion of anything the page could have shown.
+    if (!entrada) throw new HttpError(404, "No encuentro esa sugerencia.");
+    // An entry with no words has no sentence of the learner's to turn into a rule.
+    if (!entrada.texto.trim()) throw new HttpError(400, "Esa sugerencia no tiene palabras: escribe una frase y conviértela en lección.");
+    entrada.alcance = "general";
+    entrada.regla = input.regla;
+    entrada.promovida = true;
+  } else {
+    entrada = {
+      id: `s-${randomBytes(6).toString("hex")}`,
+      tema: input.tema,
+      parte: input.parte,
+      motivos: [],
+      texto: input.regla,
+      origen: "sugerencia",
+      timestamp: ahora,
+      alcance: "general",
+      regla: input.regla,
+      promovida: true,
+    };
+    data.entradas.push(entrada);
+    if (data.entradas.length > MAX_ENTRADAS) data.entradas = data.entradas.slice(-MAX_ENTRADAS);
+  }
+  // Nothing is moved aside before the promotion is known to be storable: a refused request
+  // leaves the store, its copies and its entries exactly as they were.
+  keepAside(root, lectura);
+  data.actualizado = ahora;
+  writeDoc(root, "sugerencias", `${JSON.stringify(data, null, 2)}\n`);
+  // The block the next turn reads, measured after the write: what the page needs to say it landed.
+  return { entrada, bloque: leccionesBlock(root).length };
 }
