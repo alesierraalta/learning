@@ -92,6 +92,19 @@ test("a capsule estimated outside its 5 to 8 minutes is told so", () => {
   assert.doesNotMatch(quiet.stderr, /warning/);
 });
 
+test("a rendered capsule that lasts outside its 5 to 8 minutes is told so", () => {
+  // The estimate is about six minutes, but these recordings last five seconds a turn.
+  const spoken = capsule();
+  const path = join(dir, "capsule-real.json");
+  const takes = join(dir, "capsule-audio");
+  writeFileSync(path, JSON.stringify(spoken));
+  recordAll(spoken, takes, { seconds: 5, words: 6 });
+  const run = render("--spec", path, "--audio", takes, "--out", join(dir, "capsule-real.m4a"));
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /wrote .*capsule-real\.m4a · 1(\.\d)? min/);
+  assert.match(run.stderr, /warning: .*capsule/);
+});
+
 test("an unknown flag is refused instead of ignored", () => {
   const run = render("--spec", specPath, "--out", join(dir, "x.m4a"), "--loudness", "-9");
   assert.equal(run.status, 2);

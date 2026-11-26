@@ -103,6 +103,9 @@ async function main() {
     bytes: statSync(out).size,
     files: { audio: out, srt },
   };
+  if (profile.capsule && (report.minutes.actual < shortest || report.minutes.actual > longest)) {
+    console.warn(`warning: the capsule lasts ${report.minutes.actual} min; a capsule runs ${shortest} to ${longest} minutes`);
+  }
   writeFileSync(join(work, "report.json"), JSON.stringify(report, null, 1));
   console.log(`wrote ${out} · ${report.minutes.actual} min · ${report.cues} cues · ${report.bytes} bytes`);
   console.log(`wrote ${srt}`);
