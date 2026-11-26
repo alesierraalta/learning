@@ -5865,3 +5865,185 @@ test("T2 an opening verdict counts only words said to a question about that conc
   assert.notEqual(state.estado, "sabido", "a concept left unanswered is not known");
   await shutdown();
 });
+
+/** A block whose explanation step is one open development question per concept. */
+function audioDesarrolloBlock(id = "b1", codes = ["c1", "c2"]) {
+  return {
+    id,
+    titulo: `Bloque ${id}`,
+    conceptos: codes.map((code) => ({ codigo: code, nombre: `Concepto ${code}` })),
+    preguntas: codes.map((code) => ({ id: `${id}-p-${code}`, enunciado: `¿Qué sabes de ${code}?`, conceptos: [code] })),
+    desarrollo: codes.map((code) => ({ id: `${id}-d-${code}`, enunciado: `¿Por qué ${code} importa en un proyecto?`, conceptos: [code] })),
+    consigna: `Explica el bloque ${id}.`,
+  };
+}
+
+/** The same block already read: opening answers judged dudoso and its capsule delivered. */
+function audioDesarrolloInEscuchar(root, block, desarrollo) {
+  const previas = Object.fromEntries(block.preguntas.map((question) => [question.id, `dije ${question.conceptos[0]}`]));
+  return audioFixture(root, {
+    bloques: [block],
+    answers: { previas, explicaciones: {}, ...(desarrollo ? { desarrollo: { [block.id]: desarrollo } } : {}) },
+    verdicts: {
+      previas: block.conceptos.map((concepto) => ({ bloque: block.id, codigo: concepto.codigo, estado: "dudoso", evidencia: `dije ${concepto.codigo}` })),
+      explicaciones: [],
+    },
+    capsules: [block.id],
+  });
+}
+
+test("T9 the desarrollo questions of a session obey the id and coverage rules", async () => {
+  const { root, view, shutdown } = await setup();
+  const site = base(await view({}));
+  const block = audioDesarrolloBlock();
+  const [first, second] = block.desarrollo;
+  for (const [bloques, rule] of [
+    [[{ ...block, desarrollo: [] }], /block b1 has 1 to 4 desarrollo questions/],
+    [[{ ...block, desarrollo: [first, second, first, second, first] }], /block b1 has 1 to 4 desarrollo questions/],
+    [[{ ...block, desarrollo: [first, first] }], /ids and codes must be unique in the session/],
+    [[{ ...block, desarrollo: [{ ...first, id: "B1-D" }, second] }], /desarrollo question ids must match/],
+    [[{ ...block, desarrollo: [{ ...first, conceptos: ["c9"] }, second] }], /desarrollo question b1-d-c1 concepts must be a non-empty subset/],
+    [[{ ...block, desarrollo: [first] }], /every concept of block b1 must be named by at least one desarrollo question/],
+  ]) {
+    audioFixture(root, { bloques });
+    const response = await http(`${site}audios/admin`);
+    assert.equal(response.status, 400, response.body);
+    assert.match(JSON.parse(response.body).error, rule);
+  }
+  audioFixture(root, { bloques: [block] });
+  assert.equal((await http(`${site}audios/admin`)).status, 200, "a block with one question per concept is accepted");
+  await shutdown();
+});
+
+test("T9 a block with desarrollo only completes when every concept has a desarrollo verdict", async () => {
+  const { root, view, shutdown } = await setup();
+  const block = audioDesarrolloBlock();
+  const dir = audioDesarrolloInEscuchar(root, block);
+  const site = base(await view({}));
+  const estado = async () => audioData((await http(`${site}audios/admin`)).body).session.bloques[0].estado;
+  assert.equal(await estado(), "escuchar", "no development answers yet");
+  const file = join(dir, "respuestas.json");
+  const answers = JSON.parse(readFileSync(file, "utf8"));
+  answers.desarrollo = { b1: { "b1-d-c1": "cada casa tiene su terreno", "b1-d-c2": "cada cliente es distinto" } };
+  writeFileSync(file, JSON.stringify(answers));
+  assert.equal(await estado(), "corrigiendo", "the answers are stored and nothing is judged yet");
+  const verdicts = JSON.parse(readFileSync(join(dir, "veredictos.json"), "utf8"));
+  verdicts.desarrollo = [{ bloque: "b1", codigo: "c1", estado: "claro", evidencia: "cada casa tiene su terreno", correccion: "Bien dicho." }];
+  writeFileSync(join(dir, "veredictos.json"), JSON.stringify(verdicts));
+  assert.equal(await estado(), "corrigiendo", "one concept still lacks a verdict");
+  verdicts.desarrollo.push({ bloque: "b1", codigo: "c2", estado: "dudoso", evidencia: "cada cliente es distinto", correccion: "Faltó el alcance." });
+  writeFileSync(join(dir, "veredictos.json"), JSON.stringify(verdicts));
+  assert.equal(await estado(), "completado");
+  assert.equal(JSON.parse((await http(`${site}audios/admin/estado`)).body).bloques[0].estado, "completado");
+  await shutdown();
+});
+
+test("T9 audio-desarrollo stores every answer and delivers the development instruction", async () => {
+  const { root, view, host, shutdown } = await setup();
+  const dir = audioDesarrolloInEscuchar(root, audioDesarrolloBlock());
+  const site = base(await view({}));
+  const response = await submit(site, { kind: "audio-desarrollo", topic: "audios", note: "admin", block: "b1", answers: {
+    "b1-d-c1": "Una casa se construye igual, pero el terreno y los vecinos cambian.",
+    "b1-d-c2": "El presupuesto se decide antes de empezar.",
+  } });
+  assert.equal(response.status, 200, response.body);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, "respuestas.json"), "utf8")), {
+    previas: { "b1-p-c1": "dije c1", "b1-p-c2": "dije c2" },
+    explicaciones: {},
+    desarrollo: { b1: {
+      "b1-d-c1": "Una casa se construye igual, pero el terreno y los vecinos cambian.",
+      "b1-d-c2": "El presupuesto se decide antes de empezar.",
+    } },
+  });
+  assert.equal(host.sent.length, 1);
+  assert.equal(host.sent[0].content, [
+    "[Vista HTML · audios · admin · desarrollo · b1]",
+    "Preguntas de desarrollo de b1:",
+    "- b1-d-c1:",
+    '"""',
+    "Una casa se construye igual, pero el terreno y los vecinos cambian.",
+    '"""',
+    "- b1-d-c2:",
+    '"""',
+    "El presupuesto se decide antes de empezar.",
+    '"""',
+    "Escribe en audios/admin/veredictos.json los veredictos de desarrollo de este bloque en desarrollo: uno por concepto, con bloque, codigo, estado (claro, dudoso o laguna), evidencia citada literalmente de la respuesta a su pregunta y corrección de dos o tres líneas.",
+  ].join("\n"));
+  await shutdown();
+});
+
+test("T9 every refused audio-desarrollo leaves respuestas.json alone and sends nothing", async () => {
+  const { root, view, host, shutdown } = await setup();
+  const block = audioDesarrolloBlock();
+  const dir = audioDesarrolloInEscuchar(root, block);
+  const unanswered = audioDesarrolloBlock("b2", ["c3"]);
+  const session = { titulo: "Administración de proyectos", bloques: [block, unanswered] };
+  writeFileSync(join(dir, "sesion.json"), `${JSON.stringify(session, null, 2)}\n`);
+  const file = join(dir, "respuestas.json");
+  const before = readFileSync(file, "utf8");
+  const site = base(await view({}));
+  const good = { kind: "audio-desarrollo", topic: "audios", note: "admin", block: "b1", answers: { "b1-d-c1": "uno", "b1-d-c2": "dos" } };
+  for (const [payload, status] of [
+    [{ ...good, extra: "nope" }, 400],
+    [{ ...good, note: "../x" }, 400],
+    [{ ...good, note: "desconocida" }, 404],
+    [{ ...good, block: "b9" }, 400],
+    [{ ...good, answers: { "b1-d-c1": "uno", otra: "dos" } }, 400],
+    [{ ...good, answers: { "b1-d-c1": "uno" } }, 400],
+    [{ ...good, answers: { "b1-d-c1": "uno", "b1-d-c2": "   " } }, 400],
+    [{ ...good, block: "b2", answers: { "b2-d-c3": "tres" } }, 409],
+  ]) {
+    const response = await submit(site, payload);
+    assert.equal(response.status, status, response.body);
+    assert.equal(readFileSync(file, "utf8"), before, `a refused ${JSON.stringify(payload)} writes nothing`);
+  }
+  assert.equal(host.sent.length, 0);
+  await shutdown();
+});
+
+test("T9 a desarrollo verdict counts only words said to that concept's question", async () => {
+  const { root, view, shutdown } = await setup();
+  const block = audioDesarrolloBlock();
+  const dir = audioDesarrolloInEscuchar(root, block, {
+    "b1-d-c1": "La ruta crítica marca el plazo del proyecto.",
+    "b1-d-c2": "El presupuesto se queda corto.",
+  });
+  const verdicts = { desarrollo: [
+    { bloque: "b1", codigo: "c2", estado: "claro", evidencia: "marca el plazo", correccion: "Bien." },
+  ], previas: [{ bloque: "b1", codigo: "c1", estado: "dudoso", evidencia: "dije c1" }, { bloque: "b1", codigo: "c2", estado: "dudoso", evidencia: "dije c2" }], explicaciones: [] };
+  writeFileSync(join(dir, "veredictos.json"), JSON.stringify(verdicts));
+  const site = base(await view({}));
+  const served = audioData((await http(`${site}audios/admin`)).body);
+  assert.deepEqual(served.session.bloques[0].conceptos.map((concepto) => concepto.explicacion.estado), ["sin-veredicto", "sin-veredicto"]);
+  assert.equal(JSON.stringify(served).includes("marca el plazo"), false, "a quote taken from another concept's answer is no verdict");
+  assert.equal(served.session.bloques[0].estado, "corrigiendo");
+  verdicts.desarrollo.push({ bloque: "b1", codigo: "c1", estado: "claro", evidencia: "La ruta crítica marca el plazo", correccion: "Bien." });
+  writeFileSync(join(dir, "veredictos.json"), JSON.stringify(verdicts));
+  const judged = audioData((await http(`${site}audios/admin`)).body);
+  assert.deepEqual(judged.session.bloques[0].conceptos.map((concepto) => concepto.explicacion.estado), ["claro", "sin-veredicto"]);
+  await shutdown();
+});
+
+test("T9 a block with desarrollo draws one field per question and offers no option", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { root, view, shutdown } = await setup();
+  const dir = audioDesarrolloInEscuchar(root, audioDesarrolloBlock());
+  const page = await audioPageIn(t, base(await view({})));
+  assert.equal(await page.locator(".audio-desarrollo-question").count(), 2, "one field per development question");
+  assert.equal(await page.getByText("¿Por qué c1 importa en un proyecto?").count(), 1);
+  assert.equal(await page.locator(".audio-block-card input[type=radio], .audio-block-card input[type=checkbox], .audio-block-card select").count(), 0, "no option control anywhere in the block");
+  assert.equal(await page.getByRole("radio").count(), 0);
+  assert.equal(await page.getByRole("checkbox").count(), 0);
+  const areas = page.locator(".audio-desarrollo-question textarea");
+  await areas.nth(0).fill("Cada casa tiene su terreno.");
+  await areas.nth(1).fill("Cada cliente es distinto.");
+  const [response] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/submit")),
+    page.getByRole("button", { name: "Enviar desarrollo al tutor" }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, "respuestas.json"), "utf8")).desarrollo, { b1: {
+    "b1-d-c1": "Cada casa tiene su terreno.",
+    "b1-d-c2": "Cada cliente es distinto.",
+  } });
+  await shutdown();
+});

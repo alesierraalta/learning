@@ -332,6 +332,8 @@ button.secondary { background: transparent; color: var(--ink); }
 .audio-block-card { min-width: 0; margin: 24px 0; padding-top: 16px; border-top: 1px solid var(--hair); }
 .audio-state { font-family: var(--sans); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
 .audio-consigna { font-weight: 700; }
+.audio-desarrollo-question { margin: 18px 0; }
+.audio-desarrollo-question > :first-child { margin: 0 0 8px; font-weight: 700; }
 .audio-capsule audio { display: block; width: 100%; max-width: 100%; }
 .audio-capsule details { margin-top: 10px; }
 .audio-capsule details a { display: inline-block; margin: 8px 0; }

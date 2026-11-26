@@ -829,7 +829,36 @@
           card.append(element("p", "Tu cápsula está pendiente: el tutor la está preparando.", "muted"));
         }
         if (["escuchar", "corrigiendo", "completado"].includes(block.estado)) card.append(capsule(block));
-        if (block.estado === "escuchar") {
+        if (block.estado === "escuchar" && block.desarrollo) {
+          // One open question per concept, each with its own dictation field and one submit for the block.
+          const section = element("section", undefined, "audio-desarrollo");
+          const keys = block.desarrollo.map((question) => `desarrollo:${block.id}:${question.id}`);
+          for (const [number, question] of block.desarrollo.entries()) {
+            const box = element("div", undefined, "audio-desarrollo-question");
+            box.append(drawnText(question.enunciado, true));
+            box.append(thought(keys[number], "Tu respuesta (dicta o escribe)", "Responde con tus palabras, en varias frases.", `Dictar la respuesta a la pregunta ${number + 1}`, `desarrollo-${index}-${number}`));
+            section.append(box);
+          }
+          const send = element("button", "Enviar desarrollo al tutor");
+          send.type = "button";
+          const message = status();
+          send.onclick = async () => {
+            send.disabled = true;
+            message.className = "";
+            try {
+              const answers = Object.fromEntries(block.desarrollo.map((question, number) => [question.id, said(keys[number])]));
+              const result = await post({ kind: "audio-desarrollo", topic: "audios", note: data.note, block: block.id, answers });
+              message.textContent = result.queued ? "En cola…" : "Preguntas de desarrollo enviadas al tutor.";
+              await refresh();
+            } catch (error) {
+              message.className = "error";
+              message.textContent = error.message;
+            } finally { send.disabled = false; }
+          };
+          away(send, message);
+          section.append(send, message);
+          card.append(section);
+        } else if (block.estado === "escuchar") {
           card.append(element("p", block.consigna, "audio-consigna"));
           card.append(thought(`explicacion:${block.id}`, "Tu explicación (dicta o escribe)", "El tutor te corrige concepto por concepto.", `Dictar la explicación de ${block.titulo}`, `explicacion-${index}`));
           const send = element("button", "Enviar explicación al tutor");

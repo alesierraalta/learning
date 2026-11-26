@@ -168,7 +168,7 @@ vault files on every request, so Obsidian stays the source of truth:
 | `<topic>/<part>` | `explicaciones/Parte N - <slug>.md` (or its rich page), the video and audio controls, `mini-quiz/<part>.json`, `explicaciones/demos/<part>-*.html` |
 | `<topic>/quiz` | `quiz.json` + `quiz.answers.json` (diagnosis rounds) |
 | `<topic>/file/<path>` | any file inside the topic folder, with HTTP Range (video and audio seeking) |
-| `audios/<sesion>` | `audios/<sesion>/sesion.json`, `respuestas.json` and `veredictos.json`: questions, capsule player, explanation fields and verdicts; the bridge derives the state of each block |
+| `audios/<sesion>` | `audios/<sesion>/sesion.json`, `respuestas.json` and `veredictos.json`: questions, capsule player, explanation or development fields and verdicts; the bridge derives the state of each block |
 | `audios/<sesion>/estado` | the same derived block states as JSON; the page polls it every 30 seconds |
 | `audios/file/<sesion>/<bloque>.m4a` (or `.srt`) | a session's capsules and transcripts through the topic file route, with HTTP Range for seeking; nothing else in the session folder is served |
 | `submit` (POST) | learner submission, see below |
@@ -180,7 +180,7 @@ render in the browser. Answer keys never reach the browser before the quiz is an
 ### Submissions reach the chat
 
 A submission is one of the fixed shapes the bridge accepts (`video`, `audio`, `audio-previas`,
-`audio-explicacion`, `mini-quiz`, `diagnosis`, `question`; unknown fields are rejected). A video or
+`audio-explicacion`, `audio-desarrollo`, `mini-quiz`, `diagnosis`, `question`; unknown fields are rejected). A video or
 an audio request names only the part (and, for audio, the style: `debate`, `entrevista`, `charla`
 or `formal`); the bridge answers with a message naming the file the tutor must produce, never
 with the file itself.
@@ -191,9 +191,23 @@ with 409 once answers exist. `audio-explicacion` carries `block` and non-empty `
 refused with 409 unless that block is in state `escuchar`. Both write `audios/<note>/respuestas.json`
 (`{previas, explicaciones}`) atomically under the topic's writer ticket and deliver one Spanish
 message to the tutor. Unknown sessions, blocks and question ids are refused. The tutor writes
-`audios/<note>/veredictos.json` (`{previas, explicaciones}`); the bridge serves only verdicts whose
+`audios/<note>/veredictos.json` (`{previas, explicaciones, desarrollo}`); the bridge serves only verdicts whose
 `evidencia` is a verbatim quote from the learner's stored words for that block (whitespace
-collapsed) and, for explanations, whose `correccion` is not empty. The page shows no explanation
+collapsed) and, for `explicaciones` and `desarrollo`, whose `correccion` is not empty.
+
+A block may declare `desarrollo: [{id, enunciado, conceptos}]` in `sesion.json`: one open question per
+concept, never an option. Its ids follow the session id rule and are unique there, each entry names
+at least one of its block's concept codes and only those, a block has 1 to 4 entries, and every
+concept of the block is named by at least one entry; a broken block refuses the session with a
+message naming the rule. With `desarrollo`, the block's explanation step is those questions: `escuchar`
+until the answers are stored, `corrigiendo` while a concept lacks a valid verdict in
+`veredictos.json.desarrollo`, `completado` once every concept has one. `audio-desarrollo` carries
+`block` and `answers` with every development question id of that block exactly once and non-empty
+text; it is refused with 409 unless the block is in state `escuchar`, and it stores
+`respuestas.json.desarrollo[<bloque>][<pregunta>]`, keeping `previas` and `explicaciones`. A `desarrollo`
+verdict counts only when its quote comes from the answers to the questions that name that concept,
+never from another concept's answer. A block without `desarrollo` keeps the single explanation field
+and the `audio-explicacion` path unchanged. The page shows no explanation
 prose: the capsule transcript sits behind a control, and the transcript file route never serves
 the session's JSON files.
 For a quiz the bridge validates every id and option against the quiz file,
