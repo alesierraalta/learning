@@ -1620,7 +1620,8 @@ test("preferences selects are control-height on a coarse pointer", { skip: brows
     overflow: document.documentElement.scrollWidth - innerWidth,
   }));
   console.log(`coarse preferences: ${JSON.stringify(seen)}`);
-  assert.equal(seen.selects.length, 2);
+  // The three tutor choices, by name: the effort selector is one of them, not an extra.
+  assert.deepEqual(seen.selects.map((sel) => sel.name).sort(), ["agente", "modelo", "pensamiento"]);
   for (const s of seen.selects) assert.ok(s.h >= 44, `${s.name} select is ${s.h}px tall`);
   assert.ok(seen.overflow <= 0, `the form overflows by ${seen.overflow}px`);
 });
