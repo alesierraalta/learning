@@ -5784,3 +5784,41 @@ test("T2 the page moves on as soon as the answers are sent, without waiting for 
   assert.equal(await page.getByRole("button", { name: "Enviar respuestas al tutor" }).count(), 0, "the answered form is still offered");
   await shutdown();
 });
+
+test("T2 the capsule the page names is served, with seeking", async () => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root, { answers: { previas: { "b1-p1": "" }, explicaciones: {} }, capsules: ["b1"] });
+  const site = base(await view({}));
+  const data = audioData((await http(`${site}audios/admin`)).body);
+  const capsule = new URL(data.topicBase + data.session.bloques[0].capsula.name, site).href;
+  const whole = await http(capsule);
+  assert.equal(whole.status, 200, whole.body);
+  assert.equal(whole.body, "capsula-b1");
+  const part = await http(capsule, { headers: { range: "bytes=0-3" } });
+  assert.equal(part.status, 206);
+  assert.equal(part.body, "caps");
+  await shutdown();
+});
+
+test("T2 a session serves its capsules and nothing else", async () => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root, { answers: { previas: { "b1-p1": "x" }, explicaciones: {} }, verdicts: { previas: [], explicaciones: [] } });
+  const site = base(await view({}));
+  for (const name of ["sesion.json", "respuestas.json", "veredictos.json"]) {
+    for (const path of [`audios/file/admin/${name}`, `audios/admin/${name}`]) {
+      assert.equal((await http(site + path)).status, 404, path);
+    }
+  }
+  await shutdown();
+});
+
+test("T2 a folder outside the id rule is not an audio session", async () => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root, { session: "Admin Proyectos" });
+  const site = base(await view({}));
+  assert.equal((await http(`${site}audios/${encodeURIComponent("Admin Proyectos")}`)).status, 400);
+  const sent = await submit(site, { kind: "audio-previas", topic: "audios", note: "Admin Proyectos", answers: { "b1-p1": "x" } });
+  assert.equal(sent.status, 400, sent.body);
+  assert.equal(existsSync(join(root, "audios", "Admin Proyectos", "respuestas.json")), false);
+  await shutdown();
+});

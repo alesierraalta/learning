@@ -1085,7 +1085,6 @@ function writeAnswers(file: string, record: AnswerFile | AudioAnswers): void {
   renameSync(tmp, file);
 }
 
-const AUDIO_PRIVATE_FILES = new Set(["sesion.json", "respuestas.json", "veredictos.json"]);
 const audioWords = (text: string) => text.replace(/\s+/g, " ").trim();
 const audioQuoted = (said: string, evidence: string) => {
   const quote_ = audioWords(evidence);
@@ -1181,7 +1180,7 @@ function readAudioVerdicts(dir: string): { previas: AudioVerdict[]; explicacione
 const audioKey = (block: string, code: string) => `${block}/${code}`;
 
 function audioDir(rootReal: string, note: unknown): string {
-  if (!safeTopic(note)) throw new HttpError(400, "note must be one safe audio session folder name");
+  if (typeof note !== "string" || !AUDIO_ID.test(note)) throw new HttpError(400, "note must be an audio session id: ^[a-z0-9][a-z0-9-]{0,39}$");
   const requested = join(rootReal, "audios", note);
   try {
     const stat = lstatSync(requested);
@@ -2199,7 +2198,8 @@ ${scripts}
       topic: "audios",
       note,
       session: view,
-      topicBase: audioBase,
+      // Capsules travel through the file route, which answers Range requests.
+      topicBase: `/${token}/audios/file/${encodeURIComponent(note)}/`,
       stateUrl: `${audioBase}estado`,
     });
   };
@@ -2209,8 +2209,8 @@ ${scripts}
     if (segments.length === 0 || segments.some((s) => s === "" || s === "." || s === ".." || /[\\/\0]/.test(s))) {
       throw new HttpError(404, "not found");
     }
-    // The session, its answers and its verdicts are a private contract: the page reads derived state only.
-    if (topic === "audios" && segments.length === 1 && AUDIO_PRIVATE_FILES.has(segments[0].toLowerCase())) {
+    // A session serves its capsules and nothing else: the page reads the session, the answers and the verdicts as derived state only.
+    if (topic === "audios" && !(segments.length === 2 && /\.(m4a|srt)$/i.test(segments[1]))) {
       throw new HttpError(404, "not found");
     }
     const contained = resolveContained(dir, join(dir, ...segments));

@@ -170,7 +170,7 @@ vault files on every request, so Obsidian stays the source of truth:
 | `<topic>/file/<path>` | any file inside the topic folder, with HTTP Range (video and audio seeking) |
 | `audios/<sesion>` | `audios/<sesion>/sesion.json`, `respuestas.json` and `veredictos.json`: questions, capsule player, explanation fields and verdicts; the bridge derives the state of each block |
 | `audios/<sesion>/estado` | the same derived block states as JSON; the page polls it every 30 seconds |
-| `audios/<sesion>/file/<path>` | capsule files (`.m4a`) and transcripts (`.srt`) through the topic file route, with HTTP Range for seeking |
+| `audios/file/<sesion>/<bloque>.m4a` (or `.srt`) | a session's capsules and transcripts through the topic file route, with HTTP Range for seeking; nothing else in the session folder is served |
 | `submit` (POST) | learner submission, see below |
 
 Obsidian syntax is translated: frontmatter is dropped, `![[file.mp4]]` becomes a `<video>`
@@ -185,7 +185,7 @@ an audio request names only the part (and, for audio, the style: `debate`, `entr
 or `formal`); the bridge answers with a message naming the file the tutor must produce, never
 with the file itself.
 
-Audio sessions use `topic: "audios"` and a safe `note` naming `audios/<note>/`. `audio-previas`
+Audio sessions use `topic: "audios"` and a `note` that is the session id (`^[a-z0-9][a-z0-9-]{0,39}$`) naming `audios/<note>/`. `audio-previas`
 carries `answers` with every opening question id exactly once (empty text allowed); it is refused
 with 409 once answers exist. `audio-explicacion` carries `block` and non-empty `text`; it is
 refused with 409 unless that block is in state `escuchar`. Both write `audios/<note>/respuestas.json`
