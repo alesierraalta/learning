@@ -2584,6 +2584,11 @@ ${scripts}
       if (typeof blockId !== "string") throw new HttpError(400, "block is required");
       const block = session.bloques.find((entry) => entry.id === blockId);
       if (!block) throw new HttpError(400, `unknown block id: ${blockId}`);
+      // A block with development questions is judged on those answers only, so the single
+      // explanation would be stored, acknowledged and never read.
+      if (kind === "audio-explicacion" && block.desarrollo) {
+        throw new HttpError(400, `block ${blockId} asks desarrollo questions: send those, not an explanation`);
+      }
       if (kind === "audio-desarrollo") {
         if (!block.desarrollo) throw new HttpError(400, `block ${blockId} has no desarrollo questions`);
         const raw = payload.answers;

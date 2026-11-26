@@ -6207,3 +6207,18 @@ test("T2 a stale poll does not put back a form the tutor already answered", { sk
   assert.equal(await page.getByText("Evaluando tus respuestas iniciales").count(), 1);
   await shutdown();
 });
+
+test("T9 a block with desarrollo refuses the single explanation it would never read", async () => {
+  const { root, view, host, shutdown } = await setup();
+  const block = audioDesarrolloBlock();
+  const dir = audioDesarrolloInEscuchar(root, block);
+  const file = join(dir, "respuestas.json");
+  const before = readFileSync(file, "utf8");
+  const site = base(await view({}));
+  const response = await submit(site, { kind: "audio-explicacion", topic: "audios", note: "admin", block: "b1", text: "La ruta crítica fija la fecha." });
+  assert.equal(response.status, 400, response.body);
+  assert.match(JSON.parse(response.body).error, /desarrollo/);
+  assert.equal(readFileSync(file, "utf8"), before, "a refused explanation leaves respuestas.json alone");
+  assert.equal(host.sent.length, 0, "the tutor is told nothing");
+  await shutdown();
+});
