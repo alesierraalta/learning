@@ -1975,7 +1975,16 @@ test("an audio session is a home card and #/audio opens the bridge with dictatio
   const { root, page } = await phonePage(t);
   const dir = join(root, "audios", "ruta-critica");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "sesion.json"), JSON.stringify({ titulo: "Ruta crítica", bloques: [] }));
+  writeFileSync(join(dir, "sesion.json"), JSON.stringify({
+    titulo: "Ruta crítica",
+    bloques: [{
+      id: "b1",
+      titulo: "Ruta crítica",
+      conceptos: [{ codigo: "ruta-critica", nombre: "Ruta crítica" }],
+      preguntas: [{ id: "b1-p1", enunciado: "¿Qué pasa si se retrasa una tarea de la ruta crítica?", conceptos: ["ruta-critica"] }],
+      consigna: "Explica qué es la ruta crítica.",
+    }],
+  }));
   await page.reload({ waitUntil: "networkidle" });
 
   const card = page.locator(".audio-card").filter({ hasText: "Ruta crítica" });
@@ -1986,6 +1995,9 @@ test("an audio session is a home card and #/audio opens the bridge with dictatio
   await frame.waitFor();
   assert.match(await frame.getAttribute("src"), /\/audios\/ruta-critica(\?|$)/);
   assert.match(await frame.getAttribute("allow"), /microphone/);
+  // The frame is the bridge's session page, not just its address.
+  await page.frameLocator("iframe.sheet").getByText("¿Qué pasa si se retrasa una tarea de la ruta crítica?").waitFor();
+  await page.frameLocator("iframe.sheet").getByRole("button", { name: /Dictar la respuesta/ }).waitFor();
   assert.match(await page.locator(".reader-bar .title small").innerText(), /Sesión de audio/);
   assert.match(await page.locator(".crumbs").innerText(), /Sesión de audio/);
 });
