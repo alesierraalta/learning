@@ -2731,8 +2731,19 @@ test("online the studio always shows what the server has now, not what it saved"
 
 test("what was saved under one run's token still answers after a restart changes it", { skip: browser ? false : "playwright not installed" }, async (t) => {
   const { page, studio, stop, origin } = await controlledStudio(t);
-  const saved = await page.evaluate(async (url) => (await fetch(url)).status, `${studio.url}api/offline?topic=redes&part=p1`);
+  // Saved the way the product saves a part (`savePart`): the body is read to the end and the
+  // worker is asked (see `savedParts`), so «saved» means the copy is in the store and not that
+  // headers arrived. `networkFirst` hands the answer over and files its copy in the background,
+  // so «saved» at headers alone is undone by the `stop()` below as soon as the machine is
+  // loaded: the store is still empty, the read below falls through to a network that is gone,
+  // and `networkFirst` rethrows it as `TypeError: Failed to fetch` — the Studio flake of #444.
+  const saved = await page.evaluate(async (url) => {
+    const response = await fetch(url);
+    await response.text();
+    return response.status;
+  }, `${studio.url}api/offline?topic=redes&part=p1`);
   assert.equal(saved, 200, "the part was saved while online");
+  assert.deepEqual(await savedParts(page), ["redes/p1"], "the worker holds the copy before the studio goes away");
   await stop();
   const answer = await page.evaluate(async (url) => {
     const response = await fetch(url);
@@ -2745,6 +2756,8 @@ test("what was saved under one run's token still answers after a restart changes
 
 // What the learner sees: a part read once with a connection opens again without one,
 // in the same reader; one never read says how to get it; a topic saves all its parts.
+// The worker answers from its store and waits for the copies still being written, so
+// asking it is the product's own word that a part is saved.
 const savedParts = (page) =>
   page.evaluate(
     () =>
