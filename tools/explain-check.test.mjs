@@ -1742,3 +1742,19 @@ describe('las reglas de autoría del estándar (#305)', () => {
     assert.deepEqual(fallan, []);
   });
 });
+
+// La puerta no sirve si la skill no manda correrla (#450): el tutor escribió una figura que era la
+// prosa en cajas, la mostró y nadie la midió, porque la skill no nombraba ni el comando ni el
+// hallazgo. La guarda falla si la skill deja de nombrar `explain-check`, cuándo se corre y
+// `prosa-en-cajas`, y si los visuales dejan de decir qué pide el aviso: dibujar el ejemplo.
+test('la skill manda correr explain-check antes de entregar y nombra prosa-en-cajas', () => {
+  const repo = join(TOOLS, '..');
+  const skill = readFileSync(join(repo, 'skills', 'explicacion-interactiva', 'SKILL.md'), 'utf8');
+  const visuales = readFileSync(join(repo, 'skills', 'explicacion-interactiva', 'references', 'visuales.md'), 'utf8');
+  assert.match(skill, /node <repo>\/tools\/explain-check\.mjs/, 'SKILL.md no nombra el comando de la puerta');
+  assert.match(skill, /prosa-en-cajas/, 'SKILL.md no nombra el hallazgo que bloquea la entrega');
+  assert.match(skill, /después de escribir[^\n]*antes de entregar|antes de entregar[^\n]*después de escribir/i,
+    'SKILL.md no dice cuándo se corre la puerta');
+  assert.match(visuales, /prosa-en-cajas/, 'visuales.md no nombra la regla `prosa-en-cajas`');
+  assert.match(visuales, /rejilla/, 'visuales.md no dice qué dibujo pide el aviso (rejilla, hoja, actor, icono, curva, nodo)');
+});
