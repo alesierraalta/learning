@@ -12,14 +12,20 @@ import { join } from "node:path";
 import {
   LECCIONES_TITULO,
   MAX_LECCIONES,
+  MAX_TEMA_CHARS,
+  TEMA_TITULO,
   clasificar,
   lecciones,
   leccionesBlock,
   recordSugerencia,
   stripLecciones,
+  stripTema,
+  topicBlock,
   tutorContext,
   withLecciones,
+  withTema,
 } from "./sugerencias.ts";
+import { recordValoracion } from "./valoraciones.ts";
 
 const emptyRoot = () => realpathSync(mkdtempSync(join(tmpdir(), "lecciones-")));
 const seed = () => JSON.parse(readFileSync(join(import.meta.dirname, "lecciones-base.json"), "utf8")).lecciones.map((l) => l.regla);
@@ -102,4 +108,76 @@ test("every rule the block carries is enforced by a check or a section of the sk
   for (const regla of lecciones(emptyRoot())) {
     assert.ok(mapa.includes(regla), `«${regla}» is not in odd/reviews/mapa-sugerencias.md`);
   }
+});
+
+// ---- the digest of one topic (#440) ------------------------------------------------------------------
+// A part written for the first time reads what the learner said about *that* topic. It is a channel
+// of its own: bounded by its own cap, built from the studio's vocabulary, and never a line the
+// lessons block already carries.
+
+test("a topic's digest says what that topic asked, and another topic reads nothing of it", () => {
+  const root = emptyRoot();
+  assert.equal(topicBlock(root, "redes"), "", "a topic with nothing said about it has no digest");
+  assert.equal(withTema("Escribe la Parte 1", root, "redes"), "Escribe la Parte 1", "no digest, no paragraph");
+  assert.equal(topicBlock(root), "", "a turn with no topic of its own carries no digest");
+  assert.equal(topicBlock(root, null), "");
+
+  recordSugerencia(root, { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "" });
+  recordSugerencia(root, { tema: "redes", parte: "p2", motivos: ["demasiado-texto", "no-entendi"], texto: "" });
+  const block = topicBlock(root, "redes");
+  assert.equal(block, `[${TEMA_TITULO}\n- Le pidió a este tema: Demasiado texto (2), No entendí una idea (1).\n]`, "the digest is a frequency, not a history");
+  assert.equal(topicBlock(root, "algebra"), "", "another topic's turn never carries this topic's feedback");
+});
+
+test("the digest also says what the topic's verdicts report", () => {
+  const root = emptyRoot();
+  recordValoracion(root, { tema: "redes", parte: "p1", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  assert.equal(topicBlock(root, "redes"), "", "one verdict is a day, not a pattern");
+  recordValoracion(root, { tema: "redes", parte: "p2", valor: "gusta", motivos: ["ejemplo-claro"], texto: "" });
+  recordValoracion(root, { tema: "algebra", parte: "p1", valor: "no-gusta", motivos: ["muy-abstracto"], texto: "" });
+  recordValoracion(root, { tema: "algebra", parte: "p2", valor: "no-gusta", motivos: ["muy-abstracto"], texto: "" });
+  const block = topicBlock(root, "redes");
+  assert.match(block, /Le funcionó aquí: El ejemplo fue claro \(2\)\./);
+  assert.doesNotMatch(block, /Muy abstracto/, "algebra's verdicts are not redes's");
+  assert.match(topicBlock(root, "algebra"), /Le restó aquí: Muy abstracto \(2\)\./);
+});
+
+test("the digest is bounded by its own cap, whatever the topic accumulated", () => {
+  const root = emptyRoot();
+  // Many reviews, every chip, and the general ones that also leave a rule behind.
+  const chips = ["demasiado-texto", "faltan-ejemplos", "faltan-visuales", "muy-abstracto", "matematicas-confusas", "sin-paso-a-paso", "sobran-preguntas"];
+  for (let i = 0; i < 60; i += 1) {
+    recordSugerencia(root, { tema: "redes", parte: `p${(i % 4) + 1}`, motivos: [chips[i % chips.length]], texto: `pedido número ${i}` });
+  }
+  const block = topicBlock(root, "redes");
+  assert.ok(block.startsWith(`[${TEMA_TITULO}\n- `), block);
+  assert.ok(block.length <= MAX_TEMA_CHARS, `the digest stays under ${MAX_TEMA_CHARS}, got ${block.length}`);
+  assert.ok(block.length > 0, "the bound never empties the channel it exists to carry");
+  // The digest is the studio's: the learner's own prose rides `tutorContext`, never here.
+  assert.doesNotMatch(block, /pedido número/);
+});
+
+test("a rule the lessons block already carries never rides in the topic's digest too", () => {
+  const root = emptyRoot();
+  recordSugerencia(root, { tema: "redes", parte: "p1", motivos: ["faltan-visuales"], texto: "" });
+  const regla = lecciones(root).find((cada) => cada.includes("Dibuja la cosa misma"));
+  assert.ok(regla, "the chip leaves a rule behind");
+  const block = topicBlock(root, "redes");
+  assert.ok(block.length > 0, "the topic still has something to say");
+  assert.ok(!block.includes(regla), `«${regla}» rides in the lessons block, not twice`);
+  const prompt = withTema(withLecciones("Escribe la Parte 2", root), root, "redes");
+  assert.equal(prompt.split(regla).length - 1, 1, "one rule, one line, across both blocks");
+});
+
+test("the digest is the studio's: a message that quotes its title is served intact", () => {
+  const root = emptyRoot();
+  recordSugerencia(root, { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "" });
+  const prompt = withTema("Escribe la Parte 2", root, "redes");
+  assert.ok(prompt.startsWith(`Escribe la Parte 2\n\n[${TEMA_TITULO}`), "the learner's words come first");
+  assert.equal(stripTema(prompt), "Escribe la Parte 2", "the digest is the studio's");
+  assert.equal(stripTema("Escribe la Parte 2"), "Escribe la Parte 2", "a prompt with no digest is left as it was");
+  // Asking *about* the block types the same title in the middle of a sentence (#413, the other blocks).
+  const dicho = "Oye, ¿qué es eso de «[Lo que el alumno pidió en este tema]» que me llega?";
+  assert.equal(stripTema(dicho), dicho);
+  assert.equal(stripTema(`${dicho}\n\n${topicBlock(root, "redes")}`), dicho, "the appended digest still goes, and only it");
 });

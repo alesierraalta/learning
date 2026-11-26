@@ -274,7 +274,7 @@ The phases are the ones the code really has, and nothing else is invented:
 
 | Fase | Qué mide |
 | --- | --- |
-| `contexto` | construir el prompt que el tutor lee: el nombre de la parte y las lecciones permanentes del alumno (`withLecciones`) |
+| `contexto` | construir el prompt que el tutor lee: el nombre de la parte, las lecciones permanentes del alumno (`withLecciones`) y el resumen de ese tema (`topicBlock`) |
 | `tutor` | las llamadas al modelo: una por prompt enviado, abierta al enviarlo y cerrada cuando el runtime hace su `settle` |
 | `motor` | la llamada al motor (`learning status`) en cada settle, que decide si el turno sigue |
 | `comprobaciones` | los cinco `tools/` del estudio sobre la parte que el turno escribió |
@@ -1009,6 +1009,20 @@ first and the repo's seed after them, so a lesson that just landed is never crow
 is the studio's, not the learner's: the chat strips it from the user message before serving it, so
 the thread shows what the learner wrote. A **part-specific** review keeps its old path — the
 regenerate prompt of its topic, through `tutorContext` — and never becomes a standing rule.
+
+What a topic's own reviews asked reaches the **first draft** of its next part through a third
+channel, `topicBlock(root, tema)`, appended by `startTurn` to the prompt of every turn that writes a
+part of that topic: after the lessons block, before the verdicts and before the brief, so the review
+written while reading Parte 3 steers the first draft of Parte 4. It is a digest and never the
+topic's history — the chips the learner chose with how often, the verdicts that topic collected
+(two mentions, as in the verdict block) and the rules that topic taught that the lessons block could
+not carry — and it quotes no prose of its own: the learner's words ride `tutorContext`, once. Its
+own cap is `MAX_TEMA_CHARS = 240` characters for the whole block, title and brackets included, and
+no line rides twice: a rule the lessons block already says is dropped from it. A topic with nothing
+said has no block at all, and a turn that writes a part of another topic carries nothing of it. Like
+the others, the block is the studio's: the chat strips it (`stripTema`) from the user message before
+serving or saving it, so a learner who quotes its title mid-sentence still reads their own words
+(#413).
 
 The seed is `studio/lecciones-base.json`: the general lessons of the reviews already read (the
 first topic's, 12 of the 14), written down in the repo with the reviews that taught them and what
