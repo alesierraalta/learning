@@ -192,10 +192,27 @@ const clip = (text: string, max: number) => (text.length <= max ? text : `${text
  * lesson already known adds nothing to the block.
  */
 const REGLA_POR_MOTIVO: Record<string, string> = {
+  // The three the seed was written from: their lines are the seed's, so a review that picks them
+  // collapses into it and the block does not grow. That is the dedupe doing its job (#454).
   "faltan-visuales": "Dibuja la cosa misma, no una caja con su nombre: la curva, el icono, el estado que cambia",
   "faltan-ejemplos": "Después de cada fórmula, muéstrala funcionando con números y con la misma notación",
   "sin-paso-a-paso": "Da el paso intermedio de cada cálculo, uno por línea, también en los ejercicios largos",
+  // Every other motive the page offers names a lesson of its own (#454): a learner saying one of
+  // these is telling the tutor something the seed does not already say.
+  "demasiado-texto": "Recorta: una idea por párrafo y ninguna frase que repita la anterior; si una línea no añade, fuera",
+  "muy-abstracto": "Baja a tierra antes de definir: un caso concreto primero, la definición después, el nombre técnico al final",
+  "matematicas-confusas": "Nombra cada expresión al leerla —qué es, en qué unidades está y de dónde sale— antes de operar con ella",
+  "sobran-preguntas": "Una sola pregunta al final, la que comprueba la idea; las demás se van",
+  "no-entendi": "Vuelve al punto exacto donde se rompió, con el ejemplo que lo resolvió, antes de seguir avanzando",
 };
+
+/**
+ * The rule a motive teaches, or null when it teaches none. Exported because it is a fact about the
+ * page the learner reads: every chip it offers must have an answer here (#454).
+ */
+export function reglaDeMotivo(id: string): string | null {
+  return REGLA_POR_MOTIVO[id] ?? null;
+}
 
 /** A rule is read on every turn, so it stays one line. */
 const MAX_REGLA = 140;
