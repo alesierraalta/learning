@@ -3260,6 +3260,9 @@
     pill.className = `tutor-pill${!tutor.alive ? " dead" : asking ? " asking" : tutor.busy ? " working" : ""}`;
     const text = !tutor.alive ? "Tutor detenido" : asking ? "El tutor te pregunta algo" : tutor.busy ? `Trabajando · ${tutor.activity || "pensando"}` : "Tutor listo";
     pillWhat.textContent = text;
+    // The caption is the pill's only name where the bar shows it; in the band that hides the
+    // caption (721–950, #453) this keeps the state spoken and the button named.
+    pill.setAttribute("aria-label", text);
     stateLine.textContent = !tutor.alive ? "Detenido · usa ⋯ para reiniciarlo" : asking ? "Esperando tu respuesta" : tutor.busy ? `Trabajando · ${tutor.activity || "pensando"}` : "Listo";
     pillBadge.hidden = !tutor.unread;
     pillBadge.textContent = String(tutor.unread);
