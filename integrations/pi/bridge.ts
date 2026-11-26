@@ -1197,20 +1197,23 @@ function audioDir(rootReal: string, note: unknown): string {
 /** Only valid verdicts reach the page: a quote from another answer is no verdict at all. */
 function audioSessionView(dir: string, session: AudioSesion, answers: AudioAnswers): AudioSessionView {
   const recorded = readAudioVerdicts(dir);
-  const valid = (list: AudioVerdict[], said: (block: AudioBloque) => string): Map<string, AudioVerdict> => {
+  const valid = (list: AudioVerdict[], said: (block: AudioBloque, code: string) => string): Map<string, AudioVerdict> => {
     const found = new Map<string, AudioVerdict>();
     const blocks = new Map(session.bloques.map((block) => [block.id, block]));
     for (const verdict of list) {
       const block = blocks.get(verdict.bloque);
       if (!block || !block.conceptos.some((concepto) => concepto.codigo === verdict.codigo)) continue;
-      if (!audioQuoted(said(block), verdict.evidencia)) continue;
+      if (!audioQuoted(said(block, verdict.codigo), verdict.evidencia)) continue;
       if (verdict.correccion !== undefined && verdict.correccion.trim() === "") continue;
       const key = audioKey(verdict.bloque, verdict.codigo);
       if (!found.has(key)) found.set(key, verdict);
     }
     return found;
   };
-  const previas = valid(recorded.previas, (block) => block.preguntas.map((q) => answers.previas[q.id] ?? "").join(" "));
+  // A concept is judged only on what was said to the questions that ask about it.
+  const previas = valid(recorded.previas, (block, code) => block.preguntas
+    .filter((q) => q.conceptos.includes(code))
+    .map((q) => answers.previas[q.id] ?? "").join(" "));
   const explicaciones = valid(recorded.explicaciones, (block) => answers.explicaciones[block.id] ?? "");
   const emptyCodes = (block: AudioBloque) => new Set(block.conceptos
     .filter((concepto) => block.preguntas

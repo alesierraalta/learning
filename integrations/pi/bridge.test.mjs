@@ -5840,3 +5840,28 @@ test("T2 the page shows a verdict only where there is one", { skip: !playwright 
   assert.equal(await page.getByRole("heading", { name: "Veredictos" }).count(), 0);
   await shutdown();
 });
+
+test("T2 an opening verdict counts only words said to a question about that concept", async () => {
+  const { root, view, shutdown } = await setup();
+  const block = {
+    ...audioBlock("b1", "c1"),
+    conceptos: [{ codigo: "c1", nombre: "Uno" }, { codigo: "c2", nombre: "Dos" }],
+    preguntas: [
+      { id: "b1-p1", enunciado: "¿Uno?", conceptos: ["c1"] },
+      { id: "b1-p2", enunciado: "¿Dos?", conceptos: ["c2"] },
+    ],
+  };
+  audioFixture(root, {
+    bloques: [block],
+    answers: { previas: { "b1-p1": "La ruta crítica marca el plazo.", "b1-p2": "" }, explicaciones: {} },
+    verdicts: { previas: [
+      { bloque: "b1", codigo: "c1", estado: "claro", evidencia: "marca el plazo" },
+      { bloque: "b1", codigo: "c2", estado: "claro", evidencia: "marca el plazo" },
+    ], explicaciones: [] },
+  });
+  const site = base(await view({}));
+  const [state] = JSON.parse((await http(`${site}audios/admin/estado`)).body).bloques;
+  assert.deepEqual(state.conceptos.map((concepto) => concepto.previa.estado), ["claro", "laguna"]);
+  assert.notEqual(state.estado, "sabido", "a concept left unanswered is not known");
+  await shutdown();
+});
