@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { conversation, recordAll, tempDir, text } from "./fixtures.mjs";
+import { capsule, conversation, recordAll, tempDir, text } from "./fixtures.mjs";
 
 const RENDER = new URL("../render.mjs", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -42,6 +42,35 @@ test("a dry run prices the part without rendering it", () => {
   assert.equal(existsSync(out), false);
 });
 
+test("a capsule dry run uses its own window and warning", () => {
+  const inside = join(dir, "capsule.json");
+  writeFileSync(inside, JSON.stringify(capsule()));
+  const run = render("--spec", inside, "--out", join(dir, "capsule.m4a"), "--dry-run");
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /estimate 5\.839 min · 900 words · 12 turns · 4 chapters/);
+  assert.match(run.stdout, /Concepto 1 · 3 turns · 225 words/);
+
+  const warned = join(dir, "capsule-target8.json");
+  writeFileSync(warned, JSON.stringify(capsule({ minutes: 8 })));
+  const drift = render("--spec", warned, "--out", join(dir, "capsule8.m4a"), "--dry-run");
+  assert.equal(drift.status, 0, drift.stderr);
+  assert.match(drift.stderr, /warning: the capsule estimate is [\d.]+ min against a 8-minute target/);
+});
+
+test("a capsule outside its render window names the capsule", () => {
+  const short = capsule({
+    chapters: [
+      { title: "Solo", segments: Array.from({ length: 4 }, (_, i) => ({ speaker: "A", text: text(60, `short${i}`) })) },
+    ],
+  });
+  const path = join(dir, "capsule-short.json");
+  writeFileSync(path, JSON.stringify(short));
+  const run = render("--spec", path, "--out", join(dir, "capsule-short.m4a"), "--dry-run");
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /a capsule must land between 4 and 9 minutes/);
+  assert.doesNotMatch(run.stderr, /a part's audio/);
+});
+
 test("an unknown flag is refused instead of ignored", () => {
   const run = render("--spec", specPath, "--out", join(dir, "x.m4a"), "--loudness", "-9");
   assert.equal(run.status, 2);
@@ -67,6 +96,21 @@ test("a spec outside the delivery window is refused before any work", () => {
   const run = render("--spec", path, "--out", join(dir, "short.m4a"), "--audio", audioDir);
   assert.equal(run.status, 1);
   assert.match(run.stderr, /must land between 12 and 28 minutes/);
+});
+
+// Characterization: a part spec keeps the pre-capsule rules.
+test("a part keeps its 12-28 window and rejects a 7-minute target", () => {
+  const outside = join(dir, "part-window.json");
+  writeFileSync(outside, JSON.stringify(capsule({ capsule: false, minutes: 20 })));
+  const windowRun = render("--spec", outside, "--out", join(dir, "part-window.m4a"), "--dry-run");
+  assert.equal(windowRun.status, 1);
+  assert.match(windowRun.stderr, /a part's audio must land between 12 and 28 minutes/);
+
+  const target = join(dir, "part-target.json");
+  writeFileSync(target, JSON.stringify(conversation({ minutes: 7 })));
+  const targetRun = render("--spec", target, "--out", join(dir, "part-target.m4a"), "--dry-run");
+  assert.equal(targetRun.status, 1);
+  assert.match(targetRun.stderr, /minutes must be an integer between 8 and 35/);
 });
 
 test("missing recordings name the turns and the command that makes them", () => {

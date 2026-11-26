@@ -43,9 +43,9 @@ node tools/audio/render.mjs --spec <spec> --dry-run
 ```
 
 Run this after every chapter you write. The command prints each chapter's
-word count and the estimate it derives from it, and refuses a spec outside 12–28 minutes.
-You want to land at 18–22 and be told so by the numbers, not by your sense of
-length.
+word count and the estimate it derives from it, and refuses a spec outside
+12–28 minutes (4–9 for a capsule). You want to land at 18–22 and be told so by
+the numbers, not by your sense of length.
 
 ## 3. Write turns, not paragraphs
 
@@ -101,3 +101,27 @@ Synthesis needs the venv with `edge-tts` (on the VPS); rendering needs only
 
 Report the file, the duration, the style and the number of turns. If any check
 fails, fix the spec and re-render — never hand-edit the `.m4a` or the `.srt`.
+
+## 7. Capsules for the audio study mode
+
+The `audio` study mode plays one 5–8 minute capsule per block that was not
+already known. Author its spec at `tools/audio/specs/audio-<sesion>-<bloque>.json`
+with `"capsule": true`, the block id in `part` and the session id in `topic`.
+`minutes` is 5–8 (default 6); the render window is 4–9. Write **one chapter per
+concept** of the block, in the order the concepts appear in `sesion.json`.
+Grounding is the same rule as for a part's audio: every claim, number and
+example comes from that session's sources. A thin source makes a shorter
+capsule, never general knowledge or filler.
+
+```bash
+python3 tools/audio/synth.py --spec tools/audio/specs/audio-<sesion>-<bloque>.json \
+  --out ~/.cache/learning-audio/audio-<sesion>-<bloque>
+node tools/audio/render.mjs --spec tools/audio/specs/audio-<sesion>-<bloque>.json \
+  --audio ~/.cache/learning-audio/audio-<sesion>-<bloque> \
+  --out "audios/<sesion>/<bloque>.m4a" \
+  --srt "audios/<sesion>/<bloque>.srt"
+```
+
+Check the estimate with the `--dry-run` form of the render command before
+synthesis. The delivery is `audios/<sesion>/<bloque>.m4a` with its `.srt` beside
+it, where the bridge reads it.

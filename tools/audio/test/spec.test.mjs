@@ -3,7 +3,8 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { MINUTE_WINDOW, STYLES, readSpec, resolveVoices, validate } from "../lib/spec.mjs";
-import { conversation, tempDir, text } from "./fixtures.mjs";
+import { estimate } from "../lib/timeline.mjs";
+import { capsule, conversation, tempDir, text } from "./fixtures.mjs";
 
 const problemsOf = (spec) => validate(spec).join("\n");
 const some = (spec, fragment) => assert.match(problemsOf(spec), new RegExp(fragment));
@@ -44,6 +45,22 @@ test("a style outside the four is rejected", () => {
 test("a length that is not a part's audio is rejected", () => {
   some(conversation({ minutes: 5 }), "minutes must be an integer between 8 and 35");
   some(conversation({ minutes: 20.5 }), "minutes must be an integer between 8 and 35");
+});
+
+test("a capsule targets 5 to 8 minutes and defaults to 6", () => {
+  const spec = capsule();
+  delete spec.minutes;
+  assert.deepEqual(validate(spec), []);
+  assert.equal(estimate(spec).target, 6);
+  assert.deepEqual(validate(capsule({ minutes: 5 })), []);
+  assert.deepEqual(validate(capsule({ minutes: 8 })), []);
+  some(capsule({ minutes: 4 }), "capsule minutes must be an integer between 5 and 8");
+  some(capsule({ minutes: 9 }), "capsule minutes must be an integer between 5 and 8");
+});
+
+test("capsule must be a boolean when present", () => {
+  some(capsule({ capsule: "true" }), "capsule must be a boolean");
+  some(capsule({ capsule: 1 }), "capsule must be a boolean");
 });
 
 test("a spec without chapters stops before segment checks", () => {

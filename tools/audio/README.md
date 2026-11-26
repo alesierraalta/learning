@@ -67,6 +67,27 @@ the style's roster:
 `A` is the host or the explainer, so `entrevista` opens with Elvira asking and
 Alvaro answering.
 
+## Capsules
+
+The `audio` study mode plays one capsule per block that was not already known.
+Its spec lives at `tools/audio/specs/audio-<sesion>-<bloque>.json`, declares
+`"capsule": true`, and puts the block id in `part` and the session id in
+`topic`. `minutes` is an integer 5–8 (default 6), the render window is 4–9, and
+there is one chapter per concept of the block. Every claim comes from that
+session's sources, under the same grounding rule as a part's audio: no outside
+knowledge, and a thin source makes a shorter capsule instead of filler.
+
+```bash
+python3 tools/audio/synth.py --spec tools/audio/specs/audio-<sesion>-<bloque>.json \
+  --out ~/.cache/learning-audio/audio-<sesion>-<bloque>
+node tools/audio/render.mjs --spec tools/audio/specs/audio-<sesion>-<bloque>.json \
+  --audio ~/.cache/learning-audio/audio-<sesion>-<bloque> \
+  --out "audios/<sesion>/<bloque>.m4a" \
+  --srt "audios/<sesion>/<bloque>.srt"
+```
+
+The delivery is `audios/<sesion>/<bloque>.m4a` and its `.srt` beside it.
+
 Rules the renderer enforces, all of them before any recording is loaded:
 
 - every turn is 6–130 words; longer is a monologue, shorter is a sound bite;
@@ -74,7 +95,8 @@ Rules the renderer enforces, all of them before any recording is loaded:
   speaker on consecutive turns — two turns by the same voice are one turn;
 - `formal` declares exactly one speaker;
 - the whole part is at least 200 words, and its estimate must land between 12
-  and 28 minutes of speech (the target is `minutes`, default 20, ±2 min warns).
+  and 28 minutes of speech (the target is `minutes`, default 20, ±2 min warns);
+  a capsule uses a 4–9 minute window and a `minutes` target of 5–8, default 6.
 
 A part under 12 minutes is not a podcast; split the spec into one spec per
 part rather than padding it.
@@ -99,7 +121,9 @@ part rather than padding it.
 | --- | --- |
 | `missing N recording(s)` | the synthesiser never ran for these turns, or ran elsewhere: run it, or pass `--remote` |
 | `stale recordings` | a take exists under that key but says other words: something wrote the cache by hand, so delete it and synthesise again |
-| `must land between 12 and 28 minutes` | the spec is too short or too long; rebalance chapters, do not stretch sentences |
+| `must land between 12 and 28 minutes` | the part is too short or too long; rebalance chapters, do not stretch sentences |
+| `must land between 4 and 9 minutes` | the capsule is outside the study-mode window; rebalance its concept chapters |
+| `capsule must be a boolean` | `capsule` was set to a string or another non-boolean value |
 | `edge-tts is not installed` | `synth.py` needs the venv that has `edge-tts`; install it there, not here |
 
 Synthesis stops at the first network error and keeps the cache, so re-running
