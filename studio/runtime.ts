@@ -20,7 +20,7 @@ const STUDIO_PREFIXES = [GATE_PREFIX, "Learning engine:"];
 export const isStudioPrompt = (text: string): boolean => STUDIO_PREFIXES.some((prefix) => text.startsWith(prefix));
 
 /** The study modes the page offers; the learner picks one before a new request is sent. */
-export const STUDY_MODES = ["rapido", "universitario", "examen"] as const;
+export const STUDY_MODES = ["rapido", "universitario", "examen", "audio"] as const;
 export type StudyMode = (typeof STUDY_MODES)[number];
 export type ExamFormat = "oral" | "written" | "practical" | "deducir";
 export type ExamChoice = { formato: ExamFormat; practica?: string };
@@ -36,6 +36,9 @@ export interface UploadedSourcePrompt {
  * again: the mode is decided in the page, before the turn exists.
  */
 export function modeLine(mode: StudyMode, examen?: ExamChoice): string {
+  if (mode === "audio") {
+    return "[Modo de estudio: audio — ya decidido en el estudio, no lo preguntes ni lo cambies. Sin motor de aprendizaje: no uses learning_stage ni escribas plan.json, y no escribas texto de lectura. Guarda la sesión en audios/<sesion>/sesion.json siguiendo la referencia modo-audio de la skill explicacion-interactiva.]";
+  }
   if (mode === "examen") {
     if (!examen) throw new Error("exam mode needs a chosen format");
     if (examen.formato === "deducir") {

@@ -408,8 +408,9 @@ checks run (once per settle), `corrigiendo` with the findings count when they fo
 ### The learner's questions are asked by the page
 
 - **The study mode.** `POST api/aprender {text, modo}` — the «Aprender algo nuevo» entry on the
-  home and in the tutor panel — takes `rapido`, `universitario` or `examen`; without one it is `400`
-  and nothing reaches the tutor. An `examen` request must also include
+  home and in the tutor panel — takes `rapido`, `universitario`, `examen` or `audio`; without one it
+  is `400` with `elige rápido, universitario, examen o audio antes de enviar` and nothing reaches the
+  tutor. An `examen` request must also include
   `examen: {formato: "oral"|"written"|"practical"|"deducir", practica?: string}`. The page asks «¿Cómo será tu
   examen?» and offers Oral, Escrito or Práctico; with uploaded sources it also offers **Que lo
   deduzca el tutor** (`formato: "deducir"`). That choice requires a source; the tutor infers the
@@ -426,15 +427,20 @@ checks run (once per settle), `corrigiendo` with the findings count when they fo
   the last source clears `deducir` but leaves the selected mode. The source text may be up to
   200000 characters; a longer source returns `400` with `El texto es demasiado largo: como mucho
   200000 caracteres.` The home entry and tutorial show all
-  three modes. When at least one source is attached, `text` may be empty; the prompt asks the tutor
+  four modes. When at least one source is attached, `text` may be empty; the prompt asks the tutor
   to take the topic from the uploaded exam/document. Without a source, blank text is still rejected
-  with `escribe qué quieres aprender`.
+  with `escribe qué quieres aprender`. All four modes accept `fuentes` and, except `rapido`, a
+  `materia` id; exam-only fields are refused in the other three. `audio` runs outside the engine
+  like `rapido`: its turn creates no topic, so it joins no course, but its prompt names the uploaded
+  sources and tells the tutor to write `audios/<sesion>/sesion.json` without reading prose.
   The mode travels in the turn's prompt as one explicit line (`[Modo de estudio: …]`, built by
   `modeLine` in `studio/runtime.ts`), and the studio tells each tutor never to ask or choose the
   mode. For an explicit exam choice, that line carries the engine format (`exam: "oral"|"written"|"practical"`)
   and, only for practical, the selected `practice` value; for `deducir` it carries the inference
   instruction above. The tutor passes selected or inferred values to `learning_stage init` without
-  asking for either again. Antigravity's contract says not to ask for
+  asking for either again. The `audio` line says the mode is already decided, rules out
+  `learning_stage`, `plan.json` and reading text, and points the tutor to the `modo-audio` reference
+  of the `explicacion-interactiva` skill. Antigravity's contract says not to ask for
   the mode on every turn; inside the studio Pi's system prompt carries the same rule (the adapter's
   `before_agent_start`, studio mode only).
 - **A real exam or document.** The **Adjuntar examen o documento** control accepts PDF (`application/pdf`),
@@ -874,16 +880,25 @@ Microphone capture requires HTTPS remotely (loopback HTTP still works).
   The `estudio` session id keeps one persistent conversation of its own; a Pi
   open in a terminal is never written by two processes.
 - It hosts its own study-view bridge (`integrations/pi/bridge.ts`): part pages,
-  rich pages, the diagnosis and quick notes open in the center viewer, and
+  rich pages, the diagnosis, quick notes and audio sessions open in the center viewer, and
   every submission from them (quiz, reasoning, confidence, questions, video
-  requests) becomes a prompt of the same Pi session.
+  requests, audio answers) becomes a prompt of the same Pi session.
 - `studio/ui/` is the browser client: library (topics with engine status and
-  parts, quick notes), viewer, and tutor panel (streamed text, tool activity,
+  parts, quick notes, audio sessions), viewer, and tutor panel (streamed text, tool activity,
   dialogs, input, stop, new conversation, restart).
 
 The quick-note list is ordered by use: the note edited or opened most recently
 comes first, so the list opens on the thing being written. Ties break by id, which
-keeps the order stable when two notes share a timestamp.
+keeps the order stable when two notes share a timestamp. Audio sessions follow the
+same order, using the modification time of `audios/<sesion>/sesion.json`; the title
+comes from its `titulo`, with the folder name as fallback for an unreadable file,
+and `audios` itself is never a study topic.
+
+Home cards open audio sessions at `#/audio/<sesion>`, which frames the bridge
+address `<bridge base>audios/<sesion>` in the reader with microphone permission
+delegated to that frame; `GET api/view?audio=<sesion>` returns that address and
+refuses ids outside `^[a-z0-9][a-z0-9-]{0,39}$`. The breadcrumb and reader kicker
+say «Sesión de audio»; this slice offers no delete action for audio sessions.
 
 ## Tutor instructions
 

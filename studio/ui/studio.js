@@ -608,7 +608,7 @@
   }
 
   // ---------- routing ----------
-  let library = { topics: [], quick: [], runners: null };
+  let library = { topics: [], quick: [], audio: [], runners: null };
   // Who owns the stage: every render takes it, so a view that paints after an
   // await only paints if no other route arrived meanwhile (see materiaView).
   let stageSeq = 0;
@@ -693,6 +693,7 @@
     if (view === "panorama" && a) return panoramaView(a, b);
     if (view === "leer" && a) return readerView({ topicId: a, part: b, mode: "page" });
     if (view === "rapido" && a) return readerView({ quickId: a });
+    if (view === "audio" && a) return readerView({ audioId: a });
     if (view === "resultados" && a) return resultsView(a, b);
     if (view === "editar") return editorView(a);
     if (view === "preferencias") return preferencesView();
@@ -926,6 +927,7 @@
       ["universitario", "Universitario", "plan, diagnóstico y partes con quiz"],
       ["rapido", "Rápido", "una nota breve para entenderlo hoy"],
       ["examen", "Examen", "lo vital del temario, el formato de tu examen (oral, escrito o práctico) y un simulacro final"],
+      ["audio", "Audio", "preguntas en voz y cápsulas de 5 a 8 minutos, sin texto que leer"],
     ].map(([id, title, hint]) =>
       h("button", { type: "button", class: "mode-pick", "data-modo": id, "aria-pressed": "false", onclick: () => pick(id) }, h("b", {}, title), h("span", {}, hint)),
     );
@@ -1122,7 +1124,7 @@
         };
       }
       if (fuentes.length) body.fuentes = fuentes.map((source) => source.id);
-      // A quick note is not a topic and belongs to no course: only a deep turn can join one.
+      // A quick note or an audio session is not a topic: only a deep turn can join a course.
       if (materiaId && modo !== "rapido") body.materia = materiaId;
       openDrawer();
       try {
@@ -1299,6 +1301,30 @@
             ),
           )
         : h("p", { class: "empty" }, "Cuando pidas algo en modo rápido, la nota aparecerá aquí."),
+      h(
+        "div",
+        { class: "section-title" },
+        h("h2", {}, "Sesiones de audio"),
+        h("p", {}, `${library.audio.length} en tu biblioteca`),
+      ),
+      library.audio.length
+        ? h(
+            "div",
+            { class: "cards" },
+            library.audio.map((session, i) =>
+              h(
+                "div",
+                { class: "card quick-card audio-card reveal", style: `--i:${i + 3}` },
+                h(
+                  "button",
+                  { class: "audio-open", type: "button", onclick: () => go(`#/audio/${encodeURIComponent(session.id)}`) },
+                  h("span", { class: "icon" }, noteIcon()),
+                  h("div", {}, h("h3", {}, session.title), h("span", { class: "muted" }, "Sesión de audio")),
+                ),
+              ),
+            ),
+          )
+        : h("p", { class: "empty" }, "Cuando pidas algo en modo audio, la sesión aparecerá aquí."),
       h("div", { class: "section-title has-action" },
         h("div", {}, h("h2", {}, "Cómo funciona"), h("p", {}, `Un recorrido por el Estudio · ${window.StudioTutorial?.count ?? 6} diapositivas`)),
         btn("Ver el tutorial", () => openTutorial(), "btn")),
@@ -2296,25 +2322,28 @@
 
   // ---------- reader ----------
   let readSeq = 0;
-  async function readerView({ topicId, part, quickId, mode }) {
+  async function readerView({ topicId, part, quickId, audioId, mode }) {
     const seq = ++readSeq;
     const topic = topicId ? topicById(topicId) : null;
     // A quick note the library does not list yet (just written) is still a quick note.
     const quick = quickId ? library.quick.find((q) => q.id === quickId) || { id: quickId, title: quickId } : null;
+    const audio = audioId ? library.audio.find((s) => s.id === audioId) || { id: audioId, title: audioId } : null;
     if (topic) markOpened(topic);
     const index = topic && part !== "quiz" ? partIndex(topic, part) : -1;
     const info = index >= 0 ? topic.parts[index] : null;
     const exercise = topic?.exercises?.find((e) => part === `codigo/${e.id}`);
-    const title = quick ? quick.title : exercise ? exercise.titulo : part === "quiz" ? "Diagnóstico inicial" : info ? info.title : "";
-    const kicker = quick ? "Nota rápida" : exercise ? "Ejercicio de código" : part === "quiz" ? "Diagnóstico" : `Parte ${index + 1}`;
+    const title = audio ? audio.title : quick ? quick.title : exercise ? exercise.titulo : part === "quiz" ? "Diagnóstico inicial" : info ? info.title : "";
+    const kicker = audio ? "Sesión de audio" : quick ? "Nota rápida" : exercise ? "Ejercicio de código" : part === "quiz" ? "Diagnóstico" : `Parte ${index + 1}`;
     if (info && enteredPart !== `${topicId}/${part}`) {
       enteredPart = `${topicId}/${part}`;
       post("api/chats/abrir", { ambito: `parte:${topicId}/${part}`, nombre: `${kicker} · ${title}` }).then(setChats).catch((error) => toast(error.message));
     }
     setCrumbs(
-      quick
-        ? [{ text: "Inicio", href: "#/" }, { text: "Notas rápidas" }, { text: quick.title }]
-        : [{ text: "Inicio", href: "#/" }, { text: topic ? topic.title : topicId, href: `#/tema/${topicId}` }, { text: kicker }],
+      audio
+        ? [{ text: "Inicio", href: "#/" }, { text: "Sesión de audio" }, { text: audio.title }]
+        : quick
+          ? [{ text: "Inicio", href: "#/" }, { text: "Notas rápidas" }, { text: quick.title }]
+          : [{ text: "Inicio", href: "#/" }, { text: topic ? topic.title : topicId, href: `#/tema/${topicId}` }, { text: kicker }],
     );
     // The bridge is another origin: dictation needs the microphone delegated to it,
     // and its demo embeds can only go fullscreen if this frame delegates that too.
@@ -2388,7 +2417,7 @@
       label: "Preguntar",
       icon: "chat",
       cls: "btn small",
-      run: () => openDrawer(quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `),
+      run: () => openDrawer(audio ? `Sobre la sesión de audio «${title}»: ` : quick ? `Sobre la nota «${title}»: ` : `Sobre ${kicker.toLowerCase()} de ${topic?.title || topicId}: `),
     };
     const actions = [
       info?.written && mode !== "app"
@@ -2515,14 +2544,14 @@
     const bar = h(
       "div",
       { class: "reader-bar" },
-      h("button", { class: "icon-btn reader-back", type: "button", "aria-label": "Volver", title: "Volver", onclick: () => go(quick ? "#/" : `#/tema/${topicId}`) }, icon("back")),
+      h("button", { class: "icon-btn reader-back", type: "button", "aria-label": "Volver", title: "Volver", onclick: () => go(quick || audio ? "#/" : `#/tema/${topicId}`) }, icon("back")),
       h("div", { class: "title" }, h("small", {}, kicker), title),
       modeSwitch,
       barBtn(askAction.label, askAction.run, "btn small reader-ask", askAction.icon),
       moreButton,
     );
     const readerBack = bar.querySelector(".reader-back");
-    if (matchMedia("(max-width: 720px)").matches) readerBack.setAttribute("aria-label", `Volver a ${quick ? "Inicio" : topic?.title || topicId}`);
+    if (matchMedia("(max-width: 720px)").matches) readerBack.setAttribute("aria-label", `Volver a ${quick || audio ? "Inicio" : topic?.title || topicId}`);
     const pageLabel = h("span", { class: "reader-page" }, "1 / 1");
     const pagePrev = h("button", { class: "icon-btn", type: "button", "aria-label": "Página anterior", title: "Página anterior", onclick: () => turnPage(-1) }, icon("back"));
     const pageNext = h("button", { class: "icon-btn", type: "button", "aria-label": "Página siguiente", title: "Página siguiente", onclick: () => turnPage(1) }, icon("next"));
@@ -2557,7 +2586,7 @@
     // once the frame has one.
     frame.addEventListener("load", () => applyMode(readingMode));
     try {
-      const query = new URLSearchParams(quick ? { quick: quickId } : { topic: topicId, ...(part ? { part } : {}) });
+      const query = new URLSearchParams(quick ? { quick: quickId } : audio ? { audio: audioId } : { topic: topicId, ...(part ? { part } : {}) });
       const data = await request(`api/view?${query}`);
       if (seq !== readSeq) return;
       const url = data.url;
