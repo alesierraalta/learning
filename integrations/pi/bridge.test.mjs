@@ -5749,3 +5749,38 @@ test("T2 the audio kind with a style keeps its message beside an audio session",
   assert.equal(host.sent[0].content, "[Vista HTML · sql-demo · p1 · audio · debate]\nLa persona pide el audio de esta parte en estilo debate: escríbelo y prodúcelo con el motor de audio (skill learnings-audio), con la spec en tools/audio/specs/sql-demo-p1-debate.json y la entrega en explicaciones/adjuntos/audio/Parte 1 - Claves - debate.m4a.");
   await shutdown();
 });
+
+async function audioPageIn(t, site) {
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ reducedMotion: "reduce" });
+  await page.goto(`${site}audios/admin`);
+  await page.locator(".audio-block-card textarea").first().waitFor();
+  return page;
+}
+
+test("T2 a dictated answer reaches the tutor: the page sends what the field holds", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { root, view, shutdown } = await setup();
+  const dir = audioFixture(root);
+  const page = await audioPageIn(t, base(await view({})));
+  // Dictation writes the transcript into the field without an input event (kit/dictate.js).
+  await page.locator(".audio-block-card textarea").first().evaluate((area) => { area.value = "La ruta crítica marca el plazo."; });
+  const [response] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/submit")),
+    page.getByRole("button", { name: "Enviar respuestas al tutor" }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, "respuestas.json"), "utf8")).previas, { "b1-p1": "La ruta crítica marca el plazo." });
+  await shutdown();
+});
+
+test("T2 the page moves on as soon as the answers are sent, without waiting for the next poll", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { root, view, shutdown } = await setup();
+  audioFixture(root);
+  const page = await audioPageIn(t, base(await view({})));
+  await page.locator(".audio-block-card textarea").first().fill("La ruta crítica marca el plazo.");
+  await page.getByRole("button", { name: "Enviar respuestas al tutor" }).click();
+  await page.getByText("Evaluando tus respuestas iniciales").waitFor({ timeout: 5000 });
+  assert.equal(await page.getByRole("button", { name: "Enviar respuestas al tutor" }).count(), 0, "the answered form is still offered");
+  await shutdown();
+});

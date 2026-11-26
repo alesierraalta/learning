@@ -748,7 +748,10 @@
     const root = element("section", undefined, "audio-session");
     app.append(root);
     const drafts = new Map();
+    const fields = new Map();
     let painted = "";
+    // Dictation writes into the field without an input event, so the field itself is read, never a copy of it.
+    const said = (key) => fields.get(key)?.value ?? "";
 
     const thought = (key, label, hint, micLabel, index) => {
       const field = window.learningThoughtField(`audio-${index}`, index, data);
@@ -757,7 +760,7 @@
       field.querySelector(".lk-mic").setAttribute("aria-label", micLabel);
       const area = field.querySelector("textarea");
       area.value = drafts.get(key) ?? "";
-      area.addEventListener("input", () => drafts.set(key, area.value));
+      fields.set(key, area);
       return field;
     };
 
@@ -800,6 +803,8 @@
       const signature = JSON.stringify(session);
       if (signature === painted) return;
       painted = signature;
+      for (const [key, area] of fields) drafts.set(key, area.value);
+      fields.clear();
       root.replaceChildren(element("p", session.titulo, "part-kicker"));
       const questions = [];
       for (const [index, block] of session.bloques.entries()) {
@@ -830,8 +835,9 @@
             send.disabled = true;
             message.className = "";
             try {
-              const result = await post({ kind: "audio-explicacion", topic: "audios", note: data.note, block: block.id, text: drafts.get(`explicacion:${block.id}`) ?? "" });
+              const result = await post({ kind: "audio-explicacion", topic: "audios", note: data.note, block: block.id, text: said(`explicacion:${block.id}`) });
               message.textContent = result.queued ? "En cola…" : "Explicación enviada al tutor.";
+              await refresh();
             } catch (error) {
               message.className = "error";
               message.textContent = error.message;
@@ -861,9 +867,10 @@
           send.disabled = true;
           message.className = "";
           try {
-            const answers = Object.fromEntries(questions.map((id) => [id, drafts.get(`previa:${id}`) ?? ""]));
+            const answers = Object.fromEntries(questions.map((id) => [id, said(`previa:${id}`)]));
             const result = await post({ kind: "audio-previas", topic: "audios", note: data.note, answers });
             message.textContent = result.queued ? "En cola…" : "Respuestas enviadas al tutor.";
+            await refresh();
           } catch (error) {
             message.className = "error";
             message.textContent = error.message;
@@ -873,14 +880,14 @@
       }
     };
 
-    paint(data.session);
-    setInterval(async () => {
-      if (document.hidden) return;
+    const refresh = async () => {
       try {
         const response = await fetch(data.stateUrl, { cache: "no-store" });
         if (response.ok) paint(await response.json());
       } catch { /* an offline poll keeps the last state on screen */ }
-    }, 30000);
+    };
+    paint(data.session);
+    setInterval(() => { if (!document.hidden) refresh(); }, 30000);
   }
 
   function codePage() {
