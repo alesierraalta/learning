@@ -96,7 +96,8 @@ Rules the renderer enforces, all of them before any recording is loaded:
 - `formal` declares exactly one speaker;
 - the whole part is at least 200 words, and its estimate must land between 12
   and 28 minutes of speech (the target is `minutes`, default 20, ±2 min warns);
-  a capsule uses a 4–9 minute window and a `minutes` target of 5–8, default 6.
+  a capsule uses a 4–9 minute window and a `minutes` target of 5–8, default 6,
+  and an estimate outside 5–8 minutes warns.
 
 A part under 12 minutes is not a podcast; split the spec into one spec per
 part rather than padding it.

@@ -107,7 +107,8 @@ fails, fix the spec and re-render — never hand-edit the `.m4a` or the `.srt`.
 The `audio` study mode plays one 5–8 minute capsule per block that was not
 already known. Author its spec at `tools/audio/specs/audio-<sesion>-<bloque>.json`
 with `"capsule": true`, the block id in `part` and the session id in `topic`.
-`minutes` is 5–8 (default 6); the render window is 4–9. Write **one chapter per
+`minutes` is 5–8 (default 6); the render window is 4–9, and an estimate outside
+5–8 minutes renders with a warning: rebalance it. Write **one chapter per
 concept** of the block, in the order the concepts appear in `sesion.json`.
 Grounding is the same rule as for a part's audio: every claim, number and
 example comes from that session's sources. A thin source makes a shorter

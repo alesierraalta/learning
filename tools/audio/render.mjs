@@ -52,7 +52,10 @@ async function main() {
       `the estimate is ${planned.minutes} min; ${profile.label} must land between ${low} and ${high} minutes (target ${planned.target})`,
     );
   }
-  if (Math.abs(planned.minutes - planned.target) > 2) {
+  const [shortest, longest] = profile.range;
+  if (profile.capsule && (planned.minutes < shortest || planned.minutes > longest)) {
+    console.warn(`warning: the capsule estimate is ${planned.minutes} min; a capsule runs ${shortest} to ${longest} minutes`);
+  } else if (Math.abs(planned.minutes - planned.target) > 2) {
     console.warn(`warning: the ${profile.capsule ? "capsule estimate" : "estimate"} is ${planned.minutes} min against a ${planned.target}-minute target`);
   }
   if (args["dry-run"]) {

@@ -71,6 +71,27 @@ test("a capsule outside its render window names the capsule", () => {
   assert.doesNotMatch(run.stderr, /a part's audio/);
 });
 
+test("a capsule estimated outside its 5 to 8 minutes is told so", () => {
+  // 720 words: about 4.7 minutes, inside the render window but short of what a capsule promises.
+  const brief = capsule({
+    chapters: capsule().chapters.map((chapter, c) => ({
+      ...chapter,
+      segments: chapter.segments.map((segment, s) => ({ ...segment, text: text(60, `brief${c}x${s}w`) })),
+    })),
+  });
+  const path = join(dir, "capsule-brief.json");
+  writeFileSync(path, JSON.stringify(brief));
+  const run = render("--spec", path, "--out", join(dir, "capsule-brief.m4a"), "--dry-run");
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /estimate 4\.\d+ min/);
+  assert.match(run.stderr, /warning: .*capsule/);
+
+  const inside = join(dir, "capsule-inside.json");
+  writeFileSync(inside, JSON.stringify(capsule()));
+  const quiet = render("--spec", inside, "--out", join(dir, "capsule-inside.m4a"), "--dry-run");
+  assert.doesNotMatch(quiet.stderr, /warning/);
+});
+
 test("an unknown flag is refused instead of ignored", () => {
   const run = render("--spec", specPath, "--out", join(dir, "x.m4a"), "--loudness", "-9");
   assert.equal(run.status, 2);
