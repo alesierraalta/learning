@@ -896,6 +896,80 @@ for (const runtime of ["pi", "agy"]) {
   });
 }
 
+// ---- #452: the studio runs the gate on the part it is about to show ------------------
+
+/**
+ * A part whose figure is the prose wearing boxes: every gate but `explain-check` measures the
+ * figure's geometry, and `prosa-en-cajas` (#420/#435/#441) is the rule that names the prose.
+ */
+const PROSE_IN_BOXES = `# Parte 2 — TCP
+
+## Ruta
+
+1. Qué es TCP.
+2. Cómo saluda.
+3. Por qué importa.
+
+## 1. TCP
+
+**TCP**: es el protocolo que saluda antes de hablar. Ordena los paquetes y vuelve a pedir los que faltan.
+
+Antes, el cliente enviaba y esperaba la respuesta. Ahora el cliente y el servidor se saludan y ningún paquete se pierde.
+
+<lk-scene>
+<script type="application/json">
+{"viewBox":"0 0 760 210","title":"El saludo","scene":{"boxes":[
+{"x":20,"y":40,"w":200,"h":100,"label":"el cliente envia el paquete SYN al servidor","tone":"blue"},
+{"x":280,"y":40,"w":200,"h":100,"label":"el servidor recibe la peticion y responde","tone":"slate"},
+{"x":540,"y":40,"w":200,"h":100,"label":"el cliente espera la respuesta","tone":"green"}],
+"arrows":[{"x1":220,"y1":90,"x2":280,"y2":90},{"x1":480,"y1":90,"x2":540,"y2":90}]}}
+</script>
+</lk-scene>
+
+Cómo leerlo: sigue la flecha y mira qué caja responde.
+
+## Mini-quiz
+
+1. ¿Qué envía el cliente primero?
+`;
+
+test("a part whose figure is prose in boxes never reaches the learner as a finished part", async () => {
+  // The studio's own five tools measure the note the turn wrote, with the repo's rules: no fake
+  // verdict here, because what #452 is about is the real rule (`prosa-en-cajas`) meeting the real path.
+  const tutor = await checkingTutor("pi", {
+    parts: [
+      [{ name: "Parte 2 - TCP.md", content: PROSE_IN_BOXES }],
+      [{ name: "Parte 2 - TCP.md", content: PROSE_IN_BOXES }],
+      [{ name: "Parte 2 - TCP.md", content: PROSE_IN_BOXES }],
+    ],
+  });
+  try {
+    assert.equal((await post(tutor.studio, "prompt", { text: "Escribe la Parte 2", tema: "redes" })).status, 200);
+    for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
+      await until(() => tutor.turnsSoFar() === round + 1, 120000);
+      await tutor.endTurn();
+    }
+    await until(() => settleIdle(tutor.stream), 120000);
+    const phases = tutor.stream.events.filter((event) => event.name === "fase").map((event) => event.data);
+    assert.equal(
+      phases.some((phase) => phase.fase === "lista"),
+      false,
+      `a part the gates rejected is never announced as ready: ${JSON.stringify(phases.map((phase) => phase.fase))}`,
+    );
+    assert.ok(
+      tutor.stream.events.some((event) => event.name === "error" && /problemas visuales/.test(String(event.data.message))),
+      "the learner hears the part still has visual problems",
+    );
+    // And the part cannot be opened either: the reader shows what the gates found instead (#452).
+    const refused = await http(`${tutor.studio.url}api/view?topic=redes&part=p2`);
+    assert.equal(refused.status, 409, refused.body);
+    assert.match(refused.body, /no pasó las comprobaciones/);
+    assert.match(refused.body, /prosa-en-cajas/, "the refusal names the rule the figure broke");
+    // Nothing changed for a part nobody measured in this studio: it is still served as before.
+    assert.equal((await http(`${tutor.studio.url}api/view?topic=redes&part=p1`)).status, 200);
+  } finally { tutor.close(); }
+});
+
 test("an Antigravity turn is asked again until the engine clears the failing stage", async () => {
   const { root, engine, log } = makeRoot({ statuses: [FAILING_STAGE, CLEARED_STAGE] });
   process.env.FAKE_PI_LOG = log;

@@ -84,7 +84,7 @@ import {
 } from "./chats.ts";
 import { parsePiModels } from "./pi-models.ts";
 import { enrolled } from "./gate.ts";
-import { runPartChecks, type PartChecks, type PartReport } from "./checks.ts";
+import { parsedFindingsOf, runPartChecks, type PartChecks, type PartReport } from "./checks.ts";
 import { gateVerdictsFile, warmGateVerdicts } from "../integrations/pi/gate-verdicts.ts";
 import { PASS_STATUSES, gateVerdict, type GateReport } from "../integrations/pi/gate-rules.ts";
 import {
@@ -409,6 +409,17 @@ type Turn = {
    * report the studio writes when the turn ends. It only reads the turn; it never changes it.
    */
   timing: PageTiming;
+  /**
+   * What the studio's own measurement said about the part this turn had to produce (#452).
+   * `undefined` means no part was owed and `crashed` means nothing could measure it: neither is a
+   * part the studio may present as finished. Only `clean` is.
+   */
+  partVerdict?: PartChecks;
+  /**
+   * How the part this turn owed looked before the turn started (#452). A part the turn did not
+   * change is not this turn's to measure: its findings are the note's, never this turn's failure.
+   */
+  expectedAtStart?: string | null;
   /** The topic writer ticket this turn inherited from its route, released when the turn ends. */
   lock?: { release: () => void } | null;
   lockPromise?: Promise<{ release: () => void }>;
@@ -590,6 +601,49 @@ function markRegeneration(file: string, topic: string, part: string, reason: str
   } catch (error) {
     try { rmSync(temporary, { force: true }); } catch { /* nothing to clean */ }
     process.stderr.write(`estudio: no se pudo guardar el estado de la regeneración · ${(error as Error).message}\n`);
+  }
+}
+
+/**
+ * One part's last measurement, keyed by the bytes it measured (#452): a part that changed since
+ * then is not covered by it, and a part nobody measured carries no mark at all.
+ */
+export type PartGateMark = { bytes: string; count: number; rules: string[] };
+
+function readPartGateMarks(file: string): Record<string, PartGateMark> {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const marks: Record<string, PartGateMark> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
+      const entry = value as Record<string, unknown>;
+      const rules = Array.isArray(entry.rules) ? entry.rules.filter((rule): rule is string => typeof rule === "string") : null;
+      if (typeof entry.bytes === "string" && typeof entry.count === "number" && rules !== null) {
+        marks[key] = { bytes: entry.bytes, count: entry.count, rules };
+      }
+    }
+    return marks;
+  } catch {
+    return {};
+  }
+}
+
+/** One part's last measurement: a failing one is remembered, a passing one forgets it (#452). */
+function markPartGate(file: string, key: string, mark: PartGateMark | null): void {
+  const marks = readPartGateMarks(file);
+  if (mark === null) {
+    if (!(key in marks)) return;
+    delete marks[key];
+  } else marks[key] = mark;
+  mkdirSync(dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(marks, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    renameSync(temporary, file);
+  } catch (error) {
+    try { rmSync(temporary, { force: true }); } catch { /* nothing to clean */ }
+    process.stderr.write(`estudio: no se pudo guardar la medida de la parte · ${(error as Error).message}\n`);
   }
 }
 
@@ -819,6 +873,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   const taskConversationFile = taskConversationsFile(chatsFile);
   /** The last regeneration verdict per part, outside the vault: the topic view reads it (#393). */
   const regenerationMarksFile = join(dirname(openedFile), "regeneraciones.json");
+  /** The last measurement of each part, keyed by the bytes it measured: what the studio may serve (#452). */
+  const partGateMarksFile = join(dirname(openedFile), "partes-medidas.json");
   /** One Session for the main chat, one per topic: a map, never a global limit. */
   const tasks = new Map<string, Session>();
   const taskClients = new Map<string, Set<ServerResponse>>();
@@ -1654,7 +1710,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     // the turn is over, so a reader can compare this generation with the next one.
     if (ended.parts.length > 0) savePageTiming(ended.timing, ended.parts);
     if (!ended.aborted && ended.espera?.note && existsSync(ended.espera.note) &&
-        !(ended.regeneration && !ended.regeneration.passed)) {
+        !(ended.regeneration && !ended.regeneration.passed) && partServes(ended)) {
       emitFase(session, ended, "lista", undefined, true);
     }
     session.saveSnapshot();
@@ -1803,6 +1859,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       }
       try {
         if (spec.backup) started.regeneration = spec.backup();
+        // #452: what the part owed looked like before this turn, so only a part the turn itself
+        // wrote or changed is measured here.
+        const owed = partExpected(started);
+        started.expectedAtStart = owed ? bytesOf(owed.file) : undefined;
         // The learner's words stay first; a write-part turn also carries the facts the
         // tutor would otherwise discover with ls/find/reads. Both runtimes get the same prompt.
         const prompt = await started.timing.measure("contexto", async () => {
@@ -1850,7 +1910,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * failure and goes to the log: it is never a finding the tutor is asked to fix.
    */
   const checkParts = async (settled: Turn): Promise<PartReport | null> => {
-    const files = partNotes(settled.parts);
+    const expected = partExpected(settled);
+    // #452: the part the turn owed is measured even when its own write events never named it, so
+    // the file the learner will open is the one that must pass. Only when the turn is what changed
+    // it: a part that was already there is not this turn's to measure, and re-measuring it would
+    // hand the tutor findings it did not produce.
+    const owed = expected !== null && settled.expectedAtStart !== undefined && bytesOf(expected.file) !== settled.expectedAtStart
+      ? expected.file
+      : null;
+    const files = [...new Set(partNotes([...settled.parts, ...(owed ? [owed] : [])]))];
     if (!files.length) return null;
     const checkPartsWithVerdicts = options.partChecks ?? ((paths: string[]) => runPartChecks(paths, { gateVerdictsFile: gateStoreFile, gateToolPath: options.gateToolPath }));
     const checked = await checkPartsWithVerdicts(files);
@@ -1858,6 +1926,23 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     // something: it never becomes a tutor finding, and it is never silently dropped (#372/T2a).
     for (const failure of "failures" in checked ? checked.failures : []) {
       process.stderr.write(`estudio: comprobación fallida · ${failure}\n`);
+    }
+    settled.partVerdict = checked;
+    // What the measurement said about the part itself is kept beside the studio's own state, so
+    // the part cannot be served as if it had passed (#452). A measurement that could not run
+    // leaves no mark: the studio does not refuse what it could not read. The findings counted are
+    // the ones in the note the reader opens, never another file's: a page that failed does not
+    // hide a note that passed.
+    if (owed && expected && settled.topic) {
+      const bytes = bytesOf(expected.file);
+      const mine = checked.kind === "findings" ? checked.tools.filter((tool) => tool.file === expected.file) : [];
+      const count = mine.reduce((total, tool) => total + tool.findings.length, 0);
+      const rules = [...new Set(mine.flatMap((tool) => parsedFindingsOf(tool.tool, tool.output).map((found) => found.rule)).filter((rule) => rule !== ""))].slice(0, 12);
+      markPartGate(
+        partGateMarksFile,
+        `${root}::${settled.topic}/${expected.part}`,
+        bytes === null ? null : count > 0 ? { bytes, count, rules } : null,
+      );
     }
     if (checked.kind === "crashed") {
       // A gate that could not measure did not pass: a regeneration keeps the previous version.
@@ -1881,7 +1966,39 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     session.emit("studio", { text, ...aboveTutor(turn) });
   };
 
-  /** The part this turn had to produce: a regeneration's part, or the part a write request named. */
+  /**
+   * A part the studio presents as finished was measured and nothing was found in it (#452): a
+   * part nobody measured is not presented as a finished part either.
+   */
+  const partServes = (turn: Turn): boolean => turn.partVerdict?.kind === "clean";
+
+  /** The bytes a measurement covers: a part that changed since then is not covered by it (#452). */
+  const bytesOf = (file: string): string | null => {
+    try {
+      const stats = statSync(file);
+      return `${stats.size}:${stats.mtimeMs}`;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * A part the studio measured and rejected is not served as if it had passed (#452): the learner
+   * gets the findings instead. A mark that does not match the note's bytes covers another version.
+   */
+  const assertPartServes = (topic: string, part: string): void => {
+    const file = partNotePath(root, topic, part);
+    if (!file) return;
+    const mark = readPartGateMarks(partGateMarksFile)[`${root}::${topic}/${part}`];
+    if (!mark || mark.count === 0 || bytesOf(file) !== mark.bytes) return;
+    const count = mark.count === 1 ? "1 hallazgo" : `${mark.count} hallazgos`;
+    const rules = mark.rules.length ? ` (${mark.rules.join(", ")})` : "";
+    throw new HttpError(409, `«${basename(file, ".md")}» no pasó las comprobaciones: ${count}${rules}. No se sirve hasta que pase.`);
+  };
+
+  /**
+   * The part this turn had to produce: a regeneration's part, or the part a write request named.
+   */
   const partExpected = (settled: Turn): { file: string; part: string; title: string; number: number } | null => {
     const topic = settled.topic;
     const part = settled.regeneration?.part ?? settled.espera?.part;
@@ -3166,6 +3283,8 @@ ${scripts}
         const part = url.searchParams.get("part") ?? "";
         const entry = listTopics(root).find((t) => t.id === topic)?.parts.find((p) => p.id === part);
         if (!entry?.written) throw new HttpError(404, `no written part ${part} in ${topic}`);
+        // A part the studio's own measurement rejected is not packaged for reading either (#452).
+        assertPartServes(topic, part);
         // Over loopback, like the draft preview: the public proxy's certificate is for browsers.
         const reader = await view(topic, part);
         const publicBase = String(reader.base);
@@ -3186,7 +3305,11 @@ ${scripts}
           if (!/^[\w-]+$/.test(quick) || !existsSync(file)) throw new HttpError(404, `no quick note ${quick}`);
           return sendJson(res, 200, { url: `${String((await view()).base)}rapidos/${encodeURIComponent(quick)}` });
         }
-        const result = await view(url.searchParams.get("topic") ?? undefined, url.searchParams.get("part") ?? undefined);
+        const topic = url.searchParams.get("topic") ?? undefined;
+        const part = url.searchParams.get("part") ?? "";
+        // A part the studio's own measurement rejected is not served as if it had passed (#452).
+        if (topic !== undefined) assertPartServes(topic, part);
+        const result = await view(topic, part === "" ? undefined : part);
         return sendJson(res, 200, { url: result.url });
       }
       default:
