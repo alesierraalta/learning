@@ -91,6 +91,25 @@ Synthesis needs the venv with `edge-tts` (on the VPS); rendering needs only
 `ffmpeg`. If the voice cache lives on another machine, pass
 `--remote user@host:path` to the renderer instead of copying by hand.
 
+### Free offline voices (Kokoro)
+
+edge-tts remains the default. For the learner's free, offline voices create
+the venv once with `python3 -m venv ~/.cache/kokoro-venv` and
+`~/.cache/kokoro-venv/bin/pip install kokoro soundfile`. Declare `ef_dora`
+(female), `em_alex` or `em_santa` (male) in the spec's `voices` map and run:
+
+```bash
+python3 tools/audio/kokoro.py --spec <spec> --out ~/.cache/learning-audio/<name>
+```
+
+The command writes the same cache the renderer reads; `--force` and
+`--dry-run` work as in `synth.py`, and any other voice name is refused with
+the accepted list. Quality sits below a commercial engine: this buys free,
+offline synthesis, not more natural voices. Kokoro gives no word timings, so
+each `<key>.json` marks `boundaries_source` as estimated: words are spread
+over the measured audio and the last one ends with the turn. The `.srt` is
+approximate, not an alignment.
+
 ## 6. Verify, then report
 
 1. the render printed a duration inside 18–22 minutes and the chapter count

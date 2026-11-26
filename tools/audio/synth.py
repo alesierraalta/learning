@@ -28,13 +28,15 @@ def turn_key(voice: str, text: str, rate: str) -> str:
     return hashlib.sha256(f"{voice}|{rate}|{text}".encode()).hexdigest()[:16]
 
 
-def turns(spec: dict, rate: str):
+def turns(spec: dict, rate: str, voices: dict | None = None):
+    """The spec's turns in speaking order; `voices` swaps the name table."""
     declared = spec.get("voices") or DEFAULT_VOICES[spec["style"]]
+    table = VOICES if voices is None else voices
     seen = set()
     for chapter in spec["chapters"]:
         for segment in chapter["segments"]:
             name = declared[segment["speaker"]]
-            voice = VOICES.get(name, name)
+            voice = table.get(name, name)
             text = segment["text"]
             key = turn_key(voice, text, rate)
             if key in seen:

@@ -67,6 +67,40 @@ the style's roster:
 `A` is the host or the explainer, so `entrevista` opens with Elvira asking and
 Alvaro answering.
 
+## Free offline voices (Kokoro)
+
+`synth.py` and edge-tts stay the default. For the free, offline voices install
+the venv once:
+
+```bash
+python3 -m venv ~/.cache/kokoro-venv
+~/.cache/kokoro-venv/bin/pip install kokoro soundfile
+```
+
+Declare one of the three Spanish voices in the spec's `voices` map — `ef_dora`
+(female), `em_alex` or `em_santa` (male) — and run the other synth:
+
+```bash
+python3 tools/audio/kokoro.py --spec <spec> --out ~/.cache/learning-audio/<name>
+```
+
+It writes the same `<key>.mp3` and `<key>.json` cache `render.mjs` reads, so
+the render command is unchanged; `rate` in the JSON is the shared cache-key
+constant, not a Kokoro speed setting. Each take is lifted towards -16 LUFS
+before encoding because raw Kokoro audio is quiet enough to fail the renderer's
+level gate. `--force` and `--dry-run` work as in
+`synth.py`; `--python` or `KOKORO_PYTHON` selects another interpreter (the
+tests use it for a silent stub). Any other voice name is refused with the
+accepted list. Kokoro loads voices on demand and offers no cheap installed-voice
+listing, so that list lives in `VOICES` in `kokoro.py`.
+
+Quality sits below a commercial engine: this is the free, offline option, not
+a claim of more natural voices. Kokoro returns no word timings, so each JSON
+says `"boundaries_source": "estimated:proportional word count, not Kokoro word
+timings"`. The words are spread over the measured duration of the recording,
+with the last boundary at the end of the turn; the resulting `.srt` is
+approximate, not a measured alignment.
+
 ## Capsules
 
 The `audio` study mode plays one capsule per block that was not already known.
@@ -137,5 +171,6 @@ resumes where it stopped instead of re-recording the whole part.
   duration estimate, SRT.
 - `lib/audio.mjs` — the recorded cache: load, verify the words, measure.
 - `synth.py` — edge-tts, one take per turn, boundaries per take.
+- `kokoro.py` — free offline voices into the same cache, with estimated boundaries.
 - `render.mjs` — the one command that produces the `.m4a` and the `.srt`.
 - `test/` — the suites; they need `ffmpeg`, never the network or a real voice.
