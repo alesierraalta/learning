@@ -426,6 +426,13 @@ type Turn = {
   /** An aborted turn ends as failed, whatever the runtime reports afterwards. */
   aborted?: boolean;
   /**
+   * A settle is already deciding this turn (#460). A runtime that reports its end twice, or a
+   * correction whose own settle lands while the previous one is still asking for it, must not
+   * decide the same turn again: the second decision reads a part the first one is still writing
+   * and rolls back a regeneration that did write.
+   */
+  settling?: boolean;
+  /**
    * This turn already used its one explicit correction for a part that was not written or that
    * the gates rejected; a second failure rolls back instead of asking again (#393).
    */
@@ -2045,6 +2052,15 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * only its own turn; only a correction that was sent keeps it.
    */
   const settleTurn = async (session: Session, settled: Turn) => {
+    // #460: the learner stopped this turn, so what the runtime reports afterwards decides nothing:
+    // the abort already said how it ends, and a late settle would only roll back its own result.
+    if (settled.aborted) {
+      releaseTurn(session, settled);
+      return;
+    }
+    // #460: one decision per turn at a time, whatever a runtime reports and however late.
+    if (settled.settling) return;
+    settled.settling = true;
     const topic = settled.topic;
     let corrected = false;
     try {
@@ -2126,6 +2142,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       correctionRefused(session, topic ?? "el tema");
       process.stderr.write(`estudio: el motor no pudo decidir el turno · ${(error as Error).message}\n`);
     } finally {
+      settled.settling = false;
       // Only the turn this settle was called for: a late answer may belong to a turn already gone.
       if (!corrected) releaseTurn(session, settled);
     }
@@ -2813,14 +2830,20 @@ ${scripts}
         const cause = isRecord(body) && body.cause === "update" ? "update" : undefined;
         const held = session.turn;
         if (held) held.aborted = true;
-        releaseTurn(session);
-        if (cause !== undefined && held !== null) {
-          session.interrupted = { topic: held.topic, at: Date.now(), cause };
-          session.saveSnapshot();
+        // The runtime is stopped before the rollback moves anything back: a process that is still
+        // writing would otherwise land its part on top of the version the learner was told is kept
+        // (#460). Either way the turn is released, so an abort is final.
+        try {
+          if (session.agy) session.agy.abort();
+          else if (session.api) session.api.abort();
+          else if (session.child) await call(session, { type: "abort" }, 60000);
+        } finally {
+          releaseTurn(session);
+          if (cause !== undefined && held !== null) {
+            session.interrupted = { topic: held.topic, at: Date.now(), cause };
+            session.saveSnapshot();
+          }
         }
-        if (session.agy) session.agy.abort();
-        else if (session.api) session.api.abort();
-        else if (session.child) await call(session, { type: "abort" }, 60000);
         if (session.kind === "task") emitTareas();
         break;
       }
