@@ -461,3 +461,7 @@ body.wide .prose > lk-explorer, body.wide .prose > section > lk-explorer { colum
 .quiz-question .no-evidence { min-height: 32px; background: none; border: 1px solid var(--hair); border-radius: 4px; color: inherit; cursor: pointer; font: inherit; padding: 4px 10px; }
 .quiz-question .no-evidence[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 .quiz-question .open-hidden { display: none; }
+.lk-open-knowledge { margin: 10px 0; padding: 8px 10px; border-left: 2px solid var(--hair); font-size: 14px; }
+.lk-open-knowledge p { margin: 2px 0; }
+.lk-open-states { font-weight: 600; }
+.lk-open-action, .lk-open-calibration { color: var(--muted, #667); }

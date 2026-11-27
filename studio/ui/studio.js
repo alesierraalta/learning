@@ -2718,6 +2718,18 @@
     }
     showResultsStatus();
   }
+  const CALIBRATION = { aligned: "alineado", overconfident: "sobreconfiado", underconfident: "subconfiado" };
+  const openKnowledge = (feedback) => {
+    if (!feedback?.teaching && !feedback?.concepts && !feedback?.confidence) return null;
+    const states = Object.entries(feedback.concepts || {}).map(([code, state]) => `${code}: ${state}`).join(" · ");
+    const teaching = feedback.teaching;
+    return h("div", { class: "lk-open-knowledge" },
+      states ? h("p", { class: "lk-open-states" }, states) : null,
+      teaching ? h("p", { class: "lk-open-action" }, [teaching.errorType && `Dificultad: ${teaching.errorType}`, teaching.action && `Acción: ${teaching.action}`].filter(Boolean).join(" · ")) : null,
+      teaching?.rationale ? h("p", { class: "lk-open-rationale" }, teaching.rationale) : null,
+      feedback.confidence ? h("p", { class: "lk-open-calibration" }, `Confianza: ${feedback.confidence}${CALIBRATION[feedback.calibration] ? ` · ${CALIBRATION[feedback.calibration]}` : ""}`) : null,
+    );
+  };
   /** A question's own words, drawn by the shared renderer (#332): its code and formulas, never raw HTML. */
   const questionWords = (tag, props, text) => {
     const node = h(tag, props);
@@ -2746,6 +2758,8 @@
         const feedback = (submitted.openFeedback || []).find((entry) => entry.id === r.id);
         if (window.lkQuestion?.feedback) window.lkQuestion.feedback(item, feedback || { verdict: r.verdict || "pending", next: "" });
         else item.append(h("p", { class: "muted" }, `Veredicto: ${feedback?.verdict || r.verdict || "pending"}`));
+        const knowledge = openKnowledge(feedback);
+        if (knowledge) item.append(knowledge);
         return item;
       }));
     };

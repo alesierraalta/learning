@@ -77,6 +77,9 @@ const OPEN_VERDICTS = ["pending", "correct", "partial", "incorrect", "no-evidenc
 type OpenVerdict = (typeof OPEN_VERDICTS)[number];
 /** How sure the learner was of each answer, as shown in the chat message. */
 const CONFIDENCE: Record<string, string> = { seguro: "seguro", dudo: "dudo", adivine: "adiviné" };
+const OPEN_STATES = new Set(["laguna", "dudoso", "claro", "transferible"]);
+const OPEN_ERROR_TYPES = new Set(["missing-knowledge", "misconception", "incomplete-reasoning", "application-failure", "transfer-failure"]);
+const OPEN_ACTIONS = new Set(["prerequisite-review", "corrective-explanation", "guided-practice", "transfer-work", "advance"]);
 const DIAGNOSIS = "quiz";
 const FINAL_QUIZ = "final_quiz";
 const EMBED_SEARCH_DEPTH = 4;
@@ -176,6 +179,13 @@ interface OpenAnswer {
   noEvidence?: boolean;
 }
 interface OpenCriterionFeedback { id: string; met: boolean; evidence: string }
+interface OpenTeachingFeedback {
+  errorType: string;
+  evidence: string;
+  action: string;
+  rationale: string;
+  next: string;
+}
 interface OpenFeedback {
   id: string;
   verdict: OpenVerdict;
@@ -184,6 +194,9 @@ interface OpenFeedback {
   concepts?: Record<string, string>;
   explanation?: { verdict: string; evidence: string } | null;
   executable?: { saved: string; aprobados: number; total: number; aviso?: string } | null;
+  teaching?: OpenTeachingFeedback;
+  confidence?: string;
+  calibration?: string;
   next: string;
 }
 interface Reasoning {
@@ -425,6 +438,34 @@ function openAnswersAnswerQuiz(recorded: AnswerFile | undefined, questions: Ques
   return Object.entries(stored).every(([id]) => recorded.openQuiz?.[id] === quizFingerprint([byId.get(id)!]));
 }
 
+function openVerdictEntries(dir: string, answersFile: string): Record<string, unknown> {
+  try {
+    const verdictFile = openVerdictRel(answersFile);
+    const doc = readRecord(isAbsolute(verdictFile) ? verdictFile : join(dir, verdictFile));
+    return isRecord(doc?.verdicts) ? doc.verdicts : {};
+  } catch { return {}; }
+}
+
+/** A diagnosis round opens only after the previous round has answers and the tutor's verdicts. */
+function visibleDiagnosisQuestions(dir: string, questions: Question[], answersFile: string): Question[] {
+  if (!questions.some((question) => question.open)) return questions;
+  const recorded = readAnswers(answersFile);
+  const answers = recorded?.openAnswers ?? {};
+  const verdicts = openVerdictEntries(dir, answersFile);
+  const rounds = new Map<number, Question[]>();
+  for (const question of questions) {
+    const round = question.round ?? 1;
+    rounds.set(round, [...(rounds.get(round) ?? []), question]);
+  }
+  let visible = 1;
+  for (let round = 2; rounds.has(round); round += 1) {
+    const previous = rounds.get(round - 1) ?? [];
+    if (!previous.length || !previous.every((question) => Boolean(answers[question.id]) && isRecord(verdicts[question.id]))) break;
+    visible = round;
+  }
+  return questions.filter((question) => (question.round ?? 1) <= visible);
+}
+
 /** The studio reads the same verdict view the reader does, without serving the rubric itself. */
 export function openFeedbackForAssessment(dir: string, part: string): OpenFeedback[] {
   if (part === FINAL_QUIZ) {
@@ -434,12 +475,52 @@ export function openFeedbackForAssessment(dir: string, part: string): OpenFeedba
   const diagnosis = part === DIAGNOSIS;
   const questionsFile = diagnosis ? join(dir, "quiz.json") : join(dir, "mini-quiz", `${part}.json`);
   const answersFile = diagnosis ? join(dir, "quiz.answers.json") : join(dir, "mini-quiz", `${part}.answers.json`);
-  const questions = readQuestions(questionsFile);
+  const all = readQuestions(questionsFile);
+  const questions = diagnosis && all ? visibleDiagnosisQuestions(dir, all, answersFile) : all;
   return questions ? readOpenFeedback(dir, answersFile, questions) : [];
 }
 
-function openNext(verdict: OpenVerdict, criteria: OpenCriterionFeedback[], concepts: Record<string, string>): string {
+function openCalibration(confidence: string | undefined, verdict: OpenVerdict): string {
+  if (!confidence) return "unknown";
+  if (confidence === "seguro") return verdict === "correct" ? "aligned" : "overconfident";
+  if (confidence === "adivine") return verdict === "correct" || verdict === "partial" ? "underconfident" : "aligned";
+  return verdict === "correct" ? "underconfident" : "aligned";
+}
+
+/** Only literal tutor words that cannot name a private rubric or key reach the learner. */
+function safeLearnerText(value: unknown, question: Question): string {
+  if (typeof value !== "string") return "";
+  const text = value.replace(/\s+/g, " ").trim().slice(0, 240);
+  if (!text) return "";
+  const secrets = [...question.open!.criteria.map((criterion) => criterion.rubric), question.answer]
+    .map((secret) => secret.replace(/\s+/g, " ").trim())
+    .filter((secret) => secret.length > 8);
+  const lower = text.toLowerCase();
+  if (secrets.some((secret) => lower.includes(secret.toLowerCase()))) return "";
+  return text;
+}
+
+function openTeachingView(raw: unknown, answer: OpenAnswer, text: string, question: Question): OpenTeachingFeedback | undefined {
+  if (!isRecord(raw)) return undefined;
+  const errorType = typeof raw.errorType === "string" && OPEN_ERROR_TYPES.has(raw.errorType) ? raw.errorType : "";
+  const evidence = typeof raw.evidence === "string" && literalQuote(text, raw.evidence) ? raw.evidence.trim() : "";
+  const action = typeof raw.action === "string" && OPEN_ACTIONS.has(raw.action) ? raw.action : "";
+  if (!action || (errorType && !evidence)) return undefined;
+  return {
+    errorType, evidence, action,
+    rationale: safeLearnerText(raw.rationale, question),
+    next: safeLearnerText(raw.next, question),
+  };
+}
+
+function openNext(verdict: OpenVerdict, criteria: OpenCriterionFeedback[], concepts: Record<string, string>, teaching?: OpenTeachingFeedback): string {
   if (verdict === "pending") return "El tutor todavía está revisando tu respuesta.";
+  if (teaching?.next) return teaching.next;
+  if (teaching?.action === "prerequisite-review") return "Repasa la base que falta y vuelve a intentarlo con tus palabras.";
+  if (teaching?.action === "corrective-explanation") return "Contrasta tu respuesta con un contraejemplo y corrigela.";
+  if (teaching?.action === "guided-practice") return "Practica otro caso con la misma idea y explica cada paso.";
+  if (teaching?.action === "transfer-work") return "Lleva la idea a un caso nuevo y explica qué cambia.";
+  if (teaching?.action === "advance") return "Retoma esta idea en un caso nuevo para hacerla tuya.";
   if (verdict === "correct") return "Retoma esta idea en un caso nuevo para hacerla tuya.";
   if (verdict === "no-evidence") return "Empieza por lo que la pregunta pide y escribe aunque sea una primera hipótesis.";
   const missing = criteria.filter((c) => !c.met).map((c) => c.id);
@@ -479,9 +560,10 @@ export function readOpenFeedback(dir: string, answersFile: string, questions: Qu
     const concepts: Record<string, string> = {};
     if (verdict !== "pending" && isRecord(entry!.concepts)) {
       for (const [code, state] of Object.entries(entry!.concepts)) {
-        if (q.open!.concepts.includes(code) && typeof state === "string") concepts[code] = state;
+        if (q.open!.concepts.includes(code) && typeof state === "string" && OPEN_STATES.has(state)) concepts[code] = state;
       }
     }
+    const teaching = verdict !== "pending" ? openTeachingView(entry!.teaching, answer, text, q) : undefined;
     const explanation = verdict !== "pending" && isRecord(entry!.explanation) &&
       typeof entry!.explanation.verdict === "string" && literalQuote(answer.explanation ?? "", String(entry!.explanation.evidence ?? ""))
       ? { verdict: String(entry!.explanation.verdict), evidence: String(entry!.explanation.evidence).trim() }
@@ -500,7 +582,9 @@ export function readOpenFeedback(dir: string, answersFile: string, questions: Qu
     }
     return {
       id: q.id, verdict, evidence: verdict === "pending" ? "" : String(entry!.evidence).trim(), criteria, ...(Object.keys(concepts).length ? { concepts } : {}),
-      ...(q.open!.kind === "code" ? { explanation, executable } : {}), next: openNext(verdict, criteria, concepts),
+      ...(q.open!.kind === "code" ? { explanation, executable } : {}),
+      ...(teaching ? { teaching } : {}), confidence: answer.confidence, calibration: openCalibration(answer.confidence, verdict),
+      next: openNext(verdict, criteria, concepts, teaching),
     };
   });
 }
@@ -2382,9 +2466,10 @@ ${scripts}
     const final = partId === FINAL_QUIZ;
     if (!diagnosis && !final && !plan?.parts.some((p) => p.id === partId)) throw new HttpError(404, `part ${partId} is not in plan.json`);
     const questionsFile = diagnosis ? join(dir, "quiz.json") : final ? join(dir, "cuestionario-final.json") : join(dir, "mini-quiz", `${partId}.json`);
-    const questions = final ? readOpenFinalQuestions(dir) : readQuestions(questionsFile);
-    if (!questions) throw new HttpError(404, final ? `topic ${topic} has no versioned all-open final quiz` : `part ${partId} has no mini-quiz`);
+    const all = final ? readOpenFinalQuestions(dir) : readQuestions(questionsFile);
+    if (!all) throw new HttpError(404, final ? `topic ${topic} has no versioned all-open final quiz` : `part ${partId} has no mini-quiz`);
     const answerFile = diagnosis ? join(dir, "quiz.answers.json") : final ? join(dir, "cuestionario-final.answers.json") : join(dir, "mini-quiz", `${partId}.answers.json`);
+    const questions = diagnosis ? visibleDiagnosisQuestions(dir, all, answerFile) : all;
     const recorded = readAnswers(answerFile);
     const openMode = questions.some((q) => q.open);
     // The api/quiz payload the element reads follows the page: a stale file is no answered document (#416).
@@ -2476,12 +2561,13 @@ ${scripts}
 
   const diagnosisPage = (res: ServerResponse, topic: string) => {
     const dir = topicDir(topic);
-    const questions = readQuestions(join(dir, "quiz.json"));
-    if (!questions) throw new HttpError(404, `topic ${topic} has no diagnosis quiz`);
+    const all = readQuestions(join(dir, "quiz.json"));
+    if (!all) throw new HttpError(404, `topic ${topic} has no diagnosis quiz`);
     const plan = readPlan(dir);
     const orderFor = orderOf(diagnosisScope(topic));
     const answerFile = join(dir, "quiz.answers.json");
     const recorded = readAnswers(answerFile);
+    const questions = visibleDiagnosisQuestions(dir, all, answerFile);
     const openMode = questions.some((q) => q.open);
     page(res, "Diagnóstico", {
       kind: "diagnosis",
@@ -3169,11 +3255,13 @@ ${scripts}
       return;
     }
 
-    const questions = readQuestions(join(dir, "quiz.json"));
-    if (!questions) throw new HttpError(400, `topic ${topic} has no diagnosis quiz`);
-    if (questions.some((q) => q.open)) {
+    const all = readQuestions(join(dir, "quiz.json"));
+    if (!all) throw new HttpError(400, `topic ${topic} has no diagnosis quiz`);
+    if (all.some((q) => q.open)) {
+      const questions = visibleDiagnosisQuestions(dir, all, join(dir, "quiz.answers.json"));
       return openSubmit(payload, dir, `[Vista HTML · ${topic} · diagnóstico]`, "quiz.answers.json", questions, true, answer);
     }
+    const questions = all;
     const orderFor = orderOf(diagnosisScope(topic));
     const answers = checkAnswers(payload.answers, questions, false, orderFor);
     const reasoning = optionalReasoning(payload.reasoning, answers);

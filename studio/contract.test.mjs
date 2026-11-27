@@ -15,6 +15,18 @@ test("the shared figure contract names the current guide, Mermaid and the five s
   assert.match(VISUAL_CONTRACT_PROMPT, /audit-note\.mjs --note "<nota>"/);
 });
 
+test("the open contract teaches coverage, depth and the teaching-action vocabulary", () => {
+  for (const word of ["teaching", "areas", "operations", "depth", "errorType", "action", "confidence", "evidence"]) {
+    assert.ok(OPEN_RESPONSE_TUTOR_PROMPT.includes(word), `the contract is missing ${word}`);
+  }
+  for (const word of ["prerequisite-review", "corrective-explanation", "guided-practice", "transfer-work", "advance"]) {
+    assert.ok(OPEN_RESPONSE_TUTOR_PROMPT.includes(word), `the contract is missing the action ${word}`);
+  }
+  assert.match(OPEN_RESPONSE_TUTOR_PROMPT, /laguna.*dudoso.*claro.*transferible/);
+  assert.match(OPEN_RESPONSE_TUTOR_PROMPT, /confianza/i);
+  assert.match(OPEN_RESPONSE_TUTOR_PROMPT, /never changes/i);
+});
+
 test("the shared contract is added once, even when the prompt already carries it", () => {
   const once = withVisualContract("Escribe la parte 1");
   assert.equal(once.split(VISUAL_CONTRACT_PROMPT).length - 1, 1);

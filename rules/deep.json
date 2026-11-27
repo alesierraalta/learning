@@ -93,6 +93,20 @@
         "seguro",
         "dudo",
         "adivine"
+      ],
+      "errorTypes": [
+        "missing-knowledge",
+        "misconception",
+        "incomplete-reasoning",
+        "application-failure",
+        "transfer-failure"
+      ],
+      "teachingActions": [
+        "prerequisite-review",
+        "corrective-explanation",
+        "guided-practice",
+        "transfer-work",
+        "advance"
       ]
     },
     "options": {

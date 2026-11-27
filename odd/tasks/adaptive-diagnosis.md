@@ -9,6 +9,9 @@ S3 — "como ahora tenemos dos tipos de preguntas que si la de las bases y los f
 S4 — Approved design ("Sí, así"): rounds of 3 questions, one round per turn in quiz.md, answered in the chat; round 1 = 3 basic topic questions on the most important areas; a correct answer moves that area up one level, a wrong answer or "No sé" moves it down to its foundation (prerequisite); stop when every area is resolved or after 3 rounds (at most 9 questions); quick exit "de esto no sé nada" skips the diagnosis.
 S5 — "poder ir dando signos de recompensa cada no mucho [...] que simplemente lo logres en un tiempo razonable de tiempo y te des una recompensa para incentivarte a seguir estudiando, a seguir haciendo quizzes" — every round closes with an immediate, visible result before the next one.
 
+## T3 coverage-first open diagnosis (issue #472)
+For open runs, the tutor declares `teaching.areas` from `plan.json` in `quiz.json`. Round 1 is a broad sample of those areas (normally 4-6 questions, never more than the 15-question bound); a later round is justified only by central, uncertain or contradictory evidence from an earlier question named in `follows`, and it cannot be written before that round has both answers and tutor verdicts. The reader/API shows only rounds already unlocked. Stopping is evidence-based: every declared area has an answered, judged question and no central question remains unresolved within the existing 3 rounds; remaining `laguna`/`dudoso` concepts are handed to the teaching plan instead of being retaught during diagnosis. Legacy fixed and adaptive MCQ snapshots keep their own 3-question rounds and up/down rule; no attempts are migrated.
+
 ## Tasks
 T1 — S2-S4 — engine: adaptive diagnostic mode (rounds, up/down rule, owed next round, waiting per round, skip), back-compatible with fixed-format runs — inline — done (L4)
 T2 — S1,S4,S5 — skill: diagnosis spec rewritten for rounds and per-round reward — inline — done (home abc3b6a, v1.28)
