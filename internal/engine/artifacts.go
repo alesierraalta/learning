@@ -899,13 +899,21 @@ func openResponseText(a openAnswer, o rules.OpenResponseThresholds) string {
 	return a.Text
 }
 
-func validateOpenSubmission(ws, rel string) (bool, error) {
+func validateOpenSubmission(ws, rel, expected string) (bool, error) {
 	if rel == "" || filepath.IsAbs(rel) || strings.Contains(rel, "..") {
 		return false, fmt.Errorf("code answer names an unsafe submission %q", rel)
 	}
 	full := absPath(ws, rel)
-	within, err := filepath.Rel(ws, full)
-	if err != nil || within == ".." || strings.HasPrefix(within, ".."+string(filepath.Separator)) {
+	wsReal, err := filepath.EvalSymlinks(ws)
+	if err != nil {
+		return false, fmt.Errorf("code answer submission %q: workspace unavailable: %w", rel, err)
+	}
+	targetReal, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		return false, fmt.Errorf("code answer submission %q: %w", rel, err)
+	}
+	within, err := filepath.Rel(wsReal, targetReal)
+	if err != nil || filepath.IsAbs(within) || within == ".." || strings.HasPrefix(within, ".."+string(filepath.Separator)) {
 		return false, fmt.Errorf("code answer submission %q escapes the workspace", rel)
 	}
 	var doc struct {
@@ -913,8 +921,11 @@ func validateOpenSubmission(ws, rel string) (bool, error) {
 		Aprobados int    `json:"aprobados"`
 		Total     int    `json:"total"`
 	}
-	if err := readJSON(full, &doc); err != nil {
+	if err := readJSON(targetReal, &doc); err != nil {
 		return false, fmt.Errorf("code answer submission: %w", err)
+	}
+	if doc.Codigo != expected {
+		return false, fmt.Errorf("code answer submission %q does not carry the submitted code", rel)
 	}
 	if strings.TrimSpace(doc.Codigo) == "" || doc.Total < 1 || doc.Aprobados < 0 || doc.Aprobados > doc.Total {
 		return false, fmt.Errorf("code answer submission %q has no executable result", rel)
@@ -1011,6 +1022,11 @@ func validateOpenQuizQuestions(qs []quizQuestion, partSubtema string, planSubs m
 	return validateOpenItems(openQuizRefs(qs, th), th, planSubs)
 }
 
+func quotesOpenEvidence(text, evidence string) bool {
+	span := strings.TrimSpace(evidence)
+	return span != "" && strings.Contains(text, span)
+}
+
 func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc openVerdictDoc, present bool, th rules.Thresholds) (openScore, error) {
 	var out openScore
 	if len(refs) == 0 {
@@ -1061,7 +1077,7 @@ func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc ope
 				return out, fmt.Errorf("open code answer %s needs code and an explanation", ref.ID)
 			}
 			var subErr error
-			submissionAllPassed, subErr = validateOpenSubmission(ws, answer.Submission)
+			submissionAllPassed, subErr = validateOpenSubmission(ws, answer.Submission, answer.Code)
 			if subErr != nil {
 				return out, fmt.Errorf("open answer %s: %w", ref.ID, subErr)
 			}
@@ -1074,7 +1090,7 @@ func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc ope
 			return out, fmt.Errorf("open question %s uses unknown verdict %q", ref.ID, verdict.Verdict)
 		}
 		text := openResponseText(answer, *o)
-		if strings.TrimSpace(verdict.Evidence) == "" || !containsNorm(text, verdict.Evidence) {
+		if !quotesOpenEvidence(text, verdict.Evidence) {
 			return out, fmt.Errorf("open question %s verdict evidence is not quoted from the learner's answer", ref.ID)
 		}
 		if answer.NoEvidence != (verdict.Verdict == o.NoEvidenceVerdict) {
@@ -1096,7 +1112,7 @@ func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc ope
 		met := 0
 		for _, cr := range ref.Item.Criteria {
 			result := verdict.Criteria[cr.ID]
-			if strings.TrimSpace(result.Evidence) == "" || !containsNorm(text, result.Evidence) {
+			if !quotesOpenEvidence(text, result.Evidence) {
 				return out, fmt.Errorf("open question %s criterion %s evidence is not quoted from the learner's answer", ref.ID, cr.ID)
 			}
 			if result.Met {
@@ -1138,7 +1154,7 @@ func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc ope
 			if !slicesContains(o.Verdicts, explanation.Verdict) {
 				return out, fmt.Errorf("open question %s uses unknown explanation verdict %q", ref.ID, explanation.Verdict)
 			}
-			if strings.TrimSpace(explanation.Evidence) == "" || !containsNorm(answer.Explanation, explanation.Evidence) {
+			if !quotesOpenEvidence(answer.Explanation, explanation.Evidence) {
 				return out, fmt.Errorf("open question %s explanation evidence is not quoted from the learner's explanation", ref.ID)
 			}
 			switch verdict.Verdict {
