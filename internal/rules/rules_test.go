@@ -32,6 +32,32 @@ func TestTheProductionRulesDeclareTheDefaultRegister(t *testing.T) {
 	}
 }
 
+// A rules snapshot carries the open-response contract version so an engine
+// cannot read a future shape as if it were this one.
+func TestOpenResponseContractRejectsAnUnknownVersion(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "rules", "deep.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	open := doc["thresholds"].(map[string]any)["openResponse"].(map[string]any)
+	open["version"] = 2
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "deep.json")
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "openResponse version") {
+		t.Fatalf("Load accepted openResponse version 2: %v", err)
+	}
+}
+
 func TestFrozenSnapshotsDeclareNoRegister(t *testing.T) {
 	for _, name := range []string{"rules-adaptive-diagnosis.json", "rules-fixed-diagnosis.json"} {
 		raw, err := os.ReadFile(filepath.Join("..", "engine", "testdata", name))

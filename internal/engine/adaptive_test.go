@@ -252,6 +252,7 @@ func TestFixedRulesFixtureMatchesProductionRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		delete(doc["thresholds"].(map[string]any), "diagnostic")
+		delete(doc["thresholds"].(map[string]any), "openResponse")
 		return doc
 	}
 	if !reflect.DeepEqual(load(repoRulesPath), load(adaptiveRulesPath)) {

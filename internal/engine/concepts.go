@@ -39,6 +39,26 @@ func (r reasoning) complete() bool {
 	return strings.TrimSpace(r.text()) != ""
 }
 
+func loadReasoningForAnswers(ws, rel string, th rules.Thresholds) (map[string]reasoning, error) {
+	why, err := loadReasoning(ws, rel)
+	if err != nil {
+		return nil, err
+	}
+	if !th.OpenResponseMode() || answerFileMissing(ws, rel) {
+		return why, nil
+	}
+	openAnswers, err := loadOpenAnswers(ws, rel)
+	if err != nil {
+		return why, nil
+	}
+	for id, answer := range openAnswers {
+		if _, exists := why[id]; !exists {
+			why[id] = reasoning{Razonamiento: openResponseText(answer, *th.OpenResponse)}
+		}
+	}
+	return why, nil
+}
+
 // loadReasoning reads the razonamientos of an answers file; a missing file or
 // field has none.
 func loadReasoning(ws, rel string) (map[string]reasoning, error) {
@@ -198,11 +218,11 @@ func evalConceptVerdicts(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	answers := map[string]string{}
 	if !answerFileMissing(c.ws, aRel) {
-		if answers, err = loadAnswers(c.ws, aRel); err != nil {
+		if answers, err = loadLegacyOrOpenAnswers(c.ws, aRel); err != nil {
 			return skipCheck(decl.ID, "answers unavailable; verdicts cannot be checked: "+err.Error())
 		}
 	}
-	why, err := loadReasoning(c.ws, aRel)
+	why, err := loadReasoningForAnswers(c.ws, aRel, c.r.Thresholds)
 	if err != nil {
 		return failCheck(decl.ID, err.Error())
 	}
