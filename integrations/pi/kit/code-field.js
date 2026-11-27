@@ -5,9 +5,9 @@
    as before. `isCode` says which answers the engine marks as code. No side effects. */
 window.lkCodeField = (() => {
   const MAX_ROWS = 18;
-  // A code answer is marked two ways: a question's pieza of tipo codigo, or a code language on an exercise. A pieza that
-  // names a language (a code output) also makes its question a code question.
-  const isCode = (item) => item?.pieza?.tipo === 'codigo' || Boolean(item?.lenguaje || item?.pieza?.lenguaje);
+  // A code answer is marked by the open contract, a pieza of tipo codigo, or a code language on an exercise. A pieza
+  // that names a language (a code output) also makes its question a code question.
+  const isCode = (item) => item?.open?.kind === 'code' || item?.pieza?.tipo === 'codigo' || Boolean(item?.lenguaje || item?.pieza?.lenguaje);
   const enhanced = new WeakSet();
 
   // Size the box to what it holds: the authored rows as a floor, one extra row per line typed, 18 rows as a cap. Only

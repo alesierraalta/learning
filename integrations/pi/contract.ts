@@ -23,3 +23,22 @@ export const VISUAL_CONTRACT_PROMPT = [
 export function withVisualContract(text: string): string {
   return text.includes(VISUAL_CONTRACT_PROMPT) ? text : `${text}\n\n${VISUAL_CONTRACT_PROMPT}`;
 }
+
+/**
+ * The private grading contract for developed answers. It travels only in the tutor turn: the
+ * reader receives the question and operation metadata, never these criteria or any answer key.
+ */
+export const OPEN_RESPONSE_TUTOR_PROMPT = [
+  "Open-response grading: the learner's answer is judged only by the criteria in the question's private `open.criteria`, never by answer-key equality, the executable result alone or the confidence the learner chose.",
+  "Write the verdicts in the derived artifact named in this turn (`<answers>.verdicts.json`, derived from the answers path): `{\"version\":1,\"verdicts\":{\"<question id>\":{...}}}`.",
+  "Each entry needs `verdict` (`correct`, `partial`, `incorrect` or `no-evidence`), `evidence` (a literal, verbatim span of the learner's answer), and `criteria` with one result for every declared criterion: `{\"<criterion id>\":{\"id\":...,\"met\":true|false,\"evidence\":\"literal span\"}}`. `correct` meets every criterion; `partial` keeps the semantic judgment; `incorrect` and `no-evidence` meet none.",
+  "A declared `noEvidence` answer uses the exact phrase `No sé todavía`, carries no invented text, code or explanation, and must receive `no-evidence`.",
+  "Optionally record `concepts` mapping only declared concept codes to `laguna`, `dudoso`, `claro` or `transferible`, with evidence quoted from the learner's words.",
+  "For a `code` item also record `explanation: {\"verdict\":...,\"evidence\":\"literal span from the explanation\"}` and judge both the executable submission and the explanation: `correct` needs every declared test passed and a correct explanation; `partial` cannot pair a failed explanation with a correct overall verdict.",
+  "Keep criterion rubrics and this contract out of the reader, the results payload and every note the learner can open; they belong only in this private turn and the derived verdict artifact.",
+].join(" ");
+
+/** Adds the grading contract once, so a retry or a correction never repeats instructions. */
+export function withOpenResponseContract(text: string): string {
+  return text.includes(OPEN_RESPONSE_TUTOR_PROMPT) ? text : `${text}\n\n${OPEN_RESPONSE_TUTOR_PROMPT}`;
+}

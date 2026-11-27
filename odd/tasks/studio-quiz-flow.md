@@ -29,6 +29,12 @@ window.parent.postMessage({
 
 `"*"` is acceptable: the bridge's CSP `frame-ancestors` restricts embedders to the studio, and the studio accepts the message only when `event.source` is the reader frame's `contentWindow`. A standalone page (not framed) keeps its current inline results.
 
+### Open responses (issue #471/T2)
+
+Versioned open items add an additive payload; the legacy `score`/`chosen`/`correct`/`ok` message above is unchanged byte-for-byte for old quizzes. An open assessment posts `open: true`, no `score`, and `openFeedback` entries `{ id, verdict, evidence, criteria: [{ id, met, evidence }], concepts?, explanation?, executable?, next }`. `verdict` is `pending` until the tutor writes the derived `.verdicts.json`, then one of `correct`, `partial`, `incorrect` or `no-evidence`. The reader posts `openAnswers` in T1's shape (`{ kind, text? | code + explanation + submission?, confidence?, noEvidence? }`); the bridge derives the submission path, so no client-supplied path or key is trusted. The studio polls `api/verdicts?tema=<topic>&parte=<part|quiz>` after the topic's task settles and redraws only verdict, verbatim evidence and the targeted next step; criteria rubrics never cross that route. The results page shows «Respuestas enviadas al tutor» with no percentage until a real verdict exists, then one feedback block per question.
+
+A versioned all-open `cuestionario-final.json` uses the same contract: the studio opens `#/leer/<topic>/final_quiz`, the reader serves `api/quiz?topic=<topic>&part=final_quiz`, and the submission is `kind: "final", part: "final_quiz"`. Fingerprints in `cuestionario-final.answers.json` bind answers to the final and to each question; the derived `cuestionario-final.verdicts.json` is the only source of correctness, and the studio reads it through `api/verdicts?tema=<topic>&parte=final_quiz`. Public payloads carry question metadata and verbatim feedback only, never criteria, `respuesta` or a score. A historical mixed final keeps its note and engine flow: it gets no final reader link and its answer file is not migrated.
+
 ## Tasks
 
 | ID | Specs | Route | Commit |
