@@ -25,6 +25,7 @@ import { cachedRunnerList, CodeRunError, DockerDaemonError, ImageMissingError, l
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
 import { gateVerdictsFile as defaultGateVerdictsFile, getGateVerdict, type GateVerdictOptions } from "./gate-verdicts.ts";
 import { materiaForTopic } from "../../studio/materias.ts";
+import { withOpenResponseContract } from "./contract.ts";
 
 const VIEW_DIR = join(dirname(fileURLToPath(import.meta.url)), "view");
 const KIT_DIR = join(dirname(fileURLToPath(import.meta.url)), "kit");
@@ -70,10 +71,17 @@ const staticVersion = (() => {
 })();
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_TEXT_CHARS = 8000;
+const MAX_CODE_CHARS = 100_000;
 const CHOICES = new Set(["A", "B", "C", "D", "E"]);
+const OPEN_VERDICTS = ["pending", "correct", "partial", "incorrect", "no-evidence"] as const;
+type OpenVerdict = (typeof OPEN_VERDICTS)[number];
 /** How sure the learner was of each answer, as shown in the chat message. */
 const CONFIDENCE: Record<string, string> = { seguro: "seguro", dudo: "dudo", adivine: "adiviné" };
+const OPEN_STATES = new Set(["laguna", "dudoso", "claro", "transferible"]);
+const OPEN_ERROR_TYPES = new Set(["missing-knowledge", "misconception", "incomplete-reasoning", "application-failure", "transfer-failure"]);
+const OPEN_ACTIONS = new Set(["prerequisite-review", "corrective-explanation", "guided-practice", "transfer-work", "advance"]);
 const DIAGNOSIS = "quiz";
+const FINAL_QUIZ = "final_quiz";
 const EMBED_SEARCH_DEPTH = 4;
 
 export const CDN_SCRIPTS = [
@@ -142,6 +150,16 @@ interface PlanPart {
   slug: string;
   visualsPlanned?: boolean;
 }
+interface OpenCriterion { id: string; rubric: string }
+interface OpenItem {
+  version: number;
+  kind: string;
+  operation: string;
+  depth: string;
+  centrality: string;
+  concepts: string[];
+  criteria: OpenCriterion[];
+}
 interface Question {
   id: string;
   enunciado: string;
@@ -149,6 +167,37 @@ interface Question {
   answer: string;
   pieza?: unknown;
   round?: number;
+  open?: OpenItem;
+}
+interface OpenAnswer {
+  kind: string;
+  text?: string;
+  code?: string;
+  explanation?: string;
+  submission?: string;
+  confidence?: string;
+  noEvidence?: boolean;
+}
+interface OpenCriterionFeedback { id: string; met: boolean; evidence: string }
+interface OpenTeachingFeedback {
+  errorType: string;
+  evidence: string;
+  action: string;
+  rationale: string;
+  next: string;
+}
+interface OpenFeedback {
+  id: string;
+  verdict: OpenVerdict;
+  evidence: string;
+  criteria: OpenCriterionFeedback[];
+  concepts?: Record<string, string>;
+  explanation?: { verdict: string; evidence: string } | null;
+  executable?: { saved: string; aprobados: number; total: number; aviso?: string } | null;
+  teaching?: OpenTeachingFeedback;
+  confidence?: string;
+  calibration?: string;
+  next: string;
 }
 interface Reasoning {
   razonamiento?: string;
@@ -175,6 +224,9 @@ interface AnswerFile {
    * stale by definition: an answers file is not proof of «answered», only of «answered this quiz» (#416).
    */
   quiz?: string;
+  openAnswers?: Record<string, OpenAnswer>;
+  /** Per-question fingerprints let a diagnosis grow a new round without invalidating earlier answers. */
+  openQuiz?: Record<string, string>;
 }
 
 const AUDIO_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -237,9 +289,19 @@ function readQuestions(file: string): Question[] | undefined {
   const quiz = readRecord(file);
   if (!quiz || !Array.isArray(quiz.questions)) return undefined;
   return quiz.questions.filter(
-    (q): q is Question =>
-      isRecord(q) && typeof q.id === "string" && typeof q.enunciado === "string" && isRecord(q.options) && typeof q.answer === "string",
-  );
+    (q): q is Question => {
+      if (!isRecord(q) || typeof q.id !== "string" || typeof q.enunciado !== "string") return false;
+      const open = isRecord(q.open) && typeof q.open.kind === "string" && Number.isInteger(q.open.version) &&
+        typeof q.open.operation === "string" && Array.isArray(q.open.concepts) && Array.isArray(q.open.criteria);
+      return open || isRecord(q.options) && typeof q.answer === "string";
+    },
+  ).map((q) => ({ ...q, options: isRecord(q.options) ? q.options : {}, answer: typeof q.answer === "string" ? q.answer : "" }));
+}
+
+/** Only a versioned all-open final has a reader; a historical mixed final keeps its note and engine flow. */
+function readOpenFinalQuestions(dir: string): Question[] | undefined {
+  const questions = readQuestions(join(dir, "cuestionario-final.json"));
+  return questions && questions.length > 0 && questions.every((q) => q.open) ? questions : undefined;
 }
 
 /** New records hold one thought; older ones hold the two prompts we merged. */
@@ -254,17 +316,25 @@ const thought = (reasoning: Reasoning | undefined): string =>
 function readAnswers(file: string): AnswerFile | undefined {
   const data = readRecord(file);
   if (!data) return undefined;
-  if (!isRecord(data.answers)) {
+  if (!isRecord(data.answers) && !isRecord(data.openAnswers)) {
     throw new HttpError(409, `recorded answers are unreadable: ${file}`);
   }
-  const answers = Object.fromEntries(Object.entries(data.answers).filter((e): e is [string, string] => typeof e[1] === "string"));
+  const answers = isRecord(data.answers)
+    ? Object.fromEntries(Object.entries(data.answers).filter((e): e is [string, string] => typeof e[1] === "string"))
+    : {};
   const razonamientos = isRecord(data.razonamientos)
     ? Object.fromEntries(Object.entries(data.razonamientos).filter((e): e is [string, Reasoning] => isReasoning(e[1])))
     : {};
   const exercises = isRecord(data.exercises)
     ? Object.fromEntries(Object.entries(data.exercises).filter((e): e is [string, string] => typeof e[1] === "string"))
     : undefined;
-  return { answers, razonamientos, ...(exercises ? { exercises } : {}), ...(typeof data.quiz === "string" ? { quiz: data.quiz } : {}) };
+  const openAnswers = isRecord(data.openAnswers)
+    ? Object.fromEntries(Object.entries(data.openAnswers).filter((e): e is [string, OpenAnswer] => isRecord(e[1]) && typeof e[1].kind === "string"))
+    : undefined;
+  const openQuiz = isRecord(data.openQuiz)
+    ? Object.fromEntries(Object.entries(data.openQuiz).filter((e): e is [string, string] => typeof e[1] === "string"))
+    : undefined;
+  return { answers, razonamientos, ...(exercises ? { exercises } : {}), ...(typeof data.quiz === "string" ? { quiz: data.quiz } : {}), ...(openAnswers ? { openAnswers } : {}), ...(openQuiz ? { openQuiz } : {}) };
 }
 
 /** Concept verdicts the tutor recorded (feedback/{part}.json or diagnostico-conceptos.json). */
@@ -310,7 +380,9 @@ const shownLetter = (q: Question, order: string[], tutor: string): string => sho
 const tutorLetter = (q: Question, order: string[], shown: string): string => order[shownLetters(q).indexOf(shown)] ?? shown;
 
 /** The browser never receives answer keys before the learner answers; its options come in the learner's order. */
-const publicQuestion = (q: Question, order: string[]) => ({ id: q.id, enunciado: q.enunciado, options: shownOptions(q, order), pieza: q.pieza, round: q.round });
+const publicQuestion = (q: Question, order: string[]) => q.open
+  ? { id: q.id, enunciado: q.enunciado, pieza: q.pieza, round: q.round, open: { version: q.open.version, kind: q.open.kind, operation: q.open.operation, depth: q.open.depth, centrality: q.open.centrality, concepts: q.open.concepts } }
+  : { id: q.id, enunciado: q.enunciado, options: shownOptions(q, order), pieza: q.pieza, round: q.round };
 
 const grade = (q: Question, chosen: string): Graded => ({ id: q.id, chosen, correct: q.answer, ok: chosen === q.answer });
 
@@ -341,6 +413,180 @@ function gradeRecorded(questions: Question[], recorded: AnswerFile | undefined, 
   return questions
     .filter((q) => q.id in recorded.answers)
     .map((q) => ({ ...shownGrade(q, orderOf(q), grade(q, recorded.answers[q.id])), ...recorded.razonamientos[q.id] }));
+}
+
+/** Derived exactly like the engine derives it, so the page and the grading engine read the same verdict. */
+function openVerdictRel(answersRel: string): string {
+  return answersRel.endsWith(".answers.json")
+    ? answersRel.slice(0, -".answers.json".length) + ".verdicts.json"
+    : `${answersRel}.verdicts.json`;
+}
+
+const literalQuote = (text: string, quote: string): boolean => {
+  const span = quote.trim();
+  return span !== "" && text.includes(span);
+};
+
+/** A recorded open answer belongs to the question it was written for, not to a regenerated one. */
+function openAnswersAnswerQuiz(recorded: AnswerFile | undefined, questions: Question[], partial: boolean): boolean {
+  if (!recorded?.openAnswers || Object.keys(recorded.answers).length > 0) return false;
+  const stored = recorded.openAnswers;
+  if (!Object.keys(stored).length) return false;
+  const byId = new Map(questions.map((q) => [q.id, q]));
+  if (Object.keys(stored).some((id) => !byId.has(id))) return false;
+  if (!partial && recorded.quiz !== quizFingerprint(questions)) return false;
+  return Object.entries(stored).every(([id]) => recorded.openQuiz?.[id] === quizFingerprint([byId.get(id)!]));
+}
+
+function openVerdictEntries(dir: string, answersFile: string): Record<string, unknown> {
+  try {
+    const verdictFile = openVerdictRel(answersFile);
+    const doc = readRecord(isAbsolute(verdictFile) ? verdictFile : join(dir, verdictFile));
+    return isRecord(doc?.verdicts) ? doc.verdicts : {};
+  } catch { return {}; }
+}
+
+/** A diagnosis round opens only after the previous round has answers and the tutor's verdicts. */
+function visibleDiagnosisQuestions(dir: string, questions: Question[], answersFile: string): Question[] {
+  if (!questions.some((question) => question.open)) return questions;
+  const recorded = readAnswers(answersFile);
+  const answers = recorded?.openAnswers ?? {};
+  const verdicts = openVerdictEntries(dir, answersFile);
+  const rounds = new Map<number, Question[]>();
+  for (const question of questions) {
+    const round = question.round ?? 1;
+    rounds.set(round, [...(rounds.get(round) ?? []), question]);
+  }
+  let visible = 1;
+  for (let round = 2; rounds.has(round); round += 1) {
+    const previous = rounds.get(round - 1) ?? [];
+    if (!previous.length || !previous.every((question) => Boolean(answers[question.id]) && isRecord(verdicts[question.id]))) break;
+    visible = round;
+  }
+  return questions.filter((question) => (question.round ?? 1) <= visible);
+}
+
+/** The studio reads the same verdict view the reader does, without serving the rubric itself. */
+export function openFeedbackForAssessment(dir: string, part: string): OpenFeedback[] {
+  if (part === FINAL_QUIZ) {
+    const final = readOpenFinalQuestions(dir);
+    return final ? readOpenFeedback(dir, join(dir, "cuestionario-final.answers.json"), final) : [];
+  }
+  const diagnosis = part === DIAGNOSIS;
+  const questionsFile = diagnosis ? join(dir, "quiz.json") : join(dir, "mini-quiz", `${part}.json`);
+  const answersFile = diagnosis ? join(dir, "quiz.answers.json") : join(dir, "mini-quiz", `${part}.answers.json`);
+  const all = readQuestions(questionsFile);
+  const questions = diagnosis && all ? visibleDiagnosisQuestions(dir, all, answersFile) : all;
+  return questions ? readOpenFeedback(dir, answersFile, questions) : [];
+}
+
+function openCalibration(confidence: string | undefined, verdict: OpenVerdict): string {
+  if (!confidence) return "unknown";
+  if (confidence === "seguro") return verdict === "correct" ? "aligned" : "overconfident";
+  if (confidence === "adivine") return verdict === "correct" || verdict === "partial" ? "underconfident" : "aligned";
+  return verdict === "correct" ? "underconfident" : "aligned";
+}
+
+/** Only literal tutor words that cannot name a private rubric or key reach the learner. */
+function safeLearnerText(value: unknown, question: Question): string {
+  if (typeof value !== "string") return "";
+  const text = value.replace(/\s+/g, " ").trim().slice(0, 240);
+  if (!text) return "";
+  const secrets = [...question.open!.criteria.map((criterion) => criterion.rubric), question.answer]
+    .map((secret) => secret.replace(/\s+/g, " ").trim())
+    .filter((secret) => secret.length > 8);
+  const lower = text.toLowerCase();
+  if (secrets.some((secret) => lower.includes(secret.toLowerCase()))) return "";
+  return text;
+}
+
+function openTeachingView(raw: unknown, answer: OpenAnswer, text: string, question: Question): OpenTeachingFeedback | undefined {
+  if (!isRecord(raw)) return undefined;
+  const errorType = typeof raw.errorType === "string" && OPEN_ERROR_TYPES.has(raw.errorType) ? raw.errorType : "";
+  const evidence = typeof raw.evidence === "string" && literalQuote(text, raw.evidence) ? raw.evidence.trim() : "";
+  const action = typeof raw.action === "string" && OPEN_ACTIONS.has(raw.action) ? raw.action : "";
+  if (!action || (errorType && !evidence)) return undefined;
+  return {
+    errorType, evidence, action,
+    rationale: safeLearnerText(raw.rationale, question),
+    next: safeLearnerText(raw.next, question),
+  };
+}
+
+function openNext(verdict: OpenVerdict, criteria: OpenCriterionFeedback[], concepts: Record<string, string>, teaching?: OpenTeachingFeedback): string {
+  if (verdict === "pending") return "El tutor todavía está revisando tu respuesta.";
+  if (teaching?.next) return teaching.next;
+  if (teaching?.action === "prerequisite-review") return "Repasa la base que falta y vuelve a intentarlo con tus palabras.";
+  if (teaching?.action === "corrective-explanation") return "Contrasta tu respuesta con un contraejemplo y corrigela.";
+  if (teaching?.action === "guided-practice") return "Practica otro caso con la misma idea y explica cada paso.";
+  if (teaching?.action === "transfer-work") return "Lleva la idea a un caso nuevo y explica qué cambia.";
+  if (teaching?.action === "advance") return "Retoma esta idea en un caso nuevo para hacerla tuya.";
+  if (verdict === "correct") return "Retoma esta idea en un caso nuevo para hacerla tuya.";
+  if (verdict === "no-evidence") return "Empieza por lo que la pregunta pide y escribe aunque sea una primera hipótesis.";
+  const missing = criteria.filter((c) => !c.met).map((c) => c.id);
+  const gap = Object.entries(concepts).filter(([, state]) => state === "laguna" || state === "dudoso").map(([code]) => code);
+  const target = missing.length ? `Revisa el criterio ${missing.join(", ")}` : gap.length ? `Repasa ${gap.join(", ")}` : "Revisa tu explicación";
+  return verdict === "incorrect" ? `${target} y vuelve a responder con un ejemplo concreto.` : `${target} y añade lo que falta con tus palabras.`;
+}
+
+/**
+ * The learner-facing view of the tutor's derived verdict. Nothing here carries a rubric or a key: only
+ * the verdict, the literal spans the tutor quoted, and one next step. Absent or untrustworthy verdicts
+ * stay pending rather than being guessed from a runner result or a confidence choice.
+ */
+export function readOpenFeedback(dir: string, answersFile: string, questions: Question[]): OpenFeedback[] {
+  const recorded = readAnswers(answersFile);
+  if (!openAnswersAnswerQuiz(recorded, questions, true)) return [];
+  const answers = recorded!.openAnswers!;
+  let doc: Record<string, unknown> | undefined;
+  const verdictFile = openVerdictRel(answersFile);
+  try { doc = readRecord(isAbsolute(verdictFile) ? verdictFile : join(dir, verdictFile)); } catch { doc = undefined; }
+  const verdicts = isRecord(doc?.verdicts) ? doc.verdicts : {};
+  return questions.filter((q) => answers[q.id] && recorded!.openQuiz?.[q.id] === quizFingerprint([q])).map((q) => {
+    const answer = answers[q.id];
+    const text = answer.noEvidence ? "No sé todavía" : `${answer.text ?? ""}\n${answer.code ?? ""}\n${answer.explanation ?? ""}`;
+    const raw = verdicts[q.id];
+    const entry = isRecord(raw) ? raw : undefined;
+    const verdict: OpenVerdict = entry && (OPEN_VERDICTS as readonly string[]).includes(String(entry.verdict)) &&
+      literalQuote(text, String(entry.evidence ?? "")) ? entry.verdict as OpenVerdict : "pending";
+    const criteria: OpenCriterionFeedback[] = [];
+    if (verdict !== "pending" && isRecord(entry!.criteria)) {
+      for (const cr of q.open!.criteria) {
+        const result = entry!.criteria[cr.id];
+        if (!isRecord(result) || typeof result.met !== "boolean" || !literalQuote(text, String(result.evidence ?? ""))) continue;
+        criteria.push({ id: cr.id, met: result.met, evidence: String(result.evidence).trim() });
+      }
+    }
+    const concepts: Record<string, string> = {};
+    if (verdict !== "pending" && isRecord(entry!.concepts)) {
+      for (const [code, state] of Object.entries(entry!.concepts)) {
+        if (q.open!.concepts.includes(code) && typeof state === "string" && OPEN_STATES.has(state)) concepts[code] = state;
+      }
+    }
+    const teaching = verdict !== "pending" ? openTeachingView(entry!.teaching, answer, text, q) : undefined;
+    const explanation = verdict !== "pending" && isRecord(entry!.explanation) &&
+      typeof entry!.explanation.verdict === "string" && literalQuote(answer.explanation ?? "", String(entry!.explanation.evidence ?? ""))
+      ? { verdict: String(entry!.explanation.verdict), evidence: String(entry!.explanation.evidence).trim() }
+      : null;
+    let executable: OpenFeedback["executable"] = null;
+    if (answer.submission) {
+      const contained = resolveContained(dir, join(dir, answer.submission));
+      if (contained.ok) {
+        try {
+          const run = readRecord(contained.targetReal);
+          if (run && run.codigo === answer.code && Number.isInteger(run.aprobados) && Number.isInteger(run.total)) {
+            executable = { saved: answer.submission, aprobados: Number(run.aprobados), total: Number(run.total), ...(typeof run.aviso === "string" ? { aviso: run.aviso } : {}) };
+          }
+        } catch { /* a damaged submission is not evidence of a result */ }
+      }
+    }
+    return {
+      id: q.id, verdict, evidence: verdict === "pending" ? "" : String(entry!.evidence).trim(), criteria, ...(Object.keys(concepts).length ? { concepts } : {}),
+      ...(q.open!.kind === "code" ? { explanation, executable } : {}),
+      ...(teaching ? { teaching } : {}), confidence: answer.confidence, calibration: openCalibration(answer.confidence, verdict),
+      next: openNext(verdict, criteria, concepts, teaching),
+    };
+  });
 }
 
 /**
@@ -1397,8 +1643,9 @@ function answersAnswerQuiz(recorded: AnswerFile | undefined, questions: Question
 
 const ALLOWED_KEYS: Record<string, Set<string>> = {
   "quick-quiz": new Set(["kind", "topic", "part", "note", "id", "chosen"]),
-  "mini-quiz": new Set(["kind", "topic", "part", "answers", "reasoning", "ownWords", "exercises"]),
-  diagnosis: new Set(["kind", "topic", "answers", "reasoning"]),
+  "mini-quiz": new Set(["kind", "topic", "part", "answers", "reasoning", "ownWords", "exercises", "openAnswers"]),
+  final: new Set(["kind", "topic", "part", "openAnswers"]),
+  diagnosis: new Set(["kind", "topic", "answers", "reasoning", "openAnswers"]),
   question: new Set(["kind", "topic", "part", "text", "demo"]),
   video: new Set(["kind", "topic", "part"]),
   audio: new Set(["kind", "topic", "part", "style"]),
@@ -1518,6 +1765,7 @@ function viewPath(rootReal: string, topic: unknown, part: unknown): string {
     exerciseFile(dir, id);
     return `${encodeURIComponent(topic)}/codigo/${encodeURIComponent(id)}`;
   }
+  if (part === FINAL_QUIZ && readOpenFinalQuestions(dir)) return `${encodeURIComponent(topic)}/${FINAL_QUIZ}`;
   const plan = readPlan(dir);
   const known =
     part === DIAGNOSIS
@@ -1550,6 +1798,7 @@ export interface TopicSummary {
   id: string;
   title: string;
   hasDiagnosis: boolean;
+  hasFinal: boolean;
   parts: PartSummary[];
   exercises: { id: string; titulo: string; lenguaje: string; mejor: string | null }[];
   gaps: TopicGaps;
@@ -1880,9 +2129,9 @@ export function listTopics(rootReal: string, runners = loadRunners()): TopicSumm
         };
         const exam = readTopicExam(dir);
         const materia = materiaForTopic(rootReal, e.name);
-        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), parts, exercises, gaps, materia, ...(exam ? { exam } : {}) }];
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: existsSync(join(dir, "quiz.json")), hasFinal: readOpenFinalQuestions(dir) !== undefined, parts, exercises, gaps, materia, ...(exam ? { exam } : {}) }];
       } catch {
-        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: false, parts: [], exercises: [], gaps: EMPTY_GAPS, materia: materiaForTopic(rootReal, e.name) }];
+        return [{ id: e.name, title: plan?.topic || e.name, hasDiagnosis: false, hasFinal: false, parts: [], exercises: [], gaps: EMPTY_GAPS, materia: materiaForTopic(rootReal, e.name) }];
       }
     });
 }
@@ -1914,6 +2163,8 @@ export interface BridgeOptions {
   gateVerdictsFile?: string;
   /** Override explain-check for deterministic tests. */
   gateToolPath?: string;
+  /** Override the code executor for tests that cannot run Docker. */
+  codeRunner?: (options: Parameters<typeof runCode>[0]) => Promise<RunResult>;
   /**
    * A secret the URL token is derived from, so a restart keeps the token and open pages keep
    * working; the token is a keyed hash, never the secret itself. Random per start when absent.
@@ -2178,7 +2429,9 @@ ${scripts}
     // Answers written against another quiz are not a verdict on this one: the reader shows the form
     // again instead of a dead, disabled «0/0», and the exercises keep their solutions hidden until
     // the learner actually answers this quiz. The rule is the same one the submit enforces (#416).
-    const answered = questions && answersAnswerQuiz(recorded, questions, quizFingerprint(questions)) ? recorded : undefined;
+    const openMode = Boolean(questions?.some((q) => q.open));
+    const openAnswered = questions && openAnswersAnswerQuiz(recorded, questions, false);
+    const answered = !openMode && questions && answersAnswerQuiz(recorded, questions, quizFingerprint(questions)) ? recorded : undefined;
     const revealSolutions = answered !== undefined;
     const orderFor = orderOf(miniScope(topic, partId));
     const noteText = obsidianToMarkdown(readFileSync(note, "utf8"), dir);
@@ -2194,7 +2447,8 @@ ${scripts}
       quiz: questions
         ? { questions: questions.map((q) => publicQuestion(q, orderFor(q))), exercises: partExercises(dir, partId, catalogueFor(dir).runners, revealSolutions) }
         : null,
-      answered: questions ? gradeRecorded(questions, answered, orderFor) : null,
+      answered: questions && !openMode ? gradeRecorded(questions, answered, orderFor) : null,
+      ...(openAnswered ? { openFeedback: readOpenFeedback(dir, answerFile, questions!) } : {}),
       ...(answered?.exercises ? { answeredExercises: answered.exercises } : {}),
       demos: partDemos(dir, partId),
       video: partVideoInfo(dir, plan, partId),
@@ -2208,20 +2462,27 @@ ${scripts}
     const partId = url.searchParams.get("part") ?? "";
     const dir = topicDir(topic);
     const plan = readPlan(dir);
-    if (!plan?.parts.some((p) => p.id === partId)) throw new HttpError(404, `part ${partId} is not in plan.json`);
-    const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
-    if (!questions) throw new HttpError(404, `part ${partId} has no mini-quiz`);
-    const answerFile = join(dir, "mini-quiz", `${partId}.answers.json`);
+    const diagnosis = partId === DIAGNOSIS;
+    const final = partId === FINAL_QUIZ;
+    if (!diagnosis && !final && !plan?.parts.some((p) => p.id === partId)) throw new HttpError(404, `part ${partId} is not in plan.json`);
+    const questionsFile = diagnosis ? join(dir, "quiz.json") : final ? join(dir, "cuestionario-final.json") : join(dir, "mini-quiz", `${partId}.json`);
+    const all = final ? readOpenFinalQuestions(dir) : readQuestions(questionsFile);
+    if (!all) throw new HttpError(404, final ? `topic ${topic} has no versioned all-open final quiz` : `part ${partId} has no mini-quiz`);
+    const answerFile = diagnosis ? join(dir, "quiz.answers.json") : final ? join(dir, "cuestionario-final.answers.json") : join(dir, "mini-quiz", `${partId}.answers.json`);
+    const questions = diagnosis ? visibleDiagnosisQuestions(dir, all, answerFile) : all;
     const recorded = readAnswers(answerFile);
+    const openMode = questions.some((q) => q.open);
     // The api/quiz payload the element reads follows the page: a stale file is no answered document (#416).
-    const answered = answersAnswerQuiz(recorded, questions, quizFingerprint(questions)) ? recorded : undefined;
-    const orderFor = orderOf(miniScope(topic, partId));
+    const answered = !openMode && answersAnswerQuiz(recorded, questions, quizFingerprint(questions)) ? recorded : undefined;
+    const openAnswered = openMode && (diagnosis ? Boolean(recorded?.openAnswers) : openAnswersAnswerQuiz(recorded, questions, false));
+    const orderFor = final ? (_q: Question) => [] : diagnosis ? orderOf(diagnosisScope(topic)) : orderOf(miniScope(topic, partId));
     sendJson(res, 200, {
       questions: questions.map((q) => publicQuestion(q, orderFor(q))),
-      exercises: partExercises(dir, partId, catalogueFor(dir).runners, answered !== undefined),
+      ...(diagnosis || final ? {} : { exercises: partExercises(dir, partId, catalogueFor(dir).runners, answered !== undefined) }),
       ...(answered?.exercises ? { answeredExercises: answered.exercises } : {}),
-      answered: gradeRecorded(questions, answered, orderFor),
-      verdicts: readVerdicts(join(dir, "feedback", `${partId}.json`)),
+      answered: openMode ? null : gradeRecorded(questions, answered, orderFor),
+      ...(openAnswered ? { openFeedback: readOpenFeedback(dir, answerFile, questions) } : {}),
+      verdicts: diagnosis ? readVerdicts(join(dir, "diagnostico-conceptos.json")) : final ? null : readVerdicts(join(dir, "feedback", `${partId}.json`)),
     });
   };
 
@@ -2276,12 +2537,38 @@ ${scripts}
     });
   };
 
+  const finalPage = (res: ServerResponse, topic: string) => {
+    const dir = topicDir(topic);
+    const questions = readOpenFinalQuestions(dir);
+    if (!questions) throw new HttpError(404, `topic ${topic} has no versioned all-open final quiz`);
+    const plan = readPlan(dir);
+    const answerFile = join(dir, "cuestionario-final.answers.json");
+    const recorded = readAnswers(answerFile);
+    page(res, "Cuestionario final", {
+      kind: "final",
+      topic,
+      part: FINAL_QUIZ,
+      title: "Cuestionario final",
+      topicTitle: plan?.topic || topic,
+      topicBase: `/${token}/${encodeURIComponent(topic)}/`,
+      quiz: { questions: questions.map((q) => publicQuestion(q, [])) },
+      answered: null,
+      ...(recorded?.openAnswers ? { openFeedback: readOpenFeedback(dir, answerFile, questions) } : {}),
+      demos: [],
+      verdicts: null,
+    }, topic);
+  };
+
   const diagnosisPage = (res: ServerResponse, topic: string) => {
     const dir = topicDir(topic);
-    const questions = readQuestions(join(dir, "quiz.json"));
-    if (!questions) throw new HttpError(404, `topic ${topic} has no diagnosis quiz`);
+    const all = readQuestions(join(dir, "quiz.json"));
+    if (!all) throw new HttpError(404, `topic ${topic} has no diagnosis quiz`);
     const plan = readPlan(dir);
     const orderFor = orderOf(diagnosisScope(topic));
+    const answerFile = join(dir, "quiz.answers.json");
+    const recorded = readAnswers(answerFile);
+    const questions = visibleDiagnosisQuestions(dir, all, answerFile);
+    const openMode = questions.some((q) => q.open);
     page(res, "Diagnóstico", {
       kind: "diagnosis",
       topic,
@@ -2289,7 +2576,8 @@ ${scripts}
       topicTitle: plan?.topic || topic,
       topicBase: `/${token}/${encodeURIComponent(topic)}/`,
       quiz: { questions: questions.map((q) => publicQuestion(q, orderFor(q))) },
-      answered: gradeRecorded(questions, readAnswers(join(dir, "quiz.answers.json")), orderFor),
+      answered: openMode ? null : gradeRecorded(questions, recorded, orderFor),
+      ...(openMode && recorded?.openAnswers ? { openFeedback: readOpenFeedback(dir, answerFile, questions) } : {}),
       demos: [],
       verdicts: readVerdicts(join(dir, "diagnostico-conceptos.json")),
     }, topic);
@@ -2432,6 +2720,139 @@ ${scripts}
     }
   };
 
+  const executeCode = options.codeRunner ?? runCode;
+  const openString = (raw: unknown, key: string, required: boolean, limit = MAX_TEXT_CHARS): string => {
+    if (raw === undefined && !required) return "";
+    if (typeof raw !== "string" || raw.length > limit || (required && raw.trim() === "")) {
+      throw new HttpError(400, `${key} must be ${required ? "a non-empty " : ""}string of at most ${limit} characters`);
+    }
+    return raw;
+  };
+
+  /** T1's answer shape, built on the server: the browser cannot choose a submission path or a verdict. */
+  const openAnswersFor = async (raw: unknown, questions: Question[], dir: string, runners: Record<string, Runner>, partial: boolean) => {
+    if (!isRecord(raw) || Object.keys(raw).length === 0) throw new HttpError(400, "openAnswers must be a non-empty object");
+    const byId = new Map(questions.filter((q) => q.open).map((q) => [q.id, q]));
+    // Diagnosis rounds answer a subset; a mini-quiz answers every item just as its letter-keyed form did.
+    if (Object.keys(raw).some((id) => !byId.has(id))) throw new HttpError(400, "openAnswers names an unknown question");
+    if (!partial && Object.keys(raw).length !== byId.size) throw new HttpError(400, "every open question must be answered");
+    const answers: Record<string, OpenAnswer> = {};
+    const runs: Record<string, { saved: string; aprobados: number; total: number }> = {};
+    for (const [id, value] of Object.entries(raw)) {
+      const q = byId.get(id);
+      if (!q?.open) throw new HttpError(400, `unknown open question id: ${id}`);
+      if (!isRecord(value)) throw new HttpError(400, `open answer ${id} must be an object`);
+      const keys = Object.keys(value);
+      const allowed = ["kind", "text", "code", "explanation", "submission", "confidence", "noEvidence"];
+      if (keys.some((key) => !allowed.includes(key))) throw new HttpError(400, `unknown field in open answer ${id}`);
+      if (keys.includes("submission")) throw new HttpError(400, `open answer ${id} cannot name its own submission`);
+      if (value.kind !== q.open.kind) throw new HttpError(400, `open answer ${id} is ${String(value.kind)}, want ${q.open.kind}`);
+      const confidence = openString(value.confidence, `confidence for ${id}`, false, 40);
+      if (confidence && !Object.hasOwn(CONFIDENCE, confidence)) throw new HttpError(400, `unknown confidence for ${id}`);
+      const answer: OpenAnswer = { kind: value.kind as string, ...(confidence ? { confidence } : {}) };
+      if (value.noEvidence === true) {
+        if (keys.some((key) => ["text", "code", "explanation", "submission"].includes(key))) {
+          throw new HttpError(400, `open answer ${id} declares no evidence but carries answer content`);
+        }
+        answers[id] = { ...answer, noEvidence: true };
+        continue;
+      }
+      if (value.noEvidence !== undefined) throw new HttpError(400, `open answer ${id} has an invalid noEvidence value`);
+      if (q.open.kind === "text") {
+        answers[id] = { ...answer, text: openString(value.text, `text for ${id}`, true) };
+        continue;
+      }
+      const code = openString(value.code, `code for ${id}`, true, MAX_CODE_CHARS);
+      const explanation = openString(value.explanation, `explanation for ${id}`, true);
+      let file: string;
+      try { file = exerciseFile(dir, id); }
+      catch (error) {
+        if (error instanceof CodeRunError) throw new HttpError(400, `open question ${id} has no executable exercise`);
+        throw error;
+      }
+      const ex = readExercise(file, viewRunners(dir, runners));
+      const runner = runners[ex.lenguaje];
+      if (!runner) throw new HttpError(422, `no runner for ${ex.lenguaje}`);
+      const result = await executeCode({
+        runner, code, tests: ex.tests, limitSeconds: ex.limite_segundos,
+        ...(ex.setupFile ? { setupFileContent: readSeed(dirname(file), ex.setupFile) } : {}),
+      });
+      if (result.total < 1) throw new HttpError(422, `the code for ${id} could not be executed here`);
+      const savedFile = saveSubmission(dirname(file), { ...result, lenguaje: ex.lenguaje, codigo: code });
+      const saved = relative(dir, savedFile).split(sep).join("/");
+      answers[id] = { ...answer, code, explanation, submission: saved };
+      runs[id] = { saved, aprobados: result.aprobados, total: result.total };
+    }
+    return { answers, runs };
+  };
+
+  const openMessage = (header: string, saved: string, questions: Question[], answers: Record<string, OpenAnswer>, runs: Record<string, { saved: string; aprobados: number; total: number }>, verdictRel: string): string => {
+    const lines = [header, `Respuestas desarrolladas guardadas en ${saved}. Corrígele con el contrato privado de evaluación; no hay clave de respuesta.`];
+    for (const q of questions.filter((question) => answers[question.id])) {
+      const answer = answers[q.id];
+      lines.push(`- ${q.id}: ${q.enunciado}`);
+      lines.push(`  Operación: ${q.open!.operation} · profundidad ${q.open!.depth} · centralidad ${q.open!.centrality} · conceptos ${q.open!.concepts.join(", ")}`);
+      for (const cr of q.open!.criteria) lines.push(`  Criterio ${cr.id} (solo tutor): ${cr.rubric}`);
+      if (answer.noEvidence) lines.push("  Respuesta: No sé todavía (sin texto, código ni explicación inventados)");
+      else {
+        if (answer.text) lines.push(`  Texto: ${indented(answer.text)}`);
+        if (answer.code) lines.push(`  Código:\n${indented(answer.code)}`);
+        if (answer.explanation) lines.push(`  Explicación: ${indented(answer.explanation)}`);
+        const run = runs[q.id];
+        if (run) lines.push(`  Entrega: ${run.saved} · pruebas ${run.aprobados}/${run.total}`);
+      }
+      if (answer.confidence) lines.push(`  Confianza del alumno (informativa): ${CONFIDENCE[answer.confidence]}`);
+    }
+    lines.push(`Veredicto derivado: ${verdictRel}`);
+    return withOpenResponseContract(lines.join("\n"));
+  };
+
+  const pendingOpenFeedback = (answers: Record<string, OpenAnswer>): OpenFeedback[] =>
+    Object.keys(answers).map((id) => ({ id, verdict: "pending", evidence: "", criteria: [], next: openNext("pending", [], {}) }));
+
+  const openSubmit = async (
+    payload: Record<string, unknown>, dir: string, header: string, saved: string,
+    questions: Question[], partial: boolean, answer: (body: unknown) => void,
+  ) => {
+    if (questions.some((q) => !q.open)) throw new HttpError(400, "an assessment cannot mix open and multiple-choice items");
+    if (payload.answers !== undefined || payload.reasoning !== undefined || payload.ownWords !== undefined) {
+      throw new HttpError(400, "an open assessment takes openAnswers, not letters or reasoning by choice");
+    }
+    const runners = catalogueFor(dir).runners;
+    const { answers, runs } = await openAnswersFor(payload.openAnswers, questions, dir, runners, partial);
+    const file = join(dir, saved);
+    const recorded = readAnswers(file);
+    if (recorded && Object.keys(recorded.answers).length) {
+      throw new HttpError(409, `A legacy answer file owns ${saved}; regenerate the assessment before answering it as open. ${SAVED_HINT}`);
+    }
+    const fingerprint = quizFingerprint(questions);
+    if (recorded?.openAnswers) {
+      const byId = new Map(questions.map((q) => [q.id, q]));
+      const repeated = Object.keys(answers).find((id) => recorded.openAnswers![id]);
+      if (repeated) throw new HttpError(409, `Ya respondiste ${repeated}. ${SAVED_HINT}`);
+      if (!partial && recorded.quiz !== fingerprint) throw new HttpError(409, `These answers belong to another quiz. ${SAVED_HINT}`);
+      if (Object.entries(recorded.openAnswers).some(([id]) => !byId.has(id) || recorded.openQuiz?.[id] !== quizFingerprint([byId.get(id)!]))) {
+        throw new HttpError(409, `These answers belong to another quiz. ${SAVED_HINT}`);
+      }
+    }
+    writeOpenAnswers(file, recorded, answers, questions);
+    const verdictRel = openVerdictRel(saved);
+    await deliver(openMessage(header, saved, questions, answers, runs, verdictRel));
+    answer({ open: true, queued: false, results: Object.keys(answers).map((id) => ({ id, verdict: "pending" })), openFeedback: pendingOpenFeedback(answers), saved });
+  };
+
+  const writeOpenAnswers = (file: string, recorded: AnswerFile | undefined, answers: Record<string, OpenAnswer>, questions: Question[]) => {
+    const openAnswers = { ...(recorded?.openAnswers ?? {}), ...answers };
+    const openQuiz = { ...(recorded?.openQuiz ?? {}) };
+    for (const q of questions) if (answers[q.id]) openQuiz[q.id] = quizFingerprint([q]);
+    writeAtomic(file, `${JSON.stringify({
+      razonamientos: recorded?.razonamientos ?? {},
+      quiz: quizFingerprint(questions),
+      openAnswers,
+      openQuiz,
+    }, null, 2)}\n`);
+  };
+
   const codeRequest = async (
     res: ServerResponse, payload: Record<string, unknown>, submit: boolean,
     claim: { ticket: Promise<WriterTicket | null>; queued: boolean } = { ticket: Promise.resolve(null), queued: false },
@@ -2452,7 +2873,7 @@ ${scripts}
     if (!runner) result = unavailableRun(exerciseNotice(ex.lenguaje));
     else {
       try {
-        result = await runCode({
+        result = await executeCode({
           runner, code: payload.code, tests, limitSeconds: ex.limite_segundos,
           ...(ex.setupFile ? { setupFileContent: readSeed(dirname(file), ex.setupFile) } : {}),
         });
@@ -2660,7 +3081,8 @@ ${scripts}
     const topic = payload.topic as string;
     const plan = readPlan(dir);
     const partId = payload.part;
-    if (partId !== undefined && (typeof partId !== "string" || !plan?.parts.some((p) => p.id === partId))) {
+    if (partId !== undefined && (typeof partId !== "string" ||
+      !(partId === FINAL_QUIZ && kind === "final" || plan?.parts.some((p) => p.id === partId)))) {
       throw new HttpError(400, "part is not in plan.json");
     }
     // Both request branches name a file of a part, so a plan is needed; an absent
@@ -2779,10 +3201,20 @@ ${scripts}
       return;
     }
 
+    if (kind === "final") {
+      if (partId !== FINAL_QUIZ) throw new HttpError(400, `part must be ${FINAL_QUIZ}`);
+      const questions = readOpenFinalQuestions(dir);
+      if (!questions) throw new HttpError(404, `topic ${topic} has no versioned all-open final quiz`);
+      return openSubmit(payload, dir, `[Vista HTML · ${topic} · ${FINAL_QUIZ} · cuestionario final]`, "cuestionario-final.answers.json", questions, false, answer);
+    }
+
     if (kind === "mini-quiz") {
       if (typeof partId !== "string") throw new HttpError(400, "part is required");
       const questions = readQuestions(join(dir, "mini-quiz", `${partId}.json`));
       if (!questions) throw new HttpError(400, `part ${partId} has no mini-quiz`);
+      if (questions.some((q) => q.open)) {
+        return openSubmit(payload, dir, `[Vista HTML · ${topic} · ${partId} · mini-quiz]`, `mini-quiz/${partId}.answers.json`, questions, false, answer);
+      }
       const orderFor = orderOf(miniScope(topic, partId));
       const answers = checkAnswers(payload.answers, questions, true, orderFor);
       const reasoning = optionalReasoning(payload.reasoning, answers);
@@ -2823,8 +3255,13 @@ ${scripts}
       return;
     }
 
-    const questions = readQuestions(join(dir, "quiz.json"));
-    if (!questions) throw new HttpError(400, `topic ${topic} has no diagnosis quiz`);
+    const all = readQuestions(join(dir, "quiz.json"));
+    if (!all) throw new HttpError(400, `topic ${topic} has no diagnosis quiz`);
+    if (all.some((q) => q.open)) {
+      const questions = visibleDiagnosisQuestions(dir, all, join(dir, "quiz.answers.json"));
+      return openSubmit(payload, dir, `[Vista HTML · ${topic} · diagnóstico]`, "quiz.answers.json", questions, true, answer);
+    }
+    const questions = all;
     const orderFor = orderOf(diagnosisScope(topic));
     const answers = checkAnswers(payload.answers, questions, false, orderFor);
     const reasoning = optionalReasoning(payload.reasoning, answers);
@@ -2936,6 +3373,7 @@ ${scripts}
     }
     if (topic === "rapidos" && more.length === 0) return quickPage(res, second);
     if (more.length > 0) throw new HttpError(404, "not found");
+    if (second === FINAL_QUIZ) return finalPage(res, topic);
     if (second === DIAGNOSIS) return diagnosisPage(res, topic);
     return partPage(res, topic, second);
   };

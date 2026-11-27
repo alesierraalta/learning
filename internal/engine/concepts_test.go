@@ -475,6 +475,7 @@ func TestAdaptiveRulesFixtureMatchesProductionRules(t *testing.T) {
 	}
 	prod := load(productionRulesPath)
 	delete(prod["thresholds"].(map[string]any), "concepts")
+	delete(prod["thresholds"].(map[string]any), "openResponse")
 	undoStrictFlow(prod)
 	delete(prod["thresholds"].(map[string]any), "strictFlow")
 	// The code-in-prose rule (#332) is declared by production; the frozen snapshot never declared it.

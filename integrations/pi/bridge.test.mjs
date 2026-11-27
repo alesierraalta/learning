@@ -9,7 +9,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-import { backupPartForRegeneration, countVisuals, obsidianToMarkdown, regenerationTrash, registerBridge, listTopics } from "./bridge.ts";
+import { backupPartForRegeneration, countVisuals, obsidianToMarkdown, regenerationTrash, registerBridge, listTopics, quizFingerprint } from "./bridge.ts";
 import { restoreRegeneration } from "../../studio/server.ts";
 import { stored } from "../../studio/testdata/stored.mjs";
 import { exerciseFile, listExercises, readSubmissions, saveSubmission } from "./codevault.ts";
@@ -6220,5 +6220,428 @@ test("T9 a block with desarrollo refuses the single explanation it would never r
   assert.match(JSON.parse(response.body).error, /desarrollo/);
   assert.equal(readFileSync(file, "utf8"), before, "a refused explanation leaves respuestas.json alone");
   assert.equal(host.sent.length, 0, "the tutor is told nothing");
+  await shutdown();
+});
+
+// T2 open responses: the browser sees the question and its metadata, never the rubric. The
+// answer file, the private tutor turn and the derived verdict stay on the server side of that line.
+const openItem = (id, kind, extra = {}) => ({
+  id, enunciado: `Desarrolla ${id} con tus palabras`,
+  open: { version: 1, kind, operation: "explain", depth: "core", centrality: "central", concepts: ["P0.1", "T.p1"], criteria: [{ id: "c1", rubric: "SECRETO_RUBRICA_DEL_TUTOR" }] },
+  ...extra,
+});
+
+const openVerdict = (id, verdict, evidence, extra = {}) => ({ version: 1, verdicts: { [id]: { verdict, evidence, criteria: { c1: { id: "c1", met: verdict === "correct", evidence } }, concepts: { "T.p1": verdict === "correct" ? "claro" : "laguna" }, ...extra } } });
+
+const writeExercise = (topic, id) => {
+  const dir = join(topic, "codigo", id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "ejercicio.json"), JSON.stringify({ titulo: id, enunciado: "Devuelve uno", lenguaje: "python", tests: [{ nombre: "caso", entrada: "", salida: "1" }] }));
+};
+
+test("T2 open mini quiz: no options or rubric in the page, exact openAnswers on disk, verdict read after submission", async () => {
+  const { topic, view, host, shutdown } = await setup();
+  const quizFile = join(topic, "mini-quiz", "p1.json");
+  writeFileSync(quizFile, JSON.stringify({ questions: [openItem("q1", "text")] }));
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const api = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  assert.deepEqual(Object.keys(api.questions[0].open).sort(), ["centrality", "concepts", "depth", "kind", "operation", "version"]);
+  assert.equal(api.questions[0].options, undefined, "an open item offers no A–E choices");
+  assert.equal(api.questions[0].open.operation, "explain", "the seven operations travel as metadata");
+  for (const body of [(await http(`${url}api/quiz?topic=${TOPIC}&part=p1`)).body, (await http(url + `${TOPIC}/p1`)).body]) {
+    assert.equal(body.includes("SECRETO_RUBRICA_DEL_TUTOR"), false, "no criteria reach the browser");
+    assert.equal(body.includes('"criteria"'), false);
+    assert.equal(body.includes('"answer"'), false);
+  }
+  assert.equal(api.openFeedback, undefined, "no verdict exists before an answer");
+  const sent = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", openAnswers: { q1: { kind: "text", text: "La clave primaria identifica cada fila", confidence: "dudo" } } });
+  assert.equal(sent.status, 200, sent.body);
+  const response = JSON.parse(sent.body);
+  assert.equal(response.score, undefined, "no immediate numeric score");
+  assert.equal(response.results[0].verdict, "pending");
+  const answers = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.deepEqual(answers.openAnswers, { q1: { kind: "text", text: "La clave primaria identifica cada fila", confidence: "dudo" } });
+  assert.equal(answers.answers, undefined, "never fall back to answer-key equality");
+  assert.ok(answers.quiz.startsWith("sha256:"), "the answer file names the quiz it answers");
+  assert.equal(host.sent.length, 1);
+  const prompt = host.sent[0].content;
+  assert.deepEqual(host.sent[0].options, { deliverAs: "followUp" }, "the private tutor channel gets the turn");
+  for (const part of ["Desarrolla q1 con tus palabras", "explain", "P0.1", "SECRETO_RUBRICA_DEL_TUTOR", "La clave primaria identifica cada fila", "dudo", "mini-quiz/p1.verdicts.json"]) {
+    assert.ok(prompt.includes(part), `the tutor turn is missing ${part}`);
+  }
+  assert.equal((await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", openAnswers: { q1: { kind: "text", text: "otra" } } })).status, 409, "one answer per quiz");
+  writeFileSync(join(topic, "mini-quiz", "p1.verdicts.json"), JSON.stringify(openVerdict("q1", "correct", "La clave primaria identifica cada fila")));
+  const graded = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  assert.equal(graded.openFeedback[0].verdict, "correct");
+  assert.equal(graded.openFeedback[0].evidence, "La clave primaria identifica cada fila");
+  assert.deepEqual(graded.openFeedback[0].criteria, [{ id: "c1", met: true, evidence: "La clave primaria identifica cada fila" }]);
+  assert.equal(graded.openFeedback[0].concepts["T.p1"], "claro");
+  assert.ok(graded.openFeedback[0].next.length > 0, "a targeted next step accompanies the verdict");
+  writeFileSync(quizFile, JSON.stringify({ questions: [openItem("q1", "text", { enunciado: "Otra pregunta" })] }));
+  const fresh = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  assert.equal(fresh.answered, null, "an answer to the old quiz does not grade the regenerated one");
+  assert.equal(fresh.openFeedback, undefined);
+  assert.equal((await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", openAnswers: { q1: { kind: "text", text: "nueva" } } })).status, 409, "stale answers are never overwritten");
+  await shutdown();
+});
+
+test("T3 open feedback carries states, error classification, calibration and action without the rubric", async () => {
+  const { topic, view, shutdown } = await setup();
+  const rubric = "SECRETO_RUBRICA_T3";
+  const question = {
+    ...openItem("q1", "text"),
+    open: { ...openItem("q1", "text").open, operation: "apply", depth: "core", criteria: [{ id: "c1", rubric }] },
+  };
+  writeFileSync(join(topic, "mini-quiz", "p1.json"), JSON.stringify({ questions: [question], teaching: { version: 1, operations: ["explain", "apply"] } }));
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const answer = "Aplico la regla al caso con otro ejemplo";
+  await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", openAnswers: { q1: { kind: "text", text: answer, confidence: "adivine" } } });
+  writeFileSync(join(topic, "mini-quiz", "p1.verdicts.json"), JSON.stringify({
+    version: 1,
+    verdicts: {
+      q1: {
+        verdict: "partial", evidence: "Aplico la regla",
+        criteria: { c1: { id: "c1", met: false, evidence: "Aplico la regla" } },
+        concepts: { "T.p1": "dudoso", "P0.1": "laguna" },
+        teaching: { errorType: "application-failure", evidence: "Aplico la regla", action: "guided-practice", rationale: `Seguir ${rubric} en privado`, next: "Practica con otro caso y explica el paso que falta." },
+      },
+    },
+  }));
+  const api = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  const feedback = api.openFeedback[0];
+  assert.deepEqual(feedback.concepts, { "T.p1": "dudoso", "P0.1": "laguna" });
+  assert.equal(feedback.teaching.errorType, "application-failure");
+  assert.equal(feedback.teaching.evidence, "Aplico la regla");
+  assert.equal(feedback.teaching.action, "guided-practice");
+  assert.equal(feedback.confidence, "adivine");
+  assert.equal(feedback.calibration, "underconfident");
+  assert.match(feedback.next, /Practica con otro caso/);
+  const body = JSON.stringify(api);
+  assert.equal(body.includes(rubric), false, "a rationale never leaks a private rubric");
+  assert.equal(body.includes(answer), false, "the whole answer is not echoed back");
+  await shutdown();
+});
+
+test("T3 a diagnosis round stays hidden until the previous answers and verdicts exist", async () => {
+  const { topic, view, shutdown } = await setup();
+  const item = (id, round) => ({ ...openItem(id, "text"), round, subtema: "T.p1" });
+  const questions = [item("d1", 1), item("d2", 2)];
+  writeFileSync(join(topic, "quiz.json"), JSON.stringify({ questions, teaching: { version: 1, areas: ["T.p1"] } }));
+  writeFileSync(join(topic, "quiz.answers.json"), JSON.stringify({ answers: {}, razonamientos: {} }));
+  const url = base(await view({ topic: TOPIC, part: "quiz" }));
+  const visible = async () => JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=quiz`)).body).questions.map((q) => q.id);
+  assert.deepEqual(await visible(), ["d1"], "a future round is not offered early");
+  const first = "La réplica conserva el orden";
+  const sent = await submit(url, { kind: "diagnosis", topic: TOPIC, openAnswers: { d1: { kind: "text", text: first } } });
+  assert.equal(sent.status, 200, sent.body);
+  assert.deepEqual(await visible(), ["d1"], "answers alone do not open the next round");
+  const early = await submit(url, { kind: "diagnosis", topic: TOPIC, openAnswers: { d2: { kind: "text", text: "Adelantado" } } });
+  assert.equal(early.status, 400, "a hidden round cannot be answered");
+  writeFileSync(join(topic, "quiz.verdicts.json"), JSON.stringify({
+    version: 1, verdicts: { d1: { verdict: "partial", evidence: "conserva el orden", criteria: { c1: { id: "c1", met: false, evidence: "conserva el orden" } } } },
+  }));
+  assert.deepEqual(await visible(), ["d1", "d2"], "answers and the tutor verdict open the follow-up");
+  await shutdown();
+});
+
+test("T3 the reader draws the knowledge state, teaching action and calibration", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup();
+  const question = openItem("q1", "text");
+  writeFileSync(join(topic, "mini-quiz", "p1.json"), JSON.stringify({ questions: [question] }));
+  const result = await view({ topic: TOPIC, part: "p1" });
+  await submit(base(result), { kind: "mini-quiz", topic: TOPIC, part: "p1", openAnswers: { q1: { kind: "text", text: "Aplico la regla", confidence: "seguro" } } });
+  writeFileSync(join(topic, "mini-quiz", "p1.verdicts.json"), JSON.stringify({
+    version: 1, verdicts: { q1: { verdict: "incorrect", evidence: "Aplico la regla", criteria: { c1: { id: "c1", met: false, evidence: "Aplico la regla" } }, concepts: { "T.p1": "laguna" }, teaching: { errorType: "misconception", evidence: "Aplico la regla", action: "corrective-explanation", rationale: "Razón breve", next: "Contrasta con un contraejemplo." } } },
+  }));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(result.structuredContent.url);
+  await page.locator(".lk-open-knowledge").waitFor();
+  const text = await page.locator(".lk-open-knowledge").innerText();
+  assert.match(text, /laguna/);
+  assert.match(text, /corrective-explanation/);
+  assert.match(text, /misconception/);
+  assert.match(text, /sobreconfiado/);
+  assert.equal(text.includes("SECRETO_RUBRICA_DEL_TUTOR"), false);
+  await shutdown();
+});
+
+const fakeCodeRunner = async ({ code }) => ({ compilacion: { ok: true, salida: "" }, resultados: [{ nombre: "caso", oculto: false, estado: "correcto", codigo: 0 }], aprobados: 1, total: 1, ...(code === "" ? { aviso: "sin código" } : {}) });
+
+test("T2 open code answers use the code submission route, require an explanation, and accept noEvidence", async () => {
+  const { root, topic, view, host, shutdown } = await setup({ codeRunner: fakeCodeRunner });
+  writeExercise(topic, "q1");
+  writeFileSync(join(topic, "quiz.json"), JSON.stringify({ questions: [openItem("q1", "code", { round: 1 })] }));
+  writeFileSync(join(topic, "quiz.answers.json"), JSON.stringify({ answers: {}, razonamientos: {} }));
+  const url = base(await view({ topic: TOPIC, part: "quiz" }));
+  const good = { kind: "code", code: "print(1)", explanation: "Uso una salida fija porque el caso pide uno", confidence: "seguro" };
+  const sent = await submit(url, { kind: "diagnosis", topic: TOPIC, openAnswers: { q1: good } });
+  assert.equal(sent.status, 200, sent.body);
+  assert.equal(JSON.parse(sent.body).score, undefined, "the verdict decides correctness, not the runner or the confidence");
+  const answers = JSON.parse(readFileSync(join(topic, "quiz.answers.json"), "utf8"));
+  assert.equal(answers.openAnswers.q1.submission, "codigo/q1/entregas/001.json");
+  assert.equal(answers.openAnswers.q1.explanation, good.explanation);
+  const record = JSON.parse(readFileSync(join(topic, answers.openAnswers.q1.submission), "utf8"));
+  assert.equal(record.codigo, good.code);
+  assert.equal(record.aprobados, 1);
+  assert.equal(host.sent.length, 1);
+  assert.match(host.sent[0].content, /codigo\/q1\/entregas\/001\.json/);
+  assert.match(host.sent[0].content, /SECRETO_RUBRICA_DEL_TUTOR/);
+  assert.match(host.sent[0].content, /Uso una salida fija/);
+  writeFileSync(join(topic, "mini-quiz", "p1.json"), JSON.stringify({ questions: [openItem("q2", "code")] }));
+  writeExercise(topic, "q2");
+  const none = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", openAnswers: { q2: { kind: "code", noEvidence: true, confidence: "dudo" } } });
+  assert.equal(none.status, 200, none.body);
+  const mini = JSON.parse(readFileSync(join(topic, "mini-quiz", "p1.answers.json"), "utf8"));
+  assert.deepEqual(mini.openAnswers.q2, { kind: "code", noEvidence: true, confidence: "dudo" }, "no invented code or explanation");
+  writeFileSync(join(topic, "quiz.verdicts.json"), JSON.stringify(openVerdict("q1", "partial", good.explanation, { explanation: { verdict: "partial", evidence: good.explanation } })));
+  const seen = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=quiz`)).body);
+  assert.equal(seen.openFeedback[0].verdict, "partial");
+  assert.equal(seen.openFeedback[0].explanation.verdict, "partial");
+  assert.equal(seen.openFeedback[0].executable.saved, "codigo/q1/entregas/001.json");
+  assert.equal(root.length > 0, true);
+  await shutdown();
+});
+
+test("T2 malformed, oversized, wrong-kind and conflicting open answers write nothing and tell nobody", async () => {
+  const { topic, view, host, shutdown } = await setup();
+  const legacyShape = (item) => ({ ...item, options: { A: "a", B: "b", C: "c", D: "d", E: "No sé" }, answer: "B" });
+  writeFileSync(join(topic, "mini-quiz", "p1.json"), JSON.stringify({ questions: [legacyShape(openItem("q1", "text")), legacyShape(openItem("q2", "code"))] }));
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const cases = [
+    { q1: { kind: "code", code: "x", explanation: "y" } },
+    { q1: { kind: "text", text: "x".repeat(8001) } },
+    { q1: { kind: "text", text: "respuesta", noEvidence: true } },
+    { q1: { kind: "text", text: "respuesta", submission: "codigo/q1/entregas/001.json" } },
+    { q1: { kind: "text", text: "respuesta", confidence: " inventado " } },
+    { q1: { kind: "text", text: "solo una respuesta" } },
+    { q2: { kind: "code", code: "print(1)" } },
+    { q3: { kind: "text", text: "respuesta" } },
+  ];
+  for (const openAnswers of cases) {
+    const res = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", openAnswers });
+    assert.equal(res.status, 400, `${JSON.stringify(openAnswers)}: ${res.body}`);
+  }
+  const mixed = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" }, openAnswers: { q1: { kind: "text", text: "buena" } } });
+  assert.equal(mixed.status, 400, "a letter key cannot sit beside a developed answer");
+  const keyOnly = await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", answers: { q1: "B", q2: "B" } });
+  assert.equal(keyOnly.status, 400, "an open quiz cannot be graded by answer-key equality");
+  assert.equal(existsSync(join(topic, "mini-quiz", "p1.answers.json")), false, "a refused answer writes no record");
+  assert.equal(host.sent.length, 0, "a refused answer is not delivered to the tutor");
+  await shutdown();
+});
+
+test("T2 the reader draws developed fields, no choices and no fake score for an open quiz", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup({ codeRunner: fakeCodeRunner });
+  writeFileSync(join(topic, "mini-quiz", "p1.json"), JSON.stringify({ questions: [openItem("q1", "text"), openItem("q2", "code")] }));
+  writeExercise(topic, "q2");
+  const result = await view({ topic: TOPIC, part: "p1" });
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const bodies = [];
+  page.on("request", (req) => { if (req.url().endsWith("/submit")) bodies.push(JSON.parse(req.postData())); });
+  await page.goto(result.structuredContent.url);
+  const fields = page.locator("fieldset.quiz-question");
+  await fields.first().locator("textarea").waitFor();
+  assert.equal(await page.locator("fieldset.quiz-question .option").count(), 0, "no A–E choices");
+  assert.equal((await page.content()).includes("SECRETO_RUBRICA_DEL_TUTOR"), false);
+  await fields.first().locator("textarea").fill("La clave identifica cada fila");
+  await fields.first().locator("input[value=dudo]").check();
+  await fields.nth(1).locator("textarea.lk-code").fill("print(1)");
+  await fields.nth(1).locator("textarea:not(.lk-code)").fill("Una salida fija resuelve el caso");
+  await page.getByRole("button", { name: "Enviar al tutor" }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".lk-open-verdict").length === 2);
+  assert.deepEqual(bodies[0].openAnswers, {
+    q1: { kind: "text", text: "La clave identifica cada fila", confidence: "dudo" },
+    q2: { kind: "code", code: "print(1)", explanation: "Una salida fija resuelve el caso" },
+  });
+  assert.equal(bodies[0].answers, undefined, "no letter key is sent");
+  assert.equal((await page.content()).includes("Puntaje"), false, "a verdict has not been written yet");
+  await shutdown();
+});
+
+const finalItem = (id, kind, extra = {}) => ({
+  id,
+  enunciado: `Desarrolla ${id} en el final`,
+  formato: kind === "code" ? "build" : "explain",
+  respuesta: "SECRETO_RESPUESTA_FINAL",
+  open: {
+    version: 1, kind, operation: kind === "code" ? "build" : "explain", depth: "core",
+    centrality: "central", concepts: ["P0.1"], criteria: [{ id: "c1", rubric: "SECRETO_RUBRICA_FINAL" }],
+  },
+  ...extra,
+});
+
+const finalFingerprint = (questions) => quizFingerprint(
+  questions.map(({ id, enunciado }) => ({ id, enunciado, options: {}, answer: "" })),
+);
+
+const finalQuestionFingerprint = (question) => finalFingerprint([question]);
+
+test("T2 final all-open route reads final questions, submits T1 answers privately and shows derived verdicts", async () => {
+  const { topic, view, host, shutdown } = await setup({ codeRunner: fakeCodeRunner });
+  const questions = [
+    finalItem("f1", "text"),
+    finalItem("f2", "code"),
+    finalItem("f3", "text"),
+    finalItem("f4", "text"),
+  ];
+  writeFileSync(join(topic, "cuestionario-final.json"), JSON.stringify({ questions }));
+  writeExercise(topic, "f2");
+  const result = await view({ topic: TOPIC, part: "final_quiz" });
+  assert.equal(Boolean(result.isError), false, `final_quiz must be a viewable part: ${JSON.stringify(result.structuredContent)}`);
+  const pageUrl = result.structuredContent.url;
+  const url = base(result);
+  assert.match(pageUrl, /final_quiz\/?$/);
+  const api = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=final_quiz`)).body);
+  assert.equal(api.questions.length, 4);
+  for (const question of api.questions) {
+    assert.deepEqual(Object.keys(question.open).sort(), ["centrality", "concepts", "depth", "kind", "operation", "version"]);
+    assert.equal(question.options, undefined, "a final open item has no A–E choices");
+    assert.equal(question.answer, undefined);
+    assert.equal(question.respuesta, undefined);
+  }
+  assert.equal(api.openFeedback, undefined, "nothing is graded before an answer");
+  for (const body of [(await http(`${url}api/quiz?topic=${TOPIC}&part=final_quiz`)).body, (await http(pageUrl)).body]) {
+    assert.equal(body.includes("SECRETO_RUBRICA_FINAL"), false, "criteria stay out of the public final");
+    assert.equal(body.includes("SECRETO_RESPUESTA_FINAL"), false, "an answer key stays out of the public final");
+  }
+  const text = "La regla compartida conserva el orden de las entradas";
+  const wrong = "El orden no importa y la regla no aplica";
+  const code = "print(1)";
+  const explanation = "Uso una salida fija porque el caso pide uno";
+  const sent = await submit(url, {
+    kind: "final", part: "final_quiz", topic: TOPIC,
+    openAnswers: {
+      f1: { kind: "text", text, confidence: "seguro" },
+      f2: { kind: "code", code, explanation, confidence: "dudo" },
+      f3: { kind: "text", text: wrong },
+      f4: { kind: "text", noEvidence: true },
+    },
+  });
+  assert.equal(sent.status, 200, sent.body);
+  const response = JSON.parse(sent.body);
+  assert.equal(response.score, undefined, "no immediate fake score");
+  assert.deepEqual(response.results.map((entry) => entry.verdict), ["pending", "pending", "pending", "pending"]);
+  const stored = JSON.parse(readFileSync(join(topic, "cuestionario-final.answers.json"), "utf8"));
+  assert.equal(stored.quiz, finalFingerprint(questions), "the answer file names the final it answers");
+  assert.equal(stored.answers, undefined, "no letter key backfill");
+  for (const question of questions) {
+    assert.equal(stored.openQuiz[question.id], finalQuestionFingerprint(question), "each answer binds its own question");
+  }
+  assert.deepEqual(stored.openAnswers.f4, { kind: "text", noEvidence: true }, "no invented content for no-evidence");
+  assert.equal(stored.openAnswers.f2.submission, "codigo/f2/entregas/001.json");
+  assert.equal(host.sent.length, 1, "the private tutor channel receives one turn");
+  assert.deepEqual(host.sent[0].options, { deliverAs: "followUp" });
+  for (const part of ["final_quiz", "SECRETO_RUBRICA_FINAL", text, code, explanation, "cuestionario-final.verdicts.json"]) {
+    assert.ok(host.sent[0].content.includes(part), `the tutor turn is missing ${part}`);
+  }
+  const pending = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=final_quiz`)).body);
+  assert.deepEqual(pending.openFeedback.map((item) => item.verdict), ["pending", "pending", "pending", "pending"]);
+  const criterion = (evidence, met) => ({ c1: { id: "c1", met, evidence } });
+  writeFileSync(join(topic, "cuestionario-final.verdicts.json"), JSON.stringify({
+    version: 1,
+    verdicts: {
+      f1: { verdict: "correct", evidence: text, criteria: criterion(text, true), concepts: { "P0.1": "claro" } },
+      f2: { verdict: "partial", evidence: explanation, criteria: criterion(explanation, false), explanation: { verdict: "partial", evidence: explanation } },
+      f3: { verdict: "incorrect", evidence: wrong, criteria: criterion(wrong, false) },
+      f4: { verdict: "no-evidence", evidence: "No sé todavía", criteria: criterion("No sé todavía", false) },
+    },
+  }));
+  const graded = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=final_quiz`)).body);
+  assert.deepEqual(graded.openFeedback.map((item) => item.verdict), ["correct", "partial", "incorrect", "no-evidence"]);
+  assert.equal(graded.openFeedback[0].evidence, text);
+  assert.deepEqual(graded.openFeedback[0].criteria, [{ id: "c1", met: true, evidence: text }]);
+  assert.equal(graded.openFeedback[0].concepts["P0.1"], "claro");
+  assert.equal(graded.openFeedback[1].explanation.verdict, "partial");
+  assert.equal(graded.openFeedback[1].executable.saved, "codigo/f2/entregas/001.json");
+  assert.equal(graded.openFeedback[2].verdict, "incorrect");
+  assert.equal(graded.openFeedback[3].verdict, "no-evidence");
+  for (const item of graded.openFeedback) assert.ok(item.next.length > 0, `${item.id} has a next step`);
+  assert.equal(JSON.stringify(graded).includes("SECRETO_RUBRICA_FINAL"), false, "a graded final still hides the rubric");
+  await shutdown();
+});
+
+test("T2 final stale, malformed and legacy mixed artifacts are refused without a new public surface", async () => {
+  const { topic, view, host, shutdown } = await setup();
+  const question = finalItem("f1", "text");
+  writeFileSync(join(topic, "cuestionario-final.json"), JSON.stringify({ questions: [question] }));
+  const url = base(await view({ topic: TOPIC, part: "final_quiz" }));
+  const stale = { ...question, enunciado: "Otro enunciado del final" };
+  writeFileSync(join(topic, "cuestionario-final.answers.json"), JSON.stringify({
+    openAnswers: { f1: { kind: "text", text: "respuesta anterior" } },
+    openQuiz: { f1: finalQuestionFingerprint(stale) },
+    quiz: finalFingerprint([stale]),
+  }));
+  const before = readFileSync(join(topic, "cuestionario-final.answers.json"), "utf8");
+  const staleApi = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=final_quiz`)).body);
+  assert.equal(staleApi.openFeedback, undefined, "answers to another final are not shown as a verdict");
+  assert.equal((await submit(url, { kind: "final", part: "final_quiz", topic: TOPIC, openAnswers: { f1: { kind: "text", text: "nueva" } } })).status, 409, "stale answers are never overwritten");
+  assert.equal(readFileSync(join(topic, "cuestionario-final.answers.json"), "utf8"), before);
+  const malformed = [
+    { f1: { kind: "code", code: "print(1)", explanation: "y" } },
+    { f1: { kind: "text", text: "respuesta", noEvidence: true } },
+    { f1: { kind: "text", text: "respuesta", submission: "codigo/f1/entregas/001.json" } },
+    { f2: { kind: "text", text: "respuesta" } },
+  ];
+  for (const openAnswers of malformed) {
+    const res = await submit(url, { kind: "final", part: "final_quiz", topic: TOPIC, openAnswers });
+    assert.equal(res.status, 400, `${JSON.stringify(openAnswers)}: ${res.body}`);
+  }
+  assert.equal((await submit(url, { kind: "final", part: "final_quiz", topic: TOPIC, answers: { f1: "B" } })).status, 400, "a final cannot be graded by a letter key");
+  assert.equal(host.sent.length, 0, "a refused final tells nobody");
+  await shutdown();
+
+  const legacy = await setup();
+  const legacyQuestions = [
+    { id: "f1", enunciado: "Elige la capa", options: { A: "a", B: "b", C: "c", D: "d", E: "No sé" }, answer: "B", respuesta: "B" },
+    { id: "f2", enunciado: "Desarrolla el transporte", open: { version: 1, kind: "text", operation: "explain", depth: "core", centrality: "central", concepts: ["P0.1"], criteria: [{ id: "c1", rubric: "SECRETO_LEGACY" }] } },
+  ];
+  writeFileSync(join(legacy.topic, "cuestionario-final.json"), JSON.stringify({ questions: legacyQuestions }));
+  writeFileSync(join(legacy.topic, "cuestionario-final.md"), "---\ntipo: cuestionario-final\nestado: completado\npuntaje: 1/1\n---\n# Final\n");
+  writeFileSync(join(legacy.topic, "cuestionario-final.answers.json"), JSON.stringify({ answers: { f1: "B", f2: "respuesta histórica" } }));
+  const legacyBefore = readFileSync(join(legacy.topic, "cuestionario-final.answers.json"), "utf8");
+  assert.equal(Boolean((await legacy.view({ topic: TOPIC, part: "final_quiz" })).isError), true, "a mixed final keeps its note/engine flow");
+  const legacyUrl = base(await legacy.view({ topic: TOPIC, part: "p1" }));
+  assert.equal((await http(`${legacyUrl}api/quiz?topic=${TOPIC}&part=final_quiz`)).status, 404, "the open final API does not read a mixed final");
+  assert.equal((await submit(legacyUrl, { kind: "final", part: "final_quiz", topic: TOPIC, openAnswers: { f2: { kind: "text", text: "nueva" } } })).status, 404);
+  assert.equal(readFileSync(join(legacy.topic, "cuestionario-final.answers.json"), "utf8"), legacyBefore, "no historical attempt is rewritten");
+  assert.equal(legacy.host.sent.length, 0);
+  await legacy.shutdown();
+});
+
+test("T2 final page draws developed fields, no choices, no key and no fake score", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup({ codeRunner: fakeCodeRunner });
+  writeFileSync(join(topic, "cuestionario-final.json"), JSON.stringify({ questions: [finalItem("f1", "text"), finalItem("f2", "code")] }));
+  writeExercise(topic, "f2");
+  const result = await view({ topic: TOPIC, part: "final_quiz" });
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const bodies = [];
+  page.on("request", (req) => { if (req.url().endsWith("/submit")) bodies.push(JSON.parse(req.postData())); });
+  await page.goto(result.structuredContent.url);
+  const fields = page.locator("fieldset.quiz-question");
+  await fields.first().locator("textarea").waitFor();
+  await page.getByRole("heading", { name: "Cuestionario final" }).waitFor();
+  assert.equal(await page.locator("fieldset.quiz-question .option").count(), 0, "no A–E choices in a final");
+  const body = await page.content();
+  assert.equal(body.includes("SECRETO_RUBRICA_FINAL"), false);
+  assert.equal(body.includes("SECRETO_RESPUESTA_FINAL"), false);
+  await fields.first().locator("textarea").fill("La regla compartida conserva el orden");
+  await fields.nth(1).locator("textarea.lk-code").fill("print(1)");
+  await fields.nth(1).locator("textarea:not(.lk-code)").fill("Una salida fija resuelve el caso");
+  await page.getByRole("button", { name: "Enviar al tutor" }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".lk-open-verdict").length === 2);
+  assert.equal(bodies[0].kind, "final");
+  assert.equal(bodies[0].part, "final_quiz");
+  assert.equal(bodies[0].answers, undefined, "no letter key is sent");
+  assert.deepEqual(bodies[0].openAnswers, {
+    f1: { kind: "text", text: "La regla compartida conserva el orden" },
+    f2: { kind: "code", code: "print(1)", explanation: "Una salida fija resuelve el caso" },
+  });
+  assert.equal((await page.content()).includes("Puntaje"), false, "a verdict has not been written yet");
   await shutdown();
 });

@@ -213,6 +213,26 @@ type ConceptThresholds struct {
 	MinPassingRatio       Ratio    `json:"minPassingRatio"`
 }
 
+// OpenResponseThresholds is the versioned vocabulary of the open-response
+// contract. Its presence opts new assessments into developed answers; runs
+// whose frozen snapshot has no such block keep their multiple-choice rules.
+type OpenResponseThresholds struct {
+	Version           int      `json:"version"`
+	ResponseKinds     []string `json:"responseKinds"`
+	Operations        []string `json:"operations"`
+	Depths            []string `json:"depths"`
+	Centralities      []string `json:"centralities"`
+	Verdicts          []string `json:"verdicts"`
+	NoEvidenceVerdict string   `json:"noEvidenceVerdict"`
+	NoEvidenceText    string   `json:"noEvidenceText"`
+	ConceptStates     []string `json:"conceptStates"`
+	Confidence        []string `json:"confidence"`
+	// ErrorTypes and TeachingActions are additive: a frozen snapshot without
+	// them keeps accepting verdicts written before the teaching contract.
+	ErrorTypes      []string `json:"errorTypes,omitempty"`
+	TeachingActions []string `json:"teachingActions,omitempty"`
+}
+
 // PartStandardThresholds bound the measured explanation standard a part must
 // meet: the prose budget, the number of content sections and route lines, and
 // the one scene and one walkthrough a part may carry. The block also turns on
@@ -473,11 +493,12 @@ type OptionThresholds struct {
 }
 
 type Thresholds struct {
-	Diagnostic DiagnosticThresholds `json:"diagnostic"`
-	Quiz       QuizThresholds       `json:"quiz"`
-	Concepts   *ConceptThresholds   `json:"concepts,omitempty"`
-	Pareto     *ParetoThresholds    `json:"pareto,omitempty"`
-	Exam       *ExamThresholds      `json:"exam,omitempty"`
+	Diagnostic   DiagnosticThresholds    `json:"diagnostic"`
+	Quiz         QuizThresholds          `json:"quiz"`
+	Concepts     *ConceptThresholds      `json:"concepts,omitempty"`
+	OpenResponse *OpenResponseThresholds `json:"openResponse,omitempty"`
+	Pareto       *ParetoThresholds       `json:"pareto,omitempty"`
+	Exam         *ExamThresholds         `json:"exam,omitempty"`
 	// PartStandard turns on the measured explanation standard (a part is one
 	// idea: prose budget, two content sections, a short route, one scene, one
 	// walkthrough). Snapshots without it keep the part checks they started
@@ -526,6 +547,9 @@ type Thresholds struct {
 
 // ConceptMode reports whether these rules run concept diagnosis.
 func (t Thresholds) ConceptMode() bool { return t.Concepts != nil && t.Concepts.Required }
+
+// OpenResponseMode reports whether these rules carry the open-response contract.
+func (t Thresholds) OpenResponseMode() bool { return t.OpenResponse != nil }
 
 // Rules is the parsed, validated source of truth.
 type Rules struct {
@@ -812,6 +836,11 @@ func (r *Rules) validateThresholds() error {
 			return fmt.Errorf("concept diagnosis needs the round-based (adaptive) diagnostic mode")
 		}
 	}
+	if o := r.Thresholds.OpenResponse; o != nil {
+		if err := o.validate(); err != nil {
+			return err
+		}
+	}
 	if p := r.Thresholds.Exam; p != nil {
 		if p.MinPartChars < 1 {
 			return fmt.Errorf("exam minPartChars must be positive")
@@ -937,6 +966,58 @@ func (p PartStandardThresholds) validate() error {
 	}
 	if p.FormulaElement != "" && strings.Trim(p.FormulaElement, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" {
 		return fmt.Errorf("partStandard formulaElement must be a lowercase HTML element name, got %q", p.FormulaElement)
+	}
+	return nil
+}
+
+func (o OpenResponseThresholds) validate() error {
+	if o.Version != 1 {
+		return fmt.Errorf("openResponse version %d is unsupported (want 1)", o.Version)
+	}
+	lists := map[string][]string{
+		"responseKinds": o.ResponseKinds,
+		"operations":    o.Operations,
+		"depths":        o.Depths,
+		"centralities":  o.Centralities,
+		"verdicts":      o.Verdicts,
+		"conceptStates": o.ConceptStates,
+		"confidence":    o.Confidence,
+	}
+	optional := map[string][]string{
+		"errorTypes":      o.ErrorTypes,
+		"teachingActions": o.TeachingActions,
+	}
+	checkList := func(name string, list []string) error {
+		seen := map[string]bool{}
+		for _, item := range list {
+			if strings.TrimSpace(item) == "" || seen[item] {
+				return fmt.Errorf("openResponse %s must be unique and non-empty", name)
+			}
+			seen[item] = true
+		}
+		return nil
+	}
+	for name, list := range lists {
+		if len(list) == 0 {
+			return fmt.Errorf("openResponse %s must not be empty", name)
+		}
+		if err := checkList(name, list); err != nil {
+			return err
+		}
+	}
+	for name, list := range optional {
+		if err := checkList(name, list); err != nil {
+			return err
+		}
+	}
+	if !slices.Contains(o.ResponseKinds, "text") || !slices.Contains(o.ResponseKinds, "code") {
+		return fmt.Errorf("openResponse responseKinds must declare text and code")
+	}
+	if !slices.Contains(o.Verdicts, o.NoEvidenceVerdict) {
+		return fmt.Errorf("openResponse noEvidenceVerdict %q is not among verdicts", o.NoEvidenceVerdict)
+	}
+	if strings.TrimSpace(o.NoEvidenceText) == "" {
+		return fmt.Errorf("openResponse noEvidenceText must not be empty")
 	}
 	return nil
 }

@@ -580,6 +580,7 @@
     }
     if (topic.status === "waiting") {
       if (stage === "diagnosis") return { tone: "you", label: "Te toca a ti", text: "Responde el diagnóstico inicial: con tus respuestas el tutor entiende qué sabes y enfoca el plan de tu ruta.", cta: ["Responder el diagnóstico", read("quiz")] };
+      if (stage === "final_quiz" && topic.hasFinal) return { tone: "you", label: "Te toca a ti", text: "Responde el cuestionario final con tus palabras: el tutor revisa cada respuesta desarrollada.", cta: ["Resolver el cuestionario final", read("final_quiz")] };
       // A part with no file yet cannot be read, quizzed or poured into own words:
       // the tutor writes it first, and that is the step the learner asks for.
       if (current && !current.written) return askWrite(topic, current);
@@ -2359,8 +2360,8 @@
     const index = topic && part !== "quiz" ? partIndex(topic, part) : -1;
     const info = index >= 0 ? topic.parts[index] : null;
     const exercise = topic?.exercises?.find((e) => part === `codigo/${e.id}`);
-    const title = audio ? audio.title : quick ? quick.title : exercise ? exercise.titulo : part === "quiz" ? "Diagnóstico inicial" : info ? info.title : "";
-    const kicker = audio ? "Sesión de audio" : quick ? "Nota rápida" : exercise ? "Ejercicio de código" : part === "quiz" ? "Diagnóstico" : `Parte ${index + 1}`;
+    const title = audio ? audio.title : quick ? quick.title : exercise ? exercise.titulo : part === "quiz" ? "Diagnóstico inicial" : part === "final_quiz" ? "Cuestionario final" : info ? info.title : "";
+    const kicker = audio ? "Sesión de audio" : quick ? "Nota rápida" : exercise ? "Ejercicio de código" : part === "quiz" ? "Diagnóstico" : part === "final_quiz" ? "Cuestionario final" : `Parte ${index + 1}`;
     if (info && enteredPart !== `${topicId}/${part}`) {
       enteredPart = `${topicId}/${part}`;
       post("api/chats/abrir", { ambito: `parte:${topicId}/${part}`, nombre: `${kicker} · ${title}` }).then(setChats).catch((error) => toast(error.message));
@@ -2717,6 +2718,18 @@
     }
     showResultsStatus();
   }
+  const CALIBRATION = { aligned: "alineado", overconfident: "sobreconfiado", underconfident: "subconfiado" };
+  const openKnowledge = (feedback) => {
+    if (!feedback?.teaching && !feedback?.concepts && !feedback?.confidence) return null;
+    const states = Object.entries(feedback.concepts || {}).map(([code, state]) => `${code}: ${state}`).join(" · ");
+    const teaching = feedback.teaching;
+    return h("div", { class: "lk-open-knowledge" },
+      states ? h("p", { class: "lk-open-states" }, states) : null,
+      teaching ? h("p", { class: "lk-open-action" }, [teaching.errorType && `Dificultad: ${teaching.errorType}`, teaching.action && `Acción: ${teaching.action}`].filter(Boolean).join(" · ")) : null,
+      teaching?.rationale ? h("p", { class: "lk-open-rationale" }, teaching.rationale) : null,
+      feedback.confidence ? h("p", { class: "lk-open-calibration" }, `Confianza: ${feedback.confidence}${CALIBRATION[feedback.calibration] ? ` · ${CALIBRATION[feedback.calibration]}` : ""}`) : null,
+    );
+  };
   /** A question's own words, drawn by the shared renderer (#332): its code and formulas, never raw HTML. */
   const questionWords = (tag, props, text) => {
     const node = h(tag, props);
@@ -2726,10 +2739,31 @@
   function resultsView(topicId, part) {
     if (!submitted || submitted.topic !== topicId || (submitted.part || "quiz") !== part) return go(`#/tema/${encodeURIComponent(topicId)}`);
     const topic = topicById(topicId);
-    const kicker = part === "quiz" ? "Diagnóstico" : topic ? `Parte ${partIndex(topic, part) + 1}` : part;
+    const kicker = part === "quiz" ? "Diagnóstico" : part === "final_quiz" ? "Cuestionario final" : topic ? `Parte ${partIndex(topic, part) + 1}` : part;
     setCrumbs([{ text: "Inicio", href: "#/" }, { text: topic ? topic.title : topicId, href: `#/tema/${topicId}` }, { text: "Resultados" }]);
+    const open = submitted.open === true;
     const [points, total] = String(submitted.score).split("/").map(Number);
     const status = h("div", { class: "results-status", role: "status", "aria-live": "polite" });
+    const list = h("ol", { class: "results-list" });
+    const renderList = () => {
+      list.replaceChildren(...submitted.results.map((r) => {
+        if (!open) return h(
+          "li",
+          { class: r.ok ? "ok" : "miss" },
+          questionWords("p", { class: "question" }, r.enunciado || r.id),
+          h("p", {}, h("strong", {}, r.ok ? "✔ Correcta" : "✘ Incorrecta"), " — elegiste ", `${r.chosen}: `, questionWords("span", {}, r.chosenText)),
+          r.ok ? null : h("p", { class: "muted" }, `La correcta es ${r.correct}: `, questionWords("span", {}, r.correctText)),
+        );
+        const item = h("li", { class: `open open-${r.verdict || "pending"}` }, questionWords("p", { class: "question" }, r.enunciado || r.id));
+        const feedback = (submitted.openFeedback || []).find((entry) => entry.id === r.id);
+        if (window.lkQuestion?.feedback) window.lkQuestion.feedback(item, feedback || { verdict: r.verdict || "pending", next: "" });
+        else item.append(h("p", { class: "muted" }, `Veredicto: ${feedback?.verdict || r.verdict || "pending"}`));
+        const knowledge = openKnowledge(feedback);
+        if (knowledge) item.append(knowledge);
+        return item;
+      }));
+    };
+    let verdictsLoaded = false;
     showResultsStatus = () => {
       if (!status.isConnected || !submitted) return;
       if (!submitted.done) {
@@ -2738,6 +2772,16 @@
           h("div", {}, h("p", { class: "reading" }, "El agente está leyendo tus análisis…"), submitted.activity ? h("p", { class: "muted" }, submitted.activity) : null),
         );
         return;
+      }
+      if (open && !verdictsLoaded) {
+        verdictsLoaded = true;
+        request(`api/verdicts?tema=${encodeURIComponent(topicId)}&parte=${encodeURIComponent(part)}`)
+          .then((data) => {
+            if (!submitted?.done || !list.isConnected) return;
+            submitted.openFeedback = Array.isArray(data.openFeedback) ? data.openFeedback : submitted.openFeedback;
+            renderList();
+          })
+          .catch(() => {});
       }
       const fresh = topicById(topicId);
       const step = fresh ? nextStep(fresh) : null;
@@ -2751,23 +2795,14 @@
         "div",
         { class: "page results" },
         h("p", { class: "eyebrow" }, `${kicker} · resultados`),
-        h("h1", {}, `Puntaje ${submitted.score}`, h("span", { class: "pct" }, ` — ${total ? Math.round((points / total) * 100) : 0} %`)),
+        open
+          ? h("h1", {}, "Respuestas enviadas al tutor", h("span", { class: "pct" }, " — veredicto pendiente"))
+          : h("h1", {}, `Puntaje ${submitted.score}`, h("span", { class: "pct" }, ` — ${total ? Math.round((points / total) * 100) : 0} %`)),
         status,
-        h(
-          "ol",
-          { class: "results-list" },
-          submitted.results.map((r) =>
-            h(
-              "li",
-              { class: r.ok ? "ok" : "miss" },
-              questionWords("p", { class: "question" }, r.enunciado || r.id),
-              h("p", {}, h("strong", {}, r.ok ? "✔ Correcta" : "✘ Incorrecta"), " — elegiste ", `${r.chosen}: `, questionWords("span", {}, r.chosenText)),
-              r.ok ? null : h("p", { class: "muted" }, `La correcta es ${r.correct}: `, questionWords("span", {}, r.correctText)),
-            ),
-          ),
-        ),
+        list,
       ),
     );
+    renderList();
     showResultsStatus();
   }
 

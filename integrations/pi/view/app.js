@@ -57,6 +57,21 @@
     node.href = href;
     return node;
   };
+  const CALIBRATION = { aligned: "alineado", overconfident: "sobreconfiado", underconfident: "subconfiado" };
+  const drawOpenKnowledge = (field, feedback) => {
+    if (!feedback?.teaching && !feedback?.concepts && !feedback?.confidence) return;
+    const box = element("div", undefined, "lk-open-knowledge");
+    if (feedback.concepts && Object.keys(feedback.concepts).length) {
+      box.append(element("p", Object.entries(feedback.concepts).map(([code, state]) => `${code}: ${state}`).join(" · "), "lk-open-states"));
+    }
+    if (feedback.teaching) {
+      const t = feedback.teaching;
+      box.append(element("p", [t.errorType && `Dificultad: ${t.errorType}`, t.action && `Acción: ${t.action}`].filter(Boolean).join(" · "), "lk-open-action"));
+      if (t.rationale) box.append(element("p", t.rationale, "lk-open-rationale"));
+    }
+    if (feedback.confidence) box.append(element("p", `Confianza: ${feedback.confidence}${CALIBRATION[feedback.calibration] ? ` · ${CALIBRATION[feedback.calibration]}` : ""}`, "lk-open-calibration"));
+    field.append(box);
+  };
   // Wide reading mode lives in book.js: that script is the only one a hand-built
   // part page loads, so it is the only place where one definition reaches every
   // part. This file keeps the reader itself.
@@ -388,6 +403,7 @@
   function quiz() {
     if (!data.quiz) return;
     const diagnosis = data.kind === "diagnosis";
+    const final = data.kind === "final";
     const section = element("section", undefined, diagnosis ? "diagnosis" : undefined);
     if (diagnosis) {
       section.append(
@@ -395,7 +411,7 @@
         element("h1", "¿Qué sabes hasta ahora?"),
         element("p", "Responde con lo que sepas. Si no estás seguro, puedes elegir «No sé»: el tutor usará tus respuestas para adaptar el recorrido.")
       );
-    } else section.append(element("h2", "Mini-quiz"));
+    } else if (!final) section.append(element("h2", "Mini-quiz"));
     const form = element("form");
     form.noValidate = true;
     const recorded = new Map((data.answered || []).map((result) => [result.id, result]));
@@ -425,10 +441,12 @@
         else field.append(markdown(question.pieza.contenido));
       }
       const result = recorded.get(question.id);
-      const readonly = Boolean(result) || (!diagnosis && Array.isArray(data.answered));
+      const open = Boolean(question.open);
+      const feedback = open ? (data.openFeedback || []).find((item) => item.id === question.id) : undefined;
+      const readonly = Boolean(result) || Boolean(feedback) || (!diagnosis && Array.isArray(data.answered));
       const choices = [];
       // The options come in the order the bridge served them: the learner's own order (#272).
-      for (const letter of Object.keys(question.options)) {
+      for (const letter of open ? [] : Object.keys(question.options)) {
         const label = element("label", undefined, "option");
         const radio = element("input");
         radio.type = "radio";
@@ -449,11 +467,28 @@
         if (CONFIDENCE[result.confianza]) field.append(element("p", `Confianza: ${CONFIDENCE[result.confianza]}`, "muted"));
         showResult(field, result, question);
       }
+      if (feedback) {
+        if (globalThis.lkQuestion?.feedback) globalThis.lkQuestion.feedback(field, feedback);
+        else field.append(element("p", `Veredicto: ${feedback.verdict}. ${feedback.next}`, "muted"));
+        drawOpenKnowledge(field, feedback);
+      }
       if (!readonly) {
-        const thought = window.learningThoughtField(`question-${index}`, index, data);
-        field.append(thought);
-        const razonamiento = thought.querySelector('textarea');
-        if (globalThis.lkCodeField?.isCode(question)) globalThis.lkCodeField.enhance(razonamiento);
+        let textInput, codeInput, explanationInput, noButton;
+        if (open) {
+          if (question.open.kind === "code") {
+            codeInput = textarea(field, "Tu código", true);
+            explanationInput = textarea(field, "Explica tu código con tus palabras");
+          } else textInput = textarea(field, "Tu respuesta desarrollada");
+          noButton = element("button", "No sé todavía", "no-evidence");
+          noButton.type = "button";
+          noButton.setAttribute("aria-pressed", "false");
+          field.append(noButton);
+        } else {
+          const thought = window.learningThoughtField(`question-${index}`, index, data);
+          field.append(thought);
+          textInput = thought.querySelector("textarea");
+          if (globalThis.lkCodeField?.isCode(question)) globalThis.lkCodeField.enhance(textInput);
+        }
         const confidence = element("div", undefined, "confidence");
         confidence.append(element("span", "¿Qué tan seguro estás?"));
         const sure = Object.entries(CONFIDENCE).map(([value, text]) => {
@@ -467,7 +502,16 @@
           return radio;
         });
         field.append(confidence);
-        const item = { question, field, choices, razonamiento, sure, skipsConfidence: false };
+        const item = { question, field, choices, razonamiento: textInput, codeInput, explanationInput, sure, skipsConfidence: false, open, noEvidence: false, noButton };
+        if (noButton) noButton.addEventListener("click", () => {
+          item.noEvidence = !item.noEvidence;
+          noButton.setAttribute("aria-pressed", String(item.noEvidence));
+          for (const input of [codeInput, explanationInput, textInput]) {
+            if (!input) continue;
+            input.disabled = item.noEvidence;
+            input.parentElement.classList.toggle("open-hidden", item.noEvidence);
+          }
+        });
         for (const radio of choices) {
           radio.addEventListener("change", () => {
             item.skipsConfidence = dontKnow(question.options[radio.value]);
@@ -507,7 +551,7 @@
     if (pending.length) {
       // #415: the own-words block is the answer that most needs dictation, so it is drawn by the
       // same thought field as the questions. Only its box is read, under the same key and cap.
-      const ownField = !diagnosis && window.learningThoughtField("own-words", 0, data);
+      const ownField = !diagnosis && !final && window.learningThoughtField("own-words", 0, data);
       const ownWords = ownField && ownField.querySelector("textarea");
       if (ownField) {
         // The kit worded this field for a question, but the block is the learner's own summary.
@@ -525,35 +569,75 @@
       away(button, message);
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        const missing = pending.find((item) => !item.choices.some((input) => input.checked));
-        if (missing) {
+        const openItems = pending.filter((item) => item.open);
+        if (openItems.length && openItems.length !== data.quiz.questions.length) {
           message.className = "error";
-          message.textContent = "Responde todas las preguntas antes de enviar.";
-          missing.choices[0]?.focus();
+          message.textContent = "Este quiz no mezcla preguntas desarrolladas con opciones.";
           return;
         }
-        const unsure = pending.find((item) => !item.skipsConfidence && !item.sure.some((input) => input.checked));
-        if (unsure) {
-          message.className = "error";
-          message.textContent = "Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.";
-          unsure.sure[0].focus();
-          return;
-        }
-        const answers = Object.fromEntries(pending.map((item) => [item.question.id, item.choices.find((input) => input.checked).value]));
-        const reasoning = Object.fromEntries(
-          pending.map((item) => [
-            item.question.id,
-            item.skipsConfidence
-              ? { razonamiento: item.razonamiento.value.trim() }
-              : { razonamiento: item.razonamiento.value.trim(), confianza: item.sure.find((input) => input.checked).value },
-          ]),
-        );
-        const payload = { kind: diagnosis ? "diagnosis" : "mini-quiz", topic: data.topic, answers, reasoning };
-        if (!diagnosis) {
-          payload.part = data.part;
-          if (ownWords.value.trim()) payload.ownWords = ownWords.value.trim();
-          const exerciseAnswers = Object.fromEntries(exercises.filter(({ input }) => input.value.trim()).map(({ id, input }) => [id, input.value.trim()]));
-          if (Object.keys(exerciseAnswers).length) payload.exercises = exerciseAnswers;
+        let payload;
+        if (openItems.length) {
+          const openAnswers = {};
+          for (const item of openItems) {
+            const confidence = item.sure.find((input) => input.checked)?.value;
+            const core = { kind: item.question.open.kind, ...(confidence ? { confidence } : {}) };
+            if (item.noEvidence) {
+              openAnswers[item.question.id] = { ...core, noEvidence: true };
+              continue;
+            }
+            if (item.question.open.kind === "code") {
+              const code = item.codeInput.value.trim();
+              const explanation = item.explanationInput.value.trim();
+              if (!code || !explanation) {
+                message.className = "error";
+                message.textContent = "Escribe el código y explica tu código antes de enviar.";
+                (code ? item.explanationInput : item.codeInput).focus();
+                return;
+              }
+              openAnswers[item.question.id] = { ...core, code, explanation };
+            } else {
+              const text = item.razonamiento.value.trim();
+              if (!text) {
+                message.className = "error";
+                message.textContent = "Desarrolla tu respuesta o marca «No sé todavía».";
+                item.razonamiento.focus();
+                return;
+              }
+              openAnswers[item.question.id] = { ...core, text };
+            }
+          }
+          payload = { kind: final ? "final" : diagnosis ? "diagnosis" : "mini-quiz", topic: data.topic, ...(diagnosis ? {} : { part: data.part }), openAnswers };
+        } else {
+          const missing = pending.find((item) => !item.choices.some((input) => input.checked));
+          if (missing) {
+            message.className = "error";
+            message.textContent = "Responde todas las preguntas antes de enviar.";
+            missing.choices[0]?.focus();
+            return;
+          }
+          const unsure = pending.find((item) => !item.skipsConfidence && !item.sure.some((input) => input.checked));
+          if (unsure) {
+            message.className = "error";
+            message.textContent = "Indica en cada pregunta qué tan seguro estás: seguro, dudo o adiviné.";
+            unsure.sure[0].focus();
+            return;
+          }
+          const answers = Object.fromEntries(pending.map((item) => [item.question.id, item.choices.find((input) => input.checked).value]));
+          const reasoning = Object.fromEntries(
+            pending.map((item) => [
+              item.question.id,
+              item.skipsConfidence
+                ? { razonamiento: item.razonamiento.value.trim() }
+                : { razonamiento: item.razonamiento.value.trim(), confianza: item.sure.find((input) => input.checked).value },
+            ]),
+          );
+          payload = { kind: final ? "final" : diagnosis ? "diagnosis" : "mini-quiz", topic: data.topic, answers, reasoning };
+          if (!diagnosis) {
+            payload.part = data.part;
+            if (ownWords.value.trim()) payload.ownWords = ownWords.value.trim();
+            const exerciseAnswers = Object.fromEntries(exercises.filter(({ input }) => input.value.trim()).map(({ id, input }) => [id, input.value.trim()]));
+            if (Object.keys(exerciseAnswers).length) payload.exercises = exerciseAnswers;
+          }
         }
         button.disabled = true;
         message.textContent = "Enviando…";
@@ -564,11 +648,21 @@
             message.textContent = "En cola…";
             return;
           }
-          response.results.forEach((result) => {
-            const item = pending.find((entry) => entry.question.id === result.id);
-            if (item) showResult(item.field, result, item.question);
-          });
-          showScore(section, response.score, response.saved);
+          if (response.open) {
+            for (const feedback of response.openFeedback || []) {
+              const item = pending.find((entry) => entry.question.id === feedback.id);
+              if (!item) continue;
+              if (globalThis.lkQuestion?.feedback) globalThis.lkQuestion.feedback(item.field, feedback);
+              else item.field.append(element("p", `Veredicto: ${feedback.verdict}`, "muted"));
+              drawOpenKnowledge(item.field, feedback);
+            }
+          } else {
+            response.results.forEach((result) => {
+              const item = pending.find((entry) => entry.question.id === result.id);
+              if (item) showResult(item.field, result, item.question);
+            });
+            showScore(section, response.score, response.saved);
+          }
           form.querySelectorAll("input, textarea, button").forEach((input) => { input.disabled = true; });
           revealExerciseSolutions(response.exerciseSolutions || {});
           message.textContent = "";
@@ -591,12 +685,13 @@
     if (window.parent === window) return;
     const results = response.results.map((result) => {
       const question = questionById(result.id) || { enunciado: "", options: {} };
+      if (response.open) return { id: result.id, enunciado: question.enunciado, verdict: result.verdict };
       return {
         id: result.id, enunciado: question.enunciado, chosen: result.chosen, chosenText: question.options[result.chosen] ?? "",
         correct: result.correct, correctText: question.options[result.correct] ?? "", ok: result.ok,
       };
     });
-    const message = { type: "learning:submitted", kind: payload.kind, topic: payload.topic, ...(payload.part ? { part: payload.part } : {}), score: response.score, results };
+    const message = { type: "learning:submitted", kind: payload.kind, topic: payload.topic, ...(payload.part ? { part: payload.part } : {}), ...(response.open ? { open: true, openFeedback: response.openFeedback || [] } : { score: response.score }), results };
     window.parent.postMessage(message, "*");
   }
   function verdicts() {

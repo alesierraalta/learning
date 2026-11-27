@@ -255,28 +255,63 @@ func evalPlanningLink(c *evalCtx, decl rules.CheckDecl) Check {
 		}
 		return passCheck(decl.ID, "diagnosis skipped by the learner: the plan starts from zero")
 	}
-	if err := validateDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
-		return failCheck(decl.ID, "diagnostic questions invalid: "+err.Error())
+	refs := openRefs(qs, c.r.Thresholds)
+	openMode := len(refs) > 0 && len(refs) == len(qs)
+	if len(refs) > 0 && !openMode {
+		return failCheck(decl.ID, "a diagnosis cannot mix open items with multiple-choice items")
 	}
-	answers, err := loadAnswers(c.ws, decl.Answers)
-	if err != nil {
-		return failCheck(decl.ID, "diagnostic answers unavailable: "+err.Error())
+	var wrongIDs []string
+	if openMode {
+		if err := validateOpenDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
+			return failCheck(decl.ID, "diagnostic questions invalid: "+err.Error())
+		}
+		teaching, _, err := loadTeaching(c.ws, decl.Questions)
+		if err != nil {
+			return failCheck(decl.ID, "teaching strategy unreadable: "+err.Error())
+		}
+		openAnswers, err := loadOpenAnswers(c.ws, decl.Answers)
+		if err != nil {
+			return failCheck(decl.ID, "diagnostic answers unavailable: "+err.Error())
+		}
+		verdicts, present, err := loadOpenVerdicts(c.ws, openVerdictRel(decl.Answers))
+		if err != nil {
+			return failCheck(decl.ID, "tutor verdicts unreadable: "+err.Error())
+		}
+		score, err := gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds, len(teaching.Areas) > 0)
+		if err != nil {
+			return failCheck(decl.ID, "diagnostic answers invalid: "+err.Error())
+		}
+		wrongIDs = score.WrongIDs
+		c.evidence["knowledgeMap"] = score.Knowledge
+		c.evidence["teachingPlan"] = score.TeachingPlan
+	} else {
+		if err := validateDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
+			return failCheck(decl.ID, "diagnostic questions invalid: "+err.Error())
+		}
+		answers, err := loadAnswers(c.ws, decl.Answers)
+		if err != nil {
+			return failCheck(decl.ID, "diagnostic answers unavailable: "+err.Error())
+		}
+		var ids []string
+		for _, q := range qs {
+			ids = append(ids, q.ID)
+		}
+		if err := checkCoverage(ids, answers, c.r.Thresholds.Options); err != nil {
+			return failCheck(decl.ID, "diagnostic answers invalid: "+err.Error())
+		}
+		wrongIDs = scoreDiag(qs, answers).WrongIDs
 	}
 	var ids []string
 	for _, q := range qs {
 		ids = append(ids, q.ID)
-	}
-	if err := checkCoverage(ids, answers, c.r.Thresholds.Options); err != nil {
-		return failCheck(decl.ID, "diagnostic answers invalid: "+err.Error())
 	}
 	noteBytes, err := os.ReadFile(absPath(c.ws, decl.Note))
 	if err != nil {
 		return failCheck(decl.ID, "planificador note unavailable: "+decl.Note)
 	}
 	note := string(noteBytes)
-	score := scoreDiag(qs, answers)
 	wrong := map[string]bool{}
-	for _, id := range score.WrongIDs {
+	for _, id := range wrongIDs {
 		wrong[id] = true
 	}
 	var lagunas []string
@@ -316,12 +351,12 @@ func evalPlanningLink(c *evalCtx, decl rules.CheckDecl) Check {
 		if !linked && len(lagunas) > 0 {
 			return failCheck(decl.ID, fmt.Sprintf(
 				"focusAreas do not include any wrongly answered or laguna question (wrong: %s; laguna: %s)",
-				strings.Join(score.WrongIDs, ","), strings.Join(lagunas, ",")))
+				strings.Join(wrongIDs, ","), strings.Join(lagunas, ",")))
 		}
 		if !linked {
 			return failCheck(decl.ID, fmt.Sprintf(
 				"focusAreas do not include any wrongly answered question (wrong: %s)",
-				strings.Join(score.WrongIDs, ",")))
+				strings.Join(wrongIDs, ",")))
 		}
 	}
 	// Join keys must travel quiz -> planificador: every subtema referenced by
@@ -338,7 +373,7 @@ func evalPlanningLink(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	return passCheck(decl.ID, fmt.Sprintf(
 		"plan linked to diagnostic results (summary, focus %v among wrong %v) and all subtema join keys appear in %s",
-		c.plan.FocusAreas, score.WrongIDs, decl.Note))
+		c.plan.FocusAreas, wrongIDs, decl.Note))
 }
 
 // evalDiagnosticQuestions checks real question structure and binds every
@@ -349,7 +384,15 @@ func evalDiagnosticQuestions(c *evalCtx, decl rules.CheckDecl) Check {
 		return failCheck(decl.ID, err.Error())
 	}
 	skipped := diagSkipped(c.ws, decl.Path, qs, c.r.Thresholds)
-	if !skipped {
+	refs := openRefs(qs, c.r.Thresholds)
+	if len(refs) > 0 && len(refs) < len(qs) {
+		return failCheck(decl.ID, "a diagnosis cannot mix open items with multiple-choice items")
+	}
+	if len(refs) == len(qs) && len(refs) > 0 {
+		if err := validateOpenDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
+			return failCheck(decl.ID, "diagnostic questions invalid: "+err.Error())
+		}
+	} else if !skipped {
 		if err := validateDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
 			return failCheck(decl.ID, "diagnostic questions invalid: "+err.Error())
 		}
@@ -378,6 +421,9 @@ func evalDiagnosticQuestions(c *evalCtx, decl rules.CheckDecl) Check {
 		if !strings.Contains(note, q.Nivel) {
 			return failCheck(decl.ID, fmt.Sprintf("question %s nivel tag %q is not visible in %s", q.ID, q.Nivel, decl.Note))
 		}
+		if isOpenQuestion(q.Open, len(q.Options) == 0, q.Answer == "", c.r.Thresholds) {
+			continue
+		}
 		for _, key := range c.r.Thresholds.Options.AnswerKeys {
 			if !containsNorm(note, q.Options[key]) {
 				return failCheck(decl.ID, fmt.Sprintf("question %s option %s text is not present in %s", q.ID, key, decl.Note))
@@ -400,23 +446,74 @@ func evalDiagnosticAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 		return skipCheck(decl.ID, "questions invalid; answers cannot be checked: "+err.Error())
 	}
 	skipped := diagSkipped(c.ws, decl.Questions, qs, c.r.Thresholds)
-	if !skipped {
-		if err := validateDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
-			return skipCheck(decl.ID, "questions invalid; answers cannot be checked: "+err.Error())
-		}
+	refs := openRefs(qs, c.r.Thresholds)
+	if len(refs) > 0 && len(refs) < len(qs) {
+		return failCheck(decl.ID, "a diagnosis cannot mix open items with multiple-choice items")
+	}
+	openMode := len(refs) > 0 && len(refs) == len(qs)
+	if err := validateDiagnosticInput(qs, skipped, openMode, c); err != nil {
+		return skipCheck(decl.ID, "questions invalid; answers cannot be checked: "+err.Error())
 	}
 	adaptive := c.r.Thresholds.Diagnostic.Adaptive()
-	if answerFileMissing(c.ws, decl.Answers) && !adaptive {
+	if answerFileMissing(c.ws, decl.Answers) && !adaptive && !openMode {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"learner answers not yet recorded in %s (waiting for learner input)", decl.Answers))
 	}
 	answers := map[string]string{}
-	if !answerFileMissing(c.ws, decl.Answers) {
+	if !openMode && !answerFileMissing(c.ws, decl.Answers) {
 		if answers, err = loadAnswers(c.ws, decl.Answers); err != nil {
 			return failCheck(decl.ID, "answers invalid: "+err.Error())
 		}
 	}
-	if adaptive && !skipped && c.r.Thresholds.ConceptMode() {
+	var openResult openScore
+	if openMode {
+		teaching, declared, err := loadTeaching(c.ws, decl.Questions)
+		if err != nil {
+			return failCheck(decl.ID, "teaching strategy unreadable: "+err.Error())
+		}
+		if declared {
+			if err := validateTeachingDiagnosisShape(qs, c.plan, teaching, c.r.Thresholds); err != nil {
+				return failCheck(decl.ID, "diagnosis coverage invalid: "+err.Error())
+			}
+		}
+		openAnswers, err := loadOpenAnswers(c.ws, decl.Answers)
+		if err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
+		verdicts, present, err := loadOpenVerdicts(c.ws, openVerdictRel(decl.Answers))
+		if err != nil {
+			return failCheck(decl.ID, "tutor verdicts unreadable: "+err.Error())
+		}
+		flowAnswers := map[string]string{}
+		for id, answer := range answers {
+			flowAnswers[id] = answer
+		}
+		for id := range openAnswers {
+			flowAnswers[id] = "recorded"
+		}
+		if adaptive && !skipped && c.r.Thresholds.ConceptMode() {
+			if err := guidedFlow(qs, flowAnswers); err != nil {
+				return failCheck(decl.ID, "diagnosis round invalid: "+err.Error())
+			}
+		}
+		if declared {
+			covered, err := validateTeachingDiagnosisFlow(qs, openAnswers, verdicts, teaching, c.plan, c.r.Thresholds)
+			if err != nil {
+				return failCheck(decl.ID, "diagnosis evidence insufficient: "+err.Error())
+			}
+			c.evidence["diagnosisCoverage"] = covered
+		}
+		if len(openAnswers) == 0 {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"learner answers not yet recorded in %s (waiting for learner input)", decl.Answers))
+		}
+		openResult, err = gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds, declared)
+		if err != nil {
+			return failCheck(decl.ID, "diagnosis open grading: "+err.Error())
+		}
+		c.evidence["knowledgeMap"] = openResult.Knowledge
+		c.evidence["teachingPlan"] = openResult.TeachingPlan
+	} else if adaptive && !skipped && c.r.Thresholds.ConceptMode() {
 		if err := guidedFlow(qs, answers); err != nil {
 			return failCheck(decl.ID, "diagnosis round invalid: "+err.Error())
 		}
@@ -454,11 +551,21 @@ func evalDiagnosticAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 	for _, q := range qs {
 		ids = append(ids, q.ID)
 	}
-	if err := checkCoverage(ids, answers, c.r.Thresholds.Options); err != nil {
-		return failCheck(decl.ID, "answers invalid: "+err.Error())
+	if !openMode {
+		if err := checkCoverage(ids, answers, c.r.Thresholds.Options); err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
 	}
-	score := scoreDiag(qs, answers)
-	wantPuntaje := fmt.Sprintf("%d/%d", score.Correct, len(qs))
+	var wantPuntaje string
+	var wrongIDs []string
+	if openMode {
+		wantPuntaje = formatOpenScore(openResult.Points, len(qs))
+		wrongIDs = openResult.WrongIDs
+	} else {
+		score := scoreDiag(qs, answers)
+		wantPuntaje = fmt.Sprintf("%d/%d", score.Correct, len(qs))
+		wrongIDs = score.WrongIDs
+	}
 	noteBytes, err := os.ReadFile(absPath(c.ws, decl.Note))
 	if err != nil {
 		return failCheck(decl.ID, "quiz note unavailable: "+decl.Note)
@@ -473,9 +580,19 @@ func evalDiagnosticAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 			decl.Note, fm["puntaje"], wantPuntaje))
 	}
 	c.evidence["diagnosticScore"] = wantPuntaje
-	c.evidence["diagnosticWrong"] = score.WrongIDs
+	c.evidence["diagnosticWrong"] = wrongIDs
 	return passCheck(decl.ID, fmt.Sprintf("%d/%d answers recorded; derived score %s (bound to %s puntaje)",
 		len(qs), len(qs), wantPuntaje, decl.Note))
+}
+
+func validateDiagnosticInput(qs []diagQuestion, skipped, openMode bool, c *evalCtx) error {
+	if skipped {
+		return nil
+	}
+	if openMode {
+		return validateOpenDiagnostic(qs, c.plan, c.r.Thresholds)
+	}
+	return validateDiagnostic(qs, c.plan, c.r.Thresholds)
 }
 
 // evalPlanificador enforces the mandated planificador.md structure: every
@@ -1551,7 +1668,15 @@ func evalMiniQuizQuestions(c *evalCtx, decl rules.CheckDecl) Check {
 	if p == nil {
 		return failCheck(decl.ID, "part not in plan")
 	}
-	if err := validateQuizQuestions(qs, p.Subtema, planSubtemas(*c.plan), c.r.Thresholds); err != nil {
+	refs := openQuizRefs(qs, c.r.Thresholds)
+	if len(refs) > 0 && len(refs) < len(qs) {
+		return failCheck(decl.ID, "a mini-quiz cannot mix open items with multiple-choice items")
+	}
+	if len(refs) == len(qs) && len(refs) > 0 {
+		if err := validateOpenQuizQuestions(qs, p.Subtema, planSubtemas(*c.plan), c.r.Thresholds); err != nil {
+			return failCheck(decl.ID, "mini-quiz questions invalid: "+err.Error())
+		}
+	} else if err := validateQuizQuestions(qs, p.Subtema, planSubtemas(*c.plan), c.r.Thresholds); err != nil {
 		return failCheck(decl.ID, "mini-quiz questions invalid: "+err.Error())
 	}
 	partFile, err := c.partFile()
@@ -1583,7 +1708,16 @@ func evalMiniQuizAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 	if p == nil {
 		return failCheck(decl.ID, "part not in plan")
 	}
-	if err := validateQuizQuestions(qs, p.Subtema, planSubtemas(*c.plan), c.r.Thresholds); err != nil {
+	refs := openQuizRefs(qs, c.r.Thresholds)
+	if len(refs) > 0 && len(refs) < len(qs) {
+		return failCheck(decl.ID, "a mini-quiz cannot mix open items with multiple-choice items")
+	}
+	openMode := len(refs) > 0 && len(refs) == len(qs)
+	if openMode {
+		if err := validateOpenQuizQuestions(qs, p.Subtema, planSubtemas(*c.plan), c.r.Thresholds); err != nil {
+			return skipCheck(decl.ID, "questions invalid; answers cannot be checked: "+err.Error())
+		}
+	} else if err := validateQuizQuestions(qs, p.Subtema, planSubtemas(*c.plan), c.r.Thresholds); err != nil {
 		return skipCheck(decl.ID, "questions invalid; answers cannot be checked: "+err.Error())
 	}
 	if answerFileMissing(c.ws, aRel) {
@@ -1596,37 +1730,77 @@ func evalMiniQuizAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"learner answers in %s answer another quiz (waiting for learner input)", aRel))
 	}
-	answers, err := loadAnswers(c.ws, aRel)
-	if err != nil {
-		return failCheck(decl.ID, "answers invalid: "+err.Error())
-	}
-	var ids []string
-	for _, q := range qs {
-		ids = append(ids, q.ID)
-	}
-	if err := checkCoverage(ids, answers, c.r.Thresholds.Options); err != nil {
-		return failCheck(decl.ID, "answers invalid: "+err.Error())
+	var openResult openScore
+	answers := map[string]string{}
+	if openMode {
+		teaching, declared, err := loadTeaching(c.ws, qRel)
+		if err != nil {
+			return failCheck(decl.ID, "teaching strategy unreadable: "+err.Error())
+		}
+		if declared {
+			if err := validateTeachingQuizMix(qs, teaching, c.r.Thresholds); err != nil {
+				return failCheck(decl.ID, "mini-quiz operation mix invalid: "+err.Error())
+			}
+		}
+		openAnswers, err := loadOpenAnswers(c.ws, aRel)
+		if err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
+		verdicts, present, err := loadOpenVerdicts(c.ws, openVerdictRel(aRel))
+		if err != nil {
+			return failCheck(decl.ID, "tutor verdicts unreadable: "+err.Error())
+		}
+		openResult, err = gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds, declared)
+		if err != nil {
+			return failCheck(decl.ID, "open quiz grading: "+err.Error())
+		}
+		if declared {
+			c.evidence["knowledgeMap"] = openResult.Knowledge
+			c.evidence["teachingPlan"] = openResult.TeachingPlan
+		}
+	} else {
+		answers, err = loadAnswers(c.ws, aRel)
+		if err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
+		var ids []string
+		for _, q := range qs {
+			ids = append(ids, q.ID)
+		}
+		if err := checkCoverage(ids, answers, c.r.Thresholds.Options); err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
 	}
 	threshold := fmt.Sprintf("%d", c.r.Thresholds.Quiz.MinPassingScore)
-	score := scoreQuiz(qs, answers)
-	passed := score.Correct >= c.r.Thresholds.Quiz.MinPassingScore && len(score.CentralMisses) == 0
-	if c.r.Thresholds.ConceptMode() {
+	correct, passed := 0, false
+	var centralMisses, wrongIDs []string
+	if openMode {
 		ratio := c.r.Thresholds.Concepts.MinPassingRatio
 		threshold = fmt.Sprintf("%d/%d of the questions", ratio.Num, ratio.Den)
-		passed = score.Correct*ratio.Den >= ratio.Num*len(qs) && len(score.CentralMisses) == 0
+		correct = openResult.Points / 2
+		passed, centralMisses, wrongIDs = openResult.Passed, openResult.CentralMisses, openResult.WrongIDs
+	} else {
+		score := scoreQuiz(qs, answers)
+		correct, centralMisses, wrongIDs = score.Correct, score.CentralMisses, score.WrongIDs
+		passed = score.Correct >= c.r.Thresholds.Quiz.MinPassingScore && len(centralMisses) == 0
+		if c.r.Thresholds.ConceptMode() {
+			ratio := c.r.Thresholds.Concepts.MinPassingRatio
+			threshold = fmt.Sprintf("%d/%d of the questions", ratio.Num, ratio.Den)
+			passed = score.Correct*ratio.Den >= ratio.Num*len(qs) && len(centralMisses) == 0
+		}
 	}
 	central := "none"
-	if len(score.CentralMisses) > 0 {
-		central = strings.Join(score.CentralMisses, ",")
+	if len(centralMisses) > 0 {
+		central = strings.Join(centralMisses, ",")
 	}
-	c.evidence["quizScore"] = score.Correct
+	c.evidence["quizScore"] = correct
 	c.evidence["quizTotal"] = len(qs)
-	c.evidence["quizCentralMisses"] = score.CentralMisses
-	c.evidence["quizWrongIds"] = score.WrongIDs
+	c.evidence["quizCentralMisses"] = centralMisses
+	c.evidence["quizWrongIds"] = wrongIDs
 	c.evidence["quizPassed"] = passed
 	return passCheck(decl.ID, fmt.Sprintf(
 		"%d/%d answers recorded; derived score %d/%d (pass threshold %s, central misses: %s)",
-		len(qs), len(qs), score.Correct, len(qs), threshold, central))
+		len(qs), len(qs), correct, len(qs), threshold, central))
 }
 
 func evalFeedback(c *evalCtx, decl rules.CheckDecl) Check {
@@ -1747,6 +1921,17 @@ func evalFinalQuizNote(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	seen := map[string]bool{}
 	covered := map[string]bool{}
+	refs := openFinalRefs(qs, c.r.Thresholds)
+	openByID := map[string]*openItem{}
+	for _, ref := range refs {
+		openByID[ref.ID] = ref.Item
+	}
+	allOpen := len(refs) > 0 && len(refs) == len(qs)
+	if allOpen {
+		if err := validateOpenItems(refs, c.r.Thresholds, planSubs); err != nil {
+			return failCheck(decl.ID, "final questions invalid: "+err.Error())
+		}
+	}
 	var choiceIDs, openIDs []string
 	for _, q := range qs {
 		if q.ID == "" || seen[q.ID] {
@@ -1762,12 +1947,16 @@ func evalFinalQuizNote(c *evalCtx, decl rules.CheckDecl) Check {
 		if err := validateNivel(q.Nivel, c.r.Thresholds); err != nil {
 			return failCheck(decl.ID, fmt.Sprintf("question %s: %v", q.ID, err))
 		}
-		if strings.TrimSpace(q.Formato) == "" {
+		formato := q.Formato
+		if item := openByID[q.ID]; item != nil && strings.TrimSpace(formato) == "" {
+			formato = item.Operation
+		}
+		if strings.TrimSpace(formato) == "" {
 			return failCheck(decl.ID, fmt.Sprintf("question %s misses its formato", q.ID))
 		}
-		if isMCQFormat(q.Formato) {
+		if isMCQFormat(formato) {
 			choiceIDs = append(choiceIDs, q.ID)
-		} else {
+		} else if openByID[q.ID] == nil {
 			openIDs = append(openIDs, q.ID)
 		}
 		covered[q.Subtema] = true
@@ -1780,42 +1969,66 @@ func evalFinalQuizNote(c *evalCtx, decl rules.CheckDecl) Check {
 			return failCheck(decl.ID, fmt.Sprintf("planned node %s has no final-quiz question: coverage must be total", p.Subtema))
 		}
 	}
-	if len(choiceIDs) == 0 || len(openIDs) == 0 {
+	if !allOpen && (len(choiceIDs) == 0 || len(openIDs) == 0) {
 		return failCheck(decl.ID, "cuestionario-final needs both choice and open questions; the contract requires mixed formats")
 	}
 	if answerFileMissing(c.ws, decl.Answers) {
 		return failCheck(decl.ID, fmt.Sprintf(
 			"learner answers not yet recorded in %s (waiting for learner input)", decl.Answers))
 	}
-	answers, err := loadAnswers(c.ws, decl.Answers)
-	if err != nil {
-		return failCheck(decl.ID, "answers invalid: "+err.Error())
-	}
-	if err := checkCoverage(choiceIDs, choiceAnswers(answers, choiceIDs), c.r.Thresholds.Options); err != nil {
-		return failCheck(decl.ID, "answers invalid: "+err.Error())
-	}
-	for id := range answers {
-		if !seen[id] {
-			return failCheck(decl.ID, "answers invalid: unknown question id "+id)
+	answers := map[string]string{}
+	var openResult openScore
+	if allOpen {
+		openAnswers, err := loadOpenAnswers(c.ws, decl.Answers)
+		if err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
+		verdicts, present, err := loadOpenVerdicts(c.ws, openVerdictRel(decl.Answers))
+		if err != nil {
+			return failCheck(decl.ID, "tutor verdicts unreadable: "+err.Error())
+		}
+		openResult, err = gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds, false)
+		if err != nil {
+			return failCheck(decl.ID, "open final grading: "+err.Error())
+		}
+	} else {
+		answers, err = loadAnswers(c.ws, decl.Answers)
+		if err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
+		if err := checkCoverage(choiceIDs, choiceAnswers(answers, choiceIDs), c.r.Thresholds.Options); err != nil {
+			return failCheck(decl.ID, "answers invalid: "+err.Error())
+		}
+		for id := range answers {
+			if !seen[id] {
+				return failCheck(decl.ID, "answers invalid: unknown question id "+id)
+			}
+		}
+		for _, id := range openIDs {
+			if strings.TrimSpace(answers[id]) == "" {
+				return failCheck(decl.ID, fmt.Sprintf(
+					"open answer %s is empty in %s (waiting for learner input)", id, decl.Answers))
+			}
 		}
 	}
-	for _, id := range openIDs {
-		if strings.TrimSpace(answers[id]) == "" {
-			return failCheck(decl.ID, fmt.Sprintf(
-				"open answer %s is empty in %s (waiting for learner input)", id, decl.Answers))
+	wantPuntaje := ""
+	openCount := len(openIDs)
+	if allOpen {
+		wantPuntaje = formatOpenScore(openResult.Points, len(qs))
+		openCount = len(refs)
+	} else {
+		byID := map[string]finalQuestion{}
+		for _, q := range qs {
+			byID[q.ID] = q
 		}
-	}
-	byID := map[string]finalQuestion{}
-	for _, q := range qs {
-		byID[q.ID] = q
-	}
-	correct := 0
-	for _, id := range choiceIDs {
-		if strings.EqualFold(norm(answers[id]), norm(byID[id].Respuesta)) {
-			correct++
+		correct := 0
+		for _, id := range choiceIDs {
+			if strings.EqualFold(norm(answers[id]), norm(byID[id].Respuesta)) {
+				correct++
+			}
 		}
+		wantPuntaje = fmt.Sprintf("%d/%d", correct, len(choiceIDs))
 	}
-	wantPuntaje := fmt.Sprintf("%d/%d", correct, len(choiceIDs))
 	if fm["estado"] != "completado" {
 		return failCheck(decl.ID, fmt.Sprintf("%s frontmatter estado = %q, want completado", decl.Path, fm["estado"]))
 	}
@@ -1824,10 +2037,10 @@ func evalFinalQuizNote(c *evalCtx, decl rules.CheckDecl) Check {
 			decl.Path, fm["puntaje"], wantPuntaje))
 	}
 	c.evidence["finalQuizScore"] = wantPuntaje
-	c.evidence["finalOpenAnswers"] = len(openIDs)
+	c.evidence["finalOpenAnswers"] = openCount
 	return passCheck(decl.ID, fmt.Sprintf(
-		"%d question(s) cover all %d planned node(s), enunciados bound to %s; choice score %s bound to frontmatter; %d open answer(s) recorded, not auto-graded",
-		len(qs), len(c.planParts()), decl.Path, wantPuntaje, len(openIDs)))
+		"%d question(s) cover all %d planned node(s), enunciados bound to %s; verdict score %s bound to frontmatter; %d open answer(s) recorded",
+		len(qs), len(c.planParts()), decl.Path, wantPuntaje, openCount))
 }
 
 // evalMermaidGraph requires a real dependency graph: a graph/flowchart header

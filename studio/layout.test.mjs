@@ -4133,3 +4133,146 @@ test("the feedback page lists the verdicts beside the suggestions (S1, S2)", { s
   assert.deepEqual(await down.locator(".feedback-motivos .chip").allInnerTexts(), ["Demasiado texto"]);
   assert.equal(await down.locator("blockquote").count(), 0, "no words, no empty quote");
 });
+
+const OPEN_PENDING = {
+  type: "learning:submitted", kind: "mini-quiz", topic: "redes", part: "p1", open: true,
+  results: [{ id: "q1", enunciado: "Explica la encapsulación" }, { id: "q2", enunciado: "Corrige el código" }, { id: "q3", enunciado: "Predice el resultado" }, { id: "q4", enunciado: "Transfiere la idea" }],
+  openFeedback: [
+    { id: "q1", verdict: "pending", evidence: "", criteria: [], next: "El tutor está revisando tu respuesta." },
+    { id: "q2", verdict: "pending", evidence: "", criteria: [], next: "El tutor está revisando tu respuesta." },
+    { id: "q3", verdict: "pending", evidence: "", criteria: [], next: "El tutor está revisando tu respuesta." },
+    { id: "q4", verdict: "pending", evidence: "", criteria: [], next: "El tutor está revisando tu respuesta." },
+  ],
+};
+const OPEN_GRADED = {
+  ...OPEN_PENDING,
+  openFeedback: [
+    { id: "q1", verdict: "partial", evidence: "La encapsulación oculta los datos", criteria: [{ id: "c1", met: true, evidence: "oculta los datos" }, { id: "c2", met: false, evidence: "La encapsulación" }], concepts: { "1.1": "dudoso" }, next: "Añade cómo se accede desde fuera." },
+    { id: "q2", verdict: "incorrect", evidence: "Mi bucle empieza en cero", criteria: [{ id: "c1", met: false, evidence: "empieza en cero" }], explanation: { verdict: "incorrect", evidence: "Mi bucle empieza en cero" }, executable: { aprobados: 1, total: 2, saved: "codigo/q2/entregas/001.json" }, next: "Revisa la condición de parada y tu explicación." },
+    { id: "q3", verdict: "no-evidence", evidence: "No sé todavía", criteria: [{ id: "c1", met: false, evidence: "No sé todavía" }], next: "Empieza por una primera hipótesis." },
+    { id: "q4", verdict: "correct", evidence: "La idea se transfiere al caso nuevo", criteria: [{ id: "c1", met: true, evidence: "caso nuevo" }], next: "Retoma esta idea en un caso nuevo." },
+  ],
+};
+
+test("T2 open results wait for the verdict, then show its state, evidence and next step without a fake score", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t, (root) => writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n"));
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => document.querySelector("iframe.sheet")?.getAttribute("src"), null, { timeout: 5000 });
+  const frame = await (await page.locator("iframe.sheet").elementHandle()).contentFrame();
+  await frame.evaluate((message) => parent.postMessage(message, "*"), OPEN_PENDING);
+  await page.waitForFunction(() => location.hash === "#/resultados/redes/p1");
+  const results = page.locator(".results");
+  await results.getByText("Pendiente del veredicto").first().waitFor();
+  assert.equal(await results.getByText(/Puntaje/).count(), 0, "no immediate score before the verdict");
+  await page.evaluate(() => { location.hash = "#/leer/redes/p1"; });
+  await page.waitForFunction(() => document.querySelector("iframe.sheet")?.getAttribute("src"), null, { timeout: 5000 });
+  const again = await (await page.locator("iframe.sheet").elementHandle()).contentFrame();
+  await again.evaluate((message) => parent.postMessage(message, "*"), OPEN_GRADED);
+  await page.locator(".results").getByText("Parcial", { exact: true }).waitFor();
+  await results.getByText("Incorrecto", { exact: true }).waitFor();
+  await results.getByText("Sin evidencia", { exact: true }).waitFor();
+  await results.getByText("Correcto", { exact: true }).waitFor();
+  await results.getByText("«La encapsulación oculta los datos»").waitFor();
+  await results.getByText("oculta los datos").first().waitFor();
+  await results.getByText("Añade cómo se accede desde fuera.").waitFor();
+  const second = results.locator(".results-list > li").nth(1);
+  assert.match(await second.innerText(), /Pruebas 1\/2/);
+  assert.match(await second.innerText(), /Explicación: Incorrecto/);
+  assert.equal(await results.getByText(/Puntaje/).count(), 0);
+});
+
+test("T3 results draw the knowledge state, teaching action and calibration beside the verdict", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => document.querySelector("iframe.sheet")?.getAttribute("src"), null, { timeout: 5000 });
+  const frame = await (await page.locator("iframe.sheet").elementHandle()).contentFrame();
+  const graded = {
+    ...OPEN_PENDING,
+    openFeedback: [{
+      id: "q1", verdict: "incorrect", evidence: "La encapsulación oculta datos",
+      criteria: [{ id: "c1", met: false, evidence: "oculta datos" }],
+      concepts: { "P0.1": "laguna" },
+      teaching: { errorType: "misconception", action: "corrective-explanation", evidence: "oculta datos", rationale: "", next: "" },
+      confidence: "seguro", calibration: "overconfident",
+      next: "Contrasta con un contraejemplo.",
+    }],
+  };
+  await frame.evaluate((message) => parent.postMessage(message, "*"), graded);
+  await page.waitForFunction(() => location.hash === "#/resultados/redes/p1");
+  const panel = page.locator(".results .lk-open-knowledge");
+  await panel.waitFor();
+  const text = await panel.innerText();
+  assert.match(text, /laguna/);
+  assert.match(text, /misconception/);
+  assert.match(text, /corrective-explanation/);
+  assert.match(text, /sobreconfiado/);
+  assert.match(await page.locator(".results").innerText(), /Contrasta con un contraejemplo/);
+});
+
+const finalQuestion = (id, kind) => ({
+  id, enunciado: `Desarrolla ${id} en el final`,
+  open: { version: 1, kind, operation: kind === "code" ? "build" : "transfer", depth: "core", centrality: "central", concepts: ["P0.1"], criteria: [{ id: "c1", rubric: "SECRETO_FINAL_LAYOUT" }] },
+});
+
+test("T2 the final stage opens the all-open final reader, but never forces a mixed legacy final", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { root, engine } = makeRoot({ status: { status: "waiting", stage: "final_quiz", nextStage: "final_quiz" } });
+  writeFileSync(join(root, "redes", "cuestionario-final.json"), JSON.stringify({ questions: [finalQuestion("f1", "text")] }));
+  const studio = await startStudio({ root, piCommand: [process.execPath, join(import.meta.dirname, "testdata", "fake-pi.mjs")], enginePath: engine, openedFile: join(root, "..", `${root.split("/").pop()}-opened.json`) });
+  open.push(studio);
+  const page = await (browser.chromium ?? browser.default).launch().then((b) => b.newPage());
+  t.after(() => page.context().browser().close());
+  await page.addInitScript(() => localStorage.setItem("estudio.tutorial", "visto"));
+  await page.goto(`${studio.url}#/tema/redes`, { waitUntil: "networkidle" });
+  const openFinal = page.getByRole("button", { name: "Resolver el cuestionario final" });
+  await openFinal.waitFor({ timeout: 10000 });
+  await openFinal.click();
+  await page.waitForFunction(() => location.hash === "#/leer/redes/final_quiz");
+  await page.waitForFunction(() => document.querySelector("iframe.sheet")?.getAttribute("src")?.includes("final_quiz"), null, { timeout: 5000 });
+  writeFileSync(join(root, "redes", "cuestionario-final.json"), JSON.stringify({ questions: [
+    { id: "f1", enunciado: "Elige", options: { A: "a", B: "b", C: "c", D: "d", E: "No sé" }, answer: "B" },
+    finalQuestion("f2", "text"),
+  ] }));
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(500);
+  assert.equal(await page.getByRole("button", { name: "Resolver el cuestionario final" }).count(), 0, "a mixed final keeps its own route");
+});
+
+const FINAL_PENDING = {
+  type: "learning:submitted", kind: "final", topic: "redes", part: "final_quiz", open: true,
+  results: ["f1", "f2", "f3", "f4"].map((id) => ({ id, enunciado: `Desarrolla ${id} en el final` })),
+  openFeedback: ["f1", "f2", "f3", "f4"].map((id) => ({ id, verdict: "pending", evidence: "", criteria: [], next: "El tutor está revisando tu respuesta." })),
+};
+const FINAL_GRADED = {
+  ...FINAL_PENDING,
+  openFeedback: [
+    { id: "f1", verdict: "partial", evidence: "La encapsulación oculta los datos", criteria: [{ id: "c1", met: true, evidence: "oculta los datos" }], next: "Añade cómo se accede desde fuera." },
+    { id: "f2", verdict: "incorrect", evidence: "Mi bucle empieza en cero", criteria: [{ id: "c1", met: false, evidence: "empieza en cero" }], explanation: { verdict: "incorrect", evidence: "Mi bucle empieza en cero" }, next: "Revisa la condición." },
+    { id: "f3", verdict: "no-evidence", evidence: "No sé todavía", criteria: [{ id: "c1", met: false, evidence: "No sé todavía" }], next: "Empieza por una hipótesis." },
+    { id: "f4", verdict: "correct", evidence: "La idea se transfiere al caso nuevo", criteria: [{ id: "c1", met: true, evidence: "caso nuevo" }], next: "Retoma esta idea en un caso nuevo." },
+  ],
+};
+
+test("T2 final results show pending and every verdict state with evidence and no score", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => document.querySelector("iframe.sheet")?.getAttribute("src"), null, { timeout: 5000 });
+  const frame = await (await page.locator("iframe.sheet").elementHandle()).contentFrame();
+  await frame.evaluate((message) => parent.postMessage(message, "*"), FINAL_PENDING);
+  await page.waitForFunction(() => location.hash === "#/resultados/redes/final_quiz");
+  await page.locator(".results").getByText("Cuestionario final · resultados").waitFor();
+  await page.locator(".results").getByText("Pendiente del veredicto").first().waitFor();
+  assert.equal(await page.locator(".results").getByText(/Puntaje/).count(), 0);
+  await page.evaluate(() => { location.hash = "#/leer/redes/p1"; });
+  await page.waitForFunction(() => document.querySelector("iframe.sheet")?.getAttribute("src"), null, { timeout: 5000 });
+  const again = await (await page.locator("iframe.sheet").elementHandle()).contentFrame();
+  await again.evaluate((message) => parent.postMessage(message, "*"), FINAL_GRADED);
+  const results = page.locator(".results");
+  await results.getByText("Parcial", { exact: true }).waitFor();
+  await results.getByText("Incorrecto", { exact: true }).waitFor();
+  await results.getByText("Sin evidencia", { exact: true }).waitFor();
+  await results.getByText("Correcto", { exact: true }).waitFor();
+  await results.getByText("«La encapsulación oculta los datos»").waitFor();
+  await results.getByText("oculta los datos").first().waitFor();
+  await results.getByText("Añade cómo se accede desde fuera.").waitFor();
+  assert.equal(await results.getByText(/Puntaje/).count(), 0);
+});

@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { VISUAL_CONTRACT_PROMPT, withVisualContract } from "./contract.ts";
+import { OPEN_RESPONSE_TUTOR_PROMPT, VISUAL_CONTRACT_PROMPT, withOpenResponseContract, withVisualContract } from "./contract.ts";
 
 test("the shared figure contract names the current guide, Mermaid and the five step elements", () => {
   assert.match(VISUAL_CONTRACT_PROMPT, /skills\/explicacion-interactiva\/SKILL\.md/);
@@ -13,6 +13,18 @@ test("the shared figure contract names the current guide, Mermaid and the five s
     assert.match(VISUAL_CONTRACT_PROMPT, new RegExp(`<${element}>`));
   }
   assert.match(VISUAL_CONTRACT_PROMPT, /audit-note\.mjs --note "<nota>"/);
+});
+
+test("the open contract teaches coverage, depth and the teaching-action vocabulary", () => {
+  for (const word of ["teaching", "areas", "operations", "depth", "errorType", "action", "confidence", "evidence"]) {
+    assert.ok(OPEN_RESPONSE_TUTOR_PROMPT.includes(word), `the contract is missing ${word}`);
+  }
+  for (const word of ["prerequisite-review", "corrective-explanation", "guided-practice", "transfer-work", "advance"]) {
+    assert.ok(OPEN_RESPONSE_TUTOR_PROMPT.includes(word), `the contract is missing the action ${word}`);
+  }
+  assert.match(OPEN_RESPONSE_TUTOR_PROMPT, /laguna.*dudoso.*claro.*transferible/);
+  assert.match(OPEN_RESPONSE_TUTOR_PROMPT, /confianza/i);
+  assert.match(OPEN_RESPONSE_TUTOR_PROMPT, /never changes/i);
 });
 
 test("the shared contract is added once, even when the prompt already carries it", () => {
@@ -49,4 +61,17 @@ test("the shared contract writes the whole part before checking, from the brief'
   assert.match(VISUAL_CONTRACT_PROMPT, /no leas reglas de `tools\/explain-check\/rules\//i);
   assert.match(VISUAL_CONTRACT_PROMPT, /ni el registro `tools\/register\/measure\.mjs`/i);
   assert.match(VISUAL_CONTRACT_PROMPT, /no sondee el registro con `node -e`/i);
+});
+
+// One grading contract for the bridge's private tutor turn: the criteria stay in the vault, and the
+// verdict the tutor writes is the only source of correctness.
+test("the open-response tutor contract requires every criterion, literal evidence and code consistency", () => {
+  for (const word of ["correct", "partial", "incorrect", "no-evidence", "criteria", "evidence", "explanation", ".verdicts.json", "version"]) {
+    assert.ok(OPEN_RESPONSE_TUTOR_PROMPT.includes(word), `the contract is missing ${word}`);
+  }
+  assert.match(OPEN_RESPONSE_TUTOR_PROMPT, /literal|textual/i);
+  assert.match(OPEN_RESPONSE_TUTOR_PROMPT, /No sé todavía/);
+  const once = withOpenResponseContract("Corrige la respuesta");
+  assert.equal(once.split(OPEN_RESPONSE_TUTOR_PROMPT).length - 1, 1);
+  assert.equal(withOpenResponseContract(once), once);
 });

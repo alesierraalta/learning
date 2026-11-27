@@ -271,6 +271,14 @@ window.lkQuestion = (() => {
 .lk-q-display { display: block; overflow-x: auto; margin: .4em 0; }
 .lk-q-list { margin: .3em 0 .3em 1.6em; padding: 0; }
 .lk-q-list li { margin: .15em 0; }
+.lk-open-verdict { margin: .6em 0; padding: .5em .7em; border-left: 3px solid #6e7781; background: #f6f8fa; border-radius: 4px; }
+.lk-open-correct { border-color: #1a7f37; }
+.lk-open-partial { border-color: #9a6700; }
+.lk-open-incorrect, .lk-open-no-evidence { border-color: #cf222e; }
+.lk-open-verdict blockquote { margin: .3em 0; padding-left: .6em; border-left: 2px solid currentColor; }
+.lk-open-verdict .lk-open-criteria { margin: .2em 0 .2em 1.2em; padding: 0; }
+.lk-open-verdict .lk-open-next { font-weight: 600; }
+:root[data-theme="dark"] .lk-open-verdict, :root[data-theme="black"] .lk-open-verdict { background: #161b22; }
 .lk-tok-kw { color: #cf222e; font-weight: 600; }
 .lk-tok-str { color: #0a3069; }
 .lk-tok-com { color: #6e7781; font-style: italic; }
@@ -286,5 +294,50 @@ window.lkQuestion = (() => {
 :root[data-theme="black"] .lk-tok-com { color: #9a9a9a; }
 :root[data-theme="black"] .lk-tok-num { color: #79c0ff; }`;
 
-  return { parse, highlight, render, pieza, katex };
+  const VERDICT_LABELS = { pending: 'Pendiente del veredicto', correct: 'Correcto', partial: 'Parcial', incorrect: 'Incorrecto', 'no-evidence': 'Sin evidencia' };
+  /** One renderer for the tutor's verdict in the reader, the kit and the studio. Only quoted text is shown. */
+  function feedback(node, item) {
+    if (!item || typeof item !== 'object' || !node) return null;
+    const box = document.createElement('div');
+    box.className = `lk-open-verdict lk-open-${String(item.verdict || 'pending').replace(/[^a-z-]/g, '')}`;
+    const label = document.createElement('p');
+    label.className = 'lk-open-state';
+    label.textContent = VERDICT_LABELS[item.verdict] || String(item.verdict || 'Pendiente del veredicto');
+    box.append(label);
+    if (item.evidence) {
+      const quote = document.createElement('blockquote');
+      quote.textContent = `«${item.evidence}»`;
+      box.append(quote);
+    }
+    if (Array.isArray(item.criteria) && item.criteria.length) {
+      const list = document.createElement('ul');
+      list.className = 'lk-open-criteria';
+      for (const criterion of item.criteria) {
+        const row = document.createElement('li');
+        row.textContent = `${criterion.met ? '✔' : '✘'} ${criterion.id}: ${criterion.evidence}`;
+        list.append(row);
+      }
+      box.append(list);
+    }
+    if (item.explanation) {
+      const line = document.createElement('p');
+      line.textContent = `Explicación: ${VERDICT_LABELS[item.explanation.verdict] || item.explanation.verdict}${item.explanation.evidence ? ` · «${item.explanation.evidence}»` : ''}`;
+      box.append(line);
+    }
+    if (item.executable) {
+      const line = document.createElement('p');
+      line.textContent = `Pruebas ${item.executable.aprobados}/${item.executable.total}${item.executable.aviso ? ` · ${item.executable.aviso}` : ''}`;
+      box.append(line);
+    }
+    if (item.next) {
+      const next = document.createElement('p');
+      next.className = 'lk-open-next';
+      next.textContent = item.next;
+      box.append(next);
+    }
+    node.append(box);
+    return box;
+  }
+
+  return { parse, highlight, render, pieza, katex, feedback };
 })();
