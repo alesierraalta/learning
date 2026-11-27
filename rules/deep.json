@@ -51,6 +51,50 @@
         "den": 3
       }
     },
+    "openResponse": {
+      "version": 1,
+      "responseKinds": [
+        "text",
+        "code"
+      ],
+      "operations": [
+        "explain",
+        "apply",
+        "predict",
+        "debug",
+        "build",
+        "compare",
+        "transfer"
+      ],
+      "depths": [
+        "foundation",
+        "core",
+        "frontier"
+      ],
+      "centralities": [
+        "central",
+        "supporting"
+      ],
+      "verdicts": [
+        "correct",
+        "partial",
+        "incorrect",
+        "no-evidence"
+      ],
+      "noEvidenceVerdict": "no-evidence",
+      "noEvidenceText": "No sé todavía",
+      "conceptStates": [
+        "laguna",
+        "dudoso",
+        "claro",
+        "transferible"
+      ],
+      "confidence": [
+        "seguro",
+        "dudo",
+        "adivine"
+      ]
+    },
     "options": {
       "keys": [
         "A",
