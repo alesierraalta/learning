@@ -17,7 +17,7 @@ import { busyFile, clearBusy, markBusy, pidAlive } from "./state.ts";
 import { runPartChecks } from "./checks.ts";
 import { LECCIONES_TITULO, MAX_TEMA_CHARS, TEMA_TITULO, stripLecciones, stripTema } from "./sugerencias.ts";
 import { VISUAL_CONTRACT_PROMPT } from "./contract.ts";
-import { quizFingerprintOfPart } from "../integrations/pi/bridge.ts";
+import { quizFingerprintOfPart, quizFingerprint } from "../integrations/pi/bridge.ts";
 import extension from "../integrations/pi/index.ts";
 import { MAX_CORRECTIONS } from "../integrations/pi/gate-rules.ts";
 import { makeRoot } from "./testdata/root.mjs";
@@ -5579,4 +5579,70 @@ test("stopping an API turn through the studio stops the work, not just the page"
     const again = await post(studio, "prompt", { text: "otra cosa" });
     assert.equal(again.status, 200, again.body);
   } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test("T2 the studio reads the derived verdict, never the private rubric", async () => {
+  const { studio, root } = await setup();
+  const dir = join(root, "redes");
+  mkdirSync(join(dir, "mini-quiz"), { recursive: true });
+  const question = { id: "q1", enunciado: "Explica la encapsulación", open: { version: 1, kind: "text", operation: "explain", depth: "core", centrality: "central", concepts: ["P0.1"], criteria: [{ id: "c1", rubric: "SECRETO_RUBRICA" }] } };
+  writeFileSync(join(dir, "mini-quiz", "p1.json"), JSON.stringify({ questions: [question] }));
+  const fingerprint = quizFingerprintOfPart(dir, "p1");
+  writeFileSync(join(dir, "mini-quiz", "p1.answers.json"), JSON.stringify({ openAnswers: { q1: { kind: "text", text: "La encapsulación oculta los datos" } }, openQuiz: { q1: fingerprint }, quiz: fingerprint }));
+  writeFileSync(join(dir, "mini-quiz", "p1.verdicts.json"), JSON.stringify({ version: 1, verdicts: { q1: { verdict: "partial", evidence: "La encapsulación", criteria: { c1: { id: "c1", met: false, evidence: "oculta los datos" } }, concepts: { "P0.1": "dudoso" } } } }));
+  const res = await http(`${studio.url}api/verdicts?tema=redes&parte=p1`);
+  assert.equal(res.status, 200, res.body);
+  const data = JSON.parse(res.body);
+  assert.equal(data.openFeedback[0].verdict, "partial");
+  assert.equal(data.openFeedback[0].evidence, "La encapsulación");
+  assert.equal(data.openFeedback[0].criteria[0].evidence, "oculta los datos");
+  assert.equal(res.body.includes("SECRETO_RUBRICA"), false, "criteria never cross the public route");
+  assert.equal(res.body.includes("La encapsulación oculta los datos"), false, "the whole answer is not echoed");
+  assert.equal((await http(`${studio.url}api/verdicts?tema=redes&parte=../p1`)).status, 400);
+});
+
+test("T2 final verdict route reads the final artifacts and hides its rubric and answer key", async () => {
+  const { studio, root } = await setup();
+  const dir = join(root, "redes");
+  const question = {
+    id: "f1", enunciado: "Transfiere la encapsulación", formato: "transfer", respuesta: "SECRETO_RESPUESTA_FINAL",
+    open: { version: 1, kind: "text", operation: "transfer", depth: "core", centrality: "central", concepts: ["P0.1"], criteria: [{ id: "c1", rubric: "SECRETO_RUBRICA_FINAL" }] },
+  };
+  writeFileSync(join(dir, "cuestionario-final.json"), JSON.stringify({ questions: [question] }));
+  const fingerprint = quizFingerprint([{ id: question.id, enunciado: question.enunciado, options: {}, answer: "" }]);
+  writeFileSync(join(dir, "cuestionario-final.answers.json"), JSON.stringify({
+    openAnswers: { f1: { kind: "text", text: "La encapsulación oculta los datos" } },
+    openQuiz: { f1: fingerprint }, quiz: fingerprint,
+  }));
+  writeFileSync(join(dir, "cuestionario-final.verdicts.json"), JSON.stringify({
+    version: 1, verdicts: { f1: { verdict: "partial", evidence: "La encapsulación", criteria: { c1: { id: "c1", met: false, evidence: "oculta los datos" } }, concepts: { "P0.1": "dudoso" } } },
+  }));
+  const res = await http(`${studio.url}api/verdicts?tema=redes&parte=final_quiz`);
+  assert.equal(res.status, 200, res.body);
+  const data = JSON.parse(res.body);
+  assert.equal(data.openFeedback[0].verdict, "partial");
+  assert.equal(data.openFeedback[0].evidence, "La encapsulación");
+  assert.deepEqual(data.openFeedback[0].criteria, [{ id: "c1", met: false, evidence: "oculta los datos" }]);
+  assert.equal(data.openFeedback[0].concepts["P0.1"], "dudoso");
+  assert.ok(data.openFeedback[0].next.length > 0);
+  assert.equal(res.body.includes("SECRETO_RUBRICA_FINAL"), false);
+  assert.equal(res.body.includes("SECRETO_RESPUESTA_FINAL"), false);
+  assert.equal(res.body.includes("La encapsulación oculta los datos"), false);
+  assert.equal((await http(`${studio.url}api/verdicts?tema=redes&parte=../final_quiz`)).status, 400);
+});
+
+test("T2 final reader route is offered through api/view only for an all-open final", async () => {
+  const { studio, root } = await setup();
+  const dir = join(root, "redes");
+  const question = { id: "f1", enunciado: "Explica el final", open: { version: 1, kind: "text", operation: "explain", depth: "core", centrality: "central", concepts: ["P0.1"], criteria: [] } };
+  writeFileSync(join(dir, "cuestionario-final.json"), JSON.stringify({ questions: [question] }));
+  const open = await http(`${studio.url}api/view?topic=redes&part=final_quiz`);
+  assert.equal(open.status, 200, open.body);
+  assert.match(JSON.parse(open.body).url, /final_quiz\/?$/);
+  const mixed = [
+    { id: "f1", enunciado: "Elige", options: { A: "a", B: "b", C: "c", D: "d", E: "No sé" }, answer: "B" },
+    { id: "f2", enunciado: "Desarrolla", open: { version: 1, kind: "text", operation: "explain", depth: "core", centrality: "central", concepts: [], criteria: [] } },
+  ];
+  writeFileSync(join(dir, "cuestionario-final.json"), JSON.stringify({ questions: mixed }));
+  assert.equal((await http(`${studio.url}api/view?topic=redes&part=final_quiz`)).status, 404, "a mixed final keeps its own flow");
 });

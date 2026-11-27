@@ -295,29 +295,58 @@
     await Promise.all([questionReady, codeReady]);
     const data = await response.json(), form = el('form'), out = status();
     const boxes = new Map();
+    const openItems = [];
     for (const [index, q] of data.questions.entries()) {
       const box = el('fieldset', undefined, { class: 'lk-question' });
       box.append(drawn('legend', `${index + 1}. `, q.enunciado || q.stem));
       if (q.pieza && window.lkQuestion) window.lkQuestion.pieza(box, q.pieza);
-      for (const [letter, text] of Object.entries(q.options)) {
-        const label = el('label', undefined, { class: 'lk-option' });
-        label.append(el('input', undefined, { type: 'radio', name: q.id, value: letter, required: '' }), drawn('span', `${letter}. `, text)); box.append(label);
+      let thought, code, explanation, noButton;
+      if (q.open) {
+        const field = (title, isCode) => {
+          const label = el('label', title, { class: 'lk-open-field' });
+          const area = el('textarea', undefined, isCode ? { class: 'lk-code' } : {});
+          if (isCode && window.lkCodeField) window.lkCodeField.enhance(area);
+          label.append(area); box.append(label); return area;
+        };
+        if (q.open.kind === 'code') { code = field('Tu código', true); explanation = field('Explica tu código con tus palabras'); }
+        else thought = field('Tu respuesta desarrollada');
+        noButton = el('button', 'No sé todavía', { type: 'button', class: 'lk-no-evidence', 'aria-pressed': 'false' });
+        noButton.addEventListener('click', () => {
+          const on = noButton.getAttribute('aria-pressed') !== 'true';
+          noButton.setAttribute('aria-pressed', String(on));
+          for (const area of [thought, code, explanation]) {
+            if (!area) continue;
+            area.disabled = on;
+            area.parentElement.classList.toggle('lk-open-hidden', on);
+          }
+        });
+        box.append(noButton);
+        openItems.push({ q, thought, code, explanation, noButton });
+      } else {
+        for (const [letter, text] of Object.entries(q.options)) {
+          const label = el('label', undefined, { class: 'lk-option' });
+          label.append(el('input', undefined, { type: 'radio', name: q.id, value: letter, required: '' }), drawn('span', `${letter}. `, text)); box.append(label);
+        }
+        thought = thoughtField(q.id, index);
+        if (window.lkCodeField?.isCode(q)) window.lkCodeField.enhance(thought.querySelector('textarea'));
+        box.append(thought);
       }
-      const thought = thoughtField(q.id, index);
-      if (window.lkCodeField?.isCode(q)) window.lkCodeField.enhance(thought.querySelector('textarea'));
-      box.append(thought);
       const confidence = el('div', 'Confianza (opcional): ', { class: 'lk-controls' });
       for (const [value, title] of Object.entries({ seguro: 'Seguro', dudo: 'Dudo', adivine: 'Adiviné' })) {
         const label = el('label'); label.append(el('input', undefined, { type: 'radio', name: `${q.id}-confianza`, value }), document.createTextNode(title)); confidence.append(label);
       }
       // «No sé» already says how sure the learner is: its confidence hides and is not sent.
       box.addEventListener('change', event => {
-        if (event.target.name !== q.id) return;
+        if (q.open || event.target.name !== q.id) return;
         const skip = dontKnow(q.options[event.target.value]);
         confidence.style.display = skip ? 'none' : '';
         if (skip) confidence.querySelectorAll('input').forEach(n => { n.checked = false; });
       });
       box.append(confidence); boxes.set(q.id, box); form.append(box);
+    }
+    for (const item of data.openFeedback || []) {
+      const box = boxes.get(item.id);
+      if (box && window.lkQuestion?.feedback) window.lkQuestion.feedback(box, item);
     }
     const ownWords = textField('Vuelco con tus palabras (opcional)', 'ownWords');
     // Each of the part's own exercises gets a box under its statement; a part without exercises gets none.
@@ -339,6 +368,15 @@
     const submit = el('button', 'Enviar al tutor', { type: 'submit' });
     form.append(ownWords, ...exercises.map(({ box }) => box), submit, out); this.append(form);
     function showResults(graded) {
+      if (graded.open) {
+        for (const item of graded.openFeedback || []) {
+          const box = boxes.get(item.id);
+          if (box && window.lkQuestion?.feedback) window.lkQuestion.feedback(box, item);
+        }
+        out.textContent = 'Pendiente del veredicto del tutor…';
+        form.querySelectorAll('input, textarea, button').forEach(n => { n.disabled = true; });
+        return;
+      }
       for (const r of graded.results || []) {
         const box = boxes.get(r.id); if (!box) continue;
         box.append(el('p', `${r.ok ? '✔' : '✘'} Elegiste ${r.chosen}; correcta: ${r.correct}`, { class: r.ok ? 'lk-correct' : 'lk-error' }));
@@ -376,25 +414,48 @@
       this.append(panel);
     }
     form.addEventListener('submit', async event => {
-      event.preventDefault(); const answers = {}, reasoning = {};
-      for (const q of data.questions) {
-        answers[q.id] = form.elements[q.id].value;
-        const razonamiento = form.elements[`${q.id}-razonamiento`].value.trim();
-        if (razonamiento) {
-          const confianza = form.elements[`${q.id}-confianza`].value;
-          reasoning[q.id] = confianza ? { razonamiento, confianza } : { razonamiento };
+      event.preventDefault();
+      let payload;
+      if (openItems.length) {
+        const openAnswers = {};
+        for (const item of openItems) {
+          const confianza = form.elements[`${item.q.id}-confianza`].value;
+          const core = { kind: item.q.open.kind, ...(confianza ? { confidence: confianza } : {}) };
+          if (item.noButton.getAttribute('aria-pressed') === 'true') { openAnswers[item.q.id] = { ...core, noEvidence: true }; continue; }
+          if (item.q.open.kind === 'code') {
+            const code = item.code.value.trim(), explanation = item.explanation.value.trim();
+            if (!code || !explanation) { out.textContent = 'Escribe el código y su explicación antes de enviar.'; submit.disabled = false; return; }
+            openAnswers[item.q.id] = { ...core, code, explanation };
+          } else {
+            const text = item.thought.value.trim();
+            if (!text) { out.textContent = 'Desarrolla tu respuesta o marca «No sé todavía».'; submit.disabled = false; return; }
+            openAnswers[item.q.id] = { ...core, text };
+          }
         }
+        payload = { kind: 'mini-quiz', openAnswers };
+      } else {
+        const answers = {}, reasoning = {};
+        for (const q of data.questions) {
+          answers[q.id] = form.elements[q.id].value;
+          const razonamiento = form.elements[`${q.id}-razonamiento`].value.trim();
+          if (razonamiento) {
+            const confianza = form.elements[`${q.id}-confianza`].value;
+            reasoning[q.id] = confianza ? { razonamiento, confianza } : { razonamiento };
+          }
+        }
+        payload = { kind: 'mini-quiz', answers, reasoning };
+        if (form.elements.ownWords.value.trim()) payload.ownWords = form.elements.ownWords.value.trim();
       }
       submit.disabled = true;
       try {
-        const payload = { kind: 'mini-quiz', answers, reasoning };
-        if (form.elements.ownWords.value.trim()) payload.ownWords = form.elements.ownWords.value.trim();
+        if (!openItems.length) {
         const exerciseAnswers = {};
         for (const { id, box } of exercises) {
           const text = box.querySelector('textarea').value.trim();
           if (text) exerciseAnswers[id] = text;
         }
         if (Object.keys(exerciseAnswers).length) payload.exercises = exerciseAnswers;
+        }
         const graded = await post(payload);
         if (graded.queued) {
           out.textContent = 'En cola: el tutor lo revisará en su tarea.';
@@ -413,9 +474,13 @@
       const byId = new Map(data.questions.map(q => [q.id, q]));
       const results = (graded.results || []).map(r => {
         const q = byId.get(r.id) || { options: {} };
+        if (graded.open) return { id: r.id, enunciado: q.enunciado || q.stem || '', verdict: r.verdict };
         return { id: r.id, enunciado: q.enunciado || q.stem || '', chosen: r.chosen, chosenText: q.options[r.chosen] ?? '', correct: r.correct, correctText: q.options[r.correct] ?? '', ok: r.ok };
       });
-      window.parent.postMessage({ type: 'learning:submitted', kind: 'mini-quiz', topic: b.topic, part: b.part, score: graded.score, results }, '*');
+      const message = graded.open
+        ? { type: 'learning:submitted', kind: 'mini-quiz', topic: b.topic, part: b.part, open: true, openFeedback: graded.openFeedback || [], results }
+        : { type: 'learning:submitted', kind: 'mini-quiz', topic: b.topic, part: b.part, score: graded.score, results };
+      window.parent.postMessage(message, '*');
     }
   });
   define('lk-quick-quiz', async function () {

@@ -3,4 +3,4 @@
  * `integrations/pi/contract.ts`, which neither runtime owns, so `integrations/pi`
  * never has to depend on `studio/`.
  */
-export { VISUAL_CONTRACT_PROMPT, withVisualContract } from "../integrations/pi/contract.ts";
+export { OPEN_RESPONSE_TUTOR_PROMPT, VISUAL_CONTRACT_PROMPT, withOpenResponseContract, withVisualContract } from "../integrations/pi/contract.ts";

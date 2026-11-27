@@ -26,6 +26,7 @@ import {
   regenerationTrash,
   deleteNote,
   listTopics,
+  openFeedbackForAssessment,
   parsePublicOrigins,
   readPlan,
   readQuickNote,
@@ -3241,6 +3242,14 @@ ${scripts}
         return taskEvents(res, taskFor(url.searchParams.get("task")));
       case "api/library":
         return sendJson(res, 200, await library());
+      case "api/verdicts": {
+        // The results page asks for the tutor's derived verdict once the topic's task settles. The
+        // rubric and the criteria stay in the vault: only verdict, quoted evidence and next step cross.
+        const topic = url.searchParams.get("tema") ?? "";
+        const part = url.searchParams.get("parte") ?? "";
+        if (!/^[\w-]+$/.test(topic) || !(part === "quiz" || part === "final_quiz" || /^p\d+$/.test(part))) throw new HttpError(400, "invalid topic or part");
+        return sendJson(res, 200, { openFeedback: openFeedbackForAssessment(join(root, topic), part) });
+      }
       case "api/materias":
         return sendJson(res, 200, listMaterias(root));
       case "api/runners": {
