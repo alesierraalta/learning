@@ -4003,6 +4003,59 @@ test("the task card's controls follow every state the server can report", { skip
   assert.equal(await card.locator(".task-way .btn").count(), 0, "unknown: no invented destination");
 });
 
+// The panel's shape is a rule of its own: a task is a row filed by its state, the group says how
+// many rows it holds, and only the task working and the one waiting for a decision open.
+test("a task is a row filed by its state, and only two contexts open", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await installTaskFrames(page);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tasks-pill").click();
+  await showTasks(page, [
+    taskView("redes", "working", { activity: "Escribiendo la Parte 2" }),
+    taskView("otra", "asking"),
+    taskView("tercera", "waiting"),
+    taskView("cuarta", "failed"),
+  ]);
+  const group = (id) => page.locator(`.tasks-group[data-group="${id}"]`);
+  const row = (topic) => page.locator(`.task-card[data-task="${topic}"]`);
+  await row("redes").waitFor();
+  assert.equal(await group("working").locator('[data-task="redes"]').count(), 1, "the running task is under «Trabajando ahora»");
+  assert.equal(await group("decision").locator('[data-task="otra"], [data-task="cuarta"]').count(), 2, "asking and failed both need the learner");
+  assert.equal(await group("queue").locator('[data-task="tercera"]').count(), 1, "a queued task waits in «En cola»");
+  assert.equal(await group("done").isHidden(), true, "a group with no rows is not drawn");
+  assert.equal(await group("decision").locator(".tasks-group-title").innerText(), "Necesita tu decisión");
+  assert.equal(await group("decision").locator(".tasks-group-n").innerText(), "2", "the group says how many it holds");
+  assert.equal(await row("redes").locator(".task-detail").evaluate((node) => node.hidden), false, "the running task opens with what it is doing");
+  assert.match(await row("redes").locator(".task-activity").innerText(), /Escribiendo la Parte 2/);
+  assert.equal(await row("otra").locator(".task-detail").evaluate((node) => node.hidden), false, "the task awaiting a decision opens too");
+  assert.equal(await row("cuarta").locator(".task-detail").evaluate((node) => node.hidden), false, "a failed task is a decision, so it opens");
+  assert.equal(await row("tercera").locator(".task-detail").evaluate((node) => node.hidden), true, "a queued task stays one row and its state");
+  assert.equal(await row("tercera").locator(".task-title").evaluate((node) => getComputedStyle(node).whiteSpace), "nowrap", "the title never wraps to a second line");
+  await showTasks(page, [taskView("tercera", "done")]);
+  assert.equal(await group("queue").isHidden(), true, "an empty group leaves the panel");
+  assert.equal(await group("done").locator('[data-task="tercera"]').count(), 1, "the row moves to the group of its new state");
+});
+
+// «Quitar» is not a deletion the learner cannot take back: the panel hands the task over.
+test("dismissing a finished task leaves a line that brings it back", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await installTaskFrames(page);
+  await page.goto(`${studio.url}#/`, { waitUntil: "networkidle" });
+  await page.locator(".tasks-pill").click();
+  await showTasks(page, [taskView("redes", "done", { activity: "Escribió la Parte 1" })]);
+  const card = page.locator('.task-card[data-task="redes"]');
+  await card.waitFor();
+  await card.getByRole("button", { name: /Quitar/i }).click();
+  assert.equal(await card.count(), 0, "the row leaves the list");
+  const live = page.locator(".tasks-live");
+  assert.match(await live.innerText(), /Se quitó la tarea de Redes de la lista/);
+  await live.getByRole("button", { name: /Deshacer/i }).click();
+  assert.equal(await card.count(), 1, "undo brings the same task back");
+  assert.match(await card.locator(".task-state").innerText(), /Terminada/, "it comes back with the state it had");
+  assert.equal(await live.innerText(), "", "the line and its undo are gone once they were used");
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("estudio.tareas.descartadas") ?? "{}").redes), undefined, "undoing forgets the dismissal the browser was keeping");
+});
+
 // S1/S3/S7: a verdict is a third action beside «Sugerir» and «Regenerar», and a thumb carries
 // only the reasons of its own sign. The phone reaches the part's actions through the one
 // overflow, so 44px is measured there.

@@ -3769,9 +3769,51 @@
     }
     return true;
   }
+  // A task is a row filed by its state, and only two states open it: the task working and the
+  // one waiting for the learner's decision. «Failed» is a decision too — the topic stopped and
+  // somebody has to say what happens next — so it shares that group. A state the server never
+  // reported keeps its row and its honest words, filed apart so it is never read as done.
+  const TASK_GROUPS = [
+    { id: "working", title: "Trabajando ahora", states: ["working"] },
+    { id: "decision", title: "Necesita tu decisión", states: ["asking", "failed"] },
+    { id: "queue", title: "En cola", states: ["waiting"] },
+    { id: "done", title: "Hechas", states: ["done"] },
+    { id: "unknown", title: "Sin clasificar", states: ["unknown"] },
+  ];
+  const OPEN_TASK_STATES = new Set(["working", "asking", "failed"]);
   const taskCards = new Map();
-  const tasksList = h("div", { class: "tasks-list", "aria-label": "Tareas de fondo" },
-    h("p", { class: "tasks-empty muted" }, "Todavía no hay tareas de fondo."));
+  const tasksEmpty = h("p", { class: "tasks-empty muted" }, "Todavía no hay tareas de fondo.");
+  const tasksLive = h("p", { class: "tasks-live", role: "status", "aria-live": "polite" });
+  const taskGroups = new Map();
+  const tasksList = h("div", { class: "tasks-list", "aria-label": "Tareas de fondo" });
+  for (const group of TASK_GROUPS) {
+    const count = h("span", { class: "tasks-group-n" });
+    const rows = h("div", { class: "tasks-group-rows" });
+    taskGroups.set(group.id, {
+      states: group.states,
+      rows,
+      count,
+      section: h("section", { class: "tasks-group", "data-group": group.id, "aria-labelledby": `tasks-group-${group.id}`, hidden: true },
+        h("div", { class: "tasks-group-head" },
+          h("h3", { class: "tasks-group-title", id: `tasks-group-${group.id}` }, group.title),
+          count),
+        rows),
+    });
+    tasksList.append(taskGroups.get(group.id).section);
+  }
+  tasksList.append(tasksEmpty);
+  const taskGroupFor = (state) => [...taskGroups.values()].find((group) => group.states.includes(state));
+  /** Each group says how many rows it holds and disappears empty; the panel says when it is bare. */
+  function syncTaskGroups() {
+    let total = 0;
+    for (const group of taskGroups.values()) {
+      const left = group.rows.querySelectorAll(".task-card").length;
+      total += left;
+      group.count.textContent = String(left);
+      group.section.hidden = left === 0;
+    }
+    tasksEmpty.hidden = total > 0;
+  }
   const tasksBadge = h("span", { class: "badge", hidden: true });
   const tasksWhat = h("span", { class: "what" }, "Tareas");
   const tasksPill = h("button", { class: "tasks-pill", type: "button", "aria-controls": "tasks-panel", "aria-expanded": "false", onclick: () => (document.body.classList.contains("tasks-open") ? closeTasks() : openTasks()) },
@@ -3784,6 +3826,7 @@
       h("p", { class: "muted" }, "Cada tema trabaja en su propia conversación."),
       h("button", { class: "icon-btn", type: "button", "aria-label": "Cerrar las tareas", onclick: closeTasks }, icon("x"))),
     tasksList,
+    tasksLive,
   );
   // Its own scrim, not the tutor's: existing pages ask for `.scrim` and expect one.
   const tasksScrim = h("div", { class: "tasks-scrim", "aria-hidden": "true", onclick: closeTasks });
@@ -3855,8 +3898,10 @@
   function paintTaskTitles() {
     for (const record of taskCards.values()) {
       record.title.textContent = taskTitle(record.topic);
+      record.title.title = record.title.textContent;
       record.abort.setAttribute("aria-label", `Detener la tarea de ${record.title.textContent}`);
       record.dismiss.setAttribute("aria-label", `Quitar la tarea de ${record.title.textContent} de la lista`);
+      record.open?.setAttribute("aria-label", `${record.openLabel}: ${record.title.textContent}`);
     }
   }
   function updateTasksPill() {
@@ -3869,20 +3914,28 @@
     tasksBadge.hidden = active === 0;
     tasksBadge.textContent = String(active);
   }
-  // The note a task's own tool wrote is the way to what it produced. The task view
-  // has no destination field, so no link is drawn unless that note (or a listed
-  // topic) really routes somewhere.
+  // The note a task's own tool wrote is the way to what it produced, and the row itself is the
+  // way there: the panel gets out of the way and the note opens. The task view has no destination
+  // field, so the row is only a control when that note (or a listed topic) really routes somewhere.
   function paintTaskResult(record, state) {
-    record.way.replaceChildren();
-    if (state !== "done") return;
     const note = record.note;
-    const route = note ? noteRoute(note) : topicById(record.topic) ? `#/tema/${encodeURIComponent(record.topic)}` : null;
-    if (!route) {
-      record.way.append(h("p", { class: "task-no-result muted" }, "Esta tarea no dejó una ruta que se pueda abrir."));
-      return;
-    }
-    const label = note ? noteLabel(note) : "Ir al tema";
-    record.way.append(btn(label, () => { closeTasks(); closeDrawer(); go(route); }, "btn small ghost turn-link", note ? "book" : "next"));
+    const route = state === "done" ? (note ? noteRoute(note) : topicById(record.topic) ? `#/tema/${encodeURIComponent(record.topic)}` : null) : null;
+    const noResult = state === "done" && !route;
+    if (record.route === route && record.noResult === noResult) return;
+    record.route = route;
+    record.noResult = noResult;
+    record.openLabel = note ? noteLabel(note) : "Ir al tema";
+    record.open = route
+      ? h("button", {
+          class: "task-lead task-open",
+          type: "button",
+          "aria-label": `${record.openLabel}: ${record.title.textContent}`,
+          onclick: () => { closeTasks(); closeDrawer(); go(route); },
+        }, record.glyph, record.num, record.title)
+      : null;
+    record.lead.replaceChildren(...(record.open ? [record.open] : [record.glyph, record.num, record.title]));
+    record.way.replaceChildren();
+    if (noResult) record.way.append(h("p", { class: "task-no-result muted" }, "Esta tarea no dejó una ruta que se pueda abrir."));
   }
   function paintTask(record) {
     const view = taskStates.get(record.topic) ?? {};
@@ -3892,17 +3945,28 @@
     if (view.queued) record.state.textContent += ` · ${view.queued} en cola`;
     record.state.title = record.state.textContent;
     record.activity.textContent = view.activity ?? "";
+    // Which part it produced is only known once the task's own note says so.
+    record.num.textContent = record.note?.index ? `Parte ${record.note.index}` : "";
+    record.num.hidden = record.num.textContent === "";
     const stoppable = STOPPABLE_TASK_STATES.has(state);
     record.abort.hidden = !stoppable;
     record.dismiss.hidden = stoppable;
     paintTaskResult(record, state);
+    const group = taskGroupFor(state);
+    if (group && record.card.parentNode !== group.rows) group.rows.append(record.card);
+    // Only the working task and the one waiting for the learner's decision open. One holding a
+    // dialog stays open wherever it is filed: a question nobody can see is not a question.
+    record.detail.hidden = !(OPEN_TASK_STATES.has(state) || record.dialogs.size > 0);
+    syncTaskGroups();
   }
   function ensureTaskCard(topic) {
     let record = taskCards.get(topic);
     if (record) return record;
-    tasksList.querySelector(".tasks-empty")?.remove();
-    const title = h("h3", { class: "task-title" }, taskTitle(topic));
-    const state = h("span", { class: "task-state" });
+    const glyph = h("span", { class: "glyph", "aria-hidden": "true" });
+    const num = h("span", { class: "task-num", hidden: true });
+    const title = h("span", { class: "task-title", title: taskTitle(topic) }, taskTitle(topic));
+    const lead = h("div", { class: "task-lead" });
+    const state = h("p", { class: "task-state" });
     const abort = btn("Detener", async () => {
       try {
         await post("api/tareas/abortar", { task: topic });
@@ -3912,11 +3976,12 @@
     const activity = h("p", { class: "task-activity muted" });
     const way = h("div", { class: "task-way" });
     const transcript = h("div", { class: "task-transcript", "aria-live": "polite" });
-    const card = h("section", { class: "task-card", "data-task": topic },
-      h("div", { class: "task-head" }, title, state, abort, dismiss), activity, way, transcript);
-    record = { topic, card, title, state, abort, dismiss, activity, way, transcript, note: null, stream: null, messages: new Map(), tools: new Map(), dialogs: new Map() };
+    const detail = h("div", { class: "task-detail", hidden: true }, activity, transcript);
+    const card = h("article", { class: "task-card", "data-task": topic },
+      h("div", { class: "task-row" }, lead, h("div", { class: "task-actions" }, abort, dismiss)),
+      state, way, detail);
+    record = { topic, card, lead, glyph, num, title, state, abort, dismiss, activity, way, detail, transcript, note: null, stream: null, route: undefined, noResult: false, openLabel: "", open: null, messages: new Map(), tools: new Map(), dialogs: new Map() };
     taskCards.set(topic, record);
-    tasksList.append(card);
     paintTask(record);
     abort.setAttribute("aria-label", `Detener la tarea de ${title.textContent}`);
     dismiss.setAttribute("aria-label", `Quitar la tarea de ${title.textContent} de la lista`);
@@ -3930,7 +3995,28 @@
     record.stream?.close();
     record.card.remove();
     taskCards.delete(record.topic);
+    syncTaskGroups();
+    offerTaskUndo(record);
     if (hadFocus) tasksPanel.querySelector(".icon-btn")?.focus();
+  }
+  // «Quitar» takes the finished instance off the list, and the panel says so and hands it back:
+  // the dismissal is the browser's own small map, so undoing it forgets the same entry and the
+  // task's stream refills the transcript it had.
+  function offerTaskUndo(record) {
+    const name = record.title.textContent;
+    const undo = btn("Deshacer", () => restoreTask(record.topic), "btn small ghost tasks-undo");
+    tasksLive.replaceChildren(h("span", {}, `Se quitó la tarea de ${name} de la lista.`), undo);
+  }
+  function restoreTask(topic) {
+    delete dismissedTasks[topic];
+    saveDismissals();
+    tasksLive.replaceChildren();
+    const record = ensureTaskCard(topic);
+    paintTask(record);
+    openTaskStream(topic);
+    updateTasksPill();
+    // The control that was pressed is gone: the focus stays in the panel, on the row it brought back.
+    (record.abort.hidden ? record.dismiss : record.abort).focus();
   }
   function setTaskViews(views) {
     if (!Array.isArray(views)) return;
@@ -3991,6 +4077,7 @@
       else if (message?.role === "assistant") appendTask(record, h("div", { class: "msg assistant" }, ...markdown(text).childNodes));
     }
     if (!messages.length) record.transcript.append(h("p", { class: "tasks-empty muted" }, "Todavía no ha dicho nada."));
+    paintTask(record);
     updateTasksPill();
   }
   function taskAssistant(record, id) {
@@ -4038,6 +4125,8 @@
     });
     record.dialogs.set(dialog.id, card);
     appendTask(record, card);
+    // A question arrives before its state does: the row opens so it can be answered.
+    paintTask(record);
     updateTasksPill();
   }
   function openTaskStream(topic) {
@@ -4074,6 +4163,7 @@
       const card = record.dialogs.get(String(id));
       card?.remove();
       record.dialogs.delete(String(id));
+      paintTask(record);
       updateTasksPill();
     });
     onTask("notice", ({ message }) => appendTask(record, h("div", { class: "notice" }, String(message ?? ""))));
