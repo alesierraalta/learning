@@ -515,6 +515,51 @@ body.tutor-list-hidden .chats { display: none; }
 /* Turn outputs are links in the thread, not a second row of primaries. */
 .turn-link.btn.small { background: transparent; border: 0; border-bottom: 2px solid var(--blue); border-radius: var(--ctl-radius); color: var(--blue); padding: 2px 0; }
 .turn-link.btn.small:hover { background: var(--blue-s); color: var(--blue); }
+/* ---------- the conversation panel: one turn, one shape ----------
+   Every turn reads the same before it is read: a head that says who and when (and a state
+   chip only when the turn has something to say), the said words, and — for the tutor — the
+   one muted line of what the turn left behind. No bubble and no box: turns are separated by
+   a hairline, and a correction hangs indented under the turn it corrects, never between two. */
+.thread { padding: 24px 20px; }
+.thread > .msg { align-self: stretch; max-width: none; padding: 12px 0 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; font: 20px/1.7 var(--serif); }
+.thread > .msg:first-child, .thread > .intro + .msg { padding-top: 0; border-top: 0; }
+.thread > .msg.user, .thread > .msg.assistant, .thread > .msg.studio { align-self: stretch; background: none; }
+.msg-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 10px; font: 16px/1.4 var(--sans); color: var(--meta); overflow-wrap: anywhere; }
+.msg-head .name { font-weight: 600; color: var(--ink); }
+.msg-head time { font-variant-numeric: tabular-nums; }
+/* the chip: the dot carries the colour, the words stay legible in both themes */
+.state-chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px 1px 8px; border: 1px solid var(--line); border-radius: 999px; font: 600 13px/1.6 var(--sans); letter-spacing: 0; text-transform: none; color: var(--slate); }
+.state-chip .glyph { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--slate2); }
+.state-chip[data-state="working"] .glyph { background: var(--blue); animation: breathe 1.6s ease-in-out infinite; }
+.state-chip[data-state="done"] .glyph { background: var(--ink); }
+.state-chip[data-state="corrected"] .glyph { background: var(--gold); }
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+/* the words: one body size for every turn */
+.thread > .msg > .said { margin: 0; font: 20px/1.7 var(--serif); color: var(--ink); overflow-wrap: anywhere; }
+.thread > .msg.user { white-space: normal; }
+.thread > .msg.user > .said { white-space: pre-wrap; }
+/* the correction: indented, marked with the warm rule, never a turn of its own */
+.correction { margin: 16px 0 0 20px; padding: 2px 0 2px 16px; border-left: 3px solid var(--gold); }
+.correction .said { margin: 0; font: 20px/1.7 var(--serif); color: var(--ink); }
+/* the footprint: what the turn left behind, in one muted line */
+.thread > .note-cta { align-self: stretch; }
+.footprint { margin: 12px 0 0; font: 16px/1.5 var(--sans); color: var(--meta); overflow-wrap: anywhere; }
+.footprint .fp-key { font-weight: 600; color: var(--slate); }
+.footprint .turn-link.btn.small { min-height: 0; padding: 0; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--blue); font: inherit; letter-spacing: 0; text-transform: none; }
+.footprint .turn-link.btn.small:hover { background: none; color: var(--blue); border-bottom-color: var(--blue); }
+/* the next step is a quiet line under the answer, never a card */
+.thread > .next-cta { align-self: stretch; margin: 0; padding: 0; border: 0; background: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.thread > .next-cta p { margin: 0; flex: 1 1 240px; font: 16px/1.5 var(--sans); color: var(--meta); }
+.thread > .next-cta p strong { font-weight: 600; color: var(--slate); }
+/* the composer is a surface: a border on the studio's control radius, 20px serif, a muted
+   prompt, and a focus you can see with the keyboard and with the pointer */
+.composer .box { border: 1px solid var(--ink); border-radius: var(--ctl-radius); }
+.composer .box:focus-within { border-color: var(--blue); }
+.composer textarea { font: 20px/1.5 var(--serif); color: var(--ink); }
+.composer textarea:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.composer textarea::placeholder { color: var(--meta); }
+/* the two panel toggles: pressing one hides its panel and hands the width to the reading column */
+.tutor-pill[aria-pressed="true"] .what, .tasks-pill[aria-pressed="true"] .what { text-decoration: underline; text-underline-offset: 4px; }
 /* #377: one quiet chip between the thread and the composer — no gray band, no stacked
    headers at rest. A hairline and the chip's own padding carry the separation. */
 .drawer-more { flex: none; max-height: min(28vh, 224px); overflow-y: auto; border-top: 1px solid var(--line); }

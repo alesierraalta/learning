@@ -3311,9 +3311,9 @@
   const thread = controls(h("div", { class: "thread", "aria-live": "polite" }), 2, ["c02-next", "c02-note"]);
   const composerText = control(h("textarea", { rows: "1", "aria-label": "Mensaje para el tutor", placeholder: "Escribe al tutor…" }), 1, "c01-composer");
   const stateLine = h("span", { class: "state" }, "Conectando…");
-  const pillWhat = h("span", { class: "what" }, "Tutor");
+  const pillWhat = h("span", { class: "what" }, "Conversación");
   const pillBadge = h("span", { class: "badge", hidden: true });
-  const pill = h("button", { class: "tutor-pill", type: "button", "aria-controls": "drawer", "aria-expanded": "false", onclick: () => (document.body.classList.contains("drawer-open") ? closeDrawer() : openDrawer()) }, h("span", { class: "dot" }), pillWhat, pillBadge);
+  const pill = h("button", { class: "tutor-pill", type: "button", "aria-controls": "drawer", "aria-expanded": "false", "aria-pressed": "false", onclick: () => (document.body.classList.contains("drawer-open") ? closeDrawer() : openDrawer()) }, h("span", { class: "dot" }), pillWhat, pillBadge);
   const menu = h(
     "div",
     { class: "menu", role: "menu", id: "tutor-mas-opciones" },
@@ -3349,11 +3349,12 @@
     watchResults();
     const asking = asks.size > 0;
     pill.className = `tutor-pill${!tutor.alive ? " dead" : asking ? " asking" : tutor.busy ? " working" : ""}`;
-    const text = !tutor.alive ? "Tutor detenido" : asking ? "El tutor te pregunta algo" : tutor.busy ? `Trabajando · ${tutor.activity || "pensando"}` : "Tutor listo";
-    pillWhat.textContent = text;
-    // The caption is the pill's only name where the bar shows it; in the band that hides the
-    // caption (721–950, #453) this keeps the state spoken and the button named.
-    pill.setAttribute("aria-label", text);
+    // The pill is the panel's toggle, so it is named for the panel and reports its state as
+    // the caption. The detail of what the tutor is doing stays in the panel's own head.
+    const state = !tutor.alive ? "detenido" : asking ? "te pregunta algo" : tutor.busy ? "trabajando" : "";
+    pillWhat.textContent = state ? `Conversación · ${state}` : "Conversación";
+    pill.setAttribute("aria-label", state ? `Conversación: ${state}` : "Conversación: lista");
+    pill.setAttribute("aria-pressed", String(document.body.classList.contains("drawer-open")));
     stateLine.textContent = !tutor.alive ? "Detenido · usa ⋯ para reiniciarlo" : asking ? "Esperando tu respuesta" : tutor.busy ? `Trabajando · ${tutor.activity || "pensando"}` : "Listo";
     pillBadge.hidden = !tutor.unread;
     pillBadge.textContent = String(tutor.unread);
@@ -3424,6 +3425,7 @@
     const hadFocus = document.getElementById("drawer")?.contains(document.activeElement);
     document.body.classList.remove("drawer-open");
     pill.setAttribute("aria-expanded", "false");
+    pill.setAttribute("aria-pressed", "false");
     if (hadFocus) pill.focus();
   }
   /**
@@ -3480,9 +3482,51 @@
     }
   });
 
+  // ---------- one turn, one shape ----------
+  // Every turn reads the same before it is read: a head that says who and when (and a state
+  // chip only when the turn has something to say), the said words, and — for the tutor — the
+  // one muted line of what the turn left behind. A correction is never a turn of its own: it
+  // hangs indented under the one it corrects, so it cannot read as the next turn's.
+  const clock = (at) => `${String(new Date(at).getHours()).padStart(2, "0")}:${String(new Date(at).getMinutes()).padStart(2, "0")}`;
+  const CHIP_TEXT = { working: "Trabajando", done: "Terminada", corrected: "Corregida" };
+  const chipNode = (state) =>
+    h("span", { class: "state-chip", "data-state": state }, h("span", { class: "glyph", "aria-hidden": "true" }), CHIP_TEXT[state]);
+  function setTurnState(node, state) {
+    const head = node.querySelector(":scope > .msg-head");
+    if (!head) return;
+    head.querySelector(":scope > .state-chip")?.remove();
+    if (!state) return delete node.dataset.state;
+    head.append(chipNode(state));
+    node.dataset.state = state;
+  }
+  /** The clock is only known for a turn this page saw: the saved thread carries no timestamps. */
+  function turnNode(role, author, at) {
+    const head = h("p", { class: "msg-head" }, h("span", { class: "name" }, author), at ? h("time", { datetime: clock(at) }, clock(at)) : null);
+    const said = h("div", { class: "said" });
+    return { node: h("article", { class: `msg ${role}` }, head, said), head, said };
+  }
+  function userTurn(text, at) {
+    const turn = turnNode("user", "Tú", at);
+    turn.said.textContent = String(text ?? "");
+    return turn;
+  }
+  function studioTurn(text, at) {
+    const turn = turnNode("studio", "Estudio", at);
+    turn.said.textContent = String(text ?? "");
+    return turn;
+  }
+  const correctionNode = (text) => h("div", { class: "correction" }, h("p", { class: "said" }, String(text ?? "")));
+  /** A verdict names the turn it corrects, so it lands under that turn and marks it. */
+  function correctTurn(node, text) {
+    const stick = atBottom();
+    node.append(correctionNode(text));
+    setTurnState(node, "corrected");
+    if (stick) thread.scrollTop = thread.scrollHeight;
+  }
+
   function renderAssistant(id) {
     const entry = assistant.get(id);
-    entry.node.replaceChildren(...markdown(entry.text).childNodes);
+    entry.said.replaceChildren(...markdown(entry.text).childNodes);
   }
   function scheduleRender() {
     if (scheduled) return;
@@ -3496,9 +3540,10 @@
   }
   function assistantEntry(id) {
     if (!assistant.has(id)) {
-      const node = h("div", { class: "msg assistant" });
-      assistant.set(id, { node, text: "", dirty: false });
-      append(node);
+      const turn = turnNode("assistant", "Tutor", Date.now());
+      setTurnState(turn.node, "working");
+      assistant.set(id, { node: turn.node, said: turn.said, text: "", dirty: false });
+      append(turn.node);
     }
     return assistant.get(id);
   }
@@ -3570,11 +3615,25 @@
     activities.clear();
     showNote(note);
     if (!messages.length) thread.append(intro);
+    // A correction is saved above the tutor text it corrects (#393): it waits here for that
+    // turn, so a reload attaches it to the same turn the live chat attached it to.
+    let pending = [];
+    const flush = () => {
+      for (const text of pending) thread.append(studioTurn(text).node);
+      pending = [];
+    };
     for (const m of messages) {
-      if (m.role === "user") thread.append(h("div", { class: "msg user" }, m.text));
-      else if (m.role === "studio") thread.append(h("div", { class: "msg studio" }, m.text));
-      else thread.append(h("div", { class: "msg assistant" }, ...markdown(m.text).childNodes));
+      const text = String(m?.text ?? "");
+      if (m?.role === "studio") { pending.push(text); continue; }
+      if (m?.role === "user") { flush(); thread.append(userTurn(text).node); continue; }
+      const turn = turnNode("assistant", "Tutor");
+      turn.said.append(...markdown(text).childNodes);
+      setTurnState(turn.node, pending.length ? "corrected" : "done");
+      for (const verdict of pending) turn.node.append(correctionNode(verdict));
+      pending = [];
+      thread.append(turn.node);
     }
+    flush();
     if (interrupted) append(interruptedCard(interrupted));
     thread.scrollTop = thread.scrollHeight;
   });
@@ -3597,7 +3656,7 @@
     tutor.turnTopic = null;
     if (!setWritePart(text)) clearWritePart();
     else { ensureEspera(); repaintEspera(); }
-    append(h("div", { class: "msg user" }, text));
+    append(userTurn(text, Date.now()).node);
   });
   on("fase", (event) => {
     const part = tutor.writePart;
@@ -3617,10 +3676,18 @@
     const entry = assistantEntry(id);
     entry.text = text;
     renderAssistant(id);
+    setTurnState(entry.node, "done");
     noteUnread();
   });
-  // The studio's own verdict, never the tutor's: a system notice in the conversation (#393).
-  on("studio", ({ text, before }) => { appendAbove(h("div", { class: "msg studio" }, String(text ?? "")), before); noteUnread(); });
+  // The studio's own verdict, never the tutor's: it is a correction of the turn it names (#393),
+  // so it hangs indented under that turn instead of reading as a paragraph of the next one.
+  on("studio", ({ text, before }) => {
+    const named = before ? assistant.get(String(before))?.node : undefined;
+    const target = named?.isConnected ? named : [...thread.querySelectorAll(":scope > .msg.assistant")].pop();
+    if (target) correctTurn(target, String(text ?? ""));
+    else append(studioTurn(String(text ?? ""), Date.now()).node);
+    noteUnread();
+  });
   // The tutor writes notes inside the vault: the chat hands back the way to the one it wrote.
   const noteRoute = (note) => {
     if (note?.quick) return library.quick.some((q) => q.id === note.quick) ? `#/rapido/${encodeURIComponent(note.quick)}` : null;
@@ -3676,8 +3743,28 @@
     if (!note || stepWins) return;
     showNote(note);
     const button = noteButton(note);
-    if (button) appendTurnOutput(h("div", { class: "note-cta" }, button), noteLabel(note));
+    if (button) appendTurnOutput(footprintNode(note, button), noteLabel(note));
   };
+  /**
+   * What the turn left behind, in one muted line: the part it is, out of the topic's parts,
+   * and the section it wrote. A note nothing numbers says what it is instead.
+   */
+  function footprintNode(note, button) {
+    const topic = note.topic ? topicById(note.topic) : null;
+    const total = topic?.parts?.length ?? 0;
+    const part = note.index && total ? topic.parts[note.index - 1] : null;
+    const wrote = note.quick ? "una nota rápida" : note.diagnosis ? "el diagnóstico" : total ? `${note.index} de ${total}` : "una nota";
+    const section = part?.title || (note.diagnosis ? topic?.title : "") || "";
+    return h(
+      "p",
+      { class: "footprint note-cta" },
+      h("span", { class: "fp-key" }, "Escribió"),
+      ` ${wrote}`,
+      section ? ` · ${section}` : "",
+      " · ",
+      button,
+    );
+  }
   // The head keeps the way back to the last note the tutor wrote, so a reloaded tab still has it.
   const noteBtn = control(btn("Ir a la nota", () => openNote(tutor.note), "btn small ghost", "book"), 2, "c02-head-note");
   noteBtn.setAttribute("data-block-during-turn", "");
@@ -3816,7 +3903,7 @@
   }
   const tasksBadge = h("span", { class: "badge", hidden: true });
   const tasksWhat = h("span", { class: "what" }, "Tareas");
-  const tasksPill = h("button", { class: "tasks-pill", type: "button", "aria-controls": "tasks-panel", "aria-expanded": "false", onclick: () => (document.body.classList.contains("tasks-open") ? closeTasks() : openTasks()) },
+  const tasksPill = h("button", { class: "tasks-pill", type: "button", "aria-controls": "tasks-panel", "aria-expanded": "false", "aria-pressed": "false", onclick: () => (document.body.classList.contains("tasks-open") ? closeTasks() : openTasks()) },
     h("span", { class: "dot" }), tasksWhat, tasksBadge);
   const tasksPanel = h(
     "aside",
@@ -3886,12 +3973,15 @@
     closeDrawer();
     document.body.classList.add("tasks-open");
     tasksPill.setAttribute("aria-expanded", "true");
+    tasksPill.setAttribute("aria-pressed", "true");
+    pill.setAttribute("aria-pressed", "false");
     tasksPanel.querySelector(".icon-btn")?.focus();
   }
   function closeTasks() {
     const hadFocus = tasksPanel.contains(document.activeElement);
     document.body.classList.remove("tasks-open");
     tasksPill.setAttribute("aria-expanded", "false");
+    tasksPill.setAttribute("aria-pressed", "false");
     if (hadFocus) tasksPill.focus();
   }
   const taskTitle = (topic) => library.topics.find((t) => t.id === topic)?.title || topic;
