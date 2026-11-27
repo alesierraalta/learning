@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 
 	"learning/internal/rules"
@@ -155,6 +156,176 @@ func guidedFlow(qs []diagQuestion, answers map[string]string) error {
 		}
 	}
 	return nil
+}
+
+func teachingAreas(t teachingDoc, plan *planDoc) ([]string, error) {
+	if len(t.Areas) == 0 {
+		return nil, fmt.Errorf("teaching areas must not be empty")
+	}
+	planSubs := planSubtemas(*plan)
+	seen := map[string]bool{}
+	out := append([]string{}, t.Areas...)
+	for _, area := range out {
+		if !planSubs[area] || seen[area] {
+			return nil, fmt.Errorf("teaching area %q is not a distinct plan subtema", area)
+		}
+		seen[area] = true
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// validateTeachingDiagnosisShape keeps the first round broad: it samples the
+// declared areas instead of drilling one of them, within the diagnosis bounds.
+func validateTeachingDiagnosisShape(qs []diagQuestion, plan *planDoc, t teachingDoc, th rules.Thresholds) error {
+	areas, err := teachingAreas(t, plan)
+	if err != nil {
+		return err
+	}
+	first := []diagQuestion{}
+	for _, q := range qs {
+		if q.Round == 1 {
+			first = append(first, q)
+		}
+	}
+	min := 4
+	if len(areas) < min {
+		min = len(areas)
+	}
+	if len(first) < min || len(first) > 6 {
+		return fmt.Errorf("the initial round asks %d questions; coverage needs %d-6 across the declared areas", len(first), min)
+	}
+	seen := map[string]bool{}
+	for _, q := range first {
+		seen[q.Subtema] = true
+	}
+	for _, area := range areas {
+		if !seen[area] {
+			return fmt.Errorf("the initial round has no coverage question for area %s", area)
+		}
+	}
+	for _, q := range qs {
+		if q.Round <= 1 {
+			continue
+		}
+		if q.Follows == "" {
+			return fmt.Errorf("question %s in round %d is a follow-up but names no earlier question", q.ID, q.Round)
+		}
+	}
+	return nil
+}
+
+func openAnswerRecorded(id string, answers map[string]openAnswer, o rules.OpenResponseThresholds) bool {
+	answer, ok := answers[id]
+	return ok && strings.TrimSpace(openResponseText(answer, o)) != ""
+}
+
+func openVerdictRecorded(id string, doc openVerdictDoc) bool {
+	v, ok := doc.Verdicts[id]
+	return ok && strings.TrimSpace(v.Evidence) != ""
+}
+
+func openNeedsFollowUp(id string, answers map[string]openAnswer, doc openVerdictDoc, o rules.OpenResponseThresholds) bool {
+	v, ok := doc.Verdicts[id]
+	if !ok {
+		return true
+	}
+	if v.Verdict != "correct" || (v.Teaching != nil && v.Teaching.ErrorType != "") {
+		return true
+	}
+	for _, state := range v.Concepts {
+		if state == "laguna" || state == "dudoso" {
+			return true
+		}
+	}
+	// A guessed right answer is contradictory evidence: it is worth one probe.
+	return answers[id].Confidence == "adivine"
+}
+
+// validateTeachingDiagnosisFlow gates every round on the answers and tutor
+// verdicts of the previous one, and stops only on evidence sufficiency.
+func validateTeachingDiagnosisFlow(qs []diagQuestion, answers map[string]openAnswer, doc openVerdictDoc, t teachingDoc, plan *planDoc, th rules.Thresholds) ([]string, error) {
+	areas, err := teachingAreas(t, plan)
+	if err != nil {
+		return nil, err
+	}
+	o := th.OpenResponse
+	if o == nil {
+		return nil, fmt.Errorf("open diagnosis needs the openResponse thresholds")
+	}
+	byID := map[string]diagQuestion{}
+	rounds := map[int][]diagQuestion{}
+	maxRound := 0
+	for _, q := range qs {
+		byID[q.ID] = q
+		r := max(q.Round, 1)
+		rounds[r] = append(rounds[r], q)
+		maxRound = max(maxRound, r)
+	}
+	for r := 2; r <= maxRound; r++ {
+		for _, prev := range rounds[r-1] {
+			if !openAnswerRecorded(prev.ID, answers, *o) || !openVerdictRecorded(prev.ID, doc) {
+				return nil, fmt.Errorf("round %d was written before the answers and tutor verdicts of round %d (%s)", r, r-1, prev.ID)
+			}
+		}
+	}
+	for _, q := range qs {
+		if q.Round <= 1 {
+			continue
+		}
+		prev, ok := byID[q.Follows]
+		if !ok || prev.Round >= q.Round {
+			return nil, fmt.Errorf("follow-up %s names %q, which is not an earlier question", q.ID, q.Follows)
+		}
+		if !openNeedsFollowUp(prev.ID, answers, doc, *o) {
+			return nil, fmt.Errorf("follow-up %s does not follow uncertain or central evidence in %s", q.ID, q.Follows)
+		}
+	}
+	covered := []string{}
+	wanted := map[string]bool{}
+	for _, area := range areas {
+		wanted[area] = true
+	}
+	anyAnswer := false
+	for _, q := range qs {
+		if openAnswerRecorded(q.ID, answers, *o) {
+			anyAnswer = true
+		}
+	}
+	if !anyAnswer {
+		return areas, nil
+	}
+	for _, q := range qs {
+		if wanted[q.Subtema] && openAnswerRecorded(q.ID, answers, *o) && openVerdictRecorded(q.ID, doc) {
+			wanted[q.Subtema] = false
+		}
+	}
+	for area := range wanted {
+		if wanted[area] {
+			return nil, fmt.Errorf("the diagnosis still has no evidence for area %s", area)
+		}
+		covered = append(covered, area)
+	}
+	sort.Strings(covered)
+	room := len(qs) < th.Concepts.DiagnosisMaxQuestions && maxRound < th.Diagnostic.MaxRounds
+	for _, q := range qs {
+		central := q.Open != nil && q.Open.Centrality == "central"
+		if !central || !openAnswerRecorded(q.ID, answers, *o) || !openNeedsFollowUp(q.ID, answers, doc, *o) {
+			continue
+		}
+		resolved := false
+		for _, next := range qs {
+			if next.Follows == q.ID && next.Round > q.Round &&
+				openAnswerRecorded(next.ID, answers, *o) && !openNeedsFollowUp(next.ID, answers, doc, *o) {
+				resolved = true
+				break
+			}
+		}
+		if !resolved && room {
+			return nil, fmt.Errorf("central question %s still needs a justified follow-up before the diagnosis stops", q.ID)
+		}
+	}
+	return covered, nil
 }
 
 type conceptQuestion struct {

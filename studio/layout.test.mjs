@@ -4181,6 +4181,34 @@ test("T2 open results wait for the verdict, then show its state, evidence and ne
   assert.equal(await results.getByText(/Puntaje/).count(), 0);
 });
 
+test("T3 results draw the knowledge state, teaching action and calibration beside the verdict", { skip: browser ? false : "playwright not installed" }, async (t) => {
+  const { studio, page } = await studioPage(t);
+  await page.goto(`${studio.url}#/leer/redes/p1`, { waitUntil: "networkidle" });
+  await page.waitForFunction(() => document.querySelector("iframe.sheet")?.getAttribute("src"), null, { timeout: 5000 });
+  const frame = await (await page.locator("iframe.sheet").elementHandle()).contentFrame();
+  const graded = {
+    ...OPEN_PENDING,
+    openFeedback: [{
+      id: "q1", verdict: "incorrect", evidence: "La encapsulación oculta datos",
+      criteria: [{ id: "c1", met: false, evidence: "oculta datos" }],
+      concepts: { "P0.1": "laguna" },
+      teaching: { errorType: "misconception", action: "corrective-explanation", evidence: "oculta datos", rationale: "", next: "" },
+      confidence: "seguro", calibration: "overconfident",
+      next: "Contrasta con un contraejemplo.",
+    }],
+  };
+  await frame.evaluate((message) => parent.postMessage(message, "*"), graded);
+  await page.waitForFunction(() => location.hash === "#/resultados/redes/p1");
+  const panel = page.locator(".results .lk-open-knowledge");
+  await panel.waitFor();
+  const text = await panel.innerText();
+  assert.match(text, /laguna/);
+  assert.match(text, /misconception/);
+  assert.match(text, /corrective-explanation/);
+  assert.match(text, /sobreconfiado/);
+  assert.match(await page.locator(".results").innerText(), /Contrasta con un contraejemplo/);
+});
+
 const finalQuestion = (id, kind) => ({
   id, enunciado: `Desarrolla ${id} en el final`,
   open: { version: 1, kind, operation: kind === "code" ? "build" : "transfer", depth: "core", centrality: "central", concepts: ["P0.1"], criteria: [{ id: "c1", rubric: "SECRETO_FINAL_LAYOUT" }] },

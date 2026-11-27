@@ -57,6 +57,21 @@
     node.href = href;
     return node;
   };
+  const CALIBRATION = { aligned: "alineado", overconfident: "sobreconfiado", underconfident: "subconfiado" };
+  const drawOpenKnowledge = (field, feedback) => {
+    if (!feedback?.teaching && !feedback?.concepts && !feedback?.confidence) return;
+    const box = element("div", undefined, "lk-open-knowledge");
+    if (feedback.concepts && Object.keys(feedback.concepts).length) {
+      box.append(element("p", Object.entries(feedback.concepts).map(([code, state]) => `${code}: ${state}`).join(" · "), "lk-open-states"));
+    }
+    if (feedback.teaching) {
+      const t = feedback.teaching;
+      box.append(element("p", [t.errorType && `Dificultad: ${t.errorType}`, t.action && `Acción: ${t.action}`].filter(Boolean).join(" · "), "lk-open-action"));
+      if (t.rationale) box.append(element("p", t.rationale, "lk-open-rationale"));
+    }
+    if (feedback.confidence) box.append(element("p", `Confianza: ${feedback.confidence}${CALIBRATION[feedback.calibration] ? ` · ${CALIBRATION[feedback.calibration]}` : ""}`, "lk-open-calibration"));
+    field.append(box);
+  };
   // Wide reading mode lives in book.js: that script is the only one a hand-built
   // part page loads, so it is the only place where one definition reaches every
   // part. This file keeps the reader itself.
@@ -455,6 +470,7 @@
       if (feedback) {
         if (globalThis.lkQuestion?.feedback) globalThis.lkQuestion.feedback(field, feedback);
         else field.append(element("p", `Veredicto: ${feedback.verdict}. ${feedback.next}`, "muted"));
+        drawOpenKnowledge(field, feedback);
       }
       if (!readonly) {
         let textInput, codeInput, explanationInput, noButton;
@@ -638,6 +654,7 @@
               if (!item) continue;
               if (globalThis.lkQuestion?.feedback) globalThis.lkQuestion.feedback(item.field, feedback);
               else item.field.append(element("p", `Veredicto: ${feedback.verdict}`, "muted"));
+              drawOpenKnowledge(item.field, feedback);
             }
           } else {
             response.results.forEach((result) => {

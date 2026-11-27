@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -287,12 +288,21 @@ type openCriterionResult struct {
 	Evidence string `json:"evidence"`
 }
 
+type openTeaching struct {
+	ErrorType string `json:"errorType,omitempty"`
+	Evidence  string `json:"evidence,omitempty"`
+	Action    string `json:"action"`
+	Rationale string `json:"rationale,omitempty"`
+	Next      string `json:"next,omitempty"`
+}
+
 type openVerdict struct {
 	Verdict     string                         `json:"verdict"`
 	Evidence    string                         `json:"evidence"`
 	Criteria    map[string]openCriterionResult `json:"criteria"`
 	Concepts    map[string]string              `json:"concepts,omitempty"`
 	Explanation *openExplanationVerdict        `json:"explanation,omitempty"`
+	Teaching    *openTeaching                  `json:"teaching,omitempty"`
 }
 
 // openVerdictDoc is written by the tutor: the engine checks its schema and
@@ -300,6 +310,50 @@ type openVerdict struct {
 type openVerdictDoc struct {
 	Version  int                    `json:"version"`
 	Verdicts map[string]openVerdict `json:"verdicts"`
+}
+
+// teachingDoc is the additive strategy declaration in a question file. An
+// assessment without it keeps the T1/T2 open flow exactly as it was.
+type teachingDoc struct {
+	Version    int      `json:"version"`
+	Areas      []string `json:"areas,omitempty"`
+	Operations []string `json:"operations,omitempty"`
+	Depth      string   `json:"depth,omitempty"`
+}
+
+func loadTeaching(ws, rel string) (teachingDoc, bool, error) {
+	if answerFileMissing(ws, rel) {
+		return teachingDoc{}, false, nil
+	}
+	var doc struct {
+		Teaching *teachingDoc `json:"teaching"`
+	}
+	if err := readJSON(absPath(ws, rel), &doc); err != nil {
+		return teachingDoc{}, false, err
+	}
+	if doc.Teaching == nil {
+		return teachingDoc{}, false, nil
+	}
+	if doc.Teaching.Version != 1 {
+		return teachingDoc{}, true, fmt.Errorf("teaching version %d is unsupported (want 1)", doc.Teaching.Version)
+	}
+	return *doc.Teaching, true, nil
+}
+
+// knowledgeEntry is the reader-facing shape of one concept in the adaptive
+// map. Confidence and calibration travel here but never enter a score.
+type knowledgeEntry struct {
+	Code        string `json:"code"`
+	Subtema     string `json:"subtema"`
+	Operation   string `json:"operation"`
+	Depth       string `json:"depth"`
+	Centrality  string `json:"centrality"`
+	State       string `json:"state"`
+	ErrorType   string `json:"errorType,omitempty"`
+	Action      string `json:"action,omitempty"`
+	Confidence  string `json:"confidence,omitempty"`
+	Calibration string `json:"calibration,omitempty"`
+	Evidence    string `json:"evidence,omitempty"`
 }
 
 func loadDiagQuestions(ws, rel string) ([]diagQuestion, error) {
@@ -800,8 +854,9 @@ func checkCoverage(ids []string, answers map[string]string, th rules.OptionThres
 }
 
 type openRef struct {
-	ID   string
-	Item *openItem
+	ID      string
+	Subtema string
+	Item    *openItem
 }
 
 // openRefs keeps legacy items out of the open path: a question with options
@@ -810,7 +865,7 @@ func openRefs(qs []diagQuestion, th rules.Thresholds) []openRef {
 	var out []openRef
 	for _, q := range qs {
 		if isOpenQuestion(q.Open, len(q.Options) == 0, q.Answer == "", th) {
-			out = append(out, openRef{ID: q.ID, Item: q.Open})
+			out = append(out, openRef{ID: q.ID, Subtema: q.Subtema, Item: q.Open})
 		}
 	}
 	return out
@@ -820,7 +875,7 @@ func openQuizRefs(qs []quizQuestion, th rules.Thresholds) []openRef {
 	var out []openRef
 	for _, q := range qs {
 		if isOpenQuestion(q.Open, len(q.Options) == 0, q.Answer == "", th) {
-			out = append(out, openRef{ID: q.ID, Item: q.Open})
+			out = append(out, openRef{ID: q.ID, Subtema: q.Subtema, Item: q.Open})
 		}
 	}
 	return out
@@ -830,7 +885,7 @@ func openFinalRefs(qs []finalQuestion, th rules.Thresholds) []openRef {
 	var out []openRef
 	for _, q := range qs {
 		if isOpenQuestion(q.Open, true, strings.TrimSpace(q.Respuesta) == "", th) {
-			out = append(out, openRef{ID: q.ID, Item: q.Open})
+			out = append(out, openRef{ID: q.ID, Subtema: q.Subtema, Item: q.Open})
 		}
 	}
 	return out
@@ -951,6 +1006,8 @@ type openScore struct {
 	WrongIDs      []string
 	CentralMisses []string
 	Passed        bool
+	Knowledge     []knowledgeEntry
+	TeachingPlan  []string
 }
 
 // validateOpenDiagnostic applies the diagnosis bounds and layout to an
@@ -1032,6 +1089,60 @@ func validateOpenQuizQuestions(qs []quizQuestion, partSubtema string, planSubs m
 		}
 	}
 	return validateOpenItems(openQuizRefs(qs, th), th, planSubs)
+}
+
+// validateTeachingQuizMix enforces the declared operation depth strategy. A
+// quiz without a teaching block keeps the T1 operation mix untouched.
+func validateTeachingQuizMix(qs []quizQuestion, t teachingDoc, th rules.Thresholds) error {
+	o := th.OpenResponse
+	if o == nil {
+		return fmt.Errorf("open mini-quiz needs the openResponse thresholds")
+	}
+	if len(t.Operations) == 0 && t.Depth == "" {
+		return nil
+	}
+	if len(t.Operations) > 0 {
+		for _, operation := range t.Operations {
+			if !slicesContains(o.Operations, operation) {
+				return fmt.Errorf("teaching operation %q is not declared by the rules", operation)
+			}
+		}
+		if !slices.Contains(t.Operations, "explain") || !slices.Contains(t.Operations, "apply") {
+			return fmt.Errorf("a teaching mix needs own-words explain and apply operations")
+		}
+	}
+	if t.Depth != "" && !slicesContains(o.Depths, t.Depth) {
+		return fmt.Errorf("teaching depth %q is not declared by the rules", t.Depth)
+	}
+	wanted := map[string]bool{}
+	for _, operation := range t.Operations {
+		wanted[operation] = true
+	}
+	for _, q := range qs {
+		if q.Open != nil {
+			delete(wanted, q.Open.Operation)
+		}
+	}
+	if len(wanted) > 0 {
+		missing := make([]string, 0, len(wanted))
+		for operation := range wanted {
+			missing = append(missing, operation)
+		}
+		sort.Strings(missing)
+		return fmt.Errorf("the mini-quiz is missing teaching operations: %s", strings.Join(missing, ", "))
+	}
+	if t.Depth == "frontier" {
+		transfer := false
+		for _, q := range qs {
+			if q.Open != nil && q.Open.Operation == "transfer" {
+				transfer = true
+			}
+		}
+		if !transfer {
+			return fmt.Errorf("frontier depth needs transfer evidence")
+		}
+	}
+	return nil
 }
 
 func quotesOpenEvidence(text, evidence string) bool {
@@ -1191,21 +1302,214 @@ func validateOpenCriteria(id string, item *openItem, verdict openVerdict, text s
 	return checkOpenVerdictMet(id, verdict.Verdict, met, len(item.Criteria))
 }
 
-func validateOpenConceptStates(id string, item *openItem, verdict openVerdict, o *rules.OpenResponseThresholds) error {
+func validateOpenConceptStates(id string, item *openItem, verdict openVerdict, o *rules.OpenResponseThresholds, strict bool) error {
+	codes := make([]string, 0, len(verdict.Concepts))
+	for code := range verdict.Concepts {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	met := 0
+	for _, result := range verdict.Criteria {
+		if result.Met {
+			met++
+		}
+	}
+	for _, code := range codes {
+		state := verdict.Concepts[code]
+		if !slicesContains(item.Concepts, code) {
+			return fmt.Errorf("open question %s state names concept %s, which it does not declare", id, code)
+		}
+		if !slicesContains(o.ConceptStates, state) {
+			return fmt.Errorf("open question %s state %q is outside %v", id, state, o.ConceptStates)
+		}
+		if verdict.Verdict == "incorrect" || verdict.Verdict == o.NoEvidenceVerdict {
+			if state == "claro" || state == "transferible" {
+				return fmt.Errorf("open question %s state %q does not follow verdict %s", id, state, verdict.Verdict)
+			}
+		}
+		if !strict {
+			continue
+		}
+		if !openStateFollowsEvidence(verdict.Verdict, item.Operation, item.Depth, state, met > 0) {
+			return fmt.Errorf("open question %s state %q does not follow verdict %s, operation %s and depth %s", id, state, verdict.Verdict, item.Operation, item.Depth)
+		}
+	}
+	return nil
+}
+
+func openStateFollowsEvidence(verdict, operation, depth, state string, met bool) bool {
+	switch verdict {
+	case "correct":
+		switch state {
+		case "dudoso", "claro":
+			return true
+		case "transferible":
+			return met && (operation == "transfer" || depth == "frontier")
+		}
+	case "partial":
+		return state == "laguna" || state == "dudoso"
+	case "incorrect":
+		return state == "laguna" || state == "dudoso"
+	default:
+		return state == "laguna"
+	}
+	return false
+}
+
+func openCalibration(confidence, verdict string) string {
+	if confidence == "" {
+		return "unknown"
+	}
+	if confidence == "seguro" {
+		if verdict != "correct" {
+			return "overconfident"
+		}
+		return "aligned"
+	}
+	if confidence == "adivine" {
+		if verdict == "correct" || verdict == "partial" {
+			return "underconfident"
+		}
+		return "aligned"
+	}
+	if verdict == "correct" {
+		return "underconfident"
+	}
+	return "aligned"
+}
+
+func openTeachingFor(verdict string, item *openItem, teaching *openTeaching, states map[string]string) (string, string) {
+	if teaching != nil && teaching.Action != "" {
+		return teaching.ErrorType, teaching.Action
+	}
+	if verdict == "correct" {
+		transferable := false
+		for _, state := range states {
+			if state != "transferible" {
+				transferable = false
+				break
+			}
+			if state == "transferible" {
+				transferable = true
+			}
+		}
+		if transferable || !(item.Depth == "frontier" || item.Operation == "transfer") {
+			return "", "advance"
+		}
+		return "", "transfer-work"
+	}
+	if verdict == "partial" {
+		if slices.Contains([]string{"apply", "build", "debug", "predict"}, item.Operation) {
+			return "application-failure", "guided-practice"
+		}
+		return "incomplete-reasoning", "guided-practice"
+	}
+	if verdict == "no-evidence" {
+		return "missing-knowledge", "prerequisite-review"
+	}
+	if item.Operation == "transfer" || item.Depth == "frontier" {
+		return "transfer-failure", "transfer-work"
+	}
+	return "misconception", "corrective-explanation"
+}
+
+func validateOpenTeaching(id string, item *openItem, answer openAnswer, verdict openVerdict, o *rules.OpenResponseThresholds, strict bool) error {
+	t := verdict.Teaching
+	if t == nil {
+		return nil
+	}
+	if len(o.ErrorTypes) > 0 && t.ErrorType != "" && !slicesContains(o.ErrorTypes, t.ErrorType) {
+		return fmt.Errorf("open question %s errorType %q is outside %v", id, t.ErrorType, o.ErrorTypes)
+	}
+	if len(o.TeachingActions) > 0 && !slicesContains(o.TeachingActions, t.Action) {
+		return fmt.Errorf("open question %s teaching action %q is outside %v", id, t.Action, o.TeachingActions)
+	}
+	if t.ErrorType != "" && !quotesOpenEvidence(openResponseText(answer, *o), t.Evidence) {
+		return fmt.Errorf("open question %s error evidence is not quoted from the learner's answer", id)
+	}
+	if verdict.Verdict == "correct" && t.ErrorType != "" {
+		return fmt.Errorf("open question %s verdict correct cannot classify an error", id)
+	}
+	if verdict.Verdict != "correct" && t.ErrorType == "" {
+		return fmt.Errorf("open question %s verdict %s needs an errorType", id, verdict.Verdict)
+	}
+	want, mapped := map[string]string{
+		"missing-knowledge":    "prerequisite-review",
+		"misconception":        "corrective-explanation",
+		"incomplete-reasoning": "guided-practice",
+		"application-failure":  "guided-practice",
+		"transfer-failure":     "transfer-work",
+	}[t.ErrorType]
+	if t.ErrorType == "" {
+		if t.Action != "advance" && !(strict && t.Action == "transfer-work" && verdict.Verdict == "correct" && (item.Depth == "frontier" || item.Operation == "transfer")) {
+			return fmt.Errorf("open question %s action %q does not follow verdict %s", id, t.Action, verdict.Verdict)
+		}
+		return nil
+	}
+	if !mapped || t.Action != want {
+		return fmt.Errorf("open question %s action %q does not follow errorType %q", id, t.Action, t.ErrorType)
+	}
+	if strict && t.ErrorType == "application-failure" && !slices.Contains([]string{"apply", "build", "debug", "predict"}, item.Operation) {
+		return fmt.Errorf("open question %s application-failure needs an application operation", id)
+	}
+	if strict && t.ErrorType == "transfer-failure" && item.Operation != "transfer" && item.Depth != "frontier" {
+		return fmt.Errorf("open question %s transfer-failure needs transfer evidence", id)
+	}
+	return nil
+}
+
+func addOpenKnowledge(out *openScore, ref openRef, answer openAnswer, verdict openVerdict) {
+	if len(verdict.Concepts) == 0 {
+		return
+	}
+	errorType, action := openTeachingFor(verdict.Verdict, ref.Item, verdict.Teaching, verdict.Concepts)
 	codes := make([]string, 0, len(verdict.Concepts))
 	for code := range verdict.Concepts {
 		codes = append(codes, code)
 	}
 	sort.Strings(codes)
 	for _, code := range codes {
-		if !slicesContains(item.Concepts, code) {
-			return fmt.Errorf("open question %s state names concept %s, which it does not declare", id, code)
+		state := verdict.Concepts[code]
+		entry := knowledgeEntry{
+			Code: code, Subtema: ref.Subtema, Operation: ref.Item.Operation, Depth: ref.Item.Depth,
+			Centrality: ref.Item.Centrality, State: state, ErrorType: errorType, Action: action,
+			Confidence: answer.Confidence, Calibration: openCalibration(answer.Confidence, verdict.Verdict), Evidence: verdict.Evidence,
 		}
-		if !slicesContains(o.ConceptStates, verdict.Concepts[code]) {
-			return fmt.Errorf("open question %s state %q is outside %v", id, verdict.Concepts[code], o.ConceptStates)
+		found := false
+		for i := range out.Knowledge {
+			if out.Knowledge[i].Code != code {
+				continue
+			}
+			found = true
+			if openStateRank(state) > openStateRank(out.Knowledge[i].State) {
+				out.Knowledge[i].State = state
+			}
+			if action != "advance" {
+				out.Knowledge[i].ErrorType, out.Knowledge[i].Action = errorType, action
+				out.Knowledge[i].Evidence = verdict.Evidence
+			}
+			out.Knowledge[i].Confidence, out.Knowledge[i].Calibration = answer.Confidence, openCalibration(answer.Confidence, verdict.Verdict)
+			break
+		}
+		if !found {
+			out.Knowledge = append(out.Knowledge, entry)
 		}
 	}
-	return nil
+	sort.Slice(out.Knowledge, func(i, j int) bool { return out.Knowledge[i].Code < out.Knowledge[j].Code })
+}
+
+func openStateRank(state string) int {
+	return slices.Index([]string{"laguna", "dudoso", "claro", "transferible"}, state)
+}
+
+func openTeachingPlan(knowledge []knowledgeEntry) []string {
+	var out []string
+	for _, entry := range knowledge {
+		if entry.State == "laguna" || entry.State == "dudoso" {
+			out = append(out, entry.Code+": "+entry.Action)
+		}
+	}
+	return out
 }
 
 func openExplanationQuoted(id string, answer openAnswer, verdict openVerdict, o *rules.OpenResponseThresholds) (*openExplanationVerdict, error) {
@@ -1267,7 +1571,7 @@ func addOpenScore(out *openScore, ref openRef, verdict, noEvidenceVerdict string
 	}
 }
 
-func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc openVerdictDoc, present bool, th rules.Thresholds) (openScore, error) {
+func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc openVerdictDoc, present bool, th rules.Thresholds, strict bool) (openScore, error) {
 	var out openScore
 	if len(refs) == 0 {
 		return out, nil
@@ -1288,14 +1592,19 @@ func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc ope
 		if err := validateOpenCriteria(ref.ID, ref.Item, verdict, text); err != nil {
 			return out, err
 		}
-		if err := validateOpenConceptStates(ref.ID, ref.Item, verdict, o); err != nil {
+		if err := validateOpenConceptStates(ref.ID, ref.Item, verdict, o, strict); err != nil {
+			return out, err
+		}
+		if err := validateOpenTeaching(ref.ID, ref.Item, answer, verdict, o, strict); err != nil {
 			return out, err
 		}
 		if err := validateOpenExplanation(ref.ID, ref.Item, answer, verdict, submissionPassed, o); err != nil {
 			return out, err
 		}
+		addOpenKnowledge(&out, ref, answer, verdict)
 		addOpenScore(&out, ref, verdict.Verdict, o.NoEvidenceVerdict)
 	}
+	out.TeachingPlan = openTeachingPlan(out.Knowledge)
 	ratio := th.Concepts.MinPassingRatio
 	out.Passed = out.Points*ratio.Den >= 2*ratio.Num*len(refs) && len(out.CentralMisses) == 0
 	return out, nil

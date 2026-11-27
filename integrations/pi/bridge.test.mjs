@@ -6285,6 +6285,88 @@ test("T2 open mini quiz: no options or rubric in the page, exact openAnswers on 
   await shutdown();
 });
 
+test("T3 open feedback carries states, error classification, calibration and action without the rubric", async () => {
+  const { topic, view, shutdown } = await setup();
+  const rubric = "SECRETO_RUBRICA_T3";
+  const question = {
+    ...openItem("q1", "text"),
+    open: { ...openItem("q1", "text").open, operation: "apply", depth: "core", criteria: [{ id: "c1", rubric }] },
+  };
+  writeFileSync(join(topic, "mini-quiz", "p1.json"), JSON.stringify({ questions: [question], teaching: { version: 1, operations: ["explain", "apply"] } }));
+  const url = base(await view({ topic: TOPIC, part: "p1" }));
+  const answer = "Aplico la regla al caso con otro ejemplo";
+  await submit(url, { kind: "mini-quiz", topic: TOPIC, part: "p1", openAnswers: { q1: { kind: "text", text: answer, confidence: "adivine" } } });
+  writeFileSync(join(topic, "mini-quiz", "p1.verdicts.json"), JSON.stringify({
+    version: 1,
+    verdicts: {
+      q1: {
+        verdict: "partial", evidence: "Aplico la regla",
+        criteria: { c1: { id: "c1", met: false, evidence: "Aplico la regla" } },
+        concepts: { "T.p1": "dudoso", "P0.1": "laguna" },
+        teaching: { errorType: "application-failure", evidence: "Aplico la regla", action: "guided-practice", rationale: `Seguir ${rubric} en privado`, next: "Practica con otro caso y explica el paso que falta." },
+      },
+    },
+  }));
+  const api = JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=p1`)).body);
+  const feedback = api.openFeedback[0];
+  assert.deepEqual(feedback.concepts, { "T.p1": "dudoso", "P0.1": "laguna" });
+  assert.equal(feedback.teaching.errorType, "application-failure");
+  assert.equal(feedback.teaching.evidence, "Aplico la regla");
+  assert.equal(feedback.teaching.action, "guided-practice");
+  assert.equal(feedback.confidence, "adivine");
+  assert.equal(feedback.calibration, "underconfident");
+  assert.match(feedback.next, /Practica con otro caso/);
+  const body = JSON.stringify(api);
+  assert.equal(body.includes(rubric), false, "a rationale never leaks a private rubric");
+  assert.equal(body.includes(answer), false, "the whole answer is not echoed back");
+  await shutdown();
+});
+
+test("T3 a diagnosis round stays hidden until the previous answers and verdicts exist", async () => {
+  const { topic, view, shutdown } = await setup();
+  const item = (id, round) => ({ ...openItem(id, "text"), round, subtema: "T.p1" });
+  const questions = [item("d1", 1), item("d2", 2)];
+  writeFileSync(join(topic, "quiz.json"), JSON.stringify({ questions, teaching: { version: 1, areas: ["T.p1"] } }));
+  writeFileSync(join(topic, "quiz.answers.json"), JSON.stringify({ answers: {}, razonamientos: {} }));
+  const url = base(await view({ topic: TOPIC, part: "quiz" }));
+  const visible = async () => JSON.parse((await http(`${url}api/quiz?topic=${TOPIC}&part=quiz`)).body).questions.map((q) => q.id);
+  assert.deepEqual(await visible(), ["d1"], "a future round is not offered early");
+  const first = "La réplica conserva el orden";
+  const sent = await submit(url, { kind: "diagnosis", topic: TOPIC, openAnswers: { d1: { kind: "text", text: first } } });
+  assert.equal(sent.status, 200, sent.body);
+  assert.deepEqual(await visible(), ["d1"], "answers alone do not open the next round");
+  const early = await submit(url, { kind: "diagnosis", topic: TOPIC, openAnswers: { d2: { kind: "text", text: "Adelantado" } } });
+  assert.equal(early.status, 400, "a hidden round cannot be answered");
+  writeFileSync(join(topic, "quiz.verdicts.json"), JSON.stringify({
+    version: 1, verdicts: { d1: { verdict: "partial", evidence: "conserva el orden", criteria: { c1: { id: "c1", met: false, evidence: "conserva el orden" } } } },
+  }));
+  assert.deepEqual(await visible(), ["d1", "d2"], "answers and the tutor verdict open the follow-up");
+  await shutdown();
+});
+
+test("T3 the reader draws the knowledge state, teaching action and calibration", { skip: !playwright && "playwright not installed" }, async (t) => {
+  const { topic, view, shutdown } = await setup();
+  const question = openItem("q1", "text");
+  writeFileSync(join(topic, "mini-quiz", "p1.json"), JSON.stringify({ questions: [question] }));
+  const result = await view({ topic: TOPIC, part: "p1" });
+  await submit(base(result), { kind: "mini-quiz", topic: TOPIC, part: "p1", openAnswers: { q1: { kind: "text", text: "Aplico la regla", confidence: "seguro" } } });
+  writeFileSync(join(topic, "mini-quiz", "p1.verdicts.json"), JSON.stringify({
+    version: 1, verdicts: { q1: { verdict: "incorrect", evidence: "Aplico la regla", criteria: { c1: { id: "c1", met: false, evidence: "Aplico la regla" } }, concepts: { "T.p1": "laguna" }, teaching: { errorType: "misconception", evidence: "Aplico la regla", action: "corrective-explanation", rationale: "Razón breve", next: "Contrasta con un contraejemplo." } } },
+  }));
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(result.structuredContent.url);
+  await page.locator(".lk-open-knowledge").waitFor();
+  const text = await page.locator(".lk-open-knowledge").innerText();
+  assert.match(text, /laguna/);
+  assert.match(text, /corrective-explanation/);
+  assert.match(text, /misconception/);
+  assert.match(text, /sobreconfiado/);
+  assert.equal(text.includes("SECRETO_RUBRICA_DEL_TUTOR"), false);
+  await shutdown();
+});
+
 const fakeCodeRunner = async ({ code }) => ({ compilacion: { ok: true, salida: "" }, resultados: [{ nombre: "caso", oculto: false, estado: "correcto", codigo: 0 }], aprobados: 1, total: 1, ...(code === "" ? { aviso: "sin código" } : {}) });
 
 test("T2 open code answers use the code submission route, require an explanation, and accept noEvidence", async () => {
