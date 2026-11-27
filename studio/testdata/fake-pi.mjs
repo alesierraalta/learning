@@ -1,6 +1,6 @@
 // A stand-in for `pi --mode rpc`: JSONL on stdin/stdout, scripted events, and a
 // log of every command received (FAKE_PI_LOG) for the studio tests.
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 if (process.argv.includes("--list-models")) {
@@ -215,12 +215,27 @@ process.stdin.on("data", (chunk) => {
         out({ id: command.id, type: "response", command: "export_html", success: true, data: { path } });
         break;
       }
-      case "abort":
-        out({ id: command.id, type: "response", command: command.type, success: true, data: {} });
-        // A real Pi ends the turn it was asked to stop, so the studio hears the settle.
-        out({ type: "agent_end" });
-        out({ type: "agent_settled" });
+      case "abort": {
+        const answer = () => out({ id: command.id, type: "response", command: command.type, success: true, data: {} });
+        // A real Pi ends the turn it was asked to stop, so the studio hears the settle. With
+        // FAKE_PI_ABORT_GATE the settle goes out first and the answer waits for that file: a runtime
+        // the studio's abort is still waiting on while the turn it was asked for is already free.
+        const gate = process.env.FAKE_PI_ABORT_GATE;
+        if (gate) {
+          out({ type: "agent_end" });
+          out({ type: "agent_settled" });
+          const untilGate = () => {
+            if (existsSync(gate)) return answer();
+            setTimeout(untilGate, 25);
+          };
+          untilGate();
+        } else {
+          answer();
+          out({ type: "agent_end" });
+          out({ type: "agent_settled" });
+        }
         break;
+      }
       case "new_session":
         sessionSeq += 1;
         sessionFile = join(sessionDir, `fake-session-${sessionSeq}.jsonl`);

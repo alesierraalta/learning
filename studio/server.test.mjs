@@ -970,6 +970,153 @@ test("a part whose figure is prose in boxes never reaches the learner as a finis
   } finally { tutor.close(); }
 });
 
+// ---- #459/#461: the lifecycle of a part's verdict ---------------------------------
+
+/** A failing measurement of the notes it is given, in the shape a gate report has. */
+const failingMeasurement = (rule) => async (files) => ({
+  kind: "findings",
+  failures: [],
+  count: 1,
+  tools: files.map((file) => ({ file, tool: "scene-lint.mjs", output: `  ${rule}: encima de las letras`, findings: [`${rule}: encima de las letras`] })),
+  first: `${rule}: encima de las letras`,
+});
+
+test("an aborted regeneration keeps the previous version served, not the verdict of the version it discarded", async () => {
+  // The learner asks for a regeneration, the tutor writes a new version, the engine clears the turn and
+  // the studio starts measuring it. The learner aborts while that measurement runs. The studio puts the
+  // previous version back and says it is kept (docs/studio.md: the previous version "stays served"), so
+  // the measurement of the discarded version must decide nothing about the part that is now on disk.
+  const { root, engine, log } = makeRoot({ status: CLEARED_STAGE });
+  process.env.FAKE_PI_LOG = log;
+  const note = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
+  const PREVIOUS = "# Parte 1 — Capas\n\nLa versión que el alumno ya estaba leyendo.\n";
+  writeFileSync(note, PREVIOUS);
+  process.env.FAKE_PI_WRITES = JSON.stringify([[{ path: note, content: "# Parte 1 — Capas\n\nLa versión nueva, sin pasar las comprobaciones.\n" }]]);
+  // The studio's measurement is held open on purpose: the abort has to land while it is running.
+  let letGo;
+  const held = new Promise((resolve) => { letGo = resolve; });
+  const failing = failingMeasurement("trazo-sobre-texto");
+  const studio = await startStudio({
+    root,
+    piCommand: [process.execPath, FAKE_PI],
+    enginePath: engine,
+    openedFile: join(root, "studio-state", "opened.json"),
+    partChecks: async (files) => { await held; return failing(files); },
+  });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  const taskStream = sse(`${studio.url}api/tareas/eventos?task=redes`);
+  const marks = join(root, "studio-state", "partes-medidas.json");
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
+    const dialog = await taskStream.next("dialog");
+    assert.equal((await post(studio, "api/tareas/dialogo", { task: "redes", id: dialog.id, value: "Universitario" })).status, 200);
+    // The engine cleared the turn, so the studio is measuring the part the tutor just wrote.
+    await taskStream.next("fase", (data) => data.fase === "comprobando");
+    assert.equal((await post(studio, "api/tareas/abortar", { task: "redes" })).status, 200);
+    // The turn ended before its part was checked, so the previous version is back and the chat says so.
+    const told = await taskStream.next("error");
+    assert.match(told.message, /NO se regeneró/);
+    assert.match(told.message, /Se mantiene la versión anterior/);
+    assert.equal(readFileSync(note, "utf8"), PREVIOUS, "the previous version is the one on disk again");
+    // The measurement of the discarded version finishes late: it decides nothing about the part.
+    letGo();
+    await until(() => existsSync(marks), 1500).catch(() => {});
+    const view = await http(`${studio.url}api/view?topic=redes&part=p1`);
+    assert.equal(view.status, 200, `the version the learner was told is kept must stay served: ${view.body}`);
+    const offline = await http(`${studio.url}api/offline?topic=redes&part=p1`);
+    assert.equal(offline.status, 200, "nor is it refused when the learner reads it offline");
+  } finally {
+    stream.close();
+    taskStream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
+test("a part the studio measured and rejected is refused, even when the turn was asked for another part", async () => {
+  // The turn is asked for Part 1 and writes Part 2's note instead. The studio measures that note, rejects
+  // it and tells the learner the part still has visual problems, so that part is not one the reader may
+  // serve as if it had passed (#452) — whichever part the prompt happened to name.
+  const { root, engine, log } = makeRoot({ status: CLEARED_STAGE });
+  process.env.FAKE_PI_LOG = log;
+  const note = join(root, "redes", "explicaciones", "Parte 2 - TCP.md");
+  process.env.FAKE_PI_WRITES = JSON.stringify([[{ path: note, content: "# Parte 2 — TCP\n\nLa parte que el tutor escribió sin pasar las comprobaciones.\n" }]]);
+  const measured = [];
+  const failing = failingMeasurement("trazo-sobre-texto");
+  const studio = await startStudio({
+    root,
+    piCommand: [process.execPath, FAKE_PI],
+    enginePath: engine,
+    openedFile: join(root, "studio-state", "opened.json"),
+    partChecks: async (files) => { measured.push(...files); return failing(files); },
+  });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
+      await stream.next("dialog");
+      const dialogs = stream.events.filter((event) => event.name === "dialog");
+      assert.equal((await post(studio, "dialog", { id: dialogs.at(-1).data.id, value: "Universitario" })).status, 200);
+    }
+    await until(() => settleIdle(stream), 30000);
+    assert.deepEqual([...new Set(measured)], [note], "the studio measured the note the turn wrote");
+    assert.ok(
+      stream.events.some((event) => event.name === "error" && /problemas visuales/.test(String(event.data.message))),
+      "the learner hears that part still has visual problems",
+    );
+    // And that part is not served as if it had passed: the reader names what the gates found.
+    const refused = await http(`${studio.url}api/view?topic=redes&part=p2`);
+    assert.equal(refused.status, 409, `a part the studio measured and rejected is not served: ${refused.body}`);
+    assert.match(refused.body, /trazo-sobre-texto/, "the refusal names the rule the part broke");
+    assert.equal((await http(`${studio.url}api/offline?topic=redes&part=p2`)).status, 409, "nor is it packaged for reading offline");
+    // The part the turn never touched is still served: the refusal covers what was measured, not the topic.
+    assert.equal((await http(`${studio.url}api/view?topic=redes&part=p1`)).status, 200);
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
+test("an abort whose turn already settled does not release the turn the learner started", async () => {
+  // #473: the studio waits up to 60 s for the runtime to answer an abort. A runtime that ends the
+  // turn first has already freed it (#460), so the learner can start another turn while that answer
+  // is still on its way; when it lands it names the turn it was asked for and nothing else.
+  const gate = join(mkdtempSync(join(tmpdir(), "studio-abort-")), "answer");
+  process.env.FAKE_PI_ABORT_GATE = gate;
+  const { studio, root, snapshot } = await stateSetup();
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "Cuéntame algo" })).status, 200);
+    await stream.next("user");
+    const aborted = post(studio, "abort", { cause: "update" });
+    // A failed assertion below must not leave the answer hanging: closing the studio hangs it up.
+    aborted.catch(() => {});
+    // The runtime settled before it answered, so the turn is free while the answer is still coming.
+    await stream.next("state", (state) => state.busy === false);
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200, "the studio is free again");
+    await until(() => JSON.parse(readFileSync(snapshot, "utf8")).interrupted?.topic === "redes", 2000);
+    // The late answer arrives now, naming the turn it was asked for.
+    writeFileSync(gate, "");
+    assert.equal((await aborted).status, 200);
+    // The late answer ended the turn it was named for and no other: the studio is still taken.
+    assert.equal((await post(studio, "prompt", { text: "Otra cosa", tema: "redes" })).status, 409, "the turn the learner started is still held");
+    assert.equal(JSON.parse(readFileSync(snapshot, "utf8")).interrupted?.cause, undefined, "and its marker is not replaced by the abort's update notice");
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_ABORT_GATE;
+  }
+});
+
 test("an Antigravity turn is asked again until the engine clears the failing stage", async () => {
   const { root, engine, log } = makeRoot({ statuses: [FAILING_STAGE, CLEARED_STAGE] });
   process.env.FAKE_PI_LOG = log;

@@ -1916,7 +1916,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    * What the tools say about the parts a turn wrote. A tool that could not run is the studio's own
    * failure and goes to the log: it is never a finding the tutor is asked to fix.
    */
-  const checkParts = async (settled: Turn): Promise<PartReport | null> => {
+  const checkParts = async (session: Session, settled: Turn): Promise<PartReport | null> => {
     const expected = partExpected(settled);
     // #452: the part the turn owed is measured even when its own write events never named it, so
     // the file the learner will open is the one that must pass. Only when the turn is what changed
@@ -1927,29 +1927,40 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       : null;
     const files = [...new Set(partNotes([...settled.parts, ...(owed ? [owed] : [])]))];
     if (!files.length) return null;
+    // The bytes each note has right now, before the tools run: the verdict below is about these and
+    // about no other version. A rollback while the tools run (the learner aborts and the previous
+    // version comes back) leaves other bytes on disk, and a verdict about bytes nobody is served
+    // says nothing about the part (#469).
+    const measured = new Map(files.map((file) => [file, bytesOf(file)]));
     const checkPartsWithVerdicts = options.partChecks ?? ((paths: string[]) => runPartChecks(paths, { gateVerdictsFile: gateStoreFile, gateToolPath: options.gateToolPath }));
     const checked = await checkPartsWithVerdicts(files);
+    // The turn that asked for this measurement no longer owns the session: the learner stopped it
+    // and its version is already in the trash. What it measured decides nothing, and it marks
+    // nothing — a verdict is recorded by the turn that still owns the moment (#469).
+    if (session.turn !== settled) return null;
     // A gate that could not measure is the studio's own failure even when other gates found
     // something: it never becomes a tutor finding, and it is never silently dropped (#372/T2a).
     for (const failure of "failures" in checked ? checked.failures : []) {
       process.stderr.write(`estudio: comprobación fallida · ${failure}\n`);
     }
     settled.partVerdict = checked;
-    // What the measurement said about the part itself is kept beside the studio's own state, so
-    // the part cannot be served as if it had passed (#452). A measurement that could not run
-    // leaves no mark: the studio does not refuse what it could not read. The findings counted are
-    // the ones in the note the reader opens, never another file's: a page that failed does not
-    // hide a note that passed.
-    if (owed && expected && settled.topic) {
-      const bytes = bytesOf(expected.file);
-      const mine = checked.kind === "findings" ? checked.tools.filter((tool) => tool.file === expected.file) : [];
+    // What the measurement said about each note it read is kept beside the studio's own state, so
+    // no part is served as if it had passed (#452). Every note the turn wrote and the tools
+    // rejected is marked, whichever part the prompt happened to name (#469): the learner is told
+    // that part still has visual problems, so that part is the one that cannot be served. A
+    // measurement that could not run leaves no mark: the studio does not refuse what it could not
+    // read. The findings counted are the ones in the note the reader opens, never another file's:
+    // a page that failed does not hide a note that passed.
+    for (const file of files) {
+      const bytes = measured.get(file) ?? null;
+      // A note whose bytes changed while the tools ran is not the version that was measured.
+      if (bytes === null || bytesOf(file) !== bytes) continue;
+      const owner = partOfNote(file);
+      if (owner === null) continue;
+      const mine = checked.kind === "findings" ? checked.tools.filter((tool) => tool.file === file) : [];
       const count = mine.reduce((total, tool) => total + tool.findings.length, 0);
       const rules = [...new Set(mine.flatMap((tool) => parsedFindingsOf(tool.tool, tool.output).map((found) => found.rule)).filter((rule) => rule !== ""))].slice(0, 12);
-      markPartGate(
-        partGateMarksFile,
-        `${root}::${settled.topic}/${expected.part}`,
-        bytes === null ? null : count > 0 ? { bytes, count, rules } : null,
-      );
+      markPartGate(partGateMarksFile, `${root}::${owner.topic}/${owner.part}`, count > 0 ? { bytes, count, rules } : null);
     }
     if (checked.kind === "crashed") {
       // A gate that could not measure did not pass: a regeneration keeps the previous version.
@@ -1987,6 +1998,22 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     } catch {
       return null;
     }
+  };
+
+  /**
+   * The part a measured note belongs to, and the topic that owns it: a mark is keyed by both, so a
+   * note the turn wrote is marked as the part it is, whichever part the prompt named (#469).
+   * Only the note the reader is served for that part counts: a part's page that failed says nothing
+   * about the note `assertPartServes` reads.
+   */
+  const partOfNote = (file: string): { topic: string; part: string } | null => {
+    const note = noteFromPath(file, root);
+    if (note === null || !("index" in note)) return null;
+    let part: string | undefined;
+    try { part = readPlan(join(root, note.topic))?.parts[note.index - 1]?.id; } catch { return null; }
+    if (part === undefined) return null;
+    const canonical = partNotePath(root, note.topic, part);
+    return canonical !== null && resolve(canonical) === resolve(file) ? { topic: note.topic, part } : null;
   };
 
   /**
@@ -2096,7 +2123,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         // The engine is done with this turn, so what it cannot measure is measured here: the part
         // the turn wrote still owes the scene and explanation checks before it reaches the learner.
         emitFase(session, settled, "comprobando");
-        const found = await settled.timing.measure("comprobaciones", () => checkParts(settled));
+        const found = await settled.timing.measure("comprobaciones", () => checkParts(session, settled));
         if (session.turn !== settled) return;
         if (found) {
           emitFase(session, settled, "corrigiendo", found.count);
@@ -2857,8 +2884,12 @@ ${scripts}
           else if (session.api) session.api.abort();
           else if (session.child) await call(session, { type: "abort" }, 60000);
         } finally {
-          releaseTurn(session);
-          if (cause !== undefined && held !== null) {
+          // The abort releases the turn it was called for, never whatever turn is there when the
+          // runtime finally answers: a settle during that wait already freed this one (#460), and a
+          // turn the learner started since owns the studio now (#473).
+          if (held) releaseTurn(session, held);
+          // Only a session no turn holds is marked as interrupted: a live turn has its own marker.
+          if (cause !== undefined && held !== null && !session.turn) {
             session.interrupted = { topic: held.topic, at: Date.now(), cause };
             session.saveSnapshot();
           }
