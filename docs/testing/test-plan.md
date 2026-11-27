@@ -337,3 +337,95 @@ One row per calibration run (`references/calibration.md`); never overwritten.
 1. state lock + in-lock reload — L4 — `crash-and-process-testing` (needs the test hook above)
 
 - 2026-11-26: F42-F47 fixed in 23bb589 (PR #467), each witness green on main; the rows move from `confirmed` to `fixed`.
+
+## Real-run validation — open-response T4 (2026-11-27)
+
+Scope: integrated open diagnosis, open mini-quiz and all-open final at commit
+`a2015f6aba681355bd5d19418d849a62af69f15f`, on this local machine only. Target data were a
+synthetic topic `replicacion-open` (Spanish answers about synchronous replication and quorums)
+inside a fresh HOME and TMPDIR for each run; no production or shared Learnings root, no real
+credentials, no installed dependencies and no repository content or learner attempts were changed.
+Nothing was committed. T4 stays unchecked.
+
+Artifact identity (observed): built with `rtk run go build -o $S/bin/learning ./cmd/learning`;
+`$S/bin/learning --version` is unsupported and exits `2` with
+`unknown command "--version": expected init, validate, advance, status, review or method`.
+Identity therefore comes from the binary path, its sha256 and its embedded build info:
+
+- `/home/ale/.cache/openresp-realrun.gsxxs7/bin/learning`
+- sha256 `51466a1e3f98100f909d1b2bed9c7baf78904dbc3e630e645d720b8056b0ff07`
+- `go version -m`: `path learning/cmd/learning`, `mod learning v0.0.0-20261127061311-a2015f6aba68`,
+  `vcs.revision=a2015f6aba681355bd5d19418d849a62af69f15f`, `vcs.modified=false`, Go `1.27.3-X:nodwarf5`.
+- Pi host used for the reader tool: `pi --version` → `1.6.1`.
+
+Bridge boundary and its limit: the real `registerBridge` exported by `integrations/pi/bridge.ts`
+at this commit was started under Node from a scratch driver and served real HTTP on `127.0.0.1`;
+requests used the token returned by the real `learning_view` tool and the loopback Host/Origin
+checks. The Pi host object was the small `on`/`registerTool`/`sendUserMessage` shim already used by
+this repository's own bridge drivers (for example `tools/page-gate.mjs`), because Pi RPC exposes no
+direct tool-invocation command and no model was available offline. That is a host-boundary limitation,
+not a reimplementation of the bridge or the grading engine; a full Pi-session tool call by a live
+model was not exercised. The private tutor turn was captured verbatim from `sendUserMessage`; the
+tutor's verdict artifacts were synthetic inputs at the private verdict boundary, as allowed by the
+task. No fake code runner was injected: the bridge's default `runCode` executed the learner's Python
+answer in a real Docker container (`python:3.12-slim`, already present locally, selected through the
+supported topic `runners.json` layer), with `--pull never`, `--network none` and the project judge.
+
+Two validation layers, kept separate:
+
+| Layer | Source | Result in this evidence |
+|---|---|---|
+| Deterministic suites | Earlier T1–T3 records in `odd/tasks/open-response-assessment.md` L22/L23: `rtk go test ./internal/rules ./internal/engine` → 750 passed; writer's Node command → 1069 tests, 1038 passed, 31 pre-existing skips, 0 failed | Previously observed; not re-run in this scoped real-run task and not used as proof of the journey |
+| Observed real run | This section and L24: built CLI, real bridge HTTP routes, real Docker judge, real artifact files, observed statuses, stdout/stderr, exit codes and captured tutor turns | Both runs completed; findings below are `observado` only |
+
+### Real-run recipes
+
+| Journey | Start command | Data setup | Sample requests | Expected observable |
+|---|---|---|---|---|
+| Open diagnosis | `node $S/drive.mjs` after `env -i` with fresh `HOME=$OUT/home`, `TMPDIR=$OUT/tmp`; bridge started from the real `registerBridge` with `tokenSeed` and `runnersFile` in scratch | `init`, preparation artifacts, `quiz.json` with round 1 d1–d3 and round 2 d4–d5, all `open` items; synthetic Spanish answers | `GET /<token>/replicacion-open/quiz`, `POST /submit` with `openAnswers` for d1–d3, write `quiz.verdicts.json`, `GET` again, `POST` d4–d5 | Before verdicts only d1–d3 visible and d4 returns 400; after verdicts d1–d5 visible and round 2 submits 200; CLI diagnosis score 3.5/5 |
+| Open mini-quiz | same bridge and CLI, real Docker judge | `mini-quiz/p1.json` with three open items (text, apply, code) and a `teaching` block; `codigo/q3/ejercicio.json` with two Python tests | `GET /<token>/replicacion-open/p1`, `POST /submit` with `openAnswers`, synthetic `mini-quiz/p1.verdicts.json`, CLI `validate`/`advance quiz` | 200 with pending verdicts, stored `openAnswers` plus derived `submission`, tutor turn reports `pruebas 2/2`, CLI score 2/3 with no central miss and a knowledge-map teaching action |
+| All-open final | same bridge and CLI | `cuestionario-final.json` with f1/f2 open items, synthesized final verdicts and note score | `GET /<token>/replicacion-open/final_quiz`, `POST /submit`, synthetic `cuestionario-final.verdicts.json`, CLI `validate`/`advance final_quiz` | 200 with pending verdicts, page has no options/rubric/key, feedback shows verdict/evidence/next, CLI score 1.5/2 |
+| Negative controls | copied workspace under `$OUT/negative/...` | tampered verdict evidence, stale answer fingerprint, central verdict downgraded | CLI `validate`/`advance quiz` and `POST /submit` against a second real bridge over the copy | Tampered evidence blocked with `not quoted`; stale fingerprint 409; central miss sets `quizPassed=false` and routes to `remedial`; original artifact hashes unchanged |
+
+### Observation table (run1; run2)
+
+| Behavior tested | Observed result | Matches contract? |
+|---|---|---|
+| Real CLI identity | Path, sha256 and `go version -m` revision above; `--version` unsupported with exit 2 | Yes, identity established without inventing a version flag |
+| Diagnosis initial round | `GET` 200, page data ids `d1,d2,d3`; no `criteria`, `rubric`, `answer` or `options` keys in the served page | Yes |
+| Later round before verdicts | `POST d4` → 400 `{"error":"openAnswers names an unknown question"}`; d4/d5 absent from page data | Yes, rejected and hidden |
+| Developed submission and artifact | `POST` round 1 → 200 with `{"open":true,"queued":false,"results":[{"id":"d1","verdict":"pending"},...]}`; `quiz.answers.json` written; sha256 `8da5027b2da411b05d081a2e66b159cef1f86c61c0f73878745035e38b5545d3` in both runs | Yes |
+| Private tutor turn | Captured message starts `Respuestas desarrolladas guardadas en quiz.answers.json. Corrígele con el contrato privado de evaluación; no hay clave de respuesta.` and includes the private `Criterio` rubric lines and `Veredicto derivado: quiz.verdicts.json` | Yes, private boundary observed; no live model |
+| Verdict artifact unlocks round | After writing `quiz.verdicts.json`, `GET` page ids `d1,d2,d3,d4,d5`; answers file hash unchanged; `POST` round 2 → 200 | Yes |
+| Diagnosis grading | CLI `validate diagnosis` exit 0, status `accepted`, evidence `diagnosticScore=3.5/5`, `diagnosticWrong=["d1","d4","d5"]` | Yes, score derived from verdicts |
+| Mini-quiz privacy | `GET p1` 200, ids `q1,q2,q3`, no `criteria`/`rubric`/`answer`/`options` keys in the served page | Yes |
+| Real code execution | `POST /submit` → 200; stored `openAnswers.q3.submission="codigo/q3/entregas/001.json"` with no learner-supplied submission field; captured tutor turn says `Entrega: codigo/q3/entregas/001.json · pruebas 2/2`; submission artifact has `aprobados:2`, `total:2`, both tests `correcto` | Yes, real Docker judge reached |
+| Verdict-driven mini-quiz | CLI `validate quiz` exit 0 with `3/3 answers recorded; derived score 2/3 (pass threshold 2/3 of the questions, central misses: none)`; knowledge map carries state `claro`/`dudoso` and action `guided-practice`/`advance`; reader feedback shows q2 `partial`, evidence `dos forman mayoría`, teaching `application-failure` → `guided-practice` | Yes |
+| All-open final | `GET final_quiz` 200 with ids `f1,f2` and no private keys; `POST` 200; final verdict artifact read back by reader; feedback entries show `correct`/`partial`, verbatim evidence and `next` | Yes |
+| Final score | CLI `validate`/`advance final_quiz` exit 0, status `accepted`, evidence `finalQuizScore=1.5/2`; note frontmatter `puntaje: 1.5/2` | Yes |
+| Negative controls | Tampered evidence: CLI exit 1 `mini-quiz-answers: ... verdict evidence is not quoted from the learner's answer`; stale fingerprint: HTTP 409 `These answers belong to another quiz...`; central miss: `quizCentralMisses=["q1"]`, `quizPassed=false`, `advance` exit 0 but `nextStage=remedial`; copies unchanged and original hashes unchanged | Yes, fail-closed; central miss refuses a pass rather than claiming one |
+| Fresh rerun | run2 repeated the whole journey in a new HOME/TMPDIR with the same statuses, scores and HTTP bodies; answer artifacts byte-identical except the code submission's timestamped `fecha` | Yes |
+
+### Evidence ledger (observado)
+
+| Id | Claim | Executed | Inputs and parameters | Observed | Mutation or negative control → result | Reproduction | Label |
+|---|---|---|---|---|---|---|---|
+| RR1 | If a later diagnosis round is requested before verdicts, the reader refuses it without writing | `POST /submit` through the real bridge, label `negative-early-round`; full request/response in `$S/run1/logs/transcript.json` | `kind=diagnosis`, `topic=replicacion-open`, `openAnswers={d4:...}` with a developed Spanish answer | HTTP 400 `{"error":"openAnswers names an unknown question"}`; no `quiz.answers.json` entry for d4 before the round-1 submit | After round-1 verdicts the same d4 submission is accepted (200) in `diagnosis-round2` | Run `$S/drive.mjs` with fresh `OUT` | observado |
+| RR2 | If the learner submits developed text, the real bridge writes a T1-shaped answer file and delivers a private tutor turn | `POST /submit` labels `diagnosis-round1`, `mini-quiz-submit`, `final-submit`; artifacts under `$S/run1/artifacts/` | Three round-1 answers, three mini-quiz answers including Python code, two final answers; no `submission` supplied by the browser | 200 with `verdict:pending`; files `quiz.answers.json`, `mini-quiz/p1.answers.json`, `cuestionario-final.answers.json` contain `openAnswers` and per-question `openQuiz`; `sendUserMessage` captured the contract message | A code answer that names its own `submission` was rejected 400 during driver development (`open answer q3 cannot name its own submission`); the recorded run omits it and the bridge derives `codigo/q3/entregas/001.json` | Same command, fresh OUT | observado |
+| RR3 | If real Docker execution runs the learner code, the submission artifact records passed tests and no fake runner is used | Bridge default `executeCode=runCode`; `docker image inspect python:3.12-slim`; submitted code printed the max of two integers | `limite_segundos=5`, tests `3/7 → 7` and `-2/-5 → -2`, image `python:3.12-slim` from topic `runners.json` | `codigo/q3/entregas/001.json` shows `aprobados:2`, `total:2`, both `estado:correcto`; tutor turn reports `pruebas 2/2`; console shows Docker daemon 29.9.2 and the image id `a0f57064cbdc...` | No injectable `codeRunner` was supplied; the pinned builtin `python:3.12-alpine` image was absent, so the supported local image override was used without pulling | Same command, fresh OUT | observado |
+| RR4 | If verdict evidence is not a verbatim span, the real engine refuses the score | CLI `validate quiz` on `$OUT/negative/tampered-evidence` | q2 evidence changed to `El quórum siempre gana aunque no haya solapamiento.` while the answer says `dos forman mayoría` | exit 1, status `blocked`, FAIL `mini-quiz-answers: open quiz grading: open question q2 verdict evidence is not quoted from the learner's answer`; copy hash unchanged | Original `mini-quiz/p1.verdicts.json` sha256 `73e54992d295535c23d62a2cdac062ef97f5a57a0dbb6533ade0fdfd23773f5b` before and after | Same command, fresh OUT | observado |
+| RR5 | If the answer fingerprint is stale, the bridge refuses a new submission without changing the stored file | Second real bridge over `$OUT/negative/stale-fingerprint`; `POST /submit` label `negative-stale-fingerprint` | `quiz` set to 64 zeros and `openAnswers` emptied in the copy; all three answers resubmitted | HTTP 409 `{"error":"These answers belong to another quiz. Recarga la página para ver las respuestas guardadas."}`; copy file sha256 before equals after | Before changing the fingerprint the same request shape is accepted; the original answer sha256 `f625007056f4ec6c5177e13b828ea49d94a93aefac82d21300f66bd4d9539666` is unchanged | Same command, fresh OUT | observado |
+| RR6 | If the central verdict is wrong, the engine does not certify a passing mini-quiz | CLI `validate` then `advance quiz` on `$OUT/negative/central-gap` | q1 changed from `correct`/`claro` to `incorrect`/`laguna` with a valid error type | `quizCentralMisses=["q1"]`, `quizPassed=false`, check reason `derived score 1/3 ... central misses: q1`; `advance` records `part-failed` and `nextStage=remedial`, exit 0 | Unmodified workspace has `quizCentralMisses` empty, score 2/3, `nextStage=own_words` | Same command, fresh OUT | observado |
+
+Scratch path retained for inspection: `/home/ale/.cache/openresp-realrun.gsxxs7`.
+Exact verbatim evidence: `identity.txt`, `run1/command.txt`, `run1/driver.stdout.log`,
+`run1/logs/transcript.json`, `run2/command.txt`, `run2/driver.stdout.log`,
+`run2/logs/transcript.json`, and the `run1/artifacts/` and `run2/artifacts/` snapshots.
+The driver lives only at `$S/drive.mjs`; no driver or scratch artifact was written into the repository.
+
+Not reached in this real run: a live tutor model (synthetic verdict artifacts were the inputs), a
+full Pi-session `learning_view` invocation (RPC has no tool-call command and no model was available),
+browser-level UI interaction (the served HTML/data and HTTP boundary were inspected, not clicked),
+the pinned builtin Python image (a locally present image was used through the supported runner
+override), production/shared Learnings roots, credentials, dependency installs and publishes.
+`tsc` remains unavailable as recorded in L19/L23; no TypeScript compile is claimed here.
