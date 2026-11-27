@@ -900,28 +900,40 @@ func openResponseText(a openAnswer, o rules.OpenResponseThresholds) string {
 }
 
 func validateOpenSubmission(ws, rel, expected string) (bool, error) {
+	path, err := resolvedOpenSubmission(ws, rel)
+	if err != nil {
+		return false, err
+	}
+	return openSubmissionPassed(path, rel, expected)
+}
+
+func resolvedOpenSubmission(ws, rel string) (string, error) {
 	if rel == "" || filepath.IsAbs(rel) || strings.Contains(rel, "..") {
-		return false, fmt.Errorf("code answer names an unsafe submission %q", rel)
+		return "", fmt.Errorf("code answer names an unsafe submission %q", rel)
 	}
 	full := absPath(ws, rel)
 	wsReal, err := filepath.EvalSymlinks(ws)
 	if err != nil {
-		return false, fmt.Errorf("code answer submission %q: workspace unavailable: %w", rel, err)
+		return "", fmt.Errorf("code answer submission %q: workspace unavailable: %w", rel, err)
 	}
 	targetReal, err := filepath.EvalSymlinks(full)
 	if err != nil {
-		return false, fmt.Errorf("code answer submission %q: %w", rel, err)
+		return "", fmt.Errorf("code answer submission %q: %w", rel, err)
 	}
 	within, err := filepath.Rel(wsReal, targetReal)
 	if err != nil || filepath.IsAbs(within) || within == ".." || strings.HasPrefix(within, ".."+string(filepath.Separator)) {
-		return false, fmt.Errorf("code answer submission %q escapes the workspace", rel)
+		return "", fmt.Errorf("code answer submission %q escapes the workspace", rel)
 	}
+	return targetReal, nil
+}
+
+func openSubmissionPassed(path, rel, expected string) (bool, error) {
 	var doc struct {
 		Codigo    string `json:"codigo"`
 		Aprobados int    `json:"aprobados"`
 		Total     int    `json:"total"`
 	}
-	if err := readJSON(targetReal, &doc); err != nil {
+	if err := readJSON(path, &doc); err != nil {
 		return false, fmt.Errorf("code answer submission: %w", err)
 	}
 	if doc.Codigo != expected {
@@ -1027,20 +1039,16 @@ func quotesOpenEvidence(text, evidence string) bool {
 	return span != "" && strings.Contains(text, span)
 }
 
-func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc openVerdictDoc, present bool, th rules.Thresholds) (openScore, error) {
-	var out openScore
-	if len(refs) == 0 {
-		return out, nil
-	}
+func checkOpenGradeContract(refs []openRef, doc openVerdictDoc, present bool, th rules.Thresholds) (*rules.OpenResponseThresholds, error) {
 	o := th.OpenResponse
 	if o == nil {
-		return out, fmt.Errorf("open items need the openResponse thresholds")
+		return nil, fmt.Errorf("open items need the openResponse thresholds")
 	}
 	if !present || doc.Version != o.Version {
-		return out, fmt.Errorf("tutor verdicts are missing or use another version")
+		return nil, fmt.Errorf("tutor verdicts are missing or use another version")
 	}
 	if th.Concepts == nil {
-		return out, fmt.Errorf("open scoring needs the declared passing ratio")
+		return nil, fmt.Errorf("open scoring needs the declared passing ratio")
 	}
 	known := map[string]bool{}
 	for _, ref := range refs {
@@ -1054,137 +1062,239 @@ func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc ope
 	}
 	sort.Strings(unknown)
 	if len(unknown) > 0 {
-		return out, fmt.Errorf("tutor verdict names unknown question %s", strings.Join(unknown, ", "))
+		return nil, fmt.Errorf("tutor verdict names unknown question %s", strings.Join(unknown, ", "))
+	}
+	return o, nil
+}
+
+func checkOpenAnswerShape(ref openRef, answers map[string]openAnswer, o *rules.OpenResponseThresholds) (openAnswer, error) {
+	var zero openAnswer
+	answer, ok := answers[ref.ID]
+	if !ok || strings.TrimSpace(openResponseText(answer, *o)) == "" {
+		return zero, fmt.Errorf("open answer %s is not recorded (waiting for learner input)", ref.ID)
+	}
+	if answer.NoEvidence && (strings.TrimSpace(answer.Text) != "" || strings.TrimSpace(answer.Code) != "" ||
+		strings.TrimSpace(answer.Explanation) != "" || strings.TrimSpace(answer.Submission) != "") {
+		return zero, fmt.Errorf("open answer %s declares no evidence but still carries answer content", ref.ID)
+	}
+	if answer.Kind != ref.Item.Kind {
+		return zero, fmt.Errorf("open answer %s is %q, want %q", ref.ID, answer.Kind, ref.Item.Kind)
+	}
+	if answer.Confidence != "" && !slicesContains(o.Confidence, answer.Confidence) {
+		return zero, fmt.Errorf("open answer %s uses confidence %q outside %v", ref.ID, answer.Confidence, o.Confidence)
+	}
+	return answer, nil
+}
+
+func openAnswerSubmissionPassed(ws string, ref openRef, answer openAnswer) (bool, error) {
+	if answer.Kind != "code" || answer.NoEvidence {
+		return false, nil
+	}
+	if strings.TrimSpace(answer.Code) == "" || strings.TrimSpace(answer.Explanation) == "" {
+		return false, fmt.Errorf("open code answer %s needs code and an explanation", ref.ID)
+	}
+	passed, err := validateOpenSubmission(ws, answer.Submission, answer.Code)
+	if err != nil {
+		return false, fmt.Errorf("open answer %s: %w", ref.ID, err)
+	}
+	return passed, nil
+}
+
+func validateOpenAnswer(ws string, ref openRef, answers map[string]openAnswer, o *rules.OpenResponseThresholds) (openAnswer, bool, error) {
+	answer, err := checkOpenAnswerShape(ref, answers, o)
+	if err != nil {
+		return openAnswer{}, false, err
+	}
+	passed, err := openAnswerSubmissionPassed(ws, ref, answer)
+	if err != nil {
+		return openAnswer{}, false, err
+	}
+	return answer, passed, nil
+}
+
+func validateOpenVerdict(ref openRef, answer openAnswer, doc openVerdictDoc, o *rules.OpenResponseThresholds) (openVerdict, string, error) {
+	var zero openVerdict
+	verdict, ok := doc.Verdicts[ref.ID]
+	if !ok {
+		return zero, "", fmt.Errorf("tutor verdict missing for open question %s", ref.ID)
+	}
+	if !slicesContains(o.Verdicts, verdict.Verdict) {
+		return zero, "", fmt.Errorf("open question %s uses unknown verdict %q", ref.ID, verdict.Verdict)
+	}
+	text := openResponseText(answer, *o)
+	if !quotesOpenEvidence(text, verdict.Evidence) {
+		return zero, "", fmt.Errorf("open question %s verdict evidence is not quoted from the learner's answer", ref.ID)
+	}
+	if answer.NoEvidence != (verdict.Verdict == o.NoEvidenceVerdict) {
+		return zero, "", fmt.Errorf("open question %s verdict %q does not match its no-evidence answer", ref.ID, verdict.Verdict)
+	}
+	return verdict, text, nil
+}
+
+func checkOpenCriteriaCoverage(id string, item *openItem, results map[string]openCriterionResult) error {
+	ids := itemCriterionIDs(item)
+	for code := range results {
+		if !slicesContains(ids, code) {
+			return fmt.Errorf("open question %s has unknown criterion %s", id, code)
+		}
+	}
+	if len(results) != len(item.Criteria) {
+		for _, cr := range item.Criteria {
+			if _, ok := results[cr.ID]; !ok {
+				return fmt.Errorf("open question %s misses criterion %s", id, cr.ID)
+			}
+		}
+		return fmt.Errorf("open question %s has an unknown criterion result", id)
+	}
+	return nil
+}
+
+func countMetOpenCriteria(id string, item *openItem, results map[string]openCriterionResult, text string) (int, error) {
+	met := 0
+	for _, cr := range item.Criteria {
+		result := results[cr.ID]
+		if !quotesOpenEvidence(text, result.Evidence) {
+			return 0, fmt.Errorf("open question %s criterion %s evidence is not quoted from the learner's answer", id, cr.ID)
+		}
+		if result.Met {
+			met++
+		}
+	}
+	return met, nil
+}
+
+func checkOpenVerdictMet(id, verdict string, met, total int) error {
+	switch verdict {
+	case "correct":
+		if met != total {
+			return fmt.Errorf("open question %s verdict correct needs every criterion met", id)
+		}
+	case "partial":
+		// A partial verdict can sit between the boolean criteria: the tutor
+		// still owns the semantic judgment, not a criterion majority.
+	default:
+		if met != 0 {
+			return fmt.Errorf("open question %s verdict %s cannot meet a criterion", id, verdict)
+		}
+	}
+	return nil
+}
+
+func validateOpenCriteria(id string, item *openItem, verdict openVerdict, text string) error {
+	if err := checkOpenCriteriaCoverage(id, item, verdict.Criteria); err != nil {
+		return err
+	}
+	met, err := countMetOpenCriteria(id, item, verdict.Criteria, text)
+	if err != nil {
+		return err
+	}
+	return checkOpenVerdictMet(id, verdict.Verdict, met, len(item.Criteria))
+}
+
+func validateOpenConceptStates(id string, item *openItem, verdict openVerdict, o *rules.OpenResponseThresholds) error {
+	codes := make([]string, 0, len(verdict.Concepts))
+	for code := range verdict.Concepts {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	for _, code := range codes {
+		if !slicesContains(item.Concepts, code) {
+			return fmt.Errorf("open question %s state names concept %s, which it does not declare", id, code)
+		}
+		if !slicesContains(o.ConceptStates, verdict.Concepts[code]) {
+			return fmt.Errorf("open question %s state %q is outside %v", id, verdict.Concepts[code], o.ConceptStates)
+		}
+	}
+	return nil
+}
+
+func openExplanationQuoted(id string, answer openAnswer, verdict openVerdict, o *rules.OpenResponseThresholds) (*openExplanationVerdict, error) {
+	explanation := verdict.Explanation
+	if explanation == nil {
+		return nil, fmt.Errorf("open question %s has no explanation verdict for its code answer", id)
+	}
+	if !slicesContains(o.Verdicts, explanation.Verdict) {
+		return nil, fmt.Errorf("open question %s uses unknown explanation verdict %q", id, explanation.Verdict)
+	}
+	if !quotesOpenEvidence(answer.Explanation, explanation.Evidence) {
+		return nil, fmt.Errorf("open question %s explanation evidence is not quoted from the learner's explanation", id)
+	}
+	return explanation, nil
+}
+
+func checkOpenExplanationConsistency(id, verdict string, explanation *openExplanationVerdict, submissionPassed bool) error {
+	switch verdict {
+	case "correct":
+		if !submissionPassed {
+			return fmt.Errorf("open question %s verdict correct needs every declared test passed", id)
+		}
+		if explanation.Verdict != "correct" {
+			return fmt.Errorf("open question %s verdict correct needs a correct explanation verdict", id)
+		}
+	case "partial":
+		if explanation.Verdict != "correct" && explanation.Verdict != "partial" {
+			return fmt.Errorf("open question %s verdict partial needs a correct or partial explanation verdict", id)
+		}
+	}
+	return nil
+}
+
+func validateOpenExplanation(id string, item *openItem, answer openAnswer, verdict openVerdict, submissionPassed bool, o *rules.OpenResponseThresholds) error {
+	if item.Kind != "code" || answer.NoEvidence {
+		return nil
+	}
+	explanation, err := openExplanationQuoted(id, answer, verdict, o)
+	if err != nil {
+		return err
+	}
+	return checkOpenExplanationConsistency(id, verdict.Verdict, explanation, submissionPassed)
+}
+
+func addOpenScore(out *openScore, ref openRef, verdict, noEvidenceVerdict string) {
+	points := 0
+	switch verdict {
+	case "correct":
+		points = 2
+	case "partial":
+		points = 1
+	}
+	out.Points += points
+	if points < 2 {
+		out.WrongIDs = append(out.WrongIDs, ref.ID)
+	}
+	if ref.Item.Centrality == "central" && (verdict == "incorrect" || verdict == noEvidenceVerdict) {
+		out.CentralMisses = append(out.CentralMisses, ref.ID)
+	}
+}
+
+func gradeOpen(ws string, refs []openRef, answers map[string]openAnswer, doc openVerdictDoc, present bool, th rules.Thresholds) (openScore, error) {
+	var out openScore
+	if len(refs) == 0 {
+		return out, nil
+	}
+	o, err := checkOpenGradeContract(refs, doc, present, th)
+	if err != nil {
+		return out, err
 	}
 	for _, ref := range refs {
-		answer, ok := answers[ref.ID]
-		if !ok || strings.TrimSpace(openResponseText(answer, *o)) == "" {
-			return out, fmt.Errorf("open answer %s is not recorded (waiting for learner input)", ref.ID)
+		answer, submissionPassed, err := validateOpenAnswer(ws, ref, answers, o)
+		if err != nil {
+			return out, err
 		}
-		if answer.NoEvidence && (strings.TrimSpace(answer.Text) != "" || strings.TrimSpace(answer.Code) != "" ||
-			strings.TrimSpace(answer.Explanation) != "" || strings.TrimSpace(answer.Submission) != "") {
-			return out, fmt.Errorf("open answer %s declares no evidence but still carries answer content", ref.ID)
+		verdict, text, err := validateOpenVerdict(ref, answer, doc, o)
+		if err != nil {
+			return out, err
 		}
-		if answer.Kind != ref.Item.Kind {
-			return out, fmt.Errorf("open answer %s is %q, want %q", ref.ID, answer.Kind, ref.Item.Kind)
+		if err := validateOpenCriteria(ref.ID, ref.Item, verdict, text); err != nil {
+			return out, err
 		}
-		if answer.Confidence != "" && !slicesContains(o.Confidence, answer.Confidence) {
-			return out, fmt.Errorf("open answer %s uses confidence %q outside %v", ref.ID, answer.Confidence, o.Confidence)
+		if err := validateOpenConceptStates(ref.ID, ref.Item, verdict, o); err != nil {
+			return out, err
 		}
-		submissionAllPassed := false
-		if answer.Kind == "code" && !answer.NoEvidence {
-			if strings.TrimSpace(answer.Code) == "" || strings.TrimSpace(answer.Explanation) == "" {
-				return out, fmt.Errorf("open code answer %s needs code and an explanation", ref.ID)
-			}
-			var subErr error
-			submissionAllPassed, subErr = validateOpenSubmission(ws, answer.Submission, answer.Code)
-			if subErr != nil {
-				return out, fmt.Errorf("open answer %s: %w", ref.ID, subErr)
-			}
+		if err := validateOpenExplanation(ref.ID, ref.Item, answer, verdict, submissionPassed, o); err != nil {
+			return out, err
 		}
-		verdict, ok := doc.Verdicts[ref.ID]
-		if !ok {
-			return out, fmt.Errorf("tutor verdict missing for open question %s", ref.ID)
-		}
-		if !slicesContains(o.Verdicts, verdict.Verdict) {
-			return out, fmt.Errorf("open question %s uses unknown verdict %q", ref.ID, verdict.Verdict)
-		}
-		text := openResponseText(answer, *o)
-		if !quotesOpenEvidence(text, verdict.Evidence) {
-			return out, fmt.Errorf("open question %s verdict evidence is not quoted from the learner's answer", ref.ID)
-		}
-		if answer.NoEvidence != (verdict.Verdict == o.NoEvidenceVerdict) {
-			return out, fmt.Errorf("open question %s verdict %q does not match its no-evidence answer", ref.ID, verdict.Verdict)
-		}
-		for code := range verdict.Criteria {
-			if !slicesContains(itemCriterionIDs(ref.Item), code) {
-				return out, fmt.Errorf("open question %s has unknown criterion %s", ref.ID, code)
-			}
-		}
-		if len(verdict.Criteria) != len(ref.Item.Criteria) {
-			for _, cr := range ref.Item.Criteria {
-				if _, ok := verdict.Criteria[cr.ID]; !ok {
-					return out, fmt.Errorf("open question %s misses criterion %s", ref.ID, cr.ID)
-				}
-			}
-			return out, fmt.Errorf("open question %s has an unknown criterion result", ref.ID)
-		}
-		met := 0
-		for _, cr := range ref.Item.Criteria {
-			result := verdict.Criteria[cr.ID]
-			if !quotesOpenEvidence(text, result.Evidence) {
-				return out, fmt.Errorf("open question %s criterion %s evidence is not quoted from the learner's answer", ref.ID, cr.ID)
-			}
-			if result.Met {
-				met++
-			}
-		}
-		total := len(ref.Item.Criteria)
-		switch verdict.Verdict {
-		case "correct":
-			if met != total {
-				return out, fmt.Errorf("open question %s verdict correct needs every criterion met", ref.ID)
-			}
-		case "partial":
-			// A partial verdict can sit between the boolean criteria: the tutor
-			// still owns the semantic judgment, not a criterion majority.
-		default:
-			if met != 0 {
-				return out, fmt.Errorf("open question %s verdict %s cannot meet a criterion", ref.ID, verdict.Verdict)
-			}
-		}
-		codes := make([]string, 0, len(verdict.Concepts))
-		for code := range verdict.Concepts {
-			codes = append(codes, code)
-		}
-		sort.Strings(codes)
-		for _, code := range codes {
-			if !slicesContains(ref.Item.Concepts, code) {
-				return out, fmt.Errorf("open question %s state names concept %s, which it does not declare", ref.ID, code)
-			}
-			if !slicesContains(o.ConceptStates, verdict.Concepts[code]) {
-				return out, fmt.Errorf("open question %s state %q is outside %v", ref.ID, verdict.Concepts[code], o.ConceptStates)
-			}
-		}
-		if ref.Item.Kind == "code" && !answer.NoEvidence {
-			explanation := verdict.Explanation
-			if explanation == nil {
-				return out, fmt.Errorf("open question %s has no explanation verdict for its code answer", ref.ID)
-			}
-			if !slicesContains(o.Verdicts, explanation.Verdict) {
-				return out, fmt.Errorf("open question %s uses unknown explanation verdict %q", ref.ID, explanation.Verdict)
-			}
-			if !quotesOpenEvidence(answer.Explanation, explanation.Evidence) {
-				return out, fmt.Errorf("open question %s explanation evidence is not quoted from the learner's explanation", ref.ID)
-			}
-			switch verdict.Verdict {
-			case "correct":
-				if !submissionAllPassed {
-					return out, fmt.Errorf("open question %s verdict correct needs every declared test passed", ref.ID)
-				}
-				if explanation.Verdict != "correct" {
-					return out, fmt.Errorf("open question %s verdict correct needs a correct explanation verdict", ref.ID)
-				}
-			case "partial":
-				if explanation.Verdict != "correct" && explanation.Verdict != "partial" {
-					return out, fmt.Errorf("open question %s verdict partial needs a correct or partial explanation verdict", ref.ID)
-				}
-			}
-		}
-		points := 0
-		switch verdict.Verdict {
-		case "correct":
-			points = 2
-		case "partial":
-			points = 1
-		}
-		out.Points += points
-		if points < 2 {
-			out.WrongIDs = append(out.WrongIDs, ref.ID)
-		}
-		if ref.Item.Centrality == "central" && (verdict.Verdict == "incorrect" || verdict.Verdict == o.NoEvidenceVerdict) {
-			out.CentralMisses = append(out.CentralMisses, ref.ID)
-		}
+		addOpenScore(&out, ref, verdict.Verdict, o.NoEvidenceVerdict)
 	}
 	ratio := th.Concepts.MinPassingRatio
 	out.Passed = out.Points*ratio.Den >= 2*ratio.Num*len(refs) && len(out.CentralMisses) == 0

@@ -48,6 +48,13 @@ func r2WantCheck(t *testing.T, rep Report, wantPass bool, reasonSub string) {
 	}
 }
 
+func r2EvidenceReason(wantPass bool) string {
+	if wantPass {
+		return ""
+	}
+	return "evidence"
+}
+
 func TestTSP470R2CodeBindingIsExact(t *testing.T) {
 	for _, tc := range []struct {
 		name, answer, recorded string
@@ -135,11 +142,7 @@ func TestTSP470R2EvidenceIsLiteralAtEveryCallSite(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rep := r2EvidenceFixture(t, tc.site, tc.text, tc.verdict, tc.criterion, tc.explanation)
-			reason := ""
-			if !tc.wantPass {
-				reason = "evidence"
-			}
-			r2WantCheck(t, rep, tc.wantPass, reason)
+			r2WantCheck(t, rep, tc.wantPass, r2EvidenceReason(tc.wantPass))
 		})
 	}
 }
@@ -158,11 +161,7 @@ func TestTSP470R2NoEvidencePhraseStaysLiteral(t *testing.T) {
 			v := passageVerdict("no-evidence", tc.evidence, criterionResult("c1", false, "No sé todavía"))
 			f.writeOpenQuiz(t, qs, map[string]any{"q1": noEvidenceAnswer()}, map[string]map[string]any{"q1": v})
 			rep := r2AdvanceQuiz(t, f)
-			reason := ""
-			if !tc.wantPass {
-				reason = "evidence"
-			}
-			r2WantCheck(t, rep, tc.wantPass, reason)
+			r2WantCheck(t, rep, tc.wantPass, r2EvidenceReason(tc.wantPass))
 		})
 	}
 }
