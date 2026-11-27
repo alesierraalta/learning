@@ -12,7 +12,7 @@
  */
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -421,11 +421,32 @@ type Turn = {
    * change is not this turn's to measure: its findings are the note's, never this turn's failure.
    */
   expectedAtStart?: string | null;
+  /**
+   * The part the turn set out to write, when its request named one: what the log says the turn
+   * targeted, read from the request that started it and never guessed from the files it wrote.
+   */
+  part?: string;
+  /**
+   * The topic the request named even when the engine does not track it (a regeneration of a topic
+   * nobody enrolled): the turn is gated by nothing, but its log line and the interruption it leaves
+   * behind still say which topic it was about.
+   */
+  namedTopic?: string;
   /** The topic writer ticket this turn inherited from its route, released when the turn ends. */
   lock?: { release: () => void } | null;
   lockPromise?: Promise<{ release: () => void }>;
   /** An aborted turn ends as failed, whatever the runtime reports afterwards. */
   aborted?: boolean;
+  /**
+   * What stopped the turn, when something did: the log names it, so an interrupted turn is told
+   * apart from one the learner stopped and from a runtime that died on its own (#465).
+   */
+  abortCause?: "alumno" | "actualizacion" | "reinicio" | "tutor" | "runtime";
+  /**
+   * The studio decided this turn does not pass and the learner was told why: the ending the log
+   * reports, set where the decision is made instead of guessed from what the turn left behind.
+   */
+  refused?: boolean;
   /**
    * A settle is already deciding this turn (#460). A runtime that reports its end twice, or a
    * correction whose own settle lands while the previous one is still asking for it, must not
@@ -506,6 +527,42 @@ const insideVault = (root: string, file: string): boolean => {
 
 /** Where a verdict about a turn goes: above the first text the tutor wrote that turn, or last when it wrote none (#393). */
 const aboveTutor = (turn: Turn | null | undefined): { before?: string } => (turn?.tutorId ? { before: turn.tutorId } : {});
+
+/**
+ * One line per turn in the studio's own log, so `journalctl -u learning-studio` answers in ten
+ * seconds what happened to a request: what it started on, what the measurement said about the part,
+ * and how it ended (#465). It names a session, a topic, a part, a count and a rule — never the
+ * learner's words and never a prompt.
+ */
+const turnFields = (session: Session, turn: Turn): string => {
+  const part = turn.regeneration?.part ?? turn.espera?.part ?? turn.part;
+  return `sesion=${session.id} · tema=${turn.topic ?? turn.namedTopic ?? "general"} · parte=${part ?? "-"}`;
+};
+
+/** How the turn ended, in one word, from what the turn itself recorded: delivered, refused or interrupted. */
+const turnEnding = (turn: Turn): string => {
+  if (turn.aborted) return `fin=interrumpido · causa=${turn.abortCause ?? "desconocida"}`;
+  // A regeneration only replaces the previous version once it passed: an exit that did not is a refusal.
+  if (turn.refused === true || (turn.regeneration !== undefined && turn.regeneration.passed !== true)) return "fin=rechazado";
+  return "fin=entregado";
+};
+
+/** What the studio's own measurement said about the part, with the rules that rejected it (#452). */
+const turnVerdict = (turn: Turn): string => {
+  const verdict = turn.partVerdict;
+  // No part was owed, or the turn never reached the measurement: both are said plainly.
+  if (verdict === undefined) return "veredicto=sin parte";
+  if (verdict.kind === "crashed") return "veredicto=sin medir";
+  if (verdict.kind === "clean") return "veredicto=limpio";
+  // The same rules the mark beside the part carries: the log and the refusal never disagree.
+  const rules = [...new Set(verdict.tools.flatMap((tool) => parsedFindingsOf(tool.tool, tool.output).map((found) => found.rule)).filter((rule) => rule !== ""))].slice(0, 12);
+  return `veredicto=hallazgos:${verdict.count}${rules.length ? ` · reglas=${rules.join(",")}` : ""}`;
+};
+
+const logTurnStart = (session: Session, turn: Turn): void =>
+  process.stderr.write(`estudio: turno inicio · ${turnFields(session, turn)}${turn.correction ? " · correctivo=si" : ""}\n`);
+const logTurnEnd = (session: Session, turn: Turn): void =>
+  process.stderr.write(`estudio: turno fin · ${turnFields(session, turn)} · ${turnEnding(turn)} · ${turnVerdict(turn)}\n`);
 
 /**
  * Moves what a failed regeneration wrote out of the library without deleting it: it waits in the
@@ -1266,7 +1323,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       for (const id of session.dialogs.keys()) session.emit("dialog_closed", { id });
       session.dialogs.clear();
       // A dead runtime cannot finish its turn: releasing it is what keeps nothing latched.
-      if (session.turn) session.turn.aborted = true;
+      if (session.turn) {
+        session.turn.aborted = true;
+        session.turn.abortCause ??= "runtime";
+      }
       releaseTurn(session);
       if (session.kind === "task") { session.status = "failed"; session.activity = "El tutor se detuvo"; emitTareas(); }
       session.emit("state", session.state());
@@ -1533,6 +1593,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     // (#476). Until it exits, the turn stays held and no part is restored.
     const gone = stopRuntime(main);
     main.settleGate.reset();
+    // The turn this restart ends says why it ended: the learner's chat and the log both name it (#465).
+    if (main.turn) main.turn.abortCause ??= "tutor";
     await gone;
     releaseTurn(main);
     for (const resolve of main.waiting.values()) resolve({ success: false, error: "Tutor restarted" });
@@ -1616,9 +1678,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   /** Holds a Session's turn and tells its stream the tutor is working. */
-  const holdTurn = (session: Session, started: Turn) => {
+  const holdTurn = (session: Session, started: Turn, part: string | null = null) => {
     session.turn = started;
     session.turnTopic = started.topic;
+    if (part !== null) started.part = part;
     // Written before the runtime is asked to work: a deploy reads it, and a process that
     // dies leaves the turn marked so the next boot can say it was interrupted.
     const at = Date.now();
@@ -1627,6 +1690,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     session.status = "working";
     session.activity = "Trabajando";
     session.saveSnapshot();
+    // The journal says a turn started and on what, before anything can kill it (#465).
+    logTurnStart(session, started);
     session.emit("state", session.state());
     emitTareas();
   };
@@ -1741,6 +1806,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     session.saveSnapshot();
     session.emit("state", session.state());
     emitTareas();
+    // Every exit of a turn wrote its line, whatever ended it: delivered, refused or interrupted (#465).
+    logTurnEnd(session, ended);
     // The turn that held the studio is over: the idle window starts counting again.
     armIdle();
   };
@@ -1770,6 +1837,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       // A correction counts against the turn's budget once it has reached the tutor, whichever gate asked for it (#393).
       if (reason === "engine-correction" || reason === "part-correction") started.correctionsSent = (started.correctionsSent ?? 0) + 1;
     } catch (error) {
+      // The prompt never reached the tutor: this turn is refused before it produced anything.
+      started.refused = true;
       // A prompt that never reached the tutor is a call that produced nothing.
       started.timing.endCall(false);
       const cause = error instanceof HttpError ? `${error.status} ${error.message}` : (error as Error).message;
@@ -1832,6 +1901,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     creation?: boolean;
     /** The course a creation turn puts its topic in, checked by the route that named it. */
     materia?: string;
+    /** The part the request itself names (a regeneration), so the turn's log says it from the start. */
+    part?: string;
+    /** The topic the request names even when the engine does not track it: what its record says. */
+    namedTopic?: string;
     lock?: { release: () => void } | null;
     backup?: () => NonNullable<Turn["regeneration"]>;
   }) => {
@@ -1857,20 +1930,25 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       }
       // `ready` can take a moment, and a Session must not hold two turns because of it.
       requireNoTurn(session);
+      // A studio that is going away starts nothing new: the turn it would hold is the one a restart kills.
+      if (shuttingDown) throw new HttpError(503, "El estudio se está reiniciando; vuelve a pedírselo en un momento.");
       started = {
         topic: spec.topic,
         correction: spec.correction === true,
         creation: spec.creation === true,
         ...(spec.materia ? { materia: spec.materia } : {}),
+        ...(spec.namedTopic ? { namedTopic: spec.namedTopic } : {}),
         parts: [],
         methodBefore: spec.topic === null ? null : methodOf(spec.topic),
         timing: createPageTiming({ runtime: tutor.agente, model: tutor.modelo, topic: spec.topic }),
         lock: spec.lock ?? null,
       };
-      holdTurn(session, started);
+      // The part the request names is read before the turn is held, so its first log line says what
+      // it set out to write and not only which topic it touched (#465).
+      const target = writePartTarget(root, spec.topic, text);
+      holdTurn(session, started, spec.part ?? target?.part ?? null);
       // A write-part turn starts the quick glossary without waiting for it: no topic lock,
       // no vault write and no place in the tutor's tool loop.
-      const target = writePartTarget(root, spec.topic, text);
       if (target) {
         started.espera = { ...target, note: partNotePath(root, target.topic, target.part), startedAt: Date.now(), emitted: new Set() };
         try {
@@ -1919,6 +1997,12 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         if (started && session.turn === started) releaseTurn(session, started);
       } finally {
         spec.lock?.release();
+      }
+      // A request that never became a turn is one line too: a 409 or a refused context is exactly
+      // what the journal could not say before this (#465).
+      if (started === null) {
+        const why = error instanceof HttpError ? `${error.status} ${error.message}` : (error as Error).message;
+        process.stderr.write(`estudio: turno no empezado · sesion=${session.id} · tema=${spec.topic ?? "general"} · motivo=${why}\n`);
       }
       throw error;
     }
@@ -2119,6 +2203,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       const chose = tutorChoseMethod(topic, report, settled.methodBefore);
       if (chose) {
         const message = `El tutor eligió el método por ti (${chose}): el método se elige en la página del tema, no en el chat. El turno no se da por bueno.`;
+        settled.refused = true;
         if (settled.regeneration) settled.regeneration.reason = message;
         else session.emit("error", { message });
         return;
@@ -2136,7 +2221,10 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         }
       } else if (decision.action === "stop") {
         if (await askForMissingPart(session, settled, decision.text)) corrected = true;
-        else session.emit("error", { message: decision.text });
+        else {
+          settled.refused = true;
+          session.emit("error", { message: decision.text });
+        }
       } else {
         if (decision.action === "unreadable") {
           session.emit("notice", { level: "warning", message: `El motor no pudo revisar «${topic}»: el turno termina sin comprobarlo.` });
@@ -2158,6 +2246,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
               correctionRefused(session, topic);
             }
           } else if (verdict.action === "stop") {
+            settled.refused = true;
             if (await askForMissingPart(session, settled, verdict.text)) corrected = true;
             else if (settled.regeneration) settled.regeneration.reason = verdict.text;
             else session.emit("error", { message: verdict.text });
@@ -2168,6 +2257,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
           const expected = partExpected(settled);
           const missing = expected !== null && !existsSync(expected.file);
           if (missing) {
+            settled.refused = true;
             if (await askForMissingPart(session, settled)) corrected = true;
             else {
               const message = `La Parte ${expected.number} «${expected.title}» no se escribió: el archivo «${relative(root, expected.file)}» sigue sin existir.`;
@@ -2186,6 +2276,7 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
         }
       }
     } catch (error) {
+      settled.refused = true;
       if (settled.regeneration) settled.regeneration.reason ??= "el turno no pudo comprobarse entero";
       correctionRefused(session, topic ?? "el tema");
       process.stderr.write(`estudio: el motor no pudo decidir el turno · ${(error as Error).message}\n`);
@@ -2728,6 +2819,8 @@ ${scripts}
         try {
           await startTurn(taskSession, text, {
             topic: enrolled(root, tema) ? tema : null,
+            namedTopic: tema,
+            part: parte,
             lock,
             backup: () => ({ ...backupPartForRegeneration(root, { topic: tema, part: parte }, new Date(), planned.trash || undefined), part: parte }),
           });
@@ -2896,7 +2989,10 @@ ${scripts}
         const session = action === "abort" ? main : taskFor(body.task);
         const cause = isRecord(body) && body.cause === "update" ? "update" : undefined;
         const held = session.turn;
-        if (held) held.aborted = true;
+        if (held) {
+          held.aborted = true;
+          held.abortCause = cause === "update" ? "actualizacion" : "alumno";
+        }
         // The runtime is stopped before the rollback moves anything back: a process that is still
         // writing would otherwise land its part on top of the version the learner was told is kept
         // (#460). Either way the turn is released, so an abort is final.
@@ -3505,9 +3601,28 @@ ${scripts}
   const shutDown = async (): Promise<void> => {
     shuttingDown = true;
     holdIdle();
-    // SIGTERM from a deploy lands here: the conversation and the turn it was holding are
-    // written before the process goes, so the next boot can say what was interrupted.
+    // SIGTERM from a deploy lands here: the conversation and the turn it was holding are written
+    // before the process goes, so the next boot can say what was interrupted.
     main.saveSnapshot();
+    // A restart never kills a turn without saying so (#465). The runtimes stop first, so a process
+    // still writing cannot land its part on top of the version the learner is told is kept (#476);
+    // then every turn they held is released naming the restart. A regeneration comes back with its
+    // reason in the chat, and the interruption stays in the snapshot the next boot shows.
+    const sessions = [main, ...tasks.values()];
+    const held = sessions.flatMap((session) => (session.turn ? [{ session, turn: session.turn }] : []));
+    for (const { turn } of held) {
+      turn.aborted = true;
+      turn.abortCause ??= "actualizacion";
+      if (turn.regeneration) turn.regeneration.reason ??= "el estudio se reinició mientras se regeneraba la parte";
+    }
+    await Promise.all(sessions.map((session) => stopRuntime(session)));
+    for (const { session, turn } of held) {
+      // Every exit of a turn is released, and the log says this one was interrupted by the restart.
+      releaseTurn(session, turn);
+      // The record a killed process cannot write: the next boot shows it as the deploy's own notice.
+      session.interrupted = { topic: turn.topic ?? turn.namedTopic ?? null, at: Date.now(), cause: "update" };
+      session.saveSnapshot();
+    }
     glosario.stop();
     busyTracker.clearAll();
     for (const res of clients) res.end();
@@ -3516,9 +3631,6 @@ ${scripts}
     taskClients.clear();
     for (const res of allTaskClients) res.end();
     allTaskClients.clear();
-    const sessions = [main, ...tasks.values()];
-    // Stopping a session is a promise: the studio is gone only once its children are (#183).
-    await Promise.all(sessions.map((session) => stopRuntime(session)));
     for (const handler of shutdownHandlers) await handler();
     await cerrarIndice();
     server.closeAllConnections();
@@ -3541,8 +3653,22 @@ export function entryUrl(publicOrigin: string | undefined, port: number): string
   return `${origins?.[0]?.origin ?? `http://127.0.0.1:${port}`}/`;
 }
 
+/**
+ * The studio is only its own CLI when the file Node runs is this one: a test that imports it, or a
+ * link the deploy resolves elsewhere, never starts a server. Both sides are real paths, so a
+ * symlinked checkout is the same studio and a SIGTERM still reaches its shutdown (#465).
+ */
+const isStudioEntry = (): boolean => {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return fileURLToPath(import.meta.url) === process.argv[1];
+  }
+};
+
 /** `node studio/server.ts` starts the studio and opens it in the Windows browser (WSL). */
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isStudioEntry()) {
   const publicOrigin = process.env.STUDIO_PUBLIC_ORIGIN;
   const configuredIdle = process.env.STUDIO_IDLE_MINUTES?.trim();
   const studio = await startStudio({
