@@ -92,6 +92,30 @@ const scriptedTools = () => {
 const tools = scriptedTools();
 /** Tool durations are real waits, so a report can be checked against a clock instead of a guess. */
 const wait = (ms) => { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+/**
+ * A runtime that keeps writing after the studio stopped it (#476): `FAKE_PI_AFTER_SIGTERM` is
+ * `{marker, path, content, delayMs}`. SIGTERM leaves the marker first, so a test has a clock, and
+ * the file is written `delayMs` later, so the process is provably still writing when it is asked to
+ * stop. Without the variable SIGTERM ends the process the way Node always does.
+ */
+const afterSigterm = (() => {
+  if (!process.env.FAKE_PI_AFTER_SIGTERM) return null;
+  try {
+    return JSON.parse(process.env.FAKE_PI_AFTER_SIGTERM);
+  } catch (error) {
+    process.stderr.write(`FAKE_PI_AFTER_SIGTERM is not JSON: ${error.message}\n`);
+    process.exit(2);
+  }
+})();
+if (afterSigterm) {
+  process.on("SIGTERM", () => {
+    if (afterSigterm.marker) writeFileSync(afterSigterm.marker, "sigterm\n");
+    setTimeout(() => {
+      if (typeof afterSigterm.path === "string" && typeof afterSigterm.content === "string") writeFileSync(afterSigterm.path, afterSigterm.content);
+      process.exit(0);
+    }, Number(afterSigterm.delayMs) || 0);
+  });
+}
 
 const run = (message) => {  out({ type: "agent_start" });
   out({ type: "message_start", message: { role: "user", content: message } });

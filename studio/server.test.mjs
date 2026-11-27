@@ -1036,6 +1036,103 @@ test("an aborted regeneration keeps the previous version served, not the verdict
   }
 });
 
+// ---- #476: what a restart and a part's mark must not race ---------------------------------
+
+test("a restart during a regeneration waits for the runtime before the previous version comes back", async () => {
+  // A restart used to put the previous version back and only then ask the runtime to stop. SIGTERM is
+  // asynchronous, so the process the studio had just stopped could still write over the version the
+  // learner was told is kept (#476). The witness is a runtime that writes on its way out: the previous
+  // version is only back once that process is gone, never while it is still writing.
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const note = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
+  const PREVIOUS = "# Parte 1 — Capas\n\nLa versión que el alumno ya estaba leyendo.\n";
+  const REJECTED = "# Parte 1 — Capas\n\nLa versión nueva, sin pasar las comprobaciones.\n";
+  const AFTER_SIGTERM = "# Parte 1 — Capas\n\nLo que el proceso escribió después del SIGTERM.\n";
+  const marker = join(root, "sigterm-recibido");
+  writeFileSync(note, PREVIOUS);
+  // The turn writes the new version and then waits on its dialog: the turn is in flight when it stops.
+  process.env.FAKE_PI_WRITES = JSON.stringify([[{ path: note, content: REJECTED }]]);
+  // A runtime that keeps writing after the studio stopped it: the marker is the test's clock.
+  process.env.FAKE_PI_AFTER_SIGTERM = JSON.stringify({ marker, path: note, content: AFTER_SIGTERM, delayMs: 500 });
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, openedFile: join(root, "studio-state", "opened.json") });
+  open.push(studio);
+  try {
+    // A topic the engine does not track regenerates in the main chat, which is the runtime a restart replaces.
+    assert.equal((await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
+    await until(() => existsSync(note) && readFileSync(note, "utf8") === REJECTED, 15000);
+    const restarted = post(studio, "restart", {});
+    // The runtime says it heard the SIGTERM. From here on it is a process that still writes.
+    await until(() => existsSync(marker), 15000);
+    assert.notEqual(readFileSync(note, "utf8"), PREVIOUS, "the previous version is not back while the runtime that wrote the part is alive");
+    assert.equal(readFileSync(note, "utf8"), REJECTED, "the part on disk is still the one the turn wrote");
+    assert.equal((await restarted).status, 200);
+    assert.equal(readFileSync(note, "utf8"), PREVIOUS, "once the runtime is gone, the version the learner was told is kept is the one on disk");
+  } finally {
+    delete process.env.FAKE_PI_WRITES;
+    delete process.env.FAKE_PI_AFTER_SIGTERM;
+  }
+});
+
+test("a part's mark follows its bytes, not its size and its time", async () => {
+  // The mark was keyed on `size:mtimeMs`: a part rewritten to the same size inside the same millisecond,
+  // and a version that comes back with a new stamp, both looked like the version that was measured
+  // (#476). What the mark covers is the content itself, whichever stamp the file happens to carry.
+  const { root, engine, log } = makeRoot({ status: CLEARED_STAGE });
+  process.env.FAKE_PI_LOG = log;
+  const note = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
+  const REJECTED = "# Parte 1 — Capas\n\nLa versión que las comprobaciones rechazaron.\n";
+  const OTHER = "# Parte 1 — Capas\n\nOtra versión distinta, del mismo peso exacto.\n";
+  assert.equal(Buffer.byteLength(OTHER), Buffer.byteLength(REJECTED), "the two versions weigh exactly the same");
+  const STAMP = new Date(1_600_000_000_000);
+  writeFileSync(note, REJECTED);
+  utimesSync(note, STAMP, STAMP);
+  // The turn records the part it owes without writing it: what is measured is the file with this stamp.
+  process.env.FAKE_PI_WRITES = JSON.stringify([[{ path: note }]]);
+  const failing = failingMeasurement("trazo-sobre-texto");
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, openedFile: join(root, "studio-state", "opened.json"), glosarioCommand: [process.execPath, GLOSARIO_FAKE], partChecks: failing });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    // The turn and its corrections write nothing: the bytes the mark measured are REJECTED.
+    for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
+      await stream.next("dialog");
+      const dialogs = stream.events.filter((event) => event.name === "dialog");
+      assert.equal((await post(studio, "dialog", { id: dialogs.at(-1).data.id, value: "Universitario" })).status, 200);
+    }
+    await until(() => settleIdle(stream), 30000);
+    const measured = statSync(note);
+    assert.equal(readFileSync(note, "utf8"), REJECTED);
+    const refused = await http(`${studio.url}api/view?topic=redes&part=p1`);
+    assert.equal(refused.status, 409, `the rejected version is not served: ${refused.body}`);
+    assert.match(refused.body, /trazo-sobre-texto/);
+
+    // The same number of bytes, written with the same stamp: the mark measured other content.
+    writeFileSync(note, OTHER);
+    utimesSync(note, STAMP, STAMP);
+    const rewritten = statSync(note);
+    assert.equal(rewritten.size, measured.size, "the version weighs exactly what the measured one weighed");
+    assert.equal(rewritten.mtimeMs, measured.mtimeMs, "and it carries exactly the same stamp");
+    const changed = await http(`${studio.url}api/view?topic=redes&part=p1`);
+    assert.equal(changed.status, 200, `a part whose bytes changed is not covered by the mark: ${changed.body}`);
+
+    // The rejected version comes back byte for byte with another stamp: it is still the one nobody may serve.
+    const LATER = new Date(1_600_000_001_000);
+    writeFileSync(note, REJECTED);
+    utimesSync(note, LATER, LATER);
+    const again = await http(`${studio.url}api/view?topic=redes&part=p1`);
+    assert.equal(again.status, 409, `the rejected version stays refused whatever its stamp: ${again.body}`);
+    assert.match(again.body, /trazo-sobre-texto/);
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+});
+
 test("a part the studio measured and rejected is refused, even when the turn was asked for another part", async () => {
   // The turn is asked for Part 1 and writes Part 2's note instead. The studio measures that note, rejects
   // it and tells the learner the part still has visual problems, so that part is not one the reader may

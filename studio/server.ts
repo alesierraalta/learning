@@ -11,7 +11,7 @@
  * a POST must come from this origin with a JSON body.
  */
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -612,8 +612,8 @@ function markRegeneration(file: string, topic: string, part: string, reason: str
 }
 
 /**
- * One part's last measurement, keyed by the bytes it measured (#452): a part that changed since
- * then is not covered by it, and a part nobody measured carries no mark at all.
+ * One part's last measurement, keyed by the bytes it measured (#452): a part whose content changed
+ * since then is not covered by it, and a part nobody measured carries no mark at all (#476).
  */
 export type PartGateMark = { bytes: string; count: number; rules: string[] };
 
@@ -1275,15 +1275,26 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
     session.emit("state", session.state());
   };
 
-  const stopRuntime = (session: Session) => {
+  /**
+   * Stops this session's runtime. The promise is the child's own exit: only a process that is gone
+   * can be trusted to write nothing else, and a turn's rollback waits for it (#476).
+   */
+  const stopRuntime = (session: Session): Promise<void> => {
     const proc = session.child;
     session.child = undefined;
-    if (proc) proc.kill();
+    if (proc) {
+      // The records of a process the studio stopped decide nothing, and draining its pipe is what
+      // lets it finish whatever it was writing on its way out instead of blocking on a full one.
+      proc.stdout.removeAllListeners("data");
+      proc.stdout.resume();
+      proc.kill();
+    }
     session.agy?.stop();
     session.agy = undefined;
     session.api?.stop();
     session.api = undefined;
     session.alive = false;
+    return proc ? stopChild(proc) : Promise.resolve();
   };
 
   /** The API tutor: the provider's own endpoint, with tools and no resident process. */
@@ -1513,11 +1524,16 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
   };
 
   /** Changing tutor never kills a task that is working: its next turn uses the new settings. */
-  const startTutor = (config: TutorConfig) => {
+  const startTutor = async (config: TutorConfig) => {
     tutorGeneration += 1;
-    releaseTurn(main);
+    // The runtime is stopped and waited for before the turn it was holding is released: SIGTERM is
+    // asynchronous, so restoring the previous version before the child is gone lets a process that
+    // is still writing land its rejected part on top of the version the learner is told is kept
+    // (#476). Until it exits, the turn stays held and no part is restored.
+    const gone = stopRuntime(main);
     main.settleGate.reset();
-    stopRuntime(main);
+    await gone;
+    releaseTurn(main);
     for (const resolve of main.waiting.values()) resolve({ success: false, error: "Tutor restarted" });
     main.waiting.clear();
     tutor = config;
@@ -1526,7 +1542,8 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
       // A running task finishes on this runtime; the next turn replaces it with the new one.
       session.stale = true;
       if (session.turn) continue;
-      stopRuntime(session);
+      // No turn is held here, so nothing will be rolled back: the exit is not awaited.
+      void stopRuntime(session);
       session.activity = "Actualizando al tutor";
     }
     if (config.agente === "pi") {
@@ -1990,11 +2007,14 @@ export async function startStudio(options: StudioOptions = {}): Promise<Studio> 
    */
   const partServes = (turn: Turn): boolean => turn.partVerdict?.kind === "clean";
 
-  /** The bytes a measurement covers: a part that changed since then is not covered by it (#452). */
+  /**
+   * The bytes a measurement covers: a part that changed since then is not covered by it (#452). It is
+   * the content itself, never its size and its stamp: a part rewritten to the same size inside the
+   * same millisecond, and a version that comes back with another stamp, are other versions (#476).
+   */
   const bytesOf = (file: string): string | null => {
     try {
-      const stats = statSync(file);
-      return `${stats.size}:${stats.mtimeMs}`;
+      return `sha256:${createHash("sha256").update(readFileSync(file)).digest("hex")}`;
     } catch {
       return null;
     }
@@ -2742,7 +2762,7 @@ ${scripts}
           }
         }
         const config = saveTutor(root, body);
-        startTutor(config);
+        await startTutor(config);
         return sendJson(res, 200, config);
       }
       case "api/tema": {
@@ -3025,7 +3045,7 @@ ${scripts}
       case "restart":
         if (options.agentDisabled) throw new HttpError(503, "El tutor está desactivado.");
         // Restart is the escape hatch for the main chat; running tasks finish on their runtime.
-        startTutor(tutor);
+        await startTutor(tutor);
         break;
       default:
         throw new HttpError(404, "not found");
@@ -3468,7 +3488,7 @@ ${scripts}
     throw new Error("the study-view bridge returned an invalid origin");
   }
   if (!bridgeOrigin) throw new Error("the study-view bridge did not start");
-  if (!options.agentDisabled) startTutor(tutor);
+  if (!options.agentDisabled) await startTutor(tutor);
 
   let closing: Promise<void> | null = null;
   /** Closing is once, whoever asks first: the idle window, a deploy's SIGTERM or a test. */
@@ -3488,11 +3508,8 @@ ${scripts}
     for (const res of allTaskClients) res.end();
     allTaskClients.clear();
     const sessions = [main, ...tasks.values()];
-    for (const session of sessions) stopRuntime(session);
-    for (const session of sessions) {
-      const proc = session.child;
-      if (proc) await stopChild(proc);
-    }
+    // Stopping a session is a promise: the studio is gone only once its children are (#183).
+    await Promise.all(sessions.map((session) => stopRuntime(session)));
     for (const handler of shutdownHandlers) await handler();
     await cerrarIndice();
     server.closeAllConnections();
