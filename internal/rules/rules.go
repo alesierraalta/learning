@@ -227,6 +227,10 @@ type OpenResponseThresholds struct {
 	NoEvidenceText    string   `json:"noEvidenceText"`
 	ConceptStates     []string `json:"conceptStates"`
 	Confidence        []string `json:"confidence"`
+	// ErrorTypes and TeachingActions are additive: a frozen snapshot without
+	// them keeps accepting verdicts written before the teaching contract.
+	ErrorTypes      []string `json:"errorTypes,omitempty"`
+	TeachingActions []string `json:"teachingActions,omitempty"`
 }
 
 // PartStandardThresholds bound the measured explanation standard a part must
@@ -979,16 +983,31 @@ func (o OpenResponseThresholds) validate() error {
 		"conceptStates": o.ConceptStates,
 		"confidence":    o.Confidence,
 	}
-	for name, list := range lists {
-		if len(list) == 0 {
-			return fmt.Errorf("openResponse %s must not be empty", name)
-		}
+	optional := map[string][]string{
+		"errorTypes":      o.ErrorTypes,
+		"teachingActions": o.TeachingActions,
+	}
+	checkList := func(name string, list []string) error {
 		seen := map[string]bool{}
 		for _, item := range list {
 			if strings.TrimSpace(item) == "" || seen[item] {
 				return fmt.Errorf("openResponse %s must be unique and non-empty", name)
 			}
 			seen[item] = true
+		}
+		return nil
+	}
+	for name, list := range lists {
+		if len(list) == 0 {
+			return fmt.Errorf("openResponse %s must not be empty", name)
+		}
+		if err := checkList(name, list); err != nil {
+			return err
+		}
+	}
+	for name, list := range optional {
+		if err := checkList(name, list); err != nil {
+			return err
 		}
 	}
 	if !slices.Contains(o.ResponseKinds, "text") || !slices.Contains(o.ResponseKinds, "code") {

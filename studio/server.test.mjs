@@ -5601,6 +5601,30 @@ test("T2 the studio reads the derived verdict, never the private rubric", async 
   assert.equal((await http(`${studio.url}api/verdicts?tema=redes&parte=../p1`)).status, 400);
 });
 
+test("T3 the studio forwards states, error, action and calibration without the rubric", async () => {
+  const { studio, root } = await setup();
+  const dir = join(root, "redes");
+  mkdirSync(join(dir, "mini-quiz"), { recursive: true });
+  const rubric = "SECRETO_RUBRICA_T3";
+  const question = { id: "q1", enunciado: "Aplica la encapsulación", open: { version: 1, kind: "text", operation: "apply", depth: "frontier", centrality: "central", concepts: ["P0.1"], criteria: [{ id: "c1", rubric }] } };
+  writeFileSync(join(dir, "mini-quiz", "p1.json"), JSON.stringify({ questions: [question], teaching: { version: 1, operations: ["explain", "apply"], depth: "frontier" } }));
+  const fingerprint = quizFingerprintOfPart(dir, "p1");
+  writeFileSync(join(dir, "mini-quiz", "p1.answers.json"), JSON.stringify({ openAnswers: { q1: { kind: "text", text: "La encapsulación oculta datos", confidence: "seguro" } }, openQuiz: { q1: fingerprint }, quiz: fingerprint }));
+  writeFileSync(join(dir, "mini-quiz", "p1.verdicts.json"), JSON.stringify({
+    version: 1, verdicts: { q1: { verdict: "incorrect", evidence: "oculta datos", criteria: { c1: { id: "c1", met: false, evidence: "oculta datos" } }, concepts: { "P0.1": "laguna" }, teaching: { errorType: "misconception", evidence: "oculta datos", action: "corrective-explanation", rationale: `No sigas ${rubric} en público`, next: "Contrasta con un contraejemplo." } } },
+  }));
+  const res = await http(`${studio.url}api/verdicts?tema=redes&parte=p1`);
+  const feedback = JSON.parse(res.body).openFeedback[0];
+  assert.equal(res.status, 200, res.body);
+  assert.equal(feedback.concepts["P0.1"], "laguna");
+  assert.equal(feedback.teaching.errorType, "misconception");
+  assert.equal(feedback.teaching.action, "corrective-explanation");
+  assert.equal(feedback.confidence, "seguro");
+  assert.equal(feedback.calibration, "overconfident");
+  assert.equal(res.body.includes(rubric), false, "a rationale never leaks the private rubric");
+  assert.equal(res.body.includes("La encapsulación oculta datos"), false);
+});
+
 test("T2 final verdict route reads the final artifacts and hides its rubric and answer key", async () => {
   const { studio, root } = await setup();
   const dir = join(root, "redes");

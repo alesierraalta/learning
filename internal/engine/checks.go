@@ -265,6 +265,10 @@ func evalPlanningLink(c *evalCtx, decl rules.CheckDecl) Check {
 		if err := validateOpenDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
 			return failCheck(decl.ID, "diagnostic questions invalid: "+err.Error())
 		}
+		teaching, _, err := loadTeaching(c.ws, decl.Questions)
+		if err != nil {
+			return failCheck(decl.ID, "teaching strategy unreadable: "+err.Error())
+		}
 		openAnswers, err := loadOpenAnswers(c.ws, decl.Answers)
 		if err != nil {
 			return failCheck(decl.ID, "diagnostic answers unavailable: "+err.Error())
@@ -273,11 +277,13 @@ func evalPlanningLink(c *evalCtx, decl rules.CheckDecl) Check {
 		if err != nil {
 			return failCheck(decl.ID, "tutor verdicts unreadable: "+err.Error())
 		}
-		score, err := gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds)
+		score, err := gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds, len(teaching.Areas) > 0)
 		if err != nil {
 			return failCheck(decl.ID, "diagnostic answers invalid: "+err.Error())
 		}
 		wrongIDs = score.WrongIDs
+		c.evidence["knowledgeMap"] = score.Knowledge
+		c.evidence["teachingPlan"] = score.TeachingPlan
 	} else {
 		if err := validateDiagnostic(qs, c.plan, c.r.Thresholds); err != nil {
 			return failCheck(decl.ID, "diagnostic questions invalid: "+err.Error())
@@ -461,13 +467,18 @@ func evalDiagnosticAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 	}
 	var openResult openScore
 	if openMode {
+		teaching, declared, err := loadTeaching(c.ws, decl.Questions)
+		if err != nil {
+			return failCheck(decl.ID, "teaching strategy unreadable: "+err.Error())
+		}
+		if declared {
+			if err := validateTeachingDiagnosisShape(qs, c.plan, teaching, c.r.Thresholds); err != nil {
+				return failCheck(decl.ID, "diagnosis coverage invalid: "+err.Error())
+			}
+		}
 		openAnswers, err := loadOpenAnswers(c.ws, decl.Answers)
 		if err != nil {
 			return failCheck(decl.ID, "answers invalid: "+err.Error())
-		}
-		if len(openAnswers) == 0 {
-			return failCheck(decl.ID, fmt.Sprintf(
-				"learner answers not yet recorded in %s (waiting for learner input)", decl.Answers))
 		}
 		verdicts, present, err := loadOpenVerdicts(c.ws, openVerdictRel(decl.Answers))
 		if err != nil {
@@ -485,10 +496,23 @@ func evalDiagnosticAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 				return failCheck(decl.ID, "diagnosis round invalid: "+err.Error())
 			}
 		}
-		openResult, err = gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds)
+		if declared {
+			covered, err := validateTeachingDiagnosisFlow(qs, openAnswers, verdicts, teaching, c.plan, c.r.Thresholds)
+			if err != nil {
+				return failCheck(decl.ID, "diagnosis evidence insufficient: "+err.Error())
+			}
+			c.evidence["diagnosisCoverage"] = covered
+		}
+		if len(openAnswers) == 0 {
+			return failCheck(decl.ID, fmt.Sprintf(
+				"learner answers not yet recorded in %s (waiting for learner input)", decl.Answers))
+		}
+		openResult, err = gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds, declared)
 		if err != nil {
 			return failCheck(decl.ID, "diagnosis open grading: "+err.Error())
 		}
+		c.evidence["knowledgeMap"] = openResult.Knowledge
+		c.evidence["teachingPlan"] = openResult.TeachingPlan
 	} else if adaptive && !skipped && c.r.Thresholds.ConceptMode() {
 		if err := guidedFlow(qs, answers); err != nil {
 			return failCheck(decl.ID, "diagnosis round invalid: "+err.Error())
@@ -1709,6 +1733,15 @@ func evalMiniQuizAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 	var openResult openScore
 	answers := map[string]string{}
 	if openMode {
+		teaching, declared, err := loadTeaching(c.ws, qRel)
+		if err != nil {
+			return failCheck(decl.ID, "teaching strategy unreadable: "+err.Error())
+		}
+		if declared {
+			if err := validateTeachingQuizMix(qs, teaching, c.r.Thresholds); err != nil {
+				return failCheck(decl.ID, "mini-quiz operation mix invalid: "+err.Error())
+			}
+		}
 		openAnswers, err := loadOpenAnswers(c.ws, aRel)
 		if err != nil {
 			return failCheck(decl.ID, "answers invalid: "+err.Error())
@@ -1717,9 +1750,13 @@ func evalMiniQuizAnswers(c *evalCtx, decl rules.CheckDecl) Check {
 		if err != nil {
 			return failCheck(decl.ID, "tutor verdicts unreadable: "+err.Error())
 		}
-		openResult, err = gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds)
+		openResult, err = gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds, declared)
 		if err != nil {
 			return failCheck(decl.ID, "open quiz grading: "+err.Error())
+		}
+		if declared {
+			c.evidence["knowledgeMap"] = openResult.Knowledge
+			c.evidence["teachingPlan"] = openResult.TeachingPlan
 		}
 	} else {
 		answers, err = loadAnswers(c.ws, aRel)
@@ -1950,7 +1987,7 @@ func evalFinalQuizNote(c *evalCtx, decl rules.CheckDecl) Check {
 		if err != nil {
 			return failCheck(decl.ID, "tutor verdicts unreadable: "+err.Error())
 		}
-		openResult, err = gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds)
+		openResult, err = gradeOpen(c.ws, refs, openAnswers, verdicts, present, c.r.Thresholds, false)
 		if err != nil {
 			return failCheck(decl.ID, "open final grading: "+err.Error())
 		}
