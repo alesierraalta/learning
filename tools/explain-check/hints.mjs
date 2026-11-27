@@ -35,6 +35,7 @@ export const HINTS = {
   'personaje-sin-sentido': 'cambia el `kind` del personaje por el que nombra lo que dibuja, o cambia su etiqueta.',
   registro: 'reescribe las filas de registro: cada término se explica donde aparece y se ata al ejemplo.',
   figuras: 'dibuja la figura que pide la idea con el vocabulario del kit, no con una imagen ni con texto suelto; una figura de paso lleva al menos cuatro pasos y cada sección de contenido lleva su figura (Mermaid o de pasos).',
+  'paso-resumen': 'explica cada paso: escribe su pie de una frase (el más corto del corpus aprobado mide 8 palabras) y añade su bloque `note` o `formula` con la definición, el ejemplo o el porqué; un título y cuatro palabras resumen la idea, no la explican.',
 
   // Reglas de registro que explain-check devuelve como filas propias.
   'termino-sin-explicar': 'explica el término en palabras llanas donde aparece y átalo al ejemplo.',

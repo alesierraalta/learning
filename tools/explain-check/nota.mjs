@@ -125,6 +125,20 @@ export function leerNota(src, esPagina, fuenteHtml = src) {
     if (!payload) continue;
     try { escenasSpecs.push(JSON.parse(payload[1])); } catch {}
   }
+  // Las figuras de paso (#484): su JSON se lee una vez y en el orden del documento, para que
+  // `figuras` las cuente y las reglas midan lo que el lector ve. Un bloque sin JSON legible se
+  // conserva con `ilegible`: la figura existe y no se puede medir, y eso se reporta en vez de
+  // contarla como ausente.
+  const figurasDePaso = [];
+  const bloquesDePaso = new RegExp(`<(${FIGURAS_DE_PASO.join('|')})\\b[^>]*>([\\s\\S]*?)<\\/\\1>`, 'gi');
+  for (const m of sinCodigo.matchAll(bloquesDePaso)) {
+    const payload = m[2].match(/<script type="application\/json">([\s\S]*?)<\/script>/);
+    let spec = null;
+    if (payload) { try { spec = JSON.parse(payload[1]); } catch {} }
+    const ilegible = !spec || typeof spec !== 'object' || Array.isArray(spec);
+    figurasDePaso.push({ tag: m[1].toLowerCase(), spec, ilegible });
+  }
+
   const tarjetas = [];
   for (const m of sinCodigo.matchAll(/<lk-cards[^>]*>[\s\S]*?<\/lk-cards>/g)) {
     const payload = m[0].match(/<script type="application\/json">([\s\S]*?)<\/script>/);
@@ -172,5 +186,5 @@ export function leerNota(src, esPagina, fuenteHtml = src) {
     bloquesDeRecorrido.push({ tag: m[1], spec, pasos, linea: `${m[1]} ${bloquesDeRecorrido.length + 1} (${pasos.length} pasos)` });
   }
 
-  return { src, esPagina, sinCodigo, sinFiguras, usaFigurasDePaso: usaFigurasDePaso(sinCodigo), lineasFencesMarkdown, escenas, recorridos, recorridosTope, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
+  return { src, esPagina, sinCodigo, sinFiguras, usaFigurasDePaso: usaFigurasDePaso(sinCodigo), lineasFencesMarkdown, escenas, recorridos, recorridosTope, figurasDePaso, formulas, dibujadas, planas, historiasSpecs, escenasSpecs, tarjetas, parrafos, frases, bloquesDeRecorrido };
 }

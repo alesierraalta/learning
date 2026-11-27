@@ -680,7 +680,7 @@ test('pasa una nota con Mermaid y los cinco ejemplos canónicos', () => {
   writeFileSync(file, notaDelContratoNuevo());
   const r = run(file);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  for (const regla of ['historia', 'escena', 'formula-walkthrough', 'leyenda', 'tama\u00f1o', 'frases']) {
+  for (const regla of ['historia', 'escena', 'formula-walkthrough', 'leyenda', 'tama\u00f1o', 'frases', 'paso-resumen']) {
     assert.match(r.stdout, new RegExp(`ok\\s+${regla}`), `${regla} fall\u00f3: ${r.stdout}`);
   }
 });
@@ -813,6 +813,80 @@ test('explain-check rechaza el paso de solo tarjetas en una nota del contrato nu
   assert.equal(r.status, 1, r.stdout + r.stderr);
   // La nota ya trae antes el lk-guided del kit: el añadido es el segundo, y el aviso numera por posición.
   assert.match(r.stdout, /FALLA\s+figuras\s+.*lk-guided 2: pasos 1, 2, 3 solo con tarjetas de texto/);
+});
+
+// ── #484: la figura de paso se ve, y el paso que solo resume falla ───────────
+// El alumno rechazó la Parte 3 de un tema real: la puerta decía «ok figuras sin
+// figuras» porque su único payload —un `<lk-guided>` de cuatro pasos de tarjetas y
+// números— no se contaba como figura. La parte pasaba por no verse. Su pie de paso
+// es un título y cuatro palabras («Suma de obras.»): resume, no explica.
+const PARTE_DE_RESUMEN = join(TOOLS, 'explain-check', 'fixtures', 'parte-3-resumen.md');
+const PASO_QUE_ENSENA = (caption) => ({
+  title: 'Costo',
+  label: '1 · Obras',
+  caption,
+  blocks: [
+    { kind: 'cards', focus: 0, cards: [{ label: 'Obras', value: 'Salas', note: '900k' }, { label: 'Riesgo', value: 'Sin fondo', note: 'Base', wrong: true }] },
+    { kind: 'numbers', focusList: [0], values: [{ label: 'Costo', value: '900k' }, { label: 'Riesgo', value: '0' }] },
+  ],
+});
+const figuraGuiada = (pasos) => `<lk-guided>\n<script type="application/json">\n${JSON.stringify({
+  form: 'example', kicker: 'PRESUPUESTO', question: '¿Cómo se estructura el presupuesto?', steps: pasos,
+})}\n</script>\n</lk-guided>`;
+
+// El corpus aprobado fija el pie: los 8 pies del `lk-guided` del kit miden 8 palabras
+// (45 caracteres) como mínimo, y cada uno va con un bloque `note` o `formula` que enseña.
+const PIE_DE_RESUMEN = 'Suma de obras.';
+const PIE_QUE_ENSENA = 'El costo de las obras suma el primer bloque del presupuesto aprobado.';
+
+const GUIDADO_ROTO = `<lk-guided>\n<script type="application/json">\n{"form":"example","steps":[{"title":"Paso"\n</script>\n</lk-guided>`;
+
+test('la figura de paso de la parte real se mide: la puerta no dice «sin figuras» (#484)', () => {
+  const r = run(PARTE_DE_RESUMEN);
+  assert.doesNotMatch(r.stdout, /ok\s+figuras\s+sin figuras/);
+  assert.match(r.stdout, /figura\(s\) de paso/);
+});
+
+test('la parte real que solo resume sus pasos falla paso-resumen y nombra el pie (#484)', () => {
+  const r = run(PARTE_DE_RESUMEN);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /FALLA\s+paso-resumen/);
+  assert.match(r.stdout, /Suma de obras/);
+});
+
+test('un paso cuyo pie enseña, con su bloque note, pasa paso-resumen (#484)', () => {
+  const file = join(dir, 'pie-que-ensena.md');
+  const paso = PASO_QUE_ENSENA(PIE_DE_RESUMEN);
+  paso.blocks.push({ kind: 'note', text: 'Las obras se pagan con la línea base; el riesgo todavía no tiene fondo.' });
+  writeFileSync(file, notaDelContratoNuevo().replace(/<lk-guided[\s\S]*?<\/lk-guided>/, figuraGuiada([paso, paso, paso, paso])));
+  const r = run(file);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /ok\s+paso-resumen/);
+});
+
+test('una figura de paso cuyo JSON no se lee se reporta, no se cuenta como ausente (#484)', () => {
+  assert.throws(() => JSON.parse(GUIDADO_ROTO.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1]), 'la figura del test tiene que estar ilegible de verdad');
+  const row = figurasRow(notaConSecciones([['1. La gestión', GUIDADO_ROTO]]));
+  assert.equal(row.ok, false, 'una spec que nadie puede leer pasó como «sin figuras»');
+  assert.match(row.detail, /ilegible/);
+});
+
+test('las tarjetas y los números de un paso se miden con el rasero de las cajas (#484)', () => {
+  const paso = PASO_QUE_ENSENA(PIE_QUE_ENSENA);
+  paso.blocks[0].cards[0].note = 'El total sube cada mes y no baja jamás de ahí.';
+  const salida = reglaDeProsa(figuraGuiada([paso, paso, paso, paso]));
+  assert.equal(salida.ok, false, 'el contenido de las tarjetas del paso no se midió');
+  assert.match(salida.detail, /frases en las cajas/);
+});
+
+test('un paso con etiquetas cortas y su pie pasa prosa-en-cajas (#484)', () => {
+  const salida = reglaDeProsa(figuraGuiada([PASO_QUE_ENSENA(PIE_QUE_ENSENA)]));
+  assert.equal(salida.ok, true, salida.detail);
+});
+
+test('el ejemplo aprobado de lk-guided pasa prosa-en-cajas (#484)', () => {
+  const salida = reglaDeProsa(ejemploDe('lk-guided.html', 'lk-guided'));
+  assert.equal(salida.ok, true, salida.detail);
 });
 
 // ── Story quality (#243) ─────────────────────────────────────────────────────
