@@ -33,6 +33,7 @@ import accesorioSinSentido from './rules/accesorio-sin-sentido.mjs';
 import personajeSinSentido from './rules/personaje-sin-sentido.mjs';
 import registro from './rules/registro.mjs';
 import figuras from './rules/figuras.mjs';
+import pasoResumen from './rules/paso-resumen.mjs';
 
 export const REGLAS = [
   codigoPagina,
@@ -67,4 +68,5 @@ export const REGLAS = [
   personajeSinSentido,
   registro,
   figuras,
+  pasoResumen,
 ];

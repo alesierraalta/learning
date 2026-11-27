@@ -2,6 +2,9 @@
 // S29: además, una parte del contrato nuevo lleva al menos cuatro pasos por
 // figura de paso y una figura en cada sección de contenido. El motor mide lo
 // mismo en `figurasFindings` (`internal/engine/standard_figuras.go`).
+// #484: una figura de paso es una figura: se cuenta aunque no haya escena ni recorrido
+// antiguo, y si su JSON no se lee se reporta —la puerta no la da por ausente. Cuántas
+// figuras hay lo dice `nota.mjs` (`figurasDePaso`), no este archivo.
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { HINTS } from '../hints.mjs';
@@ -76,7 +79,7 @@ const problemasDeSecciones = (src) => {
 export default {
   id: 'figuras',
   hint: HINTS['figuras'],
-  check({ src, escenas, recorridos, usaFigurasDePaso }, { file, tools }) {
+  check({ src, escenas, recorridos, usaFigurasDePaso, figurasDePaso }, { file, tools }) {
     let figuras = { ok: true, detail: 'sin figuras' };
     if (escenas || recorridos) {  // `escenas` ya incluye las piezas
       const r = spawnSync(process.execPath, [join(tools, 'scene-lint.mjs'), file], { encoding: 'utf8' });
@@ -86,6 +89,19 @@ export default {
         const hits = (r.stdout.match(/^ {2}[a-z-]+:/gm) || []).length;
         figuras = { ok: false, detail: `${hits} hallazgo(s) de convivencia` };
       }
+    }
+    // Una figura de paso es una figura (#484): se cuenta y, si su JSON no se lee, se reporta. La
+    // regla no puede medir lo que no entiende, así que no lo da por ausente.
+    if (figurasDePaso.length) {
+      const ilegibles = figurasDePaso.filter((figura) => figura.ilegible).length;
+      figuras = {
+        ok: ilegibles === 0 && figuras.ok,
+        detail: [
+          `${figurasDePaso.length} figura(s) de paso`,
+          figuras.detail === 'sin figuras' ? '' : figuras.detail,
+          ilegibles ? `${ilegibles} con JSON ilegible: arréglalo antes de darla por buena` : '',
+        ].filter(Boolean).join(' · '),
+      };
     }
     if (usaFigurasDePaso) {
       const problemas = [...problemasDePasos(src), ...problemasDeEjemplo(src), ...problemasDeSecciones(src)];

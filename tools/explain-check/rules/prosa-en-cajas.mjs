@@ -20,6 +20,13 @@ import { HINTS } from '../hints.mjs';
 // caja es su adorno y no dibuja nada que la caja no dibuje (#273), igual que en `escenario-de-cajas`;
 // la misma cadena escrita en NFC o en NFD mide igual; un carácter de ancho cero tras el punto no
 // borra el punto; y una figura cuyo JSON no parsea se reporta en vez de darse por buena.
+//
+// #484. El paso de un `lk-guided` también son cajas con texto, y la regla las mide con el rasero que
+// ya tiene: la ficha de la tarjeta y la etiqueta del número (3 palabras / 20 caracteres), el valor de
+// la tarjeta y el del número como título (6 / 40), la nota de la tarjeta como sub-línea (10 / 50) y el
+// pie del paso como el pie de una figura (22 / 120). Sale de la misma lectura del corpus que los demás
+// umbrales: las 127 cajas, 124 sub-líneas, 153 fichas y 54 pies del corpus aprobado. El paso dibuja
+// sus tarjetas y sus números, así que la señal de «nada dibujado» no se aplica aquí.
 const LIMITE_DE_CARACTERES = 40;
 const LIMITE_DE_PALABRAS = 6;
 const PALABRAS_DE_UNA_CLAUSULA = 4;
@@ -84,8 +91,53 @@ const cadaObjeto = (lista, visitar) => {
 
 // Cada bloque de figura, con el texto que muestra y si dibuja algo fuera del texto. Se lee el JSON
 // de la misma forma que `nota.mjs`; una spec ilegible no se mide aquí (la reporta la regla del JSON).
-const figuras = (sinCodigo) => {
+const GUIDADO = /<lk-guided\b[^>]*>([\s\S]*?)<\/lk-guided>/gi;
+
+// Un paso de `lk-guided` como una figura más: sus tarjetas y sus números son cajas, fichas y
+// sub-líneas; su pie es el pie del paso, y el paso dibuja lo que muestra, así que `dibuja` es true.
+const pasosGuiados = (sinCodigo) => {
   const encontradas = [];
+  for (const bloque of sinCodigo.matchAll(GUIDADO)) {
+    const payload = bloque[1].match(PAYLOAD);
+    if (!payload) continue;
+    let spec;
+    try { spec = JSON.parse(payload[1]); } catch { continue; }
+    if (!spec || typeof spec !== 'object' || !Array.isArray(spec.steps)) continue;
+    spec.steps.forEach((paso, i) => {
+      const cajas = [];
+      const fichas = [];
+      const subs = [];
+      const bloques = Array.isArray(paso?.blocks) ? paso.blocks : [];
+      for (const actual of bloques) {
+        cadaObjeto(actual?.cards, (tarjeta) => {
+          if (typeof tarjeta.label === 'string') fichas.push(tarjeta.label);
+          if (typeof tarjeta.value === 'string') cajas.push(tarjeta.value);
+          if (typeof tarjeta.note === 'string') subs.push(tarjeta.note);
+        });
+        cadaObjeto(actual?.values, (valor) => {
+          if (typeof valor.label === 'string') fichas.push(valor.label);
+          if (typeof valor.value === 'string') cajas.push(valor.value);
+        });
+      }
+      encontradas.push({
+        tag: 'lk-guided',
+        title: `${i + 1} · ${legible(paso?.label || paso?.title || 'sin título')}`,
+        cajas,
+        subs,
+        subsDeCaja: [],
+        fichas,
+        pie: texto(paso?.caption),
+        dibuja: true,
+        ilegible: false,
+      });
+    });
+  }
+  return encontradas;
+};
+
+// Una spec de paso ilegible no se mide aquí: `figuras` la reporta como figura que no se puede leer.
+const figuras = (sinCodigo) => {
+  const encontradas = [...pasosGuiados(sinCodigo)];
   for (const bloque of sinCodigo.matchAll(FIGURAS)) {
     const tag = bloque[1].toLowerCase();
     const payload = bloque[2].match(PAYLOAD);
