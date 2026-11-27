@@ -1270,3 +1270,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
   .source-row .btn, .materia-topic-row .btn { justify-self: start; }
   .topic-materia-controls > * { flex: 1 1 100%; justify-content: center; }
 }
+
+.results-list li.open { border-left: 3px solid var(--slate2); padding-left: 12px; }
+.results-list li.open-correct { border-left-color: var(--emerald, #059669); }
+.results-list li.open-partial { border-left-color: var(--amber, #d97706); }
+.results-list li.open-incorrect, .results-list li.open-no-evidence { border-left-color: var(--crimson, #dc2626); }

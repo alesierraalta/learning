@@ -843,3 +843,10 @@ lk-explorer:fullscreen .lk-p, lk-explorer:-webkit-full-screen .lk-p { font-size:
     border-radius: 0;
   }
 }
+
+.lk-question .lk-open-field { display: block; margin: .4em 0; }
+.lk-question .lk-open-field textarea { width: 100%; min-height: 5em; font: inherit; }
+.lk-question .lk-open-field .lk-code { font-family: ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace; white-space: pre; }
+.lk-question .lk-no-evidence { min-height: 32px; background: none; border: 1px solid var(--rule); border-radius: 4px; color: inherit; cursor: pointer; font: inherit; padding: 4px 10px; }
+.lk-question .lk-no-evidence[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.lk-question .lk-open-hidden { display: none; }

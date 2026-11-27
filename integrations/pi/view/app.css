@@ -454,3 +454,10 @@ body.wide .prose > lk-explorer, body.wide .prose > section > lk-explorer { colum
   /* A narrow line justified around a long token stretches into gaps. */
   .prose p { text-align: left; }
 }
+
+.quiz-question .open-field { display: block; margin: 10px 0; }
+.quiz-question .open-field textarea { width: 100%; min-height: 6em; font: inherit; }
+.quiz-question .open-field .lk-code { font-family: var(--mono, ui-monospace, monospace); white-space: pre; }
+.quiz-question .no-evidence { min-height: 32px; background: none; border: 1px solid var(--hair); border-radius: 4px; color: inherit; cursor: pointer; font: inherit; padding: 4px 10px; }
+.quiz-question .no-evidence[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.quiz-question .open-hidden { display: none; }

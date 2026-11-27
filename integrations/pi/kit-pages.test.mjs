@@ -384,3 +384,41 @@ test('lk-audio plays what exists and asks for what does not', { skip: !playwrigh
   assert.deepEqual(posts, [{ kind: 'audio', style: 'entrevista', topic: 't', part: 'p1' }]);
   assert.equal(await ask.isDisabled(), true);
 });
+
+test('an open quiz draws developed fields, never A-E choices, and sends exact openAnswers', { skip: !playwright && 'playwright not installed' }, async t => {
+  const browser = await playwright.chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  let sent;
+  const questions = [
+    { id: 'q1', enunciado: 'Explica la clave', open: { version: 1, kind: 'text', operation: 'explain', depth: 'core', centrality: 'central', concepts: ['P0.1'], criteria: [{ id: 'c1', rubric: 'SECRETO' }] } },
+    { id: 'q2', enunciado: 'Escribe el código', open: { version: 1, kind: 'code', operation: 'build', depth: 'core', centrality: 'supporting', concepts: ['P0.2'], criteria: [{ id: 'c1', rubric: 'SECRETO' }] } },
+  ];
+  await page.route('http://localhost:45678/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/quiz') return route.fulfill({ json: { questions } });
+    if (path === '/submit') {
+      sent = JSON.parse(route.request().postData());
+      return route.fulfill({ json: { open: true, results: [{ id: 'q1', verdict: 'pending' }], saved: 'mini-quiz/p1.answers.json' } });
+    }
+    if (['/kit.js', '/code-field.js', '/question.js'].includes(path)) return route.fulfill({ contentType: 'text/javascript', body: readFileSync(join(KIT, path.slice(1)), 'utf8') });
+    return route.fulfill({ contentType: 'text/html', body: `<script>window.LEARNING_BRIDGE=${JSON.stringify({ topic: 't', part: 'p1', quizUrl: '/quiz', submitUrl: '/submit' })}</script><script src="/question.js"></script><script src="/code-field.js"></script><script src="/kit.js"></script><lk-quiz></lk-quiz>` });
+  });
+  await page.goto('http://localhost:45678/p1');
+  await page.locator('.lk-question textarea').first().waitFor();
+  assert.equal(await page.locator('.lk-option').count(), 0, 'no A-E choices are drawn');
+  assert.equal(await page.locator('.lk-option input[type=radio]').count(), 0, 'no letter choices');
+  assert.equal((await page.content()).includes('SECRETO'), false);
+  assert.equal(await page.locator('fieldset.lk-question').count(), 2);
+  const code = page.locator('fieldset.lk-question').nth(1);
+  assert.equal(await code.locator('textarea.lk-code').count(), 1, 'code items use the existing code field');
+  assert.equal(await code.locator('button.lk-no-evidence').count(), 1);
+  await page.locator('fieldset.lk-question').first().locator('textarea').fill('La clave identifica cada fila');
+  await page.locator('fieldset.lk-question').first().locator('input[value=dudo]').check();
+  await code.locator('button.lk-no-evidence').click();
+  await page.getByRole('button', { name: 'Enviar al tutor' }).click();
+  await page.waitForFunction(() => document.querySelector('[role=status]')?.textContent.includes('Pendiente'));
+  assert.deepEqual(sent.openAnswers, { q1: { kind: 'text', text: 'La clave identifica cada fila', confidence: 'dudo' }, q2: { kind: 'code', noEvidence: true } });
+  assert.equal(sent.answers, undefined, 'no letter key is sent');
+  assert.equal((await page.content()).includes('Puntaje'), false, 'no fake immediate score');
+});
