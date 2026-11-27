@@ -5670,3 +5670,136 @@ test("T2 final reader route is offered through api/view only for an all-open fin
   writeFileSync(join(dir, "cuestionario-final.json"), JSON.stringify({ questions: mixed }));
   assert.equal((await http(`${studio.url}api/view?topic=redes&part=final_quiz`)).status, 404, "a mixed final keeps its own flow");
 });
+
+// ---- #465: a restart says what it interrupted, and every turn is one line in the journal ----
+
+/**
+ * The studio's own log while a test works. A turn's line is written with `process.stderr.write`,
+ * which is the journal's stderr, so the test reads it there instead of asking the process that wrote it.
+ */
+function captureStudioLog() {
+  const chunks = [];
+  const write = process.stderr.write;
+  process.stderr.write = (chunk) => { chunks.push(String(chunk)); return true; };
+  return {
+    text: () => chunks.join(""),
+    restore: () => { process.stderr.write = write; },
+  };
+}
+
+test("a restart during a turn keeps the previous version and leaves the learner the reason, in the log too", async () => {
+  // The learner asked for a regeneration and a deploy restarted the studio eight seconds later: the
+  // turn died with nothing written and nothing said anywhere (#465). A restart now ends the turn on
+  // purpose — the reason is in the learner's chat and in the copy the next boot shows, and the
+  // journal says which turn it interrupted and why.
+  const { root, engine, log } = makeRoot();
+  process.env.FAKE_PI_LOG = log;
+  const note = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
+  const PREVIOUS = "# Parte 1 — Capas\n\nLa versión que el alumno ya estaba leyendo.\n";
+  const REJECTED = "# Parte 1 — Capas\n\nLa versión nueva, sin comprobar.\n";
+  writeFileSync(note, PREVIOUS);
+  process.env.FAKE_PI_WRITES = JSON.stringify([[{ path: note, content: REJECTED }]]);
+  const stateDir = mkdtempSync(join(tmpdir(), "studio-state-"));
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, openedFile: join(stateDir, "opened.json") });
+  open.push(studio);
+  const stream = sse(`${studio.url}events`);
+  const journal = captureStudioLog();
+  try {
+    await stream.next("history");
+    await stream.next("state");
+    // A topic the engine does not track regenerates in the main chat, the runtime a restart replaces.
+    assert.equal((await post(studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
+    await until(() => existsSync(note) && readFileSync(note, "utf8") === REJECTED, 15000);
+    // A restart, exactly as the deploy's SIGTERM reaches it.
+    await studio.close();
+  } finally {
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+  const written = journal.text();
+  journal.restore();
+
+  // What the learner is served: the previous version, and a chat that says why it stayed.
+  assert.equal(readFileSync(note, "utf8"), PREVIOUS, "the version the learner was told is kept is the one on disk");
+  const copy = JSON.parse(readFileSync(join(stateDir, "conversacion.json"), "utf8"));
+  const said = copy.messages.filter((message) => message.role === "studio").map((message) => message.text);
+  assert.ok(
+    said.some((text) => /NO se regeneró/.test(text) && /se reinició mientras se regeneraba la parte/.test(text)),
+    `the chat names the restart as the reason: ${said.join(" | ")}`,
+  );
+  assert.ok(said.some((text) => /Se mantiene la versión anterior/.test(text)), "the chat says the previous version stays");
+  // And the next boot opens on the interruption, never on an unexplained old part.
+  assert.deepEqual({ ...copy.interrupted, at: 1 }, { topic: "redes", at: 1, cause: "update" });
+
+  // The journal: the turn started, and it ended interrupted by the restart instead of disappearing.
+  assert.match(written, /estudio: turno inicio · sesion=main · tema=redes · parte=p1\n/);
+  assert.match(written, /estudio: turno fin · sesion=main · tema=redes · parte=p1 · fin=interrumpido · causa=actualizacion · veredicto=sin parte\n/);
+});
+
+test("the studio logs a delivered turn: its start, the part it targeted, the measurement and the ending", async () => {
+  const { root, engine, log } = makeRoot({ status: CLEARED_STAGE });
+  process.env.FAKE_PI_LOG = log;
+  const note = join(root, "redes", "explicaciones", "Parte 1 - Capas.md");
+  process.env.FAKE_PI_WRITES = JSON.stringify([[{ path: note, content: "# Parte 1 — Capas\n\nLa versión nueva.\n" }]]);
+  const studio = await startStudio({ root, piCommand: [process.execPath, FAKE_PI], enginePath: engine, partChecks: async () => ({ kind: "clean" }) });
+  open.push(studio);
+  writeFileSync(join(root, "redes", ".learning", "state.json"), "{}\n");
+  const stream = sse(`${studio.url}events`);
+  await stream.next("history");
+  await stream.next("state");
+  const journal = captureStudioLog();
+  let written = "";
+  try {
+    assert.equal((await post(studio, "prompt", { text: "Escribe la Parte 1", tema: "redes" })).status, 200);
+    const dialog = await stream.next("dialog");
+    assert.equal((await post(studio, "dialog", { id: dialog.id, value: "Universitario" })).status, 200);
+    await until(() => settleIdle(stream), 20000);
+  } finally {
+    written = journal.text();
+    journal.restore();
+    stream.close();
+    delete process.env.FAKE_PI_WRITES;
+  }
+  assert.match(written, /estudio: turno inicio · sesion=main · tema=redes · parte=p1\n/, "the journal says the turn started and on which part");
+  assert.match(
+    written,
+    /estudio: turno fin · sesion=main · tema=redes · parte=p1 · fin=entregado · veredicto=limpio\n/,
+    "and that it was delivered, with the measurement that cleared it",
+  );
+});
+
+test("the studio logs a refused turn with the rules that rejected the part", async () => {
+  // A regeneration the tools reject, corrected once and refused again: the ending the learner hears in
+  // the chat is also the last line of the journal, with the rule the tools named (#465).
+  const tutor = await checkingTutor("pi", {
+    parts: [
+      [{ name: "Parte 1 - Capas.md", content: "# LA VERSION NUEVA\n" }],
+      [{ name: "Parte 1 - Capas.md", content: "# LA VERSION NUEVA\n" }],
+      [{ name: "Parte 1 - Capas.md", content: "# LA VERSION NUEVA\n" }],
+    ],
+    partChecks: failingMeasurement("trazo-sobre-texto"),
+  });
+  writeFileSync(join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md"), "LA VERSION ANTERIOR\n");
+  const journal = captureStudioLog();
+  let written = "";
+  try {
+    assert.equal((await post(tutor.studio, "api/regenerar", { tema: "redes", parte: "p1", motivos: ["demasiado-texto"], texto: "más corto" })).status, 200);
+    for (let round = 0; round < 1 + MAX_CORRECTIONS; round += 1) {
+      await until(() => tutor.turnsSoFar() === round + 1, 15000);
+      await tutor.endTaskTurn();
+    }
+    await tutor.taskStream.next("error", (data) => /NO se regeneró/.test(data.message), 15000);
+    await taskIdle(tutor.studio);
+  } finally {
+    written = journal.text();
+    journal.restore();
+    tutor.close();
+  }
+  assert.match(written, /estudio: turno inicio · sesion=redes · tema=redes · parte=p1\n/);
+  assert.match(
+    written,
+    /estudio: turno fin · sesion=redes · tema=redes · parte=p1 · fin=rechazado · veredicto=hallazgos:1 · reglas=trazo-sobre-texto\n/,
+    "the journal names the rules the refusal was made of",
+  );
+  assert.equal(readFileSync(join(tutor.root, "redes", "explicaciones", "Parte 1 - Capas.md"), "utf8"), "LA VERSION ANTERIOR\n", "and the previous version is the one served");
+});
