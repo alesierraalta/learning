@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tareas por estado, parte y conversación — Learnings</title>
+<style>
+/* =====================================================================
+   Escala tipográfica — design/system.md, sin inventar pasos
+   serif  34  título de la parte (h1)
+   serif  26  sección de la parte (h2)
+   serif  20  lectura: párrafos, entradilla, mensajes del chat y correcciones (1.7)
+   sans   20  título del panel (mayúsculas) y título de grupo: caja normal,
+              600, --ink; el número del grupo va al lado en 400 y --meta
+   sans   16  todo lo de trabajo: fila de tarea, su estado, etiquetas,
+              metadatos, valores de la respuesta y controles
+   mono   16  sólo valores que son código (rutas de fichero)
+   Sin radios generales en superficies. Un solo radio: 5 px en controles.
+   Sin sombras: las superficies se separan con --hair (interior) y --rule
+   (frontera de bloque / borde de la página).
+   Respiración: panel 24 px · entre filas 20 px · entre grupos 32 px + --hair
+   · columna de lectura 56 px.
+   Una tarea es una fila. Sólo se abren la que trabaja y la que espera
+   tu decisión; el resto son filas de una línea.
+   Un turno del chat tiene siempre la misma forma: cabecera (autor, hora,
+   estado), el dicho, y el trabajo en una caja de filas clave–valor. La
+   corrección se indenta bajo el turno que corrige.
+   Tres anchos: ≥1280 tres columnas · 960–1279 dos columnas con las tareas
+   en riel y la conversación en panel · <960 una columna, la parte primero
+   y el envío pegado abajo.
+   ===================================================================== */
+:root{
+  --paper:#fff;--ink:#0F2E3D;--slate:#3F5B69;--meta:#555;
+  --hair:rgba(15,46,61,.18);--rule:rgba(15,46,61,.45);
+  --soft:#F6F7F7;--accent:#004276;
+  --warm:#a67f59;--pink:#DD4A68;
+  --serif:"Liberation Serif","DejaVu Serif","Hoefler Text",Georgia,"Times New Roman",Times,serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:"Liberation Mono","DejaVu Sans Mono",Consolas,monospace;
+  --t-display:34px;--t-section:26px;--t-body:20px;--t-support:16px;
+  --frame:var(--soft);   /* la página, hundida por color, no por sombra */
+  --plane:var(--paper);  /* los laterales, con --hair */
+  --panel:rgba(15,46,61,.075);
+  --control:5px;         /* el único radio del tablero */
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;display:flex;flex-direction:column;background:var(--frame);color:var(--ink);
+  font:var(--t-body)/1.6 var(--serif);overflow:hidden}
+p{margin:0 0 20px}
+h1,h2,h3,h4{margin:0;font-weight:400}
+a{color:var(--accent);text-underline-offset:3px}
+a:focus-visible,button:focus-visible,textarea:focus-visible,summary:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+code{font:var(--t-support)/1.5 var(--mono);color:var(--ink)}
+
+/* ---- roles de texto: un solo título en mayúsculas, todo lo demás habla normal ---- */
+.block-title{font:600 var(--t-body)/1.3 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--ink)}
+/* el título de grupo: mismo tamaño que el del panel, pero en caja normal, sin
+   tracking y en tinta — se lee como título sin gritar */
+.group-title{margin:0;font:600 var(--t-body)/1.3 var(--sans);letter-spacing:normal;
+  text-transform:none;color:var(--ink);overflow-wrap:anywhere}
+.block-label{font:600 var(--t-support)/1.4 var(--sans);color:var(--slate)}
+.support{font:var(--t-support)/1.5 var(--sans);color:var(--slate)}
+.meta{font:var(--t-support)/1.5 var(--sans);color:var(--meta)}
+
+/* ---- controles: 1 px de tinta, radio 5, foco visible ---- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;
+  max-width:100%;padding:9px 16px;border:1px solid var(--ink);border-radius:var(--control);
+  background:var(--paper);color:var(--ink);font:600 var(--t-support)/1.15 var(--sans);
+  text-decoration:none;text-align:center;overflow-wrap:anywhere}
+.btn:hover{background:var(--soft)}
+.btn-primary{background:var(--ink);color:var(--paper)}
+.btn-primary:hover{background:var(--accent);border-color:var(--accent);color:var(--paper)}
+.linkbtn{display:inline-flex;align-items:center;min-height:32px;padding:2px 0;
+  font:var(--t-support)/1.4 var(--sans);color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.linkbtn:hover{color:var(--ink)}
+
+/* ================= barra: el marco de la página ================= */
+.top{display:flex;align-items:center;gap:20px;height:56px;padding:0 24px;flex:none;
+  background:var(--paper);border-bottom:1px solid var(--hair)}
+.brand{font:600 var(--t-body)/1 var(--sans);color:var(--ink);text-decoration:none;white-space:nowrap}
+.crumbs{flex:1;min-width:0;margin:0;font:var(--t-support)/1.4 var(--sans);color:var(--slate);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crumbs span{color:var(--meta)}
+.topnote{flex:none;margin:0;font:var(--t-support)/1.4 var(--sans);color:var(--meta);white-space:nowrap}
+.shell{flex:1;min-height:0;display:grid;grid-template-columns:var(--col-tasks,312px) minmax(0,1fr) var(--col-chat,392px);
+  gap:20px;padding:20px 24px;background:var(--frame)}
+/* el documento va parte · tareas · conversación; por encima de 960 px la
+   rejilla reparte las tres en sus columnas sin tocar el orden de lectura */
+.tasks{grid-column:1;grid-row:1}
+.reader{grid-column:2;grid-row:1}
+.chat{grid-column:3;grid-row:1}
+
+/* ================= paneles laterales: papel + --hair, sin radio ================= */
+.tasks,.chat{display:flex;flex-direction:column;min-height:0;background:var(--panel);
+  border:1px solid var(--hair);overflow:hidden}
+
+/* ---- tareas: una fila por tarea; sólo la activa se abre ---- */
+.tasks-head{padding:24px 24px 20px;border-bottom:1px solid var(--hair);flex:none}
+.tasks-head h2{margin:0 0 8px}
+.tasks-head .meta{margin:0}
+.tasks-body{flex:1;min-height:0;overflow:auto;padding:24px}
+.group{margin:0}
+.group + .group{margin-top:32px;padding-top:32px;border-top:1px solid var(--hair)}
+.group[hidden]{display:none}
+.group[hidden] + .group{margin-top:0;padding-top:0;border-top:0}
+.group-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:0 0 16px}
+.group-head .n{flex:none;font:400 var(--t-support)/1.4 var(--sans);color:var(--meta);
+  font-variant-numeric:tabular-nums}
+.task{margin:0}
+.task + .task{margin-top:20px}
+.task-row{display:flex;align-items:center;gap:10px;min-height:32px;padding:3px 0;
+  color:inherit;text-decoration:none}
+.task-num{flex:none;font:var(--t-support)/1.4 var(--sans);color:var(--meta);white-space:nowrap}
+.task-title{flex:1;min-width:0;margin:0;font:600 var(--t-support)/1.4 var(--sans);color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+a.task-row:hover .task-title{color:var(--accent);text-decoration:underline}
+.task-state{margin:6px 0 0 21px;font:var(--t-support)/1.5 var(--sans);color:var(--meta)}
+.task-detail{margin:16px 0 0 21px}
+.task-detail .doing{margin:0 0 16px;font:var(--t-support)/1.6 var(--sans);color:var(--ink)}
+.task-detail .doing strong{font-weight:600}
+.progress{margin:0 0 20px}
+.progress .meta{margin:0 0 8px}
+.bar{height:3px;background:var(--hair);overflow:hidden}
+.bar span{display:block;height:100%;background:var(--accent)}
+.task .actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px}
+.task .actions .meta{margin:0}
+.glyph{width:11px;height:11px;flex:none;border:2px solid var(--ink);border-radius:50%}
+.task[data-state="working"] .glyph{border-color:var(--accent);border-right-color:transparent;animation:spin 1.1s linear infinite}
+.task[data-state="failed"] .glyph{border-radius:0;border-color:var(--pink)}
+.task[data-state="done"] .glyph{background:var(--ink);border-color:var(--ink)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.statusbar{margin:20px 0 0;font:var(--t-support)/1.5 var(--sans);color:var(--ink)}
+.statusbar:empty{display:none}
+
+/* ================= la parte: la página que se lee ================= */
+.reader{min-height:0;overflow:auto;background:var(--paper);border:1px solid var(--rule);
+  padding:32px 32px}
+.page{max-width:648px}
+.reader .eyebrow{margin:0 0 16px;font:var(--t-support)/1.4 var(--sans);color:var(--meta)}
+.reader h1{font:400 var(--t-display)/1.15 var(--serif);letter-spacing:-.01em;margin:0 0 16px}
+.reader .lead{font:var(--t-body)/1.6 var(--serif);color:var(--slate);margin:0 0 36px;overflow-wrap:anywhere}
+.reader h2{font:400 var(--t-section)/1.25 var(--serif);margin:40px 0 12px}
+.reader p{font:var(--t-body)/1.6 var(--serif);margin:0 0 20px;overflow-wrap:anywhere}
+.reader p:last-child{margin-bottom:0}
+.reader strong{font-weight:700}
+.note{border-left:3px solid var(--accent);padding:6px 0 6px 18px;margin:0 0 36px}
+.note .note-label{display:flex;align-items:center;gap:10px;margin:0 0 10px;
+  font:600 var(--t-support)/1.4 var(--sans);color:var(--accent)}
+.note .note-label .glyph{width:11px;height:11px;border-radius:50%;border:2px solid var(--accent);
+  border-right-color:transparent;animation:spin 1.1s linear infinite;flex:none}
+.note p{margin:0 0 14px}
+.note .meta{margin:0;font:var(--t-support)/1.5 var(--sans);color:var(--meta)}
+.note .bar{margin:14px 0 12px}
+.writing{border-left:3px solid var(--accent);padding:2px 0 2px 18px;margin:36px 0}
+.writing h2{margin:0 0 12px}
+.writing .support{display:block;margin:0}
+.blocked{border-left:3px solid var(--pink);padding:6px 0 6px 18px;margin:20px 0 0}
+.blocked p{margin:0 0 10px}
+.blocked .linkbtn{margin-top:2px}
+.reader .reader-foot{border-top:1px solid var(--rule);margin:56px 0 0;padding-top:16px;
+  font:var(--t-support)/1.5 var(--sans);color:var(--meta)}
+
+/* ---- turnos del chat: todos con la misma forma — cabecera, dicho, trabajo ---- */
+.chat-head{padding:24px 24px 20px;border-bottom:1px solid var(--hair);flex:none}
+.chat-head h2{margin:0 0 8px}
+.chat-head .meta{margin:0}
+.thread{flex:1;min-height:0;overflow:auto;padding:24px}
+.msg{margin:0;min-width:0}
+/* separación entre turnos: 24 px + una --hair */
+.msg + .msg{margin-top:24px;padding-top:24px;border-top:1px solid var(--hair)}
+.msg-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin:0 0 10px;
+  font:var(--t-support)/1.4 var(--sans);color:var(--meta);overflow-wrap:anywhere}
+.msg-head .name{font-weight:600;color:var(--ink)}
+.msg-head time{font-variant-numeric:tabular-nums}
+/* la pastilla de estado: gráfico en color, palabras en tinta — 4.5:1 siempre */
+.chip{display:inline-flex;align-items:center;gap:6px;padding:1px 8px;border:1px solid var(--hair);
+  font:var(--t-support)/1.5 var(--sans);color:var(--ink);white-space:nowrap}
+.chip .glyph{width:9px;height:9px;border-width:2px}
+.chip[data-state="working"] .glyph{border-color:var(--accent);border-right-color:transparent;animation:spin 1.1s linear infinite}
+.chip[data-state="done"] .glyph{background:var(--ink);border-color:var(--ink)}
+.chip[data-state="corrected"] .glyph{background:var(--warm);border-color:var(--warm)}
+.said{margin:0;font:var(--t-body)/1.7 var(--serif);color:var(--ink);overflow-wrap:anywhere}
+.said strong{font-weight:700}
+/* la corrección va indentada bajo el turno que corrige, marcada con --warm */
+.correction{margin:16px 0 0 20px;border-left:3px solid var(--warm);padding:2px 0 2px 16px}
+.correction .block-label{display:block;margin:0 0 8px;color:var(--slate)}
+.correction .said{margin:0 0 10px}
+.correction .meta{margin:0;font:var(--t-support)/1.5 var(--sans);color:var(--meta)}
+/* el trabajo de la respuesta: caja de filas clave–valor, no prosa suelta */
+.work{margin:20px 0 0;border:1px solid var(--hair);padding:14px 16px}
+.work .block-label{display:block;margin:0 0 4px}
+.kv{margin:0}
+.kv-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:4px 16px;
+  align-items:baseline;padding:10px 0;border-top:1px solid var(--hair)}
+.kv-row:first-child{border-top:0;padding-top:2px}
+.kv-row:last-child{padding-bottom:2px}
+.kv dt{margin:0;font:var(--t-support)/1.5 var(--sans);color:var(--meta);overflow-wrap:anywhere}
+.kv dd{margin:0;text-align:right;font:var(--t-support)/1.5 var(--sans);color:var(--ink);
+  font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-wrap:balance}
+.kv dd.live{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.kv dd a{text-underline-offset:3px}
+.kv dd .glyph{border-color:var(--accent);border-right-color:transparent;animation:spin 1.1s linear infinite}
+
+/* ---- el envío: la acción del bloque, separada de la conversación ---- */
+.composer{flex:none;border-top:1px solid var(--hair);padding:24px}
+.composer label{display:block;margin:0 0 10px;font:600 var(--t-support)/1.4 var(--sans);color:var(--slate)}
+.composer textarea{display:block;width:100%;max-width:100%;min-height:64px;resize:vertical;
+  background:var(--paper);border:1px solid var(--ink);border-radius:var(--control);padding:10px 12px;
+  font:var(--t-support)/1.6 var(--sans);color:var(--ink)}
+.composer textarea::placeholder{color:var(--meta)}
+.composer .row{display:flex;align-items:center;gap:16px;margin:14px 0 0}
+.composer .row .meta{flex:1;margin:0;font:var(--t-support)/1.5 var(--sans);color:var(--meta)}
+.composer .statusbar{margin:12px 0 0}
+
+/* =====================================================================
+   Tres anchos. Ninguno hereda un ancho fijo del anterior: cada uno declara
+   sus columnas con minmax() y 0 de mínimo.
+   ===================================================================== */
+
+/* ---- ≥1280 px: tres columnas (base). Tareas · parte · conversación ---- */
+
+/* ---- 960–1279 px: dos columnas.
+        Las tareas se quedan en un riel de filas a la izquierda, la parte ocupa
+        el resto y la conversación sigue en panel, debajo, dentro de la misma
+        columna de contenido. La página entera desplaza: ninguna caja se queda
+        con una altura recortada. ---- */
+@media(min-width:960px) and (max-width:1279px){
+  html,body{height:auto}
+  body{display:block;overflow:visible}
+  .shell{grid-template-columns:minmax(200px,248px) minmax(0,1fr);gap:20px;padding:20px}
+  .tasks{grid-column:1;grid-row:1 / span 2}
+  .reader{grid-column:2;grid-row:1;overflow:visible;padding:40px 28px}
+  .chat{grid-column:2;grid-row:2;min-height:0}
+  .tasks-body,.thread{overflow:visible}
+  .tasks-head{padding:20px 16px 16px}
+  .tasks-body{padding:20px 16px}
+  .task-row{flex-wrap:wrap;align-items:baseline}
+  .task-title{flex:1 1 100%;white-space:normal;overflow-wrap:anywhere}
+  .task-state{margin:6px 0 0}
+  .task-detail{margin:12px 0 0}
+  /* el riel no abre prosa: el paso 3 de 5 ya vive en la columna de lectura y
+     en el trabajo de la respuesta; las acciones siguen a mano */
+  .task-detail .doing,.task .progress{display:none}
+  .task .actions{gap:10px}
+  .task .actions .btn{width:100%}
+  .thread{padding:20px 24px}
+  .msg{max-width:648px}
+}
+
+/* ---- <960 px: una columna.
+        La parte va primero (título de la parte arriba), tareas y
+        conversación quedan como secciones debajo, y el envío se pega al
+        borde inferior de la pantalla. ---- */
+@media(max-width:959px){
+  html,body{height:auto}
+  body{display:block;overflow:visible}
+  .top{height:auto;flex-wrap:wrap;gap:6px 16px;padding:12px 16px}
+  .topnote{flex:1 1 100%;white-space:normal}
+  .shell{display:flex;flex-direction:column;gap:32px;padding:16px}
+  .reader{overflow:visible;border:0;padding:0}
+  .page{margin:0 auto}
+  .reader h1{overflow-wrap:anywhere}
+  .reader h2{margin:32px 0 12px}
+  .tasks,.chat{background:none;border:0;border-top:1px solid var(--rule);overflow:visible}
+  .tasks-head,.chat-head{padding:20px 0 16px;border-bottom:1px solid var(--hair)}
+  .tasks-body{padding:20px 0 0}
+  .task-title{white-space:normal;overflow-wrap:anywhere}
+  .task-state{margin:6px 0 0}
+  .task-detail{margin:12px 0 0}
+  .thread{flex:none;overflow:visible;padding:20px 0 24px}
+  .composer{position:sticky;bottom:0;z-index:1;background:var(--paper);
+    border-top:1px solid var(--rule);padding:16px 0 12px}
+}
+
+@media(prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
+
+/* ---- teléfonos estrechos: las filas clave–valor se apilan, etiqueta encima ---- */
+@media(max-width:559px){
+  .kv-row{grid-template-columns:minmax(0,1fr);gap:2px 0}
+  .kv dd{text-align:left}
+  .kv dd.live{justify-content:flex-start}
+}
+
+  /* ---- comentarios del canvas · rastro en una línea, estado con punto, campo de escritura ---- */
+  .footprint{margin:12px 0 0;font:var(--t-support,16px)/1.5 var(--sans);color:var(--meta)}
+  .footprint .fp-key{font-weight:600;color:var(--slate)}
+  .footprint a{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+  .work{display:none}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px 2px 7px;border-radius:999px;
+    border:1px solid var(--hair);background:transparent;font:600 13px/1.6 var(--sans);
+    letter-spacing:0;text-transform:none;color:var(--slate);vertical-align:middle}
+  .chip .glyph{width:7px;height:7px;border-radius:50%;border:0;background:var(--slate2,var(--slate));animation:none}
+  .chip[data-state="working"] .glyph{background:var(--accent);animation:pulse 1.6s ease-in-out infinite}
+  .chip[data-state="done"] .glyph{background:var(--ink)}
+  .chip[data-state="corrected"] .glyph{background:var(--warm)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @media (prefers-reduced-motion:reduce){.chip[data-state="working"] .glyph{animation:none}}
+  #msg{width:100%;min-height:84px;padding:12px 14px;border:1px solid var(--hair);border-radius:5px;
+    background:var(--paper);color:var(--ink);font:20px/1.5 var(--serif,Georgia,serif);resize:vertical}
+  #msg::placeholder{color:var(--meta)}
+  #msg:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-color:var(--accent)}
+
+  /* ---- comentarios 2 · el aviso ocupa el ancho completo, y el estado se lee ---- */
+  .note{display:block;width:100%;box-sizing:border-box;background:var(--panel);
+    border:1px solid var(--panel-line);border-left:1px solid var(--panel-line);
+    border-radius:0;padding:18px 20px;margin:0 0 36px}
+  .note .note-label{margin:0 0 12px}
+  .note .note-label .glyph{width:8px;height:8px;border:0;border-radius:50%;
+    background:var(--accent);animation:pulse 1.6s ease-in-out infinite}
+  .note .bar{margin:0 0 12px}
+  .topnote{color:var(--ink);font-weight:600;display:inline-flex;align-items:center;gap:8px}
+  .topnote::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+  @media (prefers-reduced-motion:reduce){.note .note-label .glyph{animation:none}}
+
+  /* ---- paneles plegables: la lectura toma el ancho cuando se oculta un lateral ---- */
+  .panels{display:flex;gap:8px;flex:none}
+  .panels button{font:600 14px/1 var(--sans);padding:8px 12px;border-radius:5px;cursor:pointer;
+    border:1px solid var(--hair);background:transparent;color:var(--slate)}
+  .panels button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+  .panels button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  body[data-hide-tasks="1"] .tasks{display:none}
+  body[data-hide-chat="1"] .chat{display:none}
+  body[data-hide-tasks="1"] .shell{grid-template-columns:minmax(0,1fr) var(--col-chat,392px)}
+  body[data-hide-chat="1"] .shell{grid-template-columns:var(--col-tasks,312px) minmax(0,1fr)}
+  body[data-hide-tasks="1"][data-hide-chat="1"] .shell{grid-template-columns:minmax(0,1fr)}
+  body[data-hide-tasks="1"] .reader{grid-column:1}
+  body[data-hide-chat="1"] .reader{grid-column:2}
+  body[data-hide-tasks="1"][data-hide-chat="1"] .reader{grid-column:1}
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#inicio">Learnings</a>
+  <p class="crumbs">Inicio <span>/</span> Gestión de proyectos <span>/</span> Parte 2</p>
+  <p class="topnote" role="status" aria-live="polite">1 tarea trabajando · 1 en cola</p>
+  <div class="panels" role="group" aria-label="Paneles visibles">
+    <button id="t-tasks" type="button" aria-pressed="true">Tareas</button>
+    <button id="t-chat" type="button" aria-pressed="true">Conversación</button>
+  </div>
+</header>
+
+
+<div class="shell">
+  <!-- ============ LA PARTE · la página que se lee.
+       Va primera en el documento: por debajo de 960 px es lo primero que se
+       ve y lo primero que se enfoca; por encima, la rejilla la coloca en su
+       columna. ============ -->
+  <main class="reader" aria-labelledby="parte-titulo">
+    <div class="page">
+      <p class="eyebrow">Gestión de proyectos · Parte 2 de 5</p>
+      <h1 id="parte-titulo">La EDT y el diccionario de entregables</h1>
+      <p class="lead">Cómo se baja un entregable a paquetes de trabajo que se puedan estimar, asignar y verificar por separado.</p>
+
+      <div class="note">
+        <p class="note-label"><span class="glyph" aria-hidden="true"></span>Borrador en curso · 3 de 5 secciones</p>
+        <p>Esta página se escribe sola mientras la tarea trabaja. Cuando termine se abre entera para leer y la tarea pasa a «Hechas».</p>
+        <div class="bar" role="progressbar" aria-label="Secciones escritas de la Parte 2" aria-valuemin="0" aria-valuemax="100" aria-valuenow="60"><span style="width:60%"></span></div>
+        <p class="meta">Última actualización hace 20 s · aviso automático al terminar</p>
+      </div>
+
+      <h2>1. Qué es la EDT</h2>
+      <p>La estructura de desglose del trabajo descompone el alcance en paquetes que se pueden estimar, asignar y verificar por separado. No es un organigrama ni una lista de pendientes: cada nivel responde a qué entregable produce el nivel de arriba.</p>
+
+      <h2>2. La regla del 100 %</h2>
+      <p>Los hijos de un paquete cubren todo su alcance y nada más. Si un hijo añade trabajo que el padre no declara, el alcance se está inventando en el nivel equivocado; si falta trabajo, el paquete no se podrá cerrar.</p>
+
+      <div class="writing">
+        <h2>3. Ejemplo: la EDT de la mudanza</h2>
+        <p>El tutor está redactando este apartado con el caso de la mudanza que planteaste en la Parte 1: entregable, paquetes y diccionario.</p>
+        <p class="support">Aparecerá aquí en cuanto lo guarde. No hace falta recargar ni volver a pedirlo.</p>
+      </div>
+
+      <h2>Después de esta parte</h2>
+      <p>El mini-quiz de 4 preguntas sobre paquetes de trabajo y diccionario.</p>
+      <div class="blocked">
+        <p><strong>Antes hay que resolver la Parte 3.</strong> Falló su mini-quiz (2 de 4) y quedó reprobada: el tema no avanza hasta reforzarla o quitarla de la lista.</p>
+        <button class="linkbtn" type="button">Ver la tarea</button>
+      </div>
+
+      <p class="reader-foot">Propuesta visual · datos de ejemplo de un curso de gestión de proyectos · acciones no conectadas a la aplicación</p>
+    </div>
+  </main>
+
+  <!-- ============ TAREAS · una fila por tarea; la activa se abre ============ -->
+  <aside class="tasks" aria-labelledby="tareas-titulo">
+    <div class="tasks-head">
+      <h2 class="block-title" id="tareas-titulo">Tareas</h2>
+      <p class="meta">Gestión de proyectos · <span id="tareas-num">4</span> tareas</p>
+    </div>
+
+    <div class="tasks-body">
+      <section class="group" aria-labelledby="g-trabajando">
+        <div class="group-head"><h3 class="group-title" id="g-trabajando">Trabajando ahora</h3><span class="n">1</span></div>
+        <article class="task" data-state="working" data-task="parte-2">
+          <div class="task-row">
+            <span class="glyph" aria-hidden="true"></span>
+            <span class="task-num">Parte 2</span>
+            <h4 class="task-title" title="Parte 2 · La EDT y el diccionario de entregables">La EDT y el diccionario de entregables</h4>
+          </div>
+          <p class="task-state">Empezó hace 4 min</p>
+          <div class="task-detail">
+            <p class="doing">Escribiendo el ejemplo de la EDT de la mudanza.</p>
+            <div class="progress">
+              <p class="meta">Paso 3 de 5</p>
+              <div class="bar" role="progressbar" aria-label="Progreso de la Parte 2" aria-valuemin="0" aria-valuemax="100" aria-valuenow="60"><span style="width:60%"></span></div>
+            </div>
+            <div class="actions">
+              <button class="btn" type="button">Detener</button>
+              <span class="meta">No borra lo escrito.</span>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="group" aria-labelledby="g-decision">
+        <div class="group-head"><h3 class="group-title" id="g-decision">Necesita tu decisión</h3><span class="n">1</span></div>
+        <article class="task" data-state="failed" data-task="parte-3">
+          <div class="task-row">
+            <span class="glyph" aria-hidden="true"></span>
+            <span class="task-num">Parte 3</span>
+            <h4 class="task-title" title="Parte 3 · Estimación por tres puntos y PERT">Estimación por tres puntos y PERT</h4>
+          </div>
+          <p class="task-state">Falló · mini-quiz 2 de 4</p>
+          <div class="task-detail">
+            <p class="doing"><strong>Qué pasó:</strong> usaste la media donde se pide la más probable. Nada se borra.</p>
+            <div class="actions">
+              <button class="btn" type="button">Rehacer con refuerzo</button>
+              <button class="linkbtn" type="button" data-dismiss aria-label="Quitar la tarea de la Parte 3 de la lista">Quitar</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="group" aria-labelledby="g-cola">
+        <div class="group-head"><h3 class="group-title" id="g-cola">En cola</h3><span class="n">1</span></div>
+        <article class="task" data-state="waiting" data-task="parte-4">
+          <div class="task-row">
+            <span class="glyph" aria-hidden="true"></span>
+            <span class="task-num">Parte 4</span>
+            <h4 class="task-title" title="Parte 4 · Ruta crítica y holguras">Ruta crítica y holguras</h4>
+          </div>
+          <p class="task-state">Espera a la Parte 3</p>
+        </article>
+      </section>
+
+      <section class="group" aria-labelledby="g-hechas">
+        <div class="group-head"><h3 class="group-title" id="g-hechas">Hechas</h3><span class="n">1</span></div>
+        <article class="task" data-state="done" data-task="parte-1">
+          <a class="task-row" href="#leer/gestion-proyectos/01-alcance">
+            <span class="glyph" aria-hidden="true"></span>
+            <span class="task-num">Parte 1</span>
+            <h4 class="task-title" title="Parte 1 · Del problema al alcance">Del problema al alcance</h4>
+          </a>
+          <p class="task-state">Terminó hace 26 min</p>
+        </article>
+      </section>
+
+      <p class="statusbar" role="status" aria-live="polite"></p>
+    </div>
+  </aside>
+
+  <!-- ============ CONVERSACIÓN · bloque quieto, en papel ============ -->
+  <aside class="chat" aria-labelledby="chat-titulo">
+    <div class="chat-head">
+      <h2 class="block-title" id="chat-titulo">Conversación</h2>
+      <p class="meta">Con el tutor · Gestión de proyectos · Parte 2</p>
+    </div>
+
+    <div class="thread" role="log" aria-live="polite" aria-label="Mensajes de la conversación">
+      <article class="msg from-you">
+        <p class="msg-head">
+          <span class="name">Tú</span>
+          <time datetime="09:38">09:38</time>
+          <span class="chip" data-state="corrected"><span class="glyph" aria-hidden="true"></span>Corregida</span>
+        </p>
+        <p class="said">Creo que la ruta crítica son las tareas más largas.</p>
+
+        <div class="correction">
+          <p class="block-label">Corrección sobre este mensaje</p>
+          <p class="said">No: es la cadena de <strong>dependencias</strong> más larga. Las tareas de la ruta tienen holgura cero.</p>
+          <p class="meta">Lo verás en la Parte 4, en cola.</p>
+        </div>
+      </article>
+
+      <article class="msg from-tutor">
+        <p class="msg-head">
+          <span class="name">Tutor</span>
+          <time datetime="09:39">09:39</time>
+          <span class="chip" data-state="done"><span class="glyph" aria-hidden="true"></span>Terminada</span>
+        </p>
+        <p class="said">Queda escrita la regla del 100 %: los hijos de un paquete cubren todo su alcance y nada más.</p>
+
+        <p class="footprint"><span class="fp-key">Escribió</span> 2 de 5 · <a href="#leer/gestion-proyectos/02-edt">La regla del 100 %</a></p>
+      </article>
+
+      <article class="msg from-tutor">
+        <p class="msg-head">
+          <span class="name">Tutor</span>
+          <time datetime="09:41">09:41</time>
+          <span class="chip" data-state="working"><span class="glyph" aria-hidden="true"></span>Trabajando</span>
+        </p>
+        <p class="said">Bajo la Parte 2 a paquetes de trabajo y uso la mudanza como ejemplo.</p>
+
+        <p class="footprint"><span class="fp-key">Escribiendo</span> sección 3 de 5 · si cierras el chat sigue en «Tareas»</p>
+      </article>
+    </div>
+
+    <form class="composer" onsubmit="event.preventDefault();document.getElementById('envio').textContent='Vista de diseño: el mensaje no se envía.';">
+      <label for="msg">Tu mensaje al tutor</label>
+      <textarea id="msg" placeholder="Pregunta o pide otra parte…" aria-describedby="envio-hint"></textarea>
+      <div class="row">
+        <button class="btn btn-primary" type="submit">Enviar</button>
+        <p class="meta" id="envio-hint">Intro envía · Mayús+Intro salto de línea</p>
+      </div>
+      <p class="statusbar" id="envio" role="status" aria-live="polite"></p>
+    </form>
+  </aside>
+</div>
+
+<script>
+(function(){
+  var live = document.querySelector('.tasks .statusbar');
+  var total = document.getElementById('tareas-num');
+  var lastUndo = null;
+  function syncCounts(){
+    document.querySelectorAll('.tasks .group').forEach(function(group){
+      var left = group.querySelectorAll('[data-task]').length;
+      var n = group.querySelector('.n');
+      if (n) n.textContent = String(left);
+      group.hidden = left === 0;
+    });
+    if (total) total.textContent = String(document.querySelectorAll('.tasks [data-task]').length);
+  }
+  document.querySelectorAll('[data-dismiss]').forEach(function(control){
+    control.addEventListener('click', function(){
+      var task = control.closest('[data-task]');
+      if (!task) return;
+      var parent = task.parentNode;
+      var next = task.nextSibling;
+      var name = (task.querySelector('h4') || {}).textContent || 'la tarea';
+      task.remove();
+      syncCounts();
+      live.textContent = 'Se quitó de la lista: ' + name + '. La parte y el tema siguen en Gestión de proyectos.';
+      var undo = document.createElement('button');
+      undo.type = 'button';
+      undo.className = 'linkbtn';
+      undo.textContent = 'Deshacer';
+      undo.addEventListener('click', function(){
+        parent.insertBefore(task, next);
+        syncCounts();
+        undo.remove();
+        live.textContent = 'La tarea volvió a la lista.';
+      });
+      live.appendChild(document.createTextNode(' '));
+      live.appendChild(undo);
+      if (lastUndo) lastUndo.remove();
+      lastUndo = undo;
+    });
+  });
+})();
+</script>
+
+<script>
+(function(){
+  function wire(btnId,attr){
+    var b=document.getElementById(btnId); if(!b) return;
+    b.addEventListener("click",function(){
+      var on=b.getAttribute("aria-pressed")==="true";
+      b.setAttribute("aria-pressed", on?"false":"true");
+      document.body.setAttribute(attr, on?"1":"0");
+    });
+  }
+  wire("t-tasks","data-hide-tasks");
+  wire("t-chat","data-hide-chat");
+})();
+</script>
+</body>
+</html>

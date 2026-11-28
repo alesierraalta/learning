@@ -1,0 +1,13 @@
+{
+  "title": "Tareas y conversación del estudio",
+  "brief": "Los dos paneles del estudio —tareas y tutor— de Learnings, con un curso de gestión de proyectos: estado legible, cierre de la tarea terminada, apertura de la parte y una conversación con roles, progreso y correcciones.",
+  "artboards": [
+    {
+      "file": "01-tres-columnas-estado.html",
+      "title": "Tres columnas por estado",
+      "tradeoff": "El estado manda: cada tarea vive en el grupo trabajando, en cola, decisión o hechas, y la parte queda en medio. El precio es que la conversación se queda con 424 px y la parte con unos 520 px de línea, por debajo de la medida de 648 px del sistema; además la columna de tareas necesita desplazamiento propio a 900 px de alto.",
+      "width": 1440,
+      "height": 900
+    }
+  ]
+}
