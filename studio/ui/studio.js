@@ -678,11 +678,21 @@
   }
 
   let enteredPart = "";
+  /**
+   * The reader is the one surface with a frame to keep: only there are Tareas and
+   * the conversation columns beside the part instead of sheets over it. Everywhere
+   * else there is no frame column to hand them, so a panel still lies over the page.
+   */
+  const readerColumns = () => document.body.classList.contains("reader-columns") && innerWidth >= 960;
   function render() {
     // The route changes now, not when an unfinished view decides to paint: the
     // courses' slow views check this generation instead of drawing over a topic.
     ++stageSeq;
     const [, view, a, b] = location.hash.split("/").map(decodeURIComponent);
+    const columns = view === "leer" && Boolean(a);
+    document.body.classList.toggle("reader-columns", columns);
+    // Leaving the reader gives the two panels the same edge again: only one stays.
+    if (!columns && document.body.classList.contains("drawer-open") && document.body.classList.contains("tasks-open")) closeTasks();
     if (view !== "leer" || enteredPart !== `${a}/${b}`) enteredPart = "";
     closeContextMenu();
     setPrimary(null);
@@ -3406,8 +3416,9 @@
   };
   function openDrawer(prefill) {
     // The two panels share the right edge: the tutor never opens on top of Tareas.
+    // Beside the part they are two columns, so Tareas keeps its own room and stays open.
     const fromTasks = document.body.classList.contains("tasks-open");
-    closeTasks();
+    if (!readerColumns()) closeTasks();
     showChrome();
     document.body.classList.add("drawer-open");
     pill.setAttribute("aria-expanded", "true");
@@ -3970,7 +3981,7 @@
   });
 
   function openTasks() {
-    closeDrawer();
+    if (!readerColumns()) closeDrawer();
     document.body.classList.add("tasks-open");
     tasksPill.setAttribute("aria-expanded", "true");
     tasksPill.setAttribute("aria-pressed", "true");
@@ -4467,13 +4478,13 @@
       h("div", { class: "top-actions" }, pill, tasksPill, contextTrigger, contextMenu),
     ),
     offlineBanner,
-    h("div", { class: "app" }, stage),
+    // The two panels live in the app: on the reader they are its side columns, and
+    // everywhere else they are fixed sheets that the app's flow never sees.
+    h("div", { class: "app" }, tasksPanel, stage, drawer),
     // Where the tutor lies over the page (a tablet or a phone), the page behind it
     // dims and a tap on it closes the tutor, instead of a page cut mid-word.
     h("div", { class: "scrim", "aria-hidden": "true", onclick: () => closeDrawer() }),
-    drawer,
     tasksScrim,
-    tasksPanel,
   );
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
@@ -4498,7 +4509,11 @@
   applyWidth();
   setListOpen(listOpen);
   setFullWindow(fullWindow);
-  addEventListener("resize", () => applyWidth());
+  addEventListener("resize", () => {
+    applyWidth();
+    // Narrower than the reader's columns, the two open panels would land on the same edge.
+    if (!readerColumns() && document.body.classList.contains("drawer-open") && document.body.classList.contains("tasks-open")) closeTasks();
+  });
   window.addEventListener("hashchange", render);
   updatePill();
   // Keeps the studio and its saved parts readable with no connection (studio/ui/sw.js).

@@ -1348,3 +1348,103 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px
 .lk-open-knowledge p { margin: 2px 0; }
 .lk-open-states { font-weight: 600; }
 .lk-open-action, .lk-open-calibration { color: var(--muted, #667); }
+
+/* ---------- the reader's columns: Tareas · la parte · Conversación ----------
+   El lector es la única superficie con un marco que cuidar. A 960 px y más, sus
+   dos paneles dejan de ser hojas sobre la página y pasan a ser columnas a su
+   lado: Tareas a la izquierda, la parte en el centro —la más ancha— y la
+   conversación a la derecha, sin nada encima del marco. Por debajo de 960, y
+   fuera del lector, un panel vuelve a ser una hoja: allí no hay columna de marco
+   a la que cederle el ancho.
+
+   Tres planos, por color y no por sombra: la página hundida detrás, los rieles en
+   voz baja con su filete, y el marco/la parte levantados en el papel. Los tintes
+   salen de --ink y --paper, que el estudio ya envía: el tema oscuro reordena los
+   planos y no importa ninguna superficie del tablero. */
+body.reader-columns {
+  --col-tasks: clamp(240px, 22vw, 312px);
+  --col-chat: clamp(320px, 28vw, 392px);
+  /* la página, hundida: el gris de apoyo del sistema, un paso bajo el papel */
+  --plane-page: var(--soft);
+  /* los rieles, en voz baja: papel con un 4% de tinta, separados por --line */
+  --plane-rail: color-mix(in srgb, var(--ink) 4%, var(--paper));
+  /* el marco y la parte, en el papel */
+  --plane-frame: var(--paper);
+}
+:root:is([data-theme="dark"], [data-theme="black"]) body.reader-columns {
+  /* en oscuro el papel es ya la superficie más clara de las tres: la página baja
+     un paso y el riel queda en medio, un plano en voz baja y no una tarjeta */
+  --plane-page: color-mix(in srgb, var(--paper) 70%, #000);
+  --plane-rail: color-mix(in srgb, var(--paper) 85%, #000);
+  --plane-frame: var(--paper);
+}
+
+/* Sin panel abierto no hay columnas: el lector conserva su medida y su riel
+   exactamente como están medidos, y el marco sigue siendo la página entera. */
+@media (min-width: 960px) {
+  body.reader-columns:is(.tasks-open, .drawer-open) #studio { background: var(--plane-page); }
+  body.reader-columns:is(.tasks-open, .drawer-open) .app {
+    display: flex; gap: 20px; padding: 20px 24px 24px;
+    min-width: 0; min-height: 0; background: var(--plane-page);
+  }
+  body.reader-columns:is(.tasks-open, .drawer-open) .stage {
+    flex: 1 1 auto; min-width: 0; min-height: 0; margin-right: 0; overflow: hidden; transition: none;
+  }
+  body.reader-columns:is(.tasks-open, .drawer-open) .reader-layout,
+  body.reader-columns:is(.tasks-open, .drawer-open) .reader { height: 100%; }
+  body.reader-columns:is(.tasks-open, .drawer-open) .reader { background: var(--plane-frame); border: 1px solid var(--line); }
+  /* Las dos columnas: la hoja fija se vuelve una caja en el flujo, con su filete
+     y su propio desplazamiento. El marco no queda debajo de ninguna. */
+  body.reader-columns.tasks-open .tasks-panel,
+  body.reader-columns.drawer-open .drawer {
+    position: static; width: auto; max-width: 100%; min-width: 0; min-height: 0; overflow: hidden;
+    transform: none; visibility: visible; transition: none;
+    border: 1px solid var(--line); background: var(--plane-rail);
+  }
+  body.reader-columns.tasks-open .tasks-panel { flex: 0 0 var(--col-tasks); }
+  body.reader-columns.drawer-open .drawer { flex: 0 0 var(--col-chat); }
+  body.reader-columns:not(.tasks-open) .tasks-panel,
+  body.reader-columns:not(.drawer-open) .drawer { display: none; }
+  /* Una columna no es una hoja: no hay velo que la tape ni borde que arrastrar.
+     La pantalla completa del tutor pertenece al panel que se superpone. */
+  body.reader-columns .scrim,
+  body.reader-columns .tasks-scrim,
+  body.reader-columns .drawer-splitter,
+  body.reader-columns .drawer-focus-btn { display: none; }
+}
+
+/* ≥1280: tres columnas — Tareas · la parte · Conversación. La ventana no
+   desplaza: cada columna lleva su propio desplazamiento y la parte se queda. */
+@media (min-width: 1280px) {
+  body.reader-columns:is(.tasks-open, .drawer-open) #studio {
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  body.reader-columns:is(.tasks-open, .drawer-open) #studio .topbar,
+  body.reader-columns:is(.tasks-open, .drawer-open) #studio .offline-banner { flex: none; }
+  body.reader-columns:is(.tasks-open, .drawer-open) .app {
+    flex: 1 1 auto; align-items: stretch; height: auto;
+  }
+}
+
+/* 960–1279: dos columnas — las tareas en riel a la izquierda y, en la columna de
+   contenido, la parte arriba y la conversación debajo. La página entera
+   desplaza: ninguna caja se queda con una altura recortada. */
+@media (min-width: 960px) and (max-width: 1279.98px) {
+  body.reader-columns:is(.tasks-open, .drawer-open) #studio {
+    display: block; height: auto; min-height: 100vh; overflow: visible;
+  }
+  body.reader-columns:is(.tasks-open, .drawer-open) .app {
+    display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px;
+    padding: 20px; height: auto; align-items: start;
+  }
+  body.reader-columns.tasks-open .app { grid-template-columns: 248px minmax(0, 1fr); }
+  body.reader-columns .stage { grid-column: 1; grid-row: 1; }
+  body.reader-columns.tasks-open .stage { grid-column: 2; }
+  body.reader-columns.tasks-open .tasks-panel {
+    grid-column: 1; grid-row: 1 / span 2; align-self: start;
+    height: calc(100vh - var(--topbar) - 40px);
+  }
+  body.reader-columns.drawer-open .drawer { grid-column: 1; grid-row: 2; height: min(560px, 70vh); }
+  body.reader-columns.tasks-open.drawer-open .drawer { grid-column: 2; }
+  body.reader-columns:is(.tasks-open, .drawer-open) .reader { height: calc(100vh - var(--topbar) - 40px); }
+}
