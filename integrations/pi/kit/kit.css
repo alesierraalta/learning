@@ -351,8 +351,18 @@ pre.mermaid { background: none; border: 0; }
 .lk-progress::-moz-progress-bar { background: var(--accent); }
 .lk-toc { border-bottom: 1px solid var(--hair); font-family: var(--sans); font-size: 12px; }
 .lk-toc summary { font-family: var(--sans); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+/* #344: «En esta parte» indexes the reading column, so it hangs from that column's own right edge
+   and not from the screen. `anchor(--lk-measure right)` is the border-box right edge of `main`, so
+   the 16 px gutter is measured from the text itself: no width, and no panel a host lays beside the
+   frame, can put the index off the frame or over the text. An engine without CSS anchors keeps the
+   first `left` — 16 px clear of the 648 px measure — clamped so it can never leave the frame either.
+   Below 1360 px the index stays in the column's flow under the title, as before. */
 @media screen and (min-width: 1360px) {
-  body:not(.wide) main .lk-toc { position: fixed; top: 16px; left: calc(50% + 370px); width: 240px; max-height: calc(100vh - 32px); overflow-y: auto; border-left: 1px solid var(--hair); border-bottom: 0; padding-left: 16px; }
+  body:not(.wide) main { anchor-name: --lk-measure; }
+  body:not(.wide):not(.book) main .lk-toc { position: fixed; top: 16px; width: 240px; max-height: calc(100vh - 32px); overflow-y: auto; border-left: 1px solid var(--hair); border-bottom: 0; padding-left: 16px; left: min(calc(50% + 340px), calc(100% - 256px)); left: calc(anchor(--lk-measure right) + 16px); }
+  /* A book pages its column across the whole screen, so there the index stays out of the paged
+     flow and in the margin of the 648 px page book.css lays out. */
+  body.book:not(.wide) main .lk-toc { position: fixed; top: 16px; left: calc(50% + 340px); width: 240px; max-height: calc(100vh - 32px); overflow-y: auto; border-left: 1px solid var(--hair); border-bottom: 0; padding-left: 16px; }
 }
 /* Quiz: campos llanos, sin tarjeta. */
 .lk-question { border: 0; padding: 0; border-radius: 0; margin: 30px 0; }

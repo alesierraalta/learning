@@ -382,17 +382,12 @@ button.secondary { background: transparent; color: var(--ink); }
   body.wide .note-pair { display: block; }
 }
 
-/* #344 follow-up: kit.css floats «En esta parte» in the right margin from 1360 px. Its old
-   offset met the toggle pinned at the top right, so one fixed panel sat on the other control,
-   and any content reaching the gutter went under it. The reader owns the surrounding layout:
-   hold the index 16 px clear of the 648 px measure, leave the foot of the screen to the
-   reading control (book.css), and keep the index out of a fullscreen figure's top layer. */
+/* #344 follow-up: kit.css holds «En esta parte» against the reading column's own right edge from
+   1360 px, so no width can clip the index or push it onto the text, and its old offset no longer
+   meets the toggle pinned at the top right. The page keeps only what belongs to the whole screen:
+   the foot of it for the reading control (book.css), and a fullscreen figure's top layer. */
 @media screen and (min-width: 1360px) {
-  body:not(.wide) main .lk-toc {
-    left: calc(50% + 340px);
-    right: auto;
-    max-height: calc(100vh - 120px);
-  }
+  body:not(.wide) main .lk-toc { max-height: calc(100vh - 120px); }
 }
 /* A figure in fullscreen owns the whole top layer; the index returns with the page. */
 body:has(:fullscreen) .lk-toc { display: none; }
